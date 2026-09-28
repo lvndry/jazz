@@ -90,7 +90,7 @@ provider configuration, the system keyring, or narrowly allowlisted environment 
   `audio`, and `video`. See [Model companions](../features/media.md).
 
 `llmApiKeys` can override provider keys inside an agent file, but plaintext credentials make the
-file difficult to share safely. Prefer `jazz config`, environment variables, or the keyring.
+file difficult to share safely. Prefer `jazz config set <provider>` (it prompts for the key), environment variables, or the keyring.
 
 ## Tool access
 
@@ -100,7 +100,7 @@ access.
 
 Use `deniedTools` for a hard per-agent restriction. Jazz applies it after built-in, persona, MCP,
 peer, and custom capabilities are assembled, so an earlier grant cannot add the tool back. Use
-exact tool names from `jazz tools list` or the [tool inventory](../tools/index.md).
+exact tool names from `/tools` in a chat or the [tool inventory](../tools/index.md).
 
 `webSearchProvider` selects the configured search backend. `envAllowlist` may exempt at most 32
 uppercase environment-variable names from command secret scrubbing. Treat each exemption as a

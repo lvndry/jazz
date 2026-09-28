@@ -500,6 +500,14 @@ export interface ToolExecutionContext {
    */
   readonly recordChildCostUnknown?: () => void;
   /**
+   * Record the spend of a model run a tool starts for the run's own upkeep (the
+   * `summarize_context` summary) against the run, whatever way that run ended.
+   */
+  readonly recordSideSpend?: (spend: {
+    readonly costUSD: number | undefined;
+    readonly costIncomplete: boolean;
+  }) => void;
+  /**
    * What is left of the running agent's own budgets at the moment of the call. A sub-agent
    * spawned here runs under these, so delegating work can never outlast or outspend the
    * parent. Absent fields are uncapped.
@@ -549,6 +557,10 @@ export interface ToolExecutionContext {
 export interface RemainingRunBudget {
   /** Wall-clock milliseconds before the run's `maxDurationMs` deadline. */
   readonly maxDurationMs?: number;
+  /** USD left under the run's `maxCostUSD`, counting sub-agent and side spend. */
+  readonly maxCostUSD?: number;
+  /** Tokens left under the run's `maxTokens`. */
+  readonly maxTokens?: number;
 }
 
 /** What became of one call in a tool batch that was stopped before it finished. */

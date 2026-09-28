@@ -1,3 +1,4 @@
+/** CLI registration tests cover public commands and global flag parsing without starting agents. */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,6 +41,22 @@ describe("createCLIApp help path", () => {
     expect(specifiers).not.toContain("@jazz/cli/commands/run/lifecycle");
   });
 
+  it("keeps -v as verbose and exposes version only through --version", () => {
+    const program = createCLIApp().exitOverride();
+    let output = "";
+    program.configureOutput({
+      writeOut: (text) => {
+        output += text;
+      },
+    });
+    expect(program.parseOptions(["-v"]).unknown).toEqual([]);
+    expect(program.opts()["verbose"]).toBe(true);
+    expect(output).toBe("");
+    expect(program.parseOptions(["-V"]).unknown).toEqual(["-V"]);
+    expect(() => program.parseOptions(["--version"])).toThrow();
+    expect(output).toBe(`${program.version()}\n`);
+  });
+
   it("offers --stream on `workflow run`, as headless reasoning events depend on it", () => {
     const program = createCLIApp();
     const workflow = program.commands.find((command) => command.name() === "workflow");
@@ -48,6 +65,13 @@ describe("createCLIApp help path", () => {
     expect(flags).toContain("--stream");
     expect(flags).toContain("--no-stream");
     expect(flags).toContain("--events <categories>");
+  });
+
+  it("registers one daemon status command alongside pause, resume and logs", () => {
+    const daemon = createCLIApp().commands.find((command) => command.name() === "daemon");
+    const names = daemon?.commands.map((command) => command.name()) ?? [];
+    expect(names.filter((name) => name === "status")).toHaveLength(1);
+    expect(names).toEqual(expect.arrayContaining(["pause", "resume", "logs"]));
   });
 
   it("registers the public command families", () => {

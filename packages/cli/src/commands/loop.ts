@@ -8,6 +8,7 @@
  */
 
 import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
+import { isDaemonSupervised } from "@jazz/adapters/daemon/service-install";
 import {
   answerLoop,
   controlLoop,
@@ -129,7 +130,13 @@ export function startLoopCommand(options: StartLoopOptions) {
     const daemon = yield* ensureDaemonRunning();
     emitEnvelope(
       options.json,
-      { ok: true, kind: "started", loop: outcome.loop, daemon: daemon.kind },
+      {
+        ok: true,
+        kind: "started",
+        loop: outcome.loop,
+        daemon: daemon.kind,
+        daemonSupervised: isDaemonSupervised(),
+      },
       `${yield* describeLoopNow(outcome.loop, "cli")}\n\n${describeDaemonStart(`Loop ${outcome.loop.name}`, daemon)}`,
     );
   }).pipe(
@@ -213,7 +220,9 @@ export function controlLoopCommand(options: {
         ok: true,
         loop: outcome.loop,
         ...(outcome.note !== undefined ? { note: outcome.note } : {}),
-        ...(daemon !== undefined ? { daemon: daemon.kind } : {}),
+        ...(daemon !== undefined
+          ? { daemon: daemon.kind, daemonSupervised: isDaemonSupervised() }
+          : {}),
       },
       [
         daemon !== undefined

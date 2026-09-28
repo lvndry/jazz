@@ -120,7 +120,7 @@ This changes nothing in the terminal: approval tiers read the risk column, and a
 tool that fetches a URL is still auto-approved under `--approval-policy read-only`. It matters at exactly one door: a tool listed here is **never** granted to another
 person's agent by a disclosure tier. It has to be named in that peer's `allow`, the same as a
 tool that writes to disk. See
-[Agent-to-agent → Sending is not disclosure](../concepts/agent-to-agent.md#sending-is-not-disclosure).
+[Security model: how the ceiling is computed](../security/index.md#how-the-ceiling-is-computed).
 
 The same holds for `manage_todos`, `update_work_state`, `manage_scratchpad` and
 `spawn_subagent`. They are `read-only` for your own runs, but they write the agent's durable

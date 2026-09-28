@@ -34,6 +34,7 @@ import type {
   LLMConfig,
   LLMProviderConfig,
   LlamaCppProviderConfig,
+  HistoryConfig,
   LoggingConfig,
   MCPServerOverride,
   NotificationsConfig,
@@ -144,7 +145,13 @@ const loggingShape = {
     "error",
   ]).exactOptional(),
   format: exhaustiveEnum<LoggingConfig["format"]>()(["json", "plain"]).exactOptional(),
+  retentionDays: positiveWholeNumber.exactOptional(),
+  maxTotalSizeMB: positiveWholeNumber.exactOptional(),
 } satisfies SchemaShape<LoggingConfig>;
+
+const historyShape = {
+  maxConversationsPerAgent: positiveWholeNumber.exactOptional(),
+} satisfies SchemaShape<HistoryConfig>;
 
 const apiKeyOnly = z
   .strictObject({ api_key: text.exactOptional() } satisfies SchemaShape<LLMProviderConfig>)
@@ -412,7 +419,6 @@ const otlpShape = {
   headers: z.record(safeRecordKey, text).exactOptional(),
   serviceName: text.exactOptional(),
   resourceAttributes: z.record(safeRecordKey, text).exactOptional(),
-  captureContent: flag.exactOptional(),
   timeoutMs: wholeNumber.exactOptional(),
   maxQueuedBytes: positiveWholeNumber.exactOptional(),
   maxQueueAgeMs: positiveWholeNumber.exactOptional(),
@@ -561,6 +567,7 @@ const configFileShape = {
   maxTokens: positiveWholeNumber.exactOptional(),
   maxDurationMs: positiveWholeNumber.exactOptional(),
   context: contextSchema.exactOptional(),
+  history: z.strictObject(historyShape).exactOptional(),
   workspaceMaxTotalBytesPerAgent: positiveWholeNumber.exactOptional(),
   scheduler: z.strictObject(schedulerShape).exactOptional(),
   peers: z.array(z.strictObject(peerShape)).superRefine(distinctSecretEnvVars).exactOptional(),
@@ -706,6 +713,10 @@ function describeNumber(schema: z.ZodNumber): string {
 
 function alternatives(schema: z.ZodType): string[] {
   const inner = unwrap(schema);
+  const described = expectedDescriptions.get(inner);
+  if (described !== undefined) {
+    return [described];
+  }
   if (inner instanceof z.ZodBoolean) return ["true", "false"];
   if (inner instanceof z.ZodEnum) return inner.options.map(String);
   if (inner instanceof z.ZodLiteral) return [...inner.values].map(String);
@@ -719,7 +730,7 @@ function alternatives(schema: z.ZodType): string[] {
 }
 
 /** What a value at this schema must look like, in words: "a whole number of 0 or more". */
-function describeExpected(schema: z.ZodType | undefined): string {
+export function describeExpected(schema: z.ZodType | undefined): string {
   return schema === undefined ? "nothing (not a setting)" : formatList(alternatives(schema));
 }
 

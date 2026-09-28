@@ -25,7 +25,6 @@ function makeConfig(overrides: Partial<ResolvedOtlpConfig> = {}): ResolvedOtlpCo
     signalHeaders: { traces: {}, logs: {}, metrics: {} },
     serviceName: "jazz",
     resourceAttributes: {},
-    captureContent: false,
     timeoutMs: 1000,
     maxQueuedBytes: 1024 * 1024,
     maxQueueAgeMs: 60_000,

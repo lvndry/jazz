@@ -48,7 +48,6 @@ describe("toSpan", () => {
         agentName: "researcher",
         durationMs: 30_000,
       }),
-      false,
     );
 
     expect(span.spanId).toBe(rootSpanIdForRun("run-1"));
@@ -62,11 +61,9 @@ describe("toSpan", () => {
   it("parents LLM and tool spans to the run's root span", () => {
     const llmSpan = toSpan(
       makeEvent("llm_usage", { runId: "run-1", model: "claude-opus-5", durationMs: 2000 }),
-      false,
     );
     const toolSpan = toSpan(
       makeEvent("tool_invocation", { runId: "run-1", toolName: "web_search", durationMs: 500 }),
-      false,
     );
 
     expect(llmSpan.traceId).toBe(traceIdForRun("run-1"));
@@ -84,7 +81,6 @@ describe("toSpan", () => {
         toolCallId: "call-1",
         durationMs: 3000,
       }),
-      false,
     );
     const telemetryParent = {
       topRunId: "parent-run",
@@ -103,7 +99,6 @@ describe("toSpan", () => {
         },
         { conversationId: "child-conversation" },
       ),
-      false,
     );
     const generation = toSpan(
       makeEvent("llm_usage", {
@@ -112,7 +107,6 @@ describe("toSpan", () => {
         model: "gpt-5",
         usage: { promptTokens: 4, completionTokens: 2 },
       }),
-      false,
     );
     expect(child.traceId).toBe(tool.traceId);
     expect(child.parentSpanId).toBe(tool.spanId);
@@ -124,7 +118,7 @@ describe("toSpan", () => {
   });
 
   it("derives the span start by subtracting duration from the event time", () => {
-    const span = toSpan(makeEvent("llm_usage", { runId: "run-1", durationMs: 2000 }), false);
+    const span = toSpan(makeEvent("llm_usage", { runId: "run-1", durationMs: 2000 }));
 
     const endMs = Date.parse("2026-08-15T12:00:30.000Z");
     expect(span.endTimeUnixNano).toBe(String(endMs * 1_000_000));
@@ -132,7 +126,7 @@ describe("toSpan", () => {
   });
 
   it("produces a zero-length span when no duration was recorded", () => {
-    const span = toSpan(makeEvent("llm_retry", { runId: "run-1" }), false);
+    const span = toSpan(makeEvent("llm_retry", { runId: "run-1" }));
 
     expect(span.startTimeUnixNano).toBe(span.endTimeUnixNano);
   });
@@ -140,11 +134,9 @@ describe("toSpan", () => {
   it("marks failures with error status and message", () => {
     const runSpan = toSpan(
       makeEvent("agent_run_failed", { runId: "run-1", error: "provider unreachable" }),
-      false,
     );
     const toolSpan = toSpan(
       makeEvent("tool_error", { runId: "run-1", toolName: "shell", error: "exit 1" }),
-      false,
     );
 
     expect(runSpan.status).toEqual({ code: 2, message: "Agent run failed" });
@@ -159,7 +151,6 @@ describe("toSpan", () => {
         model: "gpt-5",
         error: "secret token",
       }),
-      false,
     );
     const attributes = Object.fromEntries(
       span.attributes.map((a) => [a.key, Object.values(a.value)[0]]),
@@ -170,24 +161,22 @@ describe("toSpan", () => {
   });
 
   it("leaves successful spans with unset status", () => {
-    const span = toSpan(makeEvent("tool_invocation", { runId: "run-1" }), false);
+    const span = toSpan(makeEvent("tool_invocation", { runId: "run-1" }));
     expect(span.status.code).toBe(0);
   });
 
   it("keeps LLM span names stable when the model changes", () => {
-    expect(toSpan(makeEvent("llm_usage", { model: "gpt-5" }), false).name).toBe(
-      "generate-response",
-    );
+    expect(toSpan(makeEvent("llm_usage", { model: "gpt-5" })).name).toBe("generate-response");
   });
 
   it("names classifier LLM spans after the purpose, not as a further chat", () => {
     expect(
-      toSpan(makeEvent("llm_usage", { model: "gpt-4o-mini", purpose: "classifier" }), false).name,
+      toSpan(makeEvent("llm_usage", { model: "gpt-4o-mini", purpose: "classifier" })).name,
     ).toBe("classify-command-risk");
   });
 
   it("makes an event without a run id a root trace grouped by conversation session", () => {
-    const span = toSpan(makeEvent("tool_invocation", {}, { conversationId: "conv-9" }), false);
+    const span = toSpan(makeEvent("tool_invocation", {}, { conversationId: "conv-9" }));
     expect(span.traceId).toBe(traceIdForRun("event-tool_invocation"));
     expect(span.parentSpanId).toBeUndefined();
     expect(span.attributes.some((attribute) => attribute.key === "jazz.run.id")).toBe(false);
@@ -198,7 +187,7 @@ describe("toSpan", () => {
   });
 
   it("makes an event with neither run nor conversation its own root span", () => {
-    const span = toSpan(makeEvent("custom", { note: "standalone" }), false);
+    const span = toSpan(makeEvent("custom", { note: "standalone" }));
 
     expect(span.traceId).toHaveLength(32);
     // Parenting it to a run root that will never be emitted would orphan it.
@@ -213,7 +202,6 @@ describe("toSpan", () => {
         model: "claude-opus-5",
         usage: { promptTokens: 10, completionTokens: 4, totalTokens: 14 },
       }),
-      false,
     );
 
     const keys = span.attributes.map((attribute) => attribute.key);
@@ -251,7 +239,6 @@ describe("run rollup spans do not double-count usage", () => {
         durationMs: 6000,
         usage,
       }),
-      false,
     );
 
     const keys = span.attributes.map((attribute) => attribute.key);
@@ -273,7 +260,6 @@ describe("run rollup spans do not double-count usage", () => {
         durationMs: 3538,
         usage,
       }),
-      false,
     );
 
     const attributes = Object.fromEntries(
@@ -315,7 +301,6 @@ describe("run rollup spans do not double-count usage", () => {
     const payload = buildTracesPayload(events, {
       serviceName: "jazz",
       serviceVersion: "1.0.0",
-      captureContent: false,
     });
 
     const spans = payload.resourceSpans[0]!.scopeSpans[0]!.spans;
@@ -341,7 +326,6 @@ describe("buildTracesPayload", () => {
     const payload = buildTracesPayload(events, {
       serviceName: "jazz",
       serviceVersion: "1.0.0",
-      captureContent: false,
     });
 
     const spans = payload.resourceSpans[0]!.scopeSpans[0]!.spans;
@@ -357,7 +341,6 @@ describe("buildTracesPayload", () => {
     const payload = buildTracesPayload([makeEvent("llm_usage", { runId: "run-1" })], {
       serviceName: "jazz",
       serviceVersion: "1.0.0",
-      captureContent: false,
     });
 
     expect(() => JSON.stringify(payload)).not.toThrow();

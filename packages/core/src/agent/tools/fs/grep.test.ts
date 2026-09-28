@@ -246,44 +246,45 @@ describe("grep tool", () => {
 });
 
 describe("grep filename framing", () => {
-  it.each(["ripgrep", "grep"])(
-    "keeps protected content out of all output modes with %s",
-    (backend) => {
-      const root = mkdtempSync(join(tmpdir(), "jazz-grep-framing-"));
-      try {
-        const workspace = join(root, "workspace");
-        const home = join(root, "home");
-        mkdirSync(workspace);
-        const protectedPath = join(workspace, "backup:42:odd\nname.txt");
-        const ordinaryPath = join(workspace, "ordinary:19:odd\nname.txt");
-        writeFileSync(
-          protectedPath,
-          "before:12:PRIVATE_CONTEXT\nTOKEN=prefix:123:PRIVATE_VALUE\nafter-13-PRIVATE_CONTEXT\n",
-        );
-        writeFileSync(
-          ordinaryPath,
-          "before:12:public\nTOKEN=prefix:123:public-value\nafter-13-public\n",
-        );
-        symlinkSync(protectedPath, join(workspace, "alias.txt"));
-        const binaryPath = join(workspace, "binary-backup");
-        writeFileSync(binaryPath, "TOKEN=PRIVATE_BINARY\0tail\n");
-        const bin = join(root, "bin");
-        mkdirSync(bin);
-        const grep = Bun.which("grep");
-        const rg = Bun.which("rg");
-        expect(grep).not.toBeNull();
-        expect(rg).not.toBeNull();
-        symlinkSync(grep!, join(bin, "grep"));
-        if (backend === "grep") {
-          writeFileSync(join(bin, "rg"), "#!/bin/sh\nexit 2\n", { mode: 0o755 });
-        } else {
-          symlinkSync(rg!, join(bin, "rg"));
-        }
-        const child = Bun.spawnSync({
-          cmd: [
-            process.execPath,
-            "-e",
-            `
+  for (const backend of ["ripgrep", "grep"] as const) {
+    it.skipIf(backend === "ripgrep" && Bun.which("rg") === null)(
+      `keeps protected content out of all output modes with ${backend}`,
+      () => {
+        const root = mkdtempSync(join(tmpdir(), "jazz-grep-framing-"));
+        try {
+          const workspace = join(root, "workspace");
+          const home = join(root, "home");
+          mkdirSync(workspace);
+          const protectedPath = join(workspace, "backup:42:odd\nname.txt");
+          const ordinaryPath = join(workspace, "ordinary:19:odd\nname.txt");
+          writeFileSync(
+            protectedPath,
+            "before:12:PRIVATE_CONTEXT\nTOKEN=prefix:123:PRIVATE_VALUE\nafter-13-PRIVATE_CONTEXT\n",
+          );
+          writeFileSync(
+            ordinaryPath,
+            "before:12:public\nTOKEN=prefix:123:public-value\nafter-13-public\n",
+          );
+          symlinkSync(protectedPath, join(workspace, "alias.txt"));
+          const binaryPath = join(workspace, "binary-backup");
+          writeFileSync(binaryPath, "TOKEN=PRIVATE_BINARY\0tail\n");
+          const bin = join(root, "bin");
+          mkdirSync(bin);
+          const grep = Bun.which("grep");
+          const rg = Bun.which("rg");
+          expect(grep).not.toBeNull();
+          symlinkSync(grep!, join(bin, "grep"));
+          if (backend === "grep") {
+            writeFileSync(join(bin, "rg"), "#!/bin/sh\nexit 2\n", { mode: 0o755 });
+          } else {
+            expect(rg).not.toBeNull();
+            symlinkSync(rg!, join(bin, "rg"));
+          }
+          const child = Bun.spawnSync({
+            cmd: [
+              process.execPath,
+              "-e",
+              `
           import { createGrepTool } from ${JSON.stringify(import.meta.dir + "/grep.ts")};
           import { runTool } from ${JSON.stringify(import.meta.dir + "/test-helpers.ts")};
           import { registerProtectedFileRoots } from ${JSON.stringify(import.meta.dir + "/../../../utils/protected-files.ts")};
@@ -296,37 +297,38 @@ describe("grep filename framing", () => {
           }
           console.log(JSON.stringify(results));
         `,
-          ],
-          env: { ...process.env, JAZZ_HOME: home, PATH: bin },
-        });
-        expect(child.exitCode).toBe(0);
-        const output = child.stdout.toString();
-        expect(output).not.toContain("PRIVATE_VALUE");
-        expect(output).not.toContain("PRIVATE_CONTEXT");
-        expect(output).not.toContain("PRIVATE_BINARY");
-        const results = JSON.parse(output) as Array<{
-          success: boolean;
-          result: Record<string, unknown>;
-        }>;
-        expect(
-          results.every((result) => result.success && result.result["backend"] === backend),
-        ).toBe(true);
-        expect(results[0]?.result["matches"]).toEqual([
-          {
-            file: ordinaryPath,
-            line: 2,
-            text: "TOKEN=prefix:123:public-value",
-            contextBefore: [{ line: 1, text: "before:12:public" }],
-            contextAfter: [{ line: 3, text: "after-13-public" }],
-          },
-        ]);
-        expect(results[1]?.result["files"]).toEqual([ordinaryPath]);
-        expect(results[2]?.result["counts"]).toEqual([{ file: ordinaryPath, count: 1 }]);
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
-    },
-  );
+            ],
+            env: { ...process.env, JAZZ_HOME: home, PATH: bin },
+          });
+          expect(child.exitCode).toBe(0);
+          const output = child.stdout.toString();
+          expect(output).not.toContain("PRIVATE_VALUE");
+          expect(output).not.toContain("PRIVATE_CONTEXT");
+          expect(output).not.toContain("PRIVATE_BINARY");
+          const results = JSON.parse(output) as Array<{
+            success: boolean;
+            result: Record<string, unknown>;
+          }>;
+          expect(
+            results.every((result) => result.success && result.result["backend"] === backend),
+          ).toBe(true);
+          expect(results[0]?.result["matches"]).toEqual([
+            {
+              file: ordinaryPath,
+              line: 2,
+              text: "TOKEN=prefix:123:public-value",
+              contextBefore: [{ line: 1, text: "before:12:public" }],
+              contextAfter: [{ line: 3, text: "after-13-public" }],
+            },
+          ]);
+          expect(results[1]?.result["files"]).toEqual([ordinaryPath]);
+          expect(results[2]?.result["counts"]).toEqual([{ file: ordinaryPath, count: 1 }]);
+        } finally {
+          rmSync(root, { recursive: true, force: true });
+        }
+      },
+    );
+  }
 });
 
 describe("internal transfer staging", () => {

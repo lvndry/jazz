@@ -132,6 +132,17 @@ function unknownSettingError(path: string, suggestion?: string): ConfigurationVa
   });
 }
 
+/**
+ * Whether a path is a provider's API key (`llm.<provider>.api_key` or
+ * `web_search.<provider>.api_key`). The secret registry treats any such shape as
+ * a secret so a typo is never written in plaintext, which is why `config set`
+ * has to check the provider exists itself. Per-entry tokens (`peers.<name>.token`)
+ * live under lists the schema does not address by name, so they are not checked.
+ */
+function isProviderKeyPath(path: string): boolean {
+  return /^(llm|web_search)\.[^.]+\.api_key$/.test(path);
+}
+
 function sectionError(path: string): ConfigurationValidationError {
   return new ConfigurationValidationError({
     field: path,
@@ -146,13 +157,19 @@ function sectionError(path: string): ConfigurationValidationError {
  * path is not a setting or the value cannot be read as that setting's type.
  *
  * Falling back to the string would be worse than refusing: config.json would still parse, and
- * every reader of that setting would then ignore it. Secrets are opaque text and pass through.
+ * every reader of that setting would then ignore it. Secrets are opaque text: they pass through
+ * trimmed (a pasted key often carries a newline), but only to a path the schema knows.
  */
 function typedConfigValue(
   path: string,
   raw: string,
 ): Effect.Effect<string | number | boolean, ConfigurationValidationError> {
-  if (isSecretPath(path)) return Effect.succeed(raw);
+  if (isSecretPath(path)) {
+    const resolution = resolveConfigPath(path);
+    return isProviderKeyPath(path) && !resolution.known
+      ? Effect.fail(unknownSettingError(path, resolution.suggestion))
+      : Effect.succeed(raw.trim());
+  }
   const input = parseConfigInput(path, raw);
   if (input.ok) return Effect.succeed(input.value);
   switch (input.reason) {
@@ -213,6 +230,11 @@ export function setConfigCommand(
           WEB_SEARCH_PROVIDERS.some((p) => p.value === targetSegments[1])));
     const promptsForApiKey = (root: "llm" | "web_search"): boolean =>
       key === root || (isProviderApiKey && targetSegments[0] === root);
+
+    const targetResolution = resolveConfigPath(targetKey);
+    if (isProviderKeyPath(targetKey) && !targetResolution.known) {
+      return yield* Effect.fail(unknownSettingError(targetKey, targetResolution.suggestion));
+    }
 
     if (value === undefined) {
       if (promptsForApiKey("llm")) {

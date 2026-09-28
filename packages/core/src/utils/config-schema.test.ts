@@ -669,6 +669,13 @@ describe("parseConfigInput", () => {
     });
   });
 
+  it("names a URL setting's expected value in words", () => {
+    expect(parseConfigInput("daemon.notify.ntfyUrl", "not a url")).toMatchObject({
+      ok: false,
+      expected: "an https URL",
+    });
+  });
+
   it("refuses sections and unknown paths", () => {
     expect(parseConfigInput("output", "hybrid")).toEqual({ ok: false, reason: "structured" });
     expect(parseConfigInput("maxRetrys", "5")).toEqual({

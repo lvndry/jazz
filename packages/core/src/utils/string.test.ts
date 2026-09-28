@@ -1,6 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import {
   buildLineOffsets,
+  closestMatch,
+  editDistance,
   coerceBoolean,
   findAllOccurrenceLineNumbers,
   formatCompactCount,
@@ -57,5 +59,16 @@ describe("formatCompactCount", () => {
     expect(formatCompactCount(1_000_000_000)).toBe("1B");
     expect(formatCompactCount(2_300_000_000)).toBe("2.3B");
     expect(formatCompactCount(999_500)).toBe("1M");
+  });
+});
+
+describe("closestMatch", () => {
+  it("finds the known name within a small edit distance", () => {
+    expect(closestMatch("opneai", ["openai", "anthropic"])).toBe("openai");
+    expect(editDistance("kitten", "sitting")).toBe(3);
+  });
+
+  it("returns nothing when every name is too far away", () => {
+    expect(closestMatch("xyz", ["openai", "anthropic"])).toBeUndefined();
   });
 });

@@ -52,6 +52,7 @@ jobs:
               - '**/*.md'
               - '.markdownlint-cli2.jsonc'
               - 'scripts/check-docs-links.ts'
+              - 'scripts/check-docs-metadata.ts'
 
       - name: Setup Bun
         if: steps.changed.outputs.markdown == 'true'
@@ -63,11 +64,21 @@ jobs:
         if: steps.changed.outputs.markdown == 'true'
         run: bunx markdownlint-cli2
 
-      # markdownlint has no rule for relative-link validity (MD051 only checks in-file
-      # #anchors), so this catches the breakage markdownlint cannot see.
+      # The link checker parses Markdown and slugs headings with workspace dependencies.
+      - name: Install dependencies
+        if: steps.changed.outputs.markdown == 'true'
+        run: bun install --frozen-lockfile
+
+      # markdownlint checks only in-file #anchors (MD051). This resolves every relative link
+      # against git-tracked paths and every #fragment against the target file's heading slugs.
       - name: Check docs links
         if: steps.changed.outputs.markdown == 'true'
         run: bun run docs:check-links
+
+      # Every docs page needs a specific frontmatter description for search and previews.
+      - name: Check docs metadata
+        if: steps.changed.outputs.markdown == 'true'
+        run: bun run docs:check-metadata
 
   lint-and-build:
     runs-on: ubuntu-latest

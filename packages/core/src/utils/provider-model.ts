@@ -4,6 +4,7 @@
  */
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
 import type { LLMConfig } from "@/core/types/config";
+import { closestMatch } from "@/core/utils/string";
 
 const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   ai_gateway: "Vercel AI Gateway",
@@ -102,4 +103,14 @@ export function configuredProviderApiKey(
 /** Whether a ChatGPT subscription sign-in is recorded in config. */
 export function isChatGPTSignedIn(llmConfig: LLMConfig | undefined): boolean {
   return (llmConfig?.chatgpt?.account_id ?? "").length > 0;
+}
+
+/**
+ * Why an agent's provider is not one Jazz knows, with the provider a typo most
+ * likely meant and how to change it.
+ */
+export function unknownProviderMessage(provider: string): string {
+  const suggestion = closestMatch(provider, AVAILABLE_PROVIDERS);
+  const guess = suggestion === undefined ? "" : ` Did you mean "${suggestion}"?`;
+  return `Jazz has no "${provider}" provider.${guess} Change the agent's provider with \`jazz agent edit <agent>\`.`;
 }

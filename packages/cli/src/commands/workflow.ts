@@ -2,7 +2,11 @@ import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
 import { judgeAnswer, NoUsableAnswerError } from "@jazz/core/agent/run/answer-outcome";
-import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
+import {
+  isRunCostKnown,
+  runSpendAsCallSpend,
+  type CallSpend,
+} from "@jazz/core/agent/run/run-spend";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
@@ -61,20 +65,22 @@ import { answerOutcomeFields, formatOneShotError, formatOneShotResult } from "./
  */
 
 /**
- * List all available workflows.
+ * List all available workflows, or print them as one JSON document with `--json`.
  */
-export function listWorkflowsCommand() {
+export function listWorkflowsCommand(options: { readonly json?: boolean } = {}) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const workflowService = yield* WorkflowServiceTag;
     const scheduler = yield* SchedulerServiceTag;
 
-    yield* terminal.heading("📋 Available Workflows");
-    yield* terminal.log("");
-
     const workflows = yield* workflowService.listWorkflows();
 
-    if (workflows.length === 0) {
+    if (options.json !== true) {
+      yield* terminal.heading("📋 Available Workflows");
+      yield* terminal.log("");
+    }
+
+    if (workflows.length === 0 && options.json !== true) {
       yield* terminal.info("No workflows found.");
       yield* terminal.log("");
       yield* terminal.info("Install one from the library: jazz workflow browse");
@@ -111,6 +117,26 @@ export function listWorkflowsCommand() {
         Effect.succeed({ runningNames: new Set<string>(), staleNames: new Set<string>() }),
       ),
     );
+
+    if (options.json === true) {
+      const { local: localNames } = groupWorkflows(workflows);
+      const localSet = new Set(localNames.map((workflow) => workflow.name));
+      const document = {
+        workflows: workflows.map((workflow) => ({
+          name: workflow.name,
+          description: workflow.description,
+          scope: localSet.has(workflow.name) ? "local" : "global",
+          path: workflow.path,
+          ...(workflow.agent !== undefined ? { agent: workflow.agent } : {}),
+          ...(workflow.schedule !== undefined ? { schedule: workflow.schedule } : {}),
+          scheduled: scheduledNames.has(workflow.name),
+          running: runningNames.has(workflow.name),
+          stale: staleNames.has(workflow.name),
+        })),
+      };
+      process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
+      return;
+    }
 
     const { local, global } = groupWorkflows(workflows);
 
@@ -249,6 +275,8 @@ export function runWorkflowCommand(
   const say = <E, R>(make: () => Effect.Effect<void, E, R>): Effect.Effect<void, E, R> =>
     jsonMode ? Effect.void : Effect.suspend(make);
 
+  // Set when the run ends however it ends, so a failed run's record and envelope carry its spend.
+  let runSpend: CallSpend | undefined;
   const command = Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const workflowService = yield* WorkflowServiceTag;
@@ -463,6 +491,9 @@ export function runWorkflowCommand(
       ...(resolvedMaxDurationMs != null ? { maxDurationMs: resolvedMaxDurationMs } : {}),
       autoApprovePolicy,
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
+      onRunSpend: (spend) => {
+        runSpend = runSpendAsCallSpend(spend, agent.config.llmProvider, agent.config.llmModel);
+      },
       origin: {
         source: "workflow",
         name: workflowName,
@@ -500,7 +531,8 @@ export function runWorkflowCommand(
           completedAt: new Date().toISOString(),
           status: "failed",
           error: toError(error).message,
-        }),
+          ...(runSpend?.costUSD !== undefined ? { costUSD: runSpend.costUSD } : {}),
+        }).pipe(Effect.catchAll(() => Effect.void)),
       ),
       // The generic top-level error handler renders this failure (e.g. an
       // LLMRateLimitError after retries are exhausted) but never sets the
@@ -585,7 +617,7 @@ export function runWorkflowCommand(
           formatOneShotError(
             getErrorMessage(error),
             { json: true },
-            0,
+            runSpend,
             error instanceof NoUsableAnswerError ? { code: error.code } : {},
           ),
         );

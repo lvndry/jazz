@@ -56,7 +56,7 @@ A write changes only the key you set, and only in the global file. Values merged
 
 ## Mistakes in a configuration file
 
-Jazz checks each configuration file before it can affect runtime behavior. A value of the wrong type, an unknown key, or an invalid safety invariant is reported and ignored; valid siblings still load, and Jazz continues with the setting's default. If the JSON itself is malformed, Jazz reports it and uses defaults for that file rather than refusing to start:
+Jazz checks each configuration file before it can affect runtime behavior. A value of the wrong type, an unknown key, an invalid safety invariant, or malformed JSON stops every command with exit code `1` and names each problem, rather than running on defaults that could quietly drop your limits and approvals. A `--config` path that does not exist stops the command the same way:
 
 ```console
 jazz: invalid configuration in /home/you/.jazz/config.json (2 entries):
@@ -64,7 +64,7 @@ jazz: invalid configuration in /home/you/.jazz/config.json (2 entries):
   maxRetrys: not a setting — did you mean maxRetries?
 ```
 
-Run `jazz config validate` for the same diagnostics and a non-zero exit status, without constructing the application layer. A daemon that notices an invalid live edit keeps serving its last-known-good configuration and reports the problem; once the file is repaired, a later reload adopts it. A value found where a secret belongs is described by its type and never printed.
+Run `jazz config validate` for the same diagnostics and a non-zero exit status, without constructing the application layer; it runs on a broken file, and it also checks every agent file (see [`jazz config`](../commands.md#jazz-config)). A daemon that notices an invalid live edit keeps serving its last-known-good configuration and reports the problem; once the file is repaired, a later reload adopts it. A value found where a secret belongs is described by its type and never printed.
 
 ## Run budgets
 
@@ -95,6 +95,18 @@ Command-line and workflow values override application defaults for that run.
 ```
 
 Both values are fractions of the effective model context window. Jazz requires `warnThresholdRatio < compactThresholdRatio < 0.95`; invalid values are reported and the defaults apply. See [Long-running work](../features/long-running-work.md).
+
+## Logs and history retention
+
+| Key                                | Default | Meaning                                                                                  |
+| ---------------------------------- | ------: | ---------------------------------------------------------------------------------------- |
+| `logging.retentionDays`            |    `14` | Days a file in `~/.jazz/logs/` is kept after its last write                              |
+| `logging.maxTotalSizeMB`           |   `200` | Size cap for `~/.jazz/logs/`; the least recently written files are deleted first         |
+| `history.maxConversationsPerAgent` |   `100` | Conversations each agent keeps in its live history; older ones are archived, not deleted |
+
+Individual log files also rotate at 10 MB. Conversations a goal, loop or run still uses are never
+archived. See [sizes and retention](../runtime-data/index.md#sizes-and-retention) for everything
+Jazz keeps on disk and how each part is bounded.
 
 ## Output and notifications
 
@@ -164,7 +176,7 @@ Full MCP server definitions live in `~/.agents/mcp.json` or `./.agents/mcp.json`
 
 ## Telemetry
 
-Local telemetry is enabled by default. The `telemetry` object controls retention and buffering. An OTLP/HTTP endpoint enables traces by default; set `telemetry.otlp.signals` to add logs or metrics. `telemetry.otlp.metricsEndpoint` accepts a full metrics URL, including Prometheus's `/api/v1/otlp/v1/metrics` path. `maxQueuedBytes` and `maxQueueAgeMs` bound the pending trace/log outbox; `metricExportIntervalMs` controls periodic metrics export. Shared telemetry events contain no prompt, completion, or tool content, and `captureContent` currently has no effect. See [Observability](./observability.md) for backend setup, metric names, privacy, and delivery behavior.
+Local telemetry is enabled by default. The `telemetry` object controls retention and buffering. An OTLP/HTTP endpoint enables traces by default; set `telemetry.otlp.signals` to add logs or metrics. `telemetry.otlp.metricsEndpoint` accepts a full metrics URL, including Prometheus's `/api/v1/otlp/v1/metrics` path. `maxQueuedBytes` and `maxQueueAgeMs` bound the pending trace/log outbox; `metricExportIntervalMs` controls periodic metrics export. Telemetry events carry no prompt, completion, or tool content, so nothing you configure sends conversation text to a collector. See [Observability](./observability.md) for backend setup, metric names, privacy, and delivery behavior.
 
 ## Secrets and environment variables
 

@@ -3,6 +3,7 @@ import {
   decideDaemonToken,
   describeDaemonStart,
   formatDaemonTokenProvisionFailure,
+  unsupervisedDaemonNote,
 } from "./daemon";
 
 describe("daemon token-provisioning failures", () => {
@@ -18,13 +19,14 @@ describe("daemon token-provisioning failures", () => {
     );
   });
 
-  it("does not recommend peer-service installation when peer serving is disabled", () => {
+  it("recommends a service without peers when peer serving is disabled", () => {
     const message = formatDaemonTokenProvisionFailure(
       { ok: false, reason: "no-keyring" },
       { host: "100.101.102.103", port: 4748 },
     );
 
-    expect(message).not.toContain("daemon install");
+    expect(message).toContain("sudo -E jazz daemon install --host 100.101.102.103 --port 4748");
+    expect(message).not.toContain("--serve-peers");
   });
 });
 
@@ -67,13 +69,35 @@ describe("what a daemon serves behind", () => {
 
 describe("describeDaemonStart", () => {
   it("says the work started only when a daemon for this home is on it", () => {
-    expect(describeDaemonStart("Goal g1", { kind: "running" })).toContain(
+    expect(describeDaemonStart("Goal g1", { kind: "running" }, true)).toContain(
       "daemon is working on it",
     );
-    expect(describeDaemonStart("Goal g1", { kind: "started", pid: 42 })).toContain("pid 42");
-    expect(describeDaemonStart("Goal g1", { kind: "port-taken", port: 4747 })).toContain(
+    expect(describeDaemonStart("Goal g1", { kind: "started", pid: 42 }, true)).toContain("pid 42");
+    expect(describeDaemonStart("Goal g1", { kind: "port-taken", port: 4747 }, true)).toContain(
       "not serving this Jazz home",
     );
-    expect(describeDaemonStart("Goal g1", { kind: "unavailable" })).toContain("run `jazz daemon`");
+    expect(describeDaemonStart("Goal g1", { kind: "unavailable" }, true)).toContain(
+      "run `jazz daemon`",
+    );
+  });
+
+  it("warns, and points at daemon install, when no supervisor restarts the daemon", () => {
+    const unsupervised = describeDaemonStart("Goal g1", { kind: "started", pid: 42 }, false);
+    expect(unsupervised).toContain("No supervised daemon is installed");
+    expect(unsupervised).toContain("sudo jazz daemon install");
+    expect(describeDaemonStart("Goal g1", { kind: "running" }, true)).not.toContain("supervised");
+  });
+
+  it("says nothing about supervision when the port belongs to another home", () => {
+    expect(describeDaemonStart("Goal g1", { kind: "port-taken", port: 4747 }, false)).not.toContain(
+      "supervised",
+    );
+  });
+});
+
+describe("unsupervisedDaemonNote", () => {
+  it("is empty for a supervised daemon", () => {
+    expect(unsupervisedDaemonNote(true)).toBeUndefined();
+    expect(unsupervisedDaemonNote(false)).toContain("jazz daemon install");
   });
 });

@@ -204,7 +204,7 @@ highest-value version of this, and it's one field.
 
 ## Related
 
-- [Integrations: providers](../configure/index.md#llm-providers): API keys and setup
+- [Integrations: providers](../configure/providers.md): API keys and setup
 - [Local and air-gapped models](../getting-started/local-models.md): local-only operation
 - [Context management](./context-lifecycle.md): what the context window is used for
 - [Architecture](./architecture.md): provider boundaries and dependency direction

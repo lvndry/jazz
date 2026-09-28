@@ -8,7 +8,7 @@
 
 import type { StreamEvent } from "@jazz/core/types/streaming";
 
-const VALID_REASONING_EFFORTS = [
+export const VALID_REASONING_EFFORTS = [
   "disable",
   "minimal",
   "low",
@@ -35,6 +35,7 @@ const EVENT_CATEGORY_TYPES = {
     "command_risk_classified",
   ],
   subagent: ["subagent_start", "subagent_complete", "subagent_result"],
+  spend: ["run_spend"],
 } as const satisfies Record<string, readonly StreamEvent["type"][]>;
 
 type EventCategory = keyof typeof EVENT_CATEGORY_TYPES;

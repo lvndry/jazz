@@ -13,7 +13,7 @@
   "bugs": {
     "url": "https://github.com/lvndry/jazz/issues"
   },
-  "description": "One agent. Every surface. Your rules.",
+  "description": "An everyday AI assistant you can leave running: in your terminal, on a schedule, and in your chat apps.",
   "engines": {
     "bun": ">=1.4.0",
     "node": ">=22.16.0",
@@ -63,6 +63,7 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "bench": "bun bench/run.ts",
+    "docs:config-reference": "bun run scripts/gen-config-reference.ts",
     "docs:check-links": "bun run scripts/check-docs-links.ts",
     "docs:check-metadata": "bun run scripts/check-docs-metadata.ts",
     "docs:chat-commands": "bun run packages/cli/src/chat/commands/generate-reference.ts",
@@ -85,6 +86,7 @@
   },
   "devDependencies": {
     "@jazz/adapters": "workspace:*",
+    "@jazz/core": "workspace:*",
     "@a2a-js/sdk": "^1.2.0",
     "@ai-sdk/alibaba": "^2.0.51",
     "@ai-sdk/anthropic": "^4.0.58",
@@ -136,6 +138,7 @@
     "eslint-plugin-prettier": "^5.5.6",
     "exa-js": "^2.22.0",
     "fast-glob": "^3.3.3",
+    "github-slugger": "^2.0.0",
     "globals": "^17.12.0",
     "gpt-tokenizer": "^4.0.0",
     "gray-matter": "^4.0.3",

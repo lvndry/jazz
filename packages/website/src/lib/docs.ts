@@ -28,6 +28,7 @@ const PINNED_ORDER: Record<string, string[]> = {
     "getting-started/quick-start",
     "getting-started/create-an-agent",
     "getting-started/local-models",
+    "getting-started/uninstall",
   ],
   features: [
     "features/goals-and-loops",
@@ -65,6 +66,8 @@ const PINNED_ORDER: Record<string, string[]> = {
   ],
   configure: [
     "configure/jazz",
+    "configure/config-reference",
+    "configure/environment-variables",
     "configure/agents",
     "configure/workflows",
     "configure/providers",
@@ -77,6 +80,7 @@ const PINNED_ORDER: Record<string, string[]> = {
     "security/approvals",
     "security/unattended-runs",
     "security/secrets-and-egress",
+    "security/privacy",
     "security/surface-access",
     "security/threat-model",
   ],

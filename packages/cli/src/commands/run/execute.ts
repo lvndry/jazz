@@ -10,7 +10,7 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@jazz/core/agent/context/work-state-preamble";
 import { judgeAnswer } from "@jazz/core/agent/run/answer-outcome";
 import { RunParkRequested, isRunParkRequested } from "@jazz/core/agent/run/park-signal";
-import { isRunCostKnown } from "@jazz/core/agent/run/run-spend";
+import { isRunCostKnown, runSpendAsCallSpend } from "@jazz/core/agent/run/run-spend";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { CommonSuggestions, getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -33,6 +33,7 @@ import {
   ONE_SHOT_EXIT,
   answerOutcomeFields,
   formatOneShotError,
+  type OneShotSpend,
   type OneShotFailureDetails,
   formatOneShotParked,
   formatOneShotResult,
@@ -246,11 +247,11 @@ const writeStdout = (message: string): Effect.Effect<void, never> =>
 const failOneShot = (
   message: string,
   options: OneShotOutputOptions,
-  costUSD = 0,
+  spend?: OneShotSpend,
   details: OneShotFailureDetails = {},
 ): Effect.Effect<void, never> =>
   Effect.sync(() => {
-    const formatted = formatOneShotError(message, options, costUSD, details);
+    const formatted = formatOneShotError(message, options, spend, details);
     // JSON mode keeps the single-object stdout contract; plain mode sends the
     // human-readable error to stderr so stdout stays empty on failure.
     if (options.json) {
@@ -291,6 +292,8 @@ export function runAgentOnceCommand(
   // requestApproval in OneShotPresentationService) so waiting on a person
   // doesn't count against the same budget as the agent's own work.
   const deadline = options.timeoutMs != null ? createRunDeadline(options.timeoutMs) : undefined;
+  // Set when the run ends however it ends, so a failure envelope can report what it spent.
+  let runSpend: OneShotSpend | undefined;
   // Set when a tool batch is stopped part-way, so a failure envelope can say what ran.
   let stoppedToolCalls: readonly StoppedToolCall[] | undefined;
 
@@ -469,6 +472,13 @@ export function runAgentOnceCommand(
       ...(interactiveInput.interactive ? {} : { withholdInteractiveTools: true }),
       ...(ephemeral ? { disablePersistence: true } : {}),
       ...(options.park === true ? { parkWhenUnattended: true } : {}),
+      onRunSpend: (spend) => {
+        runSpend = runSpendAsCallSpend(
+          spend,
+          agentForRun.config.llmProvider,
+          agentForRun.config.llmModel,
+        );
+      },
       onToolBatchStopped: (calls) => {
         stoppedToolCalls = calls;
       },
@@ -528,7 +538,7 @@ export function runAgentOnceCommand(
 
     const verdict = judgeAnswer(runResult);
     if (verdict.kind === "failed") {
-      return yield* failOneShot(verdict.message, outputOptions, runResult.costUSD ?? 0, {
+      return yield* failOneShot(verdict.message, outputOptions, runSpend, {
         code: verdict.code,
         ...(runResult.finishReason !== undefined ? { finishReason: runResult.finishReason } : {}),
         ...(runResult.toolsDisabled === true ? { toolsDisabled: true } : {}),
@@ -603,7 +613,7 @@ export function runAgentOnceCommand(
       failOneShot(
         getErrorMessage(error),
         outputOptions,
-        0,
+        runSpend,
         stoppedToolCalls !== undefined ? { stoppedToolCalls } : {},
       ),
     ),

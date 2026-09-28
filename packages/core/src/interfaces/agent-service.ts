@@ -2,6 +2,7 @@
  * `AgentService` interface for agent CRUD and configuration validation.
  */
 import { Context, Effect } from "effect";
+import type { AgentFileInspection } from "@/core/interfaces/storage";
 import type {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -63,6 +64,9 @@ export interface AgentService {
    * @throws {StorageError} When there's an error accessing storage
    */
   readonly listAgents: () => Effect.Effect<readonly Agent[], StorageError>;
+
+  /** List agents together with the agent files that could not be read. */
+  readonly inspectAgents: () => Effect.Effect<AgentFileInspection, StorageError>;
 
   /**
    * Update an existing agent with new data

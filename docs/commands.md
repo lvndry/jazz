@@ -19,7 +19,7 @@ Available on every command.
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-v, --verbose`     | Verbose logging                                                                                                                                                             |
 | `--debug`           | Debug-level logging                                                                                                                                                         |
-| `--config <path>`   | Use a specific config file (also `JAZZ_CONFIG_PATH`)                                                                                                                        |
+| `--config <path>`   | Use a specific config file (also `JAZZ_CONFIG_PATH`). A path that does not exist, or a file that is not valid, stops the command with the reason and exit code `1`          |
 | `--data-dir <path>` | Directory holding this invocation's config, data, and keyring entries (overrides `$JAZZ_HOME`; defaults to `~/.jazz`). Lets one host run several independent agents by flag |
 | `--no-tui`          | Disable the full-screen interface; use plain terminal output for CI, scripts, or small terminals. Same as `JAZZ_NO_TUI=1`                                                   |
 | `--output <mode>`   | `rendered` \| `hybrid` (default) \| `raw` (no formatting) \| `quiet` (suppress output). Same as `JAZZ_OUTPUT_MODE`                                                          |
@@ -72,7 +72,7 @@ incognito history. Bytes after the first newline remain available for interactiv
 | `--auto-approve-tools <names>` | none         | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                                          |
 | `--propose-goals`              | off          | Let the agent propose a goal for work that outlasts the run; the proposal waits for `jazz goal accept`                                                                 |
 | `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                                       |
-| `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                                                      |
+| `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `spend`, `all` (comma-separated)                                             |
 | `--reasoning <effort>`         | agent config | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr |
 | `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning): running commands are killed and the provider request is aborted                           |
 | `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                                               |
@@ -111,14 +111,14 @@ Full contract, examples, and a complete bridge implementation:
 
 ## `jazz agent`
 
-| Command                             | Purpose                                                                                        |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `jazz agent list`                   | List all agents; `--can image\|audio\|video` filters to the ones that can generate that medium |
-| `jazz agent create`                 | Create an agent (interactive)                                                                  |
-| `jazz agent show <agentId>`         | Show an agent's details                                                                        |
-| `jazz agent edit <agentId>`         | Edit an agent                                                                                  |
-| `jazz agent delete <agentId>`       | Delete an agent. `-y, --yes` / `-f, --force` to skip confirmation                              |
-| `jazz agent chat <agentIdentifier>` | Interactive session with a specific agent, by id or name                                       |
+| Command                             | Purpose                                                                                                                                                                                                                                                          |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz agent list`                   | List all agents; `--can image\|audio\|video` filters to the ones that can generate that medium. `--json` prints one document. Agent files that cannot be read, or name an unknown provider or reasoning level, are reported on stderr (under `problems` in JSON) |
+| `jazz agent create`                 | Create an agent (interactive)                                                                                                                                                                                                                                    |
+| `jazz agent show <agentId>`         | Show an agent's details                                                                                                                                                                                                                                          |
+| `jazz agent edit <agentId>`         | Edit an agent                                                                                                                                                                                                                                                    |
+| `jazz agent delete <agentId>`       | Delete an agent. `-y, --yes` / `-f, --force` to skip confirmation                                                                                                                                                                                                |
+| `jazz agent chat <agentIdentifier>` | Interactive session with a specific agent, by id or name. `--continue` picks up the agent's most recent saved conversation; add `--conversation <id>` for a specific one                                                                                         |
 
 `agent chat` accepts `--stream` / `--no-stream`, `--max-iterations <n>`, and `--ephemeral`.
 
@@ -144,7 +144,7 @@ JSON file under `$JAZZ_HOME/agents/`, which you can write by hand (see
 | Command                          | Purpose                                                                                                                         |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `jazz workflow create`           | Create a new workflow interactively                                                                                             |
-| `jazz workflow list`             | List available workflows (global and local)                                                                                     |
+| `jazz workflow list`             | List available workflows (global and local); `--json` prints one document                                                       |
 | `jazz workflow show <name>`      | Show a workflow's prompt and metadata                                                                                           |
 | `jazz workflow run <name>`       | Run once. See flags below                                                                                                       |
 | `jazz workflow schedule <name>`  | Install a schedule: the workflow's own frequency, or `--cron "<expr>"` for another. `--as <label>` names it                     |
@@ -199,7 +199,7 @@ Frontmatter fields: [Workflow frontmatter](./configure/workflows.md).
 | Command               | Purpose                                                                                                                                                                  |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `jazz mcp add [json]` | Add a server from inline JSON, `--file <path>`, stdin, or by name with `--transport`, repeatable `--env`/`--header` (values go to the keyring), and optional `--trusted` |
-| `jazz mcp list`       | List configured servers; `--tools` connects and discovers tools                                                                                                          |
+| `jazz mcp list`       | List configured servers; `--tools` connects and discovers tools; `--json` prints one document without env values or headers                                              |
 | `jazz mcp test`       | Connect to one server and report its tools and capabilities                                                                                                              |
 | `jazz mcp auth`       | Complete OAuth 2.1 authorization for a remote server                                                                                                                     |
 | `jazz mcp logout`     | Remove a remote server's stored OAuth credentials                                                                                                                        |
@@ -341,18 +341,19 @@ the OS keyring, so an agent that read the daemon token from disk cannot use it t
 more. Without one the daemon grants nothing over HTTP, and the CLI on the machine decides instead.
 See [Daemon](./concepts/daemon.md#granting-authority-over-http).
 
-| Command                             | Purpose                                                                                                                                                                                                                                                                                     |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz daemon set-token`             | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                      |
-| `jazz daemon forget-token`          | Remove the stored token                                                                                                                                                                                                                                                                     |
-| `jazz daemon operator-token`        | Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve or answer a run), store it in the OS keyring only, and print it once. Refused inside a process a Jazz agent started                                                                       |
-| `jazz daemon forget-operator-token` | Remove the operator token, so the daemon grants nothing over HTTP                                                                                                                                                                                                                           |
-| `jazz daemon stop`                  | Stop the background daemon listening on this port                                                                                                                                                                                                                                           |
-| `jazz daemon status`                | Whether the daemon is running or paused, what unattended runs spent today against the daily caps, and everything waiting for you with the command that answers it. `--json`                                                                                                                 |
-| `jazz daemon pause`                 | Stop background work from starting: goal cycles, loop runs, triggers, and new HTTP runs. Running work finishes and waiting items can still be answered                                                                                                                                      |
-| `jazz daemon resume`                | Start background work again; after a pause at the daily cap, lift the cap for the rest of the day. Refused inside a process a Jazz agent started, and over HTTP it needs the operator token                                                                                                 |
-| `jazz daemon install`               | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
-| `jazz daemon uninstall`             | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                              |
+| Command                             | Purpose                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz daemon set-token`             | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                                         |
+| `jazz daemon forget-token`          | Remove the stored token                                                                                                                                                                                                                                                                                        |
+| `jazz daemon operator-token`        | Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve or answer a run), store it in the OS keyring only, and print it once. Refused inside a process a Jazz agent started                                                                                          |
+| `jazz daemon forget-operator-token` | Remove the operator token, so the daemon grants nothing over HTTP                                                                                                                                                                                                                                              |
+| `jazz daemon stop`                  | Stop the background daemon listening on this port                                                                                                                                                                                                                                                              |
+| `jazz daemon status`                | Whether this home’s daemon is running and supervised, its last tick and pending work, pause state, today’s spend against the daily caps, and everything waiting for you. `--json`; exits 1 when not running                                                                                                    |
+| `jazz daemon logs`                  | Print recent daemon output; `-n, --lines <n>` and `-f, --follow`                                                                                                                                                                                                                                               |
+| `jazz daemon pause`                 | Stop background work from starting: goal cycles, loop runs, triggers, and new HTTP runs. Running work finishes and waiting items can still be answered                                                                                                                                                         |
+| `jazz daemon resume`                | Start background work again; after a pause at the daily cap, lift the cap for the rest of the day. Refused inside a process a Jazz agent started, and over HTTP it needs the operator token                                                                                                                    |
+| `jazz daemon install`               | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (optional: also answer peers), `--host`, `--port`, `--yes` |
+| `jazz daemon uninstall`             | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                                                 |
 
 Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs to
 be known ahead of time: a client config written before the daemon has ever run, or an
@@ -361,9 +362,33 @@ ephemeral container whose `$JAZZ_HOME` doesn't survive to the next deploy.
 See [Setting up peers](./guides/connect-peers.md) for a full walkthrough, and
 [Agent-to-agent](./concepts/agent-to-agent.md) for the tier model this exists to serve.
 
+A background daemon writes its output to `$JAZZ_HOME/logs/daemon.log`. Without an installed
+service, nothing restarts it after a reboot; `jazz goal` and `jazz loop` say so when they hand it
+work. See [Running it persistently](./concepts/daemon.md#running-it-persistently).
+
 `jazz wake-trigger fire --agent <agentId> --id <id>` is internal plumbing, not something you run
 by hand: it's what `register_trigger` schedules with `launchd`/`at` to fire a wake trigger without
-`jazz daemon` running. See [Wake Triggers](./tools/index.md#wake-triggers).
+`jazz daemon` running. See [Wake Triggers](./tools/index.md#wake-triggers). `jazz reminder fire`
+and `jazz job run` are the same kind of plumbing for reminders and job batches.
+
+---
+
+## `jazz reminders`, `jazz triggers`, `jazz jobs`
+
+What agents have scheduled to happen later, across every agent unless `--agent <id-or-name>`
+narrows it.
+
+| Command                      | Purpose                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `jazz reminders list`        | Reminders set with `remind_me`, soonest first. `--agent`, `--json`                         |
+| `jazz reminders cancel <id>` | Cancel one, and its host scheduler job. `--agent`                                          |
+| `jazz triggers list`         | Wake triggers that will resume a conversation, soonest first. `--agent`, `--json`          |
+| `jazz triggers cancel <id>`  | Cancel one, and its host scheduler job. `--agent`                                          |
+| `jazz jobs list`             | Background job batches still active, with each batch's jobs by status. `--agent`, `--json` |
+| `jazz jobs cancel <id>`      | Cancel a batch's jobs that have not started; running jobs finish. `--agent`                |
+
+`--json` prints one envelope: `{"ok":true,"reminders":[…]}`, `{"ok":true,"triggers":[…]}`, or
+`{"ok":true,"batches":[…]}`.
 
 ---
 
@@ -489,7 +514,7 @@ optionally installing a background service.
 Who it answers is `IMESSAGE_ALLOWED_HANDLES`, deny-by-default; with nothing set, an
 interactive first run answers only you, via a `jazz` prefix in a chat with yourself. The
 background service's environment is snapshotted into its plist at install time: see
-[Reaching your agent from a chat app](./guides/deploy-a-chat-agent.md#imessage) for changing it
+[Reaching your agent from a chat app](./guides/deploy-a-chat-agent.md#imessage-through-your-own-mac) for changing it
 afterwards, and
 [`packages/imessage-bot/README.md`](../packages/imessage-bot/README.md) for every
 variable.
@@ -544,7 +569,7 @@ for both paths.
 
 | Command                            | Purpose                                                                                              |
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `jazz persona list`                | List personas (built-in + custom)                                                                    |
+| `jazz persona list`                | List personas (built-in + custom); `--json` prints one document                                      |
 | `jazz persona create`              | Create a custom persona (interactive)                                                                |
 | `jazz persona show <identifier>`   | Show a persona by name or id                                                                         |
 | `jazz persona edit <identifier>`   | Edit a custom persona                                                                                |
@@ -566,6 +591,7 @@ See [Personas](./concepts/personas.md).
 
 | Command                     | Purpose                                                                                               |
 | --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `jazz skill list`           | List the skills agents can load, by source; `--json` prints one document                              |
 | `jazz skill browse`         | Browse the reviewed skill marketplace and install a skill (interactive). `--refresh`                  |
 | `jazz skill search [query]` | Search marketplace skill names, descriptions, tags, and metadata. `--refresh`                         |
 | `jazz skill install <name>` | Install one reviewed `SKILL.md` into `~/.jazz/skills/`. `-y`/`--yes` (skip confirmation), `--refresh` |
@@ -623,6 +649,14 @@ Static tool risks, allowlists, approval tiers, and the shell denylist remain enf
 | `jazz config validate`          | Check config files without starting the application                                                               |
 | `jazz config get <key>`         | Print one value and nothing else, redacted when it is or holds a secret; `--reveal` prints it. Exits `1` if unset |
 | `jazz config set <key> [value]` | Set one value                                                                                                     |
+
+`config validate` also checks every agent file: one that cannot be read, or names a provider or
+reasoning level Jazz does not know, fails the check with exit code `1`; a tool name no built-in
+provides is a warning, since an MCP server, plugin, or custom tool may supply it. `config set`
+refuses a key Jazz does not read, including an API key for a provider that does not exist
+(`llm.opneai.api_key`), and trims pasted keys. `jazz config set <provider>` with no value prompts
+for the key, so it never lands in your shell history, and checks it with the provider where
+there is a free endpoint to ask.
 
 See [Configuration](./configure/jazz.md).
 

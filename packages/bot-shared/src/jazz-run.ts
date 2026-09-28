@@ -20,6 +20,7 @@
  */
 
 import { bridgeRunEnv, type ChatSandbox, sandboxCommand } from "./chat-sandbox";
+import { runSpendFromEvent, spendFields, type RunSpend } from "./usage-store";
 
 /** A subset of Jazz's NDJSON stream events (`jazz run --events`); other fields ignored. */
 export interface JazzEvent {
@@ -35,7 +36,17 @@ export interface JazzEvent {
   readonly requestId?: string;
   readonly question?: string;
   readonly suggestions?: readonly { value: string; label?: string; description?: string }[];
+  /** `run_spend`: what the run has spent so far. */
+  readonly costUSD?: number;
+  readonly costIncomplete?: boolean;
+  readonly totalTokens?: number;
 }
+
+/**
+ * The `--events` categories every bridge asks `jazz run` for. `spend` streams `run_spend`
+ * events, so a run the bridge cancels, which leaves no envelope, is still paid for.
+ */
+export const JAZZ_RUN_EVENT_CATEGORIES = "tools,reasoning,text,approval,subagent,spend";
 
 export interface JazzComposition {
   readonly id: string;
@@ -77,6 +88,10 @@ export interface JazzSuccessEnvelope {
 export interface JazzErrorEnvelope {
   readonly ok: false;
   readonly error: string;
+  /** Present once the run reached the model: a failed run still spent money. */
+  readonly costUSD?: number;
+  readonly costKnown?: boolean;
+  readonly tokenUsage?: { readonly totalTokens?: number };
 }
 
 export type JazzEnvelope = JazzSuccessEnvelope | JazzErrorEnvelope;
@@ -121,6 +136,8 @@ export interface JazzRun {
   readonly result: Promise<JazzEnvelope>;
   /** True once `cancel()` was called, so the caller can report it as a cancel. */
   cancelled(): boolean;
+  /** The spend the last `run_spend` event reported, for a run that leaves no envelope. */
+  lastSpend(): RunSpend | undefined;
   approve(decisions: readonly { toolCallId: string; approved: boolean }[]): Promise<void>;
   answerQuestion(requestId: string, response: string): Promise<void>;
   cancel(): void;
@@ -155,7 +172,7 @@ export function buildJazzRunArgs(options: JazzRunOptions): string[] {
     "--no-tui",
     "--json",
     "--events",
-    "tools,reasoning,text,approval,subagent",
+    JAZZ_RUN_EVENT_CATEGORIES,
     "--interactive-stdin",
     "--input-stdin",
     "--agent",
@@ -248,6 +265,41 @@ export function parseEnvelope(stdout: string): JazzEnvelope | undefined {
 }
 
 /**
+ * A kill deadline that stops counting while the run waits on a person.
+ *
+ * Jazz extends its own `--timeout` while it is parked on an approval or a question, so a
+ * human taking five minutes to tap Approve does not use up the agent's budget. The bridge's
+ * kill timer has to do the same, or the tap lands on a process it already killed.
+ */
+export function createKillTimer(
+  onExpire: () => void,
+  budgetMs: number,
+): { pause(): void; resume(): void; stop(): void } {
+  let remainingMs = budgetMs;
+  let startedAt = Date.now();
+  let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(onExpire, remainingMs);
+  let stopped = false;
+  return {
+    pause() {
+      if (timer === undefined) return;
+      clearTimeout(timer);
+      timer = undefined;
+      remainingMs -= Date.now() - startedAt;
+    },
+    resume() {
+      if (stopped || timer !== undefined) return;
+      startedAt = Date.now();
+      timer = setTimeout(onExpire, Math.max(0, remainingMs));
+    },
+    stop() {
+      stopped = true;
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
+
+/**
  * Spawn the turn and return immediately with handles onto it.
  *
  * Returning before the run finishes is the point: an approval or a question
@@ -263,11 +315,20 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
   });
 
   let cancelled = false;
-  const timeout = setTimeout(() => child.kill(), options.runTimeoutMs + KILL_GRACE_MS);
+  let lastSpend: RunSpend | undefined;
+  const killTimer = createKillTimer(() => child.kill(), options.runTimeoutMs + KILL_GRACE_MS);
+  /** Prompts the run is parked on, by id; the kill timer is paused while any are open. */
+  const waitingOnHuman = new Set<string>();
+  const humanAnswered = (id: string): void => {
+    waitingOnHuman.delete(id);
+    if (waitingOnHuman.size === 0) killTimer.resume();
+  };
 
   const stderrTail: string[] = [];
   const stderrDone = streamLines(child.stderr, (rawLine) => {
-    if (stderrTail.length < STDERR_TAIL_LINES) stderrTail.push(rawLine);
+    // The last lines, not the first: a crash is at the end of the stream.
+    stderrTail.push(rawLine);
+    if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
     const trimmed = rawLine.trim();
     if (!trimmed.startsWith("{")) return;
     let event: JazzEvent;
@@ -278,11 +339,16 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
       return;
     }
     if (typeof event.type !== "string") return;
+    lastSpend = runSpendFromEvent(event) ?? lastSpend;
     handlers.onEvent?.(event);
     if (event.type === "approval_required" && event.toolCallId) {
+      waitingOnHuman.add(event.toolCallId);
+      killTimer.pause();
       handlers.onApprovalRequired?.(event);
     }
     if (event.type === "user_input_required" && event.requestId) {
+      waitingOnHuman.add(event.requestId);
+      killTimer.pause();
       handlers.onUserInputRequired?.(event);
     }
   });
@@ -315,14 +381,14 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
       stderrDone,
       child.exited,
     ]);
-    clearTimeout(timeout);
+    killTimer.stop();
 
     const envelope = parseEnvelope(stdout);
     if (envelope === undefined) {
       console.error(
         `Jazz produced no JSON envelope (exit ${exitCode}). stderr:\n${stderrTail.join("\n")}`,
       );
-      return { ok: false, error: "Jazz did not return a response." };
+      return { ok: false, error: "Jazz did not return a response.", ...spendFields(lastSpend) };
     }
     return envelope;
   })();
@@ -330,13 +396,17 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
   return {
     result,
     cancelled: () => cancelled,
+    lastSpend: () => lastSpend,
     approve: async (decisions) => {
       for (const { toolCallId, approved } of decisions) {
         await writeStdin({ type: "approval_decision", toolCallId, approved });
+        humanAnswered(toolCallId);
       }
     },
-    answerQuestion: (requestId, response) =>
-      writeStdin({ type: "user_input_response", requestId, response }),
+    answerQuestion: async (requestId, response) => {
+      await writeStdin({ type: "user_input_response", requestId, response });
+      humanAnswered(requestId);
+    },
     cancel: () => {
       cancelled = true;
       child.kill();

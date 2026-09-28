@@ -22,7 +22,6 @@ export interface ResolvedOtlpConfig {
    * Attached to every exported span and log record.
    */
   readonly resourceAttributes: Readonly<Record<string, string>>;
-  readonly captureContent: boolean;
   readonly timeoutMs: number;
   readonly maxQueuedBytes: number;
   readonly maxQueueAgeMs: number;
@@ -128,9 +127,8 @@ export function joinOtlpEndpoint(base: string, signalPath: string): string {
  *
  * Precedence is explicit config > environment > default, matching how the rest
  * of Jazz resolves settings. Setting only `OTEL_EXPORTER_OTLP_ENDPOINT` is
- * enough to turn export on — that is the ergonomic operators expect from an
- * OTEL-aware process — but it never turns on `captureContent`, which has to be
- * asked for deliberately.
+ * enough to turn export on, which is the ergonomic operators expect from an
+ * OTEL-aware process.
  */
 export function resolveOtlpConfig(
   config: OtlpTelemetryConfig | undefined,
@@ -239,7 +237,6 @@ export function resolveOtlpConfig(
     signalHeaders,
     serviceName,
     resourceAttributes,
-    captureContent: config?.captureContent ?? false,
     timeoutMs:
       config?.timeoutMs ??
       positiveIntegerEnv(env["OTEL_EXPORTER_OTLP_TIMEOUT"]) ??

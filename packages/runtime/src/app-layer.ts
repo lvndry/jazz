@@ -10,10 +10,17 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { createAgentServiceLayer } from "@jazz/adapters/agent-service";
 import { createConfigLayer, validateConfigFiles } from "@jazz/adapters/config";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
+import { setConversationRetentionLimit } from "@jazz/adapters/history/conversation-history-service";
 import { createJazzStateServiceLayer } from "@jazz/adapters/jazz-state";
 import { createJobQueueServiceLayer } from "@jazz/adapters/job-queue-service";
 import { createAISDKServiceLayer } from "@jazz/adapters/llm/ai-sdk-service";
-import { createLoggerLayer, flushLogs, setLogFormat, setLogLevel } from "@jazz/adapters/logger";
+import {
+  createLoggerLayer,
+  flushLogs,
+  setLogFormat,
+  setLogLevel,
+  setLogRetention,
+} from "@jazz/adapters/logger";
 import { createMCPServerManagerLayer } from "@jazz/adapters/mcp/mcp-server-manager";
 import { createMemoryServiceLayer } from "@jazz/adapters/memory-service";
 import { NotificationServiceLayer } from "@jazz/adapters/notification";
@@ -72,6 +79,8 @@ import { emitTelemetry } from "@jazz/core/utils/telemetry-emit";
 import { SchedulerServiceLayer } from "@jazz/core/workflows/scheduler-service";
 import { WorkflowsLive } from "@jazz/core/workflows/workflow-service";
 import { Cause, Duration, Effect, Exit, Fiber, Layer, Option } from "effect";
+import { reportStartupFailure } from "./startup-failure";
+import { validateAgents } from "./validate-agents";
 
 /** Config used to select terminal and presentation layers. Exported for testing. */
 export interface PresentationConfig {
@@ -257,6 +266,11 @@ export function createAppLayer(
       const level = appConfig.logging?.level ?? "info";
       setLogFormat(format);
       setLogLevel(level);
+      setLogRetention({
+        retentionDays: appConfig.logging?.retentionDays,
+        maxTotalSizeMB: appConfig.logging?.maxTotalSizeMB,
+      });
+      setConversationRetentionLimit(appConfig.history?.maxConversationsPerAgent);
     }),
   ).pipe(Layer.provide(configLayer));
 
@@ -607,6 +621,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
       ),
     ),
     Effect.scoped,
+    Effect.catchAll(reportStartupFailure),
   ) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect).finally(() => {
@@ -631,6 +646,19 @@ export async function runConfigValidation(configPath?: string): Promise<void> {
     const detail =
       exit.value.paths.length === 0 ? "No configuration files found." : exit.value.paths.join(", ");
     console.log(`Configuration is valid. ${detail}`);
+    const agents = await Effect.runPromise(validateAgents(exit.value.storageDirectory));
+    for (const warning of agents.warnings) {
+      console.error(`warning: ${warning}`);
+    }
+    if (agents.errors.length > 0) {
+      console.error(`Agents have problems (${agents.errors.length}):`);
+      for (const error of agents.errors) {
+        console.error(`  ${error}`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`Agents are valid (${agents.agentCount} checked).`);
     return;
   }
 

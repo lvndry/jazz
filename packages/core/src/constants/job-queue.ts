@@ -36,3 +36,18 @@ export const JOB_LEASE_TIMEOUT_MS = DEFAULT_JOB_TIMEOUT_MS + 2 * 60 * 1000;
 
 /** How many jobs one daemon tick claims per agent, across that agent's active batches. */
 export const WORKER_POOL_SIZE = 4;
+
+/**
+ * How long a delivered batch stays readable by `list_jobs` with its id after it leaves the
+ * active directory. Long enough for the resumed agent, or a person, to look at the results.
+ */
+export const ARCHIVED_BATCH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * A batch completed longer ago than this and still in the active directory had its resume
+ * interrupted before it could archive the batch; the periodic sweep archives it.
+ */
+export const COMPLETED_BATCH_ARCHIVE_GRACE_MS = 60 * 60 * 1000;
+
+/** How often, at most, one process sweeps for completed batches that were never archived. */
+export const COMPLETED_BATCH_SWEEP_INTERVAL_MS = 10 * 60 * 1000;

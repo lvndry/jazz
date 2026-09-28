@@ -19,6 +19,7 @@ import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
+import { apiKeyHint } from "@jazz/core/constants/provider-env-vars";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import {
@@ -798,12 +799,10 @@ export class ChatServiceImpl implements ChatService {
                   yield* terminal.error(`Authentication failed: ${error.message}`);
                   if (error.provider === "ollama") {
                     yield* terminal.log(
-                      "   Cloud models need a key from https://ollama.com/settings/keys (jazz config set llm.ollama.api_key <key>), or `ollama signin` to proxy through a local daemon.",
+                      `   Cloud models need a key from https://ollama.com/settings/keys. ${apiKeyHint("ollama")} Or run \`ollama signin\` to proxy through a local daemon.`,
                     );
                   } else {
-                    yield* terminal.log(
-                      `   Run 'jazz config set llm.${error.provider}.api_key <key>' or 'jazz wizard' to fix.`,
-                    );
+                    yield* terminal.log(`   ${apiKeyHint(error.provider)}`);
                   }
                 } else if (error instanceof GenerationInterruptedError) {
                   store.setActivity({ phase: "idle" });

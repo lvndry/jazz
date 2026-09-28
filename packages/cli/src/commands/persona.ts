@@ -144,18 +144,32 @@ export function createPersonaCommand(): Effect.Effect<
 // ─── List ────────────────────────────────────────────────────────────────────
 
 /**
- * List all personas (built-in + custom)
+ * List all personas (built-in + custom), or print them as one JSON document with `--json`.
  */
-export function listPersonasCommand(): Effect.Effect<
-  void,
-  StorageError,
-  PersonaService | TerminalService
-> {
+export function listPersonasCommand(
+  options: { readonly json?: boolean } = {},
+): Effect.Effect<void, StorageError, PersonaService | TerminalService> {
   return Effect.gen(function* () {
     const personaService = yield* PersonaServiceTag;
     const terminal = yield* TerminalServiceTag;
 
     const personas = yield* personaService.listPersonas();
+
+    if (options.json === true) {
+      const document = {
+        personas: personas.map((persona) => ({
+          id: persona.id,
+          name: persona.name,
+          description: persona.description,
+          builtin: isBuiltinPersonaId(persona.id),
+          ...(persona.tone ? { tone: persona.tone } : {}),
+          ...(persona.style ? { style: persona.style } : {}),
+          ...(persona.filePath ? { path: persona.filePath } : {}),
+        })),
+      };
+      process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
+      return;
+    }
 
     if (personas.length === 0) {
       yield* terminal.info("No personas found. Create one with: jazz persona create");

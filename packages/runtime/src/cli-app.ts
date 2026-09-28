@@ -4,6 +4,7 @@ import { formatOneShotError } from "@jazz/cli/commands/run/envelope";
 import {
   isReasoningEffortFlag,
   parseEventCategories,
+  VALID_REASONING_EFFORTS,
   resolveStreamOption,
 } from "@jazz/cli/commands/run/flags";
 import {
@@ -11,7 +12,11 @@ import {
   parsePositiveFloat,
   parsePositiveInt,
 } from "@jazz/cli/utils/option-parsers";
-import { DEFAULT_DAEMON_HOST, DEFAULT_DAEMON_PORT } from "@jazz/core/constants/daemon";
+import {
+  DEFAULT_DAEMON_HOST,
+  DEFAULT_DAEMON_LOG_LINES,
+  DEFAULT_DAEMON_PORT,
+} from "@jazz/core/constants/daemon";
 import {
   companionRole,
   isMediaModality,
@@ -94,7 +99,7 @@ async function runCliAction(
  */
 function printInterruptedEnvelope(signal: ShutdownSignal): void {
   process.stdout.write(
-    formatOneShotError("interrupted", { json: true }, 0, { code: "interrupted", signal }),
+    formatOneShotError("interrupted", { json: true }, undefined, { code: "interrupted", signal }),
   );
 }
 
@@ -119,7 +124,8 @@ function registerRunCommand(program: Command): void {
     .description(
       "Run an agent once non-interactively (for scripts/webhooks). Prompt comes from the argument or piped stdin; the answer goes to stdout, all chatter to stderr.",
     )
-    .requiredOption("--agent <agentId>", "Agent ID or name to run")
+    .usage("--agent <agentId> [options] [prompt]")
+    .requiredOption("--agent <agentId>", "Agent ID or name to run (required)")
     .option("--json", "Emit a single JSON envelope { ok, answer, costUSD, tokenUsage, toolCalls }")
     .option(
       "--approval-policy <policy>",
@@ -149,7 +155,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--max-cost-usd <dollars>",
-      "Abort the run once cumulative spend (own + sub-agent) reaches this many dollars. Checked between iterations, not preemptively — see docs/reference/configuration.md.",
+      "Abort the run once cumulative spend (own + sub-agent) reaches this many dollars. Checked between iterations, not preemptively; see docs/configure/jazz.md#run-budgets.",
       parsePositiveFloat("--max-cost-usd"),
     )
     .option(
@@ -164,11 +170,11 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--events <categories>",
-      "Emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,all). stdout stays the clean payload.",
+      "Emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,spend,all). stdout stays the clean payload.",
     )
     .option(
       "--reasoning <effort>",
-      "Reasoning effort for this run: low | medium | high | disable (overrides the agent's config)",
+      `Reasoning effort for this run: ${VALID_REASONING_EFFORTS.join(" | ")} (overrides the agent's config)`,
     )
     .option(
       "--conversation <id>",
@@ -267,7 +273,7 @@ function registerRunCommand(program: Command): void {
         }
 
         if (options.reasoning !== undefined && !isReasoningEffortFlag(options.reasoning)) {
-          const message = `Invalid --reasoning "${options.reasoning}". Expected low, medium, high, or disable.`;
+          const message = `Invalid --reasoning "${options.reasoning}". Expected one of: ${VALID_REASONING_EFFORTS.join(", ")}.`;
           if (json) {
             process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
           } else {
@@ -414,7 +420,11 @@ function registerAgentCommands(program: Command): void {
       "--can <media>",
       "Only agents whose model can generate this: image, audio, or video. Shows how to get one when none can.",
     )
-    .action((commandOptions: { can?: string }) => {
+    .option(
+      "--json",
+      "Print one JSON document, with unreadable or invalid agent files under problems",
+    )
+    .action((commandOptions: { can?: string; json?: boolean }) => {
       const requested = commandOptions.can;
       if (requested !== undefined && !isMediaModality(requested)) {
         console.error(
@@ -426,9 +436,13 @@ function registerAgentCommands(program: Command): void {
       return runCliAction(
         () =>
           import("@jazz/cli/commands/agent-management").then((mod) =>
-            mod.listAgentsCommand(requested ? { can: requested } : {}),
+            mod.listAgentsCommand({
+              ...(requested ? { can: requested } : {}),
+              json: commandOptions.json === true,
+            }),
           ),
         cliRuntimeOptions(program),
+        commandOptions.json === true ? { skipUpdateCheck: true } : {},
       );
     });
 
@@ -498,6 +512,8 @@ function registerAgentCommands(program: Command): void {
       "--ephemeral",
       "Skip Jazz conversation/session persistence: no conversation history save, no session log, and long-term memory writes are withheld. File tools and local telemetry still follow their normal configuration.",
     )
+    .option("--continue", "Continue the agent's most recent saved conversation")
+    .option("--conversation <id>", "With --continue, the saved conversation to continue")
     .action(
       (
         agentIdentifier: string,
@@ -506,6 +522,8 @@ function registerAgentCommands(program: Command): void {
           noStream?: boolean;
           maxIterations?: number;
           ephemeral?: boolean;
+          continue?: boolean;
+          conversation?: string;
         },
       ) => {
         const streamOption =
@@ -519,6 +537,10 @@ function registerAgentCommands(program: Command): void {
                   ? { maxIterations: options.maxIterations }
                   : {}),
                 ...(options.ephemeral === true ? { ephemeral: true } : {}),
+                ...(options.continue === true ? { continue: true } : {}),
+                ...(options.conversation !== undefined
+                  ? { conversation: options.conversation }
+                  : {}),
               }),
             ),
           cliRuntimeOptions(program),
@@ -1045,8 +1067,13 @@ Remote servers that need a login: run \`jazz mcp auth <name>\` after adding.
     .alias("ls")
     .description("List all configured MCP servers")
     .option("--tools", "Connect to each server and show the tools it advertises")
-    .action((options: { tools?: boolean }) =>
-      run(() => import("@jazz/cli/commands/mcp").then((mod) => mod.listMcpServersCommand(options))),
+    .option("--json", "Print one JSON document (no env values or headers)")
+    .action((options: { tools?: boolean; json?: boolean }) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/mcp").then((mod) => mod.listMcpServersCommand(options)),
+        cliRuntimeOptions(program),
+        options.json === true ? { skipUpdateCheck: true } : {},
+      ),
     );
 
   mcpCommand
@@ -1140,8 +1167,15 @@ function registerPersonaCommands(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List all personas (built-in + custom)")
-    .action(() =>
-      run(() => import("@jazz/cli/commands/persona").then((mod) => mod.listPersonasCommand())),
+    .option("--json", "Print one JSON document")
+    .action((options: { json?: boolean }) =>
+      run(
+        () =>
+          import("@jazz/cli/commands/persona").then((mod) =>
+            mod.listPersonasCommand({ json: options.json === true }),
+          ),
+        options.json === true ? { skipUpdateCheck: true } : {},
+      ),
     );
 
   personaCommand
@@ -1235,6 +1269,21 @@ function registerSkillCommands(program: Command): void {
   ): Promise<void> {
     return runCliAction(loadEffect, cliRuntimeOptions(program), options);
   }
+
+  skillCommand
+    .command("list")
+    .alias("ls")
+    .description("List the skills agents can load")
+    .option("--json", "Print one JSON document")
+    .action((options: { json?: boolean }) =>
+      run(
+        () =>
+          import("@jazz/cli/commands/skill-list").then((mod) =>
+            mod.listSkillsCommand({ json: options.json === true }),
+          ),
+        options.json === true ? { skipUpdateCheck: true } : {},
+      ),
+    );
 
   skillCommand
     .command("browse")
@@ -1648,17 +1697,6 @@ function registerDaemonCommand(program: Command): void {
 
   const attention = () => import("@jazz/cli/commands/daemon-attention");
   daemonCommand
-    .command("status")
-    .description("What the daemon is doing, what it spent today, and what is waiting for you")
-    .option("--json", "Emit a single JSON envelope")
-    .action((options: { json?: boolean }) =>
-      runCliAction(
-        () => attention().then((mod) => mod.daemonStatusCommand({ json: options.json === true })),
-        cliRuntimeOptions(program),
-        { skipUpdateCheck: options.json === true },
-      ),
-    );
-  daemonCommand
     .command("pause")
     .description(
       "Stop background work from starting (running work finishes; answering still works)",
@@ -1744,33 +1782,71 @@ function registerDaemonCommand(program: Command): void {
     });
 
   daemonCommand
+    .command("status")
+    .description(
+      "Whether the daemon is running and supervised, its last tick, work in flight, what is waiting, and recent errors. Exits 1 when it is not running.",
+    )
+    .option("--json", "Emit a single JSON envelope")
+    .action((options: { json?: boolean }) => {
+      const daemonOptions = daemonCommand.opts<{ readonly host: string; readonly port: number }>();
+      return runCliAction(
+        () =>
+          import("@jazz/cli/commands/daemon-inspect").then((mod) =>
+            mod.daemonStatusCommand({
+              host: daemonOptions.host,
+              port: daemonOptions.port,
+              json: options.json === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+        { skipUpdateCheck: options.json === true },
+      );
+    });
+
+  daemonCommand
+    .command("logs")
+    .description(
+      "Print the daemon's recent output ($JAZZ_HOME/logs/daemon.log, or the journal under systemd)",
+    )
+    .option("-f, --follow", "Keep printing new output until interrupted")
+    .option(
+      "-n, --lines <n>",
+      "How many recent lines to print",
+      parsePositiveInt("--lines"),
+      DEFAULT_DAEMON_LOG_LINES,
+    )
+    .action((options: { follow?: boolean; lines: number }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/daemon-inspect").then((mod) =>
+            mod.daemonLogsCommand({ follow: options.follow === true, lines: options.lines }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
     .command("install")
     .description(
-      "Install this as a persistent system service (systemd on Linux, launchd on macOS) so it survives reboots and closed sessions. Needs root.",
+      "Install this as a persistent system service (systemd on Linux, launchd on macOS) so goals, loops, triggers, reminders and jobs survive reboots and closed sessions. Add --serve-peers to also answer peers. Needs root.",
     )
     .option("--yes", "Skip the confirmation prompt")
     .action((options: { yes?: boolean }) => {
       // `daemon` is both a runnable command and the parent of `install`. Commander assigns
-      // duplicate option names to the parent, so defining --serve-peers/--host/--port again
-      // here makes `daemon install --serve-peers …` fail its child's required-option check.
-      // Read the parent's options instead: Commander accepts them after `install`, which keeps
-      // the documented command shape while having one owner for each option.
+      // duplicate option names to the parent, so --serve-peers/--host/--port are read from the
+      // parent: Commander accepts them after `install`, which keeps the documented command
+      // shape while having one owner for each option. Without --serve-peers the service is a
+      // plain supervised daemon that answers no peers.
       const daemonOptions = daemonCommand.opts<{
         readonly servePeers?: string | undefined;
         readonly host: string;
         readonly port: number;
       }>();
-      if (daemonOptions.servePeers === undefined) {
-        process.stderr.write("error: required option '--serve-peers <agentId>' not specified\n");
-        process.exitCode = 1;
-        return;
-      }
-      const agentId = daemonOptions.servePeers;
       return runCliAction(
         () =>
           import("@jazz/cli/commands/daemon").then((mod) =>
             mod.installDaemonServiceCommand({
-              agentId,
+              peerAgent: daemonOptions.servePeers,
               host: daemonOptions.host,
               port: daemonOptions.port,
               yes: options.yes === true,
@@ -2181,7 +2257,7 @@ function registerLoopCommand(program: Command): void {
  */
 function registerWakeTriggerCommand(program: Command): void {
   const wakeTriggerCommand = program
-    .command("wake-trigger")
+    .command("wake-trigger", { hidden: true })
     .description("Internal: commands invoked by the host scheduler for self-registered wake-ups");
 
   wakeTriggerCommand
@@ -2202,10 +2278,73 @@ function registerWakeTriggerCommand(program: Command): void {
     );
 }
 
+/**
+ * Register `jazz reminders`, `jazz triggers` and `jazz jobs`: list and cancel what agents have
+ * queued. Plural so they never collide with the singular internal commands the host scheduler
+ * and job worker invoke.
+ */
+function registerPendingWorkCommands(program: Command): void {
+  const nouns = [
+    {
+      name: "reminders",
+      description: "See and cancel the reminders agents have set for you",
+      noun: "reminder",
+      list: "listRemindersCommand",
+      cancel: "cancelReminderCommand",
+    },
+    {
+      name: "triggers",
+      description: "See and cancel the wake-ups agents have scheduled to resume a conversation",
+      noun: "wake trigger",
+      list: "listTriggersCommand",
+      cancel: "cancelTriggerCommand",
+    },
+    {
+      name: "jobs",
+      description: "See and cancel background job batches agents have started",
+      noun: "job batch",
+      list: "listJobsCommand",
+      cancel: "cancelJobBatchCommand",
+    },
+  ] as const;
+
+  for (const entry of nouns) {
+    const command = program.command(entry.name).description(entry.description);
+    command
+      .command("list")
+      .description(`List every agent's pending ${entry.noun}s, soonest first`)
+      .option("--agent <id-or-name>", "Only this agent's")
+      .option("--json", "Emit a single JSON envelope")
+      .action((options: { agent?: string; json?: boolean }) =>
+        runCliAction(
+          () =>
+            import("@jazz/cli/commands/pending").then((mod) =>
+              mod[entry.list]({ agent: options.agent, json: options.json === true }),
+            ),
+          cliRuntimeOptions(program),
+          { skipUpdateCheck: options.json === true },
+        ),
+      );
+    command
+      .command("cancel <id>")
+      .description(`Cancel a pending ${entry.noun} by the id \`list\` shows`)
+      .option("--agent <id-or-name>", "Only look in this agent's")
+      .action((id: string, options: { agent?: string }) =>
+        runCliAction(
+          () =>
+            import("@jazz/cli/commands/pending").then((mod) =>
+              mod[entry.cancel]({ id, agent: options.agent }),
+            ),
+          cliRuntimeOptions(program),
+        ),
+      );
+  }
+}
+
 /** Register `jazz job run` — internal, invoked by the detached worker `enqueue_batch` starts. */
 function registerJobCommand(program: Command): void {
   const jobCommand = program
-    .command("job")
+    .command("job", { hidden: true })
     .description("Internal: commands invoked by the background job worker");
 
   jobCommand
@@ -2230,7 +2369,7 @@ function registerJobCommand(program: Command): void {
  */
 function registerReminderCommand(program: Command): void {
   const reminderCommand = program
-    .command("reminder")
+    .command("reminder", { hidden: true })
     .description("Internal: commands invoked by the host scheduler for self-registered reminders");
 
   reminderCommand
@@ -2732,10 +2871,15 @@ function registerWorkflowCommands(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List all available workflows")
-    .action(() =>
+    .option("--json", "Print one JSON document")
+    .action((options: { json?: boolean }) =>
       runCliAction(
-        () => import("@jazz/cli/commands/workflow").then((mod) => mod.listWorkflowsCommand()),
+        () =>
+          import("@jazz/cli/commands/workflow").then((mod) =>
+            mod.listWorkflowsCommand({ json: options.json === true }),
+          ),
         cliRuntimeOptions(program),
+        options.json === true ? { skipUpdateCheck: true } : {},
       ),
     );
 
@@ -2793,7 +2937,7 @@ function registerWorkflowCommands(program: Command): void {
     )
     .option(
       "--events <categories>",
-      "With --json: emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,all). stdout stays the clean payload.",
+      "With --json: emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,spend,all). stdout stays the clean payload.",
     )
     .option(
       "--stream",
@@ -3055,9 +3199,9 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
   program
     .name("jazz")
     .description(
-      "Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)",
+      "An everyday AI assistant you can leave running: in your terminal, on a schedule, and in your chat apps",
     )
-    .version(packageJson.version);
+    .version(packageJson.version, "--version", "Print the Jazz version");
 
   program
     .option("-v, --verbose", "Enable verbose logging")
@@ -3110,6 +3254,7 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
   registerWakeTriggerCommand(program);
   registerJobCommand(program);
   registerReminderCommand(program);
+  registerPendingWorkCommands(program);
   registerPeersCommands(program);
   registerRunsCommands(program);
   registerSpendCommand(program);

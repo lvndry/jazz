@@ -3,13 +3,14 @@
  */
 
 import { parseDurationMs as parseDuration } from "@jazz/core/utils/time";
+import { InvalidArgumentError } from "commander";
 
 /**
  * Build a Commander option parser that accepts only positive integers.
  *
  * Commander passes option values as raw strings; this validates and coerces
- * them, throwing a clear error (which Commander surfaces to the user) when the
- * value is not a positive integer.
+ * them, throwing Commander's `InvalidArgumentError` when the value is not a
+ * positive integer, which Commander prints as a one-line usage error.
  *
  * @param label - The flag name used in the error message (e.g. "--timeout").
  */
@@ -18,11 +19,11 @@ export function parsePositiveInt(label: string) {
     // Reject trailing non-digits — Number.parseInt would silently accept "30s"
     // as 30, which is a dangerous footgun for flags like --timeout.
     if (!/^\d+$/.test(raw)) {
-      throw new Error(`${label} must be a positive integer (got "${raw}").`);
+      throw new InvalidArgumentError(`${label} must be a positive integer (got "${raw}").`);
     }
     const value = Number.parseInt(raw, 10);
     if (value <= 0) {
-      throw new Error(`${label} must be a positive integer (got "${raw}").`);
+      throw new InvalidArgumentError(`${label} must be a positive integer (got "${raw}").`);
     }
     return value;
   };
@@ -38,11 +39,11 @@ export function parsePositiveInt(label: string) {
 export function parsePositiveFloat(label: string) {
   return (raw: string): number => {
     if (!/^\d+(\.\d+)?$/.test(raw)) {
-      throw new Error(`${label} must be a positive number (got "${raw}").`);
+      throw new InvalidArgumentError(`${label} must be a positive number (got "${raw}").`);
     }
     const value = Number.parseFloat(raw);
     if (!(value > 0)) {
-      throw new Error(`${label} must be a positive number (got "${raw}").`);
+      throw new InvalidArgumentError(`${label} must be a positive number (got "${raw}").`);
     }
     return value;
   };
@@ -57,7 +58,9 @@ export function parseDurationMs(label: string) {
   return (raw: string): number => {
     const ms = parseDuration(raw);
     if (ms === null) {
-      throw new Error(`${label} must look like "30m", "24h", or "7d" (got "${raw}").`);
+      throw new InvalidArgumentError(
+        `${label} must look like "30m", "24h", or "7d" (got "${raw}").`,
+      );
     }
     return ms;
   };
