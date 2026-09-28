@@ -14,12 +14,14 @@ list.
 
 ## Where Jazz keeps things
 
-| Variable               | Effect                                                                                                                                                                                                            |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `JAZZ_HOME`            | Directory for config, agents, conversations, memory, logs and secrets. Defaults to `~/.jazz`. `--data-dir` wins.                                                                                                  |
-| `JAZZ_CONFIG_PATH`     | Global config file to use instead of `$JAZZ_HOME/config.json`. `~` is expanded.                                                                                                                                   |
-| `JAZZ_LOG_DIR`         | Directory for log files. Defaults to `$JAZZ_HOME/logs`.                                                                                                                                                           |
-| `JAZZ_DISABLE_KEYRING` | Any value other than empty, `0` or `false` turns off the OS keyring and the secrets-file fallback, so Jazz stores no secrets and reads keys only from the environment. Useful for CI and for isolated test homes. |
+| Variable                         | Effect                                                                                                                                                                                                            |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JAZZ_HOME`                      | Directory for config, agents, conversations, memory, logs and secrets. Defaults to `~/.jazz`. `--data-dir` wins.                                                                                                  |
+| `JAZZ_CONFIG_PATH`               | Global config file to use instead of `$JAZZ_HOME/config.json`. `~` is expanded.                                                                                                                                   |
+| `JAZZ_LOG_DIR`                   | Directory for log files. Defaults to `$JAZZ_HOME/logs`.                                                                                                                                                           |
+| `JAZZ_DISABLE_KEYRING`           | Any value other than empty, `0` or `false` turns off the OS keyring and the secrets-file fallback, so Jazz stores no secrets and reads keys only from the environment. Useful for CI and for isolated test homes. |
+| `JAZZ_CHATGPT_CREDENTIAL`        | Optional JSON ChatGPT OAuth bundle used only when Jazz has no stored ChatGPT credential. Jazz removes it from child-process environments after reading it.                                                        |
+| `JAZZ_CHATGPT_CREDENTIAL_OUTPUT` | Optional file path where Jazz writes a rotated ChatGPT OAuth bundle after refresh. The file is created with mode `0600`; use it only to persist the refreshed credential in hosted CI.                            |
 
 ## Terminal and display
 

@@ -116,6 +116,12 @@ events omit command text, tool arguments, results, and prompt/completion text. T
 record keeps a bounded argument shape; transcripts and other local records remain sensitive plaintext.
 Pending OTLP traces and logs are stored in a private, bounded outbox until delivery or expiry.
 
+The ChatGPT OAuth access and refresh tokens are registered as known secrets for tool-output
+redaction. Hosted runs can bootstrap them from `JAZZ_CHATGPT_CREDENTIAL`; Jazz removes that
+environment variable before starting child processes and stores the bundle through its normal
+private credential backend. A configured `JAZZ_CHATGPT_CREDENTIAL_OUTPUT` receives the rotated
+bundle after refresh, so only a trusted workflow should read or persist that file.
+
 ### Memory writes
 
 `manage_memory` accepts a new fact or correction only with an exact quote and source ID from a

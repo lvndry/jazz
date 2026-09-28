@@ -69,6 +69,11 @@ export const OTLP_AUTHORIZATION_PATH = "telemetry.otlp.headers.authorization";
 /** The config path holding the daemon's own bearer token. */
 export const DAEMON_TOKEN_PATH = "daemon.token";
 
+/** The serialized ChatGPT OAuth bundle, stored only in Jazz's keyring or private secrets file. */
+export const CHATGPT_CREDENTIAL_PATH = "chatgpt.oauth.credential";
+export const CHATGPT_ACCESS_TOKEN_PATH = "chatgpt.oauth.access_token";
+export const CHATGPT_REFRESH_TOKEN_PATH = "chatgpt.oauth.refresh_token";
+
 /** Environment variable that overrides the daemon token stored in the keyring. */
 export const DAEMON_TOKEN_ENV_VAR = "JAZZ_DAEMON_TOKEN";
 
@@ -186,6 +191,7 @@ export const SECRET_PATHS: readonly string[] = [
   ...Object.keys(SECRET_ENV_VARS),
   OTLP_AUTHORIZATION_PATH,
   DAEMON_TOKEN_PATH,
+  CHATGPT_CREDENTIAL_PATH,
 ];
 
 /**
@@ -199,6 +205,7 @@ export function isSecretPath(path: string): boolean {
   // The daemon's own bearer token authenticates operator HTTP calls the same way a peer or
   // webhook token authenticates theirs — it belongs in the keyring, not in plaintext config.
   if (path === DAEMON_TOKEN_PATH) return true;
+  if (path === CHATGPT_CREDENTIAL_PATH) return true;
   if (path === DAEMON_OPERATOR_TOKEN_PATH) {
     return true;
   }

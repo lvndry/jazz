@@ -240,6 +240,12 @@ Jazz resolves every secret in this order, and uses the first hit:
 
 On a shared host, prefer 1 or 2. Set `JAZZ_DISABLE_KEYRING=1` to force the file path.
 
+The `chatgpt` provider uses an OAuth bundle rather than an API key. Hosted workflows can supply
+the copied bundle in `JAZZ_CHATGPT_CREDENTIAL`; Jazz captures and removes that variable before
+starting agent child processes, then stores the credential through the normal keyring/file
+backend. When `JAZZ_CHATGPT_CREDENTIAL_OUTPUT` is configured, a successful refresh writes the
+rotated bundle to that path with mode `0600` so the workflow can persist it.
+
 Secrets resolved from the environment or the keyring are never written back into the config
 file. To check what is on disk:
 

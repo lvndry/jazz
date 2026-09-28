@@ -1,5 +1,5 @@
 /**
- * Secrets the person types for one run: a PDF password, a one-time token, a passphrase.
+ * Secrets held in memory for redaction: values typed for one run and credentials adapters load.
  *
  * The value lives only in this process's memory, in the store of the run that asked for it,
  * and is wiped when that run ends. The model only ever sees `[redacted:<name>]`; the registry
@@ -11,6 +11,7 @@
  */
 
 import type { KnownSecret } from "@/core/secrets/redaction";
+import { runtimeSecretsForRedaction } from "@/core/secrets/runtime-secrets";
 import { PLACEHOLDER_PREFIX, redactionPlaceholder } from "@/core/secrets/secret-names";
 
 /** A short kebab-case label: `pdf-password`, `vpn-token`. */
@@ -81,14 +82,17 @@ export function closeUserSecretStore(store: UserSecretStore): void {
 }
 
 /**
- * Every value held by an open store in this process, longest first so a value containing
- * another is replaced whole. Empty when no run holds a typed secret.
+ * Every active typed secret and registered runtime credential in this process, longest first so
+ * a value containing another is replaced whole.
  */
 export function heldUserSecrets(): KnownSecret[] {
-  if (openStores.size === 0) {
+  if (openStores.size === 0 && runtimeSecretsForRedaction().length === 0) {
     return [];
   }
   const byValue = new Map<string, KnownSecret>();
+  for (const secret of runtimeSecretsForRedaction()) {
+    if (!byValue.has(secret.value)) byValue.set(secret.value, secret);
+  }
   for (const store of openStores) {
     for (const secret of store.knownSecrets()) {
       if (!byValue.has(secret.value)) {
