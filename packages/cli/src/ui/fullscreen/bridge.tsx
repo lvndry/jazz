@@ -87,6 +87,7 @@ import type { FilePickerModel } from "./overlays/FilePicker";
 import { MAX_QUICK_PICK } from "./overlays/Question";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
+import { RETRY_BAND_ROWS, retryBand } from "./retry-band";
 import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
 import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
@@ -758,6 +759,9 @@ export function blocksFrom(
       entry.meta?.["toolStart"] === true ||
       entry.meta?.["agentHeader"] === true ||
       entry.meta?.["approvalEcho"] === true ||
+      // The live zone draws a scheduled retry as a band with a countdown; this line is
+      // the same notice for the classic interface.
+      entry.meta?.["retryNotice"] === true ||
       // Reasoning that returned no text collapses to a bare duration line; there
       // is no thought to show, and the turn receipt already carries the time.
       entry.meta?.["collapsedRegion"] === "reasoning"
@@ -1386,9 +1390,11 @@ export function FullscreenBridge(): React.ReactNode {
   }
   const todoList = freshTodoList ?? lastTodoListRef.current;
   const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
+  const retryNotice = runActive ? session.retryNotice : null;
   const neededRows = Math.min(
     LIVE_ZONE_MAX_ROWS,
     tools.length +
+      (retryNotice === null ? 0 : RETRY_BAND_ROWS) +
       (waitingNow ? 1 : 0) +
       (step === undefined ? 0 : 1) +
       (todoList.length > 0 ? 1 + Math.min(todoList.length, TODO_WINDOW_ROWS) : 0),
@@ -2851,8 +2857,10 @@ export function FullscreenBridge(): React.ReactNode {
       ...(elapsedMs === undefined ? {} : { elapsedMs }),
       reservedRows,
       ...(reasoningElapsedMs === undefined ? {} : { reasoningElapsedMs }),
+      // Recomputed on the once-a-second clock below, which is what moves the countdown.
+      ...(retryNotice === null ? {} : { retry: retryBand(retryNotice, Date.now()) }),
     };
-  }, [tools, step, todoList, waitingNow, elapsedMs, reservedRows, regions]);
+  }, [tools, step, todoList, waitingNow, elapsedMs, reservedRows, regions, retryNotice]);
 
   const view = useMemo<ViewModel>(
     () => ({

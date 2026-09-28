@@ -6,12 +6,14 @@
  */
 
 import { resolveEffectiveContextWindow } from "@jazz/core/agent/context/effective-context-window";
+import { retryNoticeText } from "@jazz/core/agent/execution/llm-retry-present";
 import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
   NotificationServiceTag,
   type NotificationService,
 } from "@jazz/core/interfaces/notification";
+import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
 import type {
   EphemeralRegionCollapse,
   EphemeralRegionKind,
@@ -24,7 +26,7 @@ import type {
   UserInputOutcome,
   UserInputRequest,
 } from "@jazz/core/interfaces/presentation";
-import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
+import type { LlmRetryNotice } from "@jazz/core/interfaces/presentation";
 import { ink } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type { DisplayConfig } from "@jazz/core/types/output";
@@ -579,6 +581,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
         InkStreamingRenderer.COLLAPSE_REASONING_BEFORE.has(event.type)
       ) {
         this.collapseReasoningRegion();
+      }
+
+      // Anything the model sends after a retry means the retry went through. A new
+      // attempt opening (stream_start) does not: it may fail and be retried again.
+      if (event.type !== "stream_start") {
+        store.setRetryNotice(null);
       }
 
       if (event.type === "stream_start") {
@@ -1254,6 +1262,20 @@ export class InkPresentationService implements PresentationService {
   writeBlankLine(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       store.printOutput({ type: "log", message: "", timestamp: new Date() });
+    });
+  }
+
+  presentRetry(notice: LlmRetryNotice): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.setRetryNotice({ ...notice, retryAt: Date.now() + notice.retryInMs });
+      // The classic interface has no retry band; it keeps the one-line notice. The
+      // fullscreen transcript skips this line and draws the band from the store instead.
+      store.printOutput({
+        type: "info",
+        message: `${chalk.cyan(getGlyphs().pending)} ${retryNoticeText(notice)}`,
+        timestamp: new Date(),
+        meta: { retryNotice: true },
+      });
     });
   }
 

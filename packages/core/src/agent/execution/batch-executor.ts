@@ -112,6 +112,7 @@ export function executeWithoutStreaming(
             agent.name,
             showAgentStatus,
             retryAttemptRef,
+            presentationService.presentRetry,
           );
 
           const completion = yield* Effect.retry(

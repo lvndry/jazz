@@ -1481,6 +1481,7 @@ describe("fullscreen bridge", () => {
           { label: "Casa do Jazz", value: "casa" },
           { label: "The Blue Room", value: "blue" },
         ],
+        allowCustom: true,
       }),
     );
     await rendered.flush();
@@ -1496,6 +1497,7 @@ describe("fullscreen bridge", () => {
           { label: "Yes, move it", value: "yes" },
           { label: "No, keep Thursday", value: "no" },
         ],
+        allowCustom: true,
       }),
     );
     await rendered.flush();

@@ -1797,3 +1797,45 @@ describe("InkPresentationService sub-agent collapse line", () => {
     expect(entryText(summary!)).not.toContain("$");
   });
 });
+
+describe("model retries", () => {
+  afterEach(() => {
+    store.setRetryNotice(null);
+  });
+
+  test("a scheduled retry is state with a real deadline, and the model's next words clear it", () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const before = Date.now();
+    Effect.runSync(
+      service.presentRetry({
+        agentName: "sol",
+        provider: "openai",
+        reason: "rate limit",
+        detail: "Too Many Requests",
+        statusCode: 429,
+        attempt: 1,
+        maxAttempts: 5,
+        retryInMs: 8_000,
+      }),
+    );
+    const notice = store.getSessionSnapshot().retryNotice;
+    expect(notice?.attempt).toBe(1);
+    expect(notice?.retryAt).toBeGreaterThanOrEqual(before + 8_000);
+
+    const renderer = new InkStreamingRenderer(
+      "sol",
+      false,
+      { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+      { textBufferMs: 0 },
+      0,
+    );
+    // A new attempt opening is not an answer: it may fail and be retried again.
+    Effect.runSync(
+      renderer.handleEvent({ type: "stream_start", provider: "openai", model: "m", timestamp: 0 }),
+    );
+    expect(store.getSessionSnapshot().retryNotice).not.toBeNull();
+
+    Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+    expect(store.getSessionSnapshot().retryNotice).toBeNull();
+  });
+});

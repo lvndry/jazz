@@ -24,6 +24,7 @@ import type { ApprovalCommand, ApprovalDiff } from "./approval-intent";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
+import type { RetryBand } from "./retry-band";
 
 /**
  * Once the content column is at least this wide, leftover columns become a
@@ -223,6 +224,8 @@ export interface LiveModel {
    * a pure function of the model, so a frame is still reproducible from data.
    */
   readonly reservedRows: number;
+  /** A model call waiting to be tried again. Takes the band's top rows while it lasts. */
+  readonly retry?: RetryBand;
 }
 
 // ─── Sub-agents ──────────────────────────────────────────────────────────────

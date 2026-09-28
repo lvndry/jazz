@@ -4,6 +4,7 @@
  * ephemeral, subagents) so a change in one slice doesn't re-render unrelated islands.
  */
 
+import type { LlmRetryNotice } from "@jazz/core/interfaces/presentation";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
 import { useSyncExternalStore } from "react";
@@ -219,6 +220,13 @@ export interface SessionSnapshot {
   readonly approvalRequest: PendingApproval | null;
   readonly activeMenu: ActiveMenu | null;
   readonly modeToast: string | null;
+  /** A model call that failed and is scheduled to be tried again. Cleared once the model answers. */
+  readonly retryNotice: RetryNotice | null;
+}
+
+/** A scheduled retry, with the wall-clock time it will be sent so a countdown stays true. */
+export interface RetryNotice extends LlmRetryNotice {
+  readonly retryAt: number;
 }
 
 export interface PromptSnapshot {
@@ -256,6 +264,7 @@ const INITIAL_SESSION: SessionSnapshot = {
   approvalRequest: null,
   activeMenu: null,
   modeToast: null,
+  retryNotice: null,
 };
 
 const INITIAL_PROMPT: PromptSnapshot = {
@@ -1006,6 +1015,13 @@ export class UIStore {
 
   setApprovalRequest = (request: PendingApproval | null): void => {
     patchSlice(this.session, { approvalRequest: request });
+  };
+
+  setRetryNotice = (notice: RetryNotice | null): void => {
+    if (notice === null && this.session.getSnapshot().retryNotice === null) {
+      return;
+    }
+    patchSlice(this.session, { retryNotice: notice });
   };
 
   getApprovalRequestSnapshot(): PendingApproval | null {
