@@ -20,6 +20,9 @@ import type { MCPServerConfig, MCPServerDefinitionSource } from "@jazz/core/inte
 import { collectKnownSecrets, type KnownSecret } from "@jazz/core/secrets/redaction";
 import {
   SECRET_PATHS,
+  CHATGPT_CREDENTIAL_PATH,
+  CHATGPT_ACCESS_TOKEN_PATH,
+  CHATGPT_REFRESH_TOKEN_PATH,
   heldSecretPaths,
   isSecretPath,
   mcpServerSecretPath,
@@ -892,7 +895,26 @@ export function resolveHeldSecrets(
       }),
       { concurrency: "unbounded" },
     );
-    return found.flatMap(([name, value]) => (nonEmptyString(value) ? [{ name, value }] : []));
+    return found.flatMap(([name, value]) => {
+      if (!nonEmptyString(value)) return [];
+      if (name !== CHATGPT_CREDENTIAL_PATH) return [{ name, value }];
+      try {
+        const credential: unknown = JSON.parse(value);
+        if (credential === null || typeof credential !== "object") return [{ name, value }];
+        const record = credential as Record<string, unknown>;
+        return [
+          { name, value },
+          ...(typeof record["access"] === "string"
+            ? [{ name: CHATGPT_ACCESS_TOKEN_PATH, value: record["access"] }]
+            : []),
+          ...(typeof record["refresh"] === "string"
+            ? [{ name: CHATGPT_REFRESH_TOKEN_PATH, value: record["refresh"] }]
+            : []),
+        ];
+      } catch {
+        return [{ name, value }];
+      }
+    });
   });
 }
 
