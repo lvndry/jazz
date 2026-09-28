@@ -12,7 +12,7 @@
  * this repo's suite (colour off) cannot do.
  */
 
-import { TextAttributes, type CapturedSpan } from "@opentui/core";
+import { RGBA, TextAttributes, type CapturedSpan } from "@opentui/core";
 import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
 import { renderForTest } from "./test-helpers";
@@ -290,11 +290,9 @@ describe("the measure", () => {
     }
   });
 
-  it("widens running prose with the terminal instead of leaving a dead band", () => {
-    const widths = [80, 120, 200] as const;
-    const proseWidths: number[] = [];
-    for (const width of widths) {
-      const expected = measureFor(width).prose;
+  it("caps running prose at the measure however wide the terminal grows", () => {
+    for (const width of [80, 120, 200] as const) {
+      const expected = Math.min(PROSE_MEASURE, measureFor(width).prose);
       const rows = transcriptRows(SESSION, { width, height: 34 });
       const prose = rows.filter(
         (row) =>
@@ -306,11 +304,19 @@ describe("the measure", () => {
         const used = row.content.reduce((total, segment) => total + [...segment.text].length, 0);
         expect(used).toBeLessThanOrEqual(row.contentWidth);
       }
-      proseWidths.push(expected);
     }
-    expect(proseWidths[0]).toBeLessThan(PROSE_MEASURE);
-    expect(proseWidths[1]).toBeGreaterThan(PROSE_MEASURE);
-    expect(proseWidths[2]).toBeGreaterThan(proseWidths[1] ?? 0);
+    expect(measureFor(80).prose).toBeLessThan(PROSE_MEASURE);
+  });
+
+  it("wraps a long paragraph at the measure on a wide terminal", async () => {
+    const paragraph = Array.from({ length: 60 }, (_, index) => `word${String(index)}`).join(" ");
+    const blocks: readonly Block[] = [{ id: "a", seq: 1, kind: "agent", markdown: paragraph }];
+    const { rows } = await render(transcript(blocks, WIDE), WIDE);
+    const widest = Math.max(
+      ...rows.filter((row) => row.includes("word")).map((row) => row.trimEnd().length),
+    );
+    expect(widest).toBeLessThanOrEqual(2 + PROSE_MEASURE);
+    expect(widest).toBeGreaterThan(PROSE_MEASURE - 12);
   });
 
   it("gives tables and expanded output the full width instead", () => {
@@ -326,13 +332,48 @@ describe("the measure", () => {
     }
   });
 
-  it("separates logical table rows with a blank row", () => {
+  it("sets a single hairline under the header and keeps one-line body rows tight", () => {
     const rows = transcriptRows(SESSION, WIDE);
-    const first = rows.findIndex((row) => row.key.includes(":table:0:0"));
-    const second = rows.findIndex((row) => row.key.includes(":table:1:0"));
-    expect(first).toBeGreaterThanOrEqual(0);
-    expect(second).toBe(first + 2);
-    expect(rows[first + 1]?.content).toEqual([]);
+    const header = rows.findIndex((row) => row.key.includes(":table:0:0"));
+    const rule = rows[header + 1];
+    expect(rule?.key).toContain(":table:rule");
+    const ruleText = rule?.content.map((segment) => segment.text).join("") ?? "";
+    expect(new Set([...ruleText])).toEqual(new Set([getGlyphs().divider]));
+    expect(rule?.content[0]?.fg).toBe(THEME.border);
+    const bodyKeys = rows
+      .map((row) => row.key)
+      .filter((key) => /:table:\d+:\d+$/.test(key) && !key.includes(":table:0:"));
+    const firstBody = rows.findIndex((row) => row.key === bodyKeys[0]);
+    expect(firstBody).toBe(header + 2);
+    expect(rows.some((row) => row.key.endsWith(":gap") && row.key.includes(":table:"))).toBe(false);
+  });
+
+  it("separates records with a blank row only once a body cell wraps", () => {
+    const long = Array.from({ length: 40 }, () => "words").join(" ");
+    const markdown = ["| a | b |", "| --- | --- |", `| one | ${long} |`, "| two | short |"].join(
+      "\n",
+    );
+    const rows = transcriptRows([{ id: "t", seq: 1, kind: "agent", markdown }], NARROW);
+    expect(rows.some((row) => row.key.endsWith(":table:1:gap"))).toBe(true);
+  });
+
+  it("renders inline markdown inside table cells", () => {
+    const markdown = [
+      "| Package | Role |",
+      "| --- | --- |",
+      "| `@jazz/core` | **agent** loop |",
+    ].join("\n");
+    const rows = transcriptRows([{ id: "t", seq: 1, kind: "agent", markdown }], WIDE);
+    const body = rows.find((row) => row.key.includes(":table:1:0"));
+    const text = body?.content.map((segment) => segment.text).join("") ?? "";
+    expect(text).not.toContain("`");
+    expect(text).not.toContain("**");
+    expect(body?.content.find((segment) => segment.text === "@jazz/core")?.fg).toBe(
+      THEME.syntaxValue,
+    );
+    expect(body?.content.find((segment) => segment.text.includes("agent"))?.bold).toBe(true);
+    const header = rows.find((row) => row.key.includes(":table:0:0"));
+    expect(header?.content.find((segment) => segment.text === "Package")?.bold).toBe(true);
   });
 
   it("keeps every cell that fits the content measure", () => {
@@ -439,17 +480,17 @@ describe("the measure", () => {
    * was unused page, not a reading measure; prose and tables take the surplus
    * so metadata stays on the same row as the sentence it annotates.
    */
-  it("uses the full terminal width, so nothing is stranded on a huge terminal", async () => {
+  it("keeps the frame edge clear and the timestamp beside the measure on a huge terminal", async () => {
     const wide: Viewport = { width: 200, height: 34 };
     const { rows } = await render(transcript(SESSION, wide), wide);
-    const measure = measureFor(wide.width);
     for (const row of rows) {
       expect([...row]).toHaveLength(200);
       expect(row.slice(wide.width - 2)).toBe("  ");
     }
-    expect(rows.some((row) => row.trimEnd().length > 120)).toBe(true);
     const stamped = rows.find((line) => line.includes("14:32")) ?? "";
-    expect(stamped.indexOf("14:32")).toBeGreaterThan(measure.prose);
+    const stampEnd = stamped.indexOf("14:32") + "14:32".length;
+    expect(stamped.indexOf("14:32")).toBeGreaterThan(2 + PROSE_MEASURE);
+    expect(stampEnd).toBeLessThanOrEqual(2 + PROSE_MEASURE + measureFor(wide.width).metadata);
   });
 
   it("puts the timestamp in the metadata column, not in the sentence", async () => {
@@ -648,8 +689,8 @@ describe("colour is state, not speaker", () => {
 
     expect(colorOf(spans, "Four things need you")).toBe(THEME.selected.toUpperCase());
     expect(colorOf(spans, "gmail")).toBe(THEME.muted.toUpperCase());
-    // The user's own marker is the one speaker-coloured cell; the rail is not.
-    expect(colorOf(spans, getGlyphs().promptCursor)).toBe(THEME.primary.toUpperCase());
+    // The user's panel bar is the one speaker-coloured cell; the rail is not.
+    expect(colorOf(spans, getGlyphs().panelBar)).toBe(THEME.primary.toUpperCase());
 
     const rows = transcriptRows(SESSION, WIDE);
     const continuation = rows.find(
@@ -658,17 +699,36 @@ describe("colour is state, not speaker", () => {
     expect(continuation?.gutter[0]?.fg).toBe(THEME.border);
   });
 
-  it("fills every wrapped user-message row with a full-width band", () => {
-    const message =
-      "user should not have to approve memories because a long request needs a clear boundary too";
-    const rows = transcriptRows([{ id: "u", seq: 1, kind: "user", text: message }], NARROW).filter(
-      (row) => row.key.startsWith("u:"),
-    );
+  it("sets a user message on a panel exactly one measure wide, padded above and below", async () => {
+    const message = Array.from({ length: 40 }, (_, index) => `request${String(index)}`).join(" ");
+    const blocks: readonly Block[] = [{ id: "u", seq: 1, kind: "user", text: message }];
+    const rows = transcriptRows(blocks, WIDE).filter((row) => row.key.startsWith("u:"));
 
-    expect(rows.length).toBeGreaterThan(1);
-    expect(rows.every((row) => row.backgroundColor === THEME.surfaceStrong)).toBe(true);
-    expect(rows[0]?.gutter[0]?.text).toBe(getGlyphs().promptCursor);
-    expect(rows[1]?.gutter[0]?.text).toBe(" ");
+    expect(rows.length).toBeGreaterThan(3);
+    expect(rows[0]?.content).toEqual([]);
+    expect(rows[rows.length - 1]?.content).toEqual([]);
+    for (const row of rows) {
+      expect(row.backgroundColor).toBe(THEME.surface);
+      expect(row.gutter[0]).toEqual({ text: getGlyphs().panelBar, fg: THEME.primary });
+    }
+    expect(rows.some((row) => row.gutter[0]?.text === getGlyphs().promptCursor)).toBe(false);
+
+    const { renderer, renderOnce, captureSpans } = await renderForTest(transcript(blocks, WIDE), {
+      width: WIDE.width,
+      height: WIDE.height,
+    });
+    await renderOnce();
+    const panel = RGBA.fromHex(THEME.surface).toInts().slice(0, 3).join(",");
+    const bandWidths = captureSpans()
+      .lines.map((line) =>
+        line.spans
+          .filter((span) => span.bg.toInts().slice(0, 3).join(",") === panel)
+          .reduce((total, span) => total + span.width, 0),
+      )
+      .filter((width) => width > 0);
+    renderer.destroy();
+    expect(bandWidths.length).toBe(rows.length);
+    expect(new Set(bandWidths)).toEqual(new Set([2 + PROSE_MEASURE]));
   });
 
   it("puts the accent on a streaming rail and takes it away once settled", async () => {
@@ -763,7 +823,9 @@ describe("parenthesis ordered lists", () => {
 
     const items = parseProse(markdown);
     const texts = items.flatMap((item) => {
-      if (item.kind === "text") return [item.segments.map((segment) => segment.text).join("")];
+      if (item.kind === "text") {
+        return [[item.marker, ...item.segments].map((segment) => segment?.text ?? "").join("")];
+      }
       return [];
     });
     expect(texts.some((text) => text.includes("low downside") && text.includes("1)"))).toBe(false);
@@ -786,7 +848,9 @@ describe("parenthesis ordered lists", () => {
     ].join("\n");
     const items = parseProse(markdown);
     const texts = items.flatMap((item) => {
-      if (item.kind === "text") return [item.segments.map((segment) => segment.text).join("")];
+      if (item.kind === "text") {
+        return [[item.marker, ...item.segments].map((segment) => segment?.text ?? "").join("")];
+      }
       return [];
     });
     expect(texts).toHaveLength(2);
@@ -795,15 +859,15 @@ describe("parenthesis ordered lists", () => {
     expect(texts[1]).toContain("4)");
   });
 
-  it("still turns 1. into a bullet", () => {
-    const items = parseProse("Heading\n1. Cloves");
+  it("keeps the numbers of a 1. list", () => {
+    const items = parseProse("Heading\n1. Cloves\n2. Garlic");
     const texts = items.flatMap((item) => {
-      if (item.kind === "text") return [item.segments.map((segment) => segment.text).join("")];
+      if (item.kind === "text") {
+        return [[item.marker, ...item.segments].map((segment) => segment?.text ?? "").join("")];
+      }
       return [];
     });
-    expect(texts).toHaveLength(2);
-    expect(texts[1]).toContain(getGlyphs().bullet);
-    expect(texts[1]).not.toContain("1.");
+    expect(texts).toEqual(["Heading", "1. Cloves", "2. Garlic"]);
   });
 });
 
@@ -1192,7 +1256,200 @@ describe("transcript links", () => {
       THEME.secondary,
     );
     const label = segments.find((segment) => segment.text === "the guide");
-    expect(label).toMatchObject({ fg: THEME.link, link: "https://example.com/guide" });
+    expect(label).toMatchObject({
+      fg: THEME.link,
+      underline: true,
+      link: "https://example.com/guide",
+    });
     expect(segments.filter((segment) => segment.link !== undefined)).toHaveLength(1);
+  });
+
+  it("turns a bare URL into an underlined link without swallowing punctuation", () => {
+    const segments = inlineSegments(
+      "install from https://example.com/install.sh. Or (see https://example.com/docs) or <https://example.com/a>",
+      THEME.selected,
+    );
+    const links = segments.filter((segment) => segment.link !== undefined);
+    expect(links.map((segment) => segment.link)).toEqual([
+      "https://example.com/install.sh",
+      "https://example.com/docs",
+      "https://example.com/a",
+    ]);
+    for (const link of links) {
+      expect(link).toMatchObject({ fg: THEME.link, underline: true, text: link.link });
+    }
+    const plain = segments
+      .filter((segment) => segment.link === undefined)
+      .map((segment) => segment.text)
+      .join("");
+    expect(plain).toContain(". Or (see ");
+    expect(plain).toContain(") or ");
+    expect(plain).not.toContain("<");
+  });
+
+  it("leaves a URL inside a code span as code", () => {
+    const segments = inlineSegments("run `curl https://example.com`", THEME.selected);
+    expect(segments.some((segment) => segment.link !== undefined)).toBe(false);
+  });
+});
+
+function contentText(row: RenderRow | undefined): string {
+  return row?.content.map((segment) => segment.text).join("") ?? "";
+}
+
+function agent(markdown: string): readonly Block[] {
+  return [{ id: "a", seq: 1, kind: "agent", markdown }];
+}
+
+describe("headings", () => {
+  it("sets a heading as weight alone, with no glyph beside the speaker marker", () => {
+    const rows = transcriptRows(agent("# Jazz\n\nAn agent harness."), WIDE);
+    const heading = rows.find((row) => contentText(row).includes("Jazz"));
+    expect(contentText(heading)).toBe("Jazz");
+    expect(heading?.gutter[0]?.text).toBe(getGlyphs().diamond);
+    expect(heading?.content.every((segment) => segment.bold === true)).toBe(true);
+    expect(heading?.content[0]?.underline).toBe(true);
+    for (const glyph of [getGlyphs().heading1, getGlyphs().heading2, getGlyphs().rail]) {
+      expect(contentText(heading)).not.toContain(glyph);
+    }
+  });
+
+  it("ranks levels by weight and underline, never by hue", () => {
+    const rows = transcriptRows(agent("# One\n\n## Two\n\n### Three"), WIDE);
+    const style = (text: string): RenderRow["content"][number] | undefined =>
+      rows.find((row) => contentText(row) === text)?.content[0];
+    expect(style("One")).toMatchObject({ bold: true, underline: true, fg: THEME.selected });
+    expect(style("Two")?.underline).toBeUndefined();
+    expect(style("Two")).toMatchObject({ bold: true, fg: THEME.selected });
+    expect(style("Three")).toMatchObject({ bold: true, fg: THEME.secondary });
+    const hues = new Set(
+      [style("One"), style("Two"), style("Three")].map((segment) => segment?.fg),
+    );
+    for (const hue of hues) {
+      expect([THEME.selected, THEME.secondary]).toContain(hue ?? "");
+    }
+  });
+
+  it("opens a mid-answer heading with one breathing row, and none at the start", () => {
+    const rows = transcriptRows(agent("## Start\nIntro line.\n## Next\nMore."), WIDE).filter(
+      (row) => row.key.startsWith("a:"),
+    );
+    expect(contentText(rows[0])).toBe("Start");
+    const next = rows.findIndex((row) => contentText(row) === "Next");
+    expect(rows[next - 1]?.content).toEqual([]);
+    expect(rows[next - 2]?.content).not.toEqual([]);
+  });
+});
+
+describe("lists", () => {
+  const long = Array.from({ length: 30 }, (_, index) => `item${String(index)}`).join(" ");
+
+  it("hangs wrapped rows under the text, not under the marker", () => {
+    for (const markdown of [`- ${long}`, `1. ${long}`, `  - ${long}`, `10) ${long}`]) {
+      const rows = transcriptRows(agent(markdown), NARROW).filter((row) =>
+        row.key.startsWith("a:"),
+      );
+      expect(rows.length).toBeGreaterThan(1);
+      const first = contentText(rows[0]);
+      const textStart = first.indexOf("item0");
+      for (const row of rows.slice(1)) {
+        const text = contentText(row);
+        expect(text.length - text.trimStart().length).toBe(textStart);
+      }
+    }
+  });
+
+  it("keeps ordered numbers and marks bullets with the muted glyph", () => {
+    const rows = transcriptRows(agent("1. first\n2. second\n- loose"), WIDE);
+    const texts = rows.map(contentText);
+    expect(texts.some((text) => text.trim() === "1. first")).toBe(true);
+    expect(texts.some((text) => text.trim() === "2. second")).toBe(true);
+    const bullet = rows.find((row) => contentText(row).includes("loose"));
+    expect(bullet?.content.find((segment) => segment.text.startsWith(getGlyphs().bullet))?.fg).toBe(
+      THEME.muted,
+    );
+  });
+
+  it("joins a lazy continuation line into its item", () => {
+    const items = parseProse("- first half\n  second half\n- next");
+    const texts = items.flatMap((item) =>
+      item.kind === "text" ? [item.segments.map((segment) => segment.text).join("")] : [],
+    );
+    expect(texts).toEqual(["first half second half", "next"]);
+  });
+
+  it("nests by two cells a level and still hangs", () => {
+    const rows = transcriptRows(agent(`- top\n  - ${long}`), NARROW);
+    const top = rows.find((row) => contentText(row).includes("top"));
+    const nested = rows.findIndex((row) => contentText(row).includes("item0"));
+    expect(contentText(rows[nested]).indexOf(getGlyphs().bullet)).toBe(
+      contentText(top).indexOf(getGlyphs().bullet) + 2,
+    );
+    const hang = contentText(rows[nested]).indexOf("item0");
+    const wrapped = contentText(rows[nested + 1]);
+    expect(wrapped.length - wrapped.trimStart().length).toBe(hang);
+  });
+});
+
+describe("code fences", () => {
+  const markdown =
+    "Install it:\n\n```bash\ncurl -fsSL https://example.com/install.sh | bash\njazz\n```\n\nDone.";
+
+  it("paints a band with padding rows and the language flush right on the top row", () => {
+    const rows = transcriptRows(agent(markdown), WIDE).filter((row) => row.key.startsWith("a:"));
+    const band = rows.filter((row) => row.backgroundColor !== undefined);
+    expect(band).toHaveLength(4);
+    for (const row of band) {
+      expect(row.backgroundColor).toBe(THEME.surfaceStrong);
+      expect(row.bandIncludesGutter).toBe(true);
+      expect(row.contentWidth).toBe(PROSE_MEASURE);
+    }
+    const top = band[0];
+    expect(contentText(top).trimStart()).toBe("bash");
+    expect(contentText(top).length).toBe(PROSE_MEASURE - 1);
+    expect(top?.content[top.content.length - 1]?.fg).toBe(THEME.muted);
+    expect(band[band.length - 1]?.content).toEqual([]);
+    expect(contentText(band[1]).startsWith("curl")).toBe(true);
+  });
+
+  it("sets the band off with one breathing row on each side", () => {
+    const rows = transcriptRows(agent(markdown), WIDE).filter((row) => row.key.startsWith("a:"));
+    const first = rows.findIndex((row) => row.backgroundColor !== undefined);
+    const last = rows.findLastIndex((row) => row.backgroundColor !== undefined);
+    expect(rows[first - 1]?.content).toEqual([]);
+    expect(rows[first - 2]?.content).not.toEqual([]);
+    expect(rows[last + 1]?.content).toEqual([]);
+    expect(contentText(rows[last + 2])).toBe("Done.");
+  });
+
+  it("grows past the measure only for a line that needs it", () => {
+    const wide = "x".repeat(PROSE_MEASURE + 10);
+    const rows = transcriptRows(agent(`\`\`\`\n${wide}\n\`\`\``), WIDE);
+    const band = rows.filter((row) => row.backgroundColor !== undefined);
+    expect(band[0]?.contentWidth).toBe(PROSE_MEASURE + 11);
+  });
+
+  it("does not colour a URL in a shell fence as a comment", () => {
+    const rows = transcriptRows(agent(markdown), WIDE);
+    const curl = rows.find((row) => contentText(row).startsWith("curl"));
+    expect(curl?.content.some((segment) => segment.fg === THEME.muted)).toBe(false);
+  });
+});
+
+describe("metadata alignment", () => {
+  it("ends a reasoning duration on the same column as a user timestamp", async () => {
+    const blocks: readonly Block[] = [
+      { id: "u", seq: 1, kind: "user", text: "hello", at: "14:32" },
+      { id: "r", seq: 2, kind: "reasoning", text: "thinking", collapsed: true, durationMs: 4_100 },
+      { id: "a", seq: 3, kind: "agent", markdown: "Hi." },
+    ];
+    const { rows } = await render(transcript(blocks, WIDE), WIDE);
+    const stamp = rows.find((row) => row.includes("14:32")) ?? "";
+    const duration = rows.find((row) => row.includes("4.1s")) ?? "";
+    expect(stamp.indexOf("14:32") + 5).toBe(duration.indexOf("4.1s") + 4);
+    expect(duration.indexOf("4.1s")).toBeGreaterThan(2 + PROSE_MEASURE);
+    expect(duration.indexOf("4.1s") + 4).toBeLessThanOrEqual(
+      2 + PROSE_MEASURE + measureFor(WIDE.width).metadata,
+    );
   });
 });

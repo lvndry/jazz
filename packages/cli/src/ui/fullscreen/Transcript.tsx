@@ -5,13 +5,12 @@
  *
  * Two decisions carry the whole design.
  *
- * The first is the measure. `measureFor` gives running prose the content
- * column (viewport minus rail and right margin) and keeps a short flush-right
- * strip for timestamps, so a sentence and its metadata never collide and the
- * eye always returns to the same left edge. Tool output, tables and code
- * fences take the full content width — those are scanned, not read, and a
- * table squeezed to the prose measure is worse than a table that reaches the
- * frame.
+ * The first is the measure. Running prose stops at `PROSE_MEASURE` however
+ * wide the window is, with a short metadata strip directly beside it for
+ * timestamps, so a sentence and its metadata never collide and the eye always
+ * returns to the same left edge. Tool output, tables and code fences may take
+ * the full content width — those are scanned, not read, and a table squeezed
+ * to the prose measure is worse than a table that reaches the frame.
  *
  * The second is density. The first draft of this layout measured 32% ink and
  * read as "very busy"; the target is ≤22% ink with ≥40% breathing rows. That is
@@ -25,7 +24,7 @@
  *   col 0        rail, or the turn marker on a block's first row
  *   col 1        lane tag — a delegated lane gets a column, never an indent
  *   col 2..      content, `prose` wide for reading or `content` wide for scanning
- *   flush right  metadata, ending two columns short of the page (see `pageWidth`)
+ *   beside       metadata, right-aligned in the strip that follows the prose measure
  *
  * Rows are pre-wrapped here rather than left to the renderer, because the rail
  * has to appear on every row of a block and the wrap point is what guarantees
@@ -65,7 +64,14 @@ import {
   terminalSegmentsWidth,
 } from "./terminal-cells";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
-import { measureFor, type Block, type Focus, type ToolReceiptBlock, type Viewport } from "./types";
+import {
+  measureFor,
+  PROSE_MEASURE,
+  type Block,
+  type Focus,
+  type ToolReceiptBlock,
+  type Viewport,
+} from "./types";
 import { spaceReasoningSections } from "../../presentation/format-utils";
 
 /** The rail lives in the left page margin, so the content column never moves. */
@@ -133,8 +139,13 @@ export interface RenderRow {
   /** `prose` for running text, the full content width for scanned output. */
   readonly contentWidth: number;
   readonly meta: readonly Segment[];
-  /** A surface that fills the complete physical row. */
+  /**
+   * A surface painted behind exactly `contentWidth` cells, so a band ends on
+   * the measure rather than at the window edge. `bandIncludesGutter` extends
+   * it left over the rail and lane cells.
+   */
   readonly backgroundColor?: string;
+  readonly bandIncludesGutter?: boolean;
 }
 
 /**
@@ -242,7 +253,18 @@ function formatDuration(ms: number): string {
  * inline grammar agent prose actually uses is tokenised here into styled spans.
  */
 type ProseItem =
-  | { readonly kind: "text"; readonly segments: readonly Segment[]; readonly indent: number }
+  | {
+      readonly kind: "text";
+      readonly segments: readonly Segment[];
+      readonly indent: number;
+      /**
+       * A list marker or quote bar that opens the first row. Wrapped rows
+       * hang under the text after it, or repeat it when `repeatMarker` is set.
+       */
+      readonly marker?: Segment;
+      readonly repeatMarker?: boolean;
+    }
+  | { readonly kind: "heading"; readonly level: number; readonly segments: readonly Segment[] }
   | { readonly kind: "blank" }
   | { readonly kind: "rule" }
   | { readonly kind: "fence"; readonly language: string; readonly lines: readonly string[] }
@@ -322,6 +344,48 @@ function matchLink(
   };
 }
 
+/** Punctuation that ends a sentence rather than a URL: `see https://x.dev.` */
+const URL_TRAILING_PUNCTUATION = /[.,;:!?'"*_]+$/;
+
+/**
+ * A URL written out in prose, or in CommonMark's `<https://…>` autolink form.
+ * A closing parenthesis stays only when the URL opened one, so a link in
+ * brackets (like this https://x.dev) does not swallow the bracket.
+ */
+function matchBareUrl(
+  text: string,
+  index: number,
+): { readonly url: string; readonly end: number } | undefined {
+  if (text[index] === "<") {
+    const angle = /^<(https?:\/\/[^\s<>]+)>/.exec(text.slice(index));
+    if (angle === null) return undefined;
+    return { url: angle[1] ?? "", end: index + (angle[0]?.length ?? 0) };
+  }
+  if (text[index] !== "h" || /[\w/]/.test(text[index - 1] ?? "")) return undefined;
+  const found = /^https?:\/\/[^\s<>]+/.exec(text.slice(index));
+  if (found === null) return undefined;
+  let url = (found[0] ?? "").replace(URL_TRAILING_PUNCTUATION, "");
+  while (url.endsWith(")") && count(url, "(") < count(url, ")")) {
+    url = url.slice(0, -1).replace(URL_TRAILING_PUNCTUATION, "");
+  }
+  if (!/^https?:\/\/[^/]/.test(url)) return undefined;
+  return { url, end: index + url.length };
+}
+
+function count(text: string, character: string): number {
+  return text.split(character).length - 1;
+}
+
+/** Links read as links on every terminal: underlined, dimmed accent, and an OSC 8 target. */
+function linkSegment(label: string, url: string): Segment {
+  return {
+    text: label,
+    fg: THEME.link,
+    underline: true,
+    ...(url.length > 0 ? { link: url } : {}),
+  };
+}
+
 function matchWrapped(
   text: string,
   index: number,
@@ -395,13 +459,17 @@ function parseInline(text: string, fg: string, glyphs: GlyphSet, marks: InlineMa
     if (link !== undefined) {
       flushPlain();
       if (link.label.length > 0) {
-        segments.push({
-          text: link.label,
-          fg: THEME.link,
-          ...(link.url.length > 0 ? { link: link.url } : {}),
-        });
+        segments.push(linkSegment(link.label, link.url));
       }
       index = link.end;
+      continue;
+    }
+
+    const bare = matchBareUrl(text, index);
+    if (bare !== undefined) {
+      flushPlain();
+      segments.push(linkSegment(bare.url, bare.url));
+      index = bare.end;
       continue;
     }
 
@@ -483,11 +551,28 @@ function citations(text: string, fg: string, glyphs: GlyphSet): Segment[] {
     );
 }
 
-function headingMarker(level: number, glyphs: GlyphSet): string {
-  if (level <= 1) return glyphs.heading1;
-  if (level === 2) return glyphs.heading2;
-  if (level === 3) return glyphs.heading3;
-  return glyphs.heading4;
+/** A list item: its nesting whitespace, an ordinal when it is ordered, and its text. */
+const LIST_ITEM = /^(\s*)(?:[-*+]|(\d+[.)]))\s+(.*)$/;
+
+/** Lines that open a new block, and so end a paragraph or a list item's continuation. */
+const BLOCK_START = /^\s*(\||```|#{1,6}\s|>|[-*+]\s|\d+[.)]\s)/;
+
+/** A top-level list sits this far in from the prose edge, so its marker reads as structure. */
+const LIST_INDENT = 2;
+
+/**
+ * Headings are ranked by weight and rule, never by hue and never by a glyph:
+ * a marker in the rail column would read as a second speaker. The top level
+ * is bold and underlined, the second bold, and anything deeper is bold
+ * secondary text — still a heading, one step down the neutral ramp.
+ */
+function headingSegments(text: string, level: number, glyphs: GlyphSet): Segment[] {
+  const fg = level <= 2 ? THEME.selected : THEME.secondary;
+  return inlineSegments(text, fg, glyphs).map((segment) => ({
+    ...segment,
+    bold: true,
+    ...(level <= 1 ? { underline: true } : {}),
+  }));
 }
 
 /**
@@ -551,19 +636,13 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
       continue;
     }
 
-    const heading = /^\s*(#{1,6})\s+(.*)$/.exec(line);
+    const heading = /^\s*(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
     if (heading !== null) {
       const level = (heading[1] ?? "#").length;
       items.push({
-        kind: "text",
-        indent: 0,
-        segments: [
-          { text: `${headingMarker(level, glyphs)} `, fg: THEME.border },
-          ...inlineSegments(heading[2] ?? "", THEME.selected, glyphs).map((segment) => ({
-            ...segment,
-            bold: true,
-          })),
-        ],
+        kind: "heading",
+        level,
+        segments: headingSegments(heading[2] ?? "", level, glyphs),
       });
       index += 1;
       continue;
@@ -571,31 +650,44 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
 
     const quote = /^\s*>\s?(.*)$/.exec(line);
     if (quote !== null) {
+      const quoted = [quote[1] ?? ""];
+      index += 1;
+      while (index < lines.length) {
+        const next = /^\s*>\s?(.*)$/.exec(lines[index] ?? "");
+        if (next === null || (next[1] ?? "").trim().length === 0) break;
+        quoted.push((next[1] ?? "").trim());
+        index += 1;
+      }
       items.push({
         kind: "text",
-        indent: 2,
-        segments: [
-          { text: `${glyphs.blockquote} `, fg: THEME.border },
-          ...inlineSegments(quote[1] ?? "", THEME.secondary, glyphs),
-        ],
+        indent: 0,
+        marker: { text: `${glyphs.blockquote} `, fg: THEME.border },
+        repeatMarker: true,
+        segments: inlineSegments(quoted.join(" "), THEME.secondary, glyphs),
       });
-      index += 1;
       continue;
     }
 
-    const bullet = /^(\s*)(?:[-*+]|\d+\.|(\d+\)))\s+(.*)$/.exec(line);
+    const bullet = LIST_ITEM.exec(line);
     if (bullet !== null) {
       const depth = Math.floor(terminalCellWidth(bullet[1] ?? "") / 2);
-      const paren = bullet[2];
+      const ordinal = bullet[2];
+      // Lazy continuation: the item runs on until a blank line or the start of
+      // another block, the way CommonMark reads it.
+      const body = [bullet[3] ?? ""];
+      index += 1;
+      while (index < lines.length) {
+        const candidate = lines[index] ?? "";
+        if (candidate.trim().length === 0 || BLOCK_START.test(candidate)) break;
+        body.push(candidate.trim());
+        index += 1;
+      }
       items.push({
         kind: "text",
-        indent: depth * 2 + (paren !== undefined ? 0 : 2),
-        segments: [
-          { text: `${paren ?? glyphs.bullet} `, fg: THEME.border },
-          ...inlineSegments(bullet[3] ?? "", THEME.selected, glyphs),
-        ],
+        indent: depth * 2 + LIST_INDENT,
+        marker: { text: `${ordinal ?? glyphs.bullet} `, fg: THEME.muted },
+        segments: inlineSegments(body.join(" "), THEME.selected, glyphs),
       });
-      index += 1;
       continue;
     }
 
@@ -603,10 +695,7 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
     const paragraph: string[] = [];
     while (index < lines.length) {
       const candidate = lines[index] ?? "";
-      if (
-        candidate.trim().length === 0 ||
-        /^\s*(\||```|#{1,6}\s|>|[-*+]\s|\d+[.)]\s)/.test(candidate)
-      ) {
+      if (candidate.trim().length === 0 || BLOCK_START.test(candidate)) {
         break;
       }
       paragraph.push(candidate.trim());
@@ -687,30 +776,46 @@ function padTableCell(lines: Segment[][], size: number, fg: string, lineIndex: n
   return pad > 0 ? [...line, { text: " ".repeat(pad), fg }] : line;
 }
 
-/** Borderless columns: a table is scanned, so its chrome is whitespace. */
+/**
+ * Borderless columns: a table is scanned, so its chrome is whitespace and a
+ * single hairline under the header. Cells carry the same inline markdown as
+ * prose. Body rows sit tight unless one of them wraps, at which point a blank
+ * row between records is what keeps a two-line cell from reading as two rows.
+ */
 function tableRows(
   rows: readonly (readonly string[])[],
   width: number,
   key: string,
-  rail: Segment,
+  gutterFor: () => readonly Segment[],
+  glyphs: GlyphSet,
 ): RenderRow[] {
   const columns = Math.max(...rows.map((row) => row.length), 1);
+  const cells = rows.map((row, rowIndex) =>
+    Array.from({ length: columns }, (_, column) => {
+      const fg = rowIndex === 0 ? THEME.secondary : THEME.selected;
+      const segments = inlineSegments(row[column] ?? "", fg, glyphs);
+      return rowIndex === 0 ? segments.map((segment) => ({ ...segment, bold: true })) : segments;
+    }),
+  );
   const natural = Array.from({ length: columns }, (_, column) =>
-    Math.max(...rows.map((row) => terminalCellWidth(row[column] ?? "")), 1),
+    Math.max(...cells.map((row) => terminalSegmentsWidth(row[column] ?? [])), 1),
   );
   const { sizes, gap } = tableColumnLayout(natural, width);
 
+  const wrappedRows = cells.map((row) => row.map((cell, column) => wrap(cell, sizes[column] ?? 1)));
+  const heights = wrappedRows.map((row) => Math.max(...row.map((cell) => cell.length), 1));
+  const spaced = heights.slice(1).some((height) => height > 1);
+  const tableWidth = Math.min(
+    width,
+    sizes.reduce((sum, size) => sum + size, 0) + gap * Math.max(0, columns - 1),
+  );
+
   const rendered: RenderRow[] = [];
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-    const row = rows[rowIndex];
-    if (row === undefined) continue;
-    const fg = rowIndex === 0 ? THEME.muted : THEME.secondary;
-    const wrapped = Array.from({ length: columns }, (_, column) => {
-      const size = sizes[column] ?? 1;
-      return wrap([{ text: row[column] ?? "", fg }], size);
-    });
-    const height = Math.max(...wrapped.map((cell) => cell.length), 1);
-    for (let lineIndex = 0; lineIndex < height; lineIndex += 1) {
+  for (let rowIndex = 0; rowIndex < wrappedRows.length; rowIndex += 1) {
+    const wrapped = wrappedRows[rowIndex];
+    if (wrapped === undefined) continue;
+    const fg = rowIndex === 0 ? THEME.secondary : THEME.selected;
+    for (let lineIndex = 0; lineIndex < (heights[rowIndex] ?? 1); lineIndex += 1) {
       const segments: Segment[] = [];
       wrapped.forEach((cell, column) => {
         segments.push(...padTableCell(cell, sizes[column] ?? 1, fg, lineIndex));
@@ -718,16 +823,24 @@ function tableRows(
       });
       rendered.push({
         key: `${key}:table:${String(rowIndex)}:${String(lineIndex)}`,
-        gutter: [rail, BLANK_CELL],
+        gutter: gutterFor(),
         content: fitTerminalSegments(segments, width),
         contentWidth: width,
         meta: [],
       });
     }
-    if (rowIndex < rows.length - 1) {
+    if (rowIndex === 0 && wrappedRows.length > 1) {
+      rendered.push({
+        key: `${key}:table:rule`,
+        gutter: gutterFor(),
+        content: [{ text: glyphs.divider.repeat(tableWidth), fg: THEME.border }],
+        contentWidth: width,
+        meta: [],
+      });
+    } else if (spaced && rowIndex < wrappedRows.length - 1) {
       rendered.push({
         key: `${key}:table:${String(rowIndex)}:gap`,
-        gutter: [rail, BLANK_CELL],
+        gutter: gutterFor(),
         content: [],
         contentWidth: width,
         meta: [],
@@ -786,9 +899,31 @@ function needsBreathingRow(block: Block, previous: Block | undefined): boolean {
 }
 
 interface Geometry {
+  /** Running text: never wider than `PROSE_MEASURE`, however wide the window. */
   readonly prose: number;
+  /** Scanned output — tables, fences, expanded tool bodies — may use all of this. */
   readonly content: number;
   readonly metadata: number;
+  /** Where the metadata strip ends: the prose measure plus the strip beside it. */
+  readonly page: number;
+}
+
+/**
+ * Full width is a property of the window, not a licence for the paragraph.
+ * Prose stops at the measure, the metadata strip sits directly beside it so a
+ * timestamp stays in reach of the line it annotates, and any surplus beyond
+ * that is right-hand margin.
+ */
+function geometryFor(width: number): Geometry {
+  const measure = measureFor(width);
+  const prose = Math.min(PROSE_MEASURE, measure.prose);
+  const content = measure.prose + measure.metadata;
+  return {
+    prose,
+    content,
+    metadata: measure.metadata,
+    page: Math.min(content, prose + measure.metadata),
+  };
 }
 
 interface RunCacheEntry {
@@ -885,29 +1020,47 @@ function rowsForBlock(
   }
 }
 
-/** Render a user turn as a full-width neutral band so its boundary survives wrapping. */
+/** Cells kept clear inside the right edge of a band, so text never touches its end. */
+const BAND_PADDING = 1;
+
+/**
+ * Render a user turn as a neutral band exactly one measure wide, rail
+ * included, so every wrapped row ends on the same column as the prose below.
+ */
 function userRows(
   block: Extract<Block, { kind: "user" }>,
   geometry: Geometry,
   glyphs: GlyphSet,
 ): RenderRow[] {
-  const rail = railCell(THEME.border);
   const meta: readonly Segment[] =
     block.at !== undefined && geometry.metadata > 0 ? [{ text: block.at, fg: THEME.muted }] : [];
-  const lines = wrap([{ text: block.text, fg: THEME.secondary }], geometry.prose);
-  const rows: RenderRow[] = [];
+  const lines = wrap(
+    [{ text: block.text, fg: THEME.selected }],
+    Math.max(1, geometry.prose - BAND_PADDING),
+  );
+  const bar: readonly Segment[] = [{ text: glyphs.panelBar, fg: THEME.primary }, BLANK_CELL];
+  const panel = (
+    key: string,
+    content: readonly Segment[],
+    rowMeta: readonly Segment[],
+  ): RenderRow => ({
+    key,
+    gutter: bar,
+    content,
+    contentWidth: geometry.prose,
+    meta: rowMeta,
+    backgroundColor: THEME.surface,
+    bandIncludesGutter: true,
+  });
+  // One row of panel above and below the text: the band reads as a surface
+  // the message sits on, not a highlighter stroke through it.
+  const rows: RenderRow[] = [panel(`${block.id}:top`, [], [])];
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (line === undefined) continue;
-    rows.push({
-      key: `${block.id}:${String(index)}`,
-      gutter: [index === 0 ? { text: glyphs.promptCursor, fg: THEME.primary } : rail, BLANK_CELL],
-      content: line,
-      contentWidth: geometry.prose,
-      meta: index === 0 ? meta : [],
-      backgroundColor: THEME.surfaceStrong,
-    });
+    rows.push(panel(`${block.id}:${String(index)}`, line, index === 0 ? meta : []));
   }
+  rows.push(panel(`${block.id}:bottom`, [], []));
   return rows;
 }
 
@@ -942,20 +1095,39 @@ function agentRows(
   while (endItem > firstItem && items[endItem - 1]?.kind === "blank") {
     endItem -= 1;
   }
+
+  const lastIsBlank = (): boolean => {
+    const last = rows[rows.length - 1];
+    return last !== undefined && last.content.length === 0 && last.backgroundColor === undefined;
+  };
+  const blank = (key: string): RenderRow => ({
+    key,
+    gutter: gutterFor(),
+    content: [],
+    contentWidth: geometry.prose,
+    meta: [],
+  });
+  // Headings, fences and tables are set off by one blank row on either side.
+  // The model's own blank lines collapse into it, so spacing never doubles.
+  const breathe = (key: string): void => {
+    if (rows.length === 0 || lastIsBlank()) return;
+    rows.push(blank(`${key}:breath`));
+  };
+  let breatheBeforeNext = false;
+
   for (let itemIndex = firstItem; itemIndex < endItem; itemIndex += 1) {
     const item = items[itemIndex];
     if (item === undefined) continue;
     const key = `${block.id}:${String(itemIndex)}`;
+    if (item.kind === "blank") {
+      if (!lastIsBlank()) rows.push(blank(key));
+      continue;
+    }
+    if (breatheBeforeNext) {
+      breathe(key);
+      breatheBeforeNext = false;
+    }
     switch (item.kind) {
-      case "blank":
-        rows.push({
-          key,
-          gutter: gutterFor(),
-          content: [],
-          contentWidth: geometry.prose,
-          meta: [],
-        });
-        break;
       case "rule":
         rows.push({
           key,
@@ -965,42 +1137,54 @@ function agentRows(
           meta: [],
         });
         break;
-      case "fence": {
-        const painted = highlightFenceLines(item.language, item.lines);
-        for (let lineIndex = 0; lineIndex < painted.length; lineIndex += 1) {
-          const spans = painted[lineIndex];
-          if (spans === undefined) continue;
+      case "heading": {
+        breathe(key);
+        const lines = wrap(item.segments, geometry.prose);
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+          const line = lines[lineIndex];
+          if (line === undefined) continue;
           rows.push({
             key: `${key}:${String(lineIndex)}`,
             gutter: gutterFor(),
-            content: fitTerminalSegments([...spans], geometry.content),
-            contentWidth: geometry.content,
+            content: line,
+            contentWidth: geometry.prose,
             meta: [],
           });
         }
         break;
       }
-      case "table": {
-        const table = tableRows(item.rows, geometry.content, key, rail);
-        for (let tableIndex = 0; tableIndex < table.length; tableIndex += 1) {
-          const row = table[tableIndex];
-          if (row !== undefined) rows.push(row);
-        }
-        first = false;
+      case "fence":
+        breathe(key);
+        appendRows(rows, fenceRows(item.language, item.lines, geometry, key, gutterFor));
+        breatheBeforeNext = true;
         break;
-      }
-      default: {
+      case "table":
+        breathe(key);
+        appendRows(rows, tableRows(item.rows, geometry.content, key, gutterFor, glyphs));
+        breatheBeforeNext = true;
+        break;
+      case "text": {
         const indent = item.indent;
-        const lines = wrap(item.segments, geometry.prose - indent);
+        const markerWidth = item.marker === undefined ? 0 : terminalCellWidth(item.marker.text);
+        const lines = wrap(item.segments, Math.max(1, geometry.prose - indent - markerWidth));
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
           const line = lines[lineIndex];
           if (line === undefined) continue;
-          const padded =
-            indent > 0 ? [{ text: " ".repeat(indent), fg: THEME.border }, ...line] : line;
+          const lead: Segment[] = [];
+          if (indent > 0) lead.push({ text: " ".repeat(indent), fg: THEME.border });
+          if (item.marker !== undefined) {
+            // Wrapped rows hang under the text rather than the marker, so the
+            // marker column stays a clean edge the eye can run down.
+            lead.push(
+              lineIndex === 0 || item.repeatMarker === true
+                ? item.marker
+                : { text: " ".repeat(markerWidth), fg: THEME.border },
+            );
+          }
           rows.push({
             key: `${key}:${String(lineIndex)}`,
             gutter: gutterFor(),
-            content: padded,
+            content: [...lead, ...line],
             contentWidth: geometry.prose,
             meta: [],
           });
@@ -1009,6 +1193,57 @@ function agentRows(
     }
   }
 
+  return rows;
+}
+
+/**
+ * A fence is a painted surface one step up from the canvas. The band starts
+ * under the rail, so its two gutter cells are the inner left padding and the
+ * code lines up with the prose column. A padding row above carries the
+ * language, muted and flush right; a padding row below closes the band. It is
+ * at least the prose measure wide, so it squares with the paragraph around it,
+ * and grows toward the full content width only for longer lines.
+ */
+function fenceRows(
+  language: string,
+  lines: readonly string[],
+  geometry: Geometry,
+  key: string,
+  gutterFor: () => readonly Segment[],
+): RenderRow[] {
+  const painted = highlightFenceLines(language, lines);
+  const longest = Math.max(0, ...lines.map((line) => terminalCellWidth(line)));
+  const width = Math.min(geometry.content, Math.max(geometry.prose, longest + BAND_PADDING));
+  const inner = Math.max(1, width - BAND_PADDING);
+  const label = sliceTerminalCells(language.trim().split(/\s+/)[0] ?? "", inner);
+  const surface = (rowKey: string, content: readonly Segment[]): RenderRow => ({
+    key: rowKey,
+    gutter: gutterFor(),
+    content,
+    contentWidth: width,
+    meta: [],
+    backgroundColor: THEME.surfaceStrong,
+    bandIncludesGutter: true,
+  });
+
+  const labelOffset = Math.max(0, width - BAND_PADDING - terminalCellWidth(label));
+  const rows: RenderRow[] = [
+    surface(
+      `${key}:fence:top`,
+      label.length === 0
+        ? []
+        : [
+            { text: " ".repeat(labelOffset), fg: THEME.muted },
+            { text: label, fg: THEME.muted },
+          ],
+    ),
+  ];
+  for (let lineIndex = 0; lineIndex < painted.length; lineIndex += 1) {
+    const spans = painted[lineIndex];
+    if (spans === undefined) continue;
+    rows.push(surface(`${key}:${String(lineIndex)}`, fitTerminalSegments([...spans], inner)));
+  }
+  rows.push(surface(`${key}:fence:bottom`, []));
   return rows;
 }
 
@@ -1336,9 +1571,9 @@ function laneRows(
 }
 
 /**
- * The width the transcript lays out on: the terminal, minus nothing but the
- * rail and right margin that `measureFor` already subtracts. There is no page
- * cap — unused columns past 120 were empty space, not a reading measure.
+ * The width the transcript's rows span: the whole terminal. Prose and its
+ * metadata strip stop at the measure (see `geometryFor`); scanned content may
+ * run on to the right margin.
  */
 export function pageWidth(viewport: Viewport): number {
   return viewport.width;
@@ -1363,12 +1598,7 @@ export function transcriptRows(blocks: readonly Block[], viewport: Viewport): Re
     wrapCacheEpoch = epoch;
   }
 
-  const measure = measureFor(width);
-  const geometry: Geometry = {
-    prose: measure.prose,
-    content: measure.prose + measure.metadata,
-    metadata: measure.metadata,
-  };
+  const geometry = geometryFor(width);
 
   const rows: RenderRow[] = [];
   let index = 0;
@@ -1479,11 +1709,12 @@ function Spans({ segments }: { segments: readonly Segment[] }): ReactNode {
       {...linkPointer}
     >
       {segments.map((segment, index) => {
+        // Links are always underlined, so hovering one lifts it to the full accent instead.
         const isHovered = hovered !== undefined && segment.link === hovered;
-        const attributes = segmentAttributes(isHovered ? { ...segment, underline: true } : segment);
+        const attributes = segmentAttributes(segment);
         const key = `${String(index)}:${segment.text}`;
         const style = {
-          fg: segment.fg,
+          fg: isHovered ? THEME.primary : segment.fg,
           // OpenTUI text nodes honour `attributes`, not `bold`/`italic` booleans.
           ...(attributes === 0 ? {} : { attributes }),
         };
@@ -1512,6 +1743,8 @@ function Spans({ segments }: { segments: readonly Segment[] }): ReactNode {
 }
 
 function Row({ row, width }: { row: RenderRow; width: number }): ReactNode {
+  const band = row.backgroundColor === undefined ? {} : { backgroundColor: row.backgroundColor };
+  const strip = Math.max(0, geometryFor(width).page - row.contentWidth);
   return (
     <box
       style={{
@@ -1519,19 +1752,22 @@ function Row({ row, width }: { row: RenderRow; width: number }): ReactNode {
         height: 1,
         flexShrink: 0,
         flexDirection: "row",
-        ...(row.backgroundColor === undefined ? {} : { backgroundColor: row.backgroundColor }),
       }}
     >
-      <box style={{ width: GUTTER, flexShrink: 0 }}>
+      <box
+        style={{ width: GUTTER, flexShrink: 0, ...(row.bandIncludesGutter === true ? band : {}) }}
+      >
         <Spans segments={row.gutter} />
       </box>
-      <box style={{ width: row.contentWidth, flexShrink: 0 }}>
+      <box style={{ width: row.contentWidth, flexShrink: 0, ...band }}>
         <Spans segments={row.content} />
       </box>
-      <box style={{ flexGrow: 1 }} />
-      <box style={{ flexShrink: 0 }}>
+      <box
+        style={{ width: strip, flexShrink: 0, flexDirection: "row", justifyContent: "flex-end" }}
+      >
         <Spans segments={row.meta} />
       </box>
+      <box style={{ flexGrow: 1 }} />
       <box style={{ width: RIGHT_MARGIN, flexShrink: 0 }} />
     </box>
   );

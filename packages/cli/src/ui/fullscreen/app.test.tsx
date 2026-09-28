@@ -674,7 +674,7 @@ describe("composer after a completed turn", () => {
 });
 
 describe("transcript links under the pointer", () => {
-  it("underlines every row of a wrapped link and shows a pointer while hovered, and clears both when the pointer leaves", async () => {
+  it("keeps a link underlined, lifts every row of it to the accent while hovered, and shows a pointer until the pointer leaves", async () => {
     const label = Array.from({ length: 14 }, (_, index) => `word${String(index)}`).join(" ");
     const view: ViewModel = {
       ...sampleIdleView(),
@@ -708,6 +708,13 @@ describe("transcript links under the pointer", () => {
         .filter((span) => (span.attributes & TextAttributes.UNDERLINE) !== 0)
         .map((span) => span.text.trim())
         .filter((text) => text.length > 0);
+    const accent = RGBA.fromHex(THEME.primary).toInts().slice(0, 3).join(",");
+    const lifted = (): string[] =>
+      captureSpans()
+        .lines.flatMap((line) => line.spans)
+        .filter((span) => span.fg.toInts().slice(0, 3).join(",") === accent)
+        .map((span) => span.text.trim())
+        .filter((text) => text.startsWith("word"));
     const rows = captureCharFrame().split("\n");
     const firstRow = rows.findIndex((row) => row.includes("word0"));
     const pointAt = async (x: number, y: number): Promise<void> => {
@@ -716,16 +723,18 @@ describe("transcript links under the pointer", () => {
       await renderOnce();
     };
 
-    expect(underlined()).toEqual([]);
+    expect(underlined().join(" ")).toContain("word0");
+    expect(underlined().join(" ")).toContain("word13");
+    expect(lifted()).toEqual([]);
 
     await pointAt(rows[firstRow]!.indexOf("word0") + 1, firstRow);
-    const hovering = underlined();
+    const hovering = lifted();
     expect(hovering.join(" ")).toContain("word0");
     expect(hovering.join(" ")).toContain("word13");
     expect(pointerShapes).toEqual(["pointer"]);
 
     await pointAt(rows[firstRow]!.indexOf("see"), firstRow);
-    const offLabel = underlined();
+    const offLabel = lifted();
     renderer.destroy();
     expect(offLabel).toEqual([]);
     expect(pointerShapes).toEqual(["pointer", "default"]);
