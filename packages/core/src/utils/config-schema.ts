@@ -24,6 +24,7 @@
 import { z } from "zod";
 import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import { TERMINAL_NOTIFICATION_SETTINGS } from "@/core/notify/terminal-notification";
 import type {
   AnthropicProviderConfig,
   ChatGPTProviderConfig,
@@ -38,6 +39,7 @@ import type {
   LoggingConfig,
   MCPServerOverride,
   NotificationsConfig,
+  TerminalNotificationSetting,
   OllamaProviderConfig,
   SglangProviderConfig,
   OtlpTelemetryConfig,
@@ -426,6 +428,9 @@ const notifyShape = {
 const notificationsShape = {
   enabled: flag.exactOptional(),
   sound: flag.exactOptional(),
+  terminal: exhaustiveEnum<TerminalNotificationSetting>()(
+    TERMINAL_NOTIFICATION_SETTINGS,
+  ).exactOptional(),
 } satisfies SchemaShape<NotificationsConfig>;
 
 const dollars = described(z.number().positive(), "a number greater than 0");

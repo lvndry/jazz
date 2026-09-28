@@ -605,7 +605,26 @@ function acquireDaemonHomeLock() {
 type BackgroundStart =
   { readonly kind: "started"; readonly pid: number } | { readonly kind: "unhealthy" };
 
-/** Re-exec this CLI with `--foreground`, detach, and wait until `/health` answers. */
+/**
+ * How the background daemon is spawned: in a session of its own (`detached`), which has no
+ * controlling terminal, so the daemon outlives the terminal that started it and never writes
+ * terminal notifications into it. Output goes to the daemon log.
+ */
+export function backgroundDaemonSpawnOptions(
+  cmd: readonly string[],
+  logDescriptor: number,
+): Bun.SpawnOptions.OptionsObject<"ignore", number, number> & { cmd: string[] } {
+  return {
+    cmd: [...cmd],
+    stdout: logDescriptor,
+    stderr: logDescriptor,
+    stdin: "ignore",
+    env: process.env,
+    detached: true,
+  };
+}
+
+/** Re-exec this CLI with `--foreground`, detached, and wait until `/health` answers. */
 function spawnBackgroundDaemon(options: DaemonCommandOptions) {
   return Effect.gen(function* () {
     const invocation = yield* getJazzSchedulerInvocation();
@@ -621,13 +640,7 @@ function spawnBackgroundDaemon(options: DaemonCommandOptions) {
     ];
 
     const logDescriptor = yield* Effect.sync(() => openDaemonLog());
-    const child = Bun.spawn({
-      cmd: args,
-      stdout: logDescriptor,
-      stderr: logDescriptor,
-      stdin: "ignore",
-      env: process.env,
-    });
+    const child = Bun.spawn(backgroundDaemonSpawnOptions(args, logDescriptor));
     nodeFs.closeSync(logDescriptor);
     child.unref();
 

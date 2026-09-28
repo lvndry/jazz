@@ -22,8 +22,10 @@ None of them carries your prompts, conversations, files or memory.
 | OTLP telemetry               | Only when an endpoint is set in `telemetry.otlp` or `OTEL_EXPORTER_OTLP_ENDPOINT`.                     | Run, model, tool and process events: names, counts, durations, token usage and cost. No prompt, completion or tool text.  | Leave the endpoint unset, or set `telemetry.otlp.enabled` to `false`            |
 
 Local telemetry is written to `~/.jazz/telemetry` and never leaves the machine on its own.
-Desktop notifications use the operating system (`terminal-notifier` on macOS, `notify-send`
-on Linux) and send nothing.
+Desktop notifications are written to the terminal Jazz runs in, or shown by the operating
+system (`terminal-notifier` on macOS, `notify-send` on Linux), and send nothing over the
+network. Over SSH, a terminal notification reaches your local terminal through the SSH
+session.
 
 ## What `JAZZ_OFFLINE` covers
 

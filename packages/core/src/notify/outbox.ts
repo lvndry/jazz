@@ -376,7 +376,7 @@ export function enqueueNotification(
   return Effect.gen(function* () {
     const notificationService = yield* Effect.serviceOption(NotificationServiceTag);
     const desktopAvailable =
-      notificationService._tag === "None" || notificationService.value.desktopAvailable();
+      notificationService._tag === "None" || (yield* notificationService.value.desktopAvailable());
     const routed = routeNotification(targets, event, options);
     const { missing } = routed;
     const skipped = new Set(

@@ -15,7 +15,12 @@ import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/mod
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
-import type { LoggingConfig, SchedulerMode, WebSearchProviderName } from "@jazz/core/types/config";
+import type {
+  LoggingConfig,
+  SchedulerMode,
+  TerminalNotificationSetting,
+  WebSearchProviderName,
+} from "@jazz/core/types/config";
 import type { ColorProfile, OutputMode } from "@jazz/core/types/output";
 import {
   configuredProviderApiKey,
@@ -525,6 +530,17 @@ function configureScheduler() {
   });
 }
 
+const TERMINAL_NOTIFICATION_CHOICES: readonly {
+  readonly name: string;
+  readonly value: TerminalNotificationSetting;
+}[] = [
+  { name: "auto: detect kitty, Ghostty, WezTerm, Warp or iTerm2", value: "auto" },
+  { name: "osc99: kitty's notification sequence", value: "osc99" },
+  { name: "osc777: Ghostty, WezTerm, Warp", value: "osc777" },
+  { name: "osc9: iTerm2", value: "osc9" },
+  { name: "off: always use the system notifier", value: "off" },
+];
+
 function configureNotifications() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -534,11 +550,13 @@ function configureNotifications() {
       const appConfig = yield* configService.appConfig;
       const enabled = appConfig.notifications?.enabled ?? true;
       const sound = appConfig.notifications?.sound ?? true;
+      const terminalSetting = appConfig.notifications?.terminal ?? "auto";
 
       const selection = yield* terminal.select<string>("Notification settings:", {
         choices: [
           { name: `System notifications (${enabled ? "on" : "off"})`, value: "enabled" },
           { name: `Notification sound (${sound ? "on" : "off"})`, value: "sound" },
+          { name: `Terminal notifications (${terminalSetting})`, value: "terminal" },
           { name: "Back", value: "back" },
         ],
       });
@@ -564,6 +582,21 @@ function configureNotifications() {
           }
           yield* configService.set("notifications.sound", nextValue);
           yield* terminal.success(`Notification sound ${nextValue ? "enabled" : "disabled"}.`);
+          break;
+        }
+        case "terminal": {
+          const nextValue = yield* terminal.select<TerminalNotificationSetting>(
+            "How should notifications reach your terminal?",
+            {
+              choices: TERMINAL_NOTIFICATION_CHOICES,
+              default: terminalSetting,
+            },
+          );
+          if (nextValue === undefined) {
+            break;
+          }
+          yield* configService.set("notifications.terminal", nextValue);
+          yield* terminal.success(`Terminal notifications set to ${nextValue}.`);
           break;
         }
       }

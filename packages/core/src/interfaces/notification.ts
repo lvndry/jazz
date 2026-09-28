@@ -20,8 +20,11 @@ export interface NotificationService {
    */
   readonly notify: (message: string, options?: NotificationOptions) => Effect.Effect<void, never>;
 
-  /** Whether this host has a desktop notifier (terminal-notifier, notify-send) to show one. */
-  readonly desktopAvailable: () => boolean;
+  /**
+   * Whether a desktop notification can be shown here: in a terminal that shows notifications,
+   * or with an OS notifier (terminal-notifier, notify-send).
+   */
+  readonly desktopAvailable: () => Effect.Effect<boolean, never>;
 }
 
 export const NotificationServiceTag =
