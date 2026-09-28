@@ -3,8 +3,8 @@
  * one block per goal, in plain words, ending with what the user can do next on that surface.
  */
 
-import type { PendingRunInput } from "@jazz/adapters/daemon/resume-owned-run";
 import { pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
+import type { PendingRunInput } from "@jazz/adapters/runs/resume-owned-run";
 import type { GoalPlan, GoalRecord } from "@jazz/core/agent/goal/goal-record";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { formatCompactCount } from "@jazz/core/utils/string";

@@ -19,10 +19,10 @@ and [Security](../../SECURITY.md) for the threat model.
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **52** |
+| **Agent-facing tools**                                                  | **55** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 11     |
-| Total registered                                                        | 63     |
-| `read-only`                                                             | 29     |
+| Total registered                                                        | 66     |
+| `read-only`                                                             | 32     |
 | `low-risk`                                                              | 10     |
 | `high-risk`                                                             | 10     |
 | `unknown`                                                               | 3      |
@@ -81,11 +81,11 @@ nothing, `write_file` changes the machine and reveals nothing at all.
 Every tool declares both. The field is required, with no default anywhere, so a new tool
 cannot be added without someone deciding.
 
-| Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `report_goal_cycle`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                    |
-| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                                             |
-| `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `ask_user_secret`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_scratchpad`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for` |
+| Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `report_goal_cycle`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                                          |
+| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                                                                                                   |
+| `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `ask_user_secret`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_subagents`, `list_todos`, `manage_memory`, `manage_todos`, `manage_scratchpad`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `steer_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for`, `wait_subagents` |
 
 A tool spanning two levels takes the more sensitive one. `edit_file` writes, but its approval
 message carries a diff of your file, so it is `private`. `http_request` can reach
@@ -320,10 +320,13 @@ you get a desktop notification naming it, and `jazz runs approve <id>` finishes 
 
 ### Sub Agents
 
-| Tool                | Risk        | Approval pair | What it does                                                                                                                                                                              |
-| ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spawn_subagent`    | `read-only` | none          | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Optionally validate a bounded JSON handoff with `resultSchema`; see Sub-agents internals. |
-| `summarize_context` | `read-only` | none          | Compact conversation by summarizing older messages to free token budget. Always performs summarization when…                                                                              |
+| Tool                | Risk        | Approval pair | What it does                                                                                                                                                                                                                            |
+| ------------------- | ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spawn_subagent`    | `read-only` | none          | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Returns an `agentId` at once; collect the answer with `wait_subagents`. Optionally validate a bounded JSON handoff with `resultSchema`. |
+| `list_subagents`    | `read-only` | none          | Show each sub-agent of the run: status, current activity, spend so far and its result once finished.                                                                                                                                    |
+| `wait_subagents`    | `read-only` | none          | Wait for sub-agents (until any or all) and return their results in one call.                                                                                                                                                            |
+| `steer_subagent`    | `read-only` | none          | Message, pause, resume or cancel a running sub-agent. Messages and pauses take effect before its next model call.                                                                                                                       |
+| `summarize_context` | `read-only` | none          | Compact conversation by summarizing older messages to free token budget. Always performs summarization when…                                                                                                                            |
 
 ### Perception Delegation
 

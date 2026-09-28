@@ -169,7 +169,7 @@ describe("enqueueNotification", () => {
 describe("enqueueNotification on a host without a desktop notifier", () => {
   const withoutDesktop = {
     notify: () => Effect.void,
-    desktopAvailable: () => false,
+    desktopAvailable: () => Effect.succeed(false),
   } satisfies NotificationService;
 
   it("skips the implicit desktop target, and still queues a configured one", async () => {

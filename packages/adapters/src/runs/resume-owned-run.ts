@@ -11,8 +11,8 @@ import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import { describePendingInput } from "@jazz/core/daemon/attention";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { Effect } from "effect";
-import { resumeGoalRun } from "./goal-worker";
-import { resumeLoopRun } from "./loop-worker";
+import { resumeGoalRun } from "@/adapters/goals/goal-worker";
+import { resumeLoopRun } from "@/adapters/loops/loop-worker";
 
 export function resumeOwnedRun(options: ResumeRunOptions) {
   return Effect.gen(function* () {

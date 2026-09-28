@@ -130,6 +130,8 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Let the server's tool annotations set their risk level. See [MCP](./mcp.md).",
   "notifications.enabled": "Send desktop notifications for completions and approvals.",
   "notifications.sound": "Play a sound with desktop notifications.",
+  "notifications.terminal":
+    "How desktop notifications reach a terminal that shows them itself: `auto` detects kitty, Ghostty, WezTerm, Warp and iTerm2; `osc99`, `osc777` or `osc9` forces that escape sequence (for example over SSH); `off` always uses the system notifier. `JAZZ_NOTIFICATIONS_TERMINAL` wins. Defaults to `auto`. See [Desktop notifications](./notifications.md#desktop-notifications).",
   autoApprovedCommands:
     "Shell commands approved without asking. See [Approvals](../security/approvals.md).",
   "telemetry.enabled": "Record local telemetry. Defaults to true.",

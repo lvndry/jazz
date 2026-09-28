@@ -23,18 +23,19 @@ list.
 
 ## Terminal and display
 
-| Variable                          | Effect                                                                                                                                 |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `JAZZ_OUTPUT_MODE`                | `rendered`, `hybrid`, `raw` or `quiet`. Wins over `output.mode`; `--output` wins over it. Other values are ignored.                    |
-| `JAZZ_NO_TUI`                     | `1` turns off the terminal UI entirely and prints plain output. `--no-tui` sets it.                                                    |
-| `JAZZ_FULLSCREEN`                 | `0` or `false` keeps the interactive UI but draws it inline instead of on the alternate screen.                                        |
-| `JAZZ_A11Y`, `INK_SCREEN_READER`  | `1` turns off the fullscreen interface, for screen readers.                                                                            |
-| `JAZZ_THEME`                      | `light` or `dark`. When unset, Jazz reads `COLORFGBG` and otherwise assumes dark. `/theme` in a chat shows how to set it.              |
-| `JAZZ_UI_GLYPHS`                  | `unicode` or `ascii` symbols. Detected from the terminal when unset.                                                                   |
-| `JAZZ_TABLE_STYLE`                | `unicode`, `minimal` or `ascii` borders for Markdown tables. Follows `JAZZ_UI_GLYPHS` when unset.                                      |
-| `JAZZ_TERMINAL`                   | Overrides terminal detection, such as `iterm2`, `terminal-app`, `warp` or `xterm`. Detected from `TERM_PROGRAM` and `TERM` when unset. |
-| `NO_COLOR`, `NODE_DISABLE_COLORS` | Any value turns color off.                                                                                                             |
-| `VISUAL`, `EDITOR`                | Editor for `jazz persona edit` and `jazz mcp add`, after the `editor` setting. Falls back to `vi`.                                     |
+| Variable                          | Effect                                                                                                                                                                                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `JAZZ_OUTPUT_MODE`                | `rendered`, `hybrid`, `raw` or `quiet`. Wins over `output.mode`; `--output` wins over it. Other values are ignored.                                                                                                            |
+| `JAZZ_NO_TUI`                     | `1` turns off the terminal UI entirely and prints plain output. `--no-tui` sets it.                                                                                                                                            |
+| `JAZZ_FULLSCREEN`                 | `0` or `false` keeps the interactive UI but draws it inline instead of on the alternate screen.                                                                                                                                |
+| `JAZZ_A11Y`, `INK_SCREEN_READER`  | `1` turns off the fullscreen interface, for screen readers.                                                                                                                                                                    |
+| `JAZZ_THEME`                      | `light` or `dark`. When unset, Jazz reads `COLORFGBG` and otherwise assumes dark. `/theme` in a chat shows how to set it.                                                                                                      |
+| `JAZZ_UI_GLYPHS`                  | `unicode` or `ascii` symbols. Detected from the terminal when unset.                                                                                                                                                           |
+| `JAZZ_TABLE_STYLE`                | `unicode`, `minimal` or `ascii` borders for Markdown tables. Follows `JAZZ_UI_GLYPHS` when unset.                                                                                                                              |
+| `JAZZ_TERMINAL`                   | Overrides terminal detection, such as `iterm2`, `terminal-app`, `warp` or `xterm`. Detected from `TERM_PROGRAM` and `TERM` when unset.                                                                                         |
+| `JAZZ_NOTIFICATIONS_TERMINAL`     | `auto`, `osc99`, `osc777`, `osc9` or `off`: how desktop notifications reach the terminal. Wins over `notifications.terminal`. Other values are ignored. See [Desktop notifications](./notifications.md#desktop-notifications). |
+| `NO_COLOR`, `NODE_DISABLE_COLORS` | Any value turns color off.                                                                                                                                                                                                     |
+| `VISUAL`, `EDITOR`                | Editor for `jazz persona edit` and `jazz mcp add`, after the `editor` setting. Falls back to `vi`.                                                                                                                             |
 
 ## Network and catalogs
 

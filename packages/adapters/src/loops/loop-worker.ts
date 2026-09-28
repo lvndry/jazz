@@ -40,12 +40,12 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { currentProcessOwner } from "@jazz/core/utils/process";
 import { Cause, Effect, Fiber } from "effect";
+import { claimOwnerStatus, inFlight } from "@/adapters/runs/runs-in-flight";
 import {
   loadConversationOrNull,
   saveRunTranscript,
   type Conversation,
 } from "@jazz/adapters/history/conversation-history-service";
-import { claimOwnerStatus, inFlight } from "./runs-in-flight";
 
 /** Compare-and-set a loop, logging a refused write instead of failing the tick. */
 function writeLoop(loop: LoopRecord, next: LoopRecordInput, purpose: string) {

@@ -1,6 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { AgentServiceImpl } from "@jazz/adapters/agent-service";
+import { InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
+import { InMemoryLoopStore } from "@jazz/adapters/storage/loop-store";
+import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
 import { createRunRecord, type RunRecord } from "@jazz/core/agent/run/run-record";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -29,10 +33,6 @@ import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
 import { Context, Effect, Layer } from "effect";
-import { AgentServiceImpl } from "@/adapters/agent-service";
-import { InMemoryGoalStore } from "@/adapters/storage/goal-store";
-import { InMemoryLoopStore } from "@/adapters/storage/loop-store";
-import { InMemoryRunStore } from "@/adapters/storage/run-store";
 import {
   makeA2AHandler,
   makeHandler,

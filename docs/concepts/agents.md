@@ -176,7 +176,9 @@ pressure warnings, loop detection, and automatic context compaction. The full me
 
 The delegator pattern is the one people underuse. `spawn_subagent` hands a task to a child run on
 this same installation, with a task, a persona (`coder`, `researcher`, or `default`), and its own
-context window. The parent gets back a summary and the cost, not the child's transcript.
+context window. It returns an `agentId` at once and the child works while the parent keeps going;
+the parent collects the child's answer with `wait_subagents`, and gets back a summary and the
+cost, not the child's transcript.
 
 The point is context, not parallelism. Research that would fill the parent's window with raw
 sources runs in the child's window instead, and the parent receives a few hundred tokens of
@@ -184,15 +186,38 @@ conclusion. Ask for a structured handoff with `resultSchema`, a JSON Schema with
 `object`, and Jazz validates the child's result before it reaches the parent, so a malformed
 answer fails loudly instead of being parsed by hope.
 
+While children work, the parent can manage them:
+
+| Tool             | What it does                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `wait_subagents` | Waits until any or all of them finish, and returns their results in one call                   |
+| `list_subagents` | Each child's status (running, paused, waiting on an approval, done), activity and spend so far |
+| `steer_subagent` | Sends a child new guidance, pauses it, resumes it or cancels it                                |
+
+An agent granted `spawn_subagent` gets these three with it. Guidance and pauses take effect
+before the child's next model call, and a paused child spends nothing. Cancelling stops it at
+once, with the tools and processes it started. A child that finishes is announced to the parent
+on its next step, and guidance a child finished too early to read is reported back as
+`undeliveredMessages`.
+
 The bounds, none of them optional:
 
 - **A child never holds more tools than its parent.** The parent's effective toolset becomes the
   child's allowlist, so delegation cannot widen reach.
 - **Depth stops at 3.** A subagent can spawn one, but the chain ends there. `maxSubagentDepth: 0`
   disables delegation outright.
-- **30 iterations** by default, against the parent's 100.
-- **Cost rolls up.** The child's spend is added to the parent's, and an unpriced child makes the
-  parent report its own total as incomplete rather than confidently wrong.
+- **At most four at once,** each with **30 iterations** by default, against the parent's 100.
+- **Cost rolls up and is shared.** Each child's spend is added to the parent's as it happens, so
+  children running together stop at the parent's `maxCostUSD` instead of each spending the whole
+  remainder. An unpriced child makes the parent report its own total as incomplete rather than
+  confidently wrong.
+- **Children never outlive the turn.** If the parent answers while children are still going,
+  Jazz cancels the paused ones, waits for the rest, and gives the parent one more step to read
+  their results. Work that should continue after the turn is a
+  [goal](../features/goals-and-loops.md). A run that parks or detaches stops its children; a
+  resumed run starts with none.
+- **Their approvals name them.** In chat, a child's approval prompt starts with its name. In an
+  unattended run, a child's gated call is declined and the child reports that to the parent.
 
 A subagent is not a [peer](./agent-to-agent.md). A subagent is yours, on your machine, inside
 your trust boundary. A peer belongs to somebody else and is bounded by a disclosure tier because

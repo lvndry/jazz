@@ -3131,3 +3131,161 @@ describe("a tool batch stopped part-way", () => {
     ]);
   });
 });
+
+describe("sub-agents in the loop", () => {
+  const toolCallTurn = (id: string) =>
+    Effect.succeed({
+      completion: {
+        id,
+        model: "gpt-4",
+        content: "",
+        toolCalls: [
+          {
+            id: `call_${id}`,
+            type: "function" as const,
+            function: { name: "test_tool", arguments: "{}" },
+          },
+        ],
+      },
+      interrupted: false,
+    });
+  const answerTurn = (id: string, content: string) =>
+    Effect.succeed({ completion: { id, model: "gpt-4", content }, interrupted: false });
+
+  it("holds an answer given before a child's result was read, then lets the next one stand", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    const presented: string[] = [];
+    const seenByModel: string[][] = [];
+    ToolExecutor.executeToolCalls = mock((_calls, context) => {
+      const supervisor = context.subagents;
+      if (supervisor === undefined) {
+        throw new Error("the loop gave the tool no supervisor");
+      }
+      const hooks = supervisor.register({ name: "digest" });
+      return supervisor
+        .start(
+          hooks.id,
+          Effect.sleep("20 millis").pipe(Effect.as({ success: true, result: "three headlines" })),
+        )
+        .pipe(
+          Effect.as([
+            {
+              toolCallId: "call_c1",
+              name: "test_tool",
+              result: { agentId: hooks.id },
+              success: true,
+            },
+          ]),
+        );
+    }) as typeof ToolExecutor.executeToolCalls;
+
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages, iteration) => {
+        seenByModel.push(messages.map((message) => String(message.content)));
+        if (iteration === 0) {
+          return toolCallTurn("c1");
+        }
+        return answerTurn(`c${String(iteration + 1)}`, iteration === 1 ? "draft" : "final");
+      },
+      presentResponse: (_name, content) =>
+        Effect.sync(() => {
+          presented.push(content);
+        }),
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    try {
+      const response = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions(),
+          makeRunContext({ maxIterations: 5 }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(response.content).toBe("final");
+      expect(presented).toEqual(["final"]);
+      expect(seenByModel[2]?.some((content) => content.includes("wait_subagents"))).toBe(true);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
+  it("awaits beforeStep ahead of every model call and reports spend after each step", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([{ toolCallId: "call_c1", name: "test_tool", result: "ok", success: true }]),
+    ) as typeof ToolExecutor.executeToolCalls;
+    const order: string[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (_messages, iteration) => {
+        order.push(`model ${String(iteration)}`);
+        return iteration === 0 ? toolCallTurn("c1") : answerTurn("c2", "done");
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    let spendReports = 0;
+    try {
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({
+            beforeStep: () => Effect.sync(() => order.push("before step")),
+            onIterationSpend: () => {
+              spendReports++;
+            },
+          }),
+          makeRunContext({ maxIterations: 3 }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(order).toEqual(["before step", "model 0", "before step", "model 1"]);
+      expect(spendReports).toBeGreaterThanOrEqual(2);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
+  it("stops a child as cost-capped once the shared pool is spent", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([{ toolCallId: "call_c1", name: "test_tool", result: "ok", success: true }]),
+    ) as typeof ToolExecutor.executeToolCalls;
+    let modelCalls = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        modelCalls++;
+        return toolCallTurn(`c${String(modelCalls)}`);
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    try {
+      const response = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ sharedCostExhausted: () => true }),
+          makeRunContext({ maxIterations: 5 }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(modelCalls).toBe(1);
+      expect(response.costCapped).toBe(true);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+});

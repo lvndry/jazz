@@ -1,7 +1,7 @@
-import { deliverReminder, reminderDirectory } from "@jazz/adapters/daemon/trigger-runner";
 import { claimReminder } from "@jazz/adapters/reminder-service";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { createReminderOsScheduler } from "@jazz/core/wake-triggers/reminder-os-scheduler";
+import { deliverReminder, reminderDirectory } from "@jazz/daemon/trigger-runner";
 import { Effect } from "effect";
 
 /**

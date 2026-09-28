@@ -449,10 +449,10 @@ Tools are registered by category at startup, except MCP:
 | Memory                 | 2       | `view_memory` `manage_memory`                                                                         |
 | Reminders              | 3       | `add_reminder` `list_reminders` `cancel_reminder`                                                     |
 | Context                | 3       | `context_info` `get_time` `retrieve_tool_result`                                                      |
-| Sub Agents             | 2       | `spawn_subagent` `summarize_context`                                                                  |
+| Sub Agents             | 5       | `spawn_subagent` `list_subagents` `wait_subagents` `steer_subagent` `summarize_context`               |
 | User Interaction       | 3       | `ask_user_question` `ask_file_picker` `ask_user_secret`                                               |
 | Compositions           | 1       | `create_composition`                                                                                  |
-| **Total agent-facing** | **36**  | plus 7 hidden `execute_*` counterparts                                                                |
+| **Total agent-facing** | **39**  | plus 7 hidden `execute_*` counterparts                                                                |
 | **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section`: per agent                                            |
 | **MCP**                | dynamic | `mcp_<server>_<tool>`: per agent, connected lazily                                                    |
 

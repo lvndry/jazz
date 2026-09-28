@@ -115,6 +115,12 @@ export interface Tool<R = never> {
   readonly tags?: readonly string[];
   /** Alternative names the LLM may use to call this tool. Resolved transparently at execution time. */
   readonly aliases?: readonly string[];
+  /**
+   * Tools granted together with this one, because it cannot be used without them:
+   * `spawn_subagent` starts children that only `wait_subagents` collects. An agent granted this
+   * tool gets these too, unless it denies them.
+   */
+  readonly companionTools?: readonly string[];
   /** Zod schema for arguments. Validated before `execute` unless a custom `validate` is used. */
   readonly parameters: z.ZodTypeAny;
   /**

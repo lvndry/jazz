@@ -5,6 +5,7 @@
     { "path": "./packages/plugin-sdk" },
     { "path": "./packages/core" },
     { "path": "./packages/adapters" },
+    { "path": "./packages/daemon" },
     { "path": "./packages/cli" },
     { "path": "./packages/runtime" },
     { "path": "./packages/bot-shared" },

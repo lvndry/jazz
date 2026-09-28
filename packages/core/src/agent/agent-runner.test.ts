@@ -961,6 +961,68 @@ describe("AgentRunner", () => {
     });
   });
 
+  describe("companion tools", () => {
+    function lastEffectiveToolNames(): readonly string[] {
+      const partitionMock = mockToolRegistry.partitionByTier as Mock<
+        ToolRegistry["partitionByTier"]
+      >;
+      return partitionMock.mock.calls.at(-1)?.[0] ?? [];
+    }
+    const originalGetTool = (
+      mockToolRegistry.getTool as Mock<ToolRegistry["getTool"]>
+    ).getMockImplementation();
+    afterEach(() => {
+      const getToolMock = mockToolRegistry.getTool as Mock<ToolRegistry["getTool"]>;
+      if (originalGetTool !== undefined) getToolMock.mockImplementation(originalGetTool);
+    });
+
+    /** Gives `tool1` companions, as `spawn_subagent` has `wait_subagents`. */
+    function withCompanions(): void {
+      const getToolMock = mockToolRegistry.getTool as Mock<ToolRegistry["getTool"]>;
+      getToolMock.mockImplementation((name: string) =>
+        Effect.succeed({
+          name,
+          approvalExecuteToolName: undefined,
+          ...(name === "tool1" ? { companionTools: ["manage_memory", "not_registered"] } : {}),
+          longRunning: false,
+          timeoutMs: undefined,
+          function: { name, description: `Description for ${name}` },
+        } as never),
+      );
+    }
+
+    it("grants a tool's registered companions with it", async () => {
+      await runWithTestLayers(
+        AgentRunner.run({ ...defaultOptions, stream: true, maxIterations: 1 }),
+      );
+      expect(lastEffectiveToolNames()).not.toContain("manage_memory");
+
+      withCompanions();
+      await runWithTestLayers(
+        AgentRunner.run({ ...defaultOptions, stream: true, maxIterations: 1 }),
+      );
+      expect(lastEffectiveToolNames()).toContain("manage_memory");
+      expect(lastEffectiveToolNames()).not.toContain("not_registered");
+    });
+
+    it("leaves a denied companion denied", async () => {
+      withCompanions();
+      await runWithTestLayers(
+        AgentRunner.run({
+          ...defaultOptions,
+          agent: {
+            ...mockAgent,
+            config: { ...mockAgent.config, deniedTools: ["manage_memory"] },
+          },
+          stream: true,
+          maxIterations: 1,
+        }),
+      );
+      expect(lastEffectiveToolNames()).toContain("tool1");
+      expect(lastEffectiveToolNames()).not.toContain("manage_memory");
+    });
+  });
+
   describe("toolAllowlist", () => {
     function lastRequestedToolNames(): string[] {
       const streamingMock = mockLlmService.createStreamingChatCompletion as Mock<

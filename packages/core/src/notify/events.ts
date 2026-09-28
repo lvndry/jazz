@@ -6,7 +6,7 @@
  * webhook gets the event itself plus the rendered text).
  *
  * - `waiting`: something needs you: a parked run's approval, question or file, a goal stopped
- *   for review or at its cycle cap, a loop that stopped (see `daemon/attention.ts`).
+ *   for review or at its cycle cap, a loop that stopped (see `packages/daemon/src/attention.ts`).
  * - `paused`: the daemon stopped starting work of its own, at a daily cap.
  * - `reminder`: a reminder a desktop could not show.
  * - `unattended-failed`: work nobody was watching failed.

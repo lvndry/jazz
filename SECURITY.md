@@ -70,7 +70,7 @@ triage a non-issue than miss a real one.
 
 ## How Jazz protects you
 
-**Approval gating is the primary control.** 23 of the 51 built-in agent-facing tools are gated.
+**Approval gating is the primary control.** 23 of the 54 built-in agent-facing tools are gated.
 11 of them come in approval pairs: they do not act when the model calls them; they describe
 what they would do (including a real diff for edits) and wait for approval, from you or from
 the policy tier on an unattended run. The other 12 are plain tools above `read-only`, which the

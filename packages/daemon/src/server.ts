@@ -24,6 +24,37 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { FileSystem } from "@effect/platform";
+import {
+  controlGoal,
+  getOwnedGoal,
+  listOwnedGoals,
+  type GoalAction,
+} from "@jazz/adapters/goals/goal-actions";
+import {
+  loadConversationOrNull,
+  saveRunTranscript,
+} from "@jazz/adapters/history/conversation-history-service";
+import { listModelsForProvider } from "@jazz/adapters/llm/model-fetcher";
+import {
+  controlLoop,
+  getOwnedLoop,
+  listOwnedLoops,
+  startLoop,
+} from "@jazz/adapters/loops/loop-actions";
+import {
+  buildPublicAgentCard,
+  handleA2ARpc,
+  normalizeProtocolVersion,
+} from "@jazz/adapters/peers/a2a";
+import {
+  acceptInviteOnInviterSide,
+  getInvite,
+  type KeyringDependency,
+} from "@jazz/adapters/peers/invites";
+import { servePeerRequest } from "@jazz/adapters/peers/serve";
+import { resumeOwnedRun } from "@jazz/adapters/runs/resume-owned-run";
+import { claimDelivery, type DeliveryClaim } from "@jazz/adapters/webhooks/deliveries";
+import { resolveWebhookSecret } from "@jazz/adapters/webhooks/token";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { chooseGoalName } from "@jazz/core/agent/goal/goal-names";
@@ -94,16 +125,6 @@ import { filterCapableModels } from "@jazz/core/utils/model-capabilities";
 import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
 import { Hono } from "hono";
-import { listModelsForProvider } from "@/adapters/llm/model-fetcher";
-import { buildPublicAgentCard, handleA2ARpc, normalizeProtocolVersion } from "@/adapters/peers/a2a";
-import {
-  acceptInviteOnInviterSide,
-  getInvite,
-  type KeyringDependency,
-} from "@/adapters/peers/invites";
-import { servePeerRequest } from "@/adapters/peers/serve";
-import { claimDelivery, type DeliveryClaim } from "@/adapters/webhooks/deliveries";
-import { resolveWebhookSecret } from "@/adapters/webhooks/token";
 import {
   daemonGate,
   daemonStatusSnapshot,
@@ -111,25 +132,8 @@ import {
   listWaiting,
   pauseDaemon,
   resumeDaemon,
-} from "@jazz/adapters/daemon/attention";
-import { OPERATOR_TOKEN_HEADER } from "@jazz/adapters/daemon/operator-token";
-import { resumeOwnedRun } from "@jazz/adapters/daemon/resume-owned-run";
-import {
-  controlGoal,
-  getOwnedGoal,
-  listOwnedGoals,
-  type GoalAction,
-} from "@jazz/adapters/goals/goal-actions";
-import {
-  loadConversationOrNull,
-  saveRunTranscript,
-} from "@jazz/adapters/history/conversation-history-service";
-import {
-  controlLoop,
-  getOwnedLoop,
-  listOwnedLoops,
-  startLoop,
-} from "@jazz/adapters/loops/loop-actions";
+} from "@/daemon/attention";
+import { OPERATOR_TOKEN_HEADER } from "@/daemon/operator-token";
 
 /**
  * What the daemon's handlers need from the runtime.

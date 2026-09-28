@@ -58,9 +58,22 @@ Releases before this file existed are described in their
   (`gh attestation verify`).
 - [Upgrading](docs/upgrading.md): the 0.x versioning policy and how to fix a rejected config
   after an update.
+- **Notifications in your terminal.** In kitty, Ghostty, WezTerm, Warp and iTerm2, desktop
+  notifications are sent to the terminal as an escape sequence (OSC 99, 777 or 9) instead of
+  through `terminal-notifier` or `notify-send`, including inside tmux with
+  `allow-passthrough on`. `notifications.terminal` (or `JAZZ_NOTIFICATIONS_TERMINAL`) forces a
+  sequence, for example over SSH, or turns it `off`. The daemon, scheduled runs and the bridges
+  keep using the system notifier. See
+  [Desktop notifications](docs/configure/notifications.md#desktop-notifications).
 
 ### Changed
 
+- **Sub-agents run beside the agent and can be steered.** `spawn_subagent` returns an `agentId`
+  at once instead of the child's answer; the agent collects answers with `wait_subagents`, checks
+  on children with `list_subagents`, and messages, pauses, resumes or cancels one with
+  `steer_subagent`. An agent granted `spawn_subagent` gets the three new tools with it. At most
+  four run at once, they never outlive the turn, and children running together now share the
+  parent's `maxCostUSD`.
 - **Secret files read like any other file; secret values are redacted instead.** `read_file`,
   `grep`, `find`, `ls`, `cp`, `mv` and the edit tools no longer treat `.env`, `secrets.json` or
   Jazz's config specially. Every tool result is redacted before it is logged or shown: secrets Jazz
@@ -75,5 +88,7 @@ Releases before this file existed are described in their
 
 - `jazz run --park` reported a run parked on a question as waiting for an approval, with the
   approve command; it now names what the run waits for and the command that answers it.
+- A `jazz daemon` started in the background runs in a session of its own, detached from the
+  terminal that launched it, so it never writes terminal notifications there.
 - `jazz runs approve --json` printed the resumed run's progress to stdout ahead of its
   envelope; stdout now carries only the envelope.

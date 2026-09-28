@@ -6,13 +6,13 @@
  * or not a daemon is running; a running one picks a pause or resume up on its next tick.
  */
 
-import { daemonStatusSnapshot, pauseDaemon, resumeDaemon } from "@jazz/adapters/daemon/attention";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import type { WaitingItem } from "@jazz/core/daemon/attention";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { formatCompactCount } from "@jazz/core/utils/string";
+import { daemonStatusSnapshot, pauseDaemon, resumeDaemon } from "@jazz/daemon/attention";
 import { Effect } from "effect";
 import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
 

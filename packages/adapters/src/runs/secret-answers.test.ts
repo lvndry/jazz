@@ -1,3 +1,4 @@
+/** Regression tests for refusing ordinary answers to parked secret requests and naming the secure answer command. */
 import { answerHint, parkedRunWaitingItem } from "@jazz/core/daemon/attention";
 import { describe, expect, it } from "bun:test";
 import { runAnswerOutcome } from "./resume-owned-run";

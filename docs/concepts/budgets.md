@@ -32,8 +32,10 @@ Two more shape delegation itself: `maxSubagentIterations` (30) and `maxSubagentD
 A sub-agent runs under what its parent has left: the remaining time, the remaining
 `maxCostUSD` (while the parent's spend is fully priced) and the remaining `maxTokens`. Once
 any of them is used up, the parent is told to finish with what it has instead of delegating.
-Sub-agents running at the same time each get that same remainder, so their total can still
-pass the cap until the parent's next check stops it.
+Sub-agents running at the same time share that remainder: each reports its spend after every
+step, and both the parent's and every child's cost check count what the others have spent so far,
+so together they stop at the parent's `maxCostUSD`. `maxTokens` is still counted per run: each
+child gets the parent's remaining tokens.
 
 ## Where to set them
 

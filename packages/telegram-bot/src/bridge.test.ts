@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createChoiceTokens } from "@jazz/bot-shared/choice-tokens";
 import type { JazzEnvelope, JazzEvent, JazzRun, JazzRunHandlers } from "@jazz/bot-shared/jazz-run";
 import type { OutgoingMessage } from "@jazz/bot-shared/surface";
+import { waitUntil } from "@jazz/bot-shared/wait-until";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   type Bridge,
@@ -130,11 +131,6 @@ function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): 
   };
 }
 
-async function until(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 200 && !condition(); attempt += 1) await Bun.sleep(1);
-  if (!condition()) throw new Error("condition never became true");
-}
-
 function button(promptId: string, choiceId: string): string {
   const data = buttonData.get(`${promptId}|${choiceId}`);
   if (data === undefined) throw new Error(`no ${choiceId} button for ${promptId}`);
@@ -166,7 +162,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   for (const run of runs) run.finish();
-  await until(() => !bridge.runner.busy(String(OWNER)) && !bridge.runner.busy(String(GROUP)));
+  await waitUntil(() => !bridge.runner.busy(String(OWNER)) && !bridge.runner.busy(String(GROUP)));
   rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -177,7 +173,7 @@ describe("messages", () => {
       from: { id: GROUP_MEMBER },
       text: "/approve run-test",
     });
-    await until(() => sent.length > 0);
+    await waitUntil(() => sent.length > 0);
     expect(renderRichText(sent.at(-1)?.body ?? [])).toContain("operator can answer a parked run");
     const before = sent.length;
     dispatchMessage(bridge, {
@@ -185,14 +181,14 @@ describe("messages", () => {
       from: { id: OWNER, is_bot: true },
       text: "/deny run-test",
     });
-    await until(() => sent.length > before);
+    await waitUntil(() => sent.length > before);
     expect(renderRichText(sent.at(-1)?.body ?? [])).toContain("unknown");
     expect(runs).toHaveLength(0);
   });
 
   test("status reads the shared spend ledger without starting an agent run", async () => {
     dispatchMessage(bridge, { chat: { id: OWNER }, from: { id: OWNER }, text: "/status" });
-    await until(() => sent.length > 0);
+    await waitUntil(() => sent.length > 0);
     const rendered = renderRichText(sent.at(-1)?.body ?? []);
     expect(rendered).toContain("Today: 0 runs");
     expect(rendered).not.toContain("undefined");
@@ -202,12 +198,12 @@ describe("messages", () => {
   test("two quick messages in one chat run one after the other", async () => {
     dispatchMessage(bridge, { chat: { id: OWNER }, from: { id: OWNER }, text: "first" });
     dispatchMessage(bridge, { chat: { id: OWNER }, from: { id: OWNER }, text: "second" });
-    await until(() => runs.length === 1);
+    await waitUntil(() => runs.length === 1);
     await Bun.sleep(10);
     expect(runs.map((run) => run.prompt)).toEqual(["first"]);
 
     runs[0]?.finish();
-    await until(() => runs.length === 2);
+    await waitUntil(() => runs.length === 2);
     expect(runs[1]?.prompt).toBe("second");
     runs[1]?.finish();
   });
@@ -235,9 +231,9 @@ describe("messages", () => {
 
   test("the answer is rendered from Markdown, not escaped as text", async () => {
     dispatchMessage(bridge, { chat: { id: OWNER }, from: { id: OWNER }, text: "hi" });
-    await until(() => runs.length === 1);
+    await waitUntil(() => runs.length === 1);
     runs[0]?.finish({ ok: true, answer: "**bold** and `code`", costUSD: 0 });
-    await until(() => sent.some((message) => message.promptId === "followup"));
+    await waitUntil(() => sent.some((message) => message.promptId === "followup"));
     const answer = sent.find((message) => message.promptId === "followup");
     expect(renderRichText(answer?.body ?? [])).toContain("<b>bold</b>");
     expect(renderRichText(answer?.body ?? [])).toContain("<code>code</code>");
@@ -254,10 +250,12 @@ describe("buttons", () => {
 
   test("only the requester's tap answers an approval, and Approve all appears past one", async () => {
     dispatchMessage(bridge, { chat: { id: GROUP }, from: { id: GROUP_MEMBER }, text: "status?" });
-    await until(() => runs.length === 1);
+    await waitUntil(() => runs.length === 1);
     runs[0]?.handlers.onApprovalRequired?.(approval("call-1"));
     runs[0]?.handlers.onApprovalRequired?.(approval("call-2"));
-    await until(() => sent.filter((message) => message.promptId?.startsWith("call-")).length === 2);
+    await waitUntil(
+      () => sent.filter((message) => message.promptId?.startsWith("call-")).length === 2,
+    );
 
     const second = sent.find((message) => message.promptId === "call-2");
     expect(second?.choices?.map((choice) => choice.label)).toContain("⚡ Approve all 2");
@@ -285,9 +283,9 @@ describe("buttons", () => {
 
   test("Always allow is refused to a requester who is not an operator", async () => {
     dispatchMessage(bridge, { chat: { id: GROUP }, from: { id: GROUP_MEMBER }, text: "status?" });
-    await until(() => runs.length === 1);
+    await waitUntil(() => runs.length === 1);
     runs[0]?.handlers.onApprovalRequired?.(approval("call-1"));
-    await until(() => sent.some((message) => message.promptId === "call-1"));
+    await waitUntil(() => sent.some((message) => message.promptId === "call-1"));
 
     await handleCallback(bridge, {
       id: "q1",
@@ -302,14 +300,16 @@ describe("buttons", () => {
 
   test("the cancel button stops the requester's run", async () => {
     dispatchMessage(bridge, { chat: { id: OWNER }, from: { id: OWNER }, text: "long job" });
-    await until(() => runs.length === 1);
+    await waitUntil(() => runs.length === 1);
     await handleCallback(bridge, {
       id: "q1",
       data: button("run:cancel", "cancel"),
       message: { message_id: 1, chat: { id: OWNER } },
       from: { id: OWNER },
     });
-    await until(() => sent.some((message) => renderRichText(message.body).includes("Cancelled")));
+    await waitUntil(() =>
+      sent.some((message) => renderRichText(message.body).includes("Cancelled")),
+    );
   });
 
   test("a keyboard from before the upgrade answers that it expired", async () => {
