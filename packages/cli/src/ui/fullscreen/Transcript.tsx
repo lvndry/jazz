@@ -70,6 +70,7 @@ import {
   PROSE_MEASURE,
   type Block,
   type Focus,
+  type StoppedBlock,
   type ToolReceiptBlock,
   type Viewport,
 } from "./types";
@@ -1022,6 +1023,8 @@ function rowsForBlock(
       return noticeRows(block, geometry, glyphs);
     case "divider":
       return dividerRows(block, geometry, glyphs);
+    case "stopped":
+      return stoppedRows(block, geometry, glyphs);
     case "lane":
       return laneRows(block, geometry, glyphs);
   }
@@ -1553,6 +1556,53 @@ function dividerRows(
       meta: [],
     },
   ];
+}
+
+/** Label column for the stopped summary: `done` and `not done` share one measure. */
+const STOPPED_LABEL = "not done  ";
+
+/**
+ * A stopped turn: a quiet rule that says who stopped it and when, then what finished and
+ * what did not, one per row. Never the error colour: stopping is something a person chose.
+ */
+function stoppedRows(block: StoppedBlock, geometry: Geometry, glyphs: GlyphSet): RenderRow[] {
+  const heading = `stopped by you after ${formatDuration(block.elapsedMs)} `;
+  const rule = glyphs.divider.repeat(
+    Math.max(0, Math.min(geometry.prose, geometry.content) - terminalCellWidth(heading)),
+  );
+  const rows: RenderRow[] = [
+    {
+      key: `${block.id}:rule`,
+      gutter: [railCell(THEME.border), BLANK_CELL],
+      content: [
+        { text: heading, fg: THEME.muted },
+        { text: rule, fg: THEME.border },
+      ],
+      contentWidth: geometry.content,
+      meta: [],
+    },
+  ];
+  const listed = (label: string, items: readonly string[]): void => {
+    items.forEach((item, index) => {
+      const content: Segment[] = [
+        { text: (index === 0 ? label : "").padEnd(STOPPED_LABEL.length), fg: THEME.muted },
+        ...fitTerminalSegments(
+          [{ text: item, fg: THEME.selected }],
+          Math.max(1, geometry.prose - STOPPED_LABEL.length),
+        ),
+      ];
+      rows.push({
+        key: `${block.id}:${label}:${String(index)}`,
+        gutter: [railCell(THEME.border), BLANK_CELL],
+        content,
+        contentWidth: geometry.prose,
+        meta: [],
+      });
+    });
+  };
+  listed("done", block.done);
+  listed("not done", block.notDone);
+  return rows;
 }
 
 /**

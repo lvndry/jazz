@@ -129,6 +129,14 @@ export interface DividerBlock extends BlockBase {
   readonly label: string;
 }
 
+/** A turn the person stopped: how long it ran, what finished, and what did not. */
+export interface StoppedBlock extends BlockBase {
+  readonly kind: "stopped";
+  readonly elapsedMs: number;
+  readonly done: readonly string[];
+  readonly notDone: readonly string[];
+}
+
 /** A delegated subagent. Depth is a lane column, never indentation. */
 export interface LaneBlock extends BlockBase {
   readonly kind: "lane";
@@ -147,6 +155,7 @@ export type Block =
   | ToolReceiptBlock
   | NoticeBlock
   | DividerBlock
+  | StoppedBlock
   | LaneBlock;
 
 // ─── Header ──────────────────────────────────────────────────────────────────

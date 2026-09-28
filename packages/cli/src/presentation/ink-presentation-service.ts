@@ -1154,6 +1154,19 @@ export class InkPresentationService implements PresentationService {
     return Effect.void;
   }
 
+  presentInterrupted(agentName: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      // The fullscreen transcript settles the stop as its own summary, taken when the
+      // person pressed the key; this line is the classic interface's account of it.
+      store.printOutput({
+        type: "warn",
+        message: formatWarning(agentName, "generation stopped by user"),
+        timestamp: new Date(),
+        meta: { interruptNotice: true },
+      });
+    });
+  }
+
   presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
       store.printOutput({

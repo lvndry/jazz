@@ -754,7 +754,10 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush);
 
     expect(interrupted).toBe(1);
-    expect(store.getOutputSnapshot().entries.at(-1)?.message).toBe("Interrupting…");
+    // The stop is settled as one summary, taken the moment the keys were pressed.
+    const stopped = store.getOutputSnapshot().entries.at(-1)?.meta?.["stoppedSummary"];
+    expect(stopped).toMatchObject({ done: ["nothing was changed"], notDone: [] });
+    expect(rendered.captureCharFrame()).toContain("stopped by you after");
     store.setInterruptHandler(null);
     store.setChatBusy(false);
     rendered.renderer.destroy();

@@ -73,6 +73,11 @@ import {
 } from "./composer-edit";
 import { wrapCommandIndex } from "./Input";
 import {
+  interruptSummary,
+  type InterruptSnapshot,
+  type InterruptSummary,
+} from "./interrupt-summary";
+import {
   isBackgroundChord,
   isComposerNewline,
   isCtrlLetter,
@@ -83,6 +88,7 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
+import { approvalTitle } from "./overlays/Approval";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import { MAX_QUICK_PICK } from "./overlays/Question";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
@@ -655,6 +661,20 @@ function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
   };
 }
 
+function stoppedOf(entry: OutputEntry): InterruptSummary | null {
+  const candidate = entry.meta?.["stoppedSummary"];
+  if (candidate === null || typeof candidate !== "object") return null;
+  const record = candidate as Record<string, unknown>;
+  const strings = (value: unknown): readonly string[] =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  if (typeof record["elapsedMs"] !== "number") return null;
+  return {
+    elapsedMs: record["elapsedMs"],
+    done: strings(record["done"]),
+    notDone: strings(record["notDone"]),
+  };
+}
+
 /**
  * `OutputEntry.message` is typed `string | TerminalInkNode` — the second half
  * is an opaque wrapper (`{ _tag: "ink", node: <a React element> }`) that only
@@ -735,6 +755,12 @@ export function blocksFrom(
     // other renderer. Behind the empty-text guard below, every settled tool
     // call was therefore skipped in silence, and the transcript showed nothing
     // at all between the question and the answer.
+    const stopped = stoppedOf(entry);
+    if (stopped !== null) {
+      blocks.push({ id, seq: seq++, kind: "stopped", ...stopped });
+      continue;
+    }
+
     const receipt = receiptOf(entry);
     if (receipt !== null) {
       blocks.push({
@@ -762,6 +788,7 @@ export function blocksFrom(
       // The live zone draws a scheduled retry as a band with a countdown; this line is
       // the same notice for the classic interface.
       entry.meta?.["retryNotice"] === true ||
+      entry.meta?.["interruptNotice"] === true ||
       // Reasoning that returned no text collapses to a bare duration line; there
       // is no thought to show, and the turn receipt already carries the time.
       entry.meta?.["collapsedRegion"] === "reasoning"
@@ -947,6 +974,13 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
       );
     case "divider":
       return current.kind === "divider" && previous.label === current.label;
+    case "stopped":
+      return (
+        current.kind === "stopped" &&
+        previous.elapsedMs === current.elapsedMs &&
+        previous.done.join("\n") === current.done.join("\n") &&
+        previous.notDone.join("\n") === current.notDone.join("\n")
+      );
     case "lane":
       return (
         current.kind === "lane" &&
@@ -1255,6 +1289,20 @@ export function FullscreenBridge(): React.ReactNode {
 
   const interrupt = useRef(session.interruptHandler);
   interrupt.current = session.interruptHandler;
+  // What the turn looks like right now, kept current every render so a stop can be
+  // summarised from the moment the key was pressed rather than after the run unwinds.
+  const stopContextRef = useRef<Omit<InterruptSnapshot, "elapsedMs"> | null>(null);
+  const announceStop = useCallback((): void => {
+    const context = stopContextRef.current;
+    const startedAt = runStartedAt.current;
+    if (context === null || startedAt === null) return;
+    store.printOutput({
+      type: "log",
+      message: "",
+      timestamp: new Date(),
+      meta: { stoppedSummary: interruptSummary({ ...context, elapsedMs: Date.now() - startedAt }) },
+    });
+  }, []);
   const background = useRef(session.backgroundHandler);
   background.current = session.backgroundHandler;
   const quitArmed = useRef(false);
@@ -1665,6 +1713,7 @@ export function FullscreenBridge(): React.ReactNode {
       if (isInterruptChord({ name, ctrl, shift, super: superKey, sequence })) {
         if (interrupt.current !== null && quitArmed.current === false) {
           quitArmed.current = true;
+          announceStop();
           interrupt.current();
           return true;
         }
@@ -2635,11 +2684,7 @@ export function FullscreenBridge(): React.ReactNode {
   const onAction = useCallback(
     (action: KeyAction) => {
       if (action.type === "interrupt") {
-        store.printOutput({
-          type: "warn",
-          message: "Interrupting…",
-          timestamp: new Date(),
-        });
+        announceStop();
         store.collapseAllEphemeral();
         interrupt.current?.();
       }
@@ -2652,11 +2697,7 @@ export function FullscreenBridge(): React.ReactNode {
           commitComposer(EMPTY_COMPOSER);
         }
         store.requestFlushQueue();
-        store.printOutput({
-          type: "warn",
-          message: "Interrupting…",
-          timestamp: new Date(),
-        });
+        announceStop();
         store.collapseAllEphemeral();
         interrupt.current?.();
         return;
@@ -2683,6 +2724,13 @@ export function FullscreenBridge(): React.ReactNode {
     return next;
     // elapsedMs ticks the open sub-agent's heading clock.
   }, [outputs, revealedStreaming, regions, inspectedRun, elapsedMs]);
+
+  stopContextRef.current = {
+    blocks,
+    runningTools: tools,
+    ...(approval === null ? {} : { pendingApproval: approvalTitle(approval.executeToolName) }),
+    todos: todoList,
+  };
 
   const subagentList = useMemo<SubagentListModel | undefined>(() => {
     if (subagentRuns.length === 0) return undefined;

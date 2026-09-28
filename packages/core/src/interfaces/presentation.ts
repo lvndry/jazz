@@ -109,6 +109,12 @@ export interface PresentationService {
    */
   readonly presentWarning: (agentName: string, message: string) => Effect.Effect<void, never>;
 
+  /**
+   * The person stopped the turn. Optional: a surface that already shows its own account of
+   * the stop implements it; the rest get "generation stopped by user" as a warning.
+   */
+  readonly presentInterrupted?: (agentName: string) => Effect.Effect<void, never>;
+
   /** Present an agent response, optionally inside its delegated run's detail log. */
   readonly presentAgentResponse: (
     agentName: string,
