@@ -4,7 +4,7 @@
  * compress the current conversation's context, respectively.
  */
 
-import { Effect } from "effect";
+import { Cause, Duration, Effect } from "effect";
 import { z } from "zod";
 import {
   DEFAULT_MAX_SUBAGENT_DEPTH,
@@ -16,7 +16,13 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { ConversationMessages } from "@/core/types/message";
-import type { EgressTaint, RemainingRunBudget, UntrustedProvenance } from "@/core/types/tools";
+import type {
+  EgressTaint,
+  UntrustedProvenance,
+  RemainingRunBudget,
+  ToolExecutionContext,
+  ToolExecutionResult,
+} from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { toError } from "@/core/utils/errors";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -27,6 +33,7 @@ import { resolveEffectiveContextWindow } from "../context/effective-context-wind
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import type { RunSpendReport } from "../metrics/agent-run-metrics";
 import { judgeAnswer } from "../run/answer-outcome";
+import { MAX_LIVE_SUBAGENTS, type SubagentHooks } from "../subagents/supervisor";
 import type { AgentResponse } from "../types";
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -63,11 +70,6 @@ function subagentStopReason(
 }
 
 /**
- * The child was told it is a one-shot run with nobody to ask, so a bare user turn
- * mid-task reads like a new task. Framing it as guidance on the current one keeps
- * the child working instead of starting over or stopping to answer it.
- */
-/**
  * The parent's taint as a child run sees it: shared state, plus a record of whether the child
  * itself read external content, so its answer can be delivered as external content too.
  */
@@ -89,8 +91,21 @@ function childEgressTaint(parent: EgressTaint): {
   };
 }
 
+/**
+ * The child was told it is a one-shot run with nobody to ask, so a bare user turn
+ * mid-task reads like a new task. Framing it as guidance on the current one keeps
+ * the child working instead of starting over or stopping to answer it.
+ */
 function frameSteeringMessage(message: string): string {
   return `[MESSAGE FROM THE USER WHILE YOU WORK]\nTake this into account and continue the task:\n\n${message}`;
+}
+
+/**
+ * The parent agent's words to a running child. Labelled as the parent's so the child neither
+ * starts over nor gives them the weight of the user's own instructions.
+ */
+function frameParentMessage(message: string): string {
+  return `[MESSAGE FROM THE PARENT AGENT WHILE YOU WORK]\nTake this into account and continue the task:\n\n${message}`;
 }
 
 // ─── Sub-Agent Tool ──────────────────────────────────────────────────
@@ -247,6 +262,356 @@ function validateStructuredResult(
   };
 }
 
+/** What `runSubagent` needs from the handler that validated the spawn. */
+interface SubagentRun {
+  readonly parentAgent: Agent;
+  readonly currentDepth: number;
+  readonly remainingBudget: RemainingRunBudget;
+  readonly subagentLabel: string;
+  /** The parent run's handle on this child, for steering and live spend. */
+  readonly hooks?: SubagentHooks;
+}
+
+/**
+ * Run one child to its end and turn its answer into the result `wait_subagents` returns.
+ */
+function runSubagent(args: SpawnSubagentArgs, context: ToolExecutionContext, run: SubagentRun) {
+  const { parentAgent, currentDepth, remainingBudget, subagentLabel, hooks } = run;
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+    const presentation = yield* PresentationServiceTag;
+    yield* logger.info("Spawning sub-agent", {
+      task: args.task.substring(0, 200),
+      persona: args.persona,
+      parentAgentId: parentAgent.id,
+    });
+
+    const taskPreview = args.task.length > 80 ? `...${args.task.slice(-77)}` : args.task;
+    const startedAt = Date.now();
+
+    const regionId = yield* presentation.openEphemeralRegion("subagent", subagentLabel, {
+      agentRun: {
+        task: args.task,
+        acceptsMessages: presentation.takeEphemeralRegionMessage !== undefined,
+      },
+    });
+    yield* presentation.appendEphemeralRegion(regionId, `Task: ${taskPreview}`);
+
+    // Create an ephemeral sub-agent with the parent's LLM config but a specific persona
+    const subAgent: Agent = {
+      id: `subagent-${++subagentCounter}-${Date.now()}`,
+      name: subagentLabel,
+      description: `Ephemeral sub-agent spawned for: ${args.task.substring(0, 100)}`,
+      config: {
+        ...parentAgent.config,
+        persona: args.persona ?? "default",
+        ...(args.reasoning
+          ? {
+              reasoning: args.reasoning,
+            }
+          : {}),
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const wrappedTask = `[SUB-AGENT TASK]
+You are a sub-agent performing a delegated task for a parent agent. This is a ONE-SHOT task.
+
+Rules:
+- Complete the task and produce a answer
+- Do NOT ask follow-up questions or wait for user input
+- The user or the parent agent may send you guidance while you work; when a message arrives, fold it into the task and keep going
+- Do NOT continue searching indefinitely — gather enough information, then synthesise and respond
+- If the task is ambiguous, state your assumptions briefly and proceed
+- If you cannot complete the task fully, return what you found and explain why
+- Stay within the scope of the task — do not take unrequested side actions
+- Be concise; the parent agent needs the output, not background narration
+- Your response will be returned directly to the parent agent
+
+TASK:
+${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSchema, args.resultName) : ""}`;
+
+    if (context.emitEvent) {
+      yield* context.emitEvent({
+        type: "subagent_start",
+        task: taskPreview,
+        agentName: subagentLabel,
+      });
+    }
+
+    const childTaint =
+      context.egressTaint === undefined ? undefined : childEgressTaint(context.egressTaint);
+    const externalProvenance = (): { untrusted?: UntrustedProvenance } =>
+      childTaint?.childReadExternal() === true
+        ? { untrusted: { kind: "external", source: `sub-agent ${subagentLabel}` } }
+        : {};
+    let childSpend: RunSpendReport | undefined;
+    const response = yield* AgentRunner.runRecursive({
+      agent: subAgent,
+      userInput: wrappedTask,
+      conversationId: generateConversationId("subagent"),
+      ...(context.telemetryTraceParent && {
+        telemetryParent: {
+          ...context.telemetryTraceParent,
+          ...(context.toolCallId ? { parentToolCallId: context.toolCallId } : {}),
+        },
+      }),
+      maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
+      ...(remainingBudget.maxDurationMs !== undefined
+        ? { maxDurationMs: remainingBudget.maxDurationMs }
+        : {}),
+      ...(remainingBudget.maxCostUSD !== undefined
+        ? { maxCostUSD: remainingBudget.maxCostUSD }
+        : {}),
+      ...(remainingBudget.maxTokens !== undefined ? { maxTokens: remainingBudget.maxTokens } : {}),
+      // Every way the child ends, a failure included, is paid for by the parent.
+      onRunSpend: (spend) => {
+        childSpend = spend;
+        if (spend.costUSD !== undefined && spend.costUSD > 0) {
+          context.recordChildCost?.(spend.costUSD);
+        }
+        if (spend.costIncomplete) {
+          context.recordChildCostUnknown?.();
+        }
+      },
+      ephemeralRegionId: regionId,
+      // Only where something can address the child: the user through its panel, or the
+      // parent through steer_subagent.
+      ...(presentation.takeEphemeralRegionMessage !== undefined || hooks !== undefined
+        ? {
+            checkQueuedMessage: () => {
+              const fromParent = hooks?.takeParentMessage();
+              if (fromParent !== undefined) {
+                Effect.runSync(
+                  presentation.appendEphemeralRegion(regionId, `↳ parent: ${fromParent}`),
+                );
+                return frameParentMessage(fromParent);
+              }
+              if (presentation.takeEphemeralRegionMessage === undefined) {
+                return undefined;
+              }
+              const steering = Effect.runSync(presentation.takeEphemeralRegionMessage(regionId));
+              return steering === undefined ? undefined : frameSteeringMessage(steering);
+            },
+          }
+        : {}),
+      ...(hooks !== undefined
+        ? {
+            beforeStep: () =>
+              Effect.gen(function* () {
+                const pausing = hooks.pauseRequested();
+                if (pausing) {
+                  yield* presentation.appendEphemeralRegion(
+                    regionId,
+                    "⏸ Paused by the parent agent",
+                  );
+                }
+                yield* hooks.beforeStep();
+                if (pausing) {
+                  yield* presentation.appendEphemeralRegion(regionId, "▶ Resumed");
+                }
+              }),
+            onIterationSpend: hooks.reportSpend,
+            onToolEvent: hooks.onToolEvent,
+          }
+        : {}),
+      ...(context.subagents !== undefined
+        ? { sharedCostExhausted: context.subagents.costExhausted }
+        : {}),
+      ...childRunAuthority(context),
+      ...(childTaint !== undefined ? { egressTaint: childTaint.taint } : {}),
+      subagentDepth: currentDepth + 1,
+      ...(context.onAutoApproveCommand
+        ? { onAutoApproveCommand: context.onAutoApproveCommand }
+        : {}),
+      ...(context.onAutoApproveTool ? { onAutoApproveTool: context.onAutoApproveTool } : {}),
+    }).pipe(
+      Effect.tapError(() =>
+        presentation.collapseEphemeralRegion(regionId, subagentLabel, {
+          status: "failed",
+          durationMs: Date.now() - startedAt,
+        }),
+      ),
+      // Interruption is not a typed error, so tapError never sees it.
+      // Without this, any abort that doesn't go through the double-Esc
+      // handler leaves the subagent panel stuck live.
+      Effect.onInterrupt(() =>
+        presentation.collapseEphemeralRegion(regionId, subagentLabel, {
+          status: "interrupted",
+          durationMs: Date.now() - startedAt,
+        }),
+      ),
+      // Bracket the sub-run for --events consumers, whatever the outcome.
+      Effect.ensuring(
+        context.emitEvent
+          ? Effect.suspend(
+              () =>
+                context.emitEvent?.({
+                  type: "subagent_complete",
+                  agentName: subagentLabel,
+                  durationMs: Date.now() - startedAt,
+                }) ?? Effect.void,
+            )
+          : Effect.void,
+      ),
+    );
+
+    const childCostUnknown =
+      childSpend?.costIncomplete === true ||
+      (response.costUSD === undefined &&
+        !isZeroCostLocalModel(subAgent.config.llmProvider, subAgent.config.llmModel));
+
+    let result = response.content;
+    const stoppedAt = subagentStopReason(response);
+    if (stoppedAt !== undefined) {
+      const parts: string[] = [];
+      for (const msg of response.messages ?? []) {
+        if (msg.role === "assistant" && typeof msg.content === "string" && msg.content.trim()) {
+          parts.push(msg.content.trim());
+        }
+      }
+      result =
+        parts.length > 0
+          ? `[Sub-agent stopped at its ${stoppedAt} before finishing. Partial results below]\n\n${parts.join("\n\n")}`
+          : `[Sub-agent stopped at its ${stoppedAt} before finishing, with no output]`;
+    } else {
+      const verdict = judgeAnswer(response);
+      if (verdict.kind === "failed") {
+        result = `[Sub-agent produced no answer: ${verdict.message}]`;
+      }
+    }
+
+    const durationMs = Date.now() - startedAt;
+    yield* presentation.collapseEphemeralRegion(regionId, subagentLabel, {
+      status: "completed",
+      durationMs,
+      ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+      ...(response.usage
+        ? { totalTokens: response.usage.promptTokens + response.usage.completionTokens }
+        : {}),
+    });
+
+    const fullResult = result?.trim() || "No output";
+
+    if (args.resultSchema) {
+      const structured = validateStructuredResult(fullResult, args.resultSchema, {
+        id: subAgent.id,
+        durationMs,
+        ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+        costKnown: !childCostUnknown,
+      });
+      if (!structured.ok) {
+        yield* logger.warn("Sub-agent structured result failed validation", {
+          parentAgentId: parentAgent.id,
+          subagentId: subAgent.id,
+          errorCount: structured.errors.length,
+        });
+        if (context.emitEvent) {
+          yield* context.emitEvent({
+            type: "subagent_result",
+            subagentId: subAgent.id,
+            agentName: subagentLabel,
+            durationMs,
+            ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+            costKnown: !childCostUnknown,
+            structuredResult: {
+              requested: true,
+              valid: false,
+              ...(args.resultName ? { resultName: args.resultName } : {}),
+              errorCount: structured.errors.length,
+            },
+          });
+        }
+        return {
+          success: false,
+          result: { rawSummary: fullResult, validationErrors: structured.errors },
+          error: `Sub-agent structured result failed validation: ${structured.errors.join("; ")}`,
+          ...externalProvenance(),
+        };
+      }
+
+      if (context.emitEvent) {
+        yield* context.emitEvent({
+          type: "subagent_result",
+          subagentId: subAgent.id,
+          agentName: subagentLabel,
+          durationMs,
+          ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+          costKnown: !childCostUnknown,
+          structuredResult: {
+            requested: true,
+            valid: true,
+            ...(args.resultName ? { resultName: args.resultName } : {}),
+          },
+        });
+      }
+
+      yield* logger.info("Sub-agent returned a validated structured result", {
+        parentAgentId: parentAgent.id,
+        subagentId: subAgent.id,
+        durationMs,
+      });
+      return { success: true, result: structured.value, ...externalProvenance() };
+    }
+
+    yield* logger.info("Sub-agent completed", {
+      parentAgentId: parentAgent.id,
+      persona: args.persona,
+      responseLength: (result || "").length,
+    });
+
+    return {
+      success: true,
+      result: result || "Sub-agent completed but returned no content.",
+      ...externalProvenance(),
+    };
+  });
+}
+
+// ─── Background Sub-Agent Tools ──────────────────────────────────────
+
+/** Longest single wait_subagents call: a sub-agent's own timeout. */
+const MAX_WAIT_SECONDS = SUBAGENT_TIMEOUT_MS / 1000;
+const DEFAULT_WAIT_SECONDS = 600;
+
+const listSubagentsSchema = z.object({});
+
+const waitSubagentsSchema = z.object({
+  ids: z
+    .array(z.string())
+    .optional()
+    .describe("agentIds to wait for; omit for every sub-agent of this run."),
+  until: z
+    .enum(["any", "all"])
+    .optional()
+    .describe(
+      "all (default) returns once none is still running; any once one finishes or needs you.",
+    ),
+  timeoutSeconds: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_WAIT_SECONDS)
+    .optional()
+    .describe(`Longest wait, default ${String(DEFAULT_WAIT_SECONDS)}.`),
+});
+
+const steerSubagentSchema = z.object({
+  id: z.string().describe("The agentId spawn_subagent returned."),
+  action: z
+    .enum(["message", "pause", "resume", "cancel"])
+    .describe(
+      "message adds guidance before its next step; pause holds it before its next model call; resume releases it; cancel stops it now.",
+    ),
+  message: z.string().optional().describe("The guidance, for action message."),
+});
+
+type WaitSubagentsArgs = z.infer<typeof waitSubagentsSchema>;
+type SteerSubagentArgs = z.infer<typeof steerSubagentSchema>;
+
+const NO_SUPERVISOR_ERROR = "Sub-agents are not available in this run.";
+
 // ─── Summarize Tool ──────────────────────────────────────────────────
 
 const summarizeContextSchema = z.object({});
@@ -266,11 +631,9 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
   return [
     defineTool({
       name: "spawn_subagent",
+      companionTools: ["wait_subagents", "list_subagents", "steer_subagent"],
       disclosure: "private",
-      longRunning: true,
-      timeoutMs: SUBAGENT_TIMEOUT_MS,
-      description:
-        "Delegate a self-contained task to a child agent with a fresh context; only its final answer comes back. Use it when the work would flood this context, for independent investigations run in parallel in one turn, or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, a 30-minute timeout and 30 iterations; nesting stops at depth 3.",
+      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, a 30-minute timeout and 30 iterations; at most ${String(MAX_LIVE_SUBAGENTS)} run at once and nesting stops at depth 3.`,
       parameters: spawnSubagentSchema,
       hidden: false,
       // Spawning grants nothing: the child holds at most this run's tools under this run's
@@ -281,7 +644,6 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       handler: (args: SpawnSubagentArgs, context) =>
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
-          const presentation = yield* PresentationServiceTag;
           const parentAgent = context.parentAgent;
 
           if (!parentAgent) {
@@ -333,273 +695,56 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             };
           }
 
-          yield* logger.info("Spawning sub-agent", {
-            task: args.task.substring(0, 200),
-            persona: args.persona,
-            parentAgentId: parentAgent.id,
-          });
-
-          const taskPreview = args.task.length > 80 ? `...${args.task.slice(-77)}` : args.task;
-          const subagentLabel = args.name?.trim() || `Sub-Agent (${args.persona})`;
-          const startedAt = Date.now();
-
-          const regionId = yield* presentation.openEphemeralRegion("subagent", subagentLabel, {
-            agentRun: {
-              task: args.task,
-              acceptsMessages: presentation.takeEphemeralRegionMessage !== undefined,
-            },
-          });
-          yield* presentation.appendEphemeralRegion(regionId, `Task: ${taskPreview}`);
-
-          // Create an ephemeral sub-agent with the parent's LLM config but a specific persona
-          const subAgent: Agent = {
-            id: `subagent-${++subagentCounter}-${Date.now()}`,
-            name: subagentLabel,
-            description: `Ephemeral sub-agent spawned for: ${args.task.substring(0, 100)}`,
-            config: {
-              ...parentAgent.config,
-              persona: args.persona ?? "default",
-              ...(args.reasoning
-                ? {
-                    reasoning: args.reasoning,
-                  }
-                : {}),
-            },
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
-
-          const wrappedTask = `[SUB-AGENT TASK]
-You are a sub-agent performing a delegated task for a parent agent. This is a ONE-SHOT task.
-
-Rules:
-- Complete the task and produce a answer
-- Do NOT ask follow-up questions or wait for user input
-- The user may send you guidance while you work; when a message arrives, fold it into the task and keep going
-- Do NOT continue searching indefinitely — gather enough information, then synthesise and respond
-- If the task is ambiguous, state your assumptions briefly and proceed
-- If you cannot complete the task fully, return what you found and explain why
-- Stay within the scope of the task — do not take unrequested side actions
-- Be concise; the parent agent needs the output, not background narration
-- Your response will be returned directly to the parent agent
-
-TASK:
-${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSchema, args.resultName) : ""}`;
-
-          if (context.emitEvent) {
-            yield* context.emitEvent({
-              type: "subagent_start",
-              task: taskPreview,
-              agentName: subagentLabel,
-            });
+          const supervisor = context.subagents;
+          if (supervisor === undefined) {
+            return {
+              success: false,
+              result: null,
+              error: "Sub-agents are not available in this run. Do this task yourself.",
+            };
+          }
+          if (supervisor.liveCount() >= MAX_LIVE_SUBAGENTS) {
+            return {
+              success: false,
+              result: null,
+              error: `${String(MAX_LIVE_SUBAGENTS)} sub-agents are already running. Call wait_subagents or cancel one with steer_subagent before starting another.`,
+            };
           }
 
-          const childTaint =
-            context.egressTaint === undefined ? undefined : childEgressTaint(context.egressTaint);
-          const externalProvenance = (): { untrusted?: UntrustedProvenance } =>
-            childTaint?.childReadExternal() === true
-              ? { untrusted: { kind: "external", source: `sub-agent ${subagentLabel}` } }
-              : {};
-
-          let childSpend: RunSpendReport | undefined;
-          const response = yield* AgentRunner.runRecursive({
-            agent: subAgent,
-            userInput: wrappedTask,
-            conversationId: generateConversationId("subagent"),
-            ...(context.telemetryTraceParent && {
-              telemetryParent: {
-                ...context.telemetryTraceParent,
-                ...(context.toolCallId ? { parentToolCallId: context.toolCallId } : {}),
-              },
-            }),
-            maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
-            ...(remainingBudget.maxDurationMs !== undefined
-              ? { maxDurationMs: remainingBudget.maxDurationMs }
-              : {}),
-            ...(remainingBudget.maxCostUSD !== undefined
-              ? { maxCostUSD: remainingBudget.maxCostUSD }
-              : {}),
-            ...(remainingBudget.maxTokens !== undefined
-              ? { maxTokens: remainingBudget.maxTokens }
-              : {}),
-            // Every way the child ends, a failure included, is paid for by the parent.
-            onRunSpend: (spend) => {
-              childSpend = spend;
-              if (spend.costUSD !== undefined && spend.costUSD > 0) {
-                context.recordChildCost?.(spend.costUSD);
-              }
-              if (spend.costIncomplete) {
-                context.recordChildCostUnknown?.();
-              }
-            },
-            ephemeralRegionId: regionId,
-            ...(presentation.takeEphemeralRegionMessage
-              ? {
-                  checkQueuedMessage: () => {
-                    const steering = Effect.runSync(
-                      presentation.takeEphemeralRegionMessage?.(regionId) ??
-                        Effect.succeed(undefined),
-                    );
-                    return steering === undefined ? undefined : frameSteeringMessage(steering);
-                  },
-                }
-              : {}),
-            ...childRunAuthority(context),
-            ...(childTaint !== undefined ? { egressTaint: childTaint.taint } : {}),
-            subagentDepth: currentDepth + 1,
-            ...(context.onAutoApproveCommand
-              ? { onAutoApproveCommand: context.onAutoApproveCommand }
-              : {}),
-            ...(context.onAutoApproveTool ? { onAutoApproveTool: context.onAutoApproveTool } : {}),
-          }).pipe(
-            Effect.tapError(() =>
-              presentation.collapseEphemeralRegion(regionId, subagentLabel, {
-                status: "failed",
-                durationMs: Date.now() - startedAt,
+          const subagentLabel = args.name?.trim() || `Sub-Agent (${args.persona})`;
+          const hooks = supervisor.register({ name: subagentLabel });
+          yield* supervisor.start(
+            hooks.id,
+            runSubagent(args, context, {
+              parentAgent,
+              currentDepth,
+              remainingBudget,
+              subagentLabel,
+              hooks,
+            }).pipe(
+              Effect.timeoutFail({
+                duration: Duration.millis(SUBAGENT_TIMEOUT_MS),
+                onTimeout: () => new Error("The sub-agent reached its 30-minute timeout."),
               }),
-            ),
-            // Interruption is not a typed error, so tapError never sees it.
-            // Without this, any abort that doesn't go through the double-Esc
-            // handler leaves the subagent panel stuck live.
-            Effect.onInterrupt(() =>
-              presentation.collapseEphemeralRegion(regionId, subagentLabel, {
-                status: "interrupted",
-                durationMs: Date.now() - startedAt,
-              }),
-            ),
-            // Bracket the sub-run for --events consumers, whatever the outcome.
-            Effect.ensuring(
-              context.emitEvent
-                ? Effect.suspend(
-                    () =>
-                      context.emitEvent?.({
-                        type: "subagent_complete",
-                        agentName: subagentLabel,
-                        durationMs: Date.now() - startedAt,
-                      }) ?? Effect.void,
-                  )
-                : Effect.void,
+              Effect.catchAllCause((cause) =>
+                Effect.succeed<ToolExecutionResult>({
+                  success: false,
+                  result: null,
+                  error: Cause.isInterruptedOnly(cause)
+                    ? "The sub-agent was stopped."
+                    : toError(Cause.squash(cause)).message,
+                }),
+              ),
             ),
           );
-
-          const childCostUnknown =
-            childSpend?.costIncomplete === true ||
-            (response.costUSD === undefined &&
-              !isZeroCostLocalModel(subAgent.config.llmProvider, subAgent.config.llmModel));
-
-          let result = response.content;
-          const stoppedAt = subagentStopReason(response);
-          if (stoppedAt !== undefined) {
-            const parts: string[] = [];
-            for (const msg of response.messages ?? []) {
-              if (
-                msg.role === "assistant" &&
-                typeof msg.content === "string" &&
-                msg.content.trim()
-              ) {
-                parts.push(msg.content.trim());
-              }
-            }
-            result =
-              parts.length > 0
-                ? `[Sub-agent stopped at its ${stoppedAt} before finishing. Partial results below]\n\n${parts.join("\n\n")}`
-                : `[Sub-agent stopped at its ${stoppedAt} before finishing, with no output]`;
-          } else {
-            const verdict = judgeAnswer(response);
-            if (verdict.kind === "failed") {
-              result = `[Sub-agent produced no answer: ${verdict.message}]`;
-            }
-          }
-
-          const durationMs = Date.now() - startedAt;
-          yield* presentation.collapseEphemeralRegion(regionId, subagentLabel, {
-            status: "completed",
-            durationMs,
-            ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
-            ...(response.usage
-              ? { totalTokens: response.usage.promptTokens + response.usage.completionTokens }
-              : {}),
-          });
-
-          const fullResult = result?.trim() || "No output";
-
-          if (args.resultSchema) {
-            const structured = validateStructuredResult(fullResult, args.resultSchema, {
-              id: subAgent.id,
-              durationMs,
-              ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
-              costKnown: !childCostUnknown,
-            });
-            if (!structured.ok) {
-              yield* logger.warn("Sub-agent structured result failed validation", {
-                parentAgentId: parentAgent.id,
-                subagentId: subAgent.id,
-                errorCount: structured.errors.length,
-              });
-              if (context.emitEvent) {
-                yield* context.emitEvent({
-                  type: "subagent_result",
-                  subagentId: subAgent.id,
-                  agentName: subagentLabel,
-                  durationMs,
-                  ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
-                  costKnown: !childCostUnknown,
-                  structuredResult: {
-                    requested: true,
-                    valid: false,
-                    ...(args.resultName ? { resultName: args.resultName } : {}),
-                    errorCount: structured.errors.length,
-                  },
-                });
-              }
-              return {
-                success: false,
-                result: { rawSummary: fullResult, validationErrors: structured.errors },
-                error: `Sub-agent structured result failed validation: ${structured.errors.join("; ")}`,
-                ...externalProvenance(),
-              };
-            }
-
-            if (context.emitEvent) {
-              yield* context.emitEvent({
-                type: "subagent_result",
-                subagentId: subAgent.id,
-                agentName: subagentLabel,
-                durationMs,
-                ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
-                costKnown: !childCostUnknown,
-                structuredResult: {
-                  requested: true,
-                  valid: true,
-                  ...(args.resultName ? { resultName: args.resultName } : {}),
-                },
-              });
-            }
-
-            yield* logger.info("Sub-agent returned a validated structured result", {
-              parentAgentId: parentAgent.id,
-              subagentId: subAgent.id,
-              durationMs,
-            });
-            yield* presentation.writeOutput(`     ${structured.value.summary}`, subagentLabel);
-            return { success: true, result: structured.value, ...externalProvenance() };
-          }
-
-          const maxLines = 10;
-          const previewLines = fullResult.split("\n").slice(-maxLines).join("\n");
-          const indentedLines = previewLines.split("\n").map((line) => `     ${line}`);
-          yield* presentation.writeOutput(indentedLines.join("\n"), subagentLabel);
-
-          yield* logger.info("Sub-agent completed", {
-            parentAgentId: parentAgent.id,
-            persona: args.persona,
-            responseLength: (result || "").length,
-          });
-
           return {
             success: true,
-            result: result || "Sub-agent completed but returned no content.",
-            ...externalProvenance(),
+            result: {
+              agentId: hooks.id,
+              name: subagentLabel,
+              status: "running",
+              note: "Started. Keep working; call wait_subagents to collect its result, and steer_subagent to message, pause, resume or cancel it.",
+            },
           };
         }),
       createSummary: (result) => {
@@ -609,6 +754,102 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       },
     }),
 
+    defineTool({
+      name: "list_subagents",
+      disclosure: "private",
+      description:
+        "Show each sub-agent of this run: status (running, paused, waiting-approval, completed, failed, cancelled), what it is doing, what it has spent, and its result once finished. Returns at once.",
+      parameters: listSubagentsSchema,
+      hidden: false,
+      peerGrantRequired: true,
+      riskLevel: "read-only",
+      validate: makeZodValidator(listSubagentsSchema),
+      handler: (_args: Record<string, never>, context) =>
+        Effect.sync(() => {
+          const supervisor = context.subagents;
+          if (supervisor === undefined) {
+            return { success: false, result: null, error: NO_SUPERVISOR_ERROR };
+          }
+          const subagents = supervisor.list();
+          const untrusted = subagents.find((child) => child.untrusted !== undefined)?.untrusted;
+          return {
+            success: true,
+            result: { subagents },
+            ...(untrusted !== undefined ? { untrusted } : {}),
+          };
+        }),
+      createSummary: (result) =>
+        result.success ? "Listed sub-agents" : `list_subagents failed: ${result.error}`,
+    }),
+    defineTool({
+      name: "wait_subagents",
+      disclosure: "private",
+      longRunning: true,
+      timeoutMs: SUBAGENT_TIMEOUT_MS,
+      description:
+        "Wait for sub-agents and get their results in one call: until all (default) returns once none is still running, until any once one finishes or is paused. Use it instead of checking list_subagents repeatedly.",
+      parameters: waitSubagentsSchema,
+      hidden: false,
+      peerGrantRequired: true,
+      riskLevel: "read-only",
+      validate: makeZodValidator(waitSubagentsSchema),
+      handler: (args: WaitSubagentsArgs, context) =>
+        Effect.gen(function* () {
+          const supervisor = context.subagents;
+          if (supervisor === undefined) {
+            return { success: false, result: null, error: NO_SUPERVISOR_ERROR };
+          }
+          const ids = args.ids ?? [];
+          const known = new Set(supervisor.list().map((snapshot) => snapshot.id));
+          const unknown = ids.filter((id) => !known.has(id));
+          if (unknown.length > 0) {
+            return {
+              success: false,
+              result: null,
+              error: `No sub-agent ${unknown.join(", ")} in this run. Sub-agents stop when the run that started them ends.`,
+            };
+          }
+          const outcome = yield* supervisor.wait(
+            ids,
+            args.until ?? "all",
+            (args.timeoutSeconds ?? DEFAULT_WAIT_SECONDS) * 1000,
+          );
+          const untrusted = outcome.subagents.find(
+            (child) => child.untrusted !== undefined,
+          )?.untrusted;
+          return {
+            success: true,
+            result: outcome,
+            ...(untrusted !== undefined ? { untrusted } : {}),
+          };
+        }),
+      createSummary: (result) =>
+        result.success ? "Waited for sub-agents" : `wait_subagents failed: ${result.error}`,
+    }),
+    defineTool({
+      name: "steer_subagent",
+      disclosure: "private",
+      description:
+        "Steer a running sub-agent by its agentId: message it new guidance, pause it, resume it or cancel it. Messages and pauses take effect before its next model call; cancel stops it and its tools now.",
+      parameters: steerSubagentSchema,
+      hidden: false,
+      peerGrantRequired: true,
+      riskLevel: "read-only",
+      validate: makeZodValidator(steerSubagentSchema),
+      handler: (args: SteerSubagentArgs, context) =>
+        Effect.gen(function* () {
+          const supervisor = context.subagents;
+          if (supervisor === undefined) {
+            return { success: false, result: null, error: NO_SUPERVISOR_ERROR };
+          }
+          const outcome = yield* supervisor.steer(args.id, args.action, args.message);
+          return outcome.ok
+            ? { success: true, result: { id: args.id, status: outcome.status, note: outcome.note } }
+            : { success: false, result: null, error: outcome.error };
+        }),
+      createSummary: (result) =>
+        result.success ? "Steered sub-agent" : `steer_subagent failed: ${result.error}`,
+    }),
     defineTool({
       name: "summarize_context",
       disclosure: "private",

@@ -847,7 +847,8 @@ While a sub-agent is open, Enter sends your draft to it instead of to the main c
 sub-agent reads it between tool calls, the same point where the main agent picks up
 queued messages, and treats it as guidance on its current task. If it finishes before
 reaching another tool call, Jazz says the message was not delivered. Finished sub-agents
-stay in the list until your next message. Companions started by `analyze_media` and
+stay in the list until your next message. The agent can steer its sub-agents too: its messages appear in the sub-agent's log as
+`↳ parent: …`, and a pause shows as `⏸ Paused by the parent agent` until it resumes. Companions started by `analyze_media` and
 `generate_media` are listed too, but take no messages: each makes a single model call with
 no tool calls to pause between.
 

@@ -61,6 +61,12 @@ Releases before this file existed are described in their
 
 ### Changed
 
+- **Sub-agents run beside the agent and can be steered.** `spawn_subagent` returns an `agentId`
+  at once instead of the child's answer; the agent collects answers with `wait_subagents`, checks
+  on children with `list_subagents`, and messages, pauses, resumes or cancels one with
+  `steer_subagent`. An agent granted `spawn_subagent` gets the three new tools with it. At most
+  four run at once, they never outlive the turn, and children running together now share the
+  parent's `maxCostUSD`.
 - **Secret files read like any other file; secret values are redacted instead.** `read_file`,
   `grep`, `find`, `ls`, `cp`, `mv` and the edit tools no longer treat `.env`, `secrets.json` or
   Jazz's config specially. Every tool result is redacted before it is logged or shown: secrets Jazz

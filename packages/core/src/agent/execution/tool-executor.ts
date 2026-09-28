@@ -208,6 +208,16 @@ function resolveEligibleCommandRisk(
 /**
  * Service for executing tools
  */
+/**
+ * An approval asked from inside a sub-agent names it, so a person answering prompts from several
+ * children at once knows which one is asking.
+ */
+function labelForSubagent(message: string, context: ToolExecutionContext): string {
+  const depth = context.subagentDepth ?? 0;
+  const name = context.parentAgent?.name;
+  return depth > 0 && name !== undefined ? `${name}: ${message}` : message;
+}
+
 export class ToolExecutor {
   /**
    * Execute a tool by name with the provided arguments
@@ -378,7 +388,7 @@ export class ToolExecutor {
         (yield* presentationService.requestApproval({
           toolCallId,
           toolName: name,
-          message,
+          message: labelForSubagent(message, context),
           executeToolName: name,
           executeArgs: args,
           isAutoApproved: () => !taintGated() && !privateGated(),
@@ -750,7 +760,7 @@ export class ToolExecutor {
           const approvalRequest = {
             toolCallId: toolCall.id,
             toolName: name,
-            message: approvalMessage,
+            message: labelForSubagent(approvalMessage, context),
             executeToolName: approvalResult.executeToolName,
             executeArgs: approvalResult.executeArgs,
             ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
