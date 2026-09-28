@@ -3,7 +3,7 @@
 /**
  * The header: one row, four fact groups, never hidden.
  *
- *   ▎ jazz        model · host:port ∙ apps 3 of 4 ∙ ████░░░░ 47%
+ *   ▎ jazz        model · host:port ∙ apps 3 of 4 ∙ ━━━━──── 47%
  *
  * The restraint is the design. The mark stays alone on the left; version and
  * cwd are on the home wordmark, not here. Connector health is a count rather
@@ -17,7 +17,11 @@ import { THEME } from "../theme";
 import { fitTerminalSegments, terminalCellWidth, terminalSegmentsWidth } from "./terminal-cells";
 import type { Connector, HeaderModel, Viewport } from "./types";
 
-/** Small enough to read as a gauge rather than as a progress bar. */
+/**
+ * Small enough to read as a gauge rather than as a progress bar. Drawn as a
+ * heavy run over a hairline track so an empty window is one quiet line, not a
+ * row of dots competing with the model name.
+ */
 const METER_CELLS = 8;
 
 /** A context window filling up is worth noticing before it is a problem. */
@@ -45,15 +49,23 @@ export function meterColor(percent: number): string {
   return THEME.secondary;
 }
 
+/** Any use at all shows one cell, so a live session never looks like an empty gauge. */
+export function meterFilledCells(percent: number): number {
+  if (percent <= 0) {
+    return 0;
+  }
+  return Math.max(1, Math.round((percent / 100) * METER_CELLS));
+}
+
 function meterGroup(model: HeaderModel, glyphs: GlyphSet): HeaderGroup {
   const percent = contextPercent(model.contextUsed, model.contextMax);
-  const filled = Math.round((percent / 100) * METER_CELLS);
+  const filled = meterFilledCells(percent);
   const fill = meterColor(percent);
   return {
     key: "meter",
     segments: [
-      { text: glyphs.gridFilled.repeat(filled), fg: fill },
-      { text: glyphs.gridEmpty.repeat(METER_CELLS - filled), fg: THEME.border },
+      { text: glyphs.ruleHeavy.repeat(filled), fg: fill },
+      { text: glyphs.boxH.repeat(METER_CELLS - filled), fg: THEME.border },
       { text: " ", fg: THEME.muted },
       { text: `${percent}%`, fg: fill },
     ],

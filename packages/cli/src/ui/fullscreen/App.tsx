@@ -677,9 +677,7 @@ function AppView({
       />
 
       <box style={{ height: 1, flexShrink: 0 }}>
-        <text style={{ fg: THEME.border }}>
-          {`${glyphs.rail}${glyphs.divider.repeat(Math.max(0, width - 1))}`}
-        </text>
+        <text style={{ fg: THEME.border }}>{glyphs.divider.repeat(Math.max(0, width))}</text>
       </box>
 
       <box
