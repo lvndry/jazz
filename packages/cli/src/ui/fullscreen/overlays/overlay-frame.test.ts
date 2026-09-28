@@ -2,11 +2,11 @@ import { describe, expect, it } from "bun:test";
 import { overlayReservedRows, overlayWidth, placeOverlay } from "./overlay-frame";
 
 describe("where an overlay card sits", () => {
-  it("docks above the footer, centered, on a terminal wide and tall enough", () => {
+  it("docks above the footer on the prose column, on a terminal wide and tall enough", () => {
     const viewport = { width: 120, height: 34 };
     const placement = placeOverlay(viewport, overlayWidth(viewport), 10);
-    expect(placement).toEqual({ fullscreen: false, width: 96, height: 10, left: 12, top: 23 });
-    expect(overlayReservedRows(placement)).toBe(11);
+    expect(placement).toEqual({ fullscreen: false, width: 96, height: 10, left: 0, top: 23 });
+    expect(overlayReservedRows(placement)).toBe(12);
   });
 
   it("spans a narrow terminal instead of taking the whole screen", () => {

@@ -1044,7 +1044,7 @@ function userRows(
     [{ text: block.text, fg: THEME.selected }],
     Math.max(1, geometry.prose - BAND_PADDING),
   );
-  const bar: readonly Segment[] = [{ text: glyphs.panelBar, fg: THEME.primary }, BLANK_CELL];
+  const bar: readonly Segment[] = [{ text: glyphs.bandBar, fg: THEME.primary }, BLANK_CELL];
   const panel = (
     key: string,
     content: readonly Segment[],

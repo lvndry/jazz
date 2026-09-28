@@ -21,6 +21,7 @@ import { Input, inputRows, MAX_VISIBLE_QUEUED, wrapCells, wrapCommandIndex } fro
 import { liveRows, LiveZone } from "./LiveZone";
 import { terminalCellWidth } from "./terminal-cells";
 import {
+  COMPACT_HEIGHT,
   LIVE_ZONE_MAX_ROWS,
   MIN_WIDTH,
   type InputModel,
@@ -484,6 +485,11 @@ async function caretPainted(model: InputModel): Promise<boolean> {
     });
 }
 
+/** The composer's rows without its band padding, which is chrome rather than content. */
+function unpadded<Row extends { readonly key: string }>(rows: readonly Row[]): Row[] {
+  return rows.filter((row) => !row.key.startsWith("pad:"));
+}
+
 describe("input", () => {
   const base: InputModel = {
     value: "",
@@ -511,11 +517,13 @@ describe("input", () => {
     expect(text).toContain("/help");
     expect(text).toContain("/clear");
     expect(text).toContain("Clear the screen");
-    expect(rows[1]?.segments[0]?.text).toBe(`${glyphs.rail} `);
-    expect(rows.at(-1)?.segments[1]?.text).toBe(`${glyphs.promptCursor} `);
+    expect(rows[1]?.segments[0]?.text).toBe(`${glyphs.bandBar} `);
+    // The list sits on the panel ground, the composer on the element ground.
+    expect(rows[0]?.segments.every((segment) => segment.bg === THEME.surface)).toBe(true);
+    expect(rows.at(-1)?.segments[0]?.bg).toBe(THEME.surfaceStrong);
   });
 
-  it("wraps the command list as a carousel instead of stopping at the ends", () => {
+  it("wraps the selection at the ends but opens the list at its head", () => {
     expect(wrapCommandIndex(-1, 5)).toBe(4);
     expect(wrapCommandIndex(5, 5)).toBe(0);
     const items = Array.from({ length: 10 }, (_, index) => ({
@@ -527,30 +535,103 @@ describe("input", () => {
       { width: WIDTH, height: HEIGHT },
     );
     const names = rows
-      .slice(0, -1)
+      .filter((row) => row.key.startsWith("/"))
       .map((row) => row.segments.map((segment) => segment.text).join(""));
-    expect(names[0]).toContain("/cmd-3");
-    expect(names.at(-1)).toContain("/cmd-0");
-    expect(rows[names.length - 1]?.segments[0]?.text).toBe(`${glyphs.rail} `);
+    expect(names[0]).toContain("/cmd-0");
+    expect(names.at(-1)).toContain("/cmd-7");
+    expect(rows[0]?.segments[0]?.text).toBe(`${glyphs.bandBar} `);
+
+    const wrapped = inputRows(
+      { ...base, value: "/", commands: { items, selected: wrapCommandIndex(-1, items.length) } },
+      { width: WIDTH, height: HEIGHT },
+    )
+      .filter((row) => row.key.startsWith("/"))
+      .map((row) => row.segments.map((segment) => segment.text).join(""));
+    expect(wrapped.at(-1)).toContain("/cmd-9");
   });
 
-  it("shows one prompt gutter and a caret when the keyboard is live", () => {
+  it("aligns command names, origin tags and plain descriptions in columns", () => {
+    const items = [
+      { name: "agents", description: "List all available agents" },
+      {
+        name: "explain-concept",
+        description: "Explain a *concept* properly with `depth`",
+        source: "skill" as const,
+      },
+    ];
+    const rows = inputRows(
+      { ...base, value: "/", commands: { items, selected: 0 } },
+      { width: WIDTH, height: HEIGHT },
+    )
+      .filter((row) => row.key.startsWith("/"))
+      .map((row) => row.segments.map((segment) => segment.text).join(""));
+    const first = rows[0] ?? "";
+    const second = rows[1] ?? "";
+    expect(second).toContain("skill");
+    expect(second).not.toContain("(skill)");
+    expect(second).toContain("Explain a concept properly with depth");
+    expect(first.indexOf("List all")).toBe(second.indexOf("Explain"));
+  });
+
+  it("draws a padded element band with an accent bar and a caret when the keyboard is live", () => {
     const rows = inputRows(base, { width: WIDTH, height: HEIGHT });
-    expect(rows).toHaveLength(1);
-    const first = rows[0];
-    expect(first?.segments[0]?.text).toBe(`${glyphs.rail} `);
-    expect(first?.segments[1]?.text).toBe(`${glyphs.promptCursor} `);
-    expect(first?.segments[1]?.fg).toBe(THEME.prompt);
+    expect(rows.map((row) => row.key)).toEqual(["pad:top", "line:0", "pad:bottom"]);
+    const first = unpadded(rows)[0];
+    expect(first?.segments[0]?.text).toBe(`${glyphs.bandBar} `);
+    expect(first?.segments[0]?.fg).toBe(THEME.primary);
     expect(first?.segments.some((segment) => segment.bg === THEME.prompt)).toBe(true);
+    for (const row of rows) {
+      expect(terminalCellWidth(row.segments.map((segment) => segment.text).join(""))).toBe(WIDTH);
+      expect(row.segments[0]?.text).toBe(`${glyphs.bandBar} `);
+    }
+  });
+
+  it("puts the model on the right of the first line, and gives it up for the draft", () => {
+    const withMeta = { ...base, meta: "sol \u2219 medium" };
+    const idle = unpadded(inputRows(withMeta, { width: WIDTH, height: HEIGHT }))[0];
+    const idleText = idle?.segments.map((segment) => segment.text).join("") ?? "";
+    expect(idleText.trimEnd()).toEndWith("sol \u2219 medium");
+    expect(idle?.segments.find((segment) => segment.text.includes("sol"))?.fg).toBe(THEME.muted);
+
+    const long = unpadded(
+      inputRows({ ...withMeta, value: "x".repeat(WIDTH - 8) }, { width: WIDTH, height: HEIGHT }),
+    )[0];
+    expect(long?.segments.map((segment) => segment.text).join("")).not.toContain("sol");
+  });
+
+  it("paints the band's ground to the last column of every row, padding rows included", async () => {
+    const { renderer, renderOnce, captureSpans } = await renderForTest(
+      <Input
+        model={base}
+        viewport={{ width: WIDTH, height: HEIGHT }}
+      />,
+      { width: WIDTH, height: 3 },
+    );
+    await renderOnce();
+    const captured = captureSpans();
+    renderer.destroy();
+    const element = RGBA.fromHex(THEME.surfaceStrong).toInts().slice(0, 3).join(",");
+    for (const line of captured.lines) {
+      const last = line.spans.at(-1);
+      expect(last?.bg.toInts().slice(0, 3).join(",")).toBe(element);
+    }
+  });
+
+  it("drops the band's padding rows first on a short terminal", () => {
+    const rows = inputRows(base, { width: WIDTH, height: COMPACT_HEIGHT - 1 });
+    expect(rows.map((row) => row.key)).toEqual(["line:0"]);
+    const squeezed = inputRows(base, { width: WIDTH, height: HEIGHT }, true, glyphs, 2);
+    expect(squeezed.map((row) => row.key)).toEqual(["line:0"]);
   });
 
   it("shows a dim placeholder and no caret when an overlay owns the keyboard", async () => {
     const disabled = { ...base, disabled: true };
     const rows = inputRows(disabled, { width: WIDTH, height: HEIGHT });
-    expect(rows.flatMap((row) => row.segments).some((segment) => segment.bg !== undefined)).toBe(
+    expect(rows.flatMap((row) => row.segments).some((segment) => segment.bg === THEME.prompt)).toBe(
       false,
     );
-    expect(rows[0]?.segments[1]?.fg).toBe(THEME.muted);
+    expect(unpadded(rows)[0]?.segments[0]?.fg).toBe(THEME.border);
+    expect(unpadded(rows)[0]?.segments[1]?.fg).toBe(THEME.muted);
 
     // And the same statement made against the painted frame. The live case is
     // asserted alongside it, because "no accent background anywhere" would pass
@@ -574,18 +655,21 @@ describe("input", () => {
       { ...base, value: "one\ntwo\nthree" },
       { width: WIDTH, height: HEIGHT },
     );
-    expect(short).toHaveLength(3);
+    expect(unpadded(short)).toHaveLength(3);
 
     const long = inputRows(
       { ...base, value: Array.from({ length: 12 }, (_, index) => `line ${index}`).join("\n") },
       { width: WIDTH, height: HEIGHT },
     );
-    expect(long).toHaveLength(INPUT_MAX_ROWS_EXPECTED);
-    const marker = long[0]?.segments.map((segment) => segment.text).join("") ?? "";
+    const longContent = unpadded(long);
+    expect(longContent).toHaveLength(INPUT_MAX_ROWS_EXPECTED);
+    const marker = longContent[0]?.segments.map((segment) => segment.text).join("") ?? "";
     expect(marker).toContain(`${glyphs.railDeep} 7 more lines`);
     // The caret stays visible: the window ends at the last line, not the first.
     expect(
-      long[long.length - 1]?.segments.some((segment) => segment.text.includes("line 11")),
+      longContent[longContent.length - 1]?.segments.some((segment) =>
+        segment.text.includes("line 11"),
+      ),
     ).toBe(true);
   });
 
@@ -606,7 +690,7 @@ describe("input", () => {
     expect(text.indexOf("2 queued")).toBeLessThan(text.indexOf("follow up"));
     expect(text.indexOf("follow up")).toBeLessThan(text.indexOf("send the itinerary"));
     expect(text.indexOf("send the itinerary")).toBeLessThan(text.indexOf("ask jazz"));
-    expect(some).toHaveLength(4);
+    expect(unpadded(some)).toHaveLength(4);
   });
 
   it("keeps the newest queued messages when the queue is longer than the cap", () => {
@@ -618,7 +702,7 @@ describe("input", () => {
     expect(text).toContain("two");
     expect(text).toContain("three");
     expect(text).toContain("four");
-    expect(some).toHaveLength(2 + MAX_VISIBLE_QUEUED);
+    expect(unpadded(some)).toHaveLength(2 + MAX_VISIBLE_QUEUED);
   });
 
   it("collapses queued newlines in the preview", () => {
@@ -667,7 +751,7 @@ describe("input", () => {
     for (const model of models) {
       const rows = inputRows(model, { width: MIN_WIDTH, height: HEIGHT });
       const queuedRows = model.queued.length === 0 ? 0 : MAX_VISIBLE_QUEUED;
-      expect(rows.length).toBeLessThanOrEqual(INPUT_MAX_ROWS_EXPECTED + queuedRows);
+      expect(unpadded(rows).length).toBeLessThanOrEqual(INPUT_MAX_ROWS_EXPECTED + queuedRows);
       for (const row of rows) {
         const width = row.segments.reduce(
           (total, segment) => total + terminalCellWidth(segment.text),
@@ -685,29 +769,31 @@ describe("input", () => {
     );
     const selected = rows
       .flatMap((row) => row.segments)
-      .filter((segment) => segment.bg === THEME.surfaceStrong)
+      .filter((segment) => segment.bg === THEME.muted)
       .map((segment) => segment.text)
       .join("");
     expect(selected).toBe("world");
   });
 
   it("carries a whole word onto the next composer row instead of splitting it", () => {
-    // width 14, GUTTER_CELLS 4 -> 10 columns of content
-    const rows = inputRows({ ...base, value: "abc helloworld" }, { width: 14, height: HEIGHT });
+    // width 13, GUTTER_CELLS 3 -> 10 columns of content
+    const rows = unpadded(
+      inputRows({ ...base, value: "abc helloworld" }, { width: 13, height: HEIGHT }),
+    );
     const lineText = (row: (typeof rows)[number]): string =>
       row.segments
-        .slice(2)
+        .slice(1)
         .map((segment) => segment.text)
-        .join("");
-    expect(lineText(rows[0] as (typeof rows)[number])).toBe("abc ");
+        .join("")
+        .trimEnd();
+    expect(lineText(rows[0] as (typeof rows)[number])).toBe("abc");
     expect(lineText(rows[1] as (typeof rows)[number])).toBe("helloworld");
   });
 
   it("places the caret on the row a wrapped word actually lands on", () => {
     // caret sits inside "helloworld", which only wraps to row 2 as a whole word
-    const rows = inputRows(
-      { ...base, value: "abc helloworld", caret: 8 },
-      { width: 14, height: HEIGHT },
+    const rows = unpadded(
+      inputRows({ ...base, value: "abc helloworld", caret: 8 }, { width: 13, height: HEIGHT }),
     );
     const caretRow = rows.findIndex((row) =>
       row.segments.some((segment) => segment.bg === THEME.prompt),

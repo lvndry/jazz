@@ -21,11 +21,11 @@
  *     a failed validation does not resize the card.
  */
 
-import { TextAttributes, type BorderCharacters } from "@opentui/core";
+import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
 import { OVERLAY_Z_INDEX } from "./centered";
-import { overlayWidth, placeOverlay } from "./overlay-frame";
-import { getGlyphs, type GlyphSet } from "../../glyphs";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { getGlyphs } from "../../glyphs";
 import { maskSecret, maskSecretCaret } from "../../mask-secret";
 import { THEME } from "../../theme";
 import {
@@ -36,8 +36,6 @@ import {
   terminalGraphemes,
 } from "../terminal-cells";
 import type { Viewport } from "../types";
-
-const CARD_PAD = 1;
 
 /** Border, blank, input, blank, error. */
 const FIXED_CARD_ROWS = 6;
@@ -98,22 +96,6 @@ function wrapProse(text: string, width: number, maxRows: number): string[] {
   const last = kept[maxRows - 1] ?? "";
   kept[maxRows - 1] = clip(`${last} ${lines.slice(maxRows).join(" ")}`, width);
   return kept;
-}
-
-function frameChars(glyphs: GlyphSet): BorderCharacters {
-  return {
-    topLeft: glyphs.boxTL,
-    topRight: glyphs.boxTR,
-    bottomLeft: glyphs.boxBL,
-    bottomRight: glyphs.boxBR,
-    horizontal: glyphs.boxH,
-    vertical: glyphs.boxV,
-    topT: glyphs.boxTJ,
-    bottomT: glyphs.boxBJ,
-    leftT: glyphs.boxML,
-    rightT: glyphs.boxMR,
-    cross: glyphs.boxMJ,
-  };
 }
 
 interface CaretCells {
@@ -327,7 +309,7 @@ export interface TextPromptProps {
 /** The card's size and placement; `height` is what the layout reserves. */
 export function textPromptLayout(model: TextPromptModel, viewport: Viewport) {
   const frame = overlayWidth(viewport);
-  const inner = Math.max(8, frame.width - 2 - CARD_PAD * 2);
+  const inner = Math.max(8, frame.width - BAND_CHROME_COLUMNS);
   const valueWidth = Math.max(4, inner - MARKER_COLUMN);
   const message = wrapProse(model.message, inner, MESSAGE_MAX_ROWS);
   const placement = placeOverlay(viewport, frame, FIXED_CARD_ROWS + message.length + HINT_ROWS);
@@ -366,12 +348,11 @@ export function TextPrompt({ model, viewport }: TextPromptProps): ReactNode {
           height: cardHeight,
           flexShrink: 0,
           flexDirection: "column",
-          backgroundColor: THEME.surface,
-          border: true,
-          customBorderChars: frameChars(glyphs),
-          borderColor: THEME.border,
-          paddingLeft: CARD_PAD,
-          paddingRight: CARD_PAD,
+          // The band's padding rows stand where the old frame's top and bottom
+          // edges were, so every row count below is unchanged.
+          ...bandStyle(glyphs, THEME.surface, THEME.border),
+          paddingTop: 1,
+          paddingBottom: 1,
         }}
       >
         {message.map((line, index) => (

@@ -19,11 +19,18 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
 import { renderForTest } from "../test-helpers";
 import { AgentDetails, agentDetailsRows } from "./AgentDetails";
-import { AgentPicker, agentColumns, listRowsFor, type AgentChoice } from "./AgentPicker";
+import {
+  AgentPicker,
+  agentColumns,
+  filterAgents,
+  listRowsFor,
+  type AgentChoice,
+} from "./AgentPicker";
 import { Home, homeRows, type HomeModel } from "./Home";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
 import type { Viewport } from "../types";
+import { compactWorkingDirectory } from "../working-directory";
 
 const WIDE: Viewport = { width: 100, height: 28 };
 const NARROW: Viewport = { width: 60, height: 20 };
@@ -258,7 +265,10 @@ describe("home screen", () => {
     );
 
     // The identity, so you know what you are looking at.
-    expect(drawn.text).toContain("▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄");
+    // The ornament caps the wordmark row: exactly as wide, no wider.
+    const wordmarkRow = drawn.rows.find((row) => row.includes("jazz")) ?? "";
+    const ornamentRow = drawn.rows.find((row) => row.includes("▄▀▀▄")) ?? "";
+    expect(ornamentRow.trimEnd().length).toBe(wordmarkRow.trimEnd().length);
     expect(drawn.text).toContain("jazz");
     expect(drawn.text).toContain("0.14.2");
     expect(drawn.text).toContain("your everyday agentic CLI");
@@ -380,7 +390,7 @@ describe("home screen", () => {
     expect(text).toContain("New conversation");
   });
 
-  it("reports the machine facts the agents are grounded with", async () => {
+  it("reports where the agents run as one muted line, without marks", async () => {
     const drawn = await draw(
       <Home
         model={GROUNDED}
@@ -389,19 +399,23 @@ describe("home screen", () => {
       WIDE,
     );
 
-    expect(drawn.text).toContain("environment");
-    expect(drawn.text).toContain("date");
-    expect(drawn.text).toContain("Wednesday, August 26, 2026 (UTC+2, Europe/Paris)");
-    expect(drawn.text).toContain("darwin 24.6.0 (arm64) · /bin/zsh · lvndry");
-    expect(drawn.text).toContain("/Users/lvndry/github/jazz");
-    expect(drawn.text).toContain("Apple M4 Pro · 14 cores · 24 GB RAM");
+    // One muted line, directory first: where you are and what runs it.
+    const cwd = compactWorkingDirectory("/Users/lvndry/github/jazz");
+    const line = drawn.rows.find((row) => row.includes(cwd)) ?? "";
+    expect(line).toContain(`${cwd} ${getGlyphs().bullet} darwin 24.6.0 (arm64)`);
+    expect(line).not.toContain("/bin/zsh");
+    const lineSpan = allSpans(drawn.frame).find((span) => span.text.includes("darwin 24.6.0"));
+    expect(lineSpan === undefined ? undefined : hexOf(lineSpan)).toBe(THEME.muted.toUpperCase());
+    expect(drawn.text).not.toContain("environment");
+    expect(drawn.text).not.toContain("Wednesday, August 26, 2026");
+    expect(drawn.text).not.toContain("Apple M4 Pro");
   });
 
   it("gives up the environment report before guidance and setup", () => {
     const short: Viewport = { width: 100, height: 14 };
     const rows = homeRows(GROUNDED, short);
     const text = rows.flatMap((row) => row.segments.map((segment) => segment.text)).join(" ");
-    expect(text).not.toContain("environment");
+    expect(text).not.toContain("darwin 24.6.0");
     expect(rows.length).toBeLessThanOrEqual(short.height - 1);
   });
 
@@ -501,6 +515,46 @@ describe("agent picker", () => {
 
     const grounds = new Set(allSpans(drawn.frame).map((span) => span.bg.toInts().join(",")));
     expect(grounds.size).toBe(1);
+  });
+
+  it("ranks name prefix, then name substring, then model or persona, then letters in order", () => {
+    const names = (query: string) => filterAgents(AGENTS, query).map((match) => match.agent.name);
+    expect(names("")).toEqual(AGENTS.map((agent) => agent.name));
+    expect(names("fe")).toEqual(["Fern"]);
+    expect(names("opus")).toEqual(["Fern"]);
+    expect(names("writer")).toEqual(["Fern"]);
+    expect(names("bsl")).toEqual(["Basil"]);
+    expect(names("zzz")).toEqual([]);
+    expect(filterAgents(AGENTS, "as")[0]?.nameHits).toEqual([1, 2]);
+  });
+
+  it("filters to what was typed, counts the matches, and sets the hit in weight", async () => {
+    const drawn = await draw(
+      <AgentPicker
+        agents={AGENTS}
+        selectedIndex={0}
+        viewport={WIDE}
+        query="fe"
+      />,
+      WIDE,
+    );
+    expect(drawn.text).toContain("fe");
+    expect(drawn.text).toContain("Fern");
+    expect(drawn.text).not.toContain("Basil");
+    expect(drawn.text).toContain("1 match");
+    expect(spanWithText(drawn.frame, "Fe").attributes & TextAttributes.BOLD).not.toBe(0);
+
+    const none = await draw(
+      <AgentPicker
+        agents={AGENTS}
+        selectedIndex={0}
+        viewport={WIDE}
+        query="zzz"
+      />,
+      WIDE,
+    );
+    expect(none.text).toContain("no matches");
+    expect(none.text).toContain('No agent matches "zzz".');
   });
 
   it("handles no agents by saying what to do instead", async () => {

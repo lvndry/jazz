@@ -163,6 +163,8 @@ export interface HeaderModel {
   readonly cwd: string;
   readonly model: string;
   readonly localHost?: string;
+  /** Reasoning effort, when the model has one; shown beside the model in the composer. */
+  readonly reasoning?: string;
   readonly connectors: readonly Connector[];
   readonly contextUsed: number;
   readonly contextMax: number;
@@ -283,6 +285,8 @@ export interface InputModel {
   readonly queueing?: boolean;
   /** Suppressed while a modal overlay owns the keyboard. */
   readonly disabled: boolean;
+  /** Muted, right-aligned on the composer's first line when it fits: `model · reasoning`. */
+  readonly meta?: string;
 }
 
 export interface FooterModel {

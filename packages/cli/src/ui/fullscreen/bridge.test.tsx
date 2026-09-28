@@ -141,7 +141,7 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("claude-opus-5");
     // 82.1k of 200k is 41%.
     expect(text).toContain("41%");
-    expect(text).toContain("20k/40k $0.04");
+    expect(text).toContain(`20k in ${getGlyphs().bullet} 40k out ${getGlyphs().bullet} $0.04`);
   });
 
   it("shows the resolved local endpoint beside a conversation model", async () => {
@@ -534,8 +534,10 @@ describe("fullscreen bridge", () => {
     await rendered.mockInput.pressKey("/");
     await settleKeypress(rendered.flush);
     const listed = rendered.captureCharFrame();
-    expect(listed).toContain("/agents");
-    expect(listed).toContain("/workflows");
+    // The list opens at its head, with the first entry highlighted, rather than
+    // wrapped so the tail of the list sits above the selection.
+    expect(listed).toContain(`${getGlyphs().rail} /agents`);
+    expect(listed).not.toContain("/workflows");
 
     await rendered.mockInput.pressKey("h");
     await settleKeypress(rendered.flush);
@@ -798,8 +800,8 @@ describe("fullscreen bridge", () => {
         ],
       });
     });
-    expect(text).toContain("environment");
-    expect(text).toContain("darwin 24.6.0 (arm64) · /bin/zsh · lvndry");
+    expect(text).toContain("darwin 24.6.0 (arm64)");
+    expect(text).not.toContain("/bin/zsh");
     store.setActiveMenu(null);
   });
 
@@ -841,6 +843,39 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
     store.setActiveMenu(null);
     expect(selected).toEqual(["EXIT"]);
+  });
+
+  it("filters the agent picker by typing and starts the match with enter", async () => {
+    const selected: string[] = [];
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
+    await rendered.renderOnce();
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "pick an agent",
+        action: "start",
+        initialIndex: 0,
+        agents: [
+          { id: "a1", name: "chatgpt-sol", model: "chatgpt/gpt-6-sol", persona: "default" },
+          { id: "a2", name: "luna", model: "openai/gpt-5.6-luna", persona: "default" },
+          { id: "a3", name: "nano", model: "openai/gpt-5.4-nano", persona: "default" },
+        ],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
+    await rendered.flush();
+    for (const key of ["n", "a", "n", "o"]) {
+      await rendered.mockInput.pressKey(key);
+      await settleKeypress(rendered.flush);
+    }
+    const filtered = rendered.captureCharFrame();
+    expect(filtered).toContain("nano");
+    expect(filtered).not.toContain("chatgpt-sol");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    rendered.renderer.destroy();
+    store.setActiveMenu(null);
+    expect(selected).toEqual(["a3"]);
   });
 
   it("starts the selected agent from the picker with enter", async () => {
@@ -2774,8 +2809,9 @@ describe("fullscreen bridge", () => {
     const rows = text.split("\n").filter((row) => row.length > 0);
     const composerIndex = rows.findIndex((row) => row.includes("Ask anything"));
     expect(composerIndex).toBeGreaterThan(1);
-    expect(rows[composerIndex - 1]?.trim()).toBe("");
-    const waitingRow = rows[composerIndex - 2] ?? "";
+    // Band padding, then the quiet row, then the live band's indicator.
+    expect(rows[composerIndex - 2]?.trim()).toBe("");
+    const waitingRow = rows[composerIndex - 3] ?? "";
     expect(waitingRow.trim().length).toBeGreaterThan(0);
   });
 

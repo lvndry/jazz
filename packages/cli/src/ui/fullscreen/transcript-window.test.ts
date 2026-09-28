@@ -93,7 +93,7 @@ describe("transcriptVisibleCount", () => {
         input,
         inputFocused: true,
       }),
-    ).toBe(17);
+    ).toBe(15);
   });
 
   it("keeps a transcript row by taking it from the live band, not from the composer", () => {

@@ -14,9 +14,9 @@
  * query that matches nothing does not move anything the reader is looking at.
  */
 
-import type { BorderCharacters, ScrollBoxRenderable } from "@opentui/core";
+import type { ScrollBoxRenderable } from "@opentui/core";
 import { useEffect, useRef, type ReactNode } from "react";
-import { getGlyphs, type GlyphSet } from "../../glyphs";
+import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
 import {
   clipTerminalCells,
@@ -27,7 +27,7 @@ import {
 } from "../terminal-cells";
 import type { SearchHit, SearchOverlay, Viewport } from "../types";
 import { OVERLAY_Z_INDEX } from "./centered";
-import { overlayWidth, placeOverlay } from "./overlay-frame";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 import { CaretValue } from "./TextPrompt";
 
 /** Windowed height, fixed: the overlay does not grow with the result count. */
@@ -59,22 +59,6 @@ function clip(text: string, width: number): string {
 
 function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
-}
-
-function frameChars(glyphs: GlyphSet): BorderCharacters {
-  return {
-    topLeft: glyphs.boxTL,
-    topRight: glyphs.boxTR,
-    bottomLeft: glyphs.boxBL,
-    bottomRight: glyphs.boxBR,
-    horizontal: glyphs.boxH,
-    vertical: glyphs.boxV,
-    topT: glyphs.boxTJ,
-    bottomT: glyphs.boxBJ,
-    leftT: glyphs.boxML,
-    rightT: glyphs.boxMR,
-    cross: glyphs.boxMJ,
-  };
 }
 
 interface MarkedLine {
@@ -140,7 +124,7 @@ export function searchLayout(viewport: Viewport) {
   const cardHeight = Math.max(1, placement.height - HINT_ROWS);
   return {
     ...placement,
-    inner: Math.max(8, frame.width - 2 - CARD_PAD * 2),
+    inner: Math.max(8, frame.width - BAND_CHROME_COLUMNS),
     cardHeight,
     listRows: Math.max(HIT_ROWS, cardHeight - FIXED_CARD_ROWS),
   };
@@ -184,12 +168,11 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
           height: cardHeight,
           flexShrink: 0,
           flexDirection: "column",
-          backgroundColor: THEME.surface,
-          border: true,
-          customBorderChars: frameChars(glyphs),
-          borderColor: THEME.border,
-          paddingLeft: CARD_PAD,
-          paddingRight: CARD_PAD,
+          // The band's padding rows stand where the old frame's top and bottom
+          // edges were, so every row count below is unchanged.
+          ...bandStyle(glyphs, THEME.surface, THEME.border),
+          paddingTop: 1,
+          paddingBottom: 1,
         }}
       >
         <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>

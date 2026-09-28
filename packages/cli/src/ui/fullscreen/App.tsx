@@ -274,7 +274,6 @@ function AppView({
   const copyNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [peerNotice, setPeerNotice] = useState<string | undefined>(undefined);
   const peerNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const glyphs = getGlyphs();
 
   // `useKeyboard` registers its callback once, so it captures the props and
   // state setters from the render that happened to be first. Those setters can
@@ -576,9 +575,17 @@ function AppView({
   const viewportRef = useRef<Viewport>({ width, height });
   viewportRef.current = reuseViewport(width, height, viewportRef.current);
   const viewport = viewportRef.current;
+  const composerMeta =
+    view.header.reasoning === undefined
+      ? view.header.model
+      : `${view.header.model} ${getGlyphs().bullet} ${view.header.reasoning}`;
   const inputModel = useMemo(
-    () => ({ ...view.input, disabled: view.input.disabled || overlayOpen }),
-    [view.input, overlayOpen],
+    () => ({
+      ...view.input,
+      disabled: view.input.disabled || overlayOpen,
+      ...(view.input.meta === undefined ? { meta: composerMeta } : {}),
+    }),
+    [view.input, overlayOpen, composerMeta],
   );
   const overlayKind = view.overlay?.kind;
   const overlayArmed = view.overlay?.kind === "approval" ? view.overlay.armed : true;
@@ -676,11 +683,7 @@ function AppView({
         viewport={viewport}
       />
 
-      <box style={{ height: 1, flexShrink: 0 }}>
-        <text style={{ fg: THEME.border }}>
-          {`${glyphs.rail}${glyphs.divider.repeat(Math.max(0, width - 1))}`}
-        </text>
-      </box>
+      <box style={{ height: 1, flexShrink: 0 }} />
 
       <box
         style={{
@@ -717,6 +720,7 @@ function AppView({
         viewport={viewport}
         focused={inputFocused}
         maxRows={regions.input}
+        concealed={overlayOpen}
       />
       {regions.subagents > 0 ? (
         <SubagentList

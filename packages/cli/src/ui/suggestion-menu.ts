@@ -26,6 +26,35 @@ export interface SuggestionMenu<Entry extends SuggestionEntry = SuggestionEntry>
 }
 
 /**
+ * A description as one plain line. Skill and prompt descriptions are written
+ * as markdown for the model; in a one-row menu the `*` and backticks are just
+ * noise between the words.
+ */
+export function plainDescription(description: string): string {
+  return description
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/(^|[^\w*])[*_]([^*_\s][^*_]*?)[*_](?=[^\w*]|$)/g, "$1$2")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The muted tag naming where a non-built-in entry came from. */
+export function suggestionOrigin(source: string | undefined): string | undefined {
+  switch (source) {
+    case "skill":
+      return "skill";
+    case "mcp-prompt":
+      return "mcp";
+    case "plugin":
+      return "plugin";
+    default:
+      return undefined;
+  }
+}
+
+/**
  * Pick which suggestions the menu shows.
  *
  * Slash commands win: a line starting with `/` cannot also hold a mention span,

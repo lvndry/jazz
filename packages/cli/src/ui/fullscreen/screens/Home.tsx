@@ -12,10 +12,10 @@
  * Five things, in this order, because that is the order a reader needs them:
  *
  *   identity     the mark, the version, one line of what this is
+ *   where        one muted line: the directory and machine agents run in —
+ *                same source as the system prompt's `Environment:` block, so
+ *                the line and the prompt cannot drift
  *   setup        what is ready and what is not, each with the one thing to do
- *   environment  the machine facts agents are grounded with — same source as
- *                the system prompt's `Environment:` block, so the report and
- *                the prompt cannot drift
  *   menu         what you can do next, selection marked by weight and a rail
  *   tip          one line, dim, ignorable
  *
@@ -26,10 +26,12 @@
  * simply have not started yet.
  *
  * Height is a budget, not an assumption. The tip goes first when the terminal is
- * short, then the environment report, then the guidance sentence, then the
- * setup list; the menu and the keys
- * row are never dropped, and a menu longer than the space left is windowed
- * around the selection so the selected row is always on screen.
+ * short, then the environment line, then the guidance sentence, then the
+ * setup list; the menu and the keys row are never dropped, and a menu longer
+ * than the space left is windowed around the selection so the selected row is
+ * always on screen. Slack left over sits mostly below the block rather than
+ * above it, so a tall terminal holds the screen in its upper third instead of
+ * pinning it to the top edge over an empty page.
  *
  * No keys are handled here: the screen renders `selected` and nothing else.
  */
@@ -40,6 +42,7 @@ import { THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
+import { compactWorkingDirectory } from "../working-directory";
 
 /** Markers live in the left margin, so the text column never moves. */
 const GUTTER = 2;
@@ -169,14 +172,30 @@ function sectionLabel(key: string, text: string): HomeRow {
   };
 }
 
-/** Two rhythmic voices on one line: five-cell figure against a three-cell one. */
+/**
+ * Two rhythmic voices on one line: a five-cell figure against a three-cell one.
+ * Cut to the width of the wordmark row beneath it, so the figure is a cap on the
+ * name rather than a rule running off across the page.
+ */
 const WORDMARK_ORNAMENT = "▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄";
 
+/** Facts shown on the environment line, in order: where you are, then what runs it. */
+const ENVIRONMENT_LINE_FACTS = ["cwd", "os"] as const;
+
+/** Share of the leftover height placed above the block; the rest goes below it. */
+const TOP_SLACK_SHARE = 1 / 3;
+
 function identityRows(model: HomeModel, glyphs: GlyphSet, content: number): HomeRow[] {
+  const wordmark = `${glyphs.note}  jazz  ${model.version}`;
   return [
     {
       key: "ornament",
-      segments: [{ text: clip(WORDMARK_ORNAMENT, content + GUTTER), fg: THEME.primary }],
+      segments: [
+        {
+          text: clip(WORDMARK_ORNAMENT.slice(0, cells(wordmark)), content + GUTTER),
+          fg: THEME.primary,
+        },
+      ],
     },
     {
       key: "identity",
@@ -191,6 +210,32 @@ function identityRows(model: HomeModel, glyphs: GlyphSet, content: number): Home
       segments: [
         { text: " ".repeat(GUTTER), fg: THEME.muted },
         { text: clip(model.tagline, content), fg: THEME.muted },
+      ],
+    },
+  ];
+}
+
+/** The environment as one muted line: the facts that orient you, joined, nothing else. */
+function environmentRows(facts: readonly HomeFact[], glyphs: GlyphSet, content: number): HomeRow[] {
+  // The os fact carries shell and user after its first ` · `; the line keeps the
+  // system alone, and the directory reads from `~`.
+  const shorten = (label: string, detail: string): string =>
+    label === "cwd"
+      ? compactWorkingDirectory(detail)
+      : label === "os"
+        ? (detail.split(" · ")[0] ?? detail)
+        : detail;
+  const shown = ENVIRONMENT_LINE_FACTS.map((label) => {
+    const detail = facts.find((fact) => fact.label === label)?.detail;
+    return detail === undefined ? undefined : shorten(label, detail);
+  }).filter((detail): detail is string => detail !== undefined && detail.length > 0);
+  if (shown.length === 0) return [];
+  return [
+    {
+      key: "environment",
+      segments: [
+        { text: " ".repeat(GUTTER), fg: THEME.muted },
+        { text: clip(shown.join(` ${glyphs.bullet} `), content), fg: THEME.muted },
       ],
     },
   ];
@@ -327,20 +372,9 @@ export function homeRows(model: HomeModel, viewport: Viewport): HomeRow[] {
           sectionLabel("label:setup", "setup"),
           ...requirementRows(model.requirements, glyphs, content),
         ];
-  // Facts are always true, so they borrow the ready-row voice: active glyph,
-  // muted detail — a report, never an ask.
-  const environment =
-    model.environment === undefined || model.environment.length === 0
-      ? []
-      : [
-          blank("gap:environment"),
-          sectionLabel("label:environment", "environment"),
-          ...requirementRows(
-            model.environment.map((fact) => ({ ...fact, ready: true })),
-            glyphs,
-            content,
-          ),
-        ];
+  // Facts are a report, never an ask, so they take no mark and no colour: one
+  // muted line under the tagline, the directory first.
+  const environment = environmentRows(model.environment ?? [], glyphs, content);
   const guidance = firstRun
     ? [blank("gap:guidance"), ...guidanceRows(model, selected, content)]
     : [];
@@ -360,8 +394,8 @@ export function homeRows(model: HomeModel, viewport: Viewport): HomeRow[] {
   const build = (): HomeRow[] => [
     blank("gap:top"),
     ...identity,
-    ...(dropped.has("setup") ? [] : setup),
     ...(dropped.has("environment") ? [] : environment),
+    ...(dropped.has("setup") ? [] : setup),
     ...(dropped.has("guidance") ? [] : guidance),
     ...menuHead,
     ...windowAround(choices, selected, Math.max(1, menuRows)),
@@ -420,8 +454,15 @@ function Row({ row }: { row: HomeRow }): ReactNode {
   );
 }
 
+/** Blank rows above the block, a third of what the terminal has left over. */
+export function homeTopSlack(rowCount: number, viewport: Viewport): number {
+  const slack = viewport.height - KEYS_ROWS - rowCount;
+  return Math.max(0, Math.floor(slack * TOP_SLACK_SHARE));
+}
+
 export function Home({ model, viewport }: HomeProps): ReactNode {
   const rows = homeRows(model, viewport);
+  const topSlack = homeTopSlack(rows.length, viewport);
   return (
     <box
       style={{
@@ -431,6 +472,7 @@ export function Home({ model, viewport }: HomeProps): ReactNode {
         backgroundColor: THEME.canvas,
       }}
     >
+      {topSlack > 0 ? <box style={{ height: topSlack, flexShrink: 0 }} /> : null}
       {rows.map((row) => (
         <Row
           key={row.key}

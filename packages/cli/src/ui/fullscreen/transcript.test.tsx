@@ -727,7 +727,7 @@ describe("colour is state, not speaker", () => {
     expect(colorOf(spans, "Four things need you")).toBe(THEME.selected.toUpperCase());
     expect(colorOf(spans, "gmail")).toBe(THEME.muted.toUpperCase());
     // The user's panel bar is the one speaker-coloured cell; the rail is not.
-    expect(colorOf(spans, getGlyphs().panelBar)).toBe(THEME.primary.toUpperCase());
+    expect(colorOf(spans, getGlyphs().bandBar)).toBe(THEME.primary.toUpperCase());
 
     const rows = transcriptRows(SESSION, WIDE);
     const continuation = rows.find(
@@ -746,7 +746,7 @@ describe("colour is state, not speaker", () => {
     expect(rows[rows.length - 1]?.content).toEqual([]);
     for (const row of rows) {
       expect(row.backgroundColor).toBe(THEME.surface);
-      expect(row.gutter[0]).toEqual({ text: getGlyphs().panelBar, fg: THEME.primary });
+      expect(row.gutter[0]).toEqual({ text: getGlyphs().bandBar, fg: THEME.primary });
     }
     expect(rows.some((row) => row.gutter[0]?.text === getGlyphs().promptCursor)).toBe(false);
 
