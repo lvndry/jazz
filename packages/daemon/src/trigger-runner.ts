@@ -14,6 +14,16 @@
  * spend ledger's finished days.
  */
 
+import { runDueDetachedJobs } from "@jazz/adapters/detach/job";
+import { sendDesktopNotification } from "@jazz/adapters/notification/desktop-notifier";
+import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
+import {
+  claimDueReminders,
+  isBotHostedAgentId,
+  settleReminder,
+} from "@jazz/adapters/reminder-service";
+import type { ScheduledItemClaim } from "@jazz/adapters/storage/scheduled-items";
+import { claimDueWakeTriggers, settleWakeTrigger } from "@jazz/adapters/wake-trigger-service";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import type { WakeTriggerRecord } from "@jazz/core/interfaces/wake-trigger-service";
@@ -35,14 +45,8 @@ import {
   runClaimedWorkflow,
 } from "@jazz/core/workflows/catch-up";
 import { Cause, Effect, Exit } from "effect";
-import { runDueJobs } from "@/adapters/daemon/job-worker";
-import { runUnattendedTurn } from "@/adapters/daemon/unattended-resume";
-import { runDueDetachedJobs } from "@/adapters/detach/job";
-import { sendDesktopNotification } from "@/adapters/notification/desktop-notifier";
-import { drainNotifyOutbox } from "@/adapters/notification/outbox-drain";
-import { claimDueReminders, isBotHostedAgentId, settleReminder } from "@/adapters/reminder-service";
-import type { ScheduledItemClaim } from "@/adapters/storage/scheduled-items";
-import { claimDueWakeTriggers, settleWakeTrigger } from "@/adapters/wake-trigger-service";
+import { runDueJobs } from "@/daemon/job-worker";
+import { runUnattendedTurn } from "@/daemon/unattended-resume";
 
 export function wakeTriggerDirectory(): string {
   return `${getJazzHomeDirectory()}/wake-triggers`;

@@ -34,7 +34,7 @@ import {
 } from "@jazz/core/utils/state-file";
 import { isValidStorageKey, withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
-import { claimOwnerStatus, clearInFlight, markInFlight } from "@/adapters/daemon/runs-in-flight";
+import { claimOwnerStatus, clearInFlight, markInFlight } from "@/adapters/runs/runs-in-flight";
 
 export interface ScheduledItem {
   readonly id: string;

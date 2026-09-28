@@ -1,6 +1,10 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readDaemonState } from "@jazz/adapters/storage/daemon-state-store";
+import { InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
+import { InMemoryLoopStore } from "@jazz/adapters/storage/loop-store";
+import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
 import { testGoal } from "@jazz/core/agent/goal/test-fixtures";
 import { newLoop } from "@jazz/core/agent/loop/loop-record";
 import { createRunRecord, type RunRecord } from "@jazz/core/agent/run/run-record";
@@ -31,11 +35,7 @@ import {
   listWaiting,
   pauseDaemon,
   resumeDaemon,
-} from "@jazz/adapters/daemon/attention";
-import { readDaemonState } from "@jazz/adapters/storage/daemon-state-store";
-import { InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
-import { InMemoryLoopStore } from "@jazz/adapters/storage/loop-store";
-import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
+} from "@/daemon/attention";
 
 interface Harness {
   readonly runs: InMemoryRunStore;

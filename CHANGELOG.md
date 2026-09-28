@@ -51,6 +51,13 @@ Releases before this file existed are described in their
   (`gh attestation verify`).
 - [Upgrading](docs/upgrading.md): the 0.x versioning policy and how to fix a rejected config
   after an update.
+- **Notifications in your terminal.** In kitty, Ghostty, WezTerm, Warp and iTerm2, desktop
+  notifications are sent to the terminal as an escape sequence (OSC 99, 777 or 9) instead of
+  through `terminal-notifier` or `notify-send`, including inside tmux with
+  `allow-passthrough on`. `notifications.terminal` (or `JAZZ_NOTIFICATIONS_TERMINAL`) forces a
+  sequence, for example over SSH, or turns it `off`. The daemon, scheduled runs and the bridges
+  keep using the system notifier. See
+  [Desktop notifications](docs/configure/notifications.md#desktop-notifications).
 
 ### Changed
 
@@ -66,5 +73,7 @@ Releases before this file existed are described in their
 
 ### Fixed
 
+- A `jazz daemon` started in the background runs in a session of its own, detached from the
+  terminal that launched it, so it never writes terminal notifications there.
 - `jazz runs approve --json` printed the resumed run's progress to stdout ahead of its
   envelope; stdout now carries only the envelope.

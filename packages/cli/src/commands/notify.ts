@@ -3,7 +3,10 @@
  * inspect or retry what is waiting in the outbox (see docs/configure/notifications.md).
  */
 
-import { desktopNotifierUnavailableReason } from "@jazz/adapters/notification/desktop-notifier";
+import {
+  currentDesktopNotifierHost,
+  desktopNotifierUnavailableReason,
+} from "@jazz/adapters/notification/desktop-notifier";
 import {
   drainNotifyOutbox,
   listOutbox,
@@ -43,7 +46,9 @@ export function listNotifyTargetsCommand(options: { readonly json: boolean }) {
     const targets = notifyTargets(appConfig);
     const implicit = appConfig.notify?.targets === undefined;
     const desktopUnavailable = targets.some((target) => target.kind === "desktop")
-      ? desktopNotifierUnavailableReason()
+      ? desktopNotifierUnavailableReason(
+          currentDesktopNotifierHost(appConfig.notifications?.terminal),
+        )
       : undefined;
     const text =
       targets.length === 0

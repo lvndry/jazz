@@ -1,7 +1,7 @@
-import { deliverWakeTrigger, wakeTriggerDirectory } from "@jazz/adapters/daemon/trigger-runner";
 import { claimWakeTrigger } from "@jazz/adapters/wake-trigger-service";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { createWakeTriggerOsScheduler } from "@jazz/core/wake-triggers/wake-trigger-os-scheduler";
+import { deliverWakeTrigger, wakeTriggerDirectory } from "@jazz/daemon/trigger-runner";
 import { Effect } from "effect";
 
 /**

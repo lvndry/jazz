@@ -8,6 +8,11 @@
  * the transcript was lost, and told nobody a run was waiting. A park is its own outcome here.
  */
 
+import {
+  loadConversationOrNull,
+  saveRunTranscript,
+  type Conversation,
+} from "@jazz/adapters/history/conversation-history-service";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import {
@@ -23,11 +28,6 @@ import type { SpendSource } from "@jazz/core/spend/sources";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { Effect } from "effect";
-import {
-  loadConversationOrNull,
-  saveRunTranscript,
-  type Conversation,
-} from "@jazz/adapters/history/conversation-history-service";
 
 export type UnattendedTurnSource = "job batch" | "wake trigger";
 

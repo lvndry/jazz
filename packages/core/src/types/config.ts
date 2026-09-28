@@ -150,9 +150,18 @@ export interface ContextConfig {
   readonly compactThresholdRatio?: number;
 }
 
+/**
+ * How a desktop notification reaches a terminal that shows notifications itself: `auto` picks the
+ * escape sequence from the environment, `osc99`, `osc777` or `osc9` forces one, `off` always uses
+ * the OS notifier.
+ */
+export type TerminalNotificationSetting = "auto" | "osc99" | "osc777" | "osc9" | "off";
+
 export interface NotificationsConfig {
   readonly enabled?: boolean;
   readonly sound?: boolean;
+  /** Defaults to `auto`. `JAZZ_NOTIFICATIONS_TERMINAL` wins over it. */
+  readonly terminal?: TerminalNotificationSetting;
 }
 
 export interface TelemetryConfig {

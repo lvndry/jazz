@@ -7,8 +7,6 @@
  * or failed.
  */
 
-import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
-import { isDaemonSupervised } from "@jazz/adapters/daemon/service-install";
 import {
   answerLoop,
   controlLoop,
@@ -16,6 +14,7 @@ import {
   listOwnedLoops,
   startLoop,
 } from "@jazz/adapters/loops/loop-actions";
+import type { RunAnswer } from "@jazz/adapters/runs/resume-owned-run";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
@@ -25,6 +24,7 @@ import type { LoopBudget } from "@jazz/core/agent/loop/loop-record";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
 import { parseWhen } from "@jazz/core/utils/time";
+import { isDaemonSupervised } from "@jazz/daemon/service-install";
 import { Effect } from "effect";
 import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { AGENT_ANSWER_REFUSAL } from "@/cli/commands/run/lifecycle";

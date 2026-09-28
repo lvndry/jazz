@@ -47,11 +47,11 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { currentProcessOwner, localOwnerStatus } from "@jazz/core/utils/process";
 import { Cause, Effect, Fiber } from "effect";
+import { claimOwnerStatus, inFlight } from "@/adapters/runs/runs-in-flight";
 import {
   loadConversationOrNull,
   saveRunTranscript,
 } from "@jazz/adapters/history/conversation-history-service";
-import { claimOwnerStatus, inFlight } from "./runs-in-flight";
 
 /** A goal without a name is shown by the start of its id, as `jazz goal` commands accept it. */
 const GOAL_ID_PREFIX_CHARS = 8;

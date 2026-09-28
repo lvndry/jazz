@@ -16,7 +16,7 @@
  * {@link evaluateSpendCaps} is the pure rule; {@link checkSpendCaps} reads config and the
  * ledger, and {@link checkAndReserveSpendCaps} also holds an in-flight reservation for a run
  * that passes, so runs starting together cannot all spend the same headroom. The daemon pauses
- * itself at a machine daily cap (`daemon/attention.ts`), and `jazz daemon resume` lifts the
+ * itself at a machine daily cap (`packages/daemon/src/attention.ts`), and `jazz daemon resume` lifts the
  * machine daily caps for the rest of the day (`capLifted`), which this check honors too.
  */
 

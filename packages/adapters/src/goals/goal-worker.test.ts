@@ -31,7 +31,7 @@ import {
   resumeGoalRun,
   runDueGoals,
   settleChatGoalTurn,
-} from "@jazz/adapters/daemon/goal-worker";
+} from "@/adapters/goals/goal-worker";
 import {
   loadConversation,
   loadConversationOrNull,

@@ -46,12 +46,61 @@ drops desktop targets.
 
 ## Desktop notifications
 
-On macOS a desktop notification is shown with `terminal-notifier`. The release binary bundles
-it; a Jazz installed another way uses `JAZZ_TERMINAL_NOTIFIER`, then one on `PATH` or in
-Homebrew (`brew install terminal-notifier`). On Linux it is `notify-send` (from libnotify), and
-it needs a desktop session (`DISPLAY`, `WAYLAND_DISPLAY` or `DBUS_SESSION_BUS_ADDRESS`).
+A desktop notification is shown one of two ways, never both.
 
-On a host with neither, such as a server or a CI runner:
+**In the terminal.** When Jazz runs in a terminal that shows notifications itself, it writes
+the notification to that terminal as an escape sequence, and the terminal shows it. This works
+while the fullscreen interface is up.
+
+| Terminal | Detected from                                     | Sequence |
+| -------- | ------------------------------------------------- | -------- |
+| kitty    | `KITTY_WINDOW_ID`, or `TERM=xterm-kitty`          | OSC 99   |
+| Ghostty  | `TERM_PROGRAM=ghostty`                            | OSC 777  |
+| WezTerm  | `TERM_PROGRAM=WezTerm`                            | OSC 777  |
+| Warp     | `TERM_PROGRAM=WarpTerminal`                       | OSC 777  |
+| iTerm2   | `TERM_PROGRAM=iTerm.app`, or `LC_TERMINAL=iTerm2` | OSC 9    |
+
+The terminal sends nothing back, so a notification counts as delivered once it was written to
+the terminal. Whether it appears then depends on the terminal and the OS allowing it (on macOS,
+System Settings, Notifications, then your terminal app). Titles and messages are limited in
+length and lose control characters; OSC 777 and OSC 9 also lose `;`, which separates their
+fields.
+
+**With the system notifier** everywhere else: in any other terminal (Apple Terminal, GNOME
+Terminal and other VTE terminals, VS Code), and in every process with no terminal, such as
+`jazz daemon`, scheduled workflows and the chat bridges. On macOS that is `terminal-notifier`.
+The release binary bundles it; a Jazz installed another way uses `JAZZ_TERMINAL_NOTIFIER`, then
+one on `PATH` or in Homebrew (`brew install terminal-notifier`). On Linux it is `notify-send`
+(from libnotify), and it needs a desktop session (`DISPLAY`, `WAYLAND_DISPLAY` or
+`DBUS_SESSION_BUS_ADDRESS`).
+
+`notifications.terminal` chooses the terminal sequence, and `JAZZ_NOTIFICATIONS_TERMINAL` wins
+over it:
+
+| Value            | Effect                                                   |
+| ---------------- | -------------------------------------------------------- |
+| `auto` (default) | Detect the terminal as in the table above.               |
+| `osc99`          | Always send kitty's sequence.                            |
+| `osc777`         | Always send the sequence Ghostty, WezTerm and Warp show. |
+| `osc9`           | Always send iTerm2's sequence.                           |
+| `off`            | Always use the system notifier.                          |
+
+```sh
+jazz config set notifications.terminal osc777
+```
+
+- **Over SSH** the remote shell usually has no `TERM_PROGRAM`, so `auto` finds nothing (iTerm2's
+  `LC_TERMINAL` is often forwarded, and is detected). Set `notifications.terminal` on the remote
+  machine: the sequence travels back over SSH and your laptop's terminal shows it.
+- **In tmux** the sequence is wrapped so tmux forwards it, which tmux does only with
+  `set -g allow-passthrough on` in `~/.tmux.conf`. tmux replaces `TERM_PROGRAM` with `tmux`, so
+  inside tmux `auto` detects kitty and iTerm2 only; set `notifications.terminal` for the others.
+- **In GNU screen** the system notifier is always used: screen does not forward these
+  sequences.
+
+`notifications.enabled: false` turns off both.
+
+On a host that can show a desktop notification neither way, such as a server or a CI runner:
 
 - nothing is queued for the default desktop target (the one used while `notify.targets` is
   unset), and `jazz notify` says why;

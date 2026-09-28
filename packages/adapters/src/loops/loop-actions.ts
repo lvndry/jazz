@@ -25,12 +25,12 @@ import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { findByNameOrIdPrefix } from "@jazz/core/utils/handle";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { Effect } from "effect";
-import { resumeLoopRun } from "@/adapters/daemon/loop-worker";
+import { resumeLoopRun } from "@/adapters/loops/loop-worker";
 import {
   pendingRunInput,
   runAnswerOutcome,
   type RunAnswer,
-} from "@/adapters/daemon/resume-owned-run";
+} from "@/adapters/runs/resume-owned-run";
 
 /**
  * A loop this installation owns, by its id, its name, or a prefix of its id that names only one

@@ -8,14 +8,14 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/core/secrets/registry";
-import { Effect } from "effect";
 import {
   detectKeyringBackend,
   type KeyringBackend,
   keyringGet,
   keyringSet,
-} from "@/adapters/secrets/keyring";
+} from "@jazz/adapters/secrets/keyring";
+import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/core/secrets/registry";
+import { Effect } from "effect";
 
 export function resolveDaemonToken(): Effect.Effect<string | undefined, never> {
   return Effect.gen(function* () {

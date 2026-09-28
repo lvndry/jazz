@@ -671,6 +671,19 @@ describe("parseConfigInput", () => {
     });
   });
 
+  it("reads notifications.terminal as one of its sequences or off", () => {
+    expect(parseConfigInput("notifications.terminal", "OSC777")).toEqual({
+      ok: true,
+      value: "osc777",
+    });
+    expect(parseConfigInput("notifications.terminal", "off")).toEqual({ ok: true, value: "off" });
+    expect(parseConfigInput("notifications.terminal", "osc8")).toMatchObject({
+      ok: false,
+      expected: "auto, osc99, osc777, osc9, or off",
+      kind: "choice",
+    });
+  });
+
   it("names a numeric setting's expected value in words", () => {
     expect(parseConfigInput("daemon.dailyCostUSD", "-1")).toMatchObject({
       ok: false,

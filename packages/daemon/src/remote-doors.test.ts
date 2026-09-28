@@ -8,12 +8,12 @@
  */
 
 import { createHmac } from "node:crypto";
+import type { DeliveryClaim } from "@jazz/adapters/webhooks/deliveries";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import type { DeliveryClaim } from "@/adapters/webhooks/deliveries";
 import {
   DoorConcurrency,
   makeA2AHandler,

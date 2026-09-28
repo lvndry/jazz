@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import {
   type DesktopNotifierHost,
+  desktopNotificationChannel,
   desktopNotifierCommand,
   isDesktopNotifierAvailable,
   type LaunchNotifier,
@@ -24,6 +25,8 @@ function host(overrides: Partial<DesktopNotifierHost>): DesktopNotifierHost {
     env: {},
     resolveTerminalNotifier: () => "/opt/jazz/terminal-notifier",
     findNotifySend: () => "/usr/bin/notify-send",
+    canWriteTerminal: () => false,
+    writeTerminal: () => false,
     ...overrides,
   };
 }
@@ -186,5 +189,130 @@ describe("sendDesktopNotification", () => {
       retryable: false,
     });
     expect(calls).toEqual([]);
+  });
+});
+
+function recordingTerminal(writes: boolean) {
+  const written: string[] = [];
+  return {
+    written,
+    overrides: {
+      canWriteTerminal: () => true,
+      writeTerminal: (data: string) => {
+        written.push(data);
+        return writes;
+      },
+    } satisfies Partial<DesktopNotifierHost>,
+  };
+}
+
+describe("the terminal channel", () => {
+  test("a terminal with a protocol gets only the escape sequence", async () => {
+    const terminal = recordingTerminal(true);
+    const { calls, launch } = recordingLauncher({ launched: true });
+    const outcome = await Effect.runPromise(
+      sendDesktopNotification(
+        { title: "Jazz", subtitle: "research", message: "Done" },
+        host({ env: { TERM_PROGRAM: "WarpTerminal" }, ...terminal.overrides }),
+        launch,
+      ),
+    );
+    expect(outcome).toEqual({ delivered: true });
+    expect(terminal.written).toEqual(["\u001b]777;notify;Jazz: research;Done\u0007"]);
+    expect(calls).toEqual([]);
+  });
+
+  test("kitty gets OSC 99 with a notification id", async () => {
+    const terminal = recordingTerminal(true);
+    await Effect.runPromise(
+      sendDesktopNotification(
+        { title: "Jazz", message: "Done" },
+        host({ env: { KITTY_WINDOW_ID: "3" }, ...terminal.overrides }),
+        recordingLauncher({ launched: true }).launch,
+      ),
+    );
+    expect(terminal.written).toHaveLength(1);
+    // eslint-disable-next-line no-control-regex
+    expect(terminal.written[0]).toMatch(/^\u001b\]99;i=[0-9a-f-]+:d=0:e=1:/);
+  });
+
+  test("without a controlling terminal the OS notifier is used", async () => {
+    const terminal = recordingTerminal(true);
+    const { calls, launch } = recordingLauncher({ launched: true });
+    const outcome = await Effect.runPromise(
+      sendDesktopNotification(
+        { title: "Jazz", message: "Done" },
+        host({
+          env: { TERM_PROGRAM: "ghostty" },
+          ...terminal.overrides,
+          canWriteTerminal: () => false,
+        }),
+        launch,
+      ),
+    );
+    expect(outcome).toEqual({ delivered: true });
+    expect(terminal.written).toEqual([]);
+    expect(calls.map((call) => call.command)).toEqual(["/opt/jazz/terminal-notifier"]);
+  });
+
+  test("a terminal without a known protocol uses the OS notifier", async () => {
+    const terminal = recordingTerminal(true);
+    const { calls, launch } = recordingLauncher({ launched: true });
+    await Effect.runPromise(
+      sendDesktopNotification(
+        { title: "Jazz", message: "Done" },
+        host({ env: { TERM_PROGRAM: "Apple_Terminal" }, ...terminal.overrides }),
+        launch,
+      ),
+    );
+    expect(terminal.written).toEqual([]);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("notifications.terminal off uses the OS notifier in a capable terminal", () => {
+    expect(
+      desktopNotificationChannel(
+        host({
+          env: { TERM_PROGRAM: "ghostty" },
+          terminalSetting: "off",
+          ...recordingTerminal(true).overrides,
+        }),
+      ),
+    ).toEqual({ kind: "os" });
+  });
+
+  test("a forced protocol reaches a terminal that is not detected, as over SSH", () => {
+    expect(
+      desktopNotificationChannel(
+        host({ env: {}, terminalSetting: "osc777", ...recordingTerminal(true).overrides }),
+      ),
+    ).toEqual({ kind: "terminal", protocol: "osc777" });
+  });
+
+  test("a failed terminal write falls back to the OS notifier", async () => {
+    const terminal = recordingTerminal(false);
+    const { calls, launch } = recordingLauncher({ launched: true });
+    const outcome = await Effect.runPromise(
+      sendDesktopNotification(
+        { title: "Jazz", message: "Done" },
+        host({ env: { TERM_PROGRAM: "iTerm.app" }, ...terminal.overrides }),
+        launch,
+      ),
+    );
+    expect(outcome).toEqual({ delivered: true });
+    expect(terminal.written).toHaveLength(1);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("a terminal channel alone makes desktop notifications available", () => {
+    const headless = host({
+      platform: "linux",
+      env: { TERM_PROGRAM: "WezTerm" },
+      findNotifySend: () => null,
+    });
+    expect(isDesktopNotifierAvailable(headless)).toBe(false);
+    expect(isDesktopNotifierAvailable({ ...headless, ...recordingTerminal(true).overrides })).toBe(
+      true,
+    );
   });
 });

@@ -7,63 +7,21 @@
  *
  * `install`/`uninstall` still wire the host supervisor: those units invoke
  * `jazz daemon --foreground …` so the supervisor owns the process tree, not our pidfile.
- * See `@jazz/adapters/daemon/service-install`.
+ * See `@jazz/daemon/service-install`.
  *
  * A background daemon's stdout and stderr go to `$JAZZ_HOME/logs/daemon.log` (rotated with the
  * rest of the logs directory), the file `jazz daemon logs` reads. A foreground daemon writes a
- * status record every tick (`@jazz/adapters/daemon/daemon-status`) that `jazz daemon status`
+ * status record every tick (`@jazz/daemon/daemon-status`) that `jazz daemon status`
  * reads, and tick failures go to the logger as well as to stderr.
  */
 
 import { randomBytes } from "node:crypto";
 import * as nodeFs from "node:fs";
 import * as path from "node:path";
-import { announceWaiting, daemonGate } from "@jazz/adapters/daemon/attention";
-import { cacheCredentialResolver } from "@jazz/adapters/daemon/credential-cache";
-import {
-  clearDaemonStatus,
-  withTickError,
-  writeDaemonStatus,
-  type DaemonStatusRecord,
-} from "@jazz/adapters/daemon/daemon-status";
-import { runDueGoals } from "@jazz/adapters/daemon/goal-worker";
-import { runDueLoops } from "@jazz/adapters/daemon/loop-worker";
-import {
-  forgetOperatorToken,
-  OPERATOR_TOKEN_HEADER,
-  provisionOperatorToken,
-  resolveOperatorToken,
-} from "@jazz/adapters/daemon/operator-token";
-import { runsInFlightCount } from "@jazz/adapters/daemon/runs-in-flight";
-import {
-  isLoopback,
-  makeA2AHandler,
-  makeHandler,
-  makePeerHandler,
-  makePeerInviteHandler,
-  makeWebhookHandler,
-  refuseReason,
-  type DaemonRequirements,
-} from "@jazz/adapters/daemon/server";
-import {
-  daemonLogPath,
-  detectInitSystem,
-  generateDaemonToken,
-  installService,
-  isDaemonSupervised,
-  serviceAlreadyInstalled,
-  SYSTEMD_SERVICE_NAME,
-  uninstallService,
-  type InstalledService,
-} from "@jazz/adapters/daemon/service-install";
-import {
-  explainDaemonTokenProvisionFailure,
-  resolveDaemonToken,
-  resolveOrProvisionDaemonToken,
-  type ProvisionDaemonTokenResult,
-} from "@jazz/adapters/daemon/token";
-import { runDueTriggers } from "@jazz/adapters/daemon/trigger-runner";
+import { runDueGoals } from "@jazz/adapters/goals/goal-worker";
+import { runDueLoops } from "@jazz/adapters/loops/loop-worker";
 import { resolvePeerToken } from "@jazz/adapters/peers/token";
+import { runsInFlightCount } from "@jazz/adapters/runs/runs-in-flight";
 import {
   describeKeyringBackend,
   detectKeyringBackend,
@@ -89,6 +47,48 @@ import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
 import { markInterruptedRuns } from "@jazz/core/workflows/run-history";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
+import { announceWaiting, daemonGate } from "@jazz/daemon/attention";
+import { cacheCredentialResolver } from "@jazz/daemon/credential-cache";
+import {
+  clearDaemonStatus,
+  withTickError,
+  writeDaemonStatus,
+  type DaemonStatusRecord,
+} from "@jazz/daemon/daemon-status";
+import {
+  forgetOperatorToken,
+  OPERATOR_TOKEN_HEADER,
+  provisionOperatorToken,
+  resolveOperatorToken,
+} from "@jazz/daemon/operator-token";
+import {
+  isLoopback,
+  makeA2AHandler,
+  makeHandler,
+  makePeerHandler,
+  makePeerInviteHandler,
+  makeWebhookHandler,
+  refuseReason,
+  type DaemonRequirements,
+} from "@jazz/daemon/server";
+import {
+  daemonLogPath,
+  detectInitSystem,
+  generateDaemonToken,
+  installService,
+  isDaemonSupervised,
+  serviceAlreadyInstalled,
+  SYSTEMD_SERVICE_NAME,
+  uninstallService,
+  type InstalledService,
+} from "@jazz/daemon/service-install";
+import {
+  explainDaemonTokenProvisionFailure,
+  resolveDaemonToken,
+  resolveOrProvisionDaemonToken,
+  type ProvisionDaemonTokenResult,
+} from "@jazz/daemon/token";
+import { runDueTriggers } from "@jazz/daemon/trigger-runner";
 import { Effect, Runtime } from "effect";
 import {
   clearDaemonPid,
@@ -605,7 +605,26 @@ function acquireDaemonHomeLock() {
 type BackgroundStart =
   { readonly kind: "started"; readonly pid: number } | { readonly kind: "unhealthy" };
 
-/** Re-exec this CLI with `--foreground`, detach, and wait until `/health` answers. */
+/**
+ * How the background daemon is spawned: in a session of its own (`detached`), which has no
+ * controlling terminal, so the daemon outlives the terminal that started it and never writes
+ * terminal notifications into it. Output goes to the daemon log.
+ */
+export function backgroundDaemonSpawnOptions(
+  cmd: readonly string[],
+  logDescriptor: number,
+): Bun.SpawnOptions.OptionsObject<"ignore", number, number> & { cmd: string[] } {
+  return {
+    cmd: [...cmd],
+    stdout: logDescriptor,
+    stderr: logDescriptor,
+    stdin: "ignore",
+    env: process.env,
+    detached: true,
+  };
+}
+
+/** Re-exec this CLI with `--foreground`, detached, and wait until `/health` answers. */
 function spawnBackgroundDaemon(options: DaemonCommandOptions) {
   return Effect.gen(function* () {
     const invocation = yield* getJazzSchedulerInvocation();
@@ -621,13 +640,7 @@ function spawnBackgroundDaemon(options: DaemonCommandOptions) {
     ];
 
     const logDescriptor = yield* Effect.sync(() => openDaemonLog());
-    const child = Bun.spawn({
-      cmd: args,
-      stdout: logDescriptor,
-      stderr: logDescriptor,
-      stdin: "ignore",
-      env: process.env,
-    });
+    const child = Bun.spawn(backgroundDaemonSpawnOptions(args, logDescriptor));
     nodeFs.closeSync(logDescriptor);
     child.unref();
 
@@ -750,7 +763,7 @@ export function setDaemonTokenCommand() {
 
 /**
  * Mint the operator token the daemon asks for on every HTTP grant (see
- * `@jazz/adapters/daemon/operator-token`), and print it once.
+ * `@jazz/daemon/operator-token`), and print it once.
  *
  * Refused inside a process a Jazz agent started, since minting it is the operator's decision
  * about who may grant authority, and refused where there is no OS keyring to keep it out of an

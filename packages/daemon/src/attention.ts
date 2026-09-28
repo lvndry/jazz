@@ -11,6 +11,10 @@
  * outbox (`notify/outbox.ts`), which delivers and retries them.
  */
 
+import { listOwnedGoals } from "@jazz/adapters/goals/goal-actions";
+import { listOwnedLoops } from "@jazz/adapters/loops/loop-actions";
+import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
+import { readDaemonState, updateDaemonState } from "@jazz/adapters/storage/daemon-state-store";
 import type { GoalRecord } from "@jazz/core/agent/goal/goal-record";
 import type { LoopRecord } from "@jazz/core/agent/loop/loop-record";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
@@ -43,10 +47,6 @@ import {
 import { readSpend } from "@jazz/core/spend/ledger";
 import type { AppConfig } from "@jazz/core/types/config";
 import { Effect } from "effect";
-import { listOwnedGoals } from "@jazz/adapters/goals/goal-actions";
-import { listOwnedLoops } from "@jazz/adapters/loops/loop-actions";
-import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
-import { readDaemonState, updateDaemonState } from "@jazz/adapters/storage/daemon-state-store";
 
 /**
  * The configuration as the file says now: a long-lived daemon rereads it when it changed, so a
