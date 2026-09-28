@@ -25,6 +25,7 @@ import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
 import { OVERLAY_Z_INDEX } from "./centered";
 import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { stepperSegments, type QuestionStep } from "./stepper";
 import { getGlyphs } from "../../glyphs";
 import { maskSecret, maskSecretCaret } from "../../mask-secret";
 import { THEME } from "../../theme";
@@ -60,6 +61,8 @@ export interface TextPromptModel {
   readonly placeholder?: string;
   /** The last validation failure, in prose. */
   readonly error?: string;
+  /** Shown as a stepper row above the question. */
+  readonly step?: QuestionStep;
 }
 
 function displayWidth(text: string): number {
@@ -312,7 +315,13 @@ export function textPromptLayout(model: TextPromptModel, viewport: Viewport) {
   const inner = Math.max(8, frame.width - BAND_CHROME_COLUMNS);
   const valueWidth = Math.max(4, inner - MARKER_COLUMN);
   const message = wrapProse(model.message, inner, MESSAGE_MAX_ROWS);
-  const placement = placeOverlay(viewport, frame, FIXED_CARD_ROWS + message.length + HINT_ROWS);
+  // The stepper row and the blank that separates it from the question.
+  const stepRows = model.step === undefined ? 0 : 2;
+  const placement = placeOverlay(
+    viewport,
+    frame,
+    FIXED_CARD_ROWS + stepRows + message.length + HINT_ROWS,
+  );
   return {
     ...placement,
     inner,
@@ -330,6 +339,8 @@ export function TextPrompt({ model, viewport }: TextPromptProps): ReactNode {
   );
 
   const error = oneLine(model.error ?? "");
+  const stepper =
+    model.step === undefined ? null : stepperSegments(model.step, inner, glyphs.success);
 
   return (
     <box
@@ -355,6 +366,30 @@ export function TextPrompt({ model, viewport }: TextPromptProps): ReactNode {
           paddingBottom: 1,
         }}
       >
+        {stepper === null ? null : (
+          <>
+            <text style={{ height: 1, flexShrink: 0, wrapMode: "none", truncate: true }}>
+              {stepper.map((part, index) =>
+                part.bold === true ? (
+                  <b
+                    key={`step-${String(index)}`}
+                    style={{ fg: part.fg }}
+                  >
+                    {part.text}
+                  </b>
+                ) : (
+                  <span
+                    key={`step-${String(index)}`}
+                    style={{ fg: part.fg }}
+                  >
+                    {part.text}
+                  </span>
+                ),
+              )}
+            </text>
+            <box style={{ height: 1, flexShrink: 0 }} />
+          </>
+        )}
         {message.map((line, index) => (
           <text
             key={`message-${String(index)}`}

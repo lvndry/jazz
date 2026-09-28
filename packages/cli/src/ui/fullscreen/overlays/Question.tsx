@@ -26,9 +26,11 @@
 import type { ReactNode } from "react";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
 import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { stepperSegments, type QuestionStep } from "./stepper";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
+import { alignTabColumns } from "../../prompt-core/description-columns";
 import { THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
 import type { Viewport } from "../types";
@@ -68,12 +70,32 @@ const FILTER_PLACEHOLDER = "Type to filter";
 
 export type QuestionMode = "select" | "checkbox";
 
+/** How a choice's tag reads: its readiness, a consequence, or plain information. */
+export type QuestionTagTone = "success" | "warning" | "accent" | "muted";
+
 export interface QuestionChoice {
   readonly label: string;
   /** Stable identity, used for the checked set and for the resolved answer. */
   readonly value: string;
   readonly description?: string;
   readonly disabled?: boolean;
+  /** A short state flush right on the row: "key saved", "asks first". */
+  readonly tag?: string;
+  readonly tagTone?: QuestionTagTone;
+}
+
+/** Descriptions with tab-separated columns, lined up across the choices by the shared picker rule. */
+export function alignDescriptionColumns(
+  choices: readonly QuestionChoice[],
+): readonly QuestionChoice[] {
+  const aligned = alignTabColumns(choices.map((choice) => choice.description));
+  if (aligned.every((description, index) => description === choices[index]?.description)) {
+    return choices;
+  }
+  return choices.map((choice, index) => {
+    const description = aligned[index];
+    return description === undefined ? choice : { ...choice, description };
+  });
 }
 
 export interface QuestionModel {
@@ -97,6 +119,21 @@ export interface QuestionModel {
   readonly filterCaret?: number;
   /** When set, typing filters the list and an empty match is not a custom row. */
   readonly filterable?: boolean;
+  /** Shown as a stepper row above the question. */
+  readonly step?: QuestionStep;
+}
+
+function tagColor(tone: QuestionTagTone | undefined): string {
+  switch (tone) {
+    case "success":
+      return THEME.success;
+    case "warning":
+      return THEME.warning;
+    case "accent":
+      return THEME.primary;
+    default:
+      return THEME.muted;
+  }
 }
 
 function displayWidth(text: string): number {
@@ -107,8 +144,9 @@ function clip(text: string, width: number): string {
   return clipTerminalCells(text, width);
 }
 
+/** Collapse whitespace to single spaces, keeping the no-break spaces that pad columns. */
 function oneLine(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text.replace(/[^\S\u00a0]+/g, " ").replace(/^ +| +$/g, "");
 }
 
 function wrapProse(text: string, width: number, maxRows: number): string[] {
@@ -219,7 +257,8 @@ export interface QuestionProps {
 }
 
 /** The card's size, placement, and visible choices; `height` is what the layout reserves. */
-export function questionLayout(model: QuestionModel, viewport: Viewport) {
+export function questionLayout(source: QuestionModel, viewport: Viewport) {
+  const model = { ...source, choices: alignDescriptionColumns(source.choices) };
   const frame = overlayWidth(viewport);
   const { fullscreen, width } = frame;
   const inner = Math.max(8, width - BAND_CHROME_COLUMNS);
@@ -240,7 +279,16 @@ export function questionLayout(model: QuestionModel, viewport: Viewport) {
   // Labels keep the majority of the row: the label is the answer, the
   // description is only the reason for it.
   const markColumn = GUTTER + NUMBER_COLUMN + (checkbox ? CHECKBOX_COLUMN : 0);
-  const bodyWidth = Math.max(4, inner - markColumn);
+  // Tags take a column of their own on the right, as wide as the widest tag, so they line up.
+  const widestTag = model.choices.reduce(
+    (widest, choice) => Math.max(widest, displayWidth(choice.tag ?? "")),
+    0,
+  );
+  const tagColumn = widestTag > 0 ? Math.min(widestTag, Math.floor(inner / 3)) : 0;
+  const bodyWidth = Math.max(
+    4,
+    inner - markColumn - (tagColumn > 0 ? tagColumn + DESCRIPTION_GAP : 0),
+  );
   const described = model.choices.some((choice) => (choice.description ?? "").length > 0);
   const longestLabel = model.choices.reduce(
     (widest, choice) => Math.max(widest, displayWidth(oneLine(choice.label))),
@@ -260,7 +308,9 @@ export function questionLayout(model: QuestionModel, viewport: Viewport) {
   const heights = layouts.map((layout) => layout.rows);
 
   const filterRows = filterable ? 1 : 0;
-  const fixedRows = FIXED_CARD_ROWS + message.length + filterRows;
+  // The stepper row and the blank that separates it from the question.
+  const stepRows = model.step === undefined ? 0 : 2;
+  const fixedRows = FIXED_CARD_ROWS + message.length + filterRows + stepRows;
   const pageStart = pickerWindowStart(selected, items.length, PICKER_WINDOW_SIZE);
   const pageCount = Math.min(PICKER_WINDOW_SIZE, items.length);
   const pageHeights = heights.slice(pageStart, pageStart + pageCount);
@@ -291,8 +341,11 @@ export function questionLayout(model: QuestionModel, viewport: Viewport) {
         (description.length > 0 ? DESCRIPTION_GAP + displayWidth(description) : 0),
     );
   }, 0);
+  // A tag column is flush right, so a list that carries tags spans the card instead of centering.
   const listOffset =
-    filterable || widestOptionRow >= inner ? 0 : centeredOffset(widestOptionRow, inner);
+    filterable || tagColumn > 0 || widestOptionRow >= inner
+      ? 0
+      : centeredOffset(widestOptionRow, inner);
 
   const { height, left, top } = placeOverlay(viewport, frame, fixedRows + listRows + HINT_ROWS);
   const cardHeight = Math.max(1, height - HINT_ROWS);
@@ -308,6 +361,7 @@ export function questionLayout(model: QuestionModel, viewport: Viewport) {
     selected,
     labelWidth,
     descriptionWidth,
+    tagColumn,
     items,
     layouts,
     heights,
@@ -335,6 +389,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     selected,
     labelWidth,
     descriptionWidth,
+    tagColumn,
     items,
     layouts,
     heights,
@@ -347,6 +402,10 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     left,
     top,
   } = questionLayout(model, viewport);
+  const stepper =
+    model.step === undefined
+      ? null
+      : stepperSegments(model.step, Math.max(4, inner - GUTTER), glyphs.success);
 
   const hints: readonly Hint[] = checkbox
     ? [
@@ -398,6 +457,33 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
           paddingBottom: 1,
         }}
       >
+        {stepper === null ? null : (
+          <>
+            <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
+              <text style={{ width: GUTTER, flexShrink: 0 }}>{" ".repeat(GUTTER)}</text>
+              <text style={{ wrapMode: "none", truncate: true }}>
+                {stepper.map((part, index) =>
+                  part.bold === true ? (
+                    <b
+                      key={`step-${String(index)}`}
+                      style={{ fg: part.fg }}
+                    >
+                      {part.text}
+                    </b>
+                  ) : (
+                    <span
+                      key={`step-${String(index)}`}
+                      style={{ fg: part.fg }}
+                    >
+                      {part.text}
+                    </span>
+                  ),
+                )}
+              </text>
+            </box>
+            <box style={{ height: 1, flexShrink: 0 }} />
+          </>
+        )}
         {message.map((line, index) => (
           <box
             key={`message-${String(index)}`}
@@ -525,8 +611,27 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                           )}
                         </text>
                         {descriptionWidth > 0 ? (
-                          <text style={{ fg: THEME.muted, flexShrink: 0 }}>
+                          <text
+                            style={{
+                              fg: THEME.muted,
+                              width: descriptionWidth + DESCRIPTION_GAP,
+                              flexShrink: 0,
+                            }}
+                          >
                             {`${" ".repeat(DESCRIPTION_GAP)}${description}`}
+                          </text>
+                        ) : null}
+                        {tagColumn > 0 ? (
+                          <text
+                            style={{
+                              fg: tagColor(choice.tagTone),
+                              width: tagColumn + DESCRIPTION_GAP,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {row === 0 && (choice.tag ?? "").length > 0
+                              ? `${" ".repeat(DESCRIPTION_GAP + Math.max(0, tagColumn - displayWidth(clip(choice.tag ?? "", tagColumn))))}${clip(choice.tag ?? "", tagColumn)}`
+                              : ""}
                           </text>
                         ) : null}
                       </box>

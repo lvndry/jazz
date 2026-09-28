@@ -12,6 +12,7 @@ import {
 } from "@jazz/core/interfaces/notification";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { Effect, Layer, Option } from "effect";
+import { logWarning } from "../logger";
 import { getTerminalBundleId } from "./terminal-bundle-id";
 import { resolveTerminalNotifierBinary } from "./terminal-notifier-path";
 
@@ -62,7 +63,7 @@ function sendNativeNotification(
 ): void {
   const callback = (error: Error | null) => {
     if (error) {
-      console.error(`[Notification] Failed to send native notification: ${error.message}`);
+      logWarning(`Failed to send a native notification: ${error.message}`);
     }
   };
 
@@ -80,7 +81,7 @@ function sendNativeNotification(
       }
       launchDetached(terminalNotifier, args, (error) => {
         if (error) {
-          console.error(`[Notification] Failed to send via terminal-notifier: ${error.message}`);
+          logWarning(`Failed to send a notification via terminal-notifier: ${error.message}`);
           sendAppleScriptNotification(title, message, subtitle, sound ?? false, callback);
         }
       });

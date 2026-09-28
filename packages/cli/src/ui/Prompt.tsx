@@ -11,6 +11,7 @@ import { filterCommandsByPrefix, type ChatCommandInfo } from "@jazz/cli/chat/com
 import { applyAtMention } from "./at-mention";
 import { ChatInput } from "./components/ChatInput";
 import { FilePicker } from "./components/FilePicker";
+import { StepperLine } from "./components/PromptParts";
 import { Questionnaire } from "./components/Questionnaire";
 import { ScrollableMultiSelect } from "./components/ScrollableMultiSelect";
 import { ScrollableSelect } from "./components/ScrollableSelect";
@@ -19,6 +20,8 @@ import { TextInput } from "./components/TextInput";
 import { getGlyphs } from "./glyphs";
 import { InputResults, useInputHandler, useTextInput } from "./hooks/use-input-service";
 import { PICKER_WINDOW_SIZE } from "./picker-window";
+import { initialChoiceIndex } from "./prompt-core/picker-adapter";
+import { readPromptStep } from "./prompt-core/stepper";
 import { isCursorOnFirstLine, isCursorOnLastLine } from "./queue-recall";
 import { store } from "./store";
 import { mergeSuggestions, type SuggestionPrefix } from "./suggestion-menu";
@@ -365,6 +368,8 @@ function PromptComponent({
     }
   });
 
+  const step = readPromptStep(prompt.options?.["step"]);
+
   return (
     <Box
       flexDirection="column"
@@ -376,6 +381,12 @@ function PromptComponent({
       {workingDirectory && (
         <Box marginBottom={0}>
           <Text dimColor>{workingDirectory}</Text>
+        </Box>
+      )}
+
+      {step !== undefined && (
+        <Box marginBottom={1}>
+          <StepperLine step={step} />
         </Box>
       )}
 
@@ -463,6 +474,10 @@ function PromptComponent({
         {prompt.type === "select" && (
           <SearchSelect
             options={prompt.options?.choices ?? []}
+            initialIndex={initialChoiceIndex(
+              prompt.options?.choices ?? [],
+              prompt.options?.defaultSelected,
+            )}
             pageSize={PICKER_WINDOW_SIZE}
             onSelect={(value) => prompt.resolve(value)}
             onTypedAnswer={prompt.options?.resolveTypedAnswer}

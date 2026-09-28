@@ -97,18 +97,57 @@ export type ConnectorStatus = "live" | "renew" | "offline";
 export interface ActiveMenuOption {
   readonly label: string;
   readonly value: string;
+  /** A few words shown beside the label, such as a setting's current value. */
+  readonly hint?: string;
 }
 
-export interface ActiveMenuRequirement {
+/** A one-key action on the home screen. `key` is `enter` or a single printable character. */
+export interface ActiveHomeAction {
+  readonly key: string;
   readonly label: string;
-  readonly ready: boolean;
-  readonly detail: string;
-  readonly remedy?: string;
+  readonly value: string;
 }
 
-export interface ActiveMenuFact {
+/** A conversation the home screen offers to reopen, opened with its number key. */
+export interface ActiveHomeConversation {
+  readonly key: string;
+  readonly value: string;
+  readonly title: string;
+  readonly agent: string;
+  /** What it waits on when `waiting`, otherwise how it last stood. */
+  readonly detail: string;
+  /** Relative age, already worded: "9m ago", "yesterday". */
+  readonly age: string;
+  /** The agent is blocked until the user answers. */
+  readonly waiting: boolean;
+}
+
+/** One part of the home status line. `fixKey` names the action that resolves a warning. */
+export interface ActiveHomeStatus {
+  readonly text: string;
+  readonly tone?: "warning";
+  readonly fixKey?: string;
+}
+
+/** Something the first-run screen found already set up on this machine. */
+export interface ActiveHomeDetection {
   readonly label: string;
   readonly detail: string;
+}
+
+/**
+ * The home screen as data. Actions are addressed by key rather than by position, so a home
+ * that is refreshed after it was first shown (conversations load after the agent list) never
+ * moves an action out from under a key that was already pressed.
+ */
+export interface ActiveHome {
+  readonly kind: "home";
+  readonly greeting: string;
+  readonly conversations: readonly ActiveHomeConversation[];
+  readonly actions: readonly ActiveHomeAction[];
+  readonly status: readonly ActiveHomeStatus[];
+  /** Present when there is no agent yet: the one-line pitch and what setup found. */
+  readonly firstRun?: { readonly detected: readonly ActiveHomeDetection[] };
 }
 
 export interface ActiveAgentChoice {
@@ -124,9 +163,6 @@ export interface ActiveWizardMenu {
   readonly kind: "menu";
   readonly title?: string;
   readonly options: readonly ActiveMenuOption[];
-  readonly requirements?: readonly ActiveMenuRequirement[];
-  readonly environment?: readonly ActiveMenuFact[];
-  readonly tip?: string;
 }
 
 export interface ActiveAgentMenu {
@@ -154,7 +190,8 @@ export interface ActiveSkillMenu {
   readonly skills: readonly SkillMetadata[];
 }
 
-export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu | ActiveAgentDetails | ActiveSkillMenu;
+export type ActiveMenu =
+  ActiveHome | ActiveWizardMenu | ActiveAgentMenu | ActiveAgentDetails | ActiveSkillMenu;
 
 /** Discriminated surface a renderer paints in place of the chat transcript. */
 export type SurfaceIntent = ActiveMenu;
@@ -965,6 +1002,18 @@ export class UIStore {
   /** Publish a data-only menu. Pass the continuation here, not on the snapshot. */
   setActiveMenu = (menu: ActiveMenu | null, onComplete?: (result: PromptResult) => void): void => {
     this.promptContinuation = menu === null ? null : (onComplete ?? null);
+    patchSlice(this.session, { activeMenu: menu });
+  };
+
+  /**
+   * Replace the published menu's data while keeping its continuation, for a surface that fills
+   * in after it was first shown. A no-op when nothing is published, so a late refresh cannot
+   * resurrect a menu that was already answered.
+   */
+  refreshActiveMenu = (menu: ActiveMenu): void => {
+    if (this.session.getSnapshot().activeMenu === null) {
+      return;
+    }
     patchSlice(this.session, { activeMenu: menu });
   };
 

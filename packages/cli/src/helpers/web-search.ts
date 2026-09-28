@@ -2,7 +2,11 @@ import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { type ProviderName } from "@jazz/core/constants/models";
 import { type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { type LLMService } from "@jazz/core/interfaces/llm";
-import { type TerminalService } from "@jazz/core/interfaces/terminal";
+import {
+  type PromptStep,
+  type PromptTagTone,
+  type TerminalService,
+} from "@jazz/core/interfaces/terminal";
 import type { WebSearchProviderName } from "@jazz/core/types/config";
 import { Effect } from "effect";
 
@@ -25,14 +29,17 @@ export function handleWebSearchConfiguration(
   configService: AgentConfigService,
   llmService: LLMService,
   llmProvider: ProviderName,
+  step?: PromptStep,
 ): Effect.Effect<WebSearchProviderName | "builtin" | false, never> {
   return Effect.gen(function* () {
     const supportsNative = yield* llmService.supportsNativeWebSearch(llmProvider);
 
-    yield* terminal.log("");
-    yield* terminal.info("🔍 Configure Web Search Provider");
-
-    const choices: Array<{ name: string; value: WebSearchProviderName | "builtin" | "back" }> = [];
+    const choices: Array<{
+      name: string;
+      value: WebSearchProviderName | "builtin" | "back";
+      tag?: string;
+      tagTone?: PromptTagTone;
+    }> = [];
 
     if (supportsNative) {
       choices.push({
@@ -41,21 +48,23 @@ export function handleWebSearchConfiguration(
       });
     }
 
-    choices.push(
-      ...WEB_SEARCH_PROVIDERS.map((p) => ({
-        name: p.name,
-        value: p.value,
-      })),
-    );
+    for (const provider of WEB_SEARCH_PROVIDERS) {
+      const keySaved = yield* configService.has(`web_search.${provider.value}.api_key`);
+      choices.push({
+        name: provider.name,
+        value: provider.value,
+        ...(keySaved
+          ? { tag: "key saved", tagTone: "success" as const }
+          : { tag: "needs a key", tagTone: "muted" as const }),
+      });
+    }
 
-    choices.push({
-      name: "Go Back",
-      value: "back",
-    });
+    choices.push({ name: "Go back to tools", value: "back" });
 
     while (true) {
-      const selection = yield* terminal.select("Which web search provider would you like to use?", {
+      const selection = yield* terminal.select("Which web search should it use?", {
         choices,
+        ...(step === undefined ? {} : { step }),
       });
 
       if (selection === "back" || !selection) {

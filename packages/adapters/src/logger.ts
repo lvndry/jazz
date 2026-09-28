@@ -494,6 +494,18 @@ export function getLogLevel(): "debug" | "info" | "warn" | "error" {
 }
 
 /**
+ * Record a warning in jazz.log from code that runs outside an Effect, such as a storage loop
+ * skipping a corrupt file or a notification callback. Never the console: a line written to the
+ * terminal while a renderer owns it lands between two frames and corrupts the next one.
+ */
+export function logWarning(message: string, meta?: Record<string, unknown>): void {
+  if (!shouldLog("warn")) {
+    return;
+  }
+  void writeFormattedLogToFile("warn", message, meta);
+}
+
+/**
  * Shared helper to write a formatted log line to file
  * Writes to the general jazz.log file (used when no conversationId is set)
  * Uses the write queue to ensure sequential writes without interleaving.

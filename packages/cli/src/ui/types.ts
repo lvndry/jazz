@@ -1,4 +1,8 @@
-import type { TerminalOutput, TerminalOutputKind } from "@jazz/core/interfaces/terminal";
+import type {
+  PromptTagTone,
+  TerminalOutput,
+  TerminalOutputKind,
+} from "@jazz/core/interfaces/terminal";
 
 export type OutputType = TerminalOutputKind;
 
@@ -35,6 +39,9 @@ export interface Choice<T = unknown> {
   value: T;
   description?: string;
   disabled?: boolean;
+  /** A short state flush right on the row, such as "key saved". */
+  tag?: string;
+  tagTone?: PromptTagTone;
 }
 
 export interface PromptOptions<T = unknown> {

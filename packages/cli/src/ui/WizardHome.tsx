@@ -1,7 +1,5 @@
 /**
- * Interactive home menu for the Ink CLI. WizardHome renders the available
- * actions and one randomly chosen tip from TIPS; the fullscreen home screen
- * uses the same tip pool through the wizard command.
+ * Interactive home menu for the Ink CLI: the available actions and one randomly chosen tip.
  */
 import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
@@ -28,7 +26,7 @@ interface WizardHomeProps {
   initialIndex?: number;
 }
 
-export const TIPS = [
+const TIPS = [
   // CLI Shortcuts
   "Type '/help' in chat to see every command and keyboard shortcut",
   "Use Arrow Up in chat to recall your previous messages",

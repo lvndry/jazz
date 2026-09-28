@@ -26,7 +26,13 @@ import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@jazz/core/interfaces/mcp-server";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
-import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import {
+  ink,
+  TerminalServiceTag,
+  type PromptStep,
+  type PromptTagTone,
+  type TerminalService,
+} from "@jazz/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
 import type { WebSearchProviderName } from "@jazz/core/types/config";
 import {
@@ -42,6 +48,7 @@ import type { LLMProvider, LLMProviderListItem } from "@jazz/core/types/llm";
 import type { MCPTool } from "@jazz/core/types/mcp";
 import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { toError } from "@jazz/core/utils/errors";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { buildModelChoices, sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
@@ -54,7 +61,9 @@ import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import { promptForReasoningSelection } from "@/cli/helpers/reasoning";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
+import { configuredProviderNames } from "@/cli/ui/models/configured-providers";
 import { THEME } from "@/cli/ui/theme";
+import { ollamaOrigin, probeOllamaModels } from "./home-detection";
 
 /**
  * CLI commands for creating AI agents
@@ -69,7 +78,6 @@ import { THEME } from "@/cli/ui/theme";
 interface PredefinedAgent {
   readonly id: string;
   readonly displayName: string;
-  readonly emoji: string;
   readonly toolCategoryIds: readonly string[];
 }
 
@@ -81,7 +89,6 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
   coder: {
     id: "coder",
     displayName: "Coder",
-    emoji: "💻",
     toolCategoryIds: [
       FILE_MANAGEMENT_CATEGORY.id,
       SHELL_COMMANDS_CATEGORY.id,
@@ -92,7 +99,6 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
   researcher: {
     id: "researcher",
     displayName: "Researcher",
-    emoji: "🔬",
     toolCategoryIds: [
       WEB_SEARCH_CATEGORY.id,
       HTTP_CATEGORY.id,
@@ -117,7 +123,12 @@ interface AIAgentCreationAnswers {
 /**
  * Interactive AI agent creation command
  */
-export function createAgentCommand(): Effect.Effect<
+export function createAgentCommand(
+  options: {
+    /** Skip the provider step and start from this provider, as home's Ollama fast path does. */
+    readonly initialProvider?: ProviderName;
+  } = {},
+): Effect.Effect<
   void,
   | StorageError
   | AgentAlreadyExistsError
@@ -140,9 +151,6 @@ export function createAgentCommand(): Effect.Effect<
       "Run `jazz agent create` in a terminal, or write the agent as JSON to $JAZZ_HOME/agents/<id>.json (normally ~/.jazz/agents/). See docs/configure/agents.md for the fields.",
     );
     const terminal = yield* TerminalServiceTag;
-    yield* terminal.heading("🤖 Welcome to the Jazz AI Agent Creation Wizard!");
-    yield* terminal.log("Let's create a new AI agent step by step.");
-    yield* terminal.log("");
 
     const llmService = yield* LLMServiceTag;
     const configService = yield* AgentConfigServiceTag;
@@ -150,7 +158,13 @@ export function createAgentCommand(): Effect.Effect<
 
     const personaService = yield* PersonaServiceTag;
     const allPersonas = yield* personaService.listPersonas();
-    const personaNames = allPersonas.map((p) => p.name);
+    const personaChoices = allPersonas.map((persona) => ({
+      name: persona.name,
+      description: persona.description,
+    }));
+    const existingAgentNames = (yield* (yield* AgentServiceTag).listAgents()).map(
+      (agent) => agent.name,
+    );
     let toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
     const mcpServerData = yield* getMCPServerCategories();
@@ -165,17 +179,25 @@ export function createAgentCommand(): Effect.Effect<
       categoryDisplayNameToId.set(displayName, mcpToolCategory(serverName).id);
     }
 
-    // Get agent basic information
+    const actingToolCounts = yield* countActingTools(toolRegistry, toolsByCategory);
+
     const agentAnswers = yield* Effect.tryPromise({
       try: () =>
         promptForAgentInfo(
-          personaNames,
+          personaChoices,
           toolsByCategory,
           llmService,
           configService,
           categoryIdToDisplayName,
           terminal,
           new Set(mcpServerData.displayNameToServerName.keys()),
+          {
+            ...(options.initialProvider === undefined
+              ? {}
+              : { initialProvider: options.initialProvider }),
+            existingAgentNames,
+            actingToolCounts,
+          },
         ),
       catch: (error) =>
         new ValidationError({
@@ -328,28 +350,111 @@ export function createAgentCommand(): Effect.Effect<
       config,
     );
 
-    // Display success message
-    yield* terminal.success("AI Agent created successfully!");
-    yield* terminal.log(`   ID: ${agent.id}`);
-    yield* terminal.log(`   Name: ${agent.name}`);
-    if (agent.description) {
-      yield* terminal.log(`   Description: ${agent.description}`);
-    }
-    yield* terminal.log(`   Persona: ${config.persona}`);
-    yield* terminal.log(`   LLM Provider: ${formatProviderDisplayName(config.llmProvider)}`);
-    yield* terminal.log(`   LLM Model: ${config.llmModel}`);
-    yield* terminal.log(`   Reasoning: ${config.reasoning ?? "disabled"}`);
-    if (typeof config.numCtx === "number") {
-      yield* terminal.log(`   Context Window: ${config.numCtx.toLocaleString()} tokens`);
-    }
-    yield* terminal.log(`   Tool Categories: ${agentAnswers.tools.join(", ") || "None"}`);
-    yield* terminal.log(`   Total Tools: ${uniqueToolNames.length}`);
-    yield* terminal.log(`   Created: ${agent.createdAt.toISOString()}`);
-    yield* terminal.log("");
-    yield* terminal.info("You can now chat with your agent using:");
-    yield* terminal.log(`   • By ID:   jazz agent chat ${agent.id}`);
-    yield* terminal.log(`   • By name: jazz agent chat ${agent.name}`);
+    yield* terminal.success(
+      `${agent.name} is ready · ${formatProviderDisplayName(config.llmProvider)} ${config.llmModel} · ${String(uniqueToolNames.length)} tools`,
+    );
   });
+}
+
+/** The steps the wizard's stepper names, in order. Sub-steps sit under the nearest one. */
+const STEPPER_LABELS = ["provider", "model", "reasoning", "persona", "name", "tools"] as const;
+
+function stepperAt(label: (typeof STEPPER_LABELS)[number]): PromptStep {
+  return { labels: STEPPER_LABELS, index: STEPPER_LABELS.indexOf(label) };
+}
+
+/** Agent names are identifiers: letters, numbers, `_` and `-`. */
+const AGENT_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+const AGENT_NAME_MAX_LENGTH = 100;
+const AGENT_DESCRIPTION_MAX_LENGTH = 500;
+
+/**
+ * A name to prefill: the persona when it is not the default, else the model's last word with no
+ * digits in it (`gpt-5.6-sol` → `sol`, `kimi-k3:cloud` → `kimi`), else the model name made safe
+ * (`gemma4:12b` → `gemma4`). An Ollama `:tag` and any `org/` prefix never name the agent. A
+ * clash gets a number.
+ */
+export function suggestAgentName(
+  model: string,
+  persona: string,
+  existing: readonly string[],
+): string {
+  const family = (model.split("/").at(-1) ?? model).split(":")[0] ?? model;
+  const words = family.split(/[^a-zA-Z0-9]+/).filter((word) => word.length > 0 && !/\d/.test(word));
+  const base = (
+    persona !== "default"
+      ? persona
+      : (words.at(-1) ?? family.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, ""))
+  )
+    .toLowerCase()
+    .slice(0, AGENT_NAME_MAX_LENGTH);
+  const taken = new Set(existing.map((name) => name.toLowerCase()));
+  if (!taken.has(base)) {
+    return base || "agent";
+  }
+  let suffix = 2;
+  while (taken.has(`${base}-${String(suffix)}`)) suffix += 1;
+  return `${base}-${String(suffix)}`;
+}
+
+/** Per tool category, how many of its tools can change something, so the picker can say so. */
+function countActingTools(
+  toolRegistry: ToolRegistry,
+  toolsByCategory: Record<string, readonly string[]>,
+): Effect.Effect<ReadonlyMap<string, number>> {
+  return Effect.gen(function* () {
+    const counts = new Map<string, number>();
+    for (const [category, names] of Object.entries(toolsByCategory)) {
+      let acting = 0;
+      for (const name of names) {
+        const tool = yield* toolRegistry.getTool(name).pipe(Effect.option);
+        if (tool._tag === "Some" && tool.value.riskLevel !== "read-only") acting += 1;
+      }
+      counts.set(category, acting);
+    }
+    return counts;
+  });
+}
+
+/** What the provider list says about each provider's readiness. */
+function providerReadiness(
+  provider: ProviderName,
+  configured: ReadonlySet<string>,
+  ollamaModels: number | undefined,
+): { readonly tag: string; readonly tagTone: PromptTagTone } {
+  if (provider === "ollama") {
+    if (ollamaModels !== undefined) {
+      return { tag: `running · ${String(ollamaModels)} models`, tagTone: "success" };
+    }
+    return configured.has(provider)
+      ? { tag: "key saved", tagTone: "success" }
+      : { tag: "not detected", tagTone: "muted" };
+  }
+  if (isLocalServerProvider(provider)) {
+    return { tag: "local server", tagTone: "muted" };
+  }
+  if (provider === "chatgpt") {
+    return configured.has(provider)
+      ? { tag: "signed in", tagTone: "success" }
+      : { tag: "sign in", tagTone: "muted" };
+  }
+  return configured.has(provider)
+    ? { tag: "key saved", tagTone: "success" }
+    : { tag: "needs a key", tagTone: "muted" };
+}
+
+/** The review lines that reopen a step. */
+const REVIEW_EDIT_STEPS = ["name", "model", "persona", "tools"] as const;
+type ReviewAnswer = (typeof REVIEW_EDIT_STEPS)[number] | "create";
+
+/** Options for the wizard beyond the catalogs it picks from. */
+export interface AgentInfoPromptOptions {
+  /** Skip the provider step and start from this provider, as home's Ollama fast path does. */
+  readonly initialProvider?: ProviderName;
+  /** Names already taken, so the prefilled name is free and a clash is caught on the spot. */
+  readonly existingAgentNames?: readonly string[];
+  /** Tools per category that can change something, from the tool registry. */
+  readonly actingToolCounts?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -364,6 +469,7 @@ type WizardStep =
   | "name"
   | "description"
   | "tools"
+  | "review"
   | "done";
 
 /**
@@ -425,6 +531,7 @@ async function connectLocalProvider(
         terminal,
         provider,
         force: forceUrl,
+        step: stepperAt("provider"),
       });
       if (urlResult === "cancelled") {
         return "cancelled";
@@ -480,24 +587,30 @@ async function connectLocalProvider(
  * State is preserved when navigating backward.
  */
 export async function promptForAgentInfo(
-  personaNames: readonly string[],
+  personas: readonly { readonly name: string; readonly description?: string }[],
   toolsByCategory: Record<string, readonly string[]>,
   llmService: LLMService,
   configService: AgentConfigService,
   categoryIdToDisplayName: Map<string, string>,
   terminal: TerminalService,
   mcpCategoryDisplayNames: ReadonlySet<string>,
+  options: AgentInfoPromptOptions = {},
 ): Promise<AIAgentCreationAnswers | null> {
-  // Initialize state machine
   const state: WizardState = { step: "provider" };
   state.allProviders = await Effect.runPromise(llmService.listProviders());
-
-  // Show navigation hint
-  await Effect.runPromise(
-    terminal.info("💡 Tip: Press ESC at any step to go back to the previous choice."),
+  // A provider chosen before the wizard opened (home's Ollama fast path) is picked on step one.
+  let pendingProvider = options.initialProvider;
+  const existingAgentNames = options.existingAgentNames ?? [];
+  const ollamaConfig: unknown = (
+    (await Effect.runPromise(configService.appConfig)).llm as Record<string, unknown> | undefined
+  )?.["ollama"];
+  const ollamaModels = await probeOllamaModels(
+    ollamaOrigin(
+      isRecord(ollamaConfig) && typeof ollamaConfig["base_url"] === "string"
+        ? ollamaConfig["base_url"]
+        : undefined,
+    ),
   );
-
-  const hint = "(ESC to go back)";
 
   while (state.step !== "done") {
     switch (state.step) {
@@ -505,22 +618,30 @@ export async function promptForAgentInfo(
       // STEP 1: Provider Selection
       // ═══════════════════════════════════════════════════════════════════════
       case "provider": {
-        const result = await Effect.runPromise(
-          terminal.search<ProviderName>("Which LLM provider would you like to use?", {
-            choices: sortProvidersForPicker(
-              state.allProviders,
-              (provider) => provider.name,
-              (provider) => provider.displayName,
-            ).map((provider) => ({
-              name: provider.displayName ?? provider.name,
-              value: provider.name,
-            })),
-            placeholder: "Search providers...",
-          }),
+        const preselected = pendingProvider;
+        pendingProvider = undefined;
+        const configured = new Set(
+          configuredProviderNames(await Effect.runPromise(configService.appConfig)),
         );
+        const result =
+          preselected ??
+          (await Effect.runPromise(
+            terminal.search<ProviderName>("Which model provider?", {
+              choices: sortProvidersForPicker(
+                state.allProviders,
+                (provider) => provider.name,
+                (provider) => provider.displayName,
+              ).map((provider) => ({
+                name: provider.displayName ?? provider.name,
+                value: provider.name,
+                ...providerReadiness(provider.name, configured, ollamaModels),
+              })),
+              placeholder: "Type to filter providers",
+              step: stepperAt("provider"),
+            }),
+          ));
 
         if (result === undefined) {
-          // ESC pressed on first step - return null to indicate cancellation
           return null;
         }
 
@@ -536,7 +657,7 @@ export async function promptForAgentInfo(
             terminal,
           );
           if (localProvider === "cancelled") {
-            await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
+            await Effect.runPromise(terminal.info("Nothing was saved. Pick another provider."));
             break;
           }
           state.providerInfo = localProvider;
@@ -552,7 +673,7 @@ export async function promptForAgentInfo(
           required: true,
         });
         if (keyResult === "cancelled") {
-          await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
+          await Effect.runPromise(terminal.info("Nothing was saved. Pick another provider."));
           break;
         }
 
@@ -610,10 +731,14 @@ export async function promptForAgentInfo(
         }
 
         const result = await Effect.runPromise(
-          terminal.search<string>(`Which model would you like to use? ${hint}`, {
-            choices: buildModelChoices(state.llmProvider!, state.providerInfo!.supportedModels),
-            placeholder: "Search models...",
-          }),
+          terminal.search<string>(
+            `Which ${formatProviderDisplayName(state.llmProvider!)} model? Context, then price in / out per million tokens.`,
+            {
+              choices: buildModelChoices(state.llmProvider!, state.providerInfo!.supportedModels),
+              placeholder: "Type to filter models",
+              step: stepperAt("model"),
+            },
+          ),
         );
 
         if (result === undefined) {
@@ -661,8 +786,8 @@ export async function promptForAgentInfo(
           llmService.resolveReasoningControl(state.llmProvider!, state.llmModel!),
         );
         const result = await promptForReasoningSelection(terminal, state.reasoning, {
-          prompt: `What reasoning effort level would you like? ${hint}`,
           control,
+          step: stepperAt("reasoning"),
         });
 
         if (result === undefined) {
@@ -686,9 +811,10 @@ export async function promptForAgentInfo(
       case "ollamaContext": {
         const choices = buildOllamaContextChoices(state.detectedContextWindow);
         const result = await Effect.runPromise(
-          terminal.select<number>(`What context window should this agent use? ${hint}`, {
+          terminal.select<number>("How much context should Ollama give it?", {
             choices,
             default: state.numCtx ?? defaultOllamaContextWindow(state.detectedContextWindow),
+            step: stepperAt("model"),
           }),
         );
 
@@ -707,9 +833,16 @@ export async function promptForAgentInfo(
       // ═══════════════════════════════════════════════════════════════════════
       case "persona": {
         const result = await Effect.runPromise(
-          terminal.select<string>(`What persona should the agent have? ${hint}`, {
-            choices: personaNames,
+          terminal.select<string>("What kind of assistant?", {
+            choices: personas.map((persona) => ({
+              name: persona.name,
+              value: persona.name,
+              ...(persona.description === undefined || persona.description.length === 0
+                ? {}
+                : { description: persona.description }),
+            })),
             default: state.persona ?? "default",
+            step: stepperAt("persona"),
           }),
         );
 
@@ -735,27 +868,32 @@ export async function promptForAgentInfo(
         } = {
           validate: (inputValue: string): boolean | string => {
             if (!inputValue || inputValue.trim().length === 0) {
-              return "Agent name cannot be empty";
+              return "Give it a name";
             }
-            if (inputValue.length > 100) {
-              return "Agent name cannot exceed 100 characters";
+            if (inputValue.length > AGENT_NAME_MAX_LENGTH) {
+              return `Keep it under ${String(AGENT_NAME_MAX_LENGTH)} characters`;
             }
-            if (!/^[a-zA-Z0-9_-]+$/.test(inputValue)) {
-              return "Agent name can only contain letters, numbers, underscores, and hyphens";
+            if (!AGENT_NAME_PATTERN.test(inputValue)) {
+              return "Use letters, numbers, - and _ only, no spaces";
+            }
+            if (
+              existingAgentNames.some((name) => name.toLowerCase() === inputValue.toLowerCase())
+            ) {
+              return `You already have an agent called ${inputValue}`;
             }
             return true;
           },
           cancellable: true,
           simple: true,
         };
-        if (state.name) {
-          askOptions.defaultValue = state.name;
-        }
+        askOptions.defaultValue =
+          state.name ?? suggestAgentName(state.llmModel!, state.persona!, existingAgentNames);
 
         const result = await Effect.runPromise(
-          terminal.ask(`Name of your new agent ${hint}:`, {
+          terminal.ask("What should we call it?", {
             ...askOptions,
             placeholder: "my-agent",
+            step: stepperAt("name"),
           }),
         );
 
@@ -781,8 +919,8 @@ export async function promptForAgentInfo(
           simple: boolean;
         } = {
           validate: (inputValue: string): boolean | string => {
-            if (inputValue.length > 500) {
-              return "Agent description cannot exceed 500 characters";
+            if (inputValue.length > AGENT_DESCRIPTION_MAX_LENGTH) {
+              return `Keep it under ${String(AGENT_DESCRIPTION_MAX_LENGTH)} characters`;
             }
             return true;
           },
@@ -794,9 +932,10 @@ export async function promptForAgentInfo(
         }
 
         const result = await Effect.runPromise(
-          terminal.ask(`Describe what this agent will do ${hint}:`, {
+          terminal.ask("What is it for? Optional, enter skips it.", {
             ...descOptions,
-            placeholder: "(optional, press Enter to skip)",
+            placeholder: "Everyday help with email, calendar and planning",
+            step: stepperAt("name"),
           }),
         );
 
@@ -822,18 +961,16 @@ export async function promptForAgentInfo(
           if (currentPredefinedAgent && currentPredefinedAgent.toolCategoryIds.length > 0) {
             await Effect.runPromise(
               terminal.warn(
-                `\n⚠️  The selected model (${state.llmModel}) does not support tools. The "${currentPredefinedAgent.displayName}" agent's preconfigured tools will be ignored.`,
+                `${state.llmModel} cannot use tools, so the ${currentPredefinedAgent.displayName} persona's tools are left out.`,
               ),
             );
           } else {
             await Effect.runPromise(
-              terminal.info(
-                `\nℹ️  Skipping tool selection as the selected model (${state.llmModel}) does not support tools.`,
-              ),
+              terminal.info(`${state.llmModel} cannot use tools, so there are none to pick.`),
             );
           }
           state.tools = [];
-          state.step = "done";
+          state.step = "review";
           break;
         }
 
@@ -854,14 +991,14 @@ export async function promptForAgentInfo(
             Effect.gen(function* () {
               yield* terminal.log("");
               yield* terminal.log(
-                `${currentPredefinedAgent.emoji} ${currentPredefinedAgent.displayName} agent will automatically include: ${displayNames.join(", ")}`,
+                `The ${currentPredefinedAgent.displayName} persona comes with: ${displayNames.join(", ")}`,
               );
               yield* terminal.log("");
             }),
           );
 
           state.tools = displayNames;
-          state.step = "done";
+          state.step = "review";
           break;
         }
 
@@ -885,15 +1022,29 @@ export async function promptForAgentInfo(
         let shouldGoBack = false;
         while (true) {
           const toolSelection = await Effect.runPromise(
-            terminal.checkbox<string>(`Which tools should this agent have access to? ${hint}`, {
-              choices: selectableCategories.map(([category, toolsInCategory]) => ({
-                name:
-                  toolsInCategory.length > 0
-                    ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
-                    : category,
-                value: category,
-              })),
+            terminal.checkbox<string>("What can it use?", {
+              choices: selectableCategories.map(([category, toolsInCategory]) => {
+                const acting = options.actingToolCounts?.get(category) ?? 0;
+                return {
+                  name: category,
+                  value: category,
+                  ...(toolsInCategory.length === 0
+                    ? {}
+                    : {
+                        description: `${String(toolsInCategory.length)} ${toolsInCategory.length === 1 ? "tool" : "tools"}`,
+                      }),
+                  ...(acting > 0
+                    ? {
+                        tag: `${String(acting)} can change things`,
+                        tagTone: "warning" as const,
+                      }
+                    : toolsInCategory.length > 0
+                      ? { tag: "read only", tagTone: "muted" as const }
+                      : {}),
+                };
+              }),
               default: [...selectedTools],
+              step: stepperAt("tools"),
             }),
           );
 
@@ -907,7 +1058,7 @@ export async function promptForAgentInfo(
           if (selectedTools.length === 0) {
             // Ask if they want to go back or proceed with no tools
             const confirm = await Effect.runPromise(
-              terminal.confirm("No tools selected. Go back to previous step?", true),
+              terminal.confirm("No tools picked. Go back and pick some?", true),
             );
             if (confirm === undefined) {
               continue;
@@ -922,7 +1073,13 @@ export async function promptForAgentInfo(
 
           if (selectedTools.includes(WEB_SEARCH_CATEGORY.displayName)) {
             const webSearchProvider = await Effect.runPromise(
-              handleWebSearchConfiguration(terminal, configService, llmService, state.llmProvider!),
+              handleWebSearchConfiguration(
+                terminal,
+                configService,
+                llmService,
+                state.llmProvider!,
+                stepperAt("tools"),
+              ),
             );
 
             if (webSearchProvider === false) {
@@ -946,7 +1103,42 @@ export async function promptForAgentInfo(
           break;
         }
 
-        state.step = "done";
+        state.step = "review";
+        break;
+      }
+
+      // Every choice on one list: enter creates, and any line jumps back to its step.
+      case "review": {
+        const reasoning = state.reasoning === undefined ? "" : ` · reasoning ${state.reasoning}`;
+        const toolCount = state.tools?.length ?? 0;
+        const result = await Effect.runPromise(
+          terminal.select<ReviewAnswer>("Ready to create", {
+            choices: [
+              { name: `Create ${state.name!} and start chatting`, value: "create" },
+              { name: "name", value: "name", description: state.name! },
+              {
+                name: "model",
+                value: "model",
+                description: `${formatProviderDisplayName(state.llmProvider!)} · ${state.llmModel!}${reasoning}`,
+              },
+              { name: "persona", value: "persona", description: state.persona! },
+              {
+                name: "tools",
+                value: "tools",
+                description: toolCount === 0 ? "none" : (state.tools ?? []).join(", "),
+              },
+            ],
+            default: "create",
+          }),
+        );
+        if (result === undefined) {
+          state.step = "tools";
+          break;
+        }
+        // Only the listed lines can send the wizard back; anything else creates the agent.
+        state.step = REVIEW_EDIT_STEPS.includes(result as (typeof REVIEW_EDIT_STEPS)[number])
+          ? (result as WizardStep)
+          : "done";
         break;
       }
     }

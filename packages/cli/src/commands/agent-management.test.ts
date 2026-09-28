@@ -86,9 +86,7 @@ describe("Agent Management Commands", () => {
       false,
     );
     expect(mockAgentService.deleteAgent).toHaveBeenCalledWith("a1");
-    expect(mockTerminal.success).toHaveBeenCalledWith(
-      expect.stringContaining("deleted successfully"),
-    );
+    expect(mockTerminal.success).toHaveBeenCalledWith("Deleted agent1 (a1).");
   });
 
   it("should not delete when confirmation is declined", async () => {

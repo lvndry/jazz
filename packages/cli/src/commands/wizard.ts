@@ -3,6 +3,7 @@ import {
   loadConversationOrNull,
   loadHistory,
 } from "@jazz/adapters/history/conversation-history-service";
+import { formatRelativeWhen } from "@jazz/adapters/history/conversation-search";
 import { loopsWaitingOnUser, pendingLoopInput } from "@jazz/adapters/loops/loop-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
@@ -18,9 +19,10 @@ import { ChatServiceTag } from "@jazz/core/interfaces/chat-service";
 import { JazzStateServiceTag } from "@jazz/core/interfaces/jazz-state";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
-import type { Agent } from "@jazz/core/types/index";
+import type { Agent, AppConfig } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
@@ -32,24 +34,22 @@ import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
+import { environmentKeyDetections, ollamaOrigin, probeOllamaModels } from "./home-detection";
+import {
+  buildHome,
+  homeActions,
+  homeConversations,
+  homeStatus,
+  parseOpenConversationValue,
+  type HomeConversationSource,
+} from "./home-surface";
 import { sessionOpenLine } from "./session-open";
-import { homeEnvironmentFacts, homeRequirements } from "../ui/fullscreen/home-readiness";
-import { store, type ActiveAgentChoice } from "../ui/store";
-import { TIPS, type WizardMenuOption } from "../ui/WizardHome";
+import { configuredProviderNames } from "../ui/models/configured-providers";
+import { store, type ActiveAgentChoice, type ActiveHomeDetection } from "../ui/store";
 
 /**
  * Wizard menu option identifiers
  */
-type MenuAction =
-  | "resume-conversation"
-  | "new-conversation"
-  | "create-agent"
-  | "edit-agent"
-  | "list-agents"
-  | "config"
-  | "delete-agent"
-  | "exit";
-
 /**
  * Interactive wizard command - the main entry point when `jazz` is run with no arguments
  */
@@ -76,71 +76,25 @@ function wizardSession() {
     let shouldExit = false;
 
     while (!shouldExit) {
-      // Get all agents for the menu
       const agents = yield* agentService.listAgents();
 
-      // Get last used agent ID from runtime state (used to pre-select agents in pickers)
+      // Last used agent, from runtime state: it is the agent enter starts a conversation with.
       const jazzState = yield* JazzStateServiceTag;
       const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
         Effect.map((value) => (typeof value === "string" ? value : null)),
         Effect.catchAll(() => Effect.succeed(null)),
       );
+      const defaultAgent = sortAgents(agents, lastUsedAgentId)[0];
+      const appConfig = yield* configService.appConfig;
+      const providerCount = configuredProviderNames(appConfig).length;
 
-      // Check if any agent has saved conversation history
-      let hasConversationHistory = false;
-      for (const agent of agents) {
-        const history = yield* loadHistory(agent.id).pipe(
-          Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
-        );
-        if (history.conversations.length > 0) {
-          hasConversationHistory = true;
-          break;
-        }
-      }
-
-      // Build menu options dynamically
-      const menuOptions: WizardMenuOption[] = [];
-
-      if (agents.length > 0) {
-        menuOptions.push({
-          label: "New conversation",
-          value: "new-conversation",
-        });
-      }
-
-      if (hasConversationHistory) {
-        const waiting = yield* waitingConversations();
-        menuOptions.push({
-          label:
-            waiting.size === 0
-              ? "Resume conversation"
-              : `Resume conversation (${String(waiting.size)} waiting for you)`,
-          value: "resume-conversation",
-        });
-      }
-
-      menuOptions.push({ label: "Create agent", value: "create-agent" });
-
-      if (agents.length > 0) {
-        menuOptions.push(
-          { label: "List agents", value: "list-agents" },
-          { label: "Edit agent", value: "edit-agent" },
-          { label: "Delete agent", value: "delete-agent" },
-          { label: "Update configuration", value: "config" },
-        );
-      } else {
-        // Even if no agents, allow configuration
-        menuOptions.push({ label: "Update configuration", value: "config" });
-      }
-
-      menuOptions.push({ label: "Exit", value: "exit" });
-
-      const requirements = homeRequirements({
-        agentCount: agents.length,
+      const selection = yield* showHome({
+        agents,
+        defaultAgent,
+        providerCount,
+        firstRunDetections:
+          agents.length === 0 ? firstRunDetections(appConfig) : Effect.succeed(undefined),
       });
-      const environment = homeEnvironmentFacts();
-
-      const selection = yield* showWizardMenu(menuOptions, requirements, environment);
 
       // Handle the selected action
       switch (selection) {
@@ -151,10 +105,20 @@ function wizardSession() {
         }
 
         case "new-conversation": {
-          const selectedAgent =
-            agents.length === 1
-              ? agents[0]
-              : yield* selectAgent(agents, lastUsedAgentId, "pick an agent", "start");
+          if (defaultAgent !== undefined) {
+            yield* startChatWithAgent(defaultAgent);
+            yield* terminal.clear();
+          }
+          break;
+        }
+
+        case "pick-agent": {
+          const selectedAgent = yield* selectAgent(
+            agents,
+            lastUsedAgentId,
+            "pick an agent",
+            "start",
+          );
           if (selectedAgent) {
             yield* startChatWithAgent(selectedAgent);
             yield* terminal.clear();
@@ -162,12 +126,15 @@ function wizardSession() {
           break;
         }
 
-        case "create-agent": {
+        case "create-agent":
+        case "create-agent:ollama": {
           // Track agent count before creation to detect if agent was actually created
           const agentCountBefore = agents.length;
 
           // Run create agent flow and start chat with newly created agent
-          const creationResult = yield* createAgentCommand().pipe(Effect.either);
+          const creationResult = yield* createAgentCommand(
+            selection === "create-agent:ollama" ? { initialProvider: "ollama" } : {},
+          ).pipe(Effect.either);
 
           if (creationResult._tag === "Left") {
             // Creation failed
@@ -209,37 +176,18 @@ function wizardSession() {
           break;
         }
 
-        case "edit-agent": {
-          const selectedAgent = yield* selectAgent(
-            agents,
-            lastUsedAgentId,
-            "edit an agent",
-            "edit",
-          );
-          if (selectedAgent) {
-            yield* editAgentCommand(selectedAgent.id).pipe(
-              Effect.catchAll((error) =>
-                Effect.gen(function* () {
-                  yield* terminal.error(`Failed to edit agent: ${String(error)}`);
-                }),
-              ),
-            );
-            yield* terminal.clear();
-          }
-          break;
-        }
-
         case "list-agents": {
-          const listedAgents = yield* agentService.listAgents().pipe(
+          let listedAgents = yield* agentService.listAgents().pipe(
             Effect.catchAll((error) =>
               Effect.gen(function* () {
-                yield* terminal.error(`Failed to list agents: ${String(error)}`);
+                yield* terminal.error(`Could not read your agents: ${String(error)}`);
                 return [] as Agent[];
               }),
             ),
           );
           let previouslyOpenedId: string | undefined;
-          while (true) {
+          let started = false;
+          while (!started && listedAgents.length > 0) {
             const selectedAgent = yield* showAgentList(
               listedAgents,
               lastUsedAgentId,
@@ -247,61 +195,42 @@ function wizardSession() {
             );
             if (selectedAgent === null) break;
             previouslyOpenedId = selectedAgent.id;
-            const metadata = isZeroCostLocalModel(
-              selectedAgent.config.llmProvider,
-              selectedAgent.config.llmModel,
-            )
-              ? undefined
-              : yield* Effect.tryPromise({
-                  try: () =>
-                    getModelsDevMetadata(
-                      selectedAgent.config.llmModel,
-                      selectedAgent.config.llmProvider,
-                    ),
-                  catch: (error) => error,
-                }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-            const llmService = yield* LLMServiceTag;
-            const appConfig = yield* configService.appConfig;
-            const hostUrl =
-              isLocalServerProvider(selectedAgent.config.llmProvider) &&
-              (selectedAgent.config.llmProvider !== "ollama" ||
-                !isOllamaCloudModel(selectedAgent.config.llmModel))
-                ? llmService.resolveLocalProviderBaseUrl(
-                    selectedAgent.config.llmProvider,
-                    appConfig.llm,
-                  )
-                : undefined;
-            yield* showAgentDetails(selectedAgent, metadata, hostUrl);
-          }
-          break;
-        }
-
-        case "delete-agent": {
-          const selectedAgent = yield* selectAgent(
-            agents,
-            lastUsedAgentId,
-            "delete an agent",
-            "delete",
-          );
-          if (selectedAgent) {
-            // Deletion is irreversible — always confirm, defaulting to No.
-            const confirmed = yield* terminal.confirm(
-              `Delete agent "${selectedAgent.name}" (${selectedAgent.config.llmProvider}/${selectedAgent.config.llmModel})? This cannot be undone.`,
-              false,
-            );
-            if (!confirmed) {
-              yield* terminal.info("Deletion cancelled.");
-              yield* terminal.clear();
-              break;
+            const action = yield* showAgentActions(selectedAgent);
+            switch (action) {
+              case "start":
+                yield* startChatWithAgent(selectedAgent);
+                yield* terminal.clear();
+                started = true;
+                break;
+              case "details":
+                yield* showAgentDetails(
+                  selectedAgent,
+                  yield* modelMetadataFor(selectedAgent),
+                  yield* localHostUrlFor(selectedAgent),
+                );
+                break;
+              case "edit":
+                yield* editAgentCommand(selectedAgent.id).pipe(
+                  Effect.catchAll((error) =>
+                    terminal.error(`${selectedAgent.name} was not changed: ${String(error)}`),
+                  ),
+                );
+                yield* terminal.clear();
+                listedAgents = yield* agentService
+                  .listAgents()
+                  .pipe(Effect.catchAll(() => Effect.succeed(listedAgents)));
+                break;
+              case "delete": {
+                const deleted = yield* confirmAndDeleteAgent(selectedAgent);
+                if (deleted) {
+                  listedAgents = listedAgents.filter((agent) => agent.id !== selectedAgent.id);
+                  previouslyOpenedId = undefined;
+                }
+                break;
+              }
+              case "back":
+                break;
             }
-            yield* deleteAgentCommand(selectedAgent.id, { skipConfirmation: true }).pipe(
-              Effect.catchAll((error) =>
-                Effect.gen(function* () {
-                  yield* terminal.error(`Failed to delete agent: ${String(error)}`);
-                }),
-              ),
-            );
-            yield* terminal.clear();
           }
           break;
         }
@@ -313,9 +242,23 @@ function wizardSession() {
         }
 
         case "exit":
-        default:
           shouldExit = true;
           break;
+
+        default: {
+          const opened = parseOpenConversationValue(selection);
+          const agent =
+            opened === null
+              ? undefined
+              : agents.find((candidate) => candidate.id === opened.agentId);
+          if (opened === null || agent === undefined) {
+            shouldExit = true;
+            break;
+          }
+          yield* openConversation(agent, opened.conversationId);
+          yield* terminal.clear();
+          break;
+        }
       }
     }
 
@@ -324,28 +267,131 @@ function wizardSession() {
   }).pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 }
 
+/** Everything the home loop needs to know about the agents before it shows the screen. */
+interface HomeContext {
+  readonly agents: readonly Agent[];
+  readonly defaultAgent: Agent | undefined;
+  readonly providerCount: number;
+  /** Only computed on first run, where a key in the environment or a local Ollama is a fast path. */
+  readonly firstRunDetections: Effect.Effect<FirstRunDetections | undefined, never, never>;
+}
+
+interface FirstRunDetections {
+  readonly detected: readonly ActiveHomeDetection[];
+  readonly ollamaModels: number | undefined;
+}
+
+/** A key exported in the environment, and a local Ollama if one answers quickly. */
+function firstRunDetections(
+  appConfig: AppConfig,
+): Effect.Effect<FirstRunDetections | undefined, never, never> {
+  return Effect.promise(async () => {
+    const ollamaConfig: unknown = (appConfig.llm as Record<string, unknown> | undefined)?.[
+      "ollama"
+    ];
+    const baseUrl =
+      isRecord(ollamaConfig) && typeof ollamaConfig["base_url"] === "string"
+        ? ollamaConfig["base_url"]
+        : undefined;
+    const ollamaModels = await probeOllamaModels(ollamaOrigin(baseUrl));
+    const detected: ActiveHomeDetection[] = environmentKeyDetections();
+    if (ollamaModels !== undefined && ollamaModels > 0) {
+      detected.push({
+        label: "Ollama",
+        detail: `running on this machine with ${String(ollamaModels)} ${ollamaModels === 1 ? "model" : "models"}`,
+      });
+    }
+    return { detected, ollamaModels };
+  });
+}
+
+/** Saved conversations across every agent, as the home screen lists them. */
+function conversationSources(agents: readonly Agent[]) {
+  return Effect.gen(function* () {
+    const sources: HomeConversationSource[] = [];
+    for (const agent of agents) {
+      const history = yield* loadHistory(agent.id).pipe(
+        Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+      );
+      for (const conversation of history.conversations) {
+        sources.push({
+          agentId: agent.id,
+          agentName: agent.name,
+          conversationId: conversation.conversationId,
+          title: conversation.title,
+          startedAt: conversation.startedAt,
+          endedAt: conversation.endedAt,
+          messageCount: conversation.messageCount,
+        });
+      }
+    }
+    return sources;
+  });
+}
+
 /**
- * Show the wizard menu and return the selected action
+ * Show home and return what was picked.
+ *
+ * The screen goes up as soon as the agent list is known, then fills in the conversations once
+ * the history has loaded. Every action is addressed by key, and each key the first frame shows
+ * is still there in the second, so a key pressed while the history loads does what the screen
+ * said it would.
  */
-function showWizardMenu(
-  options: WizardMenuOption[],
-  requirements: ReturnType<typeof homeRequirements>,
-  environment: ReturnType<typeof homeEnvironmentFacts>,
-): Effect.Effect<MenuAction, never, never> {
-  return Effect.async<MenuAction>((resume) => {
-    const tip = TIPS[Math.floor(Math.random() * TIPS.length)] ?? TIPS[0] ?? "";
+function showHome(context: HomeContext) {
+  return Effect.gen(function* () {
+    const now = new Date();
+    const firstRun = context.agents.length === 0;
+    const status = homeStatus({
+      agentCount: context.agents.length,
+      providerCount: context.providerCount,
+    });
+    const actionsFor = (hasHistory: boolean, ollamaModels?: number) =>
+      homeActions({
+        agentCount: context.agents.length,
+        defaultAgentName: context.defaultAgent?.name,
+        hasHistory,
+        ...(ollamaModels === undefined ? {} : { ollamaModels }),
+      });
+
+    let answer: ((value: string) => void) | undefined;
+    const answered = new Promise<string>((resolve) => {
+      answer = resolve;
+    });
+    // Before the history loads, resume is offered whenever there are agents, so the key stays
+    // put when the conversations arrive; resuming with nothing saved says so plainly.
     store.setActiveMenu(
-      {
-        kind: "menu",
-        options,
-        requirements,
-        environment,
-        tip,
-      },
-      (result) => {
-        resume(Effect.succeed(result.kind === "exit" ? "exit" : (result.value as MenuAction)));
-      },
+      buildHome({ now, conversations: [], actions: actionsFor(!firstRun), status, firstRun }),
+      (result) => answer?.(result.kind === "exit" ? "exit" : result.value),
     );
+
+    if (firstRun) {
+      const detections = yield* context.firstRunDetections;
+      store.refreshActiveMenu(
+        buildHome({
+          now,
+          conversations: [],
+          actions: actionsFor(false, detections?.ollamaModels),
+          status,
+          ...(detections === undefined ? {} : { detected: detections.detected }),
+          firstRun,
+        }),
+      );
+    } else {
+      const sources = yield* conversationSources(context.agents);
+      const waiting =
+        sources.length === 0 ? new Map<string, string>() : yield* waitingConversations();
+      store.refreshActiveMenu(
+        buildHome({
+          now,
+          conversations: homeConversations(sources, waiting, now.getTime()),
+          actions: actionsFor(true),
+          status,
+          firstRun,
+        }),
+      );
+    }
+
+    return yield* Effect.promise(() => answered);
   });
 }
 
@@ -415,6 +461,96 @@ function showAgentDetails(
       },
       () => resume(Effect.void),
     );
+  });
+}
+
+type AgentAction = "start" | "details" | "edit" | "delete" | "back";
+
+/** What to do with one agent picked from the list. */
+function showAgentActions(agent: Agent): Effect.Effect<AgentAction, never, never> {
+  return Effect.async<AgentAction>((resume) => {
+    store.setActiveMenu(
+      {
+        kind: "menu",
+        title: agent.name,
+        options: [
+          { label: "Start a conversation", value: "start", hint: agentModelString(agent.config) },
+          { label: "Details", value: "details", hint: "model, tools, access" },
+          { label: "Edit", value: "edit", hint: "change its model, persona or tools" },
+          { label: "Delete", value: "delete", hint: "asks first" },
+          { label: "Back to agents", value: "back" },
+        ],
+      },
+      (result) =>
+        resume(Effect.succeed(result.kind === "exit" ? "back" : (result.value as AgentAction))),
+    );
+  });
+}
+
+/**
+ * Ask before deleting, with keeping the agent as the default, and say what goes and what stays:
+ * the agent's file goes, its saved conversations stay on disk but no longer appear in resume.
+ */
+function confirmAndDeleteAgent(agent: Agent) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const history = yield* loadHistory(agent.id).pipe(
+      Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+    );
+    const saved = history.conversations.length;
+    const keeps =
+      saved === 0
+        ? "It has no saved conversations."
+        : `Its ${String(saved)} saved ${saved === 1 ? "conversation stays" : "conversations stay"} on disk, but resume stops listing ${saved === 1 ? "it" : "them"}.`;
+    const answer = yield* terminal.select<"keep" | "delete">(
+      `Delete ${agent.name}? This removes its settings, persona choice and tool access. ${keeps}`,
+      {
+        choices: [
+          { name: `Keep ${agent.name}`, value: "keep" },
+          {
+            name: `Delete ${agent.name}`,
+            value: "delete",
+            tag: "can't be undone",
+            tagTone: "warning",
+          },
+        ],
+        default: "keep",
+      },
+    );
+    if (answer !== "delete") {
+      return false;
+    }
+    const outcome = yield* deleteAgentCommand(agent.id, { skipConfirmation: true }).pipe(
+      Effect.either,
+    );
+    if (outcome._tag === "Left") {
+      yield* terminal.error(`${agent.name} was not deleted: ${String(outcome.left)}`);
+      return false;
+    }
+    return true;
+  });
+}
+
+/** models.dev pricing for an agent's model, skipped for local models that cost nothing. */
+function modelMetadataFor(agent: Agent) {
+  return isZeroCostLocalModel(agent.config.llmProvider, agent.config.llmModel)
+    ? Effect.succeed(undefined)
+    : Effect.tryPromise({
+        try: () => getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+        catch: (error) => error,
+      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+}
+
+/** The server a local-model agent talks to, for the details screen. */
+function localHostUrlFor(agent: Agent) {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    return isLocalServerProvider(agent.config.llmProvider) &&
+      (agent.config.llmProvider !== "ollama" || !isOllamaCloudModel(agent.config.llmModel))
+      ? llmService.resolveLocalProviderBaseUrl(agent.config.llmProvider, appConfig.llm)
+      : undefined;
   });
 }
 
@@ -553,7 +689,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     }
 
     if (entries.length === 0) {
-      yield* terminal.warn("No saved conversations found.");
+      yield* terminal.info("There are no saved conversations yet. Start one with enter on home.");
       return;
     }
 
@@ -565,29 +701,47 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     );
     entries.splice(MAX_RESUME_CHOICES);
 
+    const nowMs = Date.now();
     const choices = entries.map((entry, idx) => {
       const waitingOn = waiting.get(entry.conversationId);
+      const age = formatRelativeWhen(new Date(entry.startedAt).getTime(), nowMs);
       return {
-        name: `${waitingOn !== undefined ? "● " : ""}${entry.title} · ${agentModelString(entry.agent.config)}`,
-        ...(waitingOn !== undefined ? { description: `waiting for you: ${waitingOn}` } : {}),
+        name: entry.title,
+        description:
+          waitingOn === undefined ? entry.agent.name : `${entry.agent.name} · ${waitingOn}`,
         value: String(idx),
+        ...(waitingOn === undefined
+          ? { tag: age, tagTone: "muted" as const }
+          : { tag: `waiting · ${age}`, tagTone: "accent" as const }),
       };
     });
 
-    const selectedIdx = yield* terminal.search<string>("Select a conversation to resume:", {
-      choices,
-      placeholder: "Type to filter conversations…",
-    });
+    const selectedIdx = yield* terminal.search<string>(
+      waiting.size === 0
+        ? "Which conversation?"
+        : `Which conversation? ${String(waiting.size)} ${waiting.size === 1 ? "is" : "are"} waiting for you.`,
+      {
+        choices,
+        placeholder: "Type to filter by title",
+      },
+    );
     if (selectedIdx === null || selectedIdx === undefined) return;
 
     const selected = entries[Number(selectedIdx)];
     if (!selected) return;
 
-    // Read on demand: the picker above needs titles and dates, not transcripts, so the
-    // chosen conversation is the only one whose messages are ever loaded.
-    const conversation = yield* loadConversationOrNull(selected.agent.id, selected.conversationId);
+    yield* openConversation(selected.agent, selected.conversationId);
+  });
+}
 
-    yield* startChatWithAgent(selected.agent, {
+/**
+ * Continue one saved conversation. Its messages are read here, on demand: pickers need titles
+ * and dates, not transcripts, so the chosen conversation is the only one ever loaded.
+ */
+function openConversation(agent: Agent, conversationId: string) {
+  return Effect.gen(function* () {
+    const conversation = yield* loadConversationOrNull(agent.id, conversationId);
+    yield* startChatWithAgent(agent, {
       initialHistory: conversation?.messages ?? [],
       ...(conversation?.uiTranscript !== undefined
         ? { initialUiTranscript: conversation.uiTranscript }
