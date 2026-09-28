@@ -352,26 +352,44 @@ function handleDetachCommand(
     }
 
     const preview = prepared.right;
-    yield* terminal.log(`Host: ${preview.hostName}`);
+    const shownFiles = preview.manifest.entries.slice(0, DETACH_FILES_SHOWN);
+    const hiddenFiles = preview.manifest.entries.length - shownFiles.length;
     yield* terminal.log(
-      `Transfer: ${preview.manifest.entries.length} files, ${Math.ceil(preview.bytes / 1024)} KiB`,
+      report("detach", [
+        { kind: "field", key: "host", value: preview.hostName },
+        {
+          kind: "field",
+          key: "copies",
+          value: `${String(preview.manifest.entries.length)} files, ${String(Math.ceil(preview.bytes / 1024))} KiB`,
+          detail: "including this repository's Git HEAD and history",
+        },
+        {
+          kind: "field",
+          key: "credentials",
+          value: preview.credentialNames.length > 0 ? preview.credentialNames.join(", ") : "none",
+        },
+        {
+          kind: "field",
+          key: "limits",
+          value:
+            `${preview.approvalPolicy} approvals, $${String(preview.maxCostUSD)}, ` +
+            `${String(Math.round(preview.maxDurationMs / 3_600_000))}h, ${String(preview.maxIterations)} iterations`,
+        },
+        { kind: "field", key: "continues with", value: preview.continuation },
+        { kind: "gap" },
+        ...shownFiles.map((entry): ReportRow => ({ kind: "item", name: entry.relativePath })),
+        ...(hiddenFiles > 0
+          ? [
+              {
+                kind: "text",
+                text: `and ${String(hiddenFiles)} more files`,
+                tone: "muted",
+              } as const,
+            ]
+          : []),
+      ]),
     );
-    yield* terminal.log("The snapshot includes this repository's Git HEAD and history.");
-    for (const entry of preview.manifest.entries.slice(0, 12)) {
-      yield* terminal.log(`  ${JSON.stringify(entry.relativePath)}`);
-    }
-    if (preview.manifest.entries.length > 12) {
-      yield* terminal.log(`  …and ${preview.manifest.entries.length - 12} more files`);
-    }
     for (const warning of preview.warnings) yield* terminal.warn(warning);
-    yield* terminal.log(
-      `Credentials: ${preview.credentialNames.length > 0 ? preview.credentialNames.join(", ") : "none"}`,
-    );
-    yield* terminal.log(
-      `Remote limits: ${preview.approvalPolicy} approvals, $${preview.maxCostUSD} cost, ` +
-        `${Math.round(preview.maxDurationMs / 3_600_000)}h, ${preview.maxIterations} iterations`,
-    );
-    yield* terminal.log(`Continue: ${preview.continuation}`);
     const approved = yield* terminal.confirm(
       `Copy this state to ${preview.hostName} and continue there?`,
       false,
@@ -406,13 +424,31 @@ function handleDetachCommand(
       return { shouldContinue: false };
     }
     const receipt = committed.right;
-    yield* terminal.success(`Remote run ${receipt.state} on ${receipt.hostName}.`);
-    yield* terminal.log("You can close this terminal; the remote host owns the conversation.");
-    yield* terminal.log(`Watch and reply: jazz detach attach ${receipt.handoffId}`);
-    yield* terminal.log(`Bring it back:   jazz detach reclaim ${receipt.handoffId}`);
+    yield* terminal.log(
+      report(
+        "detach",
+        [
+          { kind: "field", key: "remote run", value: `${receipt.state} on ${receipt.hostName}` },
+          {
+            kind: "field",
+            key: "watch and reply",
+            value: `jazz detach attach ${receipt.handoffId}`,
+          },
+          {
+            kind: "field",
+            key: "bring it back",
+            value: `jazz detach reclaim ${receipt.handoffId}`,
+          },
+        ],
+        "You can close this terminal; the remote host owns the conversation now.",
+      ),
+    );
     return { shouldContinue: false };
   });
 }
+
+/** How many of the files a detach copies its preview names before summarising the rest. */
+const DETACH_FILES_SHOWN = 12;
 
 /**
  * Execute a command explicitly entered by the operator with a leading `!`.
@@ -1168,7 +1204,7 @@ function handleSwitchCommand(
         ) {
           yield* terminal.log("");
           yield* terminal.warn(
-            `⚠️  The current model (${newAgent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
+            `${newAgent.config.llmModel} does not support tools, so this agent's tools are off for this model.`,
           );
         }
 
@@ -1241,7 +1277,7 @@ function handleSwitchCommand(
     ) {
       yield* terminal.log("");
       yield* terminal.warn(
-        `⚠️  The current model (${newAgent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
+        `${newAgent.config.llmModel} does not support tools, so this agent's tools are off for this model.`,
       );
     }
 
