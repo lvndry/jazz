@@ -256,7 +256,7 @@ describe("fullscreen bridge", () => {
     });
     expect(text).toContain("gmail");
     expect(text).toContain("search");
-    expect(text).toContain("todo 1/3");
+    expect(text).toContain("1 of 3");
     expect(text).toContain("Rank urgent threads");
     expect(text).toContain("Draft replies");
   });
@@ -307,7 +307,7 @@ describe("fullscreen bridge", () => {
       todoSnapshot,
     });
     const blankRowsAboveTodoIn = (rows: readonly string[]): number => {
-      const todoIndex = rows.findIndex((row) => row.includes("todo"));
+      const todoIndex = rows.findIndex((row) => row.includes("plan"));
       let blankRows = 0;
       for (let index = todoIndex - 1; rows[index]?.trim() === ""; index -= 1) {
         blankRows += 1;
@@ -318,7 +318,7 @@ describe("fullscreen bridge", () => {
     const settledRows = (
       await frameWhen(rendered, (frame) => blankRowsAboveTodoIn(frame.split("\n")) === 1)
     ).split("\n");
-    const settledTodoIndex = settledRows.findIndex((row) => row.includes("todo"));
+    const settledTodoIndex = settledRows.findIndex((row) => row.includes("plan"));
     expect(settledTodoIndex).toBeGreaterThan(-1);
 
     // The row directly above the checklist header belongs to the transcript
@@ -354,15 +354,15 @@ describe("fullscreen bridge", () => {
       });
     });
     await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("todo 1/2");
+    expect(rendered.captureCharFrame()).toContain("1 of 2");
 
     store.setActivity({ phase: "idle" });
     await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("todo 1/2");
+    expect(rendered.captureCharFrame()).toContain("1 of 2");
 
     store.setChatBusy(true);
     await rendered.flush();
-    expect(rendered.captureCharFrame()).not.toContain("todo 1/2");
+    expect(rendered.captureCharFrame()).not.toContain("1 of 2");
 
     rendered.renderer.destroy();
   });

@@ -85,7 +85,6 @@ import { filterSkills, skillDetailRows } from "../skill-browser";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
-import { foldTurnReasoning } from "./reasoning-fold";
 import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
 import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
@@ -93,6 +92,7 @@ import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/Skil
 import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
+import { foldTurn } from "./turn-fold";
 import {
   LIVE_ZONE_MAX_ROWS,
   type ApprovalOverlay,
@@ -848,7 +848,7 @@ export function blocksFrom(
       state: "running",
     });
   }
-  return foldTurnReasoning(blocks);
+  return foldTurn(blocks);
 }
 
 // `previous` is undefined on the first block or a missing cache slot; still

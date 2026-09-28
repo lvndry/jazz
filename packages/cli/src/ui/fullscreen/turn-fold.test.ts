@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant } from "../theme";
-import { foldTurnReasoning } from "./reasoning-fold";
 import { LIVE_REASONING_LINES, transcriptRows, type RenderRow } from "./Transcript";
+import { foldTurn } from "./turn-fold";
 import type { Block } from "./types";
 
 const VIEWPORT = { width: 120, height: 40 };
@@ -20,7 +20,7 @@ describe("one folded reasoning line per turn", () => {
       { id: "r2", seq: 3, kind: "reasoning", text: "", collapsed: true, durationMs: 2_600 },
       { id: "a", seq: 4, kind: "agent", markdown: "Here is the plan." },
     ];
-    const folded = foldTurnReasoning(blocks);
+    const folded = foldTurn(blocks);
     expect(folded.map((block) => block.id)).toEqual(["u", "r1", "t", "a"]);
     const reasoning = folded[1];
     expect(reasoning?.kind === "reasoning" ? [reasoning.durationMs, reasoning.steps] : []).toEqual([
@@ -35,7 +35,7 @@ describe("one folded reasoning line per turn", () => {
       { id: "u2", seq: 2, kind: "user", text: "two" },
       { id: "r2", seq: 3, kind: "reasoning", text: "", collapsed: true, durationMs: 2_000 },
     ];
-    expect(foldTurnReasoning(blocks).map((block) => block.id)).toEqual(["u1", "r1", "u2", "r2"]);
+    expect(foldTurn(blocks).map((block) => block.id)).toEqual(["u1", "r1", "u2", "r2"]);
   });
 
   it("leaves reasoning the reader opened, and live reasoning, in place", () => {
@@ -44,7 +44,46 @@ describe("one folded reasoning line per turn", () => {
       { id: "r2", seq: 1, kind: "reasoning", text: "opened", collapsed: false, durationMs: 2_000 },
       { id: "r3", seq: 2, kind: "reasoning", text: "now", collapsed: false, live: true },
     ];
-    expect(foldTurnReasoning(blocks).map((block) => block.id)).toEqual(["r1", "r2", "r3"]);
+    expect(foldTurn(blocks).map((block) => block.id)).toEqual(["r1", "r2", "r3"]);
+  });
+});
+
+describe("one plan receipt per turn", () => {
+  const update = (id: string, seq: number, summary: string): Block => ({
+    id,
+    seq,
+    kind: "tool",
+    app: "manage_todos",
+    args: '{"todos":[...]}',
+    summary,
+    status: "ok",
+  });
+
+  it("keeps only the last plan update, where it happened, under the name plan", () => {
+    const blocks: Block[] = [
+      { id: "u", seq: 0, kind: "user", text: "sort Saturday" },
+      update("p1", 1, "0 of 3 done"),
+      { id: "t", seq: 2, kind: "tool", app: "gmail", summary: "6 messages", status: "ok" },
+      update("p2", 3, "2 of 3 done"),
+      { id: "a", seq: 4, kind: "agent", markdown: "Done." },
+      update("p3", 5, "3 of 3 done"),
+    ];
+    const folded = foldTurn(blocks);
+    expect(folded.map((block) => block.id)).toEqual(["u", "t", "a", "p3"]);
+    const plan = folded.at(-1);
+    expect(plan?.kind === "tool" ? [plan.app, plan.summary, plan.args] : []).toEqual([
+      "plan",
+      "3 of 3 done",
+      undefined,
+    ]);
+  });
+
+  it("keeps a failed plan update, since it says something went wrong", () => {
+    const blocks: Block[] = [
+      { id: "p1", seq: 0, kind: "tool", app: "manage_todos", summary: "", status: "failed" },
+      update("p2", 1, "1 of 2 done"),
+    ];
+    expect(foldTurn(blocks).map((block) => block.id)).toEqual(["p1", "p2"]);
   });
 });
 
