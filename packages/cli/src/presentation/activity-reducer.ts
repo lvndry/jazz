@@ -18,18 +18,16 @@ import type { StreamEvent } from "@jazz/core/types/streaming";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { Box, Text } from "ink";
 import React from "react";
-import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import {
   compactToolArguments,
   formatToolArguments,
   formatToolDisplayName,
   formatToolResult,
 } from "./format-utils";
-import { isRejectedResult, receiptOutcome } from "./receipt-outcome";
 import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
-import { declinedOutcome, failureOutcome } from "../ui/models/failure";
-import { PADDING, THEME } from "../ui/theme";
+import { receiptPlainText, toolReceipt } from "../ui/models/receipt";
+import { THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
 
 /**
@@ -402,156 +400,38 @@ export function reduceEvent(
 
     case "tool_execution_complete": {
       const toolEntry = acc.activeTools.get(event.toolCallId);
-      const toolName = toolEntry?.toolName;
+      // A call refused before it started never sent a start event; the completion names it.
+      const toolName = toolEntry?.toolName ?? event.toolName;
       acc.activeTools.delete(event.toolCallId);
 
       const failed = event.success === false;
-      const denied = failed && isRejectedResult(event.result);
-
-      let summary = event.summary?.trim();
-      const failureReason = failed ? event.error?.trim() || "Tool execution failed" : undefined;
-      if (failed) {
-        // A failed tool's result payload is null — the error message is the
-        // only meaningful thing to show. The Ink line still prefixes the tool
-        // name; the structured receipt does not, because the app field already
-        // carries it and repeating the error there cropped the sentence.
-        const failedLabel = toolEntry?.displayName ?? toolName;
-        summary = failedLabel ? `${failedLabel}: ${failureReason}` : failureReason;
-      } else if (
-        toolName === "manage_todos" &&
-        toolEntry?.todoSnapshot &&
-        toolEntry.todoSnapshot.length > 0
-      ) {
-        summary = `Todo list\n${formatTodoSnapshotForOutput(toolEntry.todoSnapshot)}`;
-      }
-      if (!summary && toolName && event.result) {
-        summary = formatToolResult(toolName, event.result);
-      }
-
-      const glyph = failed ? getGlyphs().error : getGlyphs().success;
-      const glyphColor = failed ? THEME.error : THEME.success;
-
-      // The rendered string above is for the Ink tree. Carry the same result as
-      // structured data so a renderer that lays out its own rows does not have
-      // to parse ANSI back into meaning. `meta` keeps it in the output stream,
-      // which is what preserves ordering relative to the surrounding turns.
-      const plainBody = stripAnsiCodes(summary ?? "");
-      const explicitSummary = event.summary?.trim();
-      const outcome =
-        explicitSummary !== undefined &&
-        explicitSummary.length > 0 &&
-        !explicitSummary.includes("\n")
-          ? explicitSummary
-          : receiptOutcome(event.result);
-      const argsPreview = toolEntry?.argsPreview?.trim();
-      const classifiedRisk = event.classifiedRisk ?? toolEntry?.classifiedRisk;
-      const failure =
-        failureReason !== undefined && !denied && toolName !== undefined
-          ? failureOutcome(toolName, failureReason)
-          : undefined;
-      const receipt = {
-        app: toolName ?? "tool",
-        summary: failed ? "" : (outcome ?? ""),
-        status: denied ? "denied" : failed ? "failed" : "ok",
+      const todoSnapshot = toolEntry?.todoSnapshot;
+      const formattedResult = failed
+        ? undefined
+        : toolName === "manage_todos" && todoSnapshot !== undefined && todoSnapshot.length > 0
+          ? formatTodoSnapshotForOutput(todoSnapshot)
+          : toolName !== undefined && event.result.length > 0
+            ? formatToolResult(toolName, event.result)
+            : undefined;
+      const receipt = toolReceipt({
+        toolName,
+        argsPreview: toolEntry?.argsPreview,
+        success: event.success,
+        error: event.error,
+        summary: event.summary,
+        result: event.result,
+        formattedResult,
         durationMs: event.durationMs,
-        ...(argsPreview !== undefined && argsPreview.length > 0 ? { args: argsPreview } : {}),
-        ...(failureReason !== undefined && !denied ? { reason: failureReason } : {}),
-        ...(failure?.notDone === undefined ? {} : { notDone: failure.notDone }),
-        ...(denied && toolName !== undefined ? { notDone: declinedOutcome(toolName) } : {}),
-        ...(failure?.remedy === undefined ? {} : { remedyKey: failure.remedy }),
-        ...(!failed && plainBody.length > 0 && plainBody !== outcome ? { detail: summary } : {}),
-        ...(classifiedRisk !== undefined ? { classifiedRisk } : {}),
-      };
+        classifiedRisk: event.classifiedRisk ?? toolEntry?.classifiedRisk,
+      });
 
-      // The Ink line carries the same two facts the fullscreen receipt shows: what the
-      // failed call did not do, and the command that fixes it.
-      if (denied && summary !== undefined && toolName !== undefined) {
-        summary = `${summary} · ${declinedOutcome(toolName)}`;
-      } else if (failed && summary !== undefined && failure !== undefined) {
-        const extras = [
-          failure.notDone,
-          failure.remedy === undefined ? undefined : `${failure.remedy} to fix`,
-        ].filter((part): part is string => part !== undefined);
-        if (extras.length > 0) summary = `${summary} · ${extras.join(" · ")}`;
-      }
-      const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
-      const hasMultiLine = displayText.includes("\n");
-
-      if (summary && summary.length > 0 && hasMultiLine) {
-        const lines = summary.split("\n");
-        const headerLine =
-          (lines[0] ?? "").trim().length > 0 ? (lines[0] ?? "").trim() : (toolName ?? "Tool");
-        const bodyLines = lines.slice(1);
-        outputs.push({
-          type: "log",
-          message: inkRender(
-            React.createElement(
-              Box,
-              {
-                paddingLeft: PADDING.content,
-                flexDirection: "column",
-                borderStyle: "round",
-                borderColor: THEME.toolBorder,
-                paddingX: 1,
-              },
-              React.createElement(
-                Box,
-                null,
-                React.createElement(Text, { color: glyphColor }, `${glyph} `),
-                React.createElement(
-                  Text,
-                  { color: failed ? THEME.error : THEME.agent },
-                  headerLine,
-                ),
-                React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
-              ),
-              ...bodyLines.map((line, index) =>
-                React.createElement(
-                  Box,
-                  { key: `tool-result-line-${index}` },
-                  // Lines that already carry ANSI styling (diff +/- coloring,
-                  // syntax highlighting) render as-is: layering dim over them
-                  // washes the colors out.
-                  React.createElement(
-                    Text,
-                    line.includes("\u001b[") ? {} : { dimColor: true },
-                    line,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          timestamp: new Date(),
-          meta: { toolReceipt: receipt },
-        });
-      } else {
-        const singleLineSummary = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
-
-        outputs.push({
-          type: "log",
-          message: inkRender(
-            React.createElement(
-              Box,
-              { paddingLeft: PADDING.content },
-              React.createElement(Text, { color: glyphColor }, `${glyph} `),
-              React.createElement(
-                Text,
-                { color: failed ? THEME.error : THEME.agent },
-                singleLineSummary,
-              ),
-              React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
-            ),
-          ),
-          timestamp: new Date(),
-          meta: { toolReceipt: receipt },
-        });
-      }
-
-      // Add spacing after tool completion
+      // The entry holds the receipt itself; every renderer lays it out from `meta`, and the
+      // message is its words as plain text for search, copy and anything that reads text.
       outputs.push({
         type: "log",
-        message: "",
+        message: receiptPlainText(receipt, getGlyphs(), { duration: true }),
         timestamp: new Date(),
+        meta: { toolReceipt: receipt },
       });
 
       const activity: ActivityState =

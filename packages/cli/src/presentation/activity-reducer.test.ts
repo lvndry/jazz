@@ -313,9 +313,8 @@ describe("activity-reducer", () => {
       expect(receipt?.reason).toBeUndefined();
     });
 
-    test("a failed call's receipt and its Ink line both say what did not happen and the fix", () => {
+    test("a failed call's receipt and its text both say what did not happen and the fix", () => {
       const a = acc();
-      const capture = createCapturingInk();
       a.activeTools.set("tc-slack", { toolName: "mcp_slack_post_message", startedAt: Date.now() });
       const result = reduceEvent(
         a,
@@ -327,14 +326,15 @@ describe("activity-reducer", () => {
           success: false,
           error: "401 token expired",
         },
-        capture.render,
+        stubInk,
       );
       const receipt = result.outputs[0]?.meta?.["toolReceipt"] as
         { notDone?: string; remedyKey?: string } | undefined;
       expect(receipt?.notDone).toBe("nothing was sent");
       expect(receipt?.remedyKey).toBe("/mcp reconnect slack");
-      expect(capture.nodes.map((node) => extractText(node)).join("\n")).toContain(
-        "nothing was sent · /mcp reconnect slack to fix",
+      const bullet = getGlyphs().bullet;
+      expect(result.outputs[0]?.message).toContain(
+        `nothing was sent ${bullet} /mcp reconnect slack to fix`,
       );
     });
 
@@ -486,9 +486,8 @@ describe("activity-reducer", () => {
       expect(result.activity!.phase).toBe("tool-execution");
     });
 
-    test("tool_execution_complete for load_skill shows skill name in one line", () => {
+    test("a loaded skill settles as a one-line receipt with the body behind the expand key", () => {
       const a = acc();
-      const { nodes, render } = createCapturingInk();
       a.activeTools.set("tc-skill", { toolName: "load_skill", startedAt: Date.now() });
       const skillBody = "Loaded skill: create-rule\n\n# Instructions\n…";
       const result = reduceEvent(
@@ -499,12 +498,12 @@ describe("activity-reducer", () => {
           result: JSON.stringify(skillBody),
           durationMs: 2,
         },
-        render,
+        stubInk,
       );
+      expect(result.outputs).toHaveLength(1);
       expect(result.outputs[0]!.type).toBe("log");
-      const outputText = nodes.map((node) => extractText(node)).join("\n");
-      expect(outputText).toContain("create-rule");
-      expect(outputText).not.toContain("load_skill done");
+      expect(String(result.outputs[0]!.message)).not.toContain("\n");
+      expect(String(result.outputs[0]!.message)).toStartWith("load_skill");
     });
 
     test("tool_execution_complete failure puts the full error on the receipt, not a cropped duplicate", () => {
@@ -538,9 +537,8 @@ describe("activity-reducer", () => {
       expect(receipt?.reason).toContain("write the code to a temp file");
     });
 
-    test("tool_execution_complete failure renders the error message, not the null result", () => {
+    test("tool_execution_complete failure states the error, not the null result", () => {
       const a = acc();
-      const { nodes, render } = createCapturingInk();
       a.activeTools.set("tc-fail", { toolName: "web_search", startedAt: Date.now() });
 
       const result = reduceEvent(
@@ -553,24 +551,23 @@ describe("activity-reducer", () => {
           success: false,
           error: "exa search failed: invalid API key",
         },
-        render,
+        stubInk,
       );
 
+      const text = String(result.outputs[0]!.message);
       expect(result.outputs[0]!.type).toBe("log");
-      const outputText = nodes.map((node) => extractText(node)).join("\n");
-      expect(outputText).toContain("web_search");
-      expect(outputText).toContain("exa search failed: invalid API key");
-      expect(outputText).not.toContain("null");
-      expect(outputText).toContain(`${getGlyphs().error} `);
-      expect(outputText).not.toContain(`${getGlyphs().success} `);
+      expect(text).toContain("web_search");
+      expect(text).toContain("exa search failed: invalid API key");
+      expect(text).not.toContain("null");
+      const receipt = result.outputs[0]?.meta?.["toolReceipt"] as { status?: string } | undefined;
+      expect(receipt?.status).toBe("failed");
     });
 
     test("tool_execution_complete failure without an error message falls back to a generic reason", () => {
       const a = acc();
-      const { nodes, render } = createCapturingInk();
       a.activeTools.set("tc-fail-2", { toolName: "web_fetch", startedAt: Date.now() });
 
-      reduceEvent(
+      const result = reduceEvent(
         a,
         {
           type: "tool_execution_complete",
@@ -579,17 +576,16 @@ describe("activity-reducer", () => {
           durationMs: 72,
           success: false,
         },
-        render,
+        stubInk,
       );
 
-      const outputText = nodes.map((node) => extractText(node)).join("\n");
-      expect(outputText).toContain("Tool execution failed");
-      expect(outputText).not.toContain("null");
+      const text = String(result.outputs[0]!.message);
+      expect(text).toContain("Tool execution failed");
+      expect(text).not.toContain("null");
     });
 
-    test("tool_execution_complete with multi-line summary renders full body in bordered log", () => {
+    test("a multi-line result stays behind the expand key instead of filling the scrollback", () => {
       const a = acc();
-      const { nodes, render } = createCapturingInk();
       a.activeTools.set("tc-1", { toolName: "diff_tool", startedAt: Date.now() });
 
       const result = reduceEvent(
@@ -601,16 +597,11 @@ describe("activity-reducer", () => {
           durationMs: 10,
           summary: "line1\nline2",
         },
-        render,
+        stubInk,
       );
 
-      expect(result.outputs).toHaveLength(2);
-      expect(result.outputs[0]!.type).toBe("log");
-      const outputText = nodes.map((node) => extractText(node)).join("\n");
-      expect(outputText).toContain("line1");
-      expect(outputText).toContain("line2");
-      // Second log is the spacing entry
-      expect(result.outputs[1]!.message).toBe("");
+      expect(result.outputs).toHaveLength(1);
+      expect(String(result.outputs[0]!.message)).not.toContain("line2");
     });
 
     test("manage_todos tool execution exposes todo snapshot in activity", () => {
@@ -640,9 +631,8 @@ describe("activity-reducer", () => {
       }
     });
 
-    test("manage_todos completion prints checklist snapshot", () => {
+    test("manage_todos completion keeps the checklist as the receipt's detail", () => {
       const a = acc();
-      const { nodes, render } = createCapturingInk();
       a.activeTools.set("todo-1", {
         toolName: "manage_todos",
         startedAt: Date.now(),
@@ -660,16 +650,14 @@ describe("activity-reducer", () => {
           result: JSON.stringify({ ok: true }),
           durationMs: 10,
         },
-        render,
+        stubInk,
       );
 
-      expect(result.outputs).toHaveLength(2);
+      expect(result.outputs).toHaveLength(1);
       const glyphs = getGlyphs();
-      const outputText = nodes.map((node) => extractText(node)).join("\n");
-      expect(outputText).toContain("Todo list");
-      expect(outputText).toContain(`${glyphs.success} Check status`);
-      expect(outputText).toContain(`${glyphs.proposed} Push branch`);
-      expect(outputText).not.toMatch(/manage_todos done/);
+      const receipt = result.outputs[0]?.meta?.["toolReceipt"] as { detail?: string } | undefined;
+      expect(receipt?.detail).toContain(`${glyphs.success} Check status`);
+      expect(receipt?.detail).toContain(`${glyphs.proposed} Push branch`);
     });
   });
 

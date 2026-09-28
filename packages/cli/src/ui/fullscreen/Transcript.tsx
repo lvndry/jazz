@@ -56,8 +56,11 @@ import {
   type FenceHighlight,
   type SyntaxSpan,
 } from "./syntax-spans";
+import { spaceReasoningSections } from "../../presentation/format-utils";
 import { getGlyphs, type GlyphSet } from "../glyphs";
-import { reportLines, type ReportRole, type ReportSegment } from "../report-layout";
+import { receiptParts } from "../models/receipt";
+import { reportLines, type ReportSegment } from "../report-layout";
+import { roleStyle, type RoleSegment, type TextRole } from "../text/roles";
 import { getThemeRevision, THEME } from "../theme";
 import { linkAtColumn, openLink } from "./open-link";
 import {
@@ -80,7 +83,6 @@ import {
   type ToolReceiptBlock,
   type Viewport,
 } from "./types";
-import { spaceReasoningSections } from "../../presentation/format-utils";
 import { stoppedHeading } from "../models/interrupt";
 
 /** The rail lives in the left page margin, so the content column never moves. */
@@ -1690,19 +1692,6 @@ function reasoningRows(
   ];
 }
 
-/**
- * True when `summary` is the same text as `reason`, possibly clipped with an
- * ellipsis. Production used to put `tool: error` in both fields, which then
- * ate the row twice and still cropped the actual sentence.
- */
-function summaryRestatesReason(summary: string, reason: string): boolean {
-  const stripped = summary.replace(/…$/u, "").trim();
-  if (stripped.length === 0) return false;
-  if (stripped === reason) return true;
-  const head = reason.slice(0, Math.min(48, reason.length));
-  return head.length > 0 && stripped.includes(head);
-}
-
 function highlightedArgs(args: string, fallbackFg: string, app: string): Segment[] {
   const path = pathFromFileArgsPreview(args);
   const language = path === undefined ? undefined : sourceLanguageFromPath(path);
@@ -1712,86 +1701,44 @@ function highlightedArgs(args: string, fallbackFg: string, app: string): Segment
   return [{ text: "  ", fg: fallbackFg }, ...highlightCodeLine(args)];
 }
 
+function partSegment(part: RoleSegment): Segment {
+  const style = roleStyle(part.role);
+  return style.bold === true
+    ? { text: part.text, fg: style.fg, bold: true }
+    : { text: part.text, fg: style.fg };
+}
+
 /**
  * A settled receipt: what it did and what came back, and nothing else.
  *
- * A successful receipt is exactly one row. `budget` is the cells it may use;
- * the arguments are the only part that gives way, cropped with an ellipsis, so
- * the app on the left and the outcome on the right always survive.
+ * The words are the shared receipt parts every renderer prints; this adds only the layout.
+ * A successful or declined receipt is exactly one row. `budget` is the cells it may use; the
+ * arguments are the only part that gives way, cropped with an ellipsis, so the app on the left
+ * and the outcome on the right always survive. A failure wraps instead, because its reason is
+ * the part worth reading.
  */
 function receiptSegments(block: ToolReceiptBlock, glyphs: GlyphSet, budget: number): Segment[] {
-  const args = block.args?.trim().replace(/\s+/g, " ");
-  const summary = block.summary.trim();
-  if (block.status === "ok") {
-    const head: Segment[] = [];
-    if (block.app.length > 0) {
-      head.push({ text: block.app, fg: THEME.muted });
-    }
-    const tail: Segment[] = [];
-    if (summary.length > 0) {
-      tail.push({ text: `  ${summary}`, fg: THEME.muted });
-    }
-    if (block.classifiedRisk !== undefined) {
-      tail.push({ text: ` ${glyphs.bullet} ${block.classifiedRisk}`, fg: THEME.muted });
-    }
-    if (args === undefined || args.length === 0) {
-      return [...head, ...tail];
-    }
-    const argSegments = highlightedArgs(args, THEME.secondary, block.app);
-    const room = budget - terminalSegmentsWidth(head) - terminalSegmentsWidth(tail);
-    if (terminalSegmentsWidth(argSegments) <= room) {
-      return [...head, ...argSegments, ...tail];
-    }
-    if (room <= 4) {
-      return [...head, ...tail];
-    }
-    const cropped = fitTerminalSegments(argSegments, room - 1);
-    return [...head, ...cropped, { text: "…", fg: THEME.muted }, ...tail];
+  const parts = receiptParts(block, glyphs);
+  const argsIndex = parts.findIndex((candidate) => candidate.kind === "args");
+  const argsPart = parts[argsIndex];
+  if (block.status === "failed" || argsPart === undefined) {
+    return parts.map(partSegment);
   }
-  if (block.status === "denied") {
-    const segments: Segment[] = [{ text: block.app, fg: THEME.warning }];
-    if (args !== undefined && args.length > 0) {
-      const room = budget - terminalCellWidth(block.app) - terminalCellWidth("  denied") - 2;
-      const shown =
-        terminalCellWidth(args) + 2 <= room
-          ? args
-          : `${sliceTerminalCells(args, Math.max(0, room - 3))}…`;
-      if (room > 4) {
-        segments.push({ text: `  ${shown}`, fg: THEME.muted });
-      }
-    }
-    segments.push({ text: "  denied", fg: THEME.warning });
-    if (block.notDone !== undefined) {
-      segments.push({ text: ` ${glyphs.bullet} ${block.notDone}`, fg: THEME.muted });
-    }
-    return segments;
+  const head = parts.slice(0, argsIndex).map(partSegment);
+  const tail = parts.slice(argsIndex + 1).map(partSegment);
+  const argSegments =
+    block.status === "ok"
+      ? highlightedArgs(argsPart.text.trimStart(), roleStyle(argsPart.role).fg, block.app)
+      : [partSegment(argsPart)];
+  const room = budget - terminalSegmentsWidth(head) - terminalSegmentsWidth(tail);
+  if (terminalSegmentsWidth(argSegments) <= room) {
+    return [...head, ...argSegments, ...tail];
   }
-  // Failure keeps a colour and states the reason inline. A short reason stays
-  // on the same row as the app; a long one wraps rather than cropping.
-  const tone = THEME.error;
-  const reason = block.reason?.trim();
-  const segments: Segment[] = [{ text: block.app, fg: tone }];
-  if (args !== undefined && args.length > 0) {
-    segments.push({ text: `  ${args}`, fg: tone });
+  if (room <= 4) {
+    return [...head, ...tail];
   }
-  if (summary.length > 0 && (reason === undefined || !summaryRestatesReason(summary, reason))) {
-    segments.push({ text: `  ${summary}`, fg: tone });
-  }
-  if (reason !== undefined && reason.length > 0) {
-    segments.push({ text: ` ${glyphs.bullet} ${reason}`, fg: THEME.secondary });
-  }
-  if (block.notDone !== undefined) {
-    segments.push({ text: ` ${glyphs.bullet} ${block.notDone}`, fg: THEME.secondary });
-  }
-  if (block.remedyKey !== undefined) {
-    segments.push({ text: ` ${glyphs.bullet} `, fg: THEME.muted });
-    segments.push({ text: block.remedyKey, fg: THEME.selected, bold: true });
-    segments.push({ text: " to fix", fg: THEME.muted });
-  }
-  if (block.classifiedRisk !== undefined) {
-    segments.push({ text: ` ${glyphs.bullet} ${block.classifiedRisk}`, fg: THEME.muted });
-  }
-  return segments;
+  const cropped = fitTerminalSegments(argSegments, room - 1);
+  return [...head, ...cropped, { text: "…", fg: THEME.muted }, ...tail];
 }
 
 /** Pack short receipts; wrap any tool call that needs more than one row. */
@@ -1924,29 +1871,9 @@ function noticeRows(
   return rows;
 }
 
-function reportColor(role: ReportRole): Segment {
-  switch (role) {
-    case "label":
-      return { text: "", fg: THEME.secondary, bold: true };
-    case "text":
-      return { text: "", fg: THEME.selected };
-    case "strong":
-      return { text: "", fg: THEME.selected, bold: true };
-    case "secondary":
-      return { text: "", fg: THEME.secondary };
-    case "muted":
-      return { text: "", fg: THEME.muted };
-    case "accent":
-      return { text: "", fg: THEME.primary };
-    case "success":
-      return { text: "", fg: THEME.success };
-    case "warning":
-      return { text: "", fg: THEME.warning };
-    case "error":
-      return { text: "", fg: THEME.error };
-    case "border":
-      return { text: "", fg: THEME.border };
-  }
+function reportColor(role: TextRole): Segment {
+  const style = roleStyle(role);
+  return style.bold === true ? { text: "", fg: style.fg, bold: true } : { text: "", fg: style.fg };
 }
 
 /**

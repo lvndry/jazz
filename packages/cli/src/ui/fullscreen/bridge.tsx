@@ -38,6 +38,7 @@ import {
   type ReceiptFacts,
 } from "../models/interrupt";
 import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
+import { receiptFromMeta } from "../models/receipt";
 import { RETRY_BAND_ROWS, retryBand } from "../models/retry";
 import { wrapIndex } from "../picker-window";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
@@ -91,8 +92,7 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
-import { approvalFacts, diffLanguage } from "../models/approval";
-import { approvalTitle } from "../models/approval";
+import { approvalFacts, approvalTitle, diffLanguage } from "../models/approval";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
 import type { QuestionStep } from "./overlays/stepper";
@@ -663,50 +663,6 @@ function lineEndAfter(characters: readonly string[], at: number): number {
   return index;
 }
 
-/**
- * A completed tool call, as the activity reducer recorded it.
- *
- * The reducer also pushes a rendered ANSI string for the Ink tree. Reading the
- * structured form instead is what turns a tool call into a receipt — the app and
- * what came back, dim, with the invocation and timing behind a key — rather than
- * a generic notice carrying somebody else's layout.
- */
-interface ToolReceiptMeta {
-  readonly app: string;
-  readonly summary: string;
-  readonly status: "ok" | "failed" | "denied";
-  readonly args?: string;
-  readonly durationMs?: number;
-  readonly reason?: string;
-  readonly notDone?: string;
-  readonly remedyKey?: string;
-  readonly detail?: string;
-  readonly classifiedRisk?: string;
-}
-
-function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
-  const candidate = entry.meta?.["toolReceipt"];
-  if (candidate === null || typeof candidate !== "object") return null;
-  const record = candidate as Record<string, unknown>;
-  if (typeof record["app"] !== "string" || typeof record["summary"] !== "string") return null;
-  const status =
-    record["status"] === "failed" ? "failed" : record["status"] === "denied" ? "denied" : "ok";
-  return {
-    app: record["app"],
-    summary: record["summary"],
-    status,
-    ...(typeof record["args"] === "string" ? { args: record["args"] } : {}),
-    ...(typeof record["durationMs"] === "number" ? { durationMs: record["durationMs"] } : {}),
-    ...(typeof record["reason"] === "string" ? { reason: record["reason"] } : {}),
-    ...(typeof record["notDone"] === "string" ? { notDone: record["notDone"] } : {}),
-    ...(typeof record["remedyKey"] === "string" ? { remedyKey: record["remedyKey"] } : {}),
-    ...(typeof record["detail"] === "string" ? { detail: record["detail"] } : {}),
-    ...(typeof record["classifiedRisk"] === "string"
-      ? { classifiedRisk: record["classifiedRisk"] }
-      : {}),
-  };
-}
-
 /** The settled tool calls after the last user message: the turn a stop summarises. */
 function currentTurnReceipts(blocks: readonly Block[]): ReceiptFacts[] {
   let start = blocks.length;
@@ -825,23 +781,9 @@ export function blocksFrom(
       continue;
     }
 
-    const receipt = receiptOf(entry);
+    const receipt = receiptFromMeta(entry.meta?.["toolReceipt"]);
     if (receipt !== null) {
-      blocks.push({
-        id,
-        seq: seq++,
-        kind: "tool",
-        app: receipt.app,
-        summary: receipt.summary,
-        status: receipt.status,
-        ...(receipt.args === undefined ? {} : { args: receipt.args }),
-        ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
-        ...(receipt.notDone === undefined ? {} : { notDone: receipt.notDone }),
-        ...(receipt.remedyKey === undefined ? {} : { remedyKey: receipt.remedyKey }),
-        ...(receipt.durationMs === undefined ? {} : { durationMs: receipt.durationMs }),
-        ...(receipt.detail === undefined ? {} : { detail: receipt.detail }),
-        ...(receipt.classifiedRisk === undefined ? {} : { classifiedRisk: receipt.classifiedRisk }),
-      });
+      blocks.push({ id, seq: seq++, kind: "tool", ...receipt });
       continue;
     }
 

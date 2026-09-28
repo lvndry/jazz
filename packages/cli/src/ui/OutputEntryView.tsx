@@ -7,41 +7,75 @@ import { Box, Text } from "ink";
 import React from "react";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { getGlyphs } from "./glyphs";
+import { receiptFromMeta, receiptMark, receiptParts, type ToolReceipt } from "./models/receipt";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
+import { paintRole, paintSegments } from "./text/roles";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
 import { dimReasoningMarkdownOutput, spaceReasoningSections } from "../presentation/format-utils";
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
 
-// Icons routed through the glyph module so they degrade to ASCII when the
-// user's font/terminal don't render Unicode dingbats reliably. Computed
-// once per process — `getGlyphs()` reads env at module init; tests that
-// flip the env mid-process should restart the module if they need a
-// different set, but that's intentional (we don't want a per-render env
-// read).
-const G = getGlyphs();
-const ICONS: Record<OutputType, React.ReactElement> = {
-  success: <Text color={THEME.success}>{G.success}</Text>,
-  error: <Text color={THEME.error}>{G.error}</Text>,
-  warn: <Text color={THEME.warning}>{G.warn}</Text>,
-  info: <Text color={THEME.info}>{G.info}</Text>,
-  debug: <Text color={THEME.secondary}>{G.debug}</Text>,
-  user: <Text color={THEME.primary}>{G.arrow}</Text>,
-  log: <></>,
-  streamContent: <></>,
-};
+// Icons and colours are read per render, so a `/theme` switch or the ASCII glyph set reaches
+// entries already in the scrollback.
+function iconFor(type: OutputType): React.ReactElement {
+  const glyphs = getGlyphs();
+  switch (type) {
+    case "success":
+      return <Text color={THEME.success}>{glyphs.success}</Text>;
+    case "error":
+      return <Text color={THEME.error}>{glyphs.error}</Text>;
+    case "warn":
+      return <Text color={THEME.warning}>{glyphs.warn}</Text>;
+    case "info":
+      return <Text color={THEME.info}>{glyphs.info}</Text>;
+    case "debug":
+      return <Text color={THEME.secondary}>{glyphs.debug}</Text>;
+    case "user":
+      return <Text color={THEME.primary}>{glyphs.arrow}</Text>;
+    case "log":
+    case "streamContent":
+      return <></>;
+  }
+}
 
-const COLORS: Record<OutputType, string> = {
-  success: THEME.success,
-  error: THEME.error,
-  warn: THEME.warning,
-  debug: THEME.secondary,
-  user: THEME.primary,
-  info: THEME.info,
-  log: THEME.selected,
-  streamContent: THEME.selected,
-};
+function colorFor(type: OutputType): string {
+  switch (type) {
+    case "success":
+      return THEME.success;
+    case "error":
+      return THEME.error;
+    case "warn":
+      return THEME.warning;
+    case "debug":
+      return THEME.secondary;
+    case "user":
+      return THEME.primary;
+    case "info":
+      return THEME.info;
+    case "log":
+    case "streamContent":
+      return THEME.selected;
+  }
+}
+
+/**
+ * A settled tool call, laid out from the same receipt parts the fullscreen transcript uses: the
+ * status mark, then app, arguments, outcome, and on a denial or failure what did not happen.
+ * Receipts sit tight against each other so a burst of calls reads as one group.
+ */
+function ReceiptLine({ receipt }: { receipt: ToolReceipt }): React.ReactElement {
+  const glyphs = getGlyphs();
+  const mark = receiptMark(receipt, glyphs);
+  return (
+    <Box paddingLeft={PADDING.content}>
+      <Text wrap="wrap">
+        {paintRole(mark.role, mark.text)}{" "}
+        {paintSegments(receiptParts(receipt, glyphs, { duration: true }))}
+      </Text>
+    </Box>
+  );
+}
 
 /**
  * Individual output entry component - memoized to prevent re-renders
@@ -62,8 +96,13 @@ export const OutputEntryView = React.memo(function OutputEntryView({
   entry: OutputEntryWithId;
   addSpacing: boolean;
 }): React.ReactElement {
-  const icon = ICONS[entry.type];
-  const color = COLORS[entry.type];
+  const receipt = receiptFromMeta(entry.meta?.["toolReceipt"]);
+  if (receipt !== null) {
+    return <ReceiptLine receipt={receipt} />;
+  }
+
+  const icon = iconFor(entry.type);
+  const color = colorFor(entry.type);
 
   if (entry.type === "streamContent") {
     // streamContent slices are stored RAW by the scrollback buffer (so the
@@ -112,7 +151,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
                 color={THEME.primary}
                 bold
               >
-                {G.rail}{" "}
+                {getGlyphs().rail}{" "}
               </Text>
               <PreWrappedText color={THEME.selected}>{line}</PreWrappedText>
             </Box>
@@ -188,7 +227,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
       marginTop={0}
       marginBottom={0}
     >
-      {ICONS.warn}
+      {iconFor("warn")}
       <Text> </Text>
       <Text color={THEME.warning}>[Unsupported UI output]</Text>
     </Box>

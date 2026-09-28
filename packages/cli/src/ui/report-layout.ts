@@ -6,6 +6,7 @@ import type {
 } from "@jazz/core/interfaces/terminal";
 import type { GlyphSet } from "./glyphs";
 import { contextPercent, meterFilledCells, meterTone } from "./meter";
+import type { TextRole } from "./text/roles";
 
 /**
  * How a command report reads, independent of any terminal: jazz speaking, not the agent.
@@ -20,21 +21,9 @@ import { contextPercent, meterFilledCells, meterTone } from "./meter";
  * muted and aligned within each run of fields; numbers in a run right-align so their
  * digits line up. Each renderer maps the roles below onto its own colours.
  */
-export type ReportRole =
-  | "label"
-  | "text"
-  | "strong"
-  | "secondary"
-  | "muted"
-  | "accent"
-  | "success"
-  | "warning"
-  | "error"
-  | "border";
-
 export interface ReportSegment {
   readonly text: string;
-  readonly role: ReportRole;
+  readonly role: TextRole;
 }
 
 export interface ReportLine {
@@ -63,7 +52,7 @@ export const REPORT_METER_CELLS = 20;
 
 const NUMERIC_VALUE = /^[~≈$-]?\d/;
 
-function toneRole(tone: ReportTone | undefined, fallback: ReportRole): ReportRole {
+function toneRole(tone: ReportTone | undefined, fallback: TextRole): TextRole {
   return tone === undefined ? fallback : tone;
 }
 
@@ -145,7 +134,7 @@ function itemLines(
         { text: " ", role: "muted" },
       );
     }
-    const nameRole: ReportRole =
+    const nameRole: TextRole =
       row.tone !== undefined
         ? row.tone
         : row.marker === "current"
@@ -235,7 +224,7 @@ export function reportLines(report: TerminalReport, glyphs: GlyphSet): ReportLin
 function wrapSegments(segments: readonly ReportSegment[], width: number): ReportSegment[][] {
   const rows: ReportSegment[][] = [[]];
   let used = 0;
-  const push = (text: string, role: ReportRole): void => {
+  const push = (text: string, role: TextRole): void => {
     const row = rows[rows.length - 1] as ReportSegment[];
     const last = row.at(-1);
     if (last !== undefined && last.role === role) {
@@ -315,7 +304,7 @@ export function reportPlainText(report: TerminalReport, glyphs: GlyphSet, width?
 export function reportStyledText(
   report: TerminalReport,
   glyphs: GlyphSet,
-  paint: (role: ReportRole, text: string) => string,
+  paint: (role: TextRole, text: string) => string,
   width?: number,
 ): string {
   return textOf(report, glyphs, width, (segment) => paint(segment.role, segment.text));

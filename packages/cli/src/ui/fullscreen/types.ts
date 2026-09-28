@@ -20,6 +20,7 @@
 import type { TerminalReport } from "@jazz/core/interfaces/terminal";
 import type { TodoSnapshotItem } from "../activity-state";
 import type { ApprovalCommand, ApprovalDiff } from "../models/approval";
+import type { ToolReceipt } from "../models/receipt";
 import type { SubagentStatus } from "../subagent-runs";
 import type { SuggestionPrefix } from "../suggestion-menu";
 import type { FilePickerModel } from "./overlays/FilePicker";
@@ -105,23 +106,10 @@ export interface ReasoningBlock extends BlockBase {
  * A settled tool call is a receipt: the app, the args it used, and a snippet
  * of what came back. Timing and the full output live behind an expand key.
  */
-export interface ToolReceiptBlock extends BlockBase {
+/** A receipt in the transcript: the shared receipt model, plus whether its detail is open. */
+export interface ToolReceiptBlock extends BlockBase, ToolReceipt {
   readonly kind: "tool";
-  readonly app: string;
-  readonly summary: string;
-  /** Compact argument preview shown next to the app name. */
-  readonly args?: string;
-  readonly status: "ok" | "failed" | "denied";
-  /** Shown only on failure, with the remedy inline. */
-  readonly reason?: string;
-  /** What the failed call did not do, when that is certain: `nothing was sent`. */
-  readonly notDone?: string;
-  readonly remedyKey?: string;
-  readonly durationMs?: number;
-  readonly detail?: string;
   readonly expanded?: boolean;
-  /** Command-risk classifier verdict, when this call went through it. */
-  readonly classifiedRisk?: string;
 }
 
 export interface NoticeBlock extends BlockBase {
