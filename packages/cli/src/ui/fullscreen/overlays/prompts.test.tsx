@@ -160,12 +160,12 @@ function inverseSpans(frame: CapturedFrame): CapturedSpan[] {
   return allSpans(frame).filter((span) => (span.attributes & TextAttributes.INVERSE) !== 0);
 }
 
-/** Indices of the rows a bordered frame occupies. */
+/** Indices of the rows a band occupies. */
 function framedRows(frame: string): number[] {
   const glyphs = getGlyphs();
   return rows(frame)
     .map((row, index) => ({ row, index }))
-    .filter(({ row }) => row.includes(glyphs.boxV) || row.includes(glyphs.boxTL))
+    .filter(({ row }) => row.startsWith(glyphs.bandBar))
     .map(({ index }) => index);
 }
 
@@ -194,7 +194,7 @@ async function expectFullscreen(
   const lines = rows(captureCharFrame());
   expect(lines).toHaveLength(viewport.height);
   for (const line of lines) expect([...line]).toHaveLength(viewport.width);
-  expect((lines[0] ?? "")[0]).toBe(getGlyphs().boxTL);
+  expect((lines[0] ?? "")[0]).toBe(getGlyphs().bandBar);
   expect(lines[viewport.height - 1]).toContain(lastRowContains);
   renderer.destroy();
 }
@@ -461,8 +461,8 @@ describe("question overlay", () => {
     const lines = rows(captureCharFrame());
     const glyphs = getGlyphs();
 
-    expect(lines[0]?.includes(glyphs.boxTL) ?? true).toBe(false);
-    expect(lines.some((line) => line.includes(glyphs.boxTL))).toBe(true);
+    expect(lines[0]?.includes(glyphs.bandBar) ?? true).toBe(false);
+    expect(lines.some((line) => line.startsWith(glyphs.bandBar))).toBe(true);
     expect(lines.at(-2)).toContain("move");
     expect(lines.at(-1)?.trim()).toBe("");
 
@@ -485,12 +485,12 @@ describe("question overlay", () => {
     expect(rowFor("Restaurants")).toContain(`[${glyphs.success}]`);
     expect(rowFor("Hotels")).toContain("[ ]");
     // Focused but unchecked, and checked but unfocused, both exist at once. The
-    // rail lives in the gutter between the frame edge and the label — asserted
+    // rail lives in the gutter between the band bar and the label — asserted
     // by containment rather than column, since the option block is centered and
     // its offset depends on row widths.
     const gutterSegmentOf = (label: string): string => {
       const line = rowFor(label);
-      const borderIndex = line.indexOf(glyphs.boxV);
+      const borderIndex = line.indexOf(glyphs.bandBar);
       return line.slice(borderIndex + 1, line.indexOf(label));
     };
     expect(gutterSegmentOf("Restaurants")).toContain(glyphs.rail);
@@ -928,7 +928,7 @@ describe("prompt overlays in unicode glyph mode", () => {
     else process.env["JAZZ_UI_GLYPHS"] = previous;
   });
 
-  it("frames every prompt in light box drawing, never rounded or double", async () => {
+  it("draws every prompt as a band with a heavy bar, never a box", async () => {
     const glyphs = getGlyphs();
     const overlays: readonly ReactNode[] = [
       <Question
@@ -961,8 +961,9 @@ describe("prompt overlays in unicode glyph mode", () => {
     for (const overlay of overlays) {
       const { renderer, captureCharFrame } = await draw(overlay, WIDE);
       const frame = captureCharFrame();
-      expect(frame).toContain(glyphs.boxTL);
-      expect(frame).toContain(glyphs.boxBR);
+      expect(frame).toContain(glyphs.bandBar);
+      expect(frame).not.toContain(glyphs.boxTL);
+      expect(frame).not.toContain(glyphs.boxBR);
       expect(FORBIDDEN_BOX.test(frame)).toBe(false);
       renderer.destroy();
     }

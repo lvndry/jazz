@@ -150,12 +150,12 @@ function luminance(span: CapturedSpan): number {
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
-/** Indices of the rows a bordered frame occupies. */
+/** Indices of the rows a band occupies. */
 function framedRows(frame: string): number[] {
   const glyphs = getGlyphs();
   return rows(frame)
     .map((row, index) => ({ row, index }))
-    .filter(({ row }) => row.includes(glyphs.boxV) || row.includes(glyphs.boxTL))
+    .filter(({ row }) => row.startsWith(glyphs.bandBar))
     .map(({ index }) => index);
 }
 
@@ -214,7 +214,7 @@ describe("approval overlay", () => {
     renderer.destroy();
   });
 
-  it("never paints the card in error red, and spends the warning hue on one row", async () => {
+  it("never paints the card in error red, and spends the warning hue on the bar and the consequence", async () => {
     const { renderer, captureSpans } = await draw(
       <Approval
         model={APPROVAL}
@@ -229,8 +229,16 @@ describe("approval overlay", () => {
       expect(hexOf(span)).not.toBe(themeHex(THEME.error));
     }
 
-    // The marker and the verb, and nothing else.
-    expect(rowsColored(frame, THEME.warning)).toHaveLength(1);
+    // The bar and the consequence, and nothing else.
+    const warned = allSpans(frame)
+      .filter((span) => span.text.trim().length > 0 && hexOf(span) === themeHex(THEME.warning))
+      .map((span) => span.text.trim());
+    expect(warned.length).toBeGreaterThan(1);
+    for (const text of warned) {
+      expect([getGlyphs().bandBar, APPROVAL.consequence]).toContain(text);
+    }
+    // The consequence shares the title row.
+    expect(rowsColored(frame, THEME.warning).length).toBeGreaterThan(1);
 
     renderer.destroy();
   });
@@ -349,9 +357,9 @@ describe("approval overlay", () => {
     const narrowRows = rows(narrow.captureCharFrame());
     expect(narrowRows).toHaveLength(NARROW.height);
     for (const row of narrowRows) expect([...row]).toHaveLength(NARROW.width);
-    // Fullscreen: the frame starts at column zero of row zero, and the
+    // Fullscreen: the band starts at column zero of row zero, and the
     // controls line is the last row of the viewport.
-    expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().boxTL);
+    expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().bandBar);
     expect(narrowRows[NARROW.height - 1]).toContain("accept");
     narrow.renderer.destroy();
   });
@@ -490,7 +498,8 @@ describe("approval overlay", () => {
       // viewport the expand hint clips the phrase to "more bel…".
       expect(firstFrame).not.toContain(TAIL);
       expect(firstFrame).toMatch(/more bel/);
-      expect(firstFrame).not.toContain("executed on your system");
+      // A short consequence rides on the title row, so it is never below the fold.
+      expect(firstFrame).toContain("executed on your system");
       first.renderer.destroy();
 
       const scrolled = await draw(
@@ -606,7 +615,7 @@ describe("search overlay", () => {
     /** The recency marker sits past the frame edge, the pad and the rail column. */
     const markerOf = (title: string): string => {
       const row = lines.find((line) => line.includes(title)) ?? "";
-      return row.charAt(row.indexOf(glyphs.boxV) + 3);
+      return row.charAt(row.indexOf(glyphs.bandBar) + 3);
     };
 
     expect(markerOf("Shipping 0.14")).toBe(glyphs.active);
@@ -669,7 +678,7 @@ describe("search overlay", () => {
     const narrowRows = rows(narrow.captureCharFrame());
     expect(narrowRows).toHaveLength(NARROW.height);
     for (const row of narrowRows) expect([...row]).toHaveLength(NARROW.width);
-    expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().boxTL);
+    expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().bandBar);
     expect(narrowRows[NARROW.height - 1]).toContain("insert");
     narrow.renderer.destroy();
   });
@@ -721,7 +730,7 @@ describe("overlays in unicode glyph mode", () => {
     else process.env["JAZZ_UI_GLYPHS"] = previous;
   });
 
-  it("frames both overlays in light box drawing, never rounded or double", async () => {
+  it("draws both overlays as bands with a heavy bar, never a box", async () => {
     const glyphs = getGlyphs();
 
     const approval = await draw(
@@ -732,10 +741,8 @@ describe("overlays in unicode glyph mode", () => {
       WIDE,
     );
     const approvalFrame = approval.captureCharFrame();
-    expect(approvalFrame).toContain(glyphs.boxTL);
-    expect(approvalFrame).toContain(glyphs.boxBR);
-    // The marker that means "the agent is asking for authority".
-    expect(approvalFrame).toContain(glyphs.proposed);
+    expect(approvalFrame).toContain(glyphs.bandBar);
+    expect(approvalFrame).not.toContain(glyphs.boxTL);
     expect(FORBIDDEN_BOX.test(approvalFrame)).toBe(false);
     approval.renderer.destroy();
 
@@ -747,7 +754,8 @@ describe("overlays in unicode glyph mode", () => {
       WIDE,
     );
     const searchFrame = search.captureCharFrame();
-    expect(searchFrame).toContain(glyphs.boxTL);
+    expect(searchFrame).toContain(glyphs.bandBar);
+    expect(searchFrame).not.toContain(glyphs.boxTL);
     expect(searchFrame).toContain(glyphs.rail);
     expect(FORBIDDEN_BOX.test(searchFrame)).toBe(false);
     search.renderer.destroy();

@@ -6,9 +6,9 @@
  * A coding agent asks to edit a file you can revert. Jazz asks to send an
  * email, write to a calendar, or post where other people read it — and there
  * is no undo for any of those. So this object breaks the visual language in
- * exactly one deliberate way: it is elevated onto a `surface` panel behind a
- * frame, marked with the `proposed` glyph that appears nowhere else in the
- * product. Everything else about it is quiet on purpose.
+ * exactly one deliberate way: it is a panel band whose left bar is in the
+ * warning hue, the only band in the product that takes it. Everything else
+ * about it is quiet on purpose.
  *
  *   - The real account is rendered verbatim, because the whole trust argument
  *     is that jazz always says which real-world object is in scope.
@@ -18,35 +18,36 @@
  *     wraps and scrolls rather than clipping the tail.
  *   - Irreversibility is stated in prose, not encoded in an icon.
  *   - Red is reserved for things that already broke; this is a decision being
- *     offered, so the only hue is `warning`, on the marker and the verb.
+ *     offered, so the only hue is `warning`, on the bar and the consequence.
  *   - It holds perfectly still. No spinner, no pulse, no countdown: motion
  *     here would be pressure applied to an irreversible choice.
- *   - The controls sit outside the frame. The card is what *will happen*; the
+ *   - The controls sit outside the band. The card is what *will happen*; the
  *     line below it is what *you can do*.
  */
 
-import { TextAttributes, type BorderCharacters } from "@opentui/core";
+import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
-import { getGlyphs, type GlyphSet } from "../../glyphs";
+import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
 import { clipTerminalCells, sliceTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { COMPACT_HEIGHT, COMPACT_WIDTH, type ApprovalOverlay, type Viewport } from "../types";
 import { OVERLAY_Z_INDEX } from "./centered";
-import { overlayWidth, placeOverlay } from "./overlay-frame";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 
-/** Windowed width, and the floor below which windowing stops making sense. */
+/** The legend under the band starts where the band's text does. */
+const LEGEND_INDENT = BAND_CHROME_COLUMNS - 1;
 
-/** One column of breathing room inside the frame, on each side. */
-const CARD_PAD = 1;
+/** Cells kept between the title and a consequence set on the same row. */
+const TITLE_GAP = 3;
 
 /** Labels share a column so the values line up and read as a record. */
 const LABEL_COLUMN = 11;
 
-/** Border, header, blank, account, rule, border. Everything else scrolls. */
-const FIXED_CARD_ROWS = 6;
+/** Padding, title, padding, account, padding. Everything else scrolls. */
+const PADDED_FIXED_CARD_ROWS = 5;
 
-/** Compact cards put the account in the scrollable body and use two control rows. */
-const COMPACT_FIXED_CARD_ROWS = 5;
+/** Compact cards drop the padding, put the account in the scrollable body and use two control rows. */
+const COMPACT_FIXED_CARD_ROWS = 1;
 const CONTROL_ROWS = 1;
 const COMPACT_CONTROL_ROWS = 2;
 
@@ -181,6 +182,25 @@ export function approvalTag(title: string, app: string): string | undefined {
   return firstWord === app.toLowerCase() ? undefined : app;
 }
 
+/** What the bridge names a call that touches no remote account; its "app" is a local tool. */
+const LOCAL_ACCOUNT = "this machine";
+
+/**
+ * The account with the app it belongs to, `you@example.com (gmail)`, so the
+ * card still says which service is in scope when the title row's right side is
+ * taken by the consequence.
+ */
+export function approvalAccount(account: string, app: string): string {
+  if (
+    account === LOCAL_ACCOUNT ||
+    app.length === 0 ||
+    account.toLowerCase().includes(app.toLowerCase())
+  ) {
+    return account;
+  }
+  return `${account} (${app})`;
+}
+
 /** Field values short enough to be words in a sentence are left alone. */
 const MIN_REPEATED_VALUE_CELLS = 12;
 
@@ -214,20 +234,15 @@ export function approvalConsequence(
   return prose;
 }
 
-function frameChars(glyphs: GlyphSet): BorderCharacters {
-  return {
-    topLeft: glyphs.boxTL,
-    topRight: glyphs.boxTR,
-    bottomLeft: glyphs.boxBL,
-    bottomRight: glyphs.boxBR,
-    horizontal: glyphs.boxH,
-    vertical: glyphs.boxV,
-    topT: glyphs.boxTJ,
-    bottomT: glyphs.boxBJ,
-    leftT: glyphs.boxML,
-    rightT: glyphs.boxMR,
-    cross: glyphs.boxMJ,
-  };
+/**
+ * Whether the consequence is short enough to sit on the title row, flush right
+ * in the warning hue ("can't be unsent"). A longer statement becomes prose rows
+ * under the fields instead, because a sentence clipped mid-word on the most
+ * important row of the card is worse than one more row.
+ */
+function consequenceInline(title: string, consequence: string, inner: number): boolean {
+  if (consequence.length === 0) return false;
+  return displayWidth(title) + TITLE_GAP + displayWidth(consequence) + 2 <= inner;
 }
 
 /** The card's size, placement, and visible body rows; `height` is what the layout reserves. */
@@ -236,17 +251,20 @@ export function approvalLayout(model: ApprovalOverlay, viewport: Viewport) {
 
   const frame = overlayWidth(viewport);
   const { fullscreen, width } = frame;
-  const inner = Math.max(8, width - 2 - CARD_PAD * 2);
+  const inner = Math.max(8, width - BAND_CHROME_COLUMNS);
   const valueWidth = Math.max(4, inner - LABEL_COLUMN);
 
+  const title = approvalTitle(model.action);
   const consequenceText = approvalConsequence(model.consequence, model.fields);
-  const consequence = consequenceText.length === 0 ? [] : wrapProse(consequenceText, inner);
+  const inlineConsequence = consequenceInline(title, consequenceText, inner);
+  const consequence =
+    consequenceText.length === 0 || inlineConsequence ? [] : wrapProse(consequenceText, inner);
   // At compact widths, expanded rows keep long fields inspectable without
   // hiding the tail behind a shortcut that would not fit in the legend.
   const expanded = model.expanded === true || compact;
   const expandable = model.fields.some((field) => approvalFieldNeedsExpand(field.value));
   const accountRows: BodyRow[] = compact
-    ? wrapProse(model.account, valueWidth).map((line, index) => ({
+    ? wrapProse(approvalAccount(model.account, model.app), valueWidth).map((line, index) => ({
         kind: "field",
         key: `account:${String(index)}`,
         label: index === 0 ? "Account" : "",
@@ -257,15 +275,18 @@ export function approvalLayout(model: ApprovalOverlay, viewport: Viewport) {
     ...accountRows,
     ...approvalBodyRows(model.fields, consequence, valueWidth, LABEL_COLUMN - 1, expanded),
   ];
-  const fixedCardRows = compact ? COMPACT_FIXED_CARD_ROWS : FIXED_CARD_ROWS;
+  // Compact cards give their padding rows back first, then the account moves
+  // into the scrolling body.
+  const padded = !compact;
+  const fixedCardRows = padded ? PADDED_FIXED_CARD_ROWS : COMPACT_FIXED_CARD_ROWS;
   const controlRows = compact ? COMPACT_CONTROL_ROWS : CONTROL_ROWS;
   const windowedHeight = fixedCardRows + bodyRows.length + controlRows;
   const placement = placeOverlay(viewport, frame, windowedHeight);
   const { height, left, top } = placement;
   const cardHeight = Math.max(1, height - controlRows);
 
-  // Everything below the rule is on screen before you commit — so when the
-  // viewport cannot hold it all the region scrolls rather than being cut short.
+  // Every resulting field is on screen before you commit — so when the viewport
+  // cannot hold it all the region scrolls rather than being cut short.
   const bodyCapacity = Math.max(1, cardHeight - fixedCardRows);
   const maxBodyOffset = Math.max(0, bodyRows.length - bodyCapacity);
   const bodyScrolls = maxBodyOffset > 0;
@@ -277,9 +298,12 @@ export function approvalLayout(model: ApprovalOverlay, viewport: Viewport) {
   return {
     fullscreen,
     compact,
+    padded,
     width,
     inner,
     valueWidth,
+    title,
+    inlineConsequence: inlineConsequence ? consequenceText : undefined,
     expanded,
     expandable,
     height,
@@ -299,13 +323,25 @@ export interface ApprovalProps {
   readonly viewport: Viewport;
 }
 
+function BlankRow({ id }: { id: string }): ReactNode {
+  return (
+    <box
+      key={id}
+      style={{ height: 1, flexShrink: 0 }}
+    />
+  );
+}
+
 export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const glyphs = getGlyphs();
   const {
     compact,
+    padded,
     width,
     inner,
     valueWidth,
+    title,
+    inlineConsequence,
     expanded,
     expandable,
     height,
@@ -318,15 +354,15 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
     left,
     top,
   } = approvalLayout(model, viewport);
-  const title = approvalTitle(model.action);
-  const tag = approvalTag(title, model.app);
+  const tag = inlineConsequence === undefined ? approvalTag(title, model.app) : undefined;
+  const account = approvalAccount(model.account, model.app);
 
   const bodyContent = visibleBody.map((row) => {
     if (row.kind === "blank") {
       return (
-        <box
+        <BlankRow
           key={row.key}
-          style={{ height: 1, flexShrink: 0 }}
+          id={row.key}
         />
       );
     }
@@ -360,7 +396,15 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const rightHint = [scrollHint, expandHint, `a ${model.alwaysLabel}`]
     .filter((part) => part.length > 0)
     .join(" · ");
-  const rightBudget = Math.max(0, inner - displayWidth("enter accept    esc reject"));
+  const legendWidth = Math.max(0, width - LEGEND_INDENT * 2);
+  const rightBudget = Math.max(
+    0,
+    legendWidth - displayWidth("enter accept    esc reject") - TITLE_GAP,
+  );
+  const titleBudget = Math.max(
+    1,
+    inner - (inlineConsequence === undefined ? 0 : displayWidth(inlineConsequence) + TITLE_GAP),
+  );
 
   return (
     <box
@@ -379,47 +423,45 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
           height: cardHeight,
           flexShrink: 0,
           flexDirection: "column",
-          backgroundColor: THEME.surface,
-          border: true,
-          customBorderChars: frameChars(glyphs),
-          borderColor: THEME.border,
-          paddingLeft: CARD_PAD,
-          paddingRight: CARD_PAD,
+          ...bandStyle(glyphs, THEME.surface, THEME.warning),
         }}
       >
+        {padded ? <BlankRow id="pad:top" /> : null}
+
         <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-          <text style={{ fg: THEME.warning }}>
-            <span style={{ fg: THEME.warning }}>{`${glyphs.proposed} `}</span>
-            <b style={{ fg: THEME.warning }}>{clip(title, inner - 2)}</b>
+          <text style={{ wrapMode: "none" }}>
+            <b style={{ fg: THEME.selected }}>{clip(title, titleBudget)}</b>
           </text>
           <box style={{ flexGrow: 1 }} />
-          {tag === undefined ? null : (
-            <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(tag, inner)}</text>
+          {inlineConsequence === undefined ? (
+            tag === undefined ? null : (
+              <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(tag, inner)}</text>
+            )
+          ) : (
+            <text style={{ fg: THEME.warning, flexShrink: 0 }}>{inlineConsequence}</text>
           )}
         </box>
 
-        <box style={{ height: 1, flexShrink: 0 }} />
+        {padded ? <BlankRow id="pad:title" /> : null}
 
         {compact ? null : (
           <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
             <text style={{ fg: THEME.muted, width: LABEL_COLUMN, flexShrink: 0 }}>Account</text>
-            <text style={{ fg: THEME.selected }}>{clip(model.account, valueWidth)}</text>
+            <text style={{ fg: THEME.selected }}>{clip(account, valueWidth)}</text>
           </box>
         )}
-
-        <text style={{ fg: THEME.border, height: 1, flexShrink: 0 }}>
-          {glyphs.divider.repeat(inner)}
-        </text>
 
         <box style={{ height: bodyCapacity, flexShrink: 0, flexDirection: "column" }}>
           {bodyContent}
           {Array.from({ length: bodyPad }, (_, index) => (
-            <box
+            <BlankRow
               key={`pad:${String(index)}`}
-              style={{ height: 1, flexShrink: 0 }}
+              id={`pad:${String(index)}`}
             />
           ))}
         </box>
+
+        {padded ? <BlankRow id="pad:bottom" /> : null}
       </box>
 
       {compact ? (
@@ -429,8 +471,8 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
             flexShrink: 0,
             flexDirection: "column",
             backgroundColor: THEME.canvas,
-            paddingLeft: CARD_PAD + 1,
-            paddingRight: CARD_PAD + 1,
+            paddingLeft: LEGEND_INDENT,
+            paddingRight: LEGEND_INDENT,
           }}
         >
           <text>
@@ -453,8 +495,8 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
             flexShrink: 0,
             flexDirection: "row",
             backgroundColor: THEME.canvas,
-            paddingLeft: CARD_PAD + 1,
-            paddingRight: CARD_PAD + 1,
+            paddingLeft: LEGEND_INDENT,
+            paddingRight: LEGEND_INDENT,
           }}
         >
           <text>

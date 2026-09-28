@@ -7,7 +7,49 @@
  * every line stays reachable by scrolling.
  */
 
+import type { BorderCharacters } from "@opentui/core";
+import type { GlyphSet } from "../../glyphs";
 import type { Viewport } from "../types";
+
+/** One cell between the bar and the text, and one before the right edge. */
+export const BAND_PAD = 1;
+
+/** Columns a band's bar and padding take from its width. */
+export const BAND_CHROME_COLUMNS = 1 + BAND_PAD * 2;
+
+/**
+ * Cards and menus are bands, not boxes: a ground one step off the canvas with a
+ * heavy bar down the left edge. Only the left side is drawn, so every other
+ * character here is unused; they are the band bar too so a stray side can never
+ * reach a box-drawing corner.
+ */
+export function bandBorderChars(glyphs: GlyphSet): BorderCharacters {
+  return {
+    topLeft: glyphs.bandBar,
+    topRight: glyphs.bandBar,
+    bottomLeft: glyphs.bandBar,
+    bottomRight: glyphs.bandBar,
+    horizontal: glyphs.bandBar,
+    vertical: glyphs.bandBar,
+    topT: glyphs.bandBar,
+    bottomT: glyphs.bandBar,
+    leftT: glyphs.bandBar,
+    rightT: glyphs.bandBar,
+    cross: glyphs.bandBar,
+  };
+}
+
+/** Box style for a band whose bar is `bar` on the `surface` ground. */
+export function bandStyle(glyphs: GlyphSet, surface: string, bar: string) {
+  return {
+    backgroundColor: surface,
+    border: ["left"] as ("top" | "right" | "bottom" | "left")[],
+    customBorderChars: bandBorderChars(glyphs),
+    borderColor: bar,
+    paddingLeft: BAND_PAD,
+    paddingRight: BAND_PAD,
+  };
+}
 
 /** Widest a card is drawn; a narrower terminal gets a card as wide as itself. */
 export const OVERLAY_MAX_WIDTH = 96;

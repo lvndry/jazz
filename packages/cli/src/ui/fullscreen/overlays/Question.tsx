@@ -23,21 +23,17 @@
  *     the line below it is what you can do about it.
  */
 
-import type { BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
-import { overlayWidth, placeOverlay } from "./overlay-frame";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
-import { getGlyphs, type GlyphSet } from "../../glyphs";
+import { getGlyphs } from "../../glyphs";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
 import { THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
 import type { Viewport } from "../types";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
-
-/** One column of breathing room inside the frame, on each side. */
-const CARD_PAD = 1;
 
 /** Border, blank above the list, blank below it. */
 const FIXED_CARD_ROWS = 4;
@@ -217,22 +213,6 @@ function takeVisible<Item>(
   return visible;
 }
 
-function frameChars(glyphs: GlyphSet): BorderCharacters {
-  return {
-    topLeft: glyphs.boxTL,
-    topRight: glyphs.boxTR,
-    bottomLeft: glyphs.boxBL,
-    bottomRight: glyphs.boxBR,
-    horizontal: glyphs.boxH,
-    vertical: glyphs.boxV,
-    topT: glyphs.boxTJ,
-    bottomT: glyphs.boxBJ,
-    leftT: glyphs.boxML,
-    rightT: glyphs.boxMR,
-    cross: glyphs.boxMJ,
-  };
-}
-
 export interface QuestionProps {
   readonly model: QuestionModel;
   readonly viewport: Viewport;
@@ -242,7 +222,7 @@ export interface QuestionProps {
 export function questionLayout(model: QuestionModel, viewport: Viewport) {
   const frame = overlayWidth(viewport);
   const { fullscreen, width } = frame;
-  const inner = Math.max(8, width - 2 - CARD_PAD * 2);
+  const inner = Math.max(8, width - BAND_CHROME_COLUMNS);
 
   const filterable = model.filterable === true;
   // With no choices at all the user would otherwise be stuck looking at a
@@ -411,12 +391,11 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
           height: cardHeight,
           flexShrink: 0,
           flexDirection: "column",
-          backgroundColor: THEME.surface,
-          border: true,
-          customBorderChars: frameChars(glyphs),
-          borderColor: THEME.border,
-          paddingLeft: CARD_PAD,
-          paddingRight: CARD_PAD,
+          // The band's padding rows stand where the old frame's top and bottom
+          // edges were, so every row count below is unchanged.
+          ...bandStyle(glyphs, THEME.surface, THEME.border),
+          paddingTop: 1,
+          paddingBottom: 1,
         }}
       >
         {message.map((line, index) => (
