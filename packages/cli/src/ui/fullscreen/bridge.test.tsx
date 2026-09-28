@@ -1468,6 +1468,45 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
   });
 
+  it("answers a question with its number, and a yes/no question with y or n", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: 30 });
+    await rendered.renderOnce();
+    const presentation = presentationProducer();
+
+    const picked = Effect.runPromise(
+      presentation.requestUserInput({
+        question: "Which venue?",
+        suggestions: [
+          { label: "Lisbon Loft", value: "loft" },
+          { label: "Casa do Jazz", value: "casa" },
+          { label: "The Blue Room", value: "blue" },
+        ],
+      }),
+    );
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("Something else");
+    await rendered.mockInput.pressKey("2");
+    await settleKeypress(rendered.flush);
+    expect(await picked).toEqual({ kind: "answered", response: "casa" });
+
+    const answered = Effect.runPromise(
+      presentation.requestUserInput({
+        question: "Move the Q3 review to Friday?",
+        suggestions: [
+          { label: "Yes, move it", value: "yes" },
+          { label: "No, keep Thursday", value: "no" },
+        ],
+      }),
+    );
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("y / n");
+    await rendered.mockInput.pressKey("n");
+    await settleKeypress(rendered.flush);
+    expect(await answered).toEqual({ kind: "answered", response: "no" });
+
+    rendered.renderer.destroy();
+  });
+
   it("drives the filepicker producer through filesystem scan and selection", async () => {
     const basePath = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-filepicker-"));
     const selectedPath = path.join(basePath, "choice.txt");

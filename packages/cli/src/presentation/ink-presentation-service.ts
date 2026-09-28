@@ -1099,6 +1099,10 @@ interface QueuedUserInput {
 export class InkPresentationService implements PresentationService {
   // Approval queue to handle parallel tool calls
   private approvalQueue: QueuedApproval[] = [];
+  /** Questions answered in the current set, for the `1 of 2` position. */
+  private questionsAnswered = 0;
+  /** Questions still queued behind the one on screen when it opened. */
+  private questionsWaiting = 0;
   private isProcessingApproval: boolean = false;
 
   // User input queue to handle parallel requestUserInput calls
@@ -1696,6 +1700,14 @@ export class InkPresentationService implements PresentationService {
 
     this.isProcessingUserInput = true;
     const { request, resume } = this.userInputQueue.shift()!;
+    // Questions asked together are numbered as a set: `1 of 2`. The count restarts once
+    // every queued question has been answered.
+    this.questionsAnswered = this.questionsWaiting === 0 ? 0 : this.questionsAnswered;
+    const position = {
+      index: this.questionsAnswered + 1,
+      total: this.questionsAnswered + 1 + this.userInputQueue.length,
+    };
+    this.questionsWaiting = this.userInputQueue.length;
 
     // Send system notification for user input request.
     if (this.notificationService) {
@@ -1740,12 +1752,14 @@ export class InkPresentationService implements PresentationService {
         suggestions: request.suggestions,
         allowCustom: request.allowCustom,
         allowMultiple: request.allowMultiple,
+        position,
       },
       resolve: (value: unknown) => {
         const response = String(value).trim();
         echoUserTurn(response);
         store.setPrompt(null);
         store.setApprovalRequest(null);
+        this.questionsAnswered += 1;
         this.isProcessingUserInput = false;
         resume(
           Effect.succeed(
@@ -1757,6 +1771,7 @@ export class InkPresentationService implements PresentationService {
       reject: () => {
         store.setPrompt(null);
         store.setApprovalRequest(null);
+        this.questionsAnswered += 1;
         this.isProcessingUserInput = false;
         resume(Effect.succeed({ kind: "declined" })); // Dismissed the prompt.
         this.processNextUserInput();

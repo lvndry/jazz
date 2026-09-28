@@ -30,9 +30,11 @@ import {
   resolveFilePickerPath,
   scanFilePickerEntries,
 } from "../file-picker-files";
+import { hostForModel } from "../local-model-hosts";
 import { wrapIndex } from "../picker-window";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
+import { filterSkills, skillDetailRows } from "../skill-browser";
 import {
   store,
   useEphemeralSlice,
@@ -81,9 +83,8 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
-import { hostForModel } from "../local-model-hosts";
-import { filterSkills, skillDetailRows } from "../skill-browser";
 import type { FilePickerModel } from "./overlays/FilePicker";
+import { MAX_QUICK_PICK } from "./overlays/Question";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
 import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
@@ -280,11 +281,43 @@ function choicesForQuestion(
   return promptChoices(prompt);
 }
 
-function allowsCustomAnswer(prompt: PromptState, suggestions: readonly Suggestion[]): boolean {
-  return (
-    prompt.type === "questionnaire" &&
-    (prompt.options?.["allowCustom"] !== false || suggestions.length === 0)
-  );
+/**
+ * Whether a question offers a row for an answer in the person's own words. Every
+ * question the agent asks does: its suggestions are the agent's framing, and a person
+ * must always be able to step outside it.
+ */
+function allowsCustomAnswer(prompt: PromptState): boolean {
+  return prompt.type === "questionnaire";
+}
+
+const YES_LABEL = /^yes\b/i;
+const NO_LABEL = /^no\b/i;
+
+/**
+ * The two answers of a yes/no question, by index, so it can be drawn as two buttons and
+ * answered with y or n. A confirm prompt always is one; an agent's question is one when
+ * it offers exactly a Yes and a No.
+ */
+export function binaryAnswers(
+  prompt: PromptState,
+  choices: readonly { readonly label: string }[],
+): { readonly yes: number; readonly no: number } | undefined {
+  if (prompt.type === "confirm") return { yes: 0, no: 1 };
+  if (prompt.type !== "questionnaire" || allowsMultipleAnswers(prompt) || choices.length !== 2) {
+    return undefined;
+  }
+  const yes = choices.findIndex((choice) => YES_LABEL.test(choice.label.trim()));
+  const no = choices.findIndex((choice) => NO_LABEL.test(choice.label.trim()));
+  return yes >= 0 && no >= 0 && yes !== no ? { yes, no } : undefined;
+}
+
+function questionPosition(
+  prompt: PromptState,
+): { readonly index: number; readonly total: number } | undefined {
+  const position = prompt.options?.["position"];
+  if (position === null || typeof position !== "object") return undefined;
+  const { index, total } = position as Record<string, unknown>;
+  return typeof index === "number" && typeof total === "number" ? { index, total } : undefined;
 }
 
 function allowsMultipleAnswers(prompt: PromptState): boolean {
@@ -476,6 +509,7 @@ function overlayFromPrompt(
           { label: "No", value: "choice-1" },
         ],
         selected: question.selected,
+        buttons: true,
       };
     case "select":
     case "search":
@@ -517,13 +551,18 @@ function overlayFromPrompt(
     case "questionnaire": {
       const suggestions = promptSuggestions(prompt);
       const allowMultiple = allowsMultipleAnswers(prompt);
-      const allowCustom = allowsCustomAnswer(prompt, suggestions);
+      const allowCustom = allowsCustomAnswer(prompt);
+      const choices = choicesForQuestion(prompt, suggestions);
+      const position = questionPosition(prompt);
       return {
         kind: "question",
         mode: allowMultiple ? "checkbox" : "select",
         message: prompt.message,
-        choices: choiceModel(choicesForQuestion(prompt, suggestions)),
+        choices: choiceModel(choices),
         selected: question.selected,
+        skippable: true,
+        ...(binaryAnswers(prompt, choices) === undefined ? {} : { buttons: true }),
+        ...(position === undefined ? {} : { position }),
         ...(allowMultiple
           ? { checked: question.checked.map((index) => `choice-${String(index)}`) }
           : {}),
@@ -1568,10 +1607,7 @@ export function FullscreenBridge(): React.ReactNode {
           sourceChoices.map((_choice, index) => index),
         );
         const questionState = promptControlsRef.current.question;
-        if (
-          allowsCustomAnswer(active, suggestions) &&
-          questionState.selected === visibleChoices.length
-        ) {
+        if (allowsCustomAnswer(active) && questionState.selected === visibleChoices.length) {
           updatePromptQuestion((state) => ({
             ...state,
             custom: insertTextAt(state.custom.value, state.custom.caret, flattenPaste(pasted)),
@@ -2091,9 +2127,56 @@ export function FullscreenBridge(): React.ReactNode {
           ? matchingChoiceIndices(sourceChoices, questionState.filter)
           : sourceChoices.map((_choice, index) => index);
         const visibleChoices = choicesAtIndices(sourceChoices, filteredIndices);
-        const allowCustom = allowsCustomAnswer(active, suggestions);
+        const allowCustom = allowsCustomAnswer(active);
         const allowMultiple = allowsMultipleAnswers(active);
         const typedAnswer = typedAnswerFor(active, questionState.filter);
+
+        const binary = binaryAnswers(active, sourceChoices);
+        const typingCustom = allowCustom && questionState.selected === visibleChoices.length;
+        const plainKey = !ctrl && !meta && !option && !superKey;
+
+        if (binary !== undefined && !typingCustom && plainKey && (name === "y" || name === "n")) {
+          const answer = sourceChoices[name === "y" ? binary.yes : binary.no];
+          if (answer !== undefined) active.resolve(answer.value);
+          return true;
+        }
+        if (binary !== undefined && !typingCustom && (name === "left" || name === "right")) {
+          updatePromptQuestion((state) => ({
+            ...state,
+            selected: name === "left" ? 0 : 1,
+          }));
+          return true;
+        }
+
+        // Number keys pick a row at once. They stay text while a filter or the
+        // free-text row is taking input, where a digit is part of the answer.
+        const quickPick = /^[1-9]$/.test(sequence) ? Number(sequence) - 1 : undefined;
+        if (
+          quickPick !== undefined &&
+          plainKey &&
+          binary === undefined &&
+          !typingCustom &&
+          !promptIsFilterable(active) &&
+          quickPick < Math.min(visibleChoices.length, MAX_QUICK_PICK)
+        ) {
+          const originalIndex = filteredIndices[quickPick];
+          const picked = visibleChoices[quickPick];
+          if (originalIndex === undefined || picked === undefined || picked.disabled === true) {
+            return true;
+          }
+          if (allowMultiple) {
+            updatePromptQuestion((state) => ({
+              ...state,
+              selected: quickPick,
+              checked: state.checked.includes(originalIndex)
+                ? state.checked.filter((index) => index !== originalIndex)
+                : [...state.checked, originalIndex],
+            }));
+            return true;
+          }
+          active.resolve(sourceChoices[originalIndex]?.value);
+          return true;
+        }
 
         if (name === "up" || name === "down") {
           updatePromptQuestion((state) => ({

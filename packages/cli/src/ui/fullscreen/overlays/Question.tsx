@@ -11,9 +11,15 @@
  *     descriptions aligned into a column so the set reads as a table rather
  *     than as a paragraph per option. When either overflows it wraps in place
  *     — the whole suggestion stays on screen, never hidden behind an ellipsis.
- *   - Selection is a rail in the gutter plus the label's weight. No background
- *     wash, because a wash on a 256-colour terminal is a guess about the
- *     user's own background, and because a rail survives monochrome.
+ *   - The selected row lifts onto the element tier with the accent `›` in the
+ *     gutter and the label in bold, so selection reads by weight and by plane
+ *     and still survives monochrome through the marker.
+ *   - A question carries the accent bar; an approval carries the warning bar.
+ *     "Which one?" must never look like "may I?".
+ *   - A yes/no question is two buttons, the selected one filled with the
+ *     accent, and y / n answer without moving the selection.
+ *   - The last row is always a way to answer in your own words, so the agent's
+ *     framing is never the only option.
  *   - Checkbox state is a bracketed mark, which is a second channel: what is
  *     *checked* is independent of what is *focused*, so the two cannot be
  *     confused the way one highlight colour doing both jobs would be.
@@ -23,6 +29,7 @@
  *     the line below it is what you can do about it.
  */
 
+import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
 import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
@@ -59,11 +66,36 @@ const DESCRIPTION_GAP = 2;
 /** A long question is worth two rows; past that it is not a question. */
 const MESSAGE_MAX_ROWS = 3;
 
+/** Number keys pick the first nine rows; a tenth row would need two keystrokes. */
+export const MAX_QUICK_PICK = 9;
+
 /** Keep this much context past the selection before the list starts to follow it. */
 const LIST_MARGIN = 1;
 
 /** The custom row says what it is for, in the house voice, rather than "Other". */
-const CUSTOM_HINT = "Type your own answer";
+const CUSTOM_HINT = "Something else…";
+
+/** Cells either side of a button's label, inside its fill. */
+const BUTTON_PAD = 1;
+
+/** Cells between the two buttons. */
+const BUTTON_GAP = 3;
+
+/** Relative luminance above which text on the accent reads best dark. */
+const LIGHT_ACCENT_LUMINANCE = 0.45;
+
+/** Text on an accent fill: near-black on a light accent, white on a dark one. */
+export function onAccent(accent: string): string {
+  const match = /^#([0-9A-Fa-f]{6})$/.exec(accent);
+  if (match === null) return THEME.selected;
+  const value = Number.parseInt(match[1] ?? "0", 16);
+  const channel = (shift: number): number => {
+    const unit = ((value >> shift) & 255) / 255;
+    return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0);
+  return luminance > LIGHT_ACCENT_LUMINANCE ? "#0A0A0A" : "#FFFFFF";
+}
 const FILTER_PLACEHOLDER = "Type to filter";
 
 export type QuestionMode = "select" | "checkbox";
@@ -97,6 +129,12 @@ export interface QuestionModel {
   readonly filterCaret?: number;
   /** When set, typing filters the list and an empty match is not a custom row. */
   readonly filterable?: boolean;
+  /** Two choices drawn as buttons on one row: a yes/no question. */
+  readonly buttons?: boolean;
+  /** Where this question sits in a run of questions asked together: `1 of 2`. */
+  readonly position?: { readonly index: number; readonly total: number };
+  /** Esc skips a question the agent asked; it cancels a menu jazz itself opened. */
+  readonly skippable?: boolean;
 }
 
 function displayWidth(text: string): number {
@@ -261,6 +299,34 @@ export function questionLayout(model: QuestionModel, viewport: Viewport) {
 
   const filterRows = filterable ? 1 : 0;
   const fixedRows = FIXED_CARD_ROWS + message.length + filterRows;
+  if (model.buttons === true) {
+    const buttonRows = custom ? 3 : 1;
+    const placed = placeOverlay(viewport, frame, fixedRows + buttonRows + HINT_ROWS);
+    return {
+      fullscreen,
+      width,
+      inner,
+      filterable,
+      checkbox,
+      checked,
+      message,
+      total,
+      selected,
+      labelWidth: 0,
+      descriptionWidth: 0,
+      items,
+      layouts,
+      heights,
+      listRows: buttonRows,
+      visible: items,
+      start: 0,
+      listOffset: 0,
+      height: placed.height,
+      cardHeight: Math.max(1, placed.height - HINT_ROWS),
+      left: placed.left,
+      top: placed.top,
+    };
+  }
   const pageStart = pickerWindowStart(selected, items.length, PICKER_WINDOW_SIZE);
   const pageCount = Math.min(PICKER_WINDOW_SIZE, items.length);
   const pageHeights = heights.slice(pageStart, pageStart + pageCount);
@@ -348,31 +414,60 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     top,
   } = questionLayout(model, viewport);
 
-  const hints: readonly Hint[] = checkbox
-    ? [
-        { key: "up/down", label: "move", expendable: 3 },
-        { key: "space", label: "toggle", expendable: 2 },
-        { key: "enter", label: "submit", expendable: 1 },
-        { key: "esc", label: "cancel", expendable: 0 },
-      ]
-    : filterable
+  const escape: Hint = {
+    key: "esc",
+    label: model.skippable === true ? "skip question" : "cancel",
+    expendable: 0,
+  };
+  const pickRange = `1-${String(Math.min(model.choices.length, MAX_QUICK_PICK))}`;
+  const hints: readonly Hint[] =
+    model.buttons === true
       ? [
-          { key: "up/down", label: "choose", expendable: 3 },
-          { key: "type", label: "filter", expendable: 2 },
-          { key: "enter", label: "select", expendable: 1 },
-          { key: "esc", label: "cancel", expendable: 0 },
+          { key: "left/right", label: "choose", expendable: 3 },
+          { key: "enter", label: "confirm", expendable: 1 },
+          { key: "y/n", label: "answer", expendable: 2 },
+          escape,
         ]
-      : [
-          { key: "up/down", label: "move", expendable: 3 },
-          { key: "enter", label: "select", expendable: 1 },
-          { key: "esc", label: "cancel", expendable: 0 },
-        ];
+      : checkbox
+        ? [
+            { key: "up/down", label: "move", expendable: 4 },
+            { key: "space", label: "toggle", expendable: 2 },
+            { key: pickRange, label: "toggle", expendable: 3 },
+            { key: "enter", label: "submit", expendable: 1 },
+            escape,
+          ]
+        : filterable
+          ? [
+              { key: "up/down", label: "choose", expendable: 3 },
+              { key: "type", label: "filter", expendable: 2 },
+              { key: "enter", label: "select", expendable: 1 },
+              escape,
+            ]
+          : [
+              { key: "up/down", label: "choose", expendable: 3 },
+              { key: "enter", label: "confirm", expendable: 1 },
+              { key: pickRange, label: "pick", expendable: 2 },
+              escape,
+            ];
 
+  // Where the selection sits, shown only when the list is longer than what is on screen.
   const tally = checkbox
     ? `${String(checked.size)} selected`
     : total === 0
-      ? "no matches"
-      : `${String(selected + 1)} of ${String(total)}`;
+      ? filterable
+        ? "no matches"
+        : undefined
+      : model.buttons !== true && total > visible.length
+        ? `${String(selected + 1)} of ${String(total)}`
+        : undefined;
+  const positionLabel =
+    model.position !== undefined && model.position.total > 1
+      ? `${String(model.position.index)} of ${String(model.position.total)}`
+      : undefined;
+  const messageBudget = Math.max(
+    4,
+    inner - GUTTER - (positionLabel === undefined ? 0 : displayWidth(positionLabel) + GUTTER),
+  );
 
   return (
     <box
@@ -393,7 +488,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
           flexDirection: "column",
           // The band's padding rows stand where the old frame's top and bottom
           // edges were, so every row count below is unchanged.
-          ...bandStyle(glyphs, THEME.surface, THEME.border),
+          ...bandStyle(glyphs, THEME.surface, THEME.primary),
           paddingTop: 1,
           paddingBottom: 1,
         }}
@@ -406,7 +501,15 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
             <text style={{ fg: THEME.muted, width: GUTTER, flexShrink: 0 }}>
               {index === 0 ? `${glyphs.question} ` : " ".repeat(GUTTER)}
             </text>
-            <text style={{ fg: THEME.selected }}>{line}</text>
+            <text style={{ wrapMode: "none" }}>
+              <b style={{ fg: THEME.selected }}>{clip(line, messageBudget)}</b>
+            </text>
+            {index === 0 && positionLabel !== undefined ? (
+              <>
+                <box style={{ flexGrow: 1 }} />
+                <text style={{ fg: THEME.muted, flexShrink: 0 }}>{positionLabel}</text>
+              </>
+            ) : null}
           </box>
         ))}
 
@@ -434,7 +537,72 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
             paddingLeft: listOffset,
           }}
         >
-          {filterable && items.length === 0 ? (
+          {model.buttons === true ? (
+            <>
+              <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
+                <text style={{ width: GUTTER, flexShrink: 0 }}>{" ".repeat(GUTTER)}</text>
+                <text style={{ wrapMode: "none" }}>
+                  {model.choices.flatMap((choice, index) => {
+                    const filled = index === selected;
+                    const label = `${" ".repeat(BUTTON_PAD)}${oneLine(choice.label)}${" ".repeat(BUTTON_PAD)}`;
+                    return [
+                      ...(index > 0
+                        ? [<span key={`gap-${String(index)}`}>{" ".repeat(BUTTON_GAP)}</span>]
+                        : []),
+                      filled ? (
+                        <b
+                          key={choice.value}
+                          style={{ fg: onAccent(THEME.primary), bg: THEME.primary }}
+                        >
+                          {label}
+                        </b>
+                      ) : (
+                        <span
+                          key={choice.value}
+                          style={{ fg: THEME.secondary, bg: THEME.surfaceStrong }}
+                        >
+                          {label}
+                        </span>
+                      ),
+                    ];
+                  })}
+                </text>
+                <box style={{ flexGrow: 1 }} />
+                <text style={{ fg: THEME.muted, flexShrink: 0 }}>y / n</text>
+              </box>
+              {items.length > model.choices.length ? (
+                <>
+                  <box style={{ height: 1, flexShrink: 0 }} />
+                  <box
+                    style={{
+                      height: 1,
+                      flexShrink: 0,
+                      flexDirection: "row",
+                      ...(selected === model.choices.length
+                        ? { backgroundColor: THEME.surfaceStrong }
+                        : {}),
+                    }}
+                  >
+                    <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
+                      {selected === model.choices.length ? `${glyphs.arrow} ` : " ".repeat(GUTTER)}
+                    </text>
+                    {selected === model.choices.length ? (
+                      <CaretValue
+                        value={model.customValue ?? ""}
+                        caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
+                        width={Math.max(4, inner - GUTTER)}
+                        placeholder={CUSTOM_HINT}
+                      />
+                    ) : (
+                      <text style={{ fg: THEME.muted, attributes: TextAttributes.ITALIC }}>
+                        {CUSTOM_HINT}
+                      </text>
+                    )}
+                  </box>
+                </>
+              ) : null}
+            </>
+          ) : filterable && items.length === 0 ? (
             <text style={{ fg: THEME.muted, height: 1, flexShrink: 0 }}>No matching options</text>
           ) : (
             visible.map((choice, offset) => {
@@ -449,13 +617,18 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                 return (
                   <box
                     key="custom"
-                    style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
+                    style={{
+                      height: 1,
+                      flexShrink: 0,
+                      flexDirection: "row",
+                      ...(isSelected ? { backgroundColor: THEME.surfaceStrong } : {}),
+                    }}
                   >
                     <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
-                      {isSelected ? `${glyphs.rail} ` : " ".repeat(GUTTER)}
+                      {isSelected ? `${glyphs.arrow} ` : " ".repeat(GUTTER)}
                     </text>
-                    <text style={{ fg: THEME.primary, width: NUMBER_COLUMN, flexShrink: 0 }}>
-                      {`${glyphs.promptCursor} `}
+                    <text style={{ fg: THEME.muted, width: NUMBER_COLUMN, flexShrink: 0 }}>
+                      {windowChoiceNumber(offset)}
                     </text>
                     {isSelected ? (
                       <CaretValue
@@ -465,7 +638,13 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                         placeholder={CUSTOM_HINT}
                       />
                     ) : (
-                      <text style={{ fg: THEME.muted, flexShrink: 0 }}>
+                      <text
+                        style={{
+                          fg: THEME.muted,
+                          attributes: TextAttributes.ITALIC,
+                          flexShrink: 0,
+                        }}
+                      >
                         {clip(CUSTOM_HINT, Math.max(4, inner - GUTTER - NUMBER_COLUMN))}
                       </text>
                     )}
@@ -486,7 +665,12 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
               return (
                 <box
                   key={choice.value}
-                  style={{ height: shownRows, flexShrink: 0, flexDirection: "column" }}
+                  style={{
+                    height: shownRows,
+                    flexShrink: 0,
+                    flexDirection: "column",
+                    ...(isSelected ? { backgroundColor: THEME.surfaceStrong } : {}),
+                  }}
                 >
                   {Array.from({ length: shownRows }, (_, row) => {
                     const label = labelLines[row] ?? "";
@@ -497,7 +681,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                         style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
                       >
                         <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
-                          {isSelected ? `${glyphs.rail} ` : " ".repeat(GUTTER)}
+                          {isSelected && row === 0 ? `${glyphs.arrow} ` : " ".repeat(GUTTER)}
                         </text>
                         <text style={{ fg: THEME.muted, width: NUMBER_COLUMN, flexShrink: 0 }}>
                           {row === 0 ? windowChoiceNumber(offset) : " ".repeat(NUMBER_COLUMN)}
@@ -544,7 +728,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
       <HintRow
         hints={hints}
         width={width}
-        tally={tally}
+        {...(tally === undefined ? {} : { tally })}
       />
     </box>
   );
