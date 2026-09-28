@@ -1,13 +1,14 @@
 /**
- * Image header parsing.
+ * Image header parsing and native audio-duration probing.
  *
  * Dimensions drive the token estimate, and the estimate drives whether compaction fires — so a
  * parser that silently returns the wrong numbers is worse than one that returns nothing. Each
  * case here builds a minimal real header rather than using a fixture file, so the offsets being
- * asserted are visible in the test itself.
+ * asserted are visible in the test itself. Audio fixtures contain a fixed number of PCM samples;
+ * native probing is tested without depending on installed speech voices or synthesis services.
  */
 
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
@@ -62,6 +63,27 @@ function jpegHeader(width: number, height: number): Buffer {
   return buffer;
 }
 
+/** Complete mono, 16-bit PCM WAV: duration is exactly frameCount / sampleRate seconds. */
+function pcmWav(frameCount: number, sampleRate: number): Buffer {
+  const bytesPerFrame = 2;
+  const dataSize = frameCount * bytesPerFrame;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write("RIFF", 0, "ascii");
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write("WAVE", 8, "ascii");
+  buffer.write("fmt ", 12, "ascii");
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * bytesPerFrame, 28);
+  buffer.writeUInt16LE(bytesPerFrame, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36, "ascii");
+  buffer.writeUInt32LE(dataSize, 40);
+  return buffer;
+}
+
 describe("probeImageDimensions", () => {
   it("reads PNG dimensions", async () => {
     const path = await writeTemp("a.png", pngHeader(1024, 768));
@@ -97,21 +119,20 @@ describe("probeImageDimensions", () => {
  * `afinfo` is the macOS-only audio fallback, exercised directly because a machine with ffmpeg
  * installed would otherwise never reach it — ffprobe answers first.
  *
- * Skipped off macOS, where `afinfo` does not exist. The AIFF fixture is generated with `say`,
- * which is also macOS-only, so both live behind the same guard.
+ * Skipped off macOS, where `afinfo` does not exist. WAV fixtures use known sample counts,
+ * so duration assertions are independent of the host's speech synthesis configuration.
  */
 describe.skipIf(process.platform !== "darwin")("probeWithAfinfo", () => {
-  it("reads the duration of an audio file", async () => {
+  it.each([2000, 10000])("reads the duration of a %i-frame audio file", async (frameCount) => {
     const directory = await mkdtemp(join(tmpdir(), "jazz-afinfo-"));
-    const audioPath = join(directory, "spoken.aiff");
-    const said = Bun.spawnSync(["say", "-o", audioPath, "one two three four"]);
-    if (said.exitCode !== 0) return;
-
-    const seconds = await probeWithAfinfo(audioPath);
-    expect(seconds).toBeDefined();
-    // A four-word utterance is comfortably inside this range at any speech rate.
-    expect(seconds!).toBeGreaterThan(0.3);
-    expect(seconds!).toBeLessThan(10);
+    try {
+      const sampleRate = 8000;
+      const audioPath = join(directory, "silence.wav");
+      await writeFile(audioPath, pcmWav(frameCount, sampleRate));
+      expect(await probeWithAfinfo(audioPath)).toBeCloseTo(frameCount / sampleRate, 6);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("returns undefined for a file that is not audio", async () => {
