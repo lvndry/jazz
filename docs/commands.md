@@ -740,7 +740,7 @@ shows every form of one command. The table below is generated from the same list
 | `/skills`                                                                            | Search installed skills by name, source, or description.                                                      |
 | `/info`                                                                              | Show conversation id, title, usage, and log file paths for this session. Also `/stats`.                       |
 | `/switch [agent]`                                                                    | Switch to a different agent in the same conversation.                                                         |
-| `/theme light\|dark`                                                                 | Switch between light and dark theme.                                                                          |
+| `/theme [name] [dark\|light]`                                                        | List themes, or switch to one and save it.                                                                    |
 | `/tools`                                                                             | List all agent tools by category.                                                                             |
 | `/workflows [action]`                                                                | List workflows, or send an action (e.g. create) to the agent.                                                 |
 | `! <command>`                                                                        | Run a shell command and give its output to the agent. See [Shell escapes](#shell-escapes).                    |

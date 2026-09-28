@@ -104,7 +104,15 @@ import {
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { activeKeymapMode, bindingLabel, KEYMAPS } from "@/cli/ui/keymaps";
 import { store } from "@/cli/ui/store";
-import { getThemeVariant, PADDING_BUDGET, setThemeVariant } from "@/cli/ui/theme";
+import {
+  applyTheme,
+  CHALK_THEME,
+  listThemes,
+  PADDING_BUDGET,
+  themeWarnings,
+  type ThemeListing,
+} from "@/cli/ui/theme";
+import { getUserThemesDirectory } from "@/cli/ui/themes/registry";
 import * as fmt from "@/cli/utils/list-format";
 import { truncate } from "@/cli/utils/string-utils";
 import {
@@ -649,30 +657,77 @@ function handleRetryCommand(
   });
 }
 
+/** Width of the theme-name column in the /theme listing. */
+const THEME_NAME_COLUMN = 14;
+
 /**
- * Handle /theme command - show or switch the light/dark theme.
+ * One row per theme for /theme: the name to type, its label, the variants it has, and where a
+ * user theme came from. The theme on screen is marked.
+ */
+export function themeListingRows(listings: readonly ThemeListing[]): string[] {
+  const byName = new Map<string, ThemeListing[]>();
+  for (const listing of listings) {
+    byName.set(listing.name, [...(byName.get(listing.name) ?? []), listing]);
+  }
+  const rows: string[] = [];
+  for (const [name, variants] of byName) {
+    const first = variants[0] as ThemeListing;
+    const current = variants.find((listing) => listing.current);
+    const details = [
+      first.label,
+      first.source === "system"
+        ? "your terminal's own colours"
+        : variants.map((listing) => listing.variant).join(", "),
+      ...(first.source === "builtin" || first.source === "system" ? [] : [first.source]),
+    ].join(" · ");
+    const label = name.padEnd(THEME_NAME_COLUMN);
+    const glyphs = getGlyphs();
+    rows.push(
+      current === undefined
+        ? `${CHALK_THEME.secondary(glyphs.bullet)} ${CHALK_THEME.white(label)}${CHALK_THEME.muted(details)}`
+        : `${CHALK_THEME.primary(glyphs.arrow)} ${CHALK_THEME.primaryBold(label)}${CHALK_THEME.muted(`${details} · showing ${current.variant}`)}`,
+    );
+  }
+  return rows;
+}
+
+/**
+ * Handle /theme: list the themes, or switch to one and save it as `ui.theme`.
  */
 function handleThemeCommand(
   terminal: TerminalService,
   args: string[],
-): Effect.Effect<CommandResult, never, never> {
+): Effect.Effect<CommandResult, never, AgentConfigService> {
   return Effect.gen(function* () {
-    const requested = args[0]?.toLowerCase();
-    if (requested === "light" || requested === "dark") {
-      setThemeVariant(requested);
-      process.env["JAZZ_THEME"] = requested;
-      yield* terminal.success(`Theme switched to ${requested}.`);
-      yield* terminal.info(
-        `Persist it across sessions with: export JAZZ_THEME=${requested} (a restart applies it to every surface).`,
-      );
-      return { shouldContinue: true };
+    const requested = args.join(" ").trim();
+    if (requested !== "") {
+      const result = applyTheme(requested);
+      if (result.ok) {
+        const configService = yield* AgentConfigServiceTag;
+        yield* configService.set("ui.theme", result.setting);
+        yield* terminal.success(`Theme: ${result.label}, ${result.variant}. Saved as ui.theme.`);
+        const override = process.env["JAZZ_THEME"];
+        if (override !== undefined) {
+          yield* terminal.info(`JAZZ_THEME=${override} is set and wins at the next start.`);
+        }
+        return { shouldContinue: true };
+      }
+      yield* terminal.warn(`${result.error}.`);
     }
-    if (requested !== undefined) {
-      yield* terminal.warn(`Unknown theme "${requested}".`);
+    yield* terminal.log(fmt.heading("Themes"));
+    for (const row of themeListingRows(listThemes())) {
+      yield* terminal.log(row);
     }
-    yield* terminal.log(fmt.heading("Theme"));
-    yield* terminal.log(fmt.keyValueCompact("Current", getThemeVariant()));
-    yield* terminal.log(fmt.footer("Usage: /theme light | /theme dark"));
+    for (const warning of themeWarnings()) {
+      yield* terminal.warn(`Theme file skipped or flagged — ${warning}`);
+    }
+    yield* terminal.log(fmt.blank());
+    const directory = getUserThemesDirectory();
+    yield* terminal.log(
+      fmt.footer(
+        `/theme <name> [dark|light] switches and saves.${directory === null ? "" : ` Add your own in ${directory}.`}`,
+      ),
+    );
     yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });

@@ -209,6 +209,43 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "daemon.notify.webhookUrl": "A URL that receives each daemon notification as a JSON POST.",
   "daemon.token":
     "The daemon's bearer token, written here only on a host without a keyring. Written by Jazz.",
+  "logging.retentionDays":
+    "Days a file in the logs directory is kept after its last write. Defaults to 14.",
+  "logging.maxTotalSizeMB":
+    "Size cap for the whole logs directory, in megabytes; the oldest files go first. Defaults to 200.",
+  "notifications.channels.<name>.type":
+    "Where this channel delivers: a Telegram chat, a Discord channel, a signed webhook, or a desktop notification.",
+  "notifications.channels.<name>.events":
+    "Which events the channel receives: `reminder`, `approval-needed`, `unattended-failed`, `spend-ceiling`. Unset means all of them.",
+  "notifications.channels.<name>.chatId": "Telegram: the chat to message.",
+  "notifications.channels.<name>.botToken":
+    "Telegram or Discord: the bot token. Kept in the keyring, not this file.",
+  "notifications.channels.<name>.apiBaseUrl":
+    "Telegram or Discord: a self-hosted API server. Defaults to the platform's public API.",
+  "notifications.channels.<name>.approveFromChat":
+    "Telegram or Discord: a running Jazz bridge serves this chat, so approval requests offer `/approve`.",
+  "notifications.channels.<name>.webhookUrl":
+    "Discord: the channel webhook URL. It embeds a token, so it is kept in the keyring.",
+  "notifications.channels.<name>.channelId":
+    "Discord: with `botToken`, post as the bot into this channel instead of through a webhook.",
+  "notifications.channels.<name>.url": "Webhook: the URL each notification is POSTed to.",
+  "notifications.channels.<name>.secret":
+    "Webhook: signs every body as `X-Jazz-Signature-256`. Kept in the keyring, not this file.",
+  "history.maxConversationsPerAgent":
+    "Conversations each agent keeps in its live history; older ones are archived, never deleted. Defaults to 100.",
+  "spend.dayUSD":
+    "Spend ceiling for every run on this machine per local day, in USD. Unset is unlimited.",
+  "spend.monthUSD":
+    "Spend ceiling for every run on this machine per calendar month, in USD. Unset is unlimited.",
+  "spend.goals.dayUSD": "Daily ceiling for goal cycles and loop runs together, in USD.",
+  "spend.goals.monthUSD": "Monthly ceiling for goal cycles and loop runs together, in USD.",
+  "spend.agents.<name>.dayUSD": "Daily ceiling for one agent's runs, keyed by agent id, in USD.",
+  "spend.agents.<name>.monthUSD":
+    "Monthly ceiling for one agent's runs, keyed by agent id, in USD.",
+  "ui.theme":
+    "The theme, such as `jazz`, `catppuccin:light` or a file in `~/.jazz/themes`. `/theme` writes it; `JAZZ_THEME` wins. Defaults to `system` (your terminal's own colours).",
+  "ui.canvas":
+    "`inherit` leaves your terminal's background showing; `painted` fills every cell with the theme's background. Defaults to `inherit`.",
 };
 
 export interface ConfigReferenceRow {

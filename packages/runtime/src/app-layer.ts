@@ -56,6 +56,7 @@ import {
   type TerminalInputCapabilities,
   type TerminalOutputCapabilities,
 } from "@jazz/cli/ui/fullscreen/mount";
+import { initializeTheme } from "@jazz/cli/ui/theme";
 import { createToolRegistrationLayer } from "@jazz/core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "@jazz/core/agent/tools/tool-registry";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
@@ -271,6 +272,11 @@ export function createAppLayer(
         maxTotalSizeMB: appConfig.logging?.maxTotalSizeMB,
       });
       setConversationRetentionLimit(appConfig.history?.maxConversationsPerAgent);
+      initializeTheme({
+        ...(appConfig.ui?.theme === undefined ? {} : { configured: appConfig.ui.theme }),
+        ...(appConfig.ui?.canvas === undefined ? {} : { canvas: appConfig.ui.canvas }),
+        themesDirectory: path.join(getJazzHomeDirectory(), "themes"),
+      });
     }),
   ).pipe(Layer.provide(configLayer));
 

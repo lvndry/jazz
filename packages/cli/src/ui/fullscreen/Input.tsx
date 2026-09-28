@@ -54,6 +54,7 @@ import {
   terminalSegmentsWidth,
   wrapTerminalCells,
 } from "./terminal-cells";
+import { useThemeRevision } from "./theme-revision";
 import { COMPACT_HEIGHT, type InputModel, type Viewport } from "./types";
 
 /**
@@ -483,6 +484,7 @@ export function inputRows(
 }
 
 function InputView({ model, viewport, focused, maxRows, concealed }: InputProps): ReactNode {
+  useThemeRevision();
   const rows = inputRows(model, viewport, focused ?? !model.disabled, undefined, maxRows);
 
   return (

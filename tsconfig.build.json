@@ -13,7 +13,9 @@
     "scripts/**/*.ts",
     "package.json",
     "packages/cli/src/ui/theme.ts",
-    "packages/cli/src/ui/glyphs.ts"
+    "packages/cli/src/ui/glyphs.ts",
+    "packages/cli/src/ui/themes/*.ts",
+    "packages/cli/src/ui/themes/builtin/*.json"
   ],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

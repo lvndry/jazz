@@ -21,7 +21,7 @@ import {
 import { Effect } from "effect";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getGlyphs } from "../glyphs";
-import { THEME } from "../theme";
+import { groundPaint, THEME } from "../theme";
 import { useAutoScrollOnDrag } from "./auto-scroll-selection";
 import {
   copyText,
@@ -56,6 +56,7 @@ import { TextPrompt, textPromptLayout } from "./overlays/TextPrompt";
 import { computePeerNotice } from "./peer-notice";
 import { SubagentList, subagentListRows } from "./SubagentList";
 import { clipTerminalCells } from "./terminal-cells";
+import { useThemeRevision } from "./theme-revision";
 import { Transcript, type TranscriptHandle } from "./Transcript";
 import { allocateRegions, wheelScrollDelta } from "./transcript-window";
 import {
@@ -169,7 +170,7 @@ function TooSmall({ width, height }: { width: number; height: number }): React.R
       : ["resize"];
 
   return (
-    <box style={{ width, height, flexDirection: "column", backgroundColor: THEME.canvas }}>
+    <box style={{ width, height, flexDirection: "column", backgroundColor: groundPaint() }}>
       {lines.slice(0, Math.max(0, height)).map((line, index) => (
         <text
           key={`${String(index)}:${line}`}
@@ -258,6 +259,7 @@ function AppView({
   onPaste,
   overrideContent,
 }: AppProps): React.ReactNode {
+  useThemeRevision();
   const { width, height } = useTerminalDimensions();
   const renderer = useRenderer();
   const rendererRef = useRef(renderer);
@@ -663,7 +665,7 @@ function AppView({
 
   return (
     <box
-      style={{ width, height, flexDirection: "column", backgroundColor: THEME.canvas }}
+      style={{ width, height, flexDirection: "column", backgroundColor: groundPaint() }}
       onMouseScroll={(event) => {
         const scroll = event.scroll;
         if (scroll === undefined) return;

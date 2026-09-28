@@ -94,6 +94,24 @@ export interface AppConfig {
   readonly spend?: SpendConfig;
   /** What `jazz daemon` may spend and how it reaches you. */
   readonly daemon?: DaemonConfig;
+  /** How the interactive interface looks. */
+  readonly ui?: UiConfig;
+}
+
+/** Whether the interface's ground is the terminal's own background or the theme's. */
+export type UiCanvasMode = "inherit" | "painted";
+
+export interface UiConfig {
+  /**
+   * The theme: a name (`jazz`, `catppuccin`, `system`, or a file in `$JAZZ_HOME/themes`), or
+   * `name:dark` / `name:light` to pin a variant. `/theme` writes it. `JAZZ_THEME` wins.
+   */
+  readonly theme?: string;
+  /**
+   * `inherit` (the default) leaves the terminal's own background showing and paints only
+   * panels and code; `painted` paints every cell with the theme's background.
+   */
+  readonly canvas?: UiCanvasMode;
 }
 
 /**

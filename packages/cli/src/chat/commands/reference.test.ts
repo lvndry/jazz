@@ -26,7 +26,7 @@ describe("docs/commands.md in-chat reference", () => {
   });
 
   it("escapes pipes so a usage string stays in one cell", () => {
-    expect(renderChatCommandTable()).toContain("`/theme light\\|dark`");
+    expect(renderChatCommandTable()).toContain("`/theme [name] [dark\\|light]`");
   });
 
   it("refuses a page whose markers are missing", () => {

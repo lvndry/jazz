@@ -39,6 +39,7 @@ import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
 import { MOTION, THEME } from "../theme";
 import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
+import { useThemeRevision } from "./theme-revision";
 import {
   LIVE_ZONE_MAX_ROWS,
   type LiveModel,
@@ -438,6 +439,7 @@ function liveBandAnimates(model: LiveModel, streaming: boolean, maxRows?: number
 }
 
 function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): ReactNode {
+  useThemeRevision();
   const [tick, setTick] = useState(0);
   const streamingNow = streaming ?? false;
   const animate = liveBandAnimates(model, streamingNow, maxRows);
