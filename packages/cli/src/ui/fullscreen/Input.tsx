@@ -103,6 +103,8 @@ export interface InputSegment {
 export interface InputRow {
   readonly key: string;
   readonly segments: readonly InputSegment[];
+  /** The band ground the whole row is painted with, trailing cells included. */
+  readonly surface?: string;
 }
 
 // Per-paragraph wrap; see `wrapTerminalCells` for the wrap itself.
@@ -127,7 +129,7 @@ function onBand(row: InputRow, surface: string, width: number): InputRow {
     segment.bg === undefined ? { ...segment, bg: surface } : segment,
   );
   if (gap > 0) segments.push({ text: " ".repeat(gap), fg: THEME.muted, bg: surface });
-  return { key: row.key, segments };
+  return { key: row.key, segments, surface };
 }
 
 function alignRow(
@@ -495,7 +497,14 @@ function InputView({ model, viewport, focused, maxRows, concealed }: InputProps)
       {rows.map((row) => (
         <box
           key={row.key}
-          style={{ width: viewport.width, height: 1, flexShrink: 0 }}
+          style={{
+            width: viewport.width,
+            height: 1,
+            flexShrink: 0,
+            ...(row.surface === undefined || concealed === true
+              ? {}
+              : { backgroundColor: row.surface }),
+          }}
         >
           <text style={{ wrapMode: "none" }}>
             {(concealed === true ? [] : row.segments).map((segment, index) => (

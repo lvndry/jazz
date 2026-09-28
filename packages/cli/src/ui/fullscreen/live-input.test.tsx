@@ -599,6 +599,24 @@ describe("input", () => {
     expect(long?.segments.map((segment) => segment.text).join("")).not.toContain("sol");
   });
 
+  it("paints the band's ground to the last column of every row, padding rows included", async () => {
+    const { renderer, renderOnce, captureSpans } = await renderForTest(
+      <Input
+        model={base}
+        viewport={{ width: WIDTH, height: HEIGHT }}
+      />,
+      { width: WIDTH, height: 3 },
+    );
+    await renderOnce();
+    const captured = captureSpans();
+    renderer.destroy();
+    const element = RGBA.fromHex(THEME.surfaceStrong).toInts().slice(0, 3).join(",");
+    for (const line of captured.lines) {
+      const last = line.spans.at(-1);
+      expect(last?.bg.toInts().slice(0, 3).join(",")).toBe(element);
+    }
+  });
+
   it("drops the band's padding rows first on a short terminal", () => {
     const rows = inputRows(base, { width: WIDTH, height: COMPACT_HEIGHT - 1 });
     expect(rows.map((row) => row.key)).toEqual(["line:0"]);
