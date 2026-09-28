@@ -26,10 +26,6 @@ export interface AgentConfigProblem {
  */
 const MCP_TOOL_PREFIX = "mcp_";
 
-/** Why an agent file's `config.network` no longer applies, and where the setting lives now. */
-export const AGENT_NETWORK_MOVED_MESSAGE =
-  "network is no longer an agent setting, so these hosts are not allowed. Move allowPrivateHosts to network.allowPrivateHosts in your global Jazz config (jazz > Update configuration > Private network hosts), then delete network from this agent file.";
-
 /**
  * Problems with one agent's configuration.
  *
@@ -57,14 +53,6 @@ export function agentConfigProblems(
     problems.push({
       field: "config.reasoning",
       message: `"${String(reasoning)}" is not a reasoning level. Use disable, minimal, low, medium, high, xhigh, or max.`,
-      severity: "error",
-    });
-  }
-
-  if ((agent.config as { readonly network?: unknown }).network !== undefined) {
-    problems.push({
-      field: "config.network",
-      message: AGENT_NETWORK_MOVED_MESSAGE,
       severity: "error",
     });
   }

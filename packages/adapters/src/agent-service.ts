@@ -3,7 +3,6 @@
  * a `StorageService`. Owns the validation rules (name/description/config shape), not just I/O.
  */
 
-import { AGENT_NETWORK_MOVED_MESSAGE } from "@jazz/core/agent/agent-config-problems";
 import { validateCustomToolDefinitionShape } from "@jazz/core/agent/tools/custom-tool-validation";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import { AVAILABLE_PROVIDERS, isProviderName } from "@jazz/core/constants/models";
@@ -332,17 +331,6 @@ export class AgentServiceImpl implements AgentService {
             );
           }
         }
-      }
-
-      if ((config as { readonly network?: unknown }).network !== undefined) {
-        return yield* Effect.fail(
-          new AgentConfigurationError({
-            agentId: "unknown",
-            field: "config.network",
-            message: AGENT_NETWORK_MOVED_MESSAGE,
-            suggestion: "Remove network from the agent configuration.",
-          }),
-        );
       }
 
       // Validate customTools

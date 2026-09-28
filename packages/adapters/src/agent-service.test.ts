@@ -186,32 +186,6 @@ describe("AgentService", () => {
     });
   });
 
-  describe("validateAgentConfig network", () => {
-    const baseConfig: AgentConfig = {
-      persona: "default",
-      llmProvider: "openai",
-      llmModel: "gpt-4",
-    };
-
-    async function fieldOfFailure(network: unknown): Promise<string | undefined> {
-      const exit = await Effect.runPromiseExit(
-        service.validateAgentConfig({ ...baseConfig, network } as AgentConfig),
-      );
-      if (exit._tag === "Success") {
-        return undefined;
-      }
-      const error: unknown = exit.cause._tag === "Fail" ? exit.cause.error : undefined;
-      expect(error).toBeInstanceOf(AgentConfigurationError);
-      return (error as AgentConfigurationError).field;
-    }
-
-    it("refuses network, which is a global setting now", async () => {
-      expect(await fieldOfFailure({ allowPrivateHosts: ["homeassistant.local"] })).toBe(
-        "config.network",
-      );
-    });
-  });
-
   describe("validateAgentConfig customTools", () => {
     const baseConfig: AgentConfig = {
       persona: "default",
