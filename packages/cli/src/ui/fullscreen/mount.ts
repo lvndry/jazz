@@ -17,8 +17,8 @@ import { writeSync } from "node:fs";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { MIN_HEIGHT, MIN_WIDTH } from "./types";
-import { REVEAL_FRAME_MS } from "./use-stream-reveal";
 import { store } from "../store";
+import { REVEAL_FRAME_MS } from "../stream-pacer";
 import { applyTerminalPalette, groundIsPainted, onThemeChange, THEME } from "../theme";
 import type { OutputEntry } from "../types";
 
@@ -59,6 +59,16 @@ export interface TerminalInputCapabilities {
  * repaint re-announces the same region endlessly, which is hostile rather than
  * merely imperfect.
  */
+/** A screen reader is in use: Ink renders, and text is never paced or animated. */
+export function screenReaderRequested(
+  environment: Pick<
+    FullscreenEnvironment,
+    "INK_SCREEN_READER" | "JAZZ_A11Y"
+  > = process.env as FullscreenEnvironment,
+): boolean {
+  return environment.INK_SCREEN_READER === "1" || environment.JAZZ_A11Y === "1";
+}
+
 export function decideFullscreen(
   options: { requestPlain?: boolean } = {},
   environment: FullscreenEnvironment = process.env as FullscreenEnvironment,
@@ -80,7 +90,7 @@ export function decideFullscreen(
   if (term === "" || term === "dumb") {
     return { ...base, fullscreen: false, reason: "dumb-terminal" };
   }
-  if (environment.INK_SCREEN_READER === "1" || environment.JAZZ_A11Y === "1") {
+  if (screenReaderRequested(environment)) {
     return { ...base, fullscreen: false, reason: "screen-reader" };
   }
   if (width < MIN_WIDTH || height < MIN_HEIGHT) {

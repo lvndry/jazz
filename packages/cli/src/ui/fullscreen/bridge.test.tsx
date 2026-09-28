@@ -2797,22 +2797,27 @@ describe("fullscreen bridge", () => {
   it("paces a streamed burst in over several frames, and shows a finished turn whole", async () => {
     const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
-    const burst = `${"the model sent this whole paragraph in a single chunk ".repeat(4)}END`;
-    updateForTest(() => {
-      store.appendStream("response", burst);
-    });
-    await rendered.flush();
-    expect(rendered.captureCharFrame()).not.toContain("END");
-    expect(await frameWhen(rendered, (candidate) => candidate.includes("END"))).toContain("END");
+    store.setStreamPacing(true);
+    try {
+      const burst = `${"the model sent this whole paragraph in a single chunk ".repeat(4)}END`;
+      updateForTest(() => {
+        store.appendStream("response", burst);
+      });
+      await rendered.flush();
+      expect(rendered.captureCharFrame()).not.toContain("END");
+      expect(await frameWhen(rendered, (candidate) => candidate.includes("END"))).toContain("END");
 
-    updateForTest(() => {
-      store.appendStream("response", " and then a tail FIN");
-      store.finalizeStream();
-      store.flushOutputBatchNow();
-    });
-    await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("FIN");
-    rendered.renderer.destroy();
+      updateForTest(() => {
+        store.appendStream("response", " and then a tail FIN");
+        store.finalizeStream();
+        store.flushOutputBatchNow();
+      });
+      await rendered.flush();
+      expect(rendered.captureCharFrame()).toContain("FIN");
+    } finally {
+      store.setStreamPacing(false);
+      rendered.renderer.destroy();
+    }
   });
   it("keeps the indicator visible while the model is reasoning", async () => {
     // Reasoning is the model working with nothing yet to show, which is when an

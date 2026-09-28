@@ -16,6 +16,7 @@ import {
   type StreamKind,
 } from "./adapters/terminal-output-adapter";
 import type { LocalModelHosts } from "./local-model-hosts";
+import { createStreamPacer, type StreamPacer } from "./stream-pacer";
 import {
   appendToSubagentRun,
   finishSubagentRun,
@@ -345,6 +346,17 @@ export class UIStore {
   private backgroundHandlerStack: Array<() => void> = [];
   private promptContinuation: ((result: PromptResult) => void) | null = null;
   private rendererFallbackHandler: (() => void) | null = null;
+  /**
+   * Streamed text passes through here on its way into the scrollback, so both
+   * renderers show it at the same reading pace. Off until a renderer that
+   * someone watches turns it on; a screen reader, a pipe and the tests get
+   * every delta the moment it arrives.
+   */
+  private readonly streamPacer: StreamPacer<StreamKind> = createStreamPacer((kind, delta) => {
+    this.applyStreamDelta(kind, delta);
+  });
+  private streamPacingEnabled = false;
+  private readerFollowing = true;
 
   subscribeOutput = (listener: () => void): (() => void) => this.output.subscribe(listener);
   getOutputSnapshot = (): OutputSnapshot => this.output.getSnapshot();
@@ -374,6 +386,9 @@ export class UIStore {
 
   private doFlushBatch(): void {
     if (this.outputBatch.length === 0) return;
+    // A printed entry comes after everything streamed before it, so paced
+    // text still held back lands first.
+    this.streamPacer.flush();
     const batch = this.outputBatch;
     this.outputBatch = [];
     this.publishScrollback(
@@ -934,6 +949,30 @@ export class UIStore {
   appendStream = (kind: StreamKind, delta: string): void => {
     if (delta.length === 0) return;
     this.flushOutputBatchNow();
+    this.streamPacer.receive(kind, delta);
+  };
+
+  /**
+   * Pace streamed text for someone reading it as it arrives. Turned on by the
+   * renderer that is mounted, and left off for a screen reader, where text
+   * that keeps growing is announced over and over.
+   */
+  setStreamPacing = (enabled: boolean): void => {
+    this.streamPacingEnabled = enabled;
+    this.streamPacer.setPaced(this.streamPacingEnabled && this.readerFollowing);
+  };
+
+  /**
+   * Whether the reader can see the live edge. While they can't (scrolled up,
+   * or an overlay covers the transcript) there is nobody to pace for, so the
+   * answer is shown whole and what they come back to is complete.
+   */
+  setReaderFollowing = (following: boolean): void => {
+    this.readerFollowing = following;
+    this.streamPacer.setPaced(this.streamPacingEnabled && this.readerFollowing);
+  };
+
+  private applyStreamDelta(kind: StreamKind, delta: string): void {
     this.publishScrollback(
       reduceScrollback(this.scrollback, {
         type: "appendStream",
@@ -943,10 +982,11 @@ export class UIStore {
         finalizeId: `queued-output-${++this.pendingOutputIdCounter}`,
       }),
     );
-  };
+  }
 
   finalizeStream = (): void => {
     this.flushOutputBatchNow();
+    this.streamPacer.end();
     this.publishScrollback(
       reduceScrollback(this.scrollback, {
         type: "finalizeStream",
@@ -956,6 +996,7 @@ export class UIStore {
   };
 
   clearOutputs = (): void => {
+    this.streamPacer.reset();
     this.outputBatch = [];
     this.batchFlushScheduled = false;
     this.expandableReasoningStack = [];

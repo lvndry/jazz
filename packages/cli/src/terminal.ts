@@ -18,6 +18,7 @@ import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { TerminalDimensionsProvider } from "@/cli/ui/contexts/TerminalDimensionsContext";
 import { mountFullscreenApp, type FullscreenHandle } from "@/cli/ui/fullscreen/attach";
+import { screenReaderRequested } from "@/cli/ui/fullscreen/mount";
 import { setActiveKeymap } from "@/cli/ui/keymaps";
 import { maskSecret } from "@/cli/ui/mask-secret";
 import { store } from "@/cli/ui/store";
@@ -145,6 +146,9 @@ export class InkTerminalService implements TerminalService {
       });
       this.unregisterRendererFallback = store.registerRendererFallbackHandler(this.fallbackToInk);
     }
+    // Either renderer is being watched by a person, so streamed text is paced
+    // for reading; a screen reader gets each piece the moment it arrives.
+    store.setStreamPacing(!screenReaderRequested());
     instanceExists = true;
   }
 
@@ -180,6 +184,7 @@ export class InkTerminalService implements TerminalService {
   cleanup(): void {
     if (this.disposed) return;
     this.disposed = true;
+    store.setStreamPacing(false);
     this.unregisterRendererFallback?.();
     this.unregisterRendererFallback = null;
     if (this.fullscreen) {

@@ -107,7 +107,6 @@ import {
   type SubagentListModel,
   type ViewModel,
 } from "./types";
-import { useStreamReveal } from "./use-stream-reveal";
 import { compactWorkingDirectory } from "./working-directory";
 
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
@@ -1062,8 +1061,6 @@ export function FullscreenBridge(): React.ReactNode {
   const ephemeral = useEphemeralSlice();
   const outputs = output.entries;
   const streaming = output.streaming;
-  const [watchingLiveEdge, setWatchingLiveEdge] = useState(true);
-  const revealedStreaming = useStreamReveal(streaming, watchingLiveEdge);
   const activity = session.activity;
   const stats = session.runStats;
   const queue = promptSlice.messageQueue;
@@ -2561,15 +2558,12 @@ export function FullscreenBridge(): React.ReactNode {
   const blocks = useMemo(() => {
     const next =
       inspectedRun === undefined
-        ? transcriptBlocks(
-            { outputs, streaming: revealedStreaming, regions },
-            previousBlocks.current,
-          )
+        ? transcriptBlocks({ outputs, streaming, regions }, previousBlocks.current)
         : shareUnchangedBlocks(previousBlocks.current, subagentBlocks(inspectedRun, Date.now()));
     previousBlocks.current = next;
     return next;
     // elapsedMs ticks the open sub-agent's heading clock.
-  }, [outputs, revealedStreaming, regions, inspectedRun, elapsedMs]);
+  }, [outputs, streaming, regions, inspectedRun, elapsedMs]);
 
   const subagentList = useMemo<SubagentListModel | undefined>(() => {
     if (subagentRuns.length === 0) return undefined;
@@ -2814,7 +2808,7 @@ export function FullscreenBridge(): React.ReactNode {
       onAction={onAction}
       onKey={onKey}
       onPaste={applyPaste}
-      onWatchingLiveEdgeChange={setWatchingLiveEdge}
+      onWatchingLiveEdgeChange={store.setReaderFollowing}
       {...(overrideContent === undefined ? {} : { overrideContent })}
     />
   );
