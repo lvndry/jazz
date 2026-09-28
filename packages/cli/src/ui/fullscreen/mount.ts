@@ -18,7 +18,7 @@ import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { MIN_HEIGHT, MIN_WIDTH } from "./types";
 import { store } from "../store";
-import { REVEAL_FRAME_MS } from "../stream-pacer";
+import { REVEAL_FRAME_MS } from "../text/stream-pacer";
 import { applyTerminalPalette, groundIsPainted, onThemeChange, THEME } from "../theme";
 import type { OutputEntry } from "../types";
 

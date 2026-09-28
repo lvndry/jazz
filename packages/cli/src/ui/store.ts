@@ -20,7 +20,6 @@ import {
 } from "./adapters/terminal-output-adapter";
 import { getGlyphs } from "./glyphs";
 import type { LocalModelHosts } from "./local-model-hosts";
-import { createStreamPacer, type StreamPacer } from "./stream-pacer";
 import {
   appendToSubagentRun,
   finishSubagentRun,
@@ -33,6 +32,7 @@ import {
   type SubagentRun,
   type SubagentStatus,
 } from "./subagent-runs";
+import { createStreamPacer, type StreamPacer } from "./text/stream-pacer";
 import {
   addThoughtStep,
   foldedThoughtLine,

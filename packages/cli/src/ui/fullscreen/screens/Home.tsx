@@ -35,8 +35,8 @@ import {
   type HomeStatus,
   type LegendEntry,
 } from "../../models/home-view";
+import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells";
 import { groundPaint, THEME } from "../../theme";
-import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
 

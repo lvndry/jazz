@@ -56,7 +56,6 @@ import { TextPrompt, textPromptLayout } from "./overlays/TextPrompt";
 import { ThemePicker, themePickerLayout } from "./overlays/ThemePicker";
 import { computePeerNotice } from "./peer-notice";
 import { SubagentList, subagentListRows } from "./SubagentList";
-import { clipTerminalCells } from "./terminal-cells";
 import { useThemeRevision } from "./theme-revision";
 import { Transcript, type TranscriptHandle } from "./Transcript";
 import { allocateRegions, wheelScrollDelta } from "./transcript-window";
@@ -68,6 +67,7 @@ import {
   type ViewModel,
   type Viewport,
 } from "./types";
+import { clipTerminalCells } from "../text/terminal-cells";
 
 /**
  * The shell: five stacked regions and a floating overlay layer.

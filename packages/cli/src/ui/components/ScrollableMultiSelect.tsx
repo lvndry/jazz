@@ -2,8 +2,8 @@ import { Box, Text, useInput } from "ink";
 import React, { useMemo } from "react";
 import { ChoiceMeta } from "./PromptParts";
 import { getGlyphs } from "../glyphs";
-import { pickerWindowStart } from "../picker-window";
 import { originalValuesFromPicker, toPickerChoices, usePicker } from "../prompt-core";
+import { pickerWindowStart } from "../text/picker-window";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
 

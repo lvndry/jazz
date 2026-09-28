@@ -37,10 +37,10 @@ import { stepperSegments, type QuestionStep } from "./stepper";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
 import { CUSTOM_ANSWER_LABEL, questionKeys, questionPositionLabel } from "../../models/question";
-import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
 import { alignTabColumns } from "../../prompt-core/description-columns";
+import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../text/picker-window";
+import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../../text/terminal-cells";
 import { THEME } from "../../theme";
-import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
 import type { Viewport } from "../types";
 
 /** Windowed width, and the floor below which windowing stops making sense. */

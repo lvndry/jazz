@@ -31,33 +31,6 @@ import {
   scanFilePickerEntries,
 } from "../file-picker-files";
 import { hostForModel } from "../local-model-hosts";
-import {
-  interruptSummary,
-  type InterruptSnapshot,
-  type InterruptSummary,
-  type ReceiptFacts,
-} from "../models/interrupt";
-import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
-import { RETRY_BAND_ROWS, retryBand } from "../models/retry";
-import { wrapIndex } from "../picker-window";
-import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
-import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
-import { filterSkills, skillDetailRows } from "../skill-browser";
-import {
-  store,
-  useEphemeralSlice,
-  useOutputSlice,
-  usePromptSlice,
-  useSessionSlice,
-  useSubagentsSlice,
-  type EphemeralRegion,
-  type PendingApproval,
-} from "../store";
-import type { SubagentRun } from "../subagent-runs";
-import { mergeSuggestions } from "../suggestion-menu";
-import { previewTheme } from "../theme";
-import type { Choice, OutputEntry, PromptState } from "../types";
-import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
 import { App, type KeyChord } from "./App";
 import { flattenPaste, normalizePaste, readClipboard } from "./clipboard";
 import {
@@ -91,24 +64,10 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
-import { approvalFacts, diffLanguage } from "../models/approval";
-import { approvalTitle } from "../models/approval";
-import type { FilePickerModel } from "./overlays/FilePicker";
-import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
-import type { QuestionStep } from "./overlays/stepper";
-import { initialChoiceIndex } from "../prompt-core/picker-adapter";
-import { readPromptStep } from "../prompt-core/stepper";
-import type { TextPromptModel } from "./overlays/TextPrompt";
-import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
-import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
-import { Home } from "./screens/Home";
-import { MenuScreen } from "./screens/Menu";
-import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
 import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
 import { themePickerTarget } from "./theme-picker-keys";
-import { foldTurn } from "./turn-fold";
 import {
   LIVE_ZONE_MAX_ROWS,
   type ApprovalOverlay,
@@ -125,7 +84,48 @@ import {
   type ThemePickerRow,
   type ViewModel,
 } from "./types";
-import { compactWorkingDirectory } from "./working-directory";
+import { approvalFacts, diffLanguage } from "../models/approval";
+import { approvalTitle } from "../models/approval";
+import {
+  interruptSummary,
+  type InterruptSnapshot,
+  type InterruptSummary,
+  type ReceiptFacts,
+} from "../models/interrupt";
+import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
+import { RETRY_BAND_ROWS, retryBand } from "../models/retry";
+import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
+import { initialChoiceIndex } from "../prompt-core/picker-adapter";
+import { readPromptStep } from "../prompt-core/stepper";
+import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
+import { filterSkills, skillDetailRows } from "../skill-browser";
+import {
+  store,
+  useEphemeralSlice,
+  useOutputSlice,
+  usePromptSlice,
+  useSessionSlice,
+  useSubagentsSlice,
+  type EphemeralRegion,
+  type PendingApproval,
+} from "../store";
+import type { SubagentRun } from "../subagent-runs";
+import { mergeSuggestions } from "../suggestion-menu";
+import { wrapIndex } from "../text/picker-window";
+import { compactWorkingDirectory } from "../text/working-directory";
+import { previewTheme } from "../theme";
+import type { Choice, OutputEntry, PromptState } from "../types";
+import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
+import type { FilePickerModel } from "./overlays/FilePicker";
+import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
+import type { QuestionStep } from "./overlays/stepper";
+import type { TextPromptModel } from "./overlays/TextPrompt";
+import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
+import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
+import { Home } from "./screens/Home";
+import { MenuScreen } from "./screens/Menu";
+import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
+import { foldTurn } from "./turn-fold";
 
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
 const SUBAGENT_NOTICE_MS = 2500;

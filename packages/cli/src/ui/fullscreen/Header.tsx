@@ -21,9 +21,13 @@ import {
   meterFilledCells as filledCells,
   meterTone,
 } from "../meter";
-import { THEME } from "../theme";
-import { fitTerminalSegments, terminalCellWidth, terminalSegmentsWidth } from "./terminal-cells";
 import { useThemeRevision } from "./theme-revision";
+import {
+  fitTerminalSegments,
+  terminalCellWidth,
+  terminalSegmentsWidth,
+} from "../text/terminal-cells";
+import { THEME } from "../theme";
 import type { Connector, HeaderModel, Viewport } from "./types";
 
 /**

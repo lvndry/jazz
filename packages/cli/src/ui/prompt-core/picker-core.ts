@@ -23,7 +23,7 @@
  */
 
 import type { PromptTagTone } from "@jazz/core/interfaces/terminal";
-import { rankPickerMatches } from "../picker-window";
+import { rankPickerMatches } from "../text/picker-window";
 
 /** A single choice as the core sees it. Hosts map their domain choices to this. */
 export interface PickerChoice {

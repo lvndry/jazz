@@ -20,7 +20,7 @@ import {
   statusText,
   type HomeModel,
 } from "./models/home-view";
-import { PICKER_WINDOW_SIZE } from "./picker-window";
+import { PICKER_WINDOW_SIZE } from "./text/picker-window";
 import { THEME } from "./theme";
 
 export interface InkHomeProps {

@@ -7,8 +7,8 @@
 
 import type { ReactNode } from "react";
 import { getGlyphs } from "../../glyphs";
+import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells";
 import { groundPaint, THEME } from "../../theme";
-import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
 

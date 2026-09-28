@@ -28,14 +28,14 @@ import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./ov
 import { stepperSegments, type QuestionStep } from "./stepper";
 import { getGlyphs } from "../../glyphs";
 import { maskSecret, maskSecretCaret } from "../../mask-secret";
-import { THEME } from "../../theme";
 import {
   clipTerminalCells,
   clipTerminalCellsFromStart,
   sliceTerminalCells,
   terminalCellWidth,
   terminalGraphemes,
-} from "../terminal-cells";
+} from "../../text/terminal-cells";
+import { THEME } from "../../theme";
 import type { Viewport } from "../types";
 
 /** Border, blank, input, blank, error. */

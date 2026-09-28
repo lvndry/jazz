@@ -66,7 +66,7 @@ import {
   terminalCellWidth,
   terminalGraphemes,
   terminalSegmentsWidth,
-} from "./terminal-cells";
+} from "../text/terminal-cells";
 import { foldedThoughtLine, formatPreciseDuration, thoughtLabel } from "../turn-thought";
 import { useThemeRevision } from "./theme-revision";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
