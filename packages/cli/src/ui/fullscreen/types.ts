@@ -116,7 +116,8 @@ export interface ToolReceiptBlock extends BlockBase {
 export interface NoticeBlock extends BlockBase {
   readonly kind: "notice";
   readonly text: string;
-  readonly tone: "info" | "warn" | "error";
+  /** `receipt` closes a turn with its totals; `info` is system or command output, never the agent. */
+  readonly tone: "info" | "warn" | "error" | "receipt";
 }
 
 export interface DividerBlock extends BlockBase {

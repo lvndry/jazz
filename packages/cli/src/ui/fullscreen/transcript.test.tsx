@@ -522,7 +522,7 @@ describe("tool receipts", () => {
     expect(colorOf(spans, "thought")).toBe(THEME.muted.toUpperCase());
   });
 
-  it("wraps long tool arguments while keeping the result visible", () => {
+  it("crops long tool arguments to one row while keeping the outcome visible", () => {
     const path = `/projects/${"deep/".repeat(18)}notes`;
     const blocks: readonly Block[] = [
       {
@@ -531,15 +531,16 @@ describe("tool receipts", () => {
         kind: "tool",
         app: "view_memory",
         args: `path: ${path}`,
-        summary: "Here're the files · /notes.txt",
+        summary: "12 entries",
         status: "ok",
       },
     ];
     const rows = transcriptRows(blocks, NARROW);
     const text = rows.flatMap((row) => row.content.map((segment) => segment.text)).join("");
-    expect(rows.length).toBeGreaterThan(1);
-    expect(text).toContain(`path: ${path}`);
-    expect(text).toContain("/notes.txt");
+    expect(rows).toHaveLength(1);
+    expect(text).toStartWith("view_memory");
+    expect(text).toContain("…");
+    expect(text).toEndWith("12 entries");
   });
 
   it("states the classifier verdict on a settled command receipt", async () => {
@@ -639,6 +640,42 @@ describe("notices and dividers", () => {
     const { rows: frame, spans } = await render(transcript(blocks, WIDE), WIDE);
     expect(frame.join("\n")).toContain("resumed");
     expect(colorOf(spans, "context is 82% full")).toBe(THEME.warning.toUpperCase());
+  });
+
+  it("leaves the gutter empty for system output, so it never reads as the agent speaking", () => {
+    const blocks: readonly Block[] = [
+      { id: "n", seq: 1, kind: "notice", text: "Theme switched to light.", tone: "info" },
+      { id: "r", seq: 2, kind: "notice", text: "9.7s · 2 steps", tone: "receipt" },
+      { id: "a", seq: 3, kind: "agent", markdown: "Done." },
+    ];
+    const rows = transcriptRows(blocks, WIDE);
+    const agentMarker = rows.find((row) => row.key.startsWith("a:"))?.gutter[0]?.text;
+    for (const prefix of ["n:", "r:"]) {
+      const marker = rows.find((row) => row.key.startsWith(prefix))?.gutter[0]?.text;
+      expect(marker?.trim()).toBe("");
+      expect(marker).not.toBe(agentMarker);
+    }
+    expect(rows.find((row) => row.key.startsWith("r:"))?.content[0]?.fg).toBe(THEME.muted);
+  });
+});
+
+describe("denied receipts", () => {
+  it("state the refusal in one row, never the executor's message", () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "t",
+        seq: 1,
+        kind: "tool",
+        app: "write_file",
+        args: "path: /tmp/hello.txt",
+        summary: "",
+        status: "denied",
+      },
+    ];
+    const rows = transcriptRows(blocks, WIDE);
+    const text = rows.flatMap((row) => row.content.map((segment) => segment.text)).join("");
+    expect(rows).toHaveLength(1);
+    expect(text).toBe("write_file  path: /tmp/hello.txt  denied");
   });
 });
 

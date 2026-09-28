@@ -790,7 +790,51 @@ describe("InkStreamingRenderer", () => {
   });
 
   describe("metrics outro", () => {
-    test("shows decode speed as tok/s when the stream reports it", async () => {
+    test("closes a multi-step turn with one receipt, not one per model request", () => {
+      const renderer = new InkStreamingRenderer(
+        "TestAgent",
+        true,
+        { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+        { textBufferMs: 0 },
+      );
+      try {
+        emitStreamStart(renderer);
+        const baseline = printOutputCalls.length;
+        const toolStep: ChatCompletionResponse = {
+          ...completeResponse(""),
+          toolCalls: [
+            { id: "call-1", type: "function", function: { name: "ls", arguments: "{}" } },
+          ],
+          usage: { promptTokens: 13_000, completionTokens: 46, totalTokens: 13_046 },
+        };
+        const finalStep: ChatCompletionResponse = {
+          ...completeResponse("done"),
+          usage: { promptTokens: 17_000, completionTokens: 56, totalTokens: 17_056 },
+        };
+        for (const [response, durationMs] of [
+          [toolStep, 5_900],
+          [finalStep, 3_800],
+        ] as const) {
+          Effect.runSync(
+            renderer.handleEvent({
+              type: "complete",
+              response,
+              totalDurationMs: durationMs,
+              metrics: { firstTokenLatencyMs: 10 },
+            }),
+          );
+        }
+        const receipts = printOutputCalls
+          .slice(baseline)
+          .filter((entry) => entry.meta?.["turnReceipt"] === true);
+        expect(receipts).toHaveLength(1);
+        expect(receipts[0]?.meta?.["plainText"]).toBe("9.7s · 2 steps · 30k in → 102 out");
+      } finally {
+        Effect.runSync(renderer.reset());
+      }
+    });
+
+    test("keeps decode speed out of the turn receipt", async () => {
       const ephemeralAppends: Array<{ id: string; text: string }> = [];
       const originalAppend = store.appendEphemeral;
       store.appendEphemeral = (id, text) => {
@@ -823,7 +867,8 @@ describe("InkStreamingRenderer", () => {
           .filter((entry) => entry.id === "eph-tps")
           .map((entry) => entry.text)
           .join("");
-        expect(combined).toContain("41.3 tok/s");
+        expect(combined).toContain("42 tok");
+        expect(combined).not.toContain("tok/s");
       } finally {
         store.appendEphemeral = originalAppend;
         Effect.runSync(renderer.reset());

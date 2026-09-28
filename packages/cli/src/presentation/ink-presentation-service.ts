@@ -63,6 +63,14 @@ import {
   wrapToWidth,
 } from "./markdown-formatter";
 import { isInsideOpenStructure } from "./markdown-split";
+import {
+  addStep,
+  EMPTY_TURN,
+  formatReceiptCost,
+  formatStepBreakdown,
+  formatTurnReceipt,
+  type TurnTotals,
+} from "./turn-receipt";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { getGlyphs } from "../ui/glyphs";
 import { store } from "../ui/store";
@@ -95,18 +103,11 @@ function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionColla
     const parts = [`${label} completed`, `${seconds}s`];
     if (outcome.totalTokens !== undefined)
       parts.push(`${formatCompactCount(outcome.totalTokens)} tok`);
-    if (outcome.costUSD !== undefined) parts.push(formatOutroCost(outcome.costUSD));
+    if (outcome.costUSD !== undefined) parts.push(formatReceiptCost(outcome.costUSD));
     return chalk.dim(chalk.italic(`${glyphs.success} ${parts.join(" · ")}`));
   }
   const verb = outcome.status === "failed" ? "failed" : "interrupted";
   return chalk.dim(chalk.italic(`${glyphs.error} ${label} ${verb}`));
-}
-
-function formatOutroCost(cost: number): string {
-  if (cost === 0) return "$0.00";
-  if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-  if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-  return `<$0.0001`;
 }
 
 /**
@@ -174,6 +175,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private seenLength = 0;
   /** True if any text delta was emitted in the current round (for handleComplete fallback). */
   private hasStreamedText = false;
+  /** Steps of the turn so far; closed into one receipt when the model stops calling tools. */
+  private turn: TurnTotals = EMPTY_TURN;
 
   /**
    * Active reasoning ephemeral region id (null if none open). Reasoning is
@@ -440,6 +443,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.acc.activeTools.clear();
       this.acc.isThinking = false;
       this.acc.lastAgentHeaderWritten = false;
+      this.turn = EMPTY_TURN;
       this.acc.lastAppliedTextSequence = -1;
       this.seenLength = 0;
       this.hasStreamedText = false;
@@ -748,9 +752,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
 
     if (this.showMetrics && event.metrics) {
-      if (this.streamTarget.kind === "scrollback") {
-        store.printOutput({ type: "log", message: "", timestamp: new Date() });
-      }
       this.printOutro(event);
     }
 
@@ -790,6 +791,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         type: "info",
         message: this.agentName,
         timestamp: new Date(),
+        meta: { agentHeader: true },
       });
       store.printOutput({
         type: "log",
@@ -803,37 +805,28 @@ export class InkStreamingRenderer implements StreamingRenderer {
         // opaque React element to anything else. `formattedFull` is the actual
         // text and travels alongside it in meta, so a non-Ink renderer has a
         // real answer to show instead of an unrenderable object.
-        meta: { plainText: formattedFull },
+        // `agentMarkdown` is the unrendered source, so a renderer that lays out
+        // markdown itself can show this answer exactly like a streamed one.
+        meta: { plainText: formattedFull, agentMarkdown: fullContent },
         timestamp: new Date(),
       });
     }
   }
 
   /**
-   * The turn outro: ONE quiet line closing the turn —
-   * `✓ 4.2s · 9.3k in → 28 out · 41.3 tok/s · $0.0019` — replacing the old trio of
-   * metrics line, cost line, and "completed successfully" banner.
+   * The turn outro: ONE quiet row closing the whole turn —
+   * `12.3s · 4 steps · 65k in → 416 out · $0.08`.
    *
-   * Cost joins the line when pricing is in the synchronous cache (the common
-   * case); on a cold cache the footer still gets the async update, but no
-   * late line is printed after the prompt has already returned.
+   * A turn that calls tools is several model requests, each ending in its own
+   * `complete` event. Every request still updates the footer and the session
+   * totals as it lands, but the row is printed only once the model answers
+   * without asking for more tools; until then the step is added to the turn.
+   * The per-step breakdown goes behind Ctrl+O when no truncated tool output
+   * is already waiting there.
    */
   private printOutro(event: Extract<StreamEvent, { type: "complete" }>): void {
-    const parts: string[] = [];
-    if (event.totalDurationMs > 0) {
-      parts.push(`${(event.totalDurationMs / 1000).toFixed(1)}s`);
-    }
-
     const usage = event.response.usage;
     if (usage) {
-      const cacheReadTokens = Math.min(usage.cacheReadTokens ?? 0, usage.promptTokens);
-      const cachedShare =
-        usage.promptTokens > 0 && cacheReadTokens > 0
-          ? ` (${Math.round((cacheReadTokens / usage.promptTokens) * 100)}% cached)`
-          : "";
-      parts.push(
-        `${formatCompactCount(usage.promptTokens)} in${cachedShare} → ${formatCompactCount(usage.completionTokens)} out`,
-      );
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
       this.acc.lastPromptTokens = usage.promptTokens;
@@ -842,72 +835,98 @@ export class InkStreamingRenderer implements StreamingRenderer {
         promptTokens: usage.promptTokens,
         completionTokens: usage.completionTokens,
       });
-    } else if (event.metrics?.totalTokens) {
-      parts.push(`${formatCompactCount(event.metrics.totalTokens)} tok`);
     }
 
     const tokensPerSecond = event.metrics?.tokensPerSecond;
-    if (tokensPerSecond !== undefined && Number.isFinite(tokensPerSecond)) {
-      parts.push(`${tokensPerSecond.toFixed(1)} tok/s`);
-    }
+    const costUSD = this.recordStepCost(usage);
+    this.turn = addStep(this.turn, {
+      durationMs: event.totalDurationMs,
+      ...(usage
+        ? {
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            cacheReadTokens: Math.min(usage.cacheReadTokens ?? 0, usage.promptTokens),
+          }
+        : event.metrics?.totalTokens !== undefined
+          ? { totalTokens: event.metrics.totalTokens }
+          : {}),
+      ...(costUSD !== undefined ? { costUSD } : {}),
+      ...(tokensPerSecond !== undefined && Number.isFinite(tokensPerSecond)
+        ? { tokensPerSecond }
+        : {}),
+    });
 
-    const provider = this.acc.currentProvider;
-    const model = this.acc.currentModel;
-    if (usage && provider && model) {
-      const computeCost = (meta: UsageCostPricing | undefined): number | null =>
-        computeUsageCostUSD(usage, meta);
-      const rollIntoFooter = (totalCost: number): void => {
-        this.acc.cumulativeCostUSD += totalCost;
-        // Accumulate into the shared session total so sub-agent renderers add
-        // to the footer rather than overwriting it with their own figure.
-        store.addSessionCostUSD(totalCost);
-        // Only the main-agent (scrollback) renderer owns the footer's model/
-        // provider label; sub-agent renderers contribute cost but must not
-        // relabel the footer with their (often different) model.
-        if (this.streamTarget.kind === "scrollback") {
-          store.updateRunStats({ model, provider });
-        }
-      };
+    if ((event.response.toolCalls?.length ?? 0) > 0) return;
 
-      const cachedMeta = getModelsDevMetadataSync(model, provider);
-      if (cachedMeta !== undefined) {
-        const totalCost = computeCost(cachedMeta);
-        if (totalCost !== null) {
-          rollIntoFooter(totalCost);
-          parts.push(formatOutroCost(totalCost));
-        }
-      } else {
-        // Cold cache: keep the footer accurate without printing a straggler
-        // line after the prompt has returned.
-        void getModelsDevMetadata(model, provider)
-          .then((meta) => {
-            const totalCost = computeCost(meta);
-            if (totalCost !== null) rollIntoFooter(totalCost);
-          })
-          .catch(() => {
-            /* pricing unavailable */
-          });
-      }
-    }
+    const turn = this.turn;
+    this.turn = EMPTY_TURN;
+    const line = formatTurnReceipt(turn);
+    if (line === undefined) return;
 
-    if (parts.length === 0) return;
-
-    const line = `${getGlyphs().success} ${parts.join(" · ")}`;
     if (this.streamTarget.kind === "ephemeral") {
       this.bufferStreamDelta({
         target: "ephemeral",
         regionId: this.streamTarget.regionId,
-        delta: `\n${line}`,
+        delta: `\n${getGlyphs().success} ${line}`,
         channel: "note",
       });
       return;
     }
 
+    store.printOutput({ type: "log", message: "", timestamp: new Date() });
     store.printOutput({
       type: "debug",
-      message: line,
+      message: `${getGlyphs().success} ${line}`,
       timestamp: new Date(),
+      meta: { turnReceipt: true, plainText: line },
     });
+    if (turn.steps.length > 1 && store.getExpandableDiff() === null) {
+      store.setExpandableDiff(formatStepBreakdown(turn));
+    }
+  }
+
+  /**
+   * Price one model request and roll it into the footer and session totals.
+   * Returns the cost when pricing was available synchronously, so the turn
+   * receipt can include it; a cold pricing cache still reaches the footer.
+   */
+  private recordStepCost(
+    usage: Extract<StreamEvent, { type: "complete" }>["response"]["usage"],
+  ): number | undefined {
+    const provider = this.acc.currentProvider;
+    const model = this.acc.currentModel;
+    if (!usage || !provider || !model) return undefined;
+    const computeCost = (meta: UsageCostPricing | undefined): number | null =>
+      computeUsageCostUSD(usage, meta);
+    const rollIntoFooter = (totalCost: number): void => {
+      this.acc.cumulativeCostUSD += totalCost;
+      // Accumulate into the shared session total so sub-agent renderers add
+      // to the footer rather than overwriting it with their own figure.
+      store.addSessionCostUSD(totalCost);
+      // Only the main-agent (scrollback) renderer owns the footer's model/
+      // provider label; sub-agent renderers contribute cost but must not
+      // relabel the footer with their (often different) model.
+      if (this.streamTarget.kind === "scrollback") {
+        store.updateRunStats({ model, provider });
+      }
+    };
+
+    const cachedMeta = getModelsDevMetadataSync(model, provider);
+    if (cachedMeta !== undefined) {
+      const totalCost = computeCost(cachedMeta);
+      if (totalCost === null) return undefined;
+      rollIntoFooter(totalCost);
+      return totalCost;
+    }
+    void getModelsDevMetadata(model, provider)
+      .then((meta) => {
+        const totalCost = computeCost(meta);
+        if (totalCost !== null) rollIntoFooter(totalCost);
+      })
+      .catch(() => {
+        /* pricing unavailable */
+      });
+    return undefined;
   }
 
   /**
@@ -1525,6 +1544,8 @@ export class InkPresentationService implements PresentationService {
           type: "log",
           message: `Approve this action? ${CHALK_THEME.success(choice === "no" ? "No" : "Yes")}`,
           timestamp: new Date(),
+          // The fullscreen transcript states the outcome on the tool's own receipt.
+          meta: { approvalEcho: true },
         });
 
         if (choice === "yes") {

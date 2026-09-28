@@ -579,7 +579,7 @@ function lineEndAfter(characters: readonly string[], at: number): number {
 interface ToolReceiptMeta {
   readonly app: string;
   readonly summary: string;
-  readonly status: "ok" | "failed";
+  readonly status: "ok" | "failed" | "denied";
   readonly args?: string;
   readonly durationMs?: number;
   readonly reason?: string;
@@ -592,7 +592,8 @@ function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
   if (candidate === null || typeof candidate !== "object") return null;
   const record = candidate as Record<string, unknown>;
   if (typeof record["app"] !== "string" || typeof record["summary"] !== "string") return null;
-  const status = record["status"] === "failed" ? "failed" : "ok";
+  const status =
+    record["status"] === "failed" ? "failed" : record["status"] === "denied" ? "denied" : "ok";
   return {
     app: record["app"],
     summary: record["summary"],
@@ -705,7 +706,19 @@ export function blocksFrom(
       continue;
     }
 
-    if (entry.meta?.["toolStart"] === true) continue;
+    if (
+      entry.meta?.["toolStart"] === true ||
+      entry.meta?.["agentHeader"] === true ||
+      entry.meta?.["approvalEcho"] === true
+    ) {
+      continue;
+    }
+
+    const agentMarkdown = entry.meta?.["agentMarkdown"];
+    if (typeof agentMarkdown === "string" && agentMarkdown.trim().length > 0) {
+      blocks.push({ id, seq: seq++, kind: "agent", markdown: agentMarkdownOf(agentMarkdown) });
+      continue;
+    }
 
     if (entry.meta?.["expandedOutput"] === true) {
       const expanded = stripAnsiCodes(
@@ -772,7 +785,14 @@ export function blocksFrom(
       continue;
     }
 
-    const tone = entry.type === "error" ? "error" : entry.type === "warn" ? "warn" : "info";
+    const tone =
+      entry.meta?.["turnReceipt"] === true
+        ? "receipt"
+        : entry.type === "error"
+          ? "error"
+          : entry.type === "warn"
+            ? "warn"
+            : "info";
     blocks.push({ id, seq: seq++, kind: "notice", text: text.replace(/^\n+|\n+$/g, ""), tone });
   }
 
