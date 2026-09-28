@@ -56,9 +56,9 @@ list.
 | `JAZZ_DAEMON_TICK_MS`         | How often the daemon checks for due work, in milliseconds. Defaults to 5000.                                                          |
 | `JAZZ_DISABLE_CATCH_UP`       | `1` skips the prompt to run workflows missed while the machine was off, and the failed-runs notice.                                   |
 
-`JAZZ_NOTIFY_<NAME>_<FIELD>` supplies a notification channel secret, taking precedence over
-config.json and the keyring: for example, `JAZZ_NOTIFY_PHONE_BOT_TOKEN`, `JAZZ_NOTIFY_TEAM_WEBHOOK_URL`,
-or `JAZZ_NOTIFY_OPS_SECRET`. Channel names and field names become uppercase with underscores.
+`JAZZ_NOTIFY_<NAME>_<FIELD>` supplies a notify target secret, taking precedence over the
+keyring: for example, `JAZZ_NOTIFY_PHONE_BOT_TOKEN`, `JAZZ_NOTIFY_TEAM_WEBHOOK_URL`, or
+`JAZZ_NOTIFY_OPS_SECRET`. Target names and field names become uppercase with underscores.
 See [Notifications](./notifications.md).
 
 `JAZZ_SPEND_LEDGER=parent` tells a child process that its caller records its spend. The child

@@ -7,6 +7,10 @@
  * a daemon that may not be running. Claims follow the shared at-least-once rules
  * (`scheduled-items.ts`), so two processes draining at once never send an item twice while its
  * claimant is alive.
+ *
+ * A desktop notification that could not be shown and cannot be retried (no notifier on this
+ * host) is removed instead of kept as failed: showing it later is no use. Each drain reports
+ * those once per target on stderr.
  */
 
 import * as nodeFs from "node:fs/promises";
@@ -25,7 +29,7 @@ import {
   describeDelivery,
   hasStoppedRetrying,
 } from "@jazz/core/utils/delivery";
-import { writeStateFile } from "@jazz/core/utils/state-file";
+import { readStateFile, writeStateFile } from "@jazz/core/utils/state-file";
 import { withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import {
@@ -47,7 +51,31 @@ export const NOTIFY_OUTBOX_STORE: ScheduledItemStore<OutboxItem> = {
 
 export interface DrainReport {
   readonly delivered: number;
+  /** Items that were not delivered, the dropped ones included. */
   readonly failed: number;
+  /** Desktop notifications that could not be shown and were removed from the outbox. */
+  readonly dropped: number;
+}
+
+/** Whether a failed send is dropped rather than kept for `jazz notify outbox`. */
+function isDroppedFailure(target: NotifyTarget | undefined, outcome: DeliveryOutcome): boolean {
+  return target?.kind === "desktop" && !outcome.delivered && !outcome.retryable;
+}
+
+/** Remove one item from a target's outbox, under its lock. */
+function removeItem(baseDirectory: string, targetName: string, itemId: string) {
+  const filePath = outboxFilePath(baseDirectory, targetName);
+  return withLock(
+    outboxLockPath(baseDirectory, targetName),
+    Effect.gen(function* () {
+      const items =
+        (yield* readStateFile(filePath, OUTBOX_FILE_KIND, { onCorrupt: "quarantine" })) ?? [];
+      const kept = items.filter((item) => item.id !== itemId);
+      if (kept.length !== items.length) {
+        yield* writeStateFile(filePath, OUTBOX_FILE_KIND, kept);
+      }
+    }),
+  );
 }
 
 export interface DrainOptions {
@@ -78,6 +106,7 @@ export function drainNotifyOutbox(options: DrainOptions = {}) {
       options.send ?? ((target, item, context) => sendToTarget(target, item.event, context));
     let delivered = 0;
     let failed = 0;
+    const droppedByTarget = new Map<string, { count: number; error: string }>();
     const ordered = [...claims].sort((left, right) => left.item.fireAt - right.item.fireAt);
     for (const { agentId: targetName, item } of ordered) {
       const target = targets.find((candidate) => candidate.name === targetName);
@@ -94,14 +123,25 @@ export function drainNotifyOutbox(options: DrainOptions = {}) {
       } else {
         failed += 1;
       }
-      yield* settleItem(
-        NOTIFY_OUTBOX_STORE,
-        baseDirectory,
-        targetName,
-        item.id,
-        outcome,
-        options.now ?? Date.now(),
-      ).pipe(
+      const drop = isDroppedFailure(target, outcome);
+      if (drop && !outcome.delivered) {
+        const previous = droppedByTarget.get(targetName);
+        droppedByTarget.set(targetName, {
+          count: (previous?.count ?? 0) + 1,
+          error: outcome.error,
+        });
+      }
+      const record = drop
+        ? removeItem(baseDirectory, targetName, item.id)
+        : settleItem(
+            NOTIFY_OUTBOX_STORE,
+            baseDirectory,
+            targetName,
+            item.id,
+            outcome,
+            options.now ?? Date.now(),
+          );
+      yield* record.pipe(
         Effect.catchAll((error) =>
           Effect.sync(() =>
             process.stderr.write(
@@ -112,7 +152,14 @@ export function drainNotifyOutbox(options: DrainOptions = {}) {
         Effect.ensuring(Effect.sync(() => finishClaim(NOTIFY_OUTBOX_STORE, targetName, item.id))),
       );
     }
-    return { delivered, failed } satisfies DrainReport;
+    let dropped = 0;
+    for (const [targetName, { count, error }] of droppedByTarget) {
+      dropped += count;
+      process.stderr.write(
+        `[jazz] ${count} desktop notification(s) on "${targetName}" could not be shown and were dropped: ${error}\n`,
+      );
+    }
+    return { delivered, failed, dropped } satisfies DrainReport;
   });
 }
 

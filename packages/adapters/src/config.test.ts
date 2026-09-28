@@ -121,6 +121,61 @@ describe("AgentConfigService", () => {
     expect(readFileSync(configPath, "utf8")).toContain("sk-test");
   });
 
+  it("never writes a notify target's secret into config.json, even with no targets yet", async () => {
+    const configPath = tempConfigPath("config.json");
+    writeFileSync(configPath, JSON.stringify({ maxRetries: 2 }));
+    const service = new AgentConfigServiceImpl(
+      initialConfig,
+      { maxRetries: 2 },
+      configPath,
+      mockFS,
+    );
+
+    await Effect.runPromise(service.set("notify.targets.phone.botToken", "123:SECRET"));
+    await Effect.runPromise(service.set("webhooks.mira.token", "hook-secret"));
+
+    expect(readFileSync(configPath, "utf8")).not.toContain("SECRET");
+    expect(readWritten<Record<string, unknown>>(configPath)).toEqual({ maxRetries: 2 });
+    expect(service.secretStorageUnavailable("notify.targets.phone.botToken")).toBe(true);
+    expect(service.secretStorageUnavailable("webhooks.mira.token")).toBe(true);
+    expect((await Effect.runPromise(service.appConfig)).notify).toBeUndefined();
+  });
+
+  it("keeps an existing notify target list a list when its secret has nowhere to go", async () => {
+    const configPath = tempConfigPath("config.json");
+    const document = { notify: { targets: [{ name: "phone", kind: "telegram", chatId: "1" }] } };
+    writeFileSync(configPath, JSON.stringify(document));
+    const service = new AgentConfigServiceImpl(
+      { ...initialConfig, ...document } as AppConfig,
+      document,
+      configPath,
+      mockFS,
+    );
+
+    await Effect.runPromise(service.set("notify.targets.phone.botToken", "123:SECRET"));
+
+    expect(readWritten<Record<string, unknown>>(configPath)).toEqual(document);
+    expect(service.secretStorageUnavailable("notify.targets.phone.botToken")).toBe(true);
+  });
+
+  it("does not write a config file that would fail validation", async () => {
+    const configPath = tempConfigPath("config.json");
+    writeFileSync(configPath, JSON.stringify({ maxRetries: "many" }));
+    const service = new AgentConfigServiceImpl(
+      initialConfig,
+      { maxRetries: "many" },
+      configPath,
+      mockFS,
+    );
+
+    const { stderr } = await captureStderr(() =>
+      Effect.runPromise(service.set("logging.level", "debug")),
+    );
+
+    expect(readWritten<Record<string, unknown>>(configPath)).toEqual({ maxRetries: "many" });
+    expect(stderr).toContain("not saving logging.level");
+  });
+
   it("trims a pasted API key before storing it", async () => {
     const service = new AgentConfigServiceImpl(
       initialConfig,

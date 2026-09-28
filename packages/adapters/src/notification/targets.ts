@@ -17,9 +17,9 @@ import { type NotifyEvent, renderNotification } from "@jazz/core/notify/events";
 import { notifyTargetSecretEnvVar, notifyTargetSecretPath } from "@jazz/core/secrets/registry";
 import type { NotifyTarget } from "@jazz/core/types/notify";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
-import { sendDesktopNotification } from "@jazz/core/utils/desktop-notify";
 import { Effect } from "effect";
 import { detectKeyringBackend, keyringGet } from "@/adapters/secrets/keyring";
+import { sendDesktopNotification } from "./desktop-notifier";
 
 /** A send that has not answered in this long is abandoned and retried later. */
 export const NOTIFY_SEND_TIMEOUT_MS = 15_000;
@@ -44,27 +44,34 @@ export const WEBHOOK_EVENT_HEADER = "X-Jazz-Event";
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
+/** Reads one keyring entry by its config path. */
+export type KeyringReader = (secretPath: string) => Effect.Effect<string | undefined, never>;
+
 export interface SendContext {
   /** The outbox item's id; a webhook receiver dedupes on it. */
   readonly deliveryId: string;
   readonly fetch?: FetchLike;
   readonly env?: NodeJS.ProcessEnv;
   readonly now?: number;
+  readonly readKeyring?: KeyringReader;
 }
+
+const readSystemKeyring: KeyringReader = (secretPath) =>
+  Effect.flatMap(detectKeyringBackend(), (backend) => keyringGet(backend, secretPath));
 
 /** A target's secret from its environment variable, then the keyring. */
 export function resolveTargetSecret(
   targetName: string,
   field: string,
   env: NodeJS.ProcessEnv = process.env,
+  readKeyring: KeyringReader = readSystemKeyring,
 ): Effect.Effect<string | undefined, never> {
   return Effect.gen(function* () {
     const fromEnv = env[notifyTargetSecretEnvVar(targetName, field)]?.trim();
     if (fromEnv !== undefined && fromEnv.length > 0) {
       return fromEnv;
     }
-    const backend = yield* detectKeyringBackend();
-    const stored = yield* keyringGet(backend, notifyTargetSecretPath(targetName, field));
+    const stored = yield* readKeyring(notifyTargetSecretPath(targetName, field));
     return stored?.trim() || undefined;
   });
 }
@@ -202,14 +209,13 @@ export function sendToTarget(
 ): Effect.Effect<DeliveryOutcome, never> {
   return Effect.gen(function* () {
     const env = context.env ?? process.env;
+    const readKeyring = context.readKeyring ?? readSystemKeyring;
+    const secretOf = (field: string) => resolveTargetSecret(target.name, field, env, readKeyring);
     const name = target.name;
     switch (target.kind) {
       case "desktop": {
         const rendered = renderNotification(event);
-        const shown = yield* sendDesktopNotification(rendered.title, rendered.body);
-        return shown
-          ? ({ delivered: true } as const)
-          : refused("No desktop notification could be shown on this host.");
+        return yield* sendDesktopNotification({ title: rendered.title, message: rendered.body });
       }
       case "ntfy": {
         const rendered = renderNotification(event);
@@ -220,7 +226,7 @@ export function sendToTarget(
         });
       }
       case "webhook": {
-        const secret = yield* resolveTargetSecret(name, "secret", env);
+        const secret = yield* secretOf("secret");
         const body = webhookBody(context.deliveryId, event);
         const timestamp = String(Math.floor((context.now ?? Date.now()) / 1000));
         return yield* post(context, "The webhook", target.url, body, {
@@ -233,7 +239,7 @@ export function sendToTarget(
         });
       }
       case "telegram": {
-        const token = yield* resolveTargetSecret(name, "botToken", env);
+        const token = yield* secretOf("botToken");
         if (token === undefined) {
           return refused(`No bot token for "${name}": ${secretHint(name, "botToken")}.`);
         }
@@ -256,7 +262,7 @@ export function sendToTarget(
       }
       case "discord": {
         const text = splitMessage(chatText(event, target.approveFromChat), DISCORD_MESSAGE_LIMIT);
-        const botToken = yield* resolveTargetSecret(name, "botToken", env);
+        const botToken = yield* secretOf("botToken");
         if (botToken !== undefined && target.channelId !== undefined) {
           const url = `${target.apiBaseUrl ?? DEFAULT_DISCORD_API}/channels/${target.channelId}/messages`;
           return yield* sendParts(text, (part) =>
@@ -269,7 +275,7 @@ export function sendToTarget(
             ),
           );
         }
-        const webhookUrl = yield* resolveTargetSecret(name, "webhookUrl", env);
+        const webhookUrl = yield* secretOf("webhookUrl");
         if (webhookUrl === undefined) {
           return refused(
             `"${name}" needs a webhookUrl, or a botToken with a channelId: ${secretHint(name, "webhookUrl")}.`,

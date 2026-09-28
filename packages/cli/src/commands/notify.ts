@@ -3,6 +3,7 @@
  * inspect or retry what is waiting in the outbox (see docs/configure/notifications.md).
  */
 
+import { desktopNotifierUnavailableReason } from "@jazz/adapters/notification/desktop-notifier";
 import {
   drainNotifyOutbox,
   listOutbox,
@@ -41,14 +42,31 @@ export function listNotifyTargetsCommand(options: { readonly json: boolean }) {
     const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
     const targets = notifyTargets(appConfig);
     const implicit = appConfig.notify?.targets === undefined;
+    const desktopUnavailable = targets.some((target) => target.kind === "desktop")
+      ? desktopNotifierUnavailableReason()
+      : undefined;
     const text =
       targets.length === 0
         ? "No notify targets: nothing is sent. Add one with `jazz notify add <name> --kind <kind>`."
         : [
             ...targets.map(describeTarget),
             ...(implicit ? ["(the default: notify.targets is unset)"] : []),
+            ...(desktopUnavailable !== undefined
+              ? [
+                  `Desktop notifications cannot be shown on this host: ${desktopUnavailable}.${implicit ? " Nothing is queued for the default desktop target." : ""}`,
+                ]
+              : []),
           ].join("\n");
-    emitEnvelope(options.json, { ok: true, targets, implicit }, text);
+    emitEnvelope(
+      options.json,
+      {
+        ok: true,
+        targets,
+        implicit,
+        ...(desktopUnavailable !== undefined ? { desktopUnavailable } : {}),
+      },
+      text,
+    );
   });
 }
 

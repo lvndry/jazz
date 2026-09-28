@@ -4,10 +4,13 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import {
   type FetchLike,
+  type KeyringReader,
+  resolveTargetSecret,
   sendToTarget,
   splitMessage,
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_TIMESTAMP_HEADER,
+  webhookBody,
 } from "./targets";
 
 const failure: NotifyEvent = {
@@ -156,5 +159,123 @@ describe("splitMessage", () => {
     expect(parts).toHaveLength(3);
     expect(parts.every((part) => part.length <= 40)).toBe(true);
     expect(parts[2]).toEndWith("[truncated]");
+  });
+});
+
+function fakeKeyring(entries: Readonly<Record<string, string>>) {
+  const reads: string[] = [];
+  const readKeyring: KeyringReader = (secretPath) =>
+    Effect.sync(() => {
+      reads.push(secretPath);
+      return entries[secretPath];
+    });
+  return { reads, readKeyring };
+}
+
+const EMPTY_KEYRING: KeyringReader = () => Effect.succeed(undefined);
+
+describe("resolveTargetSecret", () => {
+  it("reads a secret from its environment variable first", async () => {
+    const { reads, readKeyring } = fakeKeyring({ "notify.targets.phone.botToken": "from-keyring" });
+
+    const secret = await Effect.runPromise(
+      resolveTargetSecret(
+        "phone",
+        "botToken",
+        { JAZZ_NOTIFY_PHONE_BOT_TOKEN: " from-env " },
+        readKeyring,
+      ),
+    );
+
+    expect(secret).toBe("from-env");
+    expect(reads).toEqual([]);
+  });
+
+  it("falls back to the keyring when the environment variable is unset or blank", async () => {
+    const { reads, readKeyring } = fakeKeyring({ "notify.targets.phone.botToken": "from-keyring" });
+
+    const secret = await Effect.runPromise(
+      resolveTargetSecret("phone", "botToken", { JAZZ_NOTIFY_PHONE_BOT_TOKEN: "  " }, readKeyring),
+    );
+
+    expect(secret).toBe("from-keyring");
+    expect(reads).toEqual(["notify.targets.phone.botToken"]);
+  });
+});
+
+describe("sendToTarget to Discord", () => {
+  it("posts as a bot into the channel when it has a bot token and a channel id", async () => {
+    const { fetch, calls } = fakeFetch(200);
+
+    const outcome = await Effect.runPromise(
+      sendToTarget(
+        { name: "team", kind: "discord", channelId: "99", apiBaseUrl: "http://127.0.0.1:1" },
+        failure,
+        {
+          deliveryId: "d1",
+          fetch,
+          env: { JAZZ_NOTIFY_TEAM_BOT_TOKEN: "bot-secret" },
+          readKeyring: EMPTY_KEYRING,
+        },
+      ),
+    );
+
+    expect(outcome).toEqual({ delivered: true });
+    expect(calls[0]?.url).toBe("http://127.0.0.1:1/channels/99/messages");
+    expect((calls[0]?.init.headers as Record<string, string>)["authorization"]).toBe(
+      "Bot bot-secret",
+    );
+    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
+      allowed_mentions: { parse: [] },
+    });
+  });
+
+  it("posts through the webhook URL when there is no channel id, even with a bot token", async () => {
+    const { fetch, calls } = fakeFetch(200);
+
+    const outcome = await Effect.runPromise(
+      sendToTarget({ name: "team", kind: "discord" }, failure, {
+        deliveryId: "d1",
+        fetch,
+        env: {
+          JAZZ_NOTIFY_TEAM_BOT_TOKEN: "bot-secret",
+          JAZZ_NOTIFY_TEAM_WEBHOOK_URL: "https://discord.example/api/webhooks/1/abc",
+        },
+        readKeyring: EMPTY_KEYRING,
+      }),
+    );
+
+    expect(outcome).toEqual({ delivered: true });
+    expect(calls[0]?.url).toBe("https://discord.example/api/webhooks/1/abc");
+    expect((calls[0]?.init.headers as Record<string, string>)["authorization"]).toBeUndefined();
+  });
+
+  it("refuses without posting when it has neither a webhook URL nor a bot token", async () => {
+    const { fetch, calls } = fakeFetch(200);
+
+    const outcome = await Effect.runPromise(
+      sendToTarget({ name: "team", kind: "discord", channelId: "99" }, failure, {
+        deliveryId: "d1",
+        fetch,
+        env: NO_ENV,
+        readKeyring: EMPTY_KEYRING,
+      }),
+    );
+
+    expect(calls).toEqual([]);
+    expect(outcome).toMatchObject({ delivered: false, retryable: false });
+    expect(outcome.delivered ? "" : outcome.error).toContain("needs a webhookUrl");
+  });
+});
+
+describe("webhookBody", () => {
+  it("carries the delivery id, the event kind, the rendered text and the event", () => {
+    expect(JSON.parse(webhookBody("d1", failure))).toEqual({
+      id: "d1",
+      type: "unattended-failed",
+      title: 'Jazz workflow "brief" failed',
+      body: "provider down",
+      event: failure,
+    });
   });
 });

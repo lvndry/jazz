@@ -23,6 +23,7 @@ import {
   WaitingItemSchema,
 } from "@/core/daemon/attention";
 import { SPEND_SOURCE_LABELS, SPEND_SOURCES, type SpendSource } from "@/core/spend/sources";
+import { isRecord } from "@/core/utils/is-record";
 
 export type NotifyEvent =
   | { readonly kind: "waiting"; readonly item: WaitingItem }
@@ -89,6 +90,55 @@ export const NotifyEventSchema: z.ZodType<NotifyEvent> = z.discriminatedUnion("k
     message: z.string(),
   }),
 ]);
+
+const LEGACY_PENDING_TO_WAITING_KIND: Readonly<Record<string, WaitingItem["kind"]>> = {
+  "tool-approval": "approval",
+  question: "question",
+  "file-picker": "file",
+};
+
+const LEGACY_PENDING_TITLE: Readonly<Record<WaitingItem["kind"], string>> = {
+  approval: "needs your approval",
+  question: "has a question",
+  file: "needs a file",
+  "goal-review": "needs a review",
+  "goal-limit": "stopped at its cycle cap",
+  "loop-stopped": "stopped",
+};
+
+/**
+ * An event queued by a Jazz whose outbox held `approval-needed` and `spend-ceiling`, in the
+ * shape this build reads: `spend-ceiling` is `spend-cap` with the same fields, and
+ * `approval-needed` is a `waiting` item for its run. Any other value is returned unchanged.
+ * `queuedAt` (epoch ms) stands in for when the item started waiting.
+ */
+export function upgradeStoredNotifyEvent(stored: unknown, queuedAt: number): unknown {
+  if (!isRecord(stored)) {
+    return stored;
+  }
+  if (stored["kind"] === "spend-ceiling") {
+    return { ...stored, kind: "spend-cap" };
+  }
+  if (stored["kind"] !== "approval-needed") {
+    return stored;
+  }
+  const runId = typeof stored["runId"] === "string" ? stored["runId"] : "unknown";
+  const pending = typeof stored["pending"] === "string" ? stored["pending"] : "tool-approval";
+  const waitingKind = LEGACY_PENDING_TO_WAITING_KIND[pending] ?? "approval";
+  const request = typeof stored["request"] === "string" ? stored["request"] : "";
+  const expiresAt = typeof stored["expiresAt"] === "string" ? stored["expiresAt"] : undefined;
+  const agentId = typeof stored["agentId"] === "string" ? stored["agentId"] : undefined;
+  const item: WaitingItem = {
+    key: `run:${runId}:${pending}`,
+    kind: waitingKind,
+    title: `Jazz run ${runId} ${LEGACY_PENDING_TITLE[waitingKind]}`,
+    detail: expiresAt === undefined ? request : `${request}\n\nIt waits until ${expiresAt}.`,
+    since: new Date(queuedAt).toISOString(),
+    runId,
+    ...(agentId !== undefined ? { agentId } : {}),
+  };
+  return { kind: "waiting", item };
+}
 
 export interface RenderedNotification {
   readonly title: string;

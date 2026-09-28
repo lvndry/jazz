@@ -1125,3 +1125,63 @@ function checkAgainst(schema: z.ZodType, prefix: Path, value: unknown): ConfigWr
     problem: `${formatConfigPath([...prefix, ...relativePath])} expected ${expected}`,
   };
 }
+
+/** A path that goes through one entry of a list of named entries, like `webhooks.<name>.token`. */
+export interface NamedListEntry {
+  /** The list's own path, like `["notify", "targets"]`. */
+  readonly listPath: readonly string[];
+  /** The `name` of the entry the path goes through. */
+  readonly entryName: string;
+}
+
+/**
+ * The list entry a path goes through, read from the schema: `notify.targets.phone.botToken`
+ * goes through the `notify.targets` entry named `phone`. Undefined for a path through no list.
+ * Such a path has no place in config.json: a list holds entries, and a dotted write into it
+ * would turn it into an object.
+ */
+export function namedListEntryOf(path: string): NamedListEntry | undefined {
+  const segments = parsePath(path);
+  if (segments === undefined) {
+    return undefined;
+  }
+  let current: z.ZodType | undefined = ConfigFileSchema;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    if (current === undefined) {
+      return undefined;
+    }
+    if (unwrap(current) instanceof z.ZodArray) {
+      return { listPath: segments.slice(0, index), entryName: segments[index] as string };
+    }
+    current = childSchema(current, segments[index] as string);
+  }
+  return undefined;
+}
+
+/**
+ * The list entry `path` goes through when `config` has no entry by that name, so a value for
+ * it (a target's bot token, a webhook's secret) would belong to nothing. Undefined when the
+ * entry exists or the path goes through no list.
+ */
+export function missingNamedListEntry(config: object, path: string): NamedListEntry | undefined {
+  const entry = namedListEntryOf(path);
+  if (entry === undefined) {
+    return undefined;
+  }
+  let list: unknown = config;
+  for (const segment of entry.listPath) {
+    list =
+      list !== null && typeof list === "object"
+        ? (list as Record<string, unknown>)[segment]
+        : undefined;
+  }
+  const exists =
+    Array.isArray(list) &&
+    list.some(
+      (candidate: unknown) =>
+        candidate !== null &&
+        typeof candidate === "object" &&
+        (candidate as { name?: unknown }).name === entry.entryName,
+    );
+  return exists ? undefined : entry;
+}

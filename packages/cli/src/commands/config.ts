@@ -9,6 +9,8 @@ import { ConfigurationValidationError } from "@jazz/core/types/errors";
 import { splitConfigPath } from "@jazz/core/utils/config-path";
 import {
   type ConfigValueKind,
+  missingNamedListEntry,
+  type NamedListEntry,
   parseConfigInput,
   resolveConfigPath,
 } from "@jazz/core/utils/config-schema";
@@ -140,6 +142,20 @@ function isProviderKeyPath(path: string): boolean {
   return /^(llm|web_search)\.[^.]+\.api_key$/.test(path);
 }
 
+/** A secret for a notify target, webhook or peer that is not configured would belong to nothing. */
+function missingListEntryError(path: string, entry: NamedListEntry): ConfigurationValidationError {
+  const listPath = entry.listPath.join(".");
+  return new ConfigurationValidationError({
+    field: path,
+    expected: `an entry named "${entry.entryName}" in ${listPath}`,
+    actual: `no ${listPath} entry named "${entry.entryName}"`,
+    suggestion:
+      listPath === "notify.targets"
+        ? `Add the target first with \`jazz notify add ${entry.entryName} --kind <kind>\`, then set its secret.`
+        : `Add "${entry.entryName}" to ${listPath} first, then set its secret.`,
+  });
+}
+
 function sectionError(path: string): ConfigurationValidationError {
   return new ConfigurationValidationError({
     field: path,
@@ -246,6 +262,14 @@ export function setConfigCommand(
           WEB_SEARCH_PROVIDERS.some((p) => p.value === targetSegments[1])));
     const promptsForApiKey = (root: "llm" | "web_search"): boolean =>
       key === root || (isProviderApiKey && targetSegments[0] === root);
+
+    const clearing = value !== undefined && value.trim() === "";
+    if (isSecretPath(targetKey) && !clearing) {
+      const missingEntry = missingNamedListEntry(yield* configService.appConfig, targetKey);
+      if (missingEntry !== undefined) {
+        return yield* Effect.fail(missingListEntryError(targetKey, missingEntry));
+      }
+    }
 
     const targetResolution = resolveConfigPath(targetKey);
     if (isProviderKeyPath(targetKey) && !targetResolution.known) {

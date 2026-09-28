@@ -55,6 +55,7 @@ export const DEFAULT_STUBS = [
   "at",
   "osascript",
   "notify-send",
+  "terminal-notifier",
 ] as const;
 
 /** The user's real home, captured before any sample environment is applied. */
@@ -230,6 +231,7 @@ export function createSandbox(
       JAZZ_EVAL_OS_SANDBOX: "1",
       [NETWORK_PORTS_ENV]: networkPorts.join(","),
       JAZZ_SCHEDULER: "in-process",
+      JAZZ_TERMINAL_NOTIFIER: join(stubBin, "terminal-notifier"),
       JAZZ_DISABLE_KEYRING: "1",
       ...credentials,
       CI: "1",

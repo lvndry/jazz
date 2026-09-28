@@ -25,10 +25,14 @@ import {
   type WaitingItem,
 } from "@jazz/core/daemon/attention";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
-import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { type LoggerService, LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { NotifyEvent } from "@jazz/core/notify/events";
-import { enqueueNotification, notifyTargets } from "@jazz/core/notify/outbox";
+import {
+  enqueueNotification,
+  NotificationQueueError,
+  notifyTargets,
+} from "@jazz/core/notify/outbox";
 import {
   blockingMachineDailyCap,
   capStatuses,
@@ -264,21 +268,41 @@ export function resumeDaemon(now: Date = new Date()) {
   });
 }
 
-/** Queue one event on the `notify` targets, once per key. A failure to queue is logged. */
-function queueAnnouncement(config: AppConfig, event: NotifyEvent, dedupeKey: string) {
+interface AnnouncementOutcome {
+  /** The event is on every target it routes to, or had been already: announce it no more. */
+  readonly settled: boolean;
+  /** This call put it on at least one target's queue. */
+  readonly queued: boolean;
+}
+
+/**
+ * Queue one event on the `notify` targets, once per key. A target that could not take it is
+ * logged and leaves the announcement unsettled, so the next tick tries that target again.
+ */
+function queueAnnouncement(
+  config: AppConfig,
+  event: NotifyEvent,
+  dedupeKey: string,
+): Effect.Effect<AnnouncementOutcome, never, LoggerService> {
   return enqueueNotification(notifyTargets(config), event, { dedupeKey }).pipe(
-    Effect.map((result) => result.queued.length > 0),
+    Effect.map((result) => ({ settled: true, queued: result.queued.length > 0 })),
     Effect.catchAll((error) =>
       Effect.flatMap(LoggerServiceTag, (logger) =>
         logger.warn("Could not queue a daemon notification", { error: error.message }),
-      ).pipe(Effect.as(false)),
+      ).pipe(
+        Effect.as({
+          settled: false,
+          queued: error instanceof NotificationQueueError && error.queued.length > 0,
+        }),
+      ),
     ),
   );
 }
 
 /**
  * One tick of announcing: each item not announced yet, and a pause the daemon took itself since
- * the last tick. The announcement record keeps only items still waiting.
+ * the last tick. Only what reached every target is recorded as announced; the record keeps only
+ * items still waiting. Returns the items announced this tick.
  */
 export function announceWaiting(now: Date = new Date()) {
   return Effect.gen(function* () {
@@ -287,25 +311,32 @@ export function announceWaiting(now: Date = new Date()) {
     const items = yield* listWaiting(now);
     const fresh = newlyWaiting(items, state.notified);
     let queued = false;
+    const announced: WaitingItem[] = [];
     for (const item of fresh) {
-      queued = (yield* queueAnnouncement(config, { kind: "waiting", item }, item.key)) || queued;
+      const outcome = yield* queueAnnouncement(config, { kind: "waiting", item }, item.key);
+      queued = outcome.queued || queued;
+      if (outcome.settled) {
+        announced.push(item);
+      }
     }
     const pause = pauseInForce(state, now);
     const pauseKey = pause?.kind === "daily-cap" ? `pause:${pause.at}` : undefined;
     const announcePause = pauseKey !== undefined && state.notified[pauseKey] === undefined;
+    let pauseAnnounced = false;
     if (announcePause && pause !== undefined && pauseKey !== undefined) {
-      queued =
-        (yield* queueAnnouncement(
-          config,
-          { kind: "paused", pause, reason: describePause(pause) },
-          pauseKey,
-        )) || queued;
+      const outcome = yield* queueAnnouncement(
+        config,
+        { kind: "paused", pause, reason: describePause(pause) },
+        pauseKey,
+      );
+      queued = outcome.queued || queued;
+      pauseAnnounced = outcome.settled;
     }
     if (queued) {
       yield* drainNotifyOutbox();
     }
-    if (fresh.length === 0 && !announcePause) {
-      return fresh;
+    if (announced.length === 0 && !pauseAnnounced) {
+      return announced;
     }
     const stamp = now.toISOString();
     yield* updateDaemonState((current) => ({
@@ -313,11 +344,11 @@ export function announceWaiting(now: Date = new Date()) {
       notified: {
         ...keepNotified(current.notified, items),
         ...Object.fromEntries(Object.entries(current.notified).filter(([key]) => key === pauseKey)),
-        ...Object.fromEntries(fresh.map((item) => [item.key, stamp])),
-        ...(pauseKey !== undefined ? { [pauseKey]: stamp } : {}),
+        ...Object.fromEntries(announced.map((item) => [item.key, stamp])),
+        ...(pauseAnnounced && pauseKey !== undefined ? { [pauseKey]: stamp } : {}),
       },
     })).pipe(Effect.catchAll(() => Effect.void));
-    return fresh;
+    return announced;
   });
 }
 

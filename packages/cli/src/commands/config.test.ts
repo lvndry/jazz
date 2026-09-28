@@ -19,8 +19,12 @@ import {
  */
 
 let writes: { key: string; value: unknown }[] = [];
+let currentAppConfig: Record<string, unknown> = {};
 
 const mockConfigService = {
+  get appConfig() {
+    return Effect.sync(() => currentAppConfig);
+  },
   set: mock((key: string, value: unknown) => {
     writes.push({ key, value });
     return Effect.void;
@@ -65,11 +69,28 @@ function failure(exit: Exit.Exit<void, ConfigurationValidationError>) {
 
 beforeEach(() => {
   writes = [];
+  currentAppConfig = {};
   askAnswer.value = "";
   ask.mockClear();
 });
 
 describe("jazz config set", () => {
+  it("refuses a notify target secret when no target by that name is configured", async () => {
+    const exit = await set("notify.targets.phone.botToken", "123:SECRET");
+
+    expect(writes).toEqual([]);
+    expect(failure(exit)?.suggestion).toContain("jazz notify add phone");
+  });
+
+  it("stores a notify target secret once the target exists", async () => {
+    currentAppConfig = { notify: { targets: [{ name: "phone", kind: "telegram", chatId: "1" }] } };
+
+    const exit = await set("notify.targets.phone.botToken", "123:SECRET");
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(writes).toEqual([{ key: "notify.targets.phone.botToken", value: "123:SECRET" }]);
+  });
+
   it("stores a numeric setting as a number, not the string it arrived as", async () => {
     const exit = await set("llm.streamIdleTimeoutMs", "600000");
 
@@ -136,6 +157,7 @@ describe("jazz config set", () => {
   });
 
   it("passes a secret through trimmed, including ones stored under a list", async () => {
+    currentAppConfig = { webhooks: [{ name: "deploy", agentId: "a", promptTemplate: "x" }] };
     const exit = await set("webhooks.deploy.token", " s3cret\n");
 
     expect(Exit.isSuccess(exit)).toBe(true);

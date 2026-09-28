@@ -609,6 +609,7 @@ switch (command) {
     break;
   case "osascript":
   case "notify-send":
+  case "terminal-notifier":
     finish(0, "", "", "desktop notification");
     break;
   case "brew":

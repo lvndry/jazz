@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
+  missingNamedListEntry,
+  namedListEntryOf,
   checkConfigWrite,
   formatConfigIssues,
   parseConfigFile,
@@ -763,5 +765,49 @@ describe("checkConfigWrite", () => {
       ok: false,
       problem: '"mcpServers.__proto__" is not a setting',
     });
+  });
+});
+
+describe("namedListEntryOf", () => {
+  it("names the list entry a path goes through, from the schema", () => {
+    expect(namedListEntryOf("notify.targets.phone.botToken")).toEqual({
+      listPath: ["notify", "targets"],
+      entryName: "phone",
+    });
+    expect(namedListEntryOf("webhooks.mira.token")).toEqual({
+      listPath: ["webhooks"],
+      entryName: "mira",
+    });
+    expect(namedListEntryOf("peers.sam.token")).toEqual({ listPath: ["peers"], entryName: "sam" });
+  });
+
+  it("is undefined for a path through no list", () => {
+    expect(namedListEntryOf("llm.openai.api_key")).toBeUndefined();
+    expect(namedListEntryOf("notify.targets")).toBeUndefined();
+  });
+});
+
+describe("missingNamedListEntry", () => {
+  it("reports an entry the config does not have, whether or not the list exists", () => {
+    expect(missingNamedListEntry({}, "notify.targets.phone.botToken")).toEqual({
+      listPath: ["notify", "targets"],
+      entryName: "phone",
+    });
+    expect(
+      missingNamedListEntry(
+        { notify: { targets: [{ name: "desk", kind: "desktop" }] } },
+        "notify.targets.phone.botToken",
+      ),
+    ).toBeDefined();
+  });
+
+  it("is undefined when the entry exists or the path goes through no list", () => {
+    expect(
+      missingNamedListEntry(
+        { notify: { targets: [{ name: "phone", kind: "telegram", chatId: "1" }] } },
+        "notify.targets.phone.botToken",
+      ),
+    ).toBeUndefined();
+    expect(missingNamedListEntry({}, "llm.openai.api_key")).toBeUndefined();
   });
 });

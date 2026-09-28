@@ -11,10 +11,17 @@ import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { LoopStoreTag } from "@jazz/core/interfaces/loop-store";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import {
+  MAX_OUTBOX_ITEMS_PER_TARGET,
+  OUTBOX_FILE_KIND,
+  outboxDirectory,
+  outboxFilePath,
+} from "@jazz/core/notify/outbox";
 import { recordSpend, spendDirectory } from "@jazz/core/spend/ledger";
 import { guardRunStart } from "@jazz/core/spend/run-accounting";
 import type { AppConfig } from "@jazz/core/types/config";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
+import { writeStateFile } from "@jazz/core/utils/state-file";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
@@ -375,6 +382,46 @@ describe("announceWaiting", () => {
       await test.run(announceWaiting());
       await test.run(announceWaiting());
       expect(received.map((event) => event.type)).toEqual(["paused"]);
+    } finally {
+      await server.stop(true);
+    }
+  });
+
+  it("leaves an item unannounced while its target cannot take it, and announces it later", async () => {
+    const received: { type: string }[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        received.push((await request.json()) as { type: string });
+        return new Response("ok");
+      },
+    });
+    const hookOutbox = outboxFilePath(outboxDirectory(jazzHome), "hook");
+    const unrelated = { kind: "reminder" as const, agentId: "a", text: "t", fireAt: 0 };
+    try {
+      const test = harness({ notify: webhookTarget(server.port) } as AppConfig);
+      await test.run(test.runs.save(record("run-a", parkedOn("execute_command"))));
+      await Effect.runPromise(
+        writeStateFile(
+          hookOutbox,
+          OUTBOX_FILE_KIND,
+          Array.from({ length: MAX_OUTBOX_ITEMS_PER_TARGET }, (_, index) => ({
+            id: `old-${index}`,
+            fireAt: Date.now() + 60_000,
+            event: unrelated,
+          })),
+        ),
+      );
+
+      const whileFull = await test.run(announceWaiting());
+      const stateWhileFull = await test.run(readDaemonState());
+      await Effect.runPromise(writeStateFile(hookOutbox, OUTBOX_FILE_KIND, []));
+      const afterwards = await test.run(announceWaiting());
+
+      expect(whileFull).toEqual([]);
+      expect(Object.keys(stateWhileFull.notified)).toEqual([]);
+      expect(afterwards.map((item) => item.runId)).toEqual(["run-a"]);
+      expect(received.map((event) => event.type)).toEqual(["waiting"]);
     } finally {
       await server.stop(true);
     }

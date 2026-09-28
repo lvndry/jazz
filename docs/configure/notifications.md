@@ -44,6 +44,22 @@ Unset, `notify.targets` is one desktop target. Once you set it, the list is exac
 get: include a `desktop` target to keep desktop notifications. `notifications.enabled: false`
 drops desktop targets.
 
+## Desktop notifications
+
+On macOS a desktop notification is shown with `terminal-notifier`. The release binary bundles
+it; a Jazz installed another way uses `JAZZ_TERMINAL_NOTIFIER`, then one on `PATH` or in
+Homebrew (`brew install terminal-notifier`). On Linux it is `notify-send` (from libnotify), and
+it needs a desktop session (`DISPLAY`, `WAYLAND_DISPLAY` or `DBUS_SESSION_BUS_ADDRESS`).
+
+On a host with neither, such as a server or a CI runner:
+
+- nothing is queued for the default desktop target (the one used while `notify.targets` is
+  unset), and `jazz notify` says why;
+- a `desktop` target you configured yourself still receives events; each one that cannot be
+  shown is reported once on stderr with what to install, then dropped instead of retried;
+- `jazz notify test <name>` reports the same reason;
+- a reminder goes to the notify targets that take reminders instead.
+
 Add one with `jazz notify add`, which asks for the secret on a terminal and stores it in the
 keyring:
 
@@ -78,8 +94,17 @@ what it queued before it exits, so a host without a daemon still delivers.
 
 A send that fails because the target is down, rate-limited (429) or erroring (5xx) is kept with
 its error and retried: one minute, then doubling up to an hour, five attempts in all. A refusal
-(a wrong token, a chat the bot cannot post in, no desktop session) stops retrying at once and
-stays visible.
+(a wrong token, a chat the bot cannot post in) stops retrying at once and stays visible. A
+desktop notification that cannot be shown is dropped (see
+[Desktop notifications](#desktop-notifications)).
+
+An event sent once per key (a waiting item, a spend cap per window) counts as sent on a target
+only once it is in that target's outbox. A target whose outbox is full is tried again with the
+same event on the next tick; the targets that already have it do not get it twice.
+
+Upgrading keeps what is queued: items from an older outbox are read in the current shape
+(`approval-needed` becomes `waiting`, `spend-ceiling` becomes `spend-cap`), and an item that
+cannot be read at all is dropped with a warning while the rest of the queue is kept.
 
 ```sh
 jazz notify outbox   # what is waiting, the last error, the next retry
@@ -88,9 +113,41 @@ jazz notify retry    # re-arm the given-up ones and send everything now
 
 ## Webhook bodies and signatures
 
-A webhook target POSTs JSON: `{ id, type, title, body, event }`, where `type` is the event kind
-and `event` is the event itself (for `waiting`, the item with its `runId`, `goalId` or
-`loopId`). Every delivery carries:
+A webhook target POSTs JSON: `{ id, type, title, body, event }`, where `id` is the delivery
+id, `type` is the event kind, `title` and `body` are the rendered text, and `event` is the event
+itself, with `kind` naming it:
+
+```jsonc
+{
+  "id": "m1abc-x7k2q9",
+  "type": "waiting",
+  "title": "A run wants to use execute_command",
+  "body": "About to run execute_command\njazz runs approve run-a (or reject)",
+  "event": {
+    "kind": "waiting",
+    "item": {
+      "key": "run:run-a:call-1",
+      "kind": "approval",
+      "title": "A run wants to use execute_command",
+      "detail": "About to run execute_command",
+      "since": "2026-09-28T09:00:00.000Z",
+      "runId": "run-a",
+      "agentId": "agent-1",
+    },
+  },
+}
+```
+
+| `event.kind`        | Fields besides `kind`                                                                |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| `waiting`           | `item`: `key`, `kind`, `title`, `detail`, `since`, and `runId`, `goalId` or `loopId` |
+| `paused`            | `pause` (`kind`, `at`, and for a daily cap `limit` and `until`), `reason`            |
+| `unattended-failed` | `source`, `error`, optional `name`, `agentId`, `runId`                               |
+| `spend-cap`         | `source`, `agentId`, `message`, optional `name`                                      |
+| `reminder`          | `agentId`, `text`, `fireAt` (epoch ms)                                               |
+| `workflow-result`   | `workflow`, `agentId`, `answer`                                                      |
+
+Every delivery carries:
 
 | Header                 | Value                                                                  |
 | ---------------------- | ---------------------------------------------------------------------- |

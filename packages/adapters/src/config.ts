@@ -41,6 +41,8 @@ import {
   checkConfigWrite,
   formatConfigIssues,
   mcpServerEntryName,
+  missingNamedListEntry,
+  namedListEntryOf,
   parseConfigFile,
   type ConfigFile,
   validateEffectiveConfig,
@@ -249,6 +251,12 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         }
 
         const checked = parseCheckedConfigFile(path, nextDocument);
+        if (checked.report !== undefined) {
+          process.stderr.write(
+            `${checked.report.trimEnd()}\njazz: not saving ${key}: ${path} would no longer be valid.\n`,
+          );
+          return;
+        }
 
         const nextRuntime =
           this.sources === undefined
@@ -300,7 +308,8 @@ export class AgentConfigServiceImpl implements AgentConfigService {
    *
    * A secret with no structural home cannot use that fallback — JSON.stringify would discard
    * it — so it is left unstored and reported through `secretStorageUnavailable` rather than
-   * silently lost.
+   * silently lost. So is a secret for a list entry that does not exist (a notify target, a
+   * webhook or a peer not configured), which would belong to nothing.
    */
   private storeSecret(key: string, value: unknown): Effect.Effect<SecretDestination, never> {
     return Effect.gen(
@@ -308,6 +317,11 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         if (typeof value !== "string" || value.trim() === "") {
           yield* keyringDelete(this.keyringBackend, key);
           return "cleared" as const;
+        }
+
+        if (missingNamedListEntry(this.currentConfig, key) !== undefined) {
+          this.unstorableSecrets.add(key);
+          return "nowhere" as const;
         }
 
         const stored = yield* keyringSet(this.keyringBackend, key, value);
@@ -1550,18 +1564,28 @@ function isBlankSecret(value: unknown): boolean {
 /**
  * Whether a dotted path can be written into the config object at all.
  *
- * False when any segment on the way names a list. `webhooks`, `peers` and `notify.targets` are
- * arrays, so `deepSet` on `webhooks.mira.token` or `notify.targets.phone.botToken` would
- * silently swap the array for an object and take every configured entry with it.
+ * False when the path goes through a list, by the schema or by the value in `config`.
+ * `webhooks`, `peers` and `notify.targets` are lists of named entries, so `deepSet` on
+ * `webhooks.mira.token` or `notify.targets.phone.botToken` would swap the list for an object
+ * holding the secret in plaintext, whether or not the list exists yet.
  */
 function structuralHomeFor(config: AppConfig, path: string): boolean {
   const segments = splitConfigPath(path);
-  if (segments === undefined || segments.length === 0) return false;
+  if (segments === undefined || segments.length === 0) {
+    return false;
+  }
+  if (namedListEntryOf(path) !== undefined) {
+    return false;
+  }
   let current: unknown = config;
   for (const segment of segments.slice(0, -1)) {
-    if (current === null || typeof current !== "object") return true;
+    if (current === null || typeof current !== "object") {
+      return true;
+    }
     current = (current as Record<string, unknown>)[segment];
-    if (Array.isArray(current)) return false;
+    if (Array.isArray(current)) {
+      return false;
+    }
   }
   return true;
 }
