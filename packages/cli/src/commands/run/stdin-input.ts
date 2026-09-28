@@ -60,34 +60,41 @@ export function parseStdinRunInput(line: string | undefined): StdinRunInputResul
  * The stream is paused with the remainder pushed back, so the next reader (the one-shot
  * presentation service) resumes it and sees the protocol lines in order. Resolves with what
  * was read when the stream ends before a newline, and `undefined` when it ended empty.
+ * Bytes are decoded only after the complete frame arrives; a chunk boundary may split a
+ * UTF-8 character in either the frame or the protocol bytes left for the next reader.
  */
 export function readFirstStdinLine(
   stream: NodeJS.ReadableStream = process.stdin,
 ): Promise<string | undefined> {
   return new Promise((resolve, reject) => {
-    let buffer = "";
+    const chunks: Buffer[] = [];
+    let length = 0;
     const cleanup = (): void => {
       stream.off("data", onData);
       stream.off("end", onEnd);
       stream.off("error", onError);
     };
     const onData = (chunk: string | Buffer): void => {
-      buffer += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
-      const newlineIndex = buffer.indexOf("\n");
+      const bytes = typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : chunk;
+      const newlineIndex = bytes.indexOf(0x0a);
       if (newlineIndex < 0) {
+        chunks.push(bytes);
+        length += bytes.length;
         return;
       }
       cleanup();
       stream.pause();
-      const remainder = buffer.slice(newlineIndex + 1);
+      chunks.push(bytes.subarray(0, newlineIndex));
+      length += newlineIndex;
+      const remainder = bytes.subarray(newlineIndex + 1);
       if (remainder.length > 0) {
-        stream.unshift(Buffer.from(remainder, "utf-8"));
+        stream.unshift(remainder);
       }
-      resolve(buffer.slice(0, newlineIndex));
+      resolve(Buffer.concat(chunks, length).toString("utf-8"));
     };
     const onEnd = (): void => {
       cleanup();
-      resolve(buffer.length > 0 ? buffer : undefined);
+      resolve(length > 0 ? Buffer.concat(chunks, length).toString("utf-8") : undefined);
     };
     const onError = (error: unknown): void => {
       cleanup();

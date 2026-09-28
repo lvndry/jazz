@@ -169,6 +169,28 @@ describe("redactSecretValues", () => {
     });
   });
 
+  it("redacts literal dotted MCP header and environment names in whole and partial configs", () => {
+    const headers = { "X.Api.Key": "secret" };
+    expect(
+      redactSecretValues({
+        mcpServers: { "com.example": { headers, env: { "vendor.key": "secret" } } },
+      }),
+    ).toEqual({
+      mcpServers: {
+        "com.example": {
+          headers: { "X.Api.Key": REDACTED_SECRET },
+          env: { "vendor.key": REDACTED_SECRET },
+        },
+      },
+    });
+    expect(redactSecretValues(headers, "mcpServers.com.example.headers")).toEqual({
+      "X.Api.Key": REDACTED_SECRET,
+    });
+    expect(redactSecretValues("secret", "mcpServers.com.example.headers.X.Api.Key")).toBe(
+      REDACTED_SECRET,
+    );
+  });
+
   it("redacts a single secret value looked up by its own path", () => {
     expect(redactSecretValues("sk-live", "llm.openai.api_key")).toBe(REDACTED_SECRET);
     expect(redactSecretValues({ api_key: "sk-live" }, "llm.openai")).toEqual({

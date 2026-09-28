@@ -212,6 +212,7 @@ jobs:
       # Coverage is reported, not enforced: there is no floor yet.
       - name: Test with coverage
         if: runner.os == 'Linux'
+        shell: bash
         run: |
           bun test --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee test-output.txt
           {

@@ -13,7 +13,8 @@
  * (`PinnedDirectory`): the directory is opened `O_NOFOLLOW | O_DIRECTORY`, and every later path
  * is resolved relative to that descriptor via `/proc/self/fd/<fd>/<name>`. Renaming or relinking
  * the directory afterwards changes nothing for us. The last component is guarded separately:
- * reads open with `O_NOFOLLOW`, writes go to a fresh `O_EXCL` temporary file that is renamed
+ * reads open with `O_NOFOLLOW | O_NONBLOCK` and reject nonregular descriptors before reading,
+ * so a planted FIFO cannot block the bridge. Writes go to a fresh `O_EXCL` temporary file that is renamed
  * over the target (rename replaces a link, it never writes through one), and removals unlink
  * (which never follows).
  *
@@ -80,7 +81,8 @@ const PERMISSION_BITS = 0o777;
 const DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
 /** For a root the operator configured, which may legitimately be a link to somewhere else. */
 const ROOT_DIRECTORY_FLAGS = constants.O_RDONLY | constants.O_DIRECTORY;
-const READ_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW;
+/** Nonblocking open lets the descriptor check reject a FIFO before it can stall the bridge. */
+const READ_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
 const CREATE_FLAGS =
   constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
 

@@ -1,6 +1,7 @@
 /** MCP definitions: where they come from, who may trust them, and where their secrets live. */
 
 import fs from "node:fs";
+import * as nodeFs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
@@ -11,7 +12,7 @@ import {
   type MCPServerConfigHttp,
   type MCPServerConfigStdio,
 } from "@jazz/core/interfaces/mcp-server";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
 import {
   createConfigLayer,
@@ -244,6 +245,127 @@ describe("MCP env and header secrets", () => {
     });
     if (process.platform !== "win32") {
       expect(fs.statSync(userMcpPath()).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  for (const operation of ["replace", "remove"] as const) {
+    it(`preserves the original credentials when ${operation} cannot commit its definition`, async () => {
+      const fileSystem = await run(FileSystem.FileSystem);
+      await Effect.runPromise(
+        writeAgentsMcpServer(
+          fileSystem,
+          "svc",
+          {
+            command: "original",
+            env: { API_KEY: "original-key", DROPPED_KEY: "keep-on-failure" },
+          },
+          "file",
+        ),
+      );
+      const original = fs.readFileSync(userMcpPath(), "utf8");
+      const originalRename = nodeFs.rename;
+      const rename = spyOn(nodeFs, "rename").mockImplementation(async (source, destination) => {
+        if (destination === userMcpPath()) throw new Error("Injected definition commit failure");
+        return originalRename(source, destination);
+      });
+      const change =
+        operation === "replace"
+          ? writeAgentsMcpServer(
+              fileSystem,
+              "svc",
+              {
+                command: "replacement",
+                env: { API_KEY: "replacement-key", NEW_KEY: "new-key" },
+              },
+              "file",
+            )
+          : removeAgentsMcpServer(fileSystem, "svc", "file");
+      try {
+        expect((await Effect.runPromise(Effect.either(change)))._tag).toBe("Left");
+      } finally {
+        rename.mockRestore();
+      }
+      expect(fs.readFileSync(userMcpPath(), "utf8")).toBe(original);
+      const servers = await Effect.runPromise(loadAgentsMcpServers(fileSystem, "file"));
+      expect((servers["svc"] as MCPServerConfigStdio).env).toEqual({
+        API_KEY: "original-key",
+        DROPPED_KEY: "keep-on-failure",
+      });
+      expect(
+        await Effect.runPromise(keyringGet("file", "mcpServers.svc.env.NEW_KEY")),
+      ).toBeUndefined();
+    });
+  }
+
+  it("refuses to overwrite an unreadable existing keyring placeholder", async () => {
+    const fileSystem = await run(FileSystem.FileSystem);
+    writeJson(userMcpPath(), {
+      mcpServers: { svc: { command: "original", env: { API_KEY: "" } } },
+    });
+    const original = fs.readFileSync(userMcpPath(), "utf8");
+    await expect(
+      Effect.runPromise(
+        writeAgentsMcpServer(
+          fileSystem,
+          "svc",
+          {
+            command: "replacement",
+            env: { API_KEY: "new" },
+          },
+          "file",
+        ),
+      ),
+    ).rejects.toThrow("existing keyring value could not be read");
+    expect(fs.readFileSync(userMcpPath(), "utf8")).toBe(original);
+    expect(
+      await Effect.runPromise(keyringGet("file", "mcpServers.svc.env.API_KEY")),
+    ).toBeUndefined();
+  });
+
+  it("commits replacement credentials and clears a deliberately emptied value", async () => {
+    const fileSystem = await run(FileSystem.FileSystem);
+    await Effect.runPromise(
+      writeAgentsMcpServer(
+        fileSystem,
+        "svc",
+        {
+          command: "original",
+          env: { API_KEY: "old", CLEAR_KEY: "old" },
+        },
+        "file",
+      ),
+    );
+    await Effect.runPromise(
+      writeAgentsMcpServer(
+        fileSystem,
+        "svc",
+        {
+          command: "replacement",
+          env: { API_KEY: "new", CLEAR_KEY: "" },
+        },
+        "file",
+      ),
+    );
+    const servers = await Effect.runPromise(loadAgentsMcpServers(fileSystem, "file"));
+    expect((servers["svc"] as MCPServerConfigStdio).env).toEqual({ API_KEY: "new", CLEAR_KEY: "" });
+    expect(
+      await Effect.runPromise(keyringGet("file", "mcpServers.svc.env.CLEAR_KEY")),
+    ).toBeUndefined();
+  });
+
+  it("preserves independent concurrent MCP saves", async () => {
+    const fileSystem = await run(FileSystem.FileSystem);
+    await Promise.all(
+      ["first", "second"].map((name) =>
+        Effect.runPromise(
+          writeAgentsMcpServer(fileSystem, name, { command: name, env: { KEY: name } }, "file"),
+        ),
+      ),
+    );
+    const servers = await Effect.runPromise(loadAgentsMcpServers(fileSystem, "file"));
+    expect(Object.keys(servers).sort()).toEqual(["first", "second"]);
+    for (const name of ["first", "second"]) {
+      expect((servers[name] as MCPServerConfigStdio).env).toEqual({ KEY: name });
     }
   });
 

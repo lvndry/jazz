@@ -38,6 +38,12 @@ writes it into the file instead and `jazz mcp add` says so. Other tools that rea
 A value you type into `~/.agents/mcp.json` yourself is used as written. To move one into the
 keyring, run `jazz mcp add` for the server again.
 
+If saving a replacement fails, Jazz attempts to restore the previous credentials and reports
+any keyring refusal to restore them. Jazz refuses to overwrite an existing keyring placeholder
+whose value it cannot read; unlock the keyring and retry, or remove the server before adding
+fresh credentials. Removing a server deletes its credentials only after its definition has
+been removed successfully.
+
 A repository can commit its own `./.agents/mcp.json`. Its servers are added to yours, but a
 project server never replaces one of yours: when both define the same name, Jazz keeps your
 definition and prints a warning naming the project file. Rename one of them to use both.
@@ -161,7 +167,7 @@ jazz mcp remove <server>
 ## Security checklist
 
 - Prefer the server's OAuth flow to committed bearer headers.
-- `jazz config show` redacts env and header values; `jazz config show --reveal` prints them.
+- `jazz config show` redacts env and header values, including names containing dots; `jazz config show --reveal` prints them.
 - Scope the upstream account and token independently of Jazz.
 - Keep mutation tools unavailable to agents that only need reads.
 - Leave third-party servers untrusted until their annotations and operator are acceptable.
