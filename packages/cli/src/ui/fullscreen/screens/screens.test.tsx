@@ -264,7 +264,10 @@ describe("home screen", () => {
     );
 
     // The identity, so you know what you are looking at.
-    expect(drawn.text).toContain("▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄");
+    // The ornament caps the wordmark row: exactly as wide, no wider.
+    const wordmarkRow = drawn.rows.find((row) => row.includes("jazz")) ?? "";
+    const ornamentRow = drawn.rows.find((row) => row.includes("▄▀▀▄")) ?? "";
+    expect(ornamentRow.trimEnd().length).toBe(wordmarkRow.trimEnd().length);
     expect(drawn.text).toContain("jazz");
     expect(drawn.text).toContain("0.14.2");
     expect(drawn.text).toContain("your everyday agentic CLI");
@@ -386,7 +389,7 @@ describe("home screen", () => {
     expect(text).toContain("New conversation");
   });
 
-  it("reports the machine facts the agents are grounded with", async () => {
+  it("reports where the agents run as one muted line, without marks", async () => {
     const drawn = await draw(
       <Home
         model={GROUNDED}
@@ -395,19 +398,21 @@ describe("home screen", () => {
       WIDE,
     );
 
-    expect(drawn.text).toContain("environment");
-    expect(drawn.text).toContain("date");
-    expect(drawn.text).toContain("Wednesday, August 26, 2026 (UTC+2, Europe/Paris)");
-    expect(drawn.text).toContain("darwin 24.6.0 (arm64) · /bin/zsh · lvndry");
-    expect(drawn.text).toContain("/Users/lvndry/github/jazz");
-    expect(drawn.text).toContain("Apple M4 Pro · 14 cores · 24 GB RAM");
+    // One muted line, directory first: where you are and what runs it.
+    const line = drawn.rows.find((row) => row.includes("/Users/lvndry/github/jazz")) ?? "";
+    expect(line).toContain(`/Users/lvndry/github/jazz ${getGlyphs().bullet} darwin 24.6.0 (arm64)`);
+    const lineSpan = allSpans(drawn.frame).find((span) => span.text.includes("/Users/lvndry"));
+    expect(lineSpan === undefined ? undefined : hexOf(lineSpan)).toBe(THEME.muted.toUpperCase());
+    expect(drawn.text).not.toContain("environment");
+    expect(drawn.text).not.toContain("Wednesday, August 26, 2026");
+    expect(drawn.text).not.toContain("Apple M4 Pro");
   });
 
   it("gives up the environment report before guidance and setup", () => {
     const short: Viewport = { width: 100, height: 14 };
     const rows = homeRows(GROUNDED, short);
     const text = rows.flatMap((row) => row.segments.map((segment) => segment.text)).join(" ");
-    expect(text).not.toContain("environment");
+    expect(text).not.toContain("/Users/lvndry/github/jazz");
     expect(rows.length).toBeLessThanOrEqual(short.height - 1);
   });
 
