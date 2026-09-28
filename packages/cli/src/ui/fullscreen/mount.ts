@@ -13,11 +13,12 @@
  * take over the screen at all.
  */
 
+import { writeSync } from "node:fs";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { MIN_HEIGHT, MIN_WIDTH } from "./types";
 import { store } from "../store";
-import { applyTerminalPalette, getCanvasMode, onThemeChange, THEME } from "../theme";
+import { applyTerminalPalette, groundIsPainted, onThemeChange, THEME } from "../theme";
 import type { OutputEntry } from "../types";
 
 /** Why the fullscreen interface declined to start, when it does. */
@@ -328,7 +329,10 @@ function forceFullRepaint(renderer: Pick<CliRenderer, "requestRender">): void {
   renderer.requestRender();
 }
 
-/** OSC 11: set the terminal's default background. OSC 111 resets it; OpenTUI sends that one. */
+/** OSC 111: reset the terminal's default background to the one its user configured. */
+const RESET_TERMINAL_BACKGROUND = "\x1b]111\x07";
+
+/** OSC 11: set the terminal's default background. */
 export function setTerminalBackgroundSequence(hex: string): string {
   return `\x1b]11;${hex}\x07`;
 }
@@ -348,12 +352,15 @@ export interface GroundSync {
 /**
  * Keep the renderer's clear colour and the terminal's own background in step with the theme.
  *
- * In `painted` mode every cell the tree leaves empty is cleared to the theme's background, and
- * the terminal's default background is set to match, so the padding a terminal draws around its
- * grid and any row the renderer has not reached yet agree with the frame. In `inherit` mode the
- * clear colour is transparent and the terminal's background is reset to whatever the user
- * configured. OpenTUI resets the terminal background on destroy and suspend, which covers exit,
- * crash and ^Z; a resume calls `apply` to set it again.
+ * While the ground is painted, every cell the tree leaves empty is cleared to the theme's
+ * background and the terminal's default background is set to match, so the padding a terminal
+ * draws around its grid and any row the renderer has not reached yet agree with the frame. While
+ * it is inherited, the clear colour is transparent and the terminal's background is reset to
+ * whatever the user configured. A resume calls `apply` to set it again.
+ *
+ * Once a background has been set, process exit — a quit, a crash, a signal — resets it with a
+ * synchronous write: the reset OpenTUI's `destroy()` sends does not reach the terminal on a
+ * quit, which then keeps jazz's background at the shell prompt.
  *
  * Either way a change forces a full repaint: every cell's background may have changed, and the
  * renderer's diff would otherwise skip cells whose glyph did not.
@@ -361,23 +368,39 @@ export interface GroundSync {
 export function syncTerminalGround(
   renderer: GroundRenderer,
   write: (data: string) => void = (data) => {
-    process.stdout.write(data);
+    writeSync(process.stdout.fd, data);
   },
+  runtime: Pick<LifecycleProcess, "on" | "off"> = process,
 ): GroundSync {
+  let terminalBackgroundSet = false;
   const apply = (): void => {
     if (renderer.isDestroyed) return;
-    if (getCanvasMode() === "painted") {
+    if (groundIsPainted()) {
       renderer.setBackgroundColor(THEME.background);
       write(setTerminalBackgroundSequence(THEME.background));
+      terminalBackgroundSet = true;
     } else {
       renderer.setBackgroundColor("transparent");
       renderer.resetTerminalBgColor();
     }
     forceFullRepaint(renderer);
   };
-  const stop = onThemeChange(apply);
+  const onExit = (): void => {
+    if (terminalBackgroundSet) {
+      write(RESET_TERMINAL_BACKGROUND);
+    }
+  };
+  const stopListening = onThemeChange(apply);
+  runtime.on("exit", onExit);
   apply();
-  return { apply, stop };
+  return {
+    apply,
+    stop: () => {
+      stopListening();
+      runtime.off("exit", onExit);
+      onExit();
+    },
+  };
 }
 
 /** How long the first frame waits for the terminal to report its colours. */

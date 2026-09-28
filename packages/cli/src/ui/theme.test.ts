@@ -11,6 +11,7 @@ import {
   getThemeName,
   getThemeRevision,
   getThemeVariant,
+  groundIsPainted,
   groundPaint,
   initializeTheme,
   listThemes,
@@ -377,6 +378,16 @@ describe("canvas modes", () => {
     expect(getThemeVariant()).toBe("light");
     setTerminalBackground("#101010");
     expect(getThemeVariant()).toBe("dark");
+  });
+
+  it("paints the ground anyway when a pinned variant does not suit the terminal's", () => {
+    initializeTheme({ configured: "jazz:light" });
+    setTerminalBackground("#101010");
+    expect(groundIsPainted()).toBe(true);
+    expect(groundPaint()).toBe("#FFFFFF");
+    applyTheme("jazz:dark");
+    expect(groundIsPainted()).toBe(false);
+    expect(groundPaint()).toBe(TRANSPARENT);
   });
 
   it("switches between modes live", () => {

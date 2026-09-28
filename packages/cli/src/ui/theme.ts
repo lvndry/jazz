@@ -111,12 +111,14 @@ export type ThemeVariant = "dark" | "light";
 /**
  * Whether the window's ground is the terminal's own background or the theme's.
  *
- * `inherit` never paints the ground: empty cells show whatever the terminal already has, and
+ * `inherit` leaves the ground unpainted: empty cells show whatever the terminal already has, and
  * only the panel and element tiers (your messages, code, overlays, menus) are painted. When the
  * terminal answers the background query, those tiers and the rules are re-derived from the real
- * background, so a band sits one quiet step off the ground the user actually sees. `painted`
- * paints every cell with the theme's background and sets the terminal's default background to
- * match for as long as jazz owns the screen.
+ * background, so a band sits one quiet step off the ground the user actually sees. A theme
+ * variant that does not suit the terminal's ground (light on a dark terminal) is painted anyway,
+ * because its text was chosen for its own background. `painted` paints every cell with the
+ * theme's background and sets the terminal's default background to match for as long as jazz
+ * owns the screen.
  */
 export type CanvasMode = "inherit" | "painted";
 
@@ -293,10 +295,19 @@ function resolveSelection(selection: ThemeSelection): ThemeState["active"] {
   return { definition, variant };
 }
 
+/**
+ * Whether the ground is painted. Always in `painted` mode. In `inherit` mode only when the
+ * terminal's own background would not suit the variant on screen — a light theme pinned on a
+ * dark terminal would otherwise put dark text on a dark ground.
+ */
+function groundIsPaintedFor(active: ThemeState["active"]): boolean {
+  return state.canvasMode === "painted" || active.variant !== detectedVariant();
+}
+
 function paletteOf(active: ThemeState["active"]): ThemeColors {
   const colors = active.definition.variants[active.variant] as VariantColors;
   const known = state.terminalBackground;
-  const inherit = state.canvasMode === "inherit";
+  const inherit = !groundIsPaintedFor(active);
   const opaqueBackground =
     colors.background === TRANSPARENT ? (known ?? houseTheme(active.variant).background) : null;
   let painted: ThemeColors;
@@ -371,10 +382,15 @@ export function setCanvasMode(mode: CanvasMode): void {
   repaint();
 }
 
+/** Whether the ground on screen is painted rather than the terminal's own; see `CanvasMode`. */
+export function groundIsPainted(): boolean {
+  return groundIsPaintedFor(state.active);
+}
+
 /**
- * What a full-window ground paints: `transparent` in `inherit` mode, so the terminal's own
- * background shows, and the theme's background in `painted` mode. Overlays and bands that must
- * hide what is behind them paint `THEME.canvas` or a tier instead.
+ * What a full-window ground paints: `transparent` while the terminal's own background shows,
+ * and the theme's background while it is painted. Overlays and bands that must hide what is
+ * behind them paint `THEME.canvas` or a tier instead.
  */
 export function groundPaint(): string {
   return THEME.background;

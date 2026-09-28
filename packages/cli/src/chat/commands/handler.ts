@@ -105,6 +105,7 @@ import { activeKeymapMode, bindingLabel, KEYMAPS } from "@/cli/ui/keymaps";
 import { store } from "@/cli/ui/store";
 import {
   applyTheme,
+  CHALK_THEME,
   listThemes,
   PADDING_BUDGET,
   themeWarnings,
@@ -679,10 +680,11 @@ export function themeListingRows(listings: readonly ThemeListing[]): string[] {
       ...(first.source === "builtin" || first.source === "system" ? [] : [first.source]),
     ].join(" · ");
     const label = name.padEnd(THEME_NAME_COLUMN);
+    const glyphs = getGlyphs();
     rows.push(
       current === undefined
-        ? fmt.labeledItemDim(`${label}${details}`)
-        : fmt.labeledItem(label, `${details} · showing ${current.variant}`),
+        ? `${CHALK_THEME.secondary(glyphs.bullet)} ${CHALK_THEME.white(label)}${CHALK_THEME.muted(details)}`
+        : `${CHALK_THEME.primary(glyphs.arrow)} ${CHALK_THEME.primaryBold(label)}${CHALK_THEME.muted(`${details} · showing ${current.variant}`)}`,
     );
   }
   return rows;

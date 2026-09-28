@@ -386,6 +386,8 @@ describe("syncTerminalGround", () => {
     initializeTheme({});
   });
 
+  const noRuntime = { on: () => undefined, off: () => undefined };
+
   function stubGroundRenderer() {
     const calls = {
       backgrounds: [] as string[],
@@ -422,7 +424,7 @@ describe("syncTerminalGround", () => {
     const { calls, renderer } = stubGroundRenderer();
     const writes: string[] = [];
 
-    const ground = syncTerminalGround(renderer, (data) => writes.push(data));
+    const ground = syncTerminalGround(renderer, (data) => writes.push(data), noRuntime);
 
     expect(calls.backgrounds).toEqual(["#0A0A0A"]);
     expect(writes).toEqual(["\x1b]11;#0A0A0A\x07"]);
@@ -435,7 +437,7 @@ describe("syncTerminalGround", () => {
     const { calls, renderer } = stubGroundRenderer();
     const writes: string[] = [];
 
-    const ground = syncTerminalGround(renderer, (data) => writes.push(data));
+    const ground = syncTerminalGround(renderer, (data) => writes.push(data), noRuntime);
 
     expect(calls.backgrounds).toEqual(["transparent"]);
     expect(calls.resets).toBe(1);
@@ -448,13 +450,49 @@ describe("syncTerminalGround", () => {
     const { calls, renderer } = stubGroundRenderer();
     const writes: string[] = [];
 
-    const ground = syncTerminalGround(renderer, (data) => writes.push(data));
+    const ground = syncTerminalGround(renderer, (data) => writes.push(data), noRuntime);
     applyTheme("jazz:light");
     ground.stop();
     applyTheme("jazz:dark");
 
     expect(calls.backgrounds).toEqual(["#0A0A0A", "#FFFFFF"]);
-    expect(writes.at(-1)).toBe(setTerminalBackgroundSequence("#FFFFFF"));
+    expect(writes).toEqual([
+      setTerminalBackgroundSequence("#0A0A0A"),
+      setTerminalBackgroundSequence("#FFFFFF"),
+      "\x1b]111\x07",
+    ]);
+  });
+
+  test("resets the terminal background synchronously when the process exits", () => {
+    initializeTheme({ configured: "jazz:dark", canvas: "painted" });
+    const { renderer } = stubGroundRenderer();
+    const writes: string[] = [];
+    const listeners = new Map<string, () => void>();
+    const runtime = {
+      on: (event: string, listener: () => void) => listeners.set(event, listener),
+      off: (event: string) => listeners.delete(event),
+    };
+
+    syncTerminalGround(renderer, (data) => writes.push(data), runtime);
+    listeners.get("exit")?.();
+
+    expect(writes).toEqual(["\x1b]11;#0A0A0A\x07", "\x1b]111\x07"]);
+  });
+
+  test("sends no reset on exit when it never set a background", () => {
+    initializeTheme({ configured: "jazz:dark" });
+    const { renderer } = stubGroundRenderer();
+    const writes: string[] = [];
+    const listeners = new Map<string, () => void>();
+    const runtime = {
+      on: (event: string, listener: () => void) => listeners.set(event, listener),
+      off: (event: string) => listeners.delete(event),
+    };
+
+    syncTerminalGround(renderer, (data) => writes.push(data), runtime);
+    listeners.get("exit")?.();
+
+    expect(writes).toEqual([]);
   });
 
   test("does nothing once the renderer is gone", () => {
@@ -462,7 +500,7 @@ describe("syncTerminalGround", () => {
     const { calls, renderer } = stubGroundRenderer();
     calls.destroyed = true;
 
-    syncTerminalGround(renderer, () => undefined).stop();
+    syncTerminalGround(renderer, () => undefined, noRuntime).stop();
 
     expect(calls.backgrounds).toEqual([]);
   });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { getGlyphs } from "@/cli/ui/glyphs";
 import type { ThemeListing } from "@/cli/ui/theme";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { themeListingRows } from "./handler";
@@ -28,10 +29,12 @@ describe("/theme listing", () => {
       }),
     ]).map((row) => stripAnsiCodes(row).trim());
 
+    const { bullet, arrow } = getGlyphs();
     expect(rows).toHaveLength(3);
-    expect(rows[0]).toBe("system        System · your terminal's own colours");
-    expect(rows[1]).toContain("jazz");
-    expect(rows[1]).toContain("Jazz · dark, light · showing light");
-    expect(rows[2]).toBe("paper-ink     Paper Ink · light · /home/me/.jazz/themes/paper-ink.json");
+    expect(rows[0]).toBe(`${bullet} system        System · your terminal's own colours`);
+    expect(rows[1]).toBe(`${arrow} jazz          Jazz · dark, light · showing light`);
+    expect(rows[2]).toBe(
+      `${bullet} paper-ink     Paper Ink · light · /home/me/.jazz/themes/paper-ink.json`,
+    );
   });
 });
