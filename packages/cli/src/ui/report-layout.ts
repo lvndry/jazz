@@ -116,10 +116,12 @@ function fieldLines(rows: readonly Extract<ReportRow, { kind: "field" }>[]): Bod
   const numeric = rows.every((row) => NUMERIC_VALUE.test(row.value));
   const valueWidth = Math.max(...rows.map((row) => [...row.value].length));
   return rows.map((row) => {
-    const value = numeric ? row.value.padStart(valueWidth) : row.value;
+    // A number right-aligns by padding the key side, so the padding belongs to the
+    // prefix and a renderer that trims the start of a wrapped value keeps it.
+    const alignment = numeric ? " ".repeat(valueWidth - [...row.value].length) : "";
     const segments: ReportSegment[] = [
-      { text: row.key.padEnd(keyWidth + COLUMN_GAP), role: "muted" },
-      { text: value, role: toneRole(row.tone, "text") },
+      { text: `${row.key.padEnd(keyWidth + COLUMN_GAP)}${alignment}`, role: "muted" },
+      { text: row.value, role: toneRole(row.tone, "text") },
     ];
     if (row.detail !== undefined && row.detail.length > 0) {
       segments.push({ text: `  ${row.detail}`, role: "muted" });

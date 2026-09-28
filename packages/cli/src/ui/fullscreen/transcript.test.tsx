@@ -738,6 +738,15 @@ describe("command reports", () => {
     expect(texts.at(-1)?.indexOf("compacts")).toBe(valueColumn);
   });
 
+  it("right-align a run of numbers, so their last digits share a column", () => {
+    const texts = transcriptRows([contextReport], WIDE).map((row) =>
+      row.content.map((segment) => segment.text).join(""),
+    );
+    const system = texts.find((text) => text.includes("system")) ?? "";
+    const tools = texts.find((text) => text.includes("tools")) ?? "";
+    expect(system.trimEnd().length).toBe(tools.trimEnd().length);
+  });
+
   it("wrap a long row under its own column and never past the measure", () => {
     const long: Block = {
       id: "l",
