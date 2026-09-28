@@ -1,6 +1,7 @@
 import os from "node:os";
 import type { Agent } from "@jazz/core/types/index";
 import { agentModelString } from "@jazz/core/utils/provider-model";
+import { abbreviateHomePath } from "@jazz/core/utils/storage";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 
 /**
@@ -13,10 +14,7 @@ export function sessionOpenLine(
   workingDirectory: string = process.cwd(),
   homeDirectory: string = os.homedir(),
 ): string {
-  const directory =
-    workingDirectory === homeDirectory || workingDirectory.startsWith(`${homeDirectory}/`)
-      ? `~${workingDirectory.slice(homeDirectory.length)}`
-      : workingDirectory;
+  const directory = abbreviateHomePath(workingDirectory, homeDirectory);
   return [
     agent.name,
     agentModelString(agent.config),

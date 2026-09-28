@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { abbreviateHomePath } from "@/core/utils/storage";
 
 /**
  * AGENTS.md support — the cross-tool convention for project instructions
@@ -139,10 +140,7 @@ export function renderProjectInstructions(
 ): string {
   if (files.length === 0) return "";
 
-  const displayPath = (filePath: string): string =>
-    homeDirectory && filePath.startsWith(`${homeDirectory}${path.sep}`)
-      ? `~${filePath.slice(homeDirectory.length)}`
-      : filePath;
+  const displayPath = (filePath: string): string => abbreviateHomePath(filePath, homeDirectory);
 
   const blocks = files
     .map((file) => `<file path="${displayPath(file.path)}">\n${file.content}\n</file>`)

@@ -2,6 +2,7 @@
  * Bottom status bar: working directory, model, and running cost/token stats.
  */
 
+import { abbreviateHomePath } from "@jazz/core/utils/storage";
 import { formatCompactCount } from "@jazz/core/utils/string";
 import { Box, Text } from "ink";
 import React from "react";
@@ -31,10 +32,7 @@ function formatCost(cost: number): string {
  *   home anchor stay visible.
  */
 function shortenPath(path: string, homeDir: string | undefined, maxWidth: number): string {
-  let display = path;
-  if (homeDir && display.startsWith(homeDir)) {
-    display = "~" + display.slice(homeDir.length);
-  }
+  const display = abbreviateHomePath(path, homeDir);
   if (display.length <= maxWidth) return display;
   const segments = display.split("/");
   if (segments.length <= 3) {
