@@ -515,7 +515,7 @@ describe("input", () => {
     expect(rows.at(-1)?.segments[1]?.text).toBe(`${glyphs.promptCursor} `);
   });
 
-  it("wraps the command list as a carousel instead of stopping at the ends", () => {
+  it("wraps the selection at the ends but opens the list at its head", () => {
     expect(wrapCommandIndex(-1, 5)).toBe(4);
     expect(wrapCommandIndex(5, 5)).toBe(0);
     const items = Array.from({ length: 10 }, (_, index) => ({
@@ -529,9 +529,40 @@ describe("input", () => {
     const names = rows
       .slice(0, -1)
       .map((row) => row.segments.map((segment) => segment.text).join(""));
-    expect(names[0]).toContain("/cmd-3");
-    expect(names.at(-1)).toContain("/cmd-0");
-    expect(rows[names.length - 1]?.segments[0]?.text).toBe(`${glyphs.rail} `);
+    expect(names[0]).toContain("/cmd-0");
+    expect(names.at(-1)).toContain("/cmd-7");
+    expect(rows[0]?.segments[0]?.text).toBe(`${glyphs.rail} `);
+
+    const wrapped = inputRows(
+      { ...base, value: "/", commands: { items, selected: wrapCommandIndex(-1, items.length) } },
+      { width: WIDTH, height: HEIGHT },
+    )
+      .slice(0, -1)
+      .map((row) => row.segments.map((segment) => segment.text).join(""));
+    expect(wrapped.at(-1)).toContain("/cmd-9");
+  });
+
+  it("aligns command names, origin tags and plain descriptions in columns", () => {
+    const items = [
+      { name: "agents", description: "List all available agents" },
+      {
+        name: "explain-concept",
+        description: "Explain a *concept* properly with `depth`",
+        source: "skill",
+      },
+    ];
+    const rows = inputRows(
+      { ...base, value: "/", commands: { items, selected: 0 } },
+      { width: WIDTH, height: HEIGHT },
+    )
+      .slice(0, -1)
+      .map((row) => row.segments.map((segment) => segment.text).join(""));
+    const first = rows[0] ?? "";
+    const second = rows[1] ?? "";
+    expect(second).toContain("skill");
+    expect(second).not.toContain("(skill)");
+    expect(second).toContain("Explain a concept properly with depth");
+    expect(first.indexOf("List all")).toBe(second.indexOf("Explain"));
   });
 
   it("shows one prompt gutter and a caret when the keyboard is live", () => {

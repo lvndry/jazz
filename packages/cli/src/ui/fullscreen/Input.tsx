@@ -43,7 +43,8 @@
 import { memo, type ReactNode } from "react";
 import { isShellEscape } from "@/cli/chat/commands/parser";
 import { getGlyphs, type GlyphSet } from "../glyphs";
-import { carouselWindow, wrapIndex } from "../picker-window";
+import { pickerWindow, wrapIndex } from "../picker-window";
+import { plainDescription, suggestionOrigin } from "../suggestion-menu";
 import { THEME } from "../theme";
 import {
   clipTerminalCells,
@@ -64,6 +65,15 @@ export const INPUT_MAX_ROWS = 6;
 
 /** Same cap as the Ink dropdown: a 20-row list is unscannable. */
 const MAX_VISIBLE_COMMANDS = 8;
+
+/** The selection rail and its space. */
+const COMMAND_MARKER_CELLS = 2;
+
+/** Name, tag and description columns sit this far apart. */
+const COMMAND_COLUMN_GAP = 2;
+
+/** Past this a name column stops widening and long names clip, so descriptions stay visible. */
+const MAX_COMMAND_LABEL_CELLS = 28;
 
 /**
  * Newest queued entries shown under the count. Older ones remain in the
@@ -125,28 +135,47 @@ function commandSuggestRows(
   size: number = MAX_VISIBLE_COMMANDS,
 ): InputRow[] {
   if (size <= 0) return [];
-  const visible = carouselWindow(commands.items, commands.selected, size);
+  const visible = pickerWindow(commands.items, commands.selected, size);
   const prefix = commands.prefix ?? "/";
+  const label = (command: (typeof visible)[number]): string =>
+    `${prefix}${command.name}${command.usage === undefined ? "" : ` ${command.usage}`}`;
+  // Columns are sized over the window rather than the whole list, so one long
+  // skill name far down the list does not push every visible description right.
+  const labelColumn = Math.min(
+    MAX_COMMAND_LABEL_CELLS,
+    Math.max(0, ...visible.map((command) => terminalCellWidth(label(command)))),
+  );
+  // A path list is all files, so a tag on every row would be noise; only the
+  // mixed command list says where an entry came from — and a file entry's
+  // `source` is always undefined, so the column falls out naturally.
+  const tagColumn = Math.max(
+    0,
+    ...visible.map((command) => terminalCellWidth(suggestionOrigin(command.source) ?? "")),
+  );
   const rows: InputRow[] = visible.map((command) => {
     const selected = command === commands.items[commands.selected];
-    const usage = command.usage === undefined ? "" : ` ${command.usage}`;
-    // A path list is all files, so a badge on every row would be noise; only
-    // the mixed command list needs to say where an entry came from — and a
-    // file entry's `source` is always undefined, so it falls out naturally.
-    const origin =
-      command.source === "skill"
-        ? " (skill)"
-        : command.source === "mcp-prompt"
-          ? " (mcp)"
-          : command.source === "plugin"
-            ? " (plugin)"
-            : "";
+    const name = clipTerminalCells(label(command), labelColumn);
+    const origin = suggestionOrigin(command.source) ?? "";
+    const lead = COMMAND_MARKER_CELLS + labelColumn + COMMAND_COLUMN_GAP;
+    const tagCells = tagColumn === 0 ? 0 : tagColumn + COMMAND_COLUMN_GAP;
+    const descriptionBudget = Math.max(0, width - lead - tagCells);
+    const description = clipTerminalCells(plainDescription(command.description), descriptionBudget);
     const segments: InputSegment[] = [
       { text: selected ? `${glyphs.rail} ` : "  ", fg: THEME.primary },
-      { text: `${prefix}${command.name}`, fg: selected ? THEME.selected : THEME.secondary },
-      ...(usage.length > 0 ? [{ text: usage, fg: THEME.muted }] : []),
-      ...(origin.length > 0 ? [{ text: origin, fg: THEME.muted }] : []),
-      { text: `  ${command.description}`, fg: THEME.muted },
+      {
+        text: name.padEnd(name.length + labelColumn - terminalCellWidth(name)),
+        fg: selected ? THEME.selected : THEME.secondary,
+      },
+      { text: " ".repeat(COMMAND_COLUMN_GAP), fg: THEME.muted },
+      ...(tagColumn === 0
+        ? []
+        : [
+            {
+              text: `${origin.padEnd(tagColumn)}${" ".repeat(COMMAND_COLUMN_GAP)}`,
+              fg: THEME.muted,
+            },
+          ]),
+      { text: description, fg: selected ? THEME.secondary : THEME.muted },
     ];
     return { key: `${prefix}${command.name}`, segments: fitTerminalSegments(segments, width) };
   });

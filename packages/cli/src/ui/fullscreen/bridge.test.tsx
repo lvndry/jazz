@@ -534,8 +534,10 @@ describe("fullscreen bridge", () => {
     await rendered.mockInput.pressKey("/");
     await settleKeypress(rendered.flush);
     const listed = rendered.captureCharFrame();
-    expect(listed).toContain("/agents");
-    expect(listed).toContain("/workflows");
+    // The list opens at its head, with the first entry highlighted, rather than
+    // wrapped so the tail of the list sits above the selection.
+    expect(listed).toContain(`${getGlyphs().rail} /agents`);
+    expect(listed).not.toContain("/workflows");
 
     await rendered.mockInput.pressKey("h");
     await settleKeypress(rendered.flush);
