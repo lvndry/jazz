@@ -1054,6 +1054,7 @@ function approvalFrom(
       ? {}
       : { diff: intent.diff, diffLanguage: diffLanguage(pending.args) }),
     ...(pending.warning === undefined ? {} : { warning: pending.warning }),
+    ...(pending.editableArg === undefined ? {} : { editableArg: pending.editableArg }),
   };
 }
 
@@ -1870,6 +1871,19 @@ export function FullscreenBridge(): React.ReactNode {
         if (active === null) return true;
         if (name === "return" || name === "enter") {
           active.resolve("yes");
+          return true;
+        }
+        // `e` rewrites the tool's editable argument first. Like accept, it waits for the
+        // card to arm, so a keystroke typed before the card appeared cannot open it.
+        if (
+          name === "e" &&
+          !ctrl &&
+          !superKey &&
+          !meta &&
+          !option &&
+          approvalRef.current.editableArg !== undefined
+        ) {
+          active.resolve("edit");
           return true;
         }
         // Unmodified `a` only. Ctrl+A and Cmd+A are "go to start of line" in

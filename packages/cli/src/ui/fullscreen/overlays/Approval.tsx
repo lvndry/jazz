@@ -572,7 +572,8 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
       : "up/down"
     : "";
   const expandHint = expandable ? `ctrl+o ${expanded ? "collapse" : "expand"}` : "";
-  const rightHint = [scrollHint, expandHint, `a ${model.alwaysLabel}`]
+  const editHint = model.editableArg === undefined ? "" : `e edit ${model.editableArg}`;
+  const rightHint = [scrollHint, expandHint, editHint, `a ${model.alwaysLabel}`]
     .filter((part) => part.length > 0)
     .join(" · ");
   const acceptLabel = model.acceptLabel ?? "accept";

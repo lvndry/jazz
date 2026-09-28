@@ -342,6 +342,8 @@ export interface ApprovalOverlay {
   readonly diffLanguage?: string;
   /** A caution that must be read before accepting; shown even when the headline replaces the tool's prose. */
   readonly warning?: string;
+  /** The argument `e` rewrites before accepting (`command`), when the tool allows it. */
+  readonly editableArg?: string;
 }
 
 export interface SearchHit {

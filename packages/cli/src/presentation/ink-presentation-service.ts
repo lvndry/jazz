@@ -1535,6 +1535,7 @@ export class InkPresentationService implements PresentationService {
       ...(request.impact === undefined ? {} : { impact: request.impact }),
       ...(request.riskLevel === undefined ? {} : { riskLevel: request.riskLevel }),
       ...(request.warning === undefined ? {} : { warning: request.warning }),
+      ...(request.editableArg === undefined ? {} : { editableArg: request.editableArg }),
     });
 
     store.setPrompt({
@@ -1572,11 +1573,55 @@ export class InkPresentationService implements PresentationService {
           return;
         }
 
+        const editableArg = request.editableArg;
+        const editableValue =
+          editableArg === undefined ? undefined : request.executeArgs[editableArg];
+        if (choice === "edit" && editableArg !== undefined && typeof editableValue === "string") {
+          store.setPrompt(null);
+          this.promptApprovalEdit(request, resume, editableArg, editableValue);
+          return;
+        }
+
         // Rejected: prompt for optional message to guide the agent
         store.setPrompt(null);
         store.setApprovalRequest(null);
         this.promptRejectionMessage(resume);
       },
+    });
+  }
+
+  /**
+   * Let a person rewrite the request's editable argument, then run the rewrite. An empty
+   * submission or esc goes back to the same approval, so editing never approves by accident.
+   */
+  private promptApprovalEdit(
+    request: ApprovalRequest,
+    resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
+    editableArg: string,
+    current: string,
+  ): void {
+    const backToApproval = (): void => {
+      store.setPrompt(null);
+      store.setApprovalRequest(null);
+      this.approvalQueue.unshift({ request, resume });
+      this.isProcessingApproval = false;
+      this.processNextApproval();
+    };
+    store.setPrompt({
+      type: "text",
+      message: `Edit the ${editableArg}, then press enter to run it`,
+      options: { defaultValue: current },
+      resolve: (input: unknown) => {
+        const edited = typeof input === "string" ? input.trim() : "";
+        if (edited.length === 0) {
+          backToApproval();
+          return;
+        }
+        store.setPrompt(null);
+        store.setApprovalRequest(null);
+        this.completeApproval(resume, { approved: true, editedArgs: { [editableArg]: edited } });
+      },
+      reject: backToApproval,
     });
   }
 

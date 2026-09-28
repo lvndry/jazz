@@ -180,6 +180,8 @@ export interface PendingApproval {
   readonly riskLevel?: ToolRiskLevel;
   /** A caution the card shows even when it replaces the tool's prose (untrusted content read this run). */
   readonly warning?: string;
+  /** The argument `e` lets a person rewrite before accepting. */
+  readonly editableArg?: string;
 }
 
 export interface RunStats {

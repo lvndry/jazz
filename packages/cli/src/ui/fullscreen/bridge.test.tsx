@@ -2130,6 +2130,39 @@ describe("fullscreen bridge", () => {
     expect(decisions).toEqual(["always_command"]);
   });
 
+  it("opens the edit path with `e` only once armed, and only for a tool that allows it", async () => {
+    const decisions: string[] = [];
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 24 });
+    await rendered.renderOnce();
+    store.setPrompt({
+      type: "select",
+      message: "Approve this action?",
+      options: { choices: [{ label: "Yes", value: "yes" }] },
+      resolve: (value) => decisions.push(String(value)),
+    });
+    store.setApprovalRequest({
+      toolName: "execute_command",
+      executeToolName: "execute_command",
+      message: "This command will modify the working tree.",
+      args: { command: "rm -rf ./build" },
+      editableArg: "command",
+    });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("e edit command");
+    await rendered.mockInput.pressKey("e");
+    await settleKeypress(rendered.flush);
+    expect(decisions).toEqual([]);
+
+    await afterArming(rendered.flush);
+    await rendered.mockInput.pressKey("e");
+    await settleKeypress(rendered.flush);
+    expect(decisions).toEqual(["edit"]);
+
+    rendered.renderer.destroy();
+    store.setApprovalRequest(null);
+    store.setPrompt(null);
+  });
+
   // Ctrl+A and Cmd+A are "go to start of line" in the composer. The allowlist
   // `a` writes outlives the turn, so a caret keystroke must never grant it.
   it("does not always-allow on a modified `a`", async () => {

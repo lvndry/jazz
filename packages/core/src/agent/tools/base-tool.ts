@@ -234,6 +234,11 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
   >;
   /** Custom error message when approval is required */
   readonly approvalErrorMessage?: string;
+  /**
+   * A string argument a person may rewrite on the approval card before accepting, such
+   * as a shell command. The execution handler still validates the rewritten value.
+   */
+  readonly editableArg?: keyof Args & string;
   /** The actual execution handler (runs after approval) */
   readonly handler: (
     args: Args,
@@ -319,6 +324,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
             message,
             previewDiff,
             ...(impact === undefined ? {} : { impact }),
+            ...(config.editableArg === undefined ? {} : { editableArg: config.editableArg }),
             executeToolName: executeToolName,
             executeArgs: args as Record<string, unknown>,
           },

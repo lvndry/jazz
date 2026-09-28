@@ -1653,6 +1653,47 @@ describe("InkPresentationService approval rejection", () => {
     );
   }
 
+  function requestCommandApproval() {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    return Effect.runPromise(
+      service.requestApproval({
+        toolCallId: "call-2",
+        toolName: "execute_command",
+        message: "Command: rm -rf ./build",
+        executeToolName: "execute_execute_command",
+        executeArgs: { command: "rm -rf ./build" },
+        editableArg: "command",
+      }),
+    );
+  }
+
+  test("runs the approver's rewrite of an editable argument, prefilled with the original", async () => {
+    const pending = requestCommandApproval();
+    const approvalPrompt = await waitForPromptType("select");
+    approvalPrompt.resolve("edit");
+
+    const editor = await waitForPromptType("text");
+    expect(editor.options?.["defaultValue"]).toBe("rm -rf ./build");
+    editor.resolve("rm -rf ./build/cache");
+
+    expect(await pending).toEqual({
+      approved: true,
+      editedArgs: { command: "rm -rf ./build/cache" },
+    });
+  });
+
+  test("goes back to the same approval when the rewrite is abandoned", async () => {
+    const pending = requestCommandApproval();
+    (await waitForPromptType("select")).resolve("edit");
+    const editor = await waitForPromptType("text");
+    editor.reject?.();
+
+    const again = await waitForPromptType("select");
+    expect(store.getApprovalRequestSnapshot()?.args["command"]).toBe("rm -rf ./build");
+    again.resolve("yes");
+    expect(await pending).toEqual({ approved: true });
+  });
+
   test("echoes what the user would rather do as a user turn", async () => {
     const pending = requestEditApproval();
     const approvalPrompt = await waitForPromptType("select");

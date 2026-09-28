@@ -245,6 +245,11 @@ export interface ApprovalRequiredResult {
    */
   readonly impact?: string;
   /**
+   * The one string argument a person may rewrite before approving, such as a shell
+   * command. The rewritten value runs through the execution tool's own checks.
+   */
+  readonly editableArg?: string;
+  /**
    * When present, the human picks one option instead of approving yes/no.
    * The selected option's id reaches the execution tool via the executor,
    * merged into its args under `_selectedOptionId`.
@@ -271,6 +276,8 @@ export interface ApprovalRequest {
   readonly previewDiff?: string;
   /** What approving concretely does, with real numbers. See {@link ApprovalRequiredResult.impact}. */
   readonly impact?: string;
+  /** The argument a person may rewrite before approving. See {@link ApprovalRequiredResult.editableArg}. */
+  readonly editableArg?: string;
   /** The risk class of the call being approved, when the tool declares one. */
   readonly riskLevel?: ToolRiskLevel;
   /**
@@ -309,6 +316,11 @@ export type ApprovalOutcome =
        * `_selectedOptionId`; absent when the request had no options.
        */
       readonly selectedOptionId?: string;
+      /**
+       * A person's rewrite of the request's `editableArg`, applied before the call runs.
+       * Keyed by argument name; any key other than `editableArg` is ignored.
+       */
+      readonly editedArgs?: Readonly<Record<string, string>>;
     }
   | { readonly approved: false; readonly userMessage?: string };
 
