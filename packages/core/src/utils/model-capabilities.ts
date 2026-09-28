@@ -147,54 +147,7 @@ export function formatModelPriceLine(
   return parts.join(" · ");
 }
 
-function trimNumber(value: number): string {
+/** A price or rate with at most two decimals and no trailing zeros: 1.25, 10, 0.4. */
+export function trimNumber(value: number): string {
   return String(Number(value.toFixed(2)));
-}
-
-/**
- * One-line summary of a model for picker rows: what goes in on the left of the
- * arrow, what comes out on the right, each with its per-Mtok price.
- *
- * ```
- * txt·img $4/M → txt $20/M
- * ```
- *
- * `txt` is always present on both sides because everything listed here converses;
- * an unpriced side reads `?/M` rather than pretending to be free.
- */
-export function describeModelCapabilities(
-  model: Pick<
-    ModelInfo,
-    | "ingestImage"
-    | "ingestPdf"
-    | "ingestAudio"
-    | "ingestVideo"
-    | "generatesImage"
-    | "generatesAudio"
-    | "generatesVideo"
-    | "inputPricePerMillion"
-    | "outputPricePerMillion"
-  >,
-): string {
-  const inputs = ["txt"];
-  if (model.ingestImage === true) inputs.push("img");
-  if (model.ingestAudio === true) inputs.push("aud");
-  if (model.ingestVideo === true) inputs.push("vid");
-  if (model.ingestPdf === true) inputs.push("pdf");
-
-  const outputs = ["txt"];
-  if (model.generatesImage === true) outputs.push("img");
-  if (model.generatesAudio === true) outputs.push("aud");
-  if (model.generatesVideo === true) outputs.push("vid");
-
-  const inputPrice =
-    model.inputPricePerMillion !== undefined
-      ? `$${trimNumber(model.inputPricePerMillion)}/M`
-      : "?/M";
-  const outputPrice =
-    model.outputPricePerMillion !== undefined
-      ? `$${trimNumber(model.outputPricePerMillion)}/M`
-      : "?/M";
-
-  return `${inputs.join("·")} ${inputPrice} → ${outputs.join("·")} ${outputPrice}`;
 }

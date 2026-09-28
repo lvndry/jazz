@@ -83,6 +83,41 @@ export interface QuestionChoice {
   readonly tagTone?: QuestionTagTone;
 }
 
+/** Pads a tab-separated description column; a no-break space survives word wrapping. */
+const COLUMN_PAD = "\u00a0";
+
+/** Cells kept between two tab-separated description columns. */
+const COLUMN_GAP = 2;
+
+/**
+ * Descriptions that use tabs as column breaks, set so every column lines up across the
+ * choices. Descriptions without a tab are returned unchanged.
+ */
+export function alignDescriptionColumns(
+  choices: readonly QuestionChoice[],
+): readonly QuestionChoice[] {
+  if (!choices.some((choice) => (choice.description ?? "").includes("\t"))) return choices;
+  const split = choices.map((choice) => (choice.description ?? "").split("\t"));
+  const widths: number[] = [];
+  for (const cells of split) {
+    cells.forEach((cell, index) => {
+      widths[index] = Math.max(widths[index] ?? 0, terminalCellWidth(cell));
+    });
+  }
+  return choices.map((choice, row) => {
+    const cells = split[row] ?? [];
+    if (choice.description === undefined) return choice;
+    const description = cells
+      .map((cell, index) =>
+        index === cells.length - 1
+          ? cell
+          : cell + COLUMN_PAD.repeat((widths[index] ?? 0) - terminalCellWidth(cell) + COLUMN_GAP),
+      )
+      .join("");
+    return { ...choice, description };
+  });
+}
+
 export interface QuestionModel {
   readonly kind: "question";
   /** `select` and `confirm` are single-answer; `checkbox` accumulates. */
@@ -129,8 +164,9 @@ function clip(text: string, width: number): string {
   return clipTerminalCells(text, width);
 }
 
+/** Collapse whitespace to single spaces, keeping the no-break spaces that pad columns. */
 function oneLine(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text.replace(/[^\S\u00a0]+/g, " ").replace(/^ +| +$/g, "");
 }
 
 function wrapProse(text: string, width: number, maxRows: number): string[] {
@@ -241,7 +277,8 @@ export interface QuestionProps {
 }
 
 /** The card's size, placement, and visible choices; `height` is what the layout reserves. */
-export function questionLayout(model: QuestionModel, viewport: Viewport) {
+export function questionLayout(source: QuestionModel, viewport: Viewport) {
+  const model = { ...source, choices: alignDescriptionColumns(source.choices) };
   const frame = overlayWidth(viewport);
   const { fullscreen, width } = frame;
   const inner = Math.max(8, width - BAND_CHROME_COLUMNS);
@@ -324,8 +361,11 @@ export function questionLayout(model: QuestionModel, viewport: Viewport) {
         (description.length > 0 ? DESCRIPTION_GAP + displayWidth(description) : 0),
     );
   }, 0);
+  // A tag column is flush right, so a list that carries tags spans the card instead of centering.
   const listOffset =
-    filterable || widestOptionRow >= inner ? 0 : centeredOffset(widestOptionRow, inner);
+    filterable || tagColumn > 0 || widestOptionRow >= inner
+      ? 0
+      : centeredOffset(widestOptionRow, inner);
 
   const { height, left, top } = placeOverlay(viewport, frame, fixedRows + listRows + HINT_ROWS);
   const cardHeight = Math.max(1, height - HINT_ROWS);

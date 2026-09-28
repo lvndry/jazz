@@ -1,4 +1,5 @@
 import { checkApiKey, type ApiKeyCheck } from "@jazz/adapters/llm/api-key-check";
+import { describeKeyringBackend, detectKeyringBackend } from "@jazz/adapters/secrets/keyring";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import type { AppConfig } from "@jazz/core/types/config";
@@ -50,17 +51,14 @@ export async function ensureProviderApiKey(options: {
     return signedIn ? "saved" : "cancelled";
   }
 
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      yield* options.terminal.log("");
-      if (options.reason) {
-        yield* options.terminal.warn(options.reason);
-      } else {
-        yield* options.terminal.warn(`API key not set for ${options.displayName}.`);
-      }
-      yield* options.terminal.log("Please paste your API key below:");
-    }),
-  );
+  if (options.reason) {
+    await Effect.runPromise(options.terminal.warn(options.reason));
+  }
+  const backend = await Effect.runPromise(detectKeyringBackend());
+  const storedIn =
+    backend === "none" || backend === "file"
+      ? "Stored in your Jazz config, readable only by you."
+      : `Stored in ${describeKeyringBackend(backend)}, never in a config file.`;
 
   const hasCustomEndpoint = hasCustomBaseUrl(config, options.provider);
   const check = options.checkKey ?? checkApiKey;
@@ -68,12 +66,12 @@ export async function ensureProviderApiKey(options: {
   while (true) {
     const answer = await Effect.runPromise(
       options.terminal.ask(
-        `${options.displayName} API Key${options.required ? "" : " (optional)"}:`,
+        `Paste your ${options.displayName} API key${options.required ? "" : " (optional)"}. ${storedIn}`,
         {
           simple: true,
           secret: true,
           cancellable: true,
-          placeholder: "Paste your API key... (Esc to go back)",
+          placeholder: "Paste the key; esc picks another provider",
           validate: (inputValue: string): boolean | string => {
             if (!options.required) return true;
             if (!inputValue || inputValue.trim().length === 0) {
@@ -98,7 +96,7 @@ export async function ensureProviderApiKey(options: {
     if (verdict === "rejected") {
       await Effect.runPromise(
         options.terminal.error(
-          `${options.displayName} rejected this key (401/403). Check that it was copied whole and is still active, then paste it again, or press Esc to go back.`,
+          `${options.displayName} rejected this key (401/403), so nothing was saved. It may be revoked or cut short: paste it again, or press esc to pick another provider.`,
         ),
       );
       continue;
@@ -109,10 +107,9 @@ export async function ensureProviderApiKey(options: {
       Effect.gen(function* () {
         yield* options.terminal.success(
           verdict === "accepted"
-            ? `API key saved; ${options.displayName} accepted it.`
-            : "API key saved.",
+            ? `${options.displayName} accepted the key. ${storedIn}`
+            : `Key saved. ${storedIn}`,
         );
-        yield* options.terminal.log("");
       }),
     );
     return "saved";

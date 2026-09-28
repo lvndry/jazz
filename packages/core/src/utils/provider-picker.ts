@@ -3,8 +3,9 @@
  * OpenRouter's router meta-models) surface above the rest of the catalog.
  */
 import type { ModelInfo } from "@/core/types/llm";
-import { describeModelCapabilities } from "@/core/utils/model-capabilities";
+import { trimNumber } from "@/core/utils/model-capabilities";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
+import { formatCompactCount } from "@/core/utils/string";
 
 export const PINNED_PROVIDERS_FOR_PICKER = [
   "openai",
@@ -112,9 +113,31 @@ export function sortModelsForPicker<T>(
 
 export interface ModelPickerChoice {
   readonly name: string;
-  /** Capabilities and price, so nobody picks a model blind. */
+  /** Context window, a tab, then price in / out: a picker that aligns tab columns reads it as a table. */
   readonly description: string;
   readonly value: string;
+  /** What the model can do beyond text, as words: "reasoning vision". Empty when nothing extra. */
+  readonly tag?: string;
+}
+
+function priceText(inputPrice: number | undefined, outputPrice: number | undefined): string {
+  if (inputPrice === undefined && outputPrice === undefined) return "price unknown";
+  if (inputPrice === 0 && outputPrice === 0) return "free";
+  const format = (price: number | undefined): string =>
+    price === undefined ? "?" : `$${trimNumber(price)}`;
+  return `${format(inputPrice)} / ${format(outputPrice)}`;
+}
+
+/** The capability words a model earns beyond reading and writing text. */
+export function modelCapabilityWords(model: ModelInfo): string[] {
+  const words: string[] = [];
+  if (model.isReasoningModel === true) words.push("reasoning");
+  if (model.supportsTools === false) words.push("no tools");
+  if (model.ingestImage === true) words.push("vision");
+  if (model.ingestAudio === true) words.push("audio");
+  if (model.ingestVideo === true) words.push("video");
+  if (model.generatesImage === true) words.push("makes images");
+  return words;
 }
 
 /**
@@ -127,9 +150,15 @@ export function buildModelChoices(
   providerId: string,
   models: readonly ModelInfo[],
 ): ModelPickerChoice[] {
-  return sortModelsForPicker(providerId, models, (model) => model.id).map((model) => ({
-    name: model.displayName || model.id,
-    description: describeModelCapabilities(model),
-    value: model.id,
-  }));
+  return sortModelsForPicker(providerId, models, (model) => model.id).map((model) => {
+    const context =
+      model.contextWindow === undefined ? "" : formatCompactCount(model.contextWindow);
+    const words = modelCapabilityWords(model);
+    return {
+      name: model.displayName || model.id,
+      description: `${context}\t${priceText(model.inputPricePerMillion, model.outputPricePerMillion)}`,
+      value: model.id,
+      ...(words.length === 0 ? {} : { tag: words.join(" ") }),
+    };
+  });
 }

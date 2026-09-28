@@ -13,7 +13,7 @@ import {
   type LocalServerProvider,
 } from "@jazz/core/constants/local-providers";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
-import type { TerminalService } from "@jazz/core/interfaces/terminal";
+import type { PromptStep, TerminalService } from "@jazz/core/interfaces/terminal";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
 
@@ -49,6 +49,8 @@ export async function ensureLocalProviderBaseUrl(options: {
   readonly terminal: TerminalService;
   readonly provider: LocalServerProvider;
   readonly force?: boolean;
+  /** Where the prompt sits in a multi-step flow, such as the create-agent wizard. */
+  readonly step?: PromptStep;
 }): Promise<LocalProviderUrlPromptResult> {
   const config = await Effect.runPromise(options.configService.appConfig);
   const configuredUrl = config.llm?.[options.provider]?.base_url?.trim();
@@ -70,6 +72,7 @@ export async function ensureLocalProviderBaseUrl(options: {
         cancellable: true,
         simple: true,
         placeholder: defaultUrl,
+        ...(options.step === undefined ? {} : { step: options.step }),
       },
     ),
   );

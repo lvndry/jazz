@@ -5,7 +5,7 @@ import { LLMConfigurationError } from "@jazz/core/types/errors";
 import type { LLMProvider } from "@jazz/core/types/llm";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { promptForAgentInfo } from "./create-agent";
+import { promptForAgentInfo, suggestAgentName } from "./create-agent";
 
 function terminal(options: {
   readonly ask: TerminalService["ask"];
@@ -46,7 +46,7 @@ describe("promptForAgentInfo", () => {
       authenticate: () => Effect.void,
     };
     const result = await promptForAgentInfo(
-      ["default"],
+      [{ name: "default" }],
       {},
       {
         listProviders: () =>
@@ -63,7 +63,7 @@ describe("promptForAgentInfo", () => {
           searched.push(message);
           return Effect.succeed("vllm");
         }) as TerminalService["search"],
-        ask: (message) => Effect.succeed(message.includes("Name") ? "vllm-agent" : ""),
+        ask: (message) => Effect.succeed(message.includes("call it") ? "vllm-agent" : ""),
         select: (() => Effect.succeed("default")) as TerminalService["select"],
       }),
       new Set(),
@@ -99,7 +99,7 @@ describe("promptForAgentInfo", () => {
     } as unknown as AgentConfigService;
 
     const result = await promptForAgentInfo(
-      ["default"],
+      [{ name: "default" }],
       {},
       llmService,
       configService,
@@ -107,9 +107,9 @@ describe("promptForAgentInfo", () => {
       terminal({
         search: ((message) => {
           searched.push(message);
-          return Effect.succeed(message.includes("Which LLM provider") ? "vllm" : "org/second");
+          return Effect.succeed(message.includes("Which model provider") ? "vllm" : "org/second");
         }) as TerminalService["search"],
-        ask: (message) => Effect.succeed(message.includes("Name") ? "vllm-agent" : ""),
+        ask: (message) => Effect.succeed(message.includes("call it") ? "vllm-agent" : ""),
         select: (() => Effect.succeed("default")) as TerminalService["select"],
       }),
       new Set(),
@@ -133,7 +133,7 @@ describe("promptForAgentInfo", () => {
       authenticate: () => Effect.void,
     };
     const result = await promptForAgentInfo(
-      ["default"],
+      [{ name: "default" }],
       {},
       {
         listProviders: () =>
@@ -151,9 +151,9 @@ describe("promptForAgentInfo", () => {
       terminal({
         search: ((message) => {
           searched.push(message);
-          return Effect.succeed(message.includes("Which LLM provider") ? "sglang" : "adapter");
+          return Effect.succeed(message.includes("Which model provider") ? "sglang" : "adapter");
         }) as TerminalService["search"],
-        ask: (message) => Effect.succeed(message.includes("Name") ? "sglang-agent" : ""),
+        ask: (message) => Effect.succeed(message.includes("call it") ? "sglang-agent" : ""),
         select: (() => Effect.succeed("default")) as TerminalService["select"],
       }),
       new Set(),
@@ -194,7 +194,7 @@ describe("promptForAgentInfo", () => {
     } as unknown as AgentConfigService;
 
     const result = await promptForAgentInfo(
-      ["default"],
+      [{ name: "default" }],
       {},
       llmService,
       configService,
@@ -207,7 +207,7 @@ describe("promptForAgentInfo", () => {
         ask: (message) => {
           asked.push(message);
           if (message.includes("server URL")) return Effect.succeed("127.0.0.1:8000");
-          if (message.includes("Name")) return Effect.succeed("vllm-agent");
+          if (message.includes("call it")) return Effect.succeed("vllm-agent");
           return Effect.succeed("");
         },
         select: (() => Effect.succeed("default")) as TerminalService["select"],
@@ -222,8 +222,8 @@ describe("promptForAgentInfo", () => {
       persona: "default",
     });
     expect(searched).toHaveLength(1);
-    expect(searched[0]).toContain("Which LLM provider");
-    expect(asked.some((message) => message.includes("Which model"))).toBe(false);
+    expect(searched[0]).toContain("Which model provider");
+    expect(asked.some((message) => /^Which .+ model\?/.test(message))).toBe(false);
     expect(saved).toEqual([{ key: "llm.llamacpp.base_url", value: "http://127.0.0.1:8000/v1" }]);
   });
 
@@ -267,7 +267,7 @@ describe("promptForAgentInfo", () => {
     } as unknown as AgentConfigService;
 
     const result = await promptForAgentInfo(
-      ["default"],
+      [{ name: "default" }],
       {},
       llmService,
       configService,
@@ -279,7 +279,7 @@ describe("promptForAgentInfo", () => {
           if (message.includes("server URL")) {
             return Effect.succeed(serverUrls.shift() ?? "");
           }
-          if (message.includes("Name")) {
+          if (message.includes("call it")) {
             return Effect.succeed("local-agent");
           }
           return Effect.succeed("");
@@ -339,7 +339,7 @@ describe("promptForAgentInfo", () => {
     } as unknown as AgentConfigService;
 
     const result = await promptForAgentInfo(
-      ["default"],
+      [{ name: "default" }],
       {},
       llmService,
       configService,
@@ -348,10 +348,10 @@ describe("promptForAgentInfo", () => {
         search: (() => Effect.succeed("llamacpp")) as TerminalService["search"],
         ask: (message) => {
           asked.push(message);
-          if (message.includes("API Key")) {
+          if (message.includes("API key")) {
             return Effect.succeed("server-secret");
           }
-          if (message.includes("Name")) {
+          if (message.includes("call it")) {
             return Effect.succeed("keyed-agent");
           }
           return Effect.succeed("");
@@ -371,5 +371,20 @@ describe("promptForAgentInfo", () => {
     );
     expect(asked.some((message) => message.includes("server URL"))).toBe(false);
     expect(saved).toEqual([{ key: "llm.llamacpp.api_key", value: "server-secret" }]);
+  });
+});
+
+describe("suggestAgentName", () => {
+  it("names the agent after the model, not its tag, version or organisation", () => {
+    expect(suggestAgentName("gpt-5.6-sol", "default", [])).toBe("sol");
+    expect(suggestAgentName("kimi-k3:cloud", "default", [])).toBe("kimi");
+    expect(suggestAgentName("gemma4:12b", "default", [])).toBe("gemma4");
+    expect(suggestAgentName("deepseek-ai/deepseek-v4.1-flash", "default", [])).toBe("flash");
+    expect(suggestAgentName("claude-sonnet-4-6", "default", [])).toBe("sonnet");
+  });
+
+  it("prefers a chosen persona and never suggests a name that is taken", () => {
+    expect(suggestAgentName("gpt-5.6-sol", "researcher", [])).toBe("researcher");
+    expect(suggestAgentName("gpt-5.6-sol", "default", ["sol", "SOL-2"])).toBe("sol-3");
   });
 });

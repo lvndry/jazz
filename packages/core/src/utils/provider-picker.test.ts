@@ -34,14 +34,39 @@ describe("sortModelsForPicker", () => {
 });
 
 describe("buildModelChoices", () => {
-  it("renders one row per model with a capability description", () => {
+  it("sets context and price in columns and names capabilities as words", () => {
     const choices = buildModelChoices("openai", [
-      { id: "gpt-5", displayName: "GPT-5", supportsTools: true } as never,
+      {
+        id: "gpt-5",
+        displayName: "GPT-5",
+        supportsTools: true,
+        isReasoningModel: true,
+        ingestImage: true,
+        contextWindow: 400_000,
+        inputPricePerMillion: 1.25,
+        outputPricePerMillion: 10,
+      } as never,
+      { id: "tiny", supportsTools: false, contextWindow: 8_000 } as never,
+      {
+        id: "local",
+        supportsTools: true,
+        inputPricePerMillion: 0,
+        outputPricePerMillion: 0,
+      } as never,
     ]);
-    expect(choices).toHaveLength(1);
-    expect(choices[0]?.name).toBe("GPT-5");
-    expect(choices[0]?.value).toBe("gpt-5");
-    expect(choices[0]?.description).toContain("txt");
-    expect(choices[0]?.description).toContain("→");
+    expect(choices[0]).toEqual({
+      name: "GPT-5",
+      value: "gpt-5",
+      description: "400k\t$1.25 / $10",
+      tag: "reasoning vision",
+    });
+    expect(choices[1]).toEqual({
+      name: "tiny",
+      value: "tiny",
+      description: "8k\tprice unknown",
+      tag: "no tools",
+    });
+    expect(choices[2]?.description).toBe("\tfree");
+    expect(choices[2]?.tag).toBeUndefined();
   });
 });

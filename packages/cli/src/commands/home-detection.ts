@@ -34,10 +34,13 @@ export function ollamaOrigin(baseUrl: string | undefined): string {
   }
 }
 
+/** The one fetch call the probe makes, so a test can stand in for the network. */
+export type ProbeFetch = (url: string, init: { readonly signal: AbortSignal }) => Promise<Response>;
+
 /** How many models a running Ollama serves, or undefined when nothing answered in time. */
 export async function probeOllamaModels(
   origin: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: ProbeFetch = fetch,
 ): Promise<number | undefined> {
   try {
     const response = await fetchImpl(`${origin}/api/tags`, {

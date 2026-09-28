@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { environmentKeyDetections, ollamaOrigin, probeOllamaModels } from "./home-detection";
+import {
+  environmentKeyDetections,
+  ollamaOrigin,
+  probeOllamaModels,
+  type ProbeFetch,
+} from "./home-detection";
 import {
   HOME_CONVERSATION_LIMIT,
   greetingFor,
@@ -147,18 +152,18 @@ describe("first-run detection", () => {
 
   it("probes the configured Ollama origin and counts its models", async () => {
     const requested: string[] = [];
-    const fake = (async (url: string | URL | Request) => {
-      requested.push(String(url));
+    const fake: ProbeFetch = async (url) => {
+      requested.push(url);
       return new Response(JSON.stringify({ models: [{}, {}, {}] }), { status: 200 });
-    }) as typeof fetch;
+    };
     expect(await probeOllamaModels(ollamaOrigin("http://10.0.0.5:11434/v1"), fake)).toBe(3);
     expect(requested).toEqual(["http://10.0.0.5:11434/api/tags"]);
   });
 
   it("treats a server that does not answer as not running", async () => {
-    const failing = (async () => {
+    const failing: ProbeFetch = async () => {
       throw new Error("connect ECONNREFUSED");
-    }) as typeof fetch;
+    };
     expect(await probeOllamaModels(ollamaOrigin(undefined), failing)).toBeUndefined();
     expect(ollamaOrigin("not a url")).toBe("http://127.0.0.1:11434");
   });

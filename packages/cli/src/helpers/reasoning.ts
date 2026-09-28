@@ -7,7 +7,7 @@
  * shape remains private to the capability registry.
  */
 
-import { type TerminalService } from "@jazz/core/interfaces/terminal";
+import { type PromptStep, type TerminalService } from "@jazz/core/interfaces/terminal";
 import {
   CAPABILITY_REASONING_EFFORTS,
   clampReasoningSelection,
@@ -95,25 +95,34 @@ export function describeReasoningAdjustment(
   return `this model does not support ${selection}; it runs at ${effective}`;
 }
 
-function choiceName(value: CliReasoningValue, toggle: boolean): string {
+/** A reasoning level as a picker row: the level, and the one trade-off it makes. */
+function reasoningChoice(
+  value: CliReasoningValue,
+  toggle: boolean,
+): { readonly name: string; readonly description: string } {
   if (toggle) {
-    return value === "disable" ? "Off - No reasoning (fastest)" : "On - Reason before answering";
+    return value === "disable"
+      ? { name: "off", description: "answers straight away, fastest" }
+      : { name: "on", description: "thinks before answering" };
   }
   switch (value) {
     case "minimal":
-      return "Minimal - Fastest supported reasoning";
+      return { name: "minimal", description: "the least thinking the model supports" };
     case "low":
-      return "Low - Faster responses, basic reasoning";
+      return { name: "low", description: "quick answers, light thinking" };
     case "medium":
-      return "Medium - Balanced speed and reasoning depth (recommended)";
+      return {
+        name: "medium",
+        description: "thinks before multi-step work, stays quick on simple questions",
+      };
     case "high":
-      return "High - Deep reasoning, slower responses";
+      return { name: "high", description: "deep thinking, slower and costlier" };
     case "xhigh":
-      return "Extra high - Maximum reasoning depth, slower responses";
+      return { name: "extra high", description: "deeper still, noticeably slower" };
     case "max":
-      return "Max - Provider maximum reasoning depth, slowest responses";
+      return { name: "max", description: "the provider's deepest thinking, slowest" };
     case "disable":
-      return "Disable - No reasoning (fastest)";
+      return { name: "off", description: "no thinking, fastest" };
   }
 }
 
@@ -139,18 +148,24 @@ export async function promptForReasoningSelection(
   options: {
     readonly prompt?: string;
     readonly control?: ResolvedReasoningControl | undefined;
+    readonly step?: PromptStep;
   } = {},
 ): Promise<ReasoningSelection | undefined> {
   const choices = reasoningChoicesFor(options.control, current);
   const toggle = options.control?.kind === "toggle";
+  const recommended = choices.includes(TOGGLE_ON_EFFORT) ? TOGGLE_ON_EFFORT : undefined;
   const selected = await Effect.runPromise(
-    terminal.select<CliReasoningValue>(
-      options.prompt ?? "What reasoning effort level would you like?",
-      {
-        choices: choices.map((value) => ({ name: choiceName(value, toggle), value })),
-        default: defaultReasoningChoice(choices, current, options.control),
-      },
-    ),
+    terminal.select<CliReasoningValue>(options.prompt ?? "How hard should it think?", {
+      choices: choices.map((value) => ({
+        ...reasoningChoice(value, toggle),
+        value,
+        ...(value === recommended && !toggle
+          ? { tag: "recommended", tagTone: "accent" as const }
+          : {}),
+      })),
+      default: defaultReasoningChoice(choices, current, options.control),
+      ...(options.step === undefined ? {} : { step: options.step }),
+    }),
   );
   return selected === undefined ? undefined : reasoningSelectionFromCliValue(selected);
 }
