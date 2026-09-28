@@ -710,7 +710,10 @@ export function blocksFrom(
     if (
       entry.meta?.["toolStart"] === true ||
       entry.meta?.["agentHeader"] === true ||
-      entry.meta?.["approvalEcho"] === true
+      entry.meta?.["approvalEcho"] === true ||
+      // Reasoning that returned no text collapses to a bare duration line; there
+      // is no thought to show, and the turn receipt already carries the time.
+      entry.meta?.["collapsedRegion"] === "reasoning"
     ) {
       continue;
     }

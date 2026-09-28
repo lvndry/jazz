@@ -742,6 +742,7 @@ export class UIStore {
         type: "log",
         message: summary.line,
         timestamp: new Date(),
+        meta: { collapsedRegion: region.kind },
       });
       this.flushOutputBatchNow();
     }

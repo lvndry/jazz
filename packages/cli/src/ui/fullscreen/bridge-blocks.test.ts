@@ -125,6 +125,30 @@ describe("conversation flow entries", () => {
     expect(blocks).toHaveLength(0);
   });
 
+  it("drops the duration line of reasoning that returned no text", () => {
+    const blocks = blocksFrom(
+      [
+        {
+          id: "z1",
+          type: "log",
+          message: "Reasoning · 1.6s",
+          meta: { collapsedRegion: "reasoning" },
+          timestamp: at,
+        },
+        {
+          id: "z2",
+          type: "log",
+          message: "scout completed · 4.0s",
+          meta: { collapsedRegion: "subagent" },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toEqual([expect.objectContaining({ text: "scout completed · 4.0s" })]);
+  });
+
   it("carries a declined call as one denied receipt", () => {
     const blocks = blocksFrom(
       [
