@@ -21,7 +21,8 @@ import packageJson from "../../../../../package.json";
 import { getGlyphs } from "../glyphs";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
 import { store } from "../store";
-import { THEME } from "../theme";
+import { applyTheme, THEME } from "../theme";
+import { pickThemeInteractively } from "../theme-picker-prompt";
 import { flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
 import { frameWhen, renderForTest, updateForTest } from "./test-helpers";
 
@@ -3159,5 +3160,65 @@ describe("fullscreen bridge sub-agents", () => {
     await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).not.toContain("enter to open");
     rendered.renderer.destroy();
+  });
+});
+
+describe("fullscreen bridge theme picker", () => {
+  beforeEach(() => {
+    resetStoreSlices();
+    applyTheme("jazz:dark");
+  });
+  afterAll(() => {
+    applyTheme("jazz:dark");
+  });
+
+  it("previews the highlighted theme across the frame and reverts on esc", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    const committedPrimary = THEME.primary;
+    let chosen: Promise<string | undefined> = Promise.resolve("never opened");
+    updateForTest(() => {
+      chosen = pickThemeInteractively();
+    });
+    await flush();
+    const opened = captureCharFrame();
+
+    await mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(flush);
+    const previewedPrimary = THEME.primary;
+
+    await mockInput.pressKey("ESCAPE");
+    await settleKeypress(flush);
+    const answer = await chosen;
+    renderer.destroy();
+
+    expect(opened).toContain("Theme");
+    expect(opened).toContain("current");
+    expect(previewedPrimary).not.toBe(committedPrimary);
+    expect(THEME.primary).toBe(committedPrimary);
+    expect(answer).toBeUndefined();
+  });
+
+  it("jumps to the other variant with l and resolves it on enter", async () => {
+    const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+    });
+    await renderOnce();
+    let chosen: Promise<string | undefined> = Promise.resolve("never opened");
+    updateForTest(() => {
+      chosen = pickThemeInteractively();
+    });
+    await flush();
+    await mockInput.pressKey("l");
+    await settleKeypress(flush);
+    await mockInput.pressKey("RETURN");
+    await settleKeypress(flush);
+    const answer = await chosen;
+    renderer.destroy();
+    expect(answer).toBe("jazz:light");
   });
 });

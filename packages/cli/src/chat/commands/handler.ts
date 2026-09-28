@@ -55,7 +55,12 @@ import {
   PresentationServiceTag,
   type PresentationService,
 } from "@jazz/core/interfaces/presentation";
-import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import {
+  report,
+  TerminalServiceTag,
+  type ReportRow,
+  type TerminalService,
+} from "@jazz/core/interfaces/terminal";
 import {
   ToolRegistryTag,
   type ToolRegistry,
@@ -106,12 +111,12 @@ import { activeKeymapMode, bindingLabel, KEYMAPS } from "@/cli/ui/keymaps";
 import { store } from "@/cli/ui/store";
 import {
   applyTheme,
-  CHALK_THEME,
   listThemes,
   PADDING_BUDGET,
   themeWarnings,
   type ThemeListing,
 } from "@/cli/ui/theme";
+import { pickThemeInteractively } from "@/cli/ui/theme-picker-prompt";
 import { getUserThemesDirectory } from "@/cli/ui/themes/registry";
 import * as fmt from "@/cli/utils/list-format";
 import { truncate } from "@/cli/utils/string-utils";
@@ -657,42 +662,70 @@ function handleRetryCommand(
   });
 }
 
-/** Width of the theme-name column in the /theme listing. */
-const THEME_NAME_COLUMN = 14;
-
 /**
- * One row per theme for /theme: the name to type, its label, the variants it has, and where a
- * user theme came from. The theme on screen is marked.
+ * One row per theme for /theme: the name to type, then its label, the variants it has, and
+ * where a user theme came from. The theme on screen is marked current.
  */
-export function themeListingRows(listings: readonly ThemeListing[]): string[] {
+export function themeListingRows(listings: readonly ThemeListing[]): ReportRow[] {
   const byName = new Map<string, ThemeListing[]>();
   for (const listing of listings) {
     byName.set(listing.name, [...(byName.get(listing.name) ?? []), listing]);
   }
-  const rows: string[] = [];
+  const rows: ReportRow[] = [];
   for (const [name, variants] of byName) {
     const first = variants[0] as ThemeListing;
     const current = variants.find((listing) => listing.current);
-    const details = [
+    const detail = [
       first.label,
       first.source === "system"
         ? "your terminal's own colours"
         : variants.map((listing) => listing.variant).join(", "),
       ...(first.source === "builtin" || first.source === "system" ? [] : [first.source]),
+      ...(current === undefined ? [] : [`showing ${current.variant}`]),
     ].join(" · ");
-    const label = name.padEnd(THEME_NAME_COLUMN);
-    const glyphs = getGlyphs();
     rows.push(
       current === undefined
-        ? `${CHALK_THEME.secondary(glyphs.bullet)} ${CHALK_THEME.white(label)}${CHALK_THEME.muted(details)}`
-        : `${CHALK_THEME.primary(glyphs.arrow)} ${CHALK_THEME.primaryBold(label)}${CHALK_THEME.muted(`${details} · showing ${current.variant}`)}`,
+        ? { kind: "item", name, detail }
+        : { kind: "item", name, detail, marker: "current" },
     );
   }
   return rows;
 }
 
+/** Commit a theme choice and save it, reporting what is now on screen. */
+function commitTheme(
+  terminal: TerminalService,
+  requested: string,
+): Effect.Effect<boolean, never, AgentConfigService> {
+  return Effect.gen(function* () {
+    const result = applyTheme(requested);
+    if (!result.ok) {
+      yield* terminal.warn(`${result.error}.`);
+      return false;
+    }
+    const configService = yield* AgentConfigServiceTag;
+    yield* configService.set("ui.theme", result.setting);
+    const override = process.env["JAZZ_THEME"];
+    yield* terminal.log(
+      report(
+        "theme",
+        [
+          { kind: "field", key: "now", value: `${result.label}, ${result.variant}` },
+          { kind: "field", key: "saved as", value: `ui.theme ${result.setting}` },
+        ],
+        override === undefined
+          ? undefined
+          : `JAZZ_THEME=${override} is set and wins at the next start.`,
+      ),
+    );
+    return true;
+  });
+}
+
 /**
- * Handle /theme: list the themes, or switch to one and save it as `ui.theme`.
+ * Handle /theme. With a name it switches and saves. Without one, the fullscreen interface
+ * opens a picker that previews each theme across the whole window; every other surface
+ * lists the themes.
  */
 function handleThemeCommand(
   terminal: TerminalService,
@@ -701,34 +734,34 @@ function handleThemeCommand(
   return Effect.gen(function* () {
     const requested = args.join(" ").trim();
     if (requested !== "") {
-      const result = applyTheme(requested);
-      if (result.ok) {
-        const configService = yield* AgentConfigServiceTag;
-        yield* configService.set("ui.theme", result.setting);
-        yield* terminal.success(`Theme: ${result.label}, ${result.variant}. Saved as ui.theme.`);
-        const override = process.env["JAZZ_THEME"];
-        if (override !== undefined) {
-          yield* terminal.info(`JAZZ_THEME=${override} is set and wins at the next start.`);
-        }
-        return { shouldContinue: true };
+      yield* commitTheme(terminal, requested);
+      return { shouldContinue: true };
+    }
+
+    if (terminal.isInteractive && activeKeymapMode() === "fullscreen") {
+      const chosen = yield* Effect.promise(() => pickThemeInteractively());
+      if (chosen !== undefined) {
+        yield* commitTheme(terminal, chosen);
       }
-      yield* terminal.warn(`${result.error}.`);
+      return { shouldContinue: true };
     }
-    yield* terminal.log(fmt.heading("Themes"));
-    for (const row of themeListingRows(listThemes())) {
-      yield* terminal.log(row);
-    }
-    for (const warning of themeWarnings()) {
-      yield* terminal.warn(`Theme file skipped or flagged — ${warning}`);
-    }
-    yield* terminal.log(fmt.blank());
+
     const directory = getUserThemesDirectory();
+    const warnings = themeWarnings().map((warning): ReportRow => ({
+      kind: "text",
+      text: warning,
+      tone: "warning",
+    }));
     yield* terminal.log(
-      fmt.footer(
-        `/theme <name> [dark|light] switches and saves.${directory === null ? "" : ` Add your own in ${directory}.`}`,
+      report(
+        "theme",
+        [
+          ...themeListingRows(listThemes()),
+          ...(warnings.length > 0 ? [{ kind: "gap" } as const, ...warnings] : []),
+        ],
+        `/theme <name> [dark|light] switches and saves.${directory === null ? "" : ` Your own go in ${directory}.`}`,
       ),
     );
-    yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
   });
 }

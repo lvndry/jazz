@@ -46,6 +46,7 @@ import {
 } from "../store";
 import type { SubagentRun } from "../subagent-runs";
 import { mergeSuggestions } from "../suggestion-menu";
+import { previewTheme } from "../theme";
 import type { Choice, OutputEntry, PromptState } from "../types";
 import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
 import { App, type KeyChord } from "./App";
@@ -93,6 +94,7 @@ import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/Skil
 import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
+import { themePickerTarget } from "./theme-picker-keys";
 import {
   LIVE_ZONE_MAX_ROWS,
   type ApprovalOverlay,
@@ -105,6 +107,8 @@ import {
   type Overlay,
   type StepLine,
   type SubagentListModel,
+  type ThemePickerModel,
+  type ThemePickerRow,
   type ViewModel,
 } from "./types";
 import { useStreamReveal } from "./use-stream-reveal";
@@ -337,6 +341,14 @@ function initialPromptControls(prompt: PromptState | null): PromptControlsState 
     };
   }
 
+  if (prompt.type === "theme") {
+    const current = themePickerRows(prompt).findIndex((row) => row.current);
+    return {
+      ...EMPTY_PROMPT_CONTROLS,
+      question: { ...EMPTY_QUESTION, selected: Math.max(0, current) },
+    };
+  }
+
   const choices = promptChoices(prompt);
   let selected = firstEnabledChoice(choices);
   if (prompt.type === "confirm") {
@@ -417,10 +429,16 @@ function hiddenPromptKeys(prompt: PromptState | null): readonly string[] | undef
   return Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : undefined;
 }
 
+/** The picker's rows: the listings the `/theme` command opened it with. */
+function themePickerRows(prompt: PromptState): readonly ThemePickerRow[] {
+  const listings = prompt.options?.["themes"];
+  return Array.isArray(listings) ? (listings as ThemePickerRow[]) : [];
+}
+
 function overlayFromPrompt(
   prompt: PromptState | null,
   controls: PromptControlsState,
-): QuestionModel | TextPromptModel | FilePickerModel | undefined {
+): QuestionModel | TextPromptModel | FilePickerModel | ThemePickerModel | undefined {
   if (prompt === null || prompt.type === "chat" || hiddenPromptKeys(prompt) !== undefined) {
     return undefined;
   }
@@ -466,6 +484,8 @@ function overlayFromPrompt(
         ...(file.error === undefined ? {} : { error: file.error }),
       };
     }
+    case "theme":
+      return { kind: "theme", rows: themePickerRows(prompt), selected: controls.question.selected };
     case "confirm":
       return {
         kind: "question",
@@ -2036,6 +2056,23 @@ export function FullscreenBridge(): React.ReactNode {
               }
             });
             return true;
+          }
+          return true;
+        }
+
+        if (active.type === "theme") {
+          const rows = themePickerRows(active);
+          const current = promptControlsRef.current.question.selected;
+          const target = themePickerTarget(rows, current, { name, sequence });
+          if (target !== null) {
+            updatePromptQuestion((state) => ({ ...state, selected: target }));
+            const row = rows[target];
+            if (row !== undefined) previewTheme(row.id);
+            return true;
+          }
+          if (name === "return" || name === "enter") {
+            const row = rows[current];
+            if (row !== undefined) active.resolve(row.id);
           }
           return true;
         }

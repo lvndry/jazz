@@ -479,7 +479,12 @@ export interface ThemeListing {
   /** `builtin`, `system`, or the file it was read from. */
   readonly source: string;
   readonly current: boolean;
+  /** The theme's own accent, success, warning, error and keyword colours, for a picker to show. */
+  readonly swatches: readonly string[];
 }
+
+/** The roles a theme is recognised by at a glance: its accent, then its status hues and keywords. */
+const SWATCH_ROLES = ["primary", "success", "warning", "error", "syntaxStructure"] as const;
 
 /** Every theme and variant, with the committed one marked. Re-reads the user themes directory. */
 export function listThemes(): readonly ThemeListing[] {
@@ -488,7 +493,8 @@ export function listThemes(): readonly ThemeListing[] {
   const listings: ThemeListing[] = [];
   for (const definition of allThemes()) {
     for (const variant of ["dark", "light"] as const) {
-      if (definition.variants[variant] === undefined) continue;
+      const colors = definition.variants[variant];
+      if (colors === undefined) continue;
       listings.push({
         id: `${definition.name}:${variant}`,
         name: definition.name,
@@ -496,6 +502,7 @@ export function listThemes(): readonly ThemeListing[] {
         variant,
         source: definition.source,
         current: definition.name === committed.definition.name && variant === committed.variant,
+        swatches: SWATCH_ROLES.map((role) => colors[role]),
       });
     }
   }

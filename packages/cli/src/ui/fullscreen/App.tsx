@@ -53,6 +53,7 @@ import { overlayReservedRows } from "./overlays/overlay-frame";
 import { Question, questionLayout } from "./overlays/Question";
 import { Search, searchLayout } from "./overlays/Search";
 import { TextPrompt, textPromptLayout } from "./overlays/TextPrompt";
+import { ThemePicker, themePickerLayout } from "./overlays/ThemePicker";
 import { computePeerNotice } from "./peer-notice";
 import { SubagentList, subagentListRows } from "./SubagentList";
 import { clipTerminalCells } from "./terminal-cells";
@@ -200,6 +201,8 @@ function overlayRows(overlay: Overlay, viewport: Viewport): number {
       return overlayReservedRows(textPromptLayout(overlay, viewport));
     case "filepicker":
       return overlayReservedRows(filePickerLayout(overlay, viewport));
+    case "theme":
+      return overlayReservedRows(themePickerLayout(overlay, viewport));
   }
 }
 
@@ -239,6 +242,13 @@ function renderOverlay(
     case "filepicker":
       return (
         <FilePicker
+          model={overlay}
+          viewport={viewport}
+        />
+      );
+    case "theme":
+      return (
+        <ThemePicker
           model={overlay}
           viewport={viewport}
         />

@@ -361,8 +361,30 @@ export interface SearchOverlay {
   readonly selected: number;
 }
 
+/** One theme and variant in the picker, drawn with its own colours. */
+export interface ThemePickerRow {
+  /** `name:variant`, what `previewTheme` and `applyTheme` take. */
+  readonly id: string;
+  readonly name: string;
+  readonly label: string;
+  readonly variant: "dark" | "light";
+  readonly swatches: readonly string[];
+  readonly current: boolean;
+}
+
+export interface ThemePickerModel {
+  readonly kind: "theme";
+  readonly rows: readonly ThemePickerRow[];
+  readonly selected: number;
+}
+
 export type Overlay =
-  ApprovalOverlay | SearchOverlay | QuestionModel | TextPromptModel | FilePickerModel;
+  | ApprovalOverlay
+  | SearchOverlay
+  | QuestionModel
+  | TextPromptModel
+  | FilePickerModel
+  | ThemePickerModel;
 
 // ─── The frame ───────────────────────────────────────────────────────────────
 

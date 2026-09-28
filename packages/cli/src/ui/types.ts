@@ -27,7 +27,8 @@ export type PromptType =
   | "search"
   | "hidden"
   | "questionnaire"
-  | "filepicker";
+  | "filepicker"
+  | "theme";
 
 export interface Choice<T = unknown> {
   label: string;

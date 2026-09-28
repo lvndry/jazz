@@ -1,7 +1,8 @@
+import { report } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it } from "bun:test";
 import { getGlyphs } from "@/cli/ui/glyphs";
+import { reportPlainText } from "@/cli/ui/report-layout";
 import type { ThemeListing } from "@/cli/ui/theme";
-import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { themeListingRows } from "./handler";
 
 const listing = (overrides: Partial<ThemeListing>): ThemeListing => ({
@@ -11,6 +12,7 @@ const listing = (overrides: Partial<ThemeListing>): ThemeListing => ({
   variant: "dark",
   source: "builtin",
   current: false,
+  swatches: [],
   ...overrides,
 });
 
@@ -27,14 +29,12 @@ describe("/theme listing", () => {
         variant: "light",
         source: "/home/me/.jazz/themes/paper-ink.json",
       }),
-    ]).map((row) => stripAnsiCodes(row).trim());
-
-    const { bullet, arrow } = getGlyphs();
-    expect(rows).toHaveLength(3);
-    expect(rows[0]).toBe(`${bullet} system        System · your terminal's own colours`);
-    expect(rows[1]).toBe(`${arrow} jazz          Jazz · dark, light · showing light`);
-    expect(rows[2]).toBe(
-      `${bullet} paper-ink     Paper Ink · light · /home/me/.jazz/themes/paper-ink.json`,
-    );
+    ]);
+    const { arrow } = getGlyphs();
+    expect(reportPlainText(report("theme", rows), getGlyphs()).split("\n")).toEqual([
+      "theme       system      System · your terminal's own colours",
+      `          ${arrow} jazz        Jazz · dark, light · showing light`,
+      "            paper-ink   Paper Ink · light · /home/me/.jazz/themes/paper-ink.json",
+    ]);
   });
 });

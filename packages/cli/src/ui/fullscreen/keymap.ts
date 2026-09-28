@@ -471,7 +471,7 @@ export function hintsFor(
   focus: Focus,
   runActive: boolean,
   queueing = false,
-  overlay?: "approval" | "search" | "question" | "text" | "filepicker",
+  overlay?: "approval" | "search" | "question" | "text" | "filepicker" | "theme",
   commandsOpen = false,
   overlayArmed = true,
   hasQueued = false,
@@ -485,6 +485,7 @@ export function hintsFor(
   if (overlay === "text") return ["enter to confirm", "esc to go back", "pgup to read above"];
   if (overlay === "question") return ["enter to confirm", "esc to cancel", "pgup to read above"];
   if (overlay === "filepicker") return ["enter to confirm", "esc to cancel"];
+  if (overlay === "theme") return ["enter to keep", "esc to revert", "l for light or dark"];
   if (commandsOpen) return ["up down to choose", "enter to run", "tab to complete"];
   if (focus === "transcript") {
     return ["up down to scroll", "pgup to page", "type to input", "^f to search"];
