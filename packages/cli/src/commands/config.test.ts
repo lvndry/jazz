@@ -276,7 +276,7 @@ describe("jazz config show and get", () => {
 
     expect(shown).not.toContain("sk-live-key");
     expect(shown).not.toContain("sk-signoz");
-    expect(shown).toContain("<redacted>");
+    expect(shown).toContain("[redacted:llm.openai.api_key]");
     expect(shown).toContain('"level": "info"');
   });
 

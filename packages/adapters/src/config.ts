@@ -17,11 +17,14 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { MCPServerConfig, MCPServerDefinitionSource } from "@jazz/core/interfaces/mcp-server";
+import { collectKnownSecrets, type KnownSecret } from "@jazz/core/secrets/redaction";
 import {
   SECRET_PATHS,
+  heldSecretPaths,
   isSecretPath,
   mcpServerSecretPath,
   type McpServerSecretField,
+  runtimeSecretPaths,
   secretValueFromEnv,
 } from "@jazz/core/secrets/registry";
 import { ConfigurationError, ConfigurationNotFoundError } from "@jazz/core/types/errors";
@@ -77,6 +80,12 @@ const CONFIG_DIR_MODE = 0o700;
 /** A config file as parsed from JSON, before any checking: the shape `set` edits and writes back. */
 type ConfigDocument = Record<string, unknown>;
 
+/**
+ * How long the known secrets are reused before the keyring is read again, so a token another
+ * process stores (`jazz peers add` in a second terminal) is withheld within a minute.
+ */
+const KNOWN_SECRETS_TTL_MS = 60_000;
+
 /** Where `storeSecret` put a secret, which decides what the config file keeps of it. */
 type SecretDestination = "keyring" | "file" | "cleared" | "nowhere";
 
@@ -114,6 +123,13 @@ export class AgentConfigServiceImpl implements AgentConfigService {
    * config file. Tracked so a command can report the failure instead of claiming success.
    */
   private readonly unstorableSecrets = new Set<string>();
+  private knownSecretsCache:
+    | {
+        readonly revision: number;
+        readonly resolvedAtMs: number;
+        readonly secrets: readonly KnownSecret[];
+      }
+    | undefined;
 
   constructor(
     initialConfig: AppConfig,
@@ -310,6 +326,33 @@ export class AgentConfigServiceImpl implements AgentConfigService {
 
   get appConfig(): Effect.Effect<AppConfig, never> {
     return Effect.succeed(this.currentConfig);
+  }
+
+  /**
+   * Every secret Jazz holds, resolved once per config revision and at most every
+   * {@link KNOWN_SECRETS_TTL_MS}, so redacting a tool result does not read the keyring each time.
+   */
+  get knownSecrets(): Effect.Effect<readonly KnownSecret[], never> {
+    return Effect.gen(
+      function* (this: AgentConfigServiceImpl) {
+        const now = Date.now();
+        const cached = this.knownSecretsCache;
+        if (
+          cached !== undefined &&
+          cached.revision === this.currentRevision &&
+          now - cached.resolvedAtMs < KNOWN_SECRETS_TTL_MS
+        ) {
+          return cached.secrets;
+        }
+        const revision = this.currentRevision;
+        const config = this.currentConfig;
+        const backend = this.keyringBackend;
+        const held = yield* resolveHeldSecrets(config, (path) => keyringGet(backend, path));
+        const secrets = collectKnownSecrets(config, process.env, held);
+        this.knownSecretsCache = { revision, resolvedAtMs: now, secrets };
+        return secrets;
+      }.bind(this),
+    );
   }
 
   /**
@@ -785,7 +828,7 @@ function buildRuntimeConfig(sources: RuntimeConfigSources): AppConfig {
 /** Capture the already-resolved secret overlay so rebuilding sources never drops credentials. */
 function snapshotResolvedSecrets(config: AppConfig): Map<string, string> {
   const values = new Map<string, string>();
-  const paths = new Set([...SECRET_PATHS, ...collectSecretPaths(config)]);
+  const paths = new Set([...SECRET_PATHS, ...runtimeSecretPaths(config)]);
   for (const path of paths) {
     const value = deepGet(config, path);
     if (nonEmptyString(value)) values.set(path, value);
@@ -814,35 +857,29 @@ function chmodQuietly(
 }
 
 /**
- * Every secret-bearing path present in a config, including providers Jazz does
- * not ship support for, so nothing is left behind in plaintext.
+ * The values of every secret Jazz holds outside the runtime config (see `heldSecretPaths`), from
+ * the environment first and then `readKeyring`, named by their config path.
  */
-function collectSecretPaths(config: Partial<AppConfig>): string[] {
-  const record = config as unknown as Record<string, unknown>;
-  const paths: string[] = [];
-
-  for (const section of ["llm", "web_search"]) {
-    const providers = record[section];
-    if (!providers || typeof providers !== "object") continue;
-    for (const [provider, providerConfig] of Object.entries(providers)) {
-      if (!providerConfig || typeof providerConfig !== "object") continue;
-      if (typeof (providerConfig as Record<string, unknown>)["api_key"] !== "string") continue;
-      paths.push(`${section}.${provider}.api_key`);
-    }
-  }
-
-  // Pick up OTLP headers by whatever name the backend uses, so a credential
-  // under a non-standard header still migrates out of the file.
-  const otlpHeaders = (record["telemetry"] as Record<string, unknown> | undefined)?.["otlp"] as
-    Record<string, unknown> | undefined;
-  const headers = otlpHeaders?.["headers"];
-  if (headers && typeof headers === "object") {
-    for (const [name, value] of Object.entries(headers)) {
-      if (typeof value === "string") paths.push(`telemetry.otlp.headers.${name}`);
-    }
-  }
-
-  return paths;
+export function resolveHeldSecrets(
+  config: AppConfig,
+  readKeyring: (path: string) => Effect.Effect<string | undefined, never>,
+  env: NodeJS.ProcessEnv = process.env,
+): Effect.Effect<KnownSecret[], never> {
+  return Effect.gen(function* () {
+    const outside = heldSecretPaths(config).filter(
+      (path) => !nonEmptyString(deepGet(config, path)),
+    );
+    const found = yield* Effect.all(
+      outside.map((path) => {
+        const fromEnv = secretValueFromEnv(path, env);
+        return nonEmptyString(fromEnv)
+          ? Effect.succeed([path, fromEnv] as const)
+          : readKeyring(path).pipe(Effect.map((value) => [path, value] as const));
+      }),
+      { concurrency: "unbounded" },
+    );
+    return found.flatMap(([name, value]) => (nonEmptyString(value) ? [{ name, value }] : []));
+  });
 }
 
 function nonEmptyString(value: unknown): value is string {
@@ -869,7 +906,7 @@ function resolveSecrets(
 
     const resolved = structuredClone(config) as unknown as ConfigDocument;
     const fromEnv = new Set<string>();
-    const candidates = new Set([...SECRET_PATHS, ...collectSecretPaths(config)]);
+    const candidates = new Set([...SECRET_PATHS, ...runtimeSecretPaths(config)]);
 
     for (const path of candidates) {
       const envValue = secretValueFromEnv(path);

@@ -371,7 +371,11 @@ class DefaultToolRegistry implements ToolRegistry {
       } else {
         unredacted = eitherResult.right;
       }
-      const knownSecrets = collectKnownSecrets(yield* (yield* AgentConfigServiceTag).appConfig);
+      const configService = yield* AgentConfigServiceTag;
+      const knownSecrets =
+        configService.knownSecrets === undefined
+          ? collectKnownSecrets(yield* configService.appConfig)
+          : yield* configService.knownSecrets;
       const result = redactToolResult(unredacted, knownSecrets);
 
       const durationMs = Date.now() - start;

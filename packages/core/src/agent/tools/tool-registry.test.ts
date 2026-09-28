@@ -268,7 +268,10 @@ describe("ToolRegistry.executeTool redacts secrets", () => {
     appConfig: Effect.succeed({ llm: { openai: { api_key: apiKey } } }),
   } as unknown as AgentConfigService;
 
-  function execute(output: Effect.Effect<ToolExecutionResult, Error>) {
+  function execute(
+    output: Effect.Effect<ToolExecutionResult, Error>,
+    configService: AgentConfigService = config,
+  ) {
     const tool: Tool<ToolRequirements> = {
       name: "reader",
       description: "Reads",
@@ -291,7 +294,7 @@ describe("ToolRegistry.executeTool redacts secrets", () => {
           Layer.mergeAll(
             createToolRegistryLayer(),
             Layer.succeed(LoggerServiceTag, quietLogger),
-            Layer.succeed(AgentConfigServiceTag, config),
+            Layer.succeed(AgentConfigServiceTag, configService),
           ),
         ),
       ) as Effect.Effect<ToolExecutionResult, never, never>,
@@ -309,6 +312,19 @@ describe("ToolRegistry.executeTool redacts secrets", () => {
       content:
         "1|OPENAI_API_KEY=[redacted:llm.openai.api_key]\n2|DB_PASSWORD=[redacted:DB_PASSWORD]\n3|DEBUG=1",
     });
+  });
+
+  it("replaces the secrets the config service holds outside the config", async () => {
+    const peerToken = "peer-token-held-in-keyring-0123";
+    const withHeld = {
+      ...config,
+      knownSecrets: Effect.succeed([{ name: "peers.sam.token", value: peerToken }]),
+    } as unknown as AgentConfigService;
+    const result = await execute(
+      Effect.succeed({ success: true, result: { content: `curl -H "X: ${peerToken}"` } }),
+      withHeld,
+    );
+    expect(result.result).toEqual({ content: 'curl -H "X: [redacted:peers.sam.token]"' });
   });
 
   it("redacts a failure before it is returned or written to the misfire log", async () => {

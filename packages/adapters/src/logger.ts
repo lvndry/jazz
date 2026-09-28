@@ -12,6 +12,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { jsonBigIntReplacer } from "@jazz/core/agent/tools/tool-logging";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
+import { isSecretName, redactionPlaceholder } from "@jazz/core/secrets/secret-names";
 import type { LoggingConfig } from "@jazz/core/types/config";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { stateFileMode } from "@jazz/core/utils/private-mode";
@@ -37,16 +38,6 @@ const LOG_LEVEL_PRIORITY: Record<"debug" | "info" | "warn" | "error", number> = 
   warn: 2,
   error: 3,
 };
-
-/**
- * Metadata keys whose values are credentials and must never be persisted in a log.
- *
- * Tool arguments and structured metadata commonly carry HTTP headers or provider
- * credentials. Match keys at every depth so a nested `headers.authorization` is
- * protected just as a top-level `apiKey` is.
- */
-const SENSITIVE_LOG_KEY_PATTERN =
-  /authorization|api[-_]?key|token|secret|password|credential|cookie|passphrase/i;
 
 /** Tool argument field names retained in local receipts. Unknown keys may contain private text. */
 const AUDIT_FIELD_NAMES = new Set([
@@ -81,8 +72,9 @@ const AUDIT_FIELD_NAMES = new Set([
 ]);
 
 /**
- * Return a deep, non-mutating copy of log metadata with credential-bearing fields
- * replaced. The logger is the final persistence boundary, so every structured log
+ * Return a deep, non-mutating copy of log metadata with every field whose key names a secret
+ * (`isSecretName`: `apiKey`, `authorization`, `credentials`, at any depth) replaced by its
+ * placeholder. The logger is the final persistence boundary, so every structured log
  * format must pass through this function before serialization.
  */
 export function redactLogMetadata(
@@ -101,7 +93,9 @@ export function summarizeToolCallArgs(
 ): Record<string, unknown> {
   const seen = new WeakSet<object>();
   const summarize = (value: unknown, key: string, depth: number): unknown => {
-    if (SENSITIVE_LOG_KEY_PATTERN.test(key)) return "<redacted>";
+    if (isSecretName(key)) {
+      return redactionPlaceholder(AUDIT_FIELD_NAMES.has(key) ? key : "secret");
+    }
     if (typeof value === "string") {
       return key === "method" && /^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/i.test(value)
         ? value.toUpperCase()
@@ -145,8 +139,8 @@ function redactLogValue(value: unknown, seen: WeakMap<object, unknown>): unknown
   const redacted: Record<string, unknown> = {};
   seen.set(value, redacted);
   for (const [key, nestedValue] of Object.entries(value)) {
-    redacted[key] = SENSITIVE_LOG_KEY_PATTERN.test(key)
-      ? "<redacted>"
+    redacted[key] = isSecretName(key)
+      ? redactionPlaceholder(key)
       : redactLogValue(nestedValue, seen);
   }
   return redacted;

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { HTTP_USER_AGENT } from "@/core/constants/agent";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { isSecretName, redactionPlaceholder } from "@/core/secrets/secret-names";
 import type { ToolExecutionContext, ToolExecutionResult, ToolRiskLevel } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
@@ -158,15 +159,6 @@ const HttpRequestSchema = z
 
 type HttpRequestArgs = z.infer<typeof HttpRequestSchema>;
 
-const SENSITIVE_HEADER_PATTERNS = [
-  /authorization/i,
-  /cookie/i,
-  /token/i,
-  /secret/i,
-  /api[-_]?key/i,
-  /credential/i,
-] as const;
-
 const DEFAULT_TIMEOUT_MS = 15_000; // 15 seconds
 const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576; // 1MB
 
@@ -181,10 +173,7 @@ function sanitizeHeaders(
   const sanitized: Record<string, string> = {};
 
   for (const [name, value] of entries) {
-    const redacted = SENSITIVE_HEADER_PATTERNS.some((pattern) => pattern.test(name))
-      ? "<redacted>"
-      : value;
-    sanitized[name] = redacted;
+    sanitized[name] = isSecretName(name) ? redactionPlaceholder(name) : value;
   }
 
   return sanitized;

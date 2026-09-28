@@ -11,7 +11,12 @@ import { type AppConfig } from "@jazz/core/types/index";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { AgentConfigServiceImpl, createConfigLayer, validateConfigFiles } from "./config";
+import {
+  AgentConfigServiceImpl,
+  createConfigLayer,
+  resolveHeldSecrets,
+  validateConfigFiles,
+} from "./config";
 
 // Mock FileSystem
 const mockFS = {
@@ -1019,6 +1024,90 @@ describe("noticing an edit made by another process", () => {
       expect(stderr).toContain("keeping the last-known-good configuration");
     } finally {
       await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("known secrets", () => {
+  const doorsConfig = {
+    peers: [{ name: "sam", url: "https://sam.example" }],
+    webhooks: [{ name: "deploy", agentId: "agent-1" }],
+    notify: { targets: [{ name: "ops", kind: "discord" }] },
+  } as unknown as AppConfig;
+
+  it("resolves every door, notify and daemon secret from the environment, then the keyring", async () => {
+    const keyring: Record<string, string> = {
+      "webhooks.deploy.secret": "signing-secret-from-keyring",
+      "notify.targets.ops.webhookUrl": "https://discord.com/api/webhooks/1/token-in-keyring",
+      "daemon.operatorToken": "operator-token-from-keyring",
+      "peers.sam.token": "ignored-because-env-wins",
+    };
+    const held = await Effect.runPromise(
+      resolveHeldSecrets(doorsConfig, (path) => Effect.succeed(keyring[path]), {
+        JAZZ_PEER_TOKEN_SAM: "peer-token-from-env",
+        JAZZ_WEBHOOK_TOKEN_DEPLOY: "webhook-token-from-env",
+      }),
+    );
+    expect(held).toEqual(
+      expect.arrayContaining([
+        { name: "peers.sam.token", value: "peer-token-from-env" },
+        { name: "webhooks.deploy.token", value: "webhook-token-from-env" },
+        { name: "webhooks.deploy.secret", value: "signing-secret-from-keyring" },
+        {
+          name: "notify.targets.ops.webhookUrl",
+          value: "https://discord.com/api/webhooks/1/token-in-keyring",
+        },
+        { name: "daemon.operatorToken", value: "operator-token-from-keyring" },
+      ]),
+    );
+    expect(held).toHaveLength(5);
+  });
+
+  it("skips secrets the runtime config already holds", async () => {
+    const lookedUp: string[] = [];
+    await Effect.runPromise(
+      resolveHeldSecrets(
+        { daemon: { token: "daemon-token-in-config" } } as unknown as AppConfig,
+        (path) => {
+          lookedUp.push(path);
+          return Effect.succeed(undefined);
+        },
+        {},
+      ),
+    );
+    expect(lookedUp).not.toContain("daemon.token");
+    expect(lookedUp).toContain("daemon.operatorToken");
+  });
+
+  it("serves known secrets from a cache that a config write invalidates", async () => {
+    const previous = process.env["JAZZ_PEER_TOKEN_SAM"];
+    process.env["JAZZ_PEER_TOKEN_SAM"] = "peer-token-first-value";
+    try {
+      const service = new AgentConfigServiceImpl(
+        doorsConfig,
+        {},
+        tempConfigPath("config.json"),
+        mockFS,
+      );
+      const first = await Effect.runPromise(service.knownSecrets);
+      expect(first).toContainEqual({ name: "peers.sam.token", value: "peer-token-first-value" });
+
+      process.env["JAZZ_PEER_TOKEN_SAM"] = "peer-token-second-value";
+      const cached = await Effect.runPromise(service.knownSecrets);
+      expect(cached).toBe(first);
+
+      await Effect.runPromise(service.set("logging.level", "debug"));
+      const refreshed = await Effect.runPromise(service.knownSecrets);
+      expect(refreshed).toContainEqual({
+        name: "peers.sam.token",
+        value: "peer-token-second-value",
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env["JAZZ_PEER_TOKEN_SAM"];
+      } else {
+        process.env["JAZZ_PEER_TOKEN_SAM"] = previous;
+      }
     }
   });
 });

@@ -31,9 +31,13 @@ config. Those are the three places people put them.
 
 ## The shell environment is scrubbed
 
-`execute_command` does not inherit your whole environment. Variables whose names match
-`API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` are removed before the command runs, so a model
-that decides to `env` or to shell out to something chatty cannot hand your provider keys to it.
+`execute_command` does not inherit your whole environment. A variable is removed before the
+command runs when a word of its name marks a secret (`SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`,
+`PASSPHRASE`, `CREDENTIALS`, `APIKEY`, `AUTH`, `PASS`, `COOKIE`, or `KEY` after another word, as in
+`APP_KEY`), or when it is one Jazz reads a secret from (`JAZZ_PEER_TOKEN_*`, `JAZZ_WEBHOOK_*`,
+`JAZZ_NOTIFY_<TARGET>_WEBHOOK_URL` and the other notify target secrets). A model that decides to
+`env` or to shell out to something chatty cannot hand your provider keys or a Discord webhook URL
+to it. Words are matched whole, so `KEYBOARD_LAYOUT` and `TOKENIZER_PATH` pass through.
 
 When a command genuinely needs one, name it in the agent's `envAllowlist`. Per agent, explicit,
 and visible in the agent file. The exception is written down rather than implied.
@@ -95,16 +99,26 @@ output, MCP and HTTP responses, errors, and approval previews are all covered.
 Two passes replace secrets with `[redacted:<name>]`:
 
 - **Values Jazz knows**, replaced exactly wherever they appear: every secret setting (provider API
-  keys, the daemon, peer and webhook tokens, MCP credentials, OTLP headers), as resolved from the
-  keyring, the environment or the config file, and every environment variable of the Jazz process
-  whose name marks it as a secret (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, ...). The
-  placeholder names the setting or variable, for example `[redacted:llm.openai.api_key]`.
-- **Secrets Jazz never saw**, recognized by their shape: `NAME=value` lines whose name marks a secret
-  (`.env` files, shell profiles, `env` output, diff lines), quoted secret-named literals in JSON,
-  YAML and source (`"apiKey": "..."`), private key blocks, `Bearer`/`Basic` credentials, passwords
-  in URLs, and the key formats of OpenAI, Anthropic, GitHub, Slack, AWS, Google, Stripe, npm and
-  Telegram. `$VAR` references, paths and values shorter than 8 characters (for known values) are
-  left alone.
+  keys, OTLP headers, the daemon and operator tokens, peer and webhook tokens, webhook signing
+  secrets, notify target secrets), as resolved from the keyring, the environment or the config
+  file; MCP env and header values whose name marks a secret (`SIGNOZ_API_KEY`, `Authorization`);
+  and every environment variable of the Jazz process whose name marks it as a secret (`*_API_KEY`,
+  `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_KEY`, `*_PASS`, `JAZZ_NOTIFY_*_WEBHOOK_URL`, ...). The
+  placeholder names the setting or variable, for example `[redacted:llm.openai.api_key]`. Values
+  held only in the keyring are looked up again after a config change and at most once a minute.
+- **Secrets Jazz never saw**, recognized by their shape: `NAME=value` lines and YAML `name: value`
+  lines whose name marks a secret (`.env` files, shell profiles, `env` output, compose files,
+  kubeconfig, diff lines, including coloured ones), quoted secret-named literals in JSON, YAML and
+  source (`"apiKey": "..."`, also JSON-escaped), `.netrc` passwords, private key blocks (also when
+  the end marker is cut off), JWTs, Discord and Slack webhook URLs, `Bearer`/`Basic` credentials,
+  passwords in URLs, and the key formats of OpenAI, Anthropic, GitHub, Slack, AWS, Google, Stripe,
+  npm and Telegram. A name marks a secret when its last word does (`DB_PASSWORD`, `APP_KEY`,
+  `refresh_token`), so `TOKEN_URL`, `token_type` and `max_tokens` are left alone. `$VAR` references,
+  templates, `<placeholders>`, booleans, paths and values shorter than 8 characters (for known
+  values) are left alone.
+- **Structured results by key**: in an HTTP response body or an MCP tool's structured content,
+  a string under a secret-named key (`access_token`, `client_secret`, `password`) is replaced
+  whole.
 
 `write_file` and `edit_file` refuse text that contains a `[redacted:` placeholder, so an edit copied
 from redacted output cannot overwrite the real value. The agent can still change a `.env` file: it

@@ -12,6 +12,7 @@ import {
   LLM_PROVIDER_ENV_VARS,
   llmProviderEnvVars,
 } from "@/core/constants/provider-env-vars";
+import { isSecretName, mentionsSecret, redactionPlaceholder } from "@/core/secrets/secret-names";
 import { NOTIFY_TARGET_SECRET_FIELDS } from "@/core/types/notify";
 import { secretEnvVarSuffix } from "@/core/utils/secret-env-var";
 
@@ -129,12 +130,20 @@ export function peerTokenEnvVar(peerName: string): string {
   return `JAZZ_PEER_TOKEN_${secretEnvVarSuffix(peerName)}`;
 }
 
+/** Every field name any notify target kind keeps in the keyring. */
+const NOTIFY_SECRET_FIELD_NAMES: readonly string[] = [
+  ...new Set(Object.values(NOTIFY_TARGET_SECRET_FIELDS).flat()),
+];
+
 /** A notify target's secret field, e.g. `notify.targets.phone.botToken`. */
 const NOTIFY_TARGET_SECRET_PATH = new RegExp(
-  `^notify\\.targets\\.([^.]+)\\.(${[
-    ...new Set(Object.values(NOTIFY_TARGET_SECRET_FIELDS).flat()),
-  ].join("|")})$`,
+  `^notify\\.targets\\.([^.]+)\\.(${NOTIFY_SECRET_FIELD_NAMES.join("|")})$`,
 );
+
+/** A notify secret field as it ends its environment variable: `botToken` gives `BOT_TOKEN`. */
+function notifyFieldEnvSuffix(field: string): string {
+  return field.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase();
+}
 
 /** The config path holding one notify target's secret field. */
 export function notifyTargetSecretPath(target: string, field: string): string {
@@ -146,8 +155,7 @@ export function notifyTargetSecretPath(target: string, field: string): string {
  * `JAZZ_NOTIFY_PHONE_BOT_TOKEN` for `notify.targets.phone.botToken`.
  */
 export function notifyTargetSecretEnvVar(target: string, field: string): string {
-  const fieldSuffix = field.replace(/([a-z])([A-Z])/g, "$1_$2").toUpperCase();
-  return `JAZZ_NOTIFY_${secretEnvVarSuffix(target)}_${fieldSuffix}`;
+  return `JAZZ_NOTIFY_${secretEnvVarSuffix(target)}_${notifyFieldEnvSuffix(field)}`;
 }
 
 /** The two maps in an MCP server definition whose values are handed to the server. */
@@ -155,6 +163,11 @@ export type McpServerSecretField = "env" | "headers";
 
 /** An MCP server's env var or HTTP header value, e.g. `mcpServers.signoz.env.SIGNOZ_API_KEY`. */
 const MCP_SERVER_SECRET_PATH = /^mcpServers\..+\.(env|headers)\..+$/;
+
+/** Whether `path` is an MCP server's env var or HTTP header value. */
+export function isMcpServerSecretPath(path: string): boolean {
+  return MCP_SERVER_SECRET_PATH.test(path);
+}
 
 /**
  * The keyring account holding one env var or header value of an MCP server defined in the
@@ -209,11 +222,10 @@ export function isSecretPath(path: string): boolean {
   if (OTLP_HEADER_PATH.test(path)) return true;
   // Every MCP env var and header is treated as a secret: `--env` and `--header` carry API keys
   // and bearer tokens under whatever name the server chose.
-  if (MCP_SERVER_SECRET_PATH.test(path)) return true;
+  if (isMcpServerSecretPath(path)) return true;
   return /^(llm|web_search)\.[^.]+\.api_key$/.test(path);
 }
 
-/** Environment variable that supplies a secret path, if one is defined. */
 /**
  * The value for a secret path from the environment, honouring provider aliases.
  *
@@ -230,6 +242,7 @@ export function secretValueFromEnv(
   return envVar === undefined ? undefined : env[envVar];
 }
 
+/** Environment variable that supplies a secret path, if one is defined. */
 export function envVarForSecretPath(path: string): string | undefined {
   if (path === DAEMON_TOKEN_PATH) return DAEMON_TOKEN_ENV_VAR;
   // Peer names are user-defined, so their variables are derived rather than enumerated.
@@ -248,16 +261,11 @@ export function envVarForSecretPath(path: string): string | undefined {
   return SECRET_ENV_VARS[path];
 }
 
-/** What `redactSecretValues` prints in place of a secret. */
-export const REDACTED_SECRET = "<redacted>";
-
-/**
- * A copy of a config value with every non-empty string at a secret path replaced by
- * `REDACTED_SECRET`. `prefix` is the dotted path of `value` itself, empty for a whole config.
- */
 export function redactSecretValues(value: unknown, prefix = ""): unknown {
   if (typeof value === "string") {
-    return value !== "" && prefix !== "" && isSecretPath(prefix) ? REDACTED_SECRET : value;
+    return value !== "" && prefix !== "" && isSecretPath(prefix)
+      ? redactionPlaceholder(prefix)
+      : value;
   }
   if (Array.isArray(value)) {
     return value.map((item, index) => redactSecretValues(item, joinPath(prefix, String(index))));
@@ -275,4 +283,124 @@ export function redactSecretValues(value: unknown, prefix = ""): unknown {
 
 function joinPath(prefix: string, key: string): string {
   return prefix === "" ? key : `${prefix}.${key}`;
+}
+
+/** Every environment variable name a registered secret path reads, provider aliases included. */
+const REGISTERED_SECRET_ENV_VARS: ReadonlySet<string> = new Set([
+  ...Object.values(SECRET_ENV_VARS),
+  ...Object.values(LLM_PROVIDER_ENV_VAR_ALIASES).flat(),
+  DAEMON_TOKEN_ENV_VAR,
+]);
+
+/** `JAZZ_PEER_TOKEN_<NAME>`, `JAZZ_WEBHOOK_TOKEN_<NAME>`, `JAZZ_WEBHOOK_SECRET_<NAME>`. */
+const DOOR_SECRET_ENV_VAR = /^JAZZ_(?:PEER_TOKEN|WEBHOOK_TOKEN|WEBHOOK_SECRET)_[A-Z0-9_]+$/;
+
+/** `JAZZ_NOTIFY_<TARGET>_<FIELD>` for every notify secret field, e.g. `..._WEBHOOK_URL`. */
+const NOTIFY_SECRET_ENV_VAR = new RegExp(
+  `^JAZZ_NOTIFY_[A-Z0-9_]+_(?:${NOTIFY_SECRET_FIELD_NAMES.map(notifyFieldEnvSuffix).join("|")})$`,
+);
+
+/** Whether `name` is an environment variable Jazz reads a secret from. */
+function isJazzSecretEnvVar(name: string): boolean {
+  return (
+    REGISTERED_SECRET_ENV_VARS.has(name) ||
+    DOOR_SECRET_ENV_VAR.test(name) ||
+    NOTIFY_SECRET_ENV_VAR.test(name)
+  );
+}
+
+/**
+ * Whether the environment variable `name` holds a secret value: a secret-named variable
+ * (`OPENAI_API_KEY`, `APP_KEY`, `DB_PASS`) or one Jazz reads a secret from, such as
+ * `JAZZ_NOTIFY_OPS_WEBHOOK_URL`.
+ */
+export function isSecretEnvVarName(name: string): boolean {
+  return isSecretName(name) || isJazzSecretEnvVar(name);
+}
+
+/**
+ * Whether the environment variable `name` is withheld from a child process: everything
+ * {@link isSecretEnvVarName} accepts, and any name with a secret word anywhere in it
+ * (`GITHUB_TOKEN_FILE`, `AUTH_HEADER_JSON`).
+ */
+export function isWithheldEnvVarName(name: string): boolean {
+  return mentionsSecret(name) || isJazzSecretEnvVar(name);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function recordAt(value: unknown, key: string): Record<string, unknown> | undefined {
+  return asRecord(asRecord(value)?.[key]);
+}
+
+function namedEntries(value: unknown): { name: string; entry: Record<string, unknown> }[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry: unknown) => {
+    if (entry === null || typeof entry !== "object") {
+      return [];
+    }
+    const record = entry as Record<string, unknown>;
+    return typeof record["name"] === "string" ? [{ name: record["name"], entry: record }] : [];
+  });
+}
+
+/**
+ * The secret paths whose values the runtime config holds: every `llm` and `web_search` provider
+ * key the config names, and every OTLP export header, by whatever name the backend uses.
+ */
+export function runtimeSecretPaths(config: unknown): string[] {
+  const paths: string[] = [];
+  for (const section of ["llm", "web_search"]) {
+    for (const [provider, providerConfig] of Object.entries(recordAt(config, section) ?? {})) {
+      if (typeof asRecord(providerConfig)?.["api_key"] === "string") {
+        paths.push(`${section}.${provider}.api_key`);
+      }
+    }
+  }
+  const headers = recordAt(recordAt(recordAt(config, "telemetry"), "otlp"), "headers");
+  for (const [name, value] of Object.entries(headers ?? {})) {
+    if (typeof value === "string") {
+      paths.push(`telemetry.otlp.headers.${name}`);
+    }
+  }
+  return paths;
+}
+
+/**
+ * Every secret path Jazz may hold a value for under `config`, outside MCP server definitions:
+ * {@link SECRET_PATHS}, the daemon's operator token, the runtime paths, each peer's token, each
+ * webhook's token and signing secret, and each notify target's secret fields. MCP env var and
+ * header values are resolved into the runtime config itself when it loads.
+ */
+export function heldSecretPaths(config: unknown): string[] {
+  const paths = new Set<string>([
+    ...SECRET_PATHS,
+    DAEMON_OPERATOR_TOKEN_PATH,
+    ...runtimeSecretPaths(config),
+  ]);
+  const record = asRecord(config) ?? {};
+  for (const { name } of namedEntries(record["peers"])) {
+    paths.add(peerTokenPath(name));
+  }
+  for (const { name } of namedEntries(record["webhooks"])) {
+    paths.add(webhookTokenPath(name));
+    paths.add(webhookSecretPath(name));
+  }
+  for (const { name, entry } of namedEntries(recordAt(record, "notify")?.["targets"])) {
+    const kind = entry["kind"];
+    const fields =
+      typeof kind === "string" && kind in NOTIFY_TARGET_SECRET_FIELDS
+        ? NOTIFY_TARGET_SECRET_FIELDS[kind as keyof typeof NOTIFY_TARGET_SECRET_FIELDS]
+        : [];
+    for (const field of fields) {
+      paths.add(notifyTargetSecretPath(name, field));
+    }
+  }
+  return [...paths].filter(isSecretPath);
 }
