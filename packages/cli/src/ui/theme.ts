@@ -407,6 +407,9 @@ export function applyTerminalPalette(report: TerminalPaletteReport): void {
   repaint();
 }
 
+/** What the last `initializeTheme` could not honour, kept for `/theme` to show. */
+let startupWarnings: readonly string[] = [];
+
 function themeExists(name: string): boolean {
   return findTheme(name) !== undefined;
 }
@@ -443,6 +446,7 @@ export function initializeTheme(options: {
   state.committed = selection;
   state.preview = null;
   state.canvasMode = options.canvas ?? "inherit";
+  startupWarnings = warnings;
   repaint();
   return warnings;
 }
@@ -482,7 +486,7 @@ export function listThemes(): readonly ThemeListing[] {
 
 /** Problems with the user's theme files, for `/theme` to show. */
 export function themeWarnings(): readonly string[] {
-  return userThemeWarnings();
+  return [...startupWarnings, ...userThemeWarnings()];
 }
 
 export type ThemeChangeResult =

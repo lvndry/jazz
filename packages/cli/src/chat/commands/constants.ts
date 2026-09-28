@@ -220,8 +220,8 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
   {
     name: "theme",
     type: "theme",
-    description: "Switch between light and dark theme",
-    usage: "light|dark",
+    description: "List themes, or switch to one and save it",
+    usage: "[name] [dark|light]",
   },
   { name: "tools", type: "tools", description: "List all agent tools by category" },
   {
