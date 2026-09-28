@@ -6,7 +6,7 @@ describe("where an overlay card sits", () => {
     const viewport = { width: 120, height: 34 };
     const placement = placeOverlay(viewport, overlayWidth(viewport), 10);
     expect(placement).toEqual({ fullscreen: false, width: 96, height: 10, left: 0, top: 23 });
-    expect(overlayReservedRows(placement)).toBe(11);
+    expect(overlayReservedRows(placement)).toBe(12);
   });
 
   it("spans a narrow terminal instead of taking the whole screen", () => {

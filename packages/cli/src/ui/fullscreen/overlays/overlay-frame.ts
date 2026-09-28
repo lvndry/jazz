@@ -112,9 +112,17 @@ export function placeOverlay(
   return { ...frame, height, left, top: Math.max(0, room - height) };
 }
 
-/** Rows a card keeps from the transcript: its own, plus the footer under a docked card. */
+/** A blank row between the conversation's last line and a docked card, so the band never touches text. */
+export const OVERLAY_GAP_ROWS = 1;
+
+/**
+ * Rows a card keeps from the transcript: its own, the footer under a docked
+ * card, and the gap above it.
+ */
 export function overlayReservedRows(
   placement: Pick<OverlayPlacement, "fullscreen" | "height">,
 ): number {
-  return placement.fullscreen ? placement.height : placement.height + OVERLAY_FOOTER_ROWS;
+  return placement.fullscreen
+    ? placement.height
+    : placement.height + OVERLAY_FOOTER_ROWS + OVERLAY_GAP_ROWS;
 }
