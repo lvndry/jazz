@@ -239,6 +239,12 @@ export interface ApprovalRequiredResult {
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
   /**
+   * What approving concretely does, with real numbers, in one short line:
+   * `214 files, 1.3 GB` or `overwrites 173 lines`. Surfaces show it beside the
+   * fields; it never repeats a path or a command the fields already carry.
+   */
+  readonly impact?: string;
+  /**
    * When present, the human picks one option instead of approving yes/no.
    * The selected option's id reaches the execution tool via the executor,
    * merged into its args under `_selectedOptionId`.
@@ -263,6 +269,10 @@ export interface ApprovalRequest {
   readonly executeArgs: Record<string, unknown>;
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
+  /** What approving concretely does, with real numbers. See {@link ApprovalRequiredResult.impact}. */
+  readonly impact?: string;
+  /** The risk class of the call being approved, when the tool declares one. */
+  readonly riskLevel?: ToolRiskLevel;
   /**
    * When present, the surface renders a picker (one row per option) instead of an
    * approve/deny card. The chosen row's id returns as `selectedOptionId`.

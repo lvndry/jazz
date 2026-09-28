@@ -682,7 +682,9 @@ export class ToolExecutor {
             executeToolName: approvalResult.executeToolName,
             executeArgs: approvalResult.executeArgs,
             ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
+            ...(approvalResult.impact ? { impact: approvalResult.impact } : {}),
             ...(hasSelectionOptions ? { options: approvalResult.options } : {}),
+            riskLevel,
             isAutoApproved: checkAutoApproved,
           };
 

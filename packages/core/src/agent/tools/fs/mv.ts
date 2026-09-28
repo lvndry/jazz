@@ -13,6 +13,7 @@ import {
   type ApprovalToolPair,
 } from "../base-tool";
 import { replacePathAtomically } from "./atomic-replace";
+import { describeFootprint, measureFootprint } from "./footprint";
 import { protectFileTransfer } from "./protected-transfer";
 import { buildKeyFromContext } from "../context-utils";
 
@@ -62,7 +63,11 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
         });
         yield* Effect.try({ try: () => assertNotProtectionStateMutation(source), catch: toError });
         const overwrite = args.force === true ? " (will overwrite if exists)" : "";
-        return `About to move: ${source}\n       to: ${destination}${overwrite}`;
+        const message = `About to move: ${source}\n       to: ${destination}${overwrite}`;
+        const footprint = yield* measureFootprint(source);
+        return footprint === undefined
+          ? message
+          : { message, impact: describeFootprint(footprint) };
       }),
 
     handler: (args: MvArgs, context: ToolExecutionContext) =>

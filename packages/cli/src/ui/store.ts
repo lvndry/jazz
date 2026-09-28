@@ -5,6 +5,7 @@
  */
 
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
+import type { ToolRiskLevel } from "@jazz/core/types/tools";
 import { useSyncExternalStore } from "react";
 import { isCommandInput } from "@/cli/chat/commands/parser";
 import { isActivityEqual, type ActivityState } from "./activity-state";
@@ -174,6 +175,9 @@ export interface PendingApproval {
   readonly message: string;
   readonly args: Record<string, unknown>;
   readonly previewDiff?: string;
+  /** What approving concretely does, with real numbers (`214 files, 1.3 GB`). */
+  readonly impact?: string;
+  readonly riskLevel?: ToolRiskLevel;
 }
 
 export interface RunStats {
