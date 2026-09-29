@@ -204,6 +204,26 @@ that lands on an unlisted private address is refused rather than asked about; th
 request that URL directly, which asks you. See
 [secrets and egress](../security/secrets-and-egress.md#network-egress) for what the guard checks.
 
+## Trusted GET hosts
+
+After a run reads untrusted content (a web page, an API response, a shell command's output), a
+GET the model composed asks for your approval, because the URL itself can carry data to any host.
+`network.trustedGetHosts` lists public hosts you accept that for: a plain `GET` or `HEAD` to them
+(no body, no custom headers, a query string is fine) goes through without asking. Other hosts and
+other methods still ask.
+
+```json
+{
+  "network": { "trustedGetHosts": ["eutils.ncbi.nlm.nih.gov", "*.wikipedia.org"] }
+}
+```
+
+Entries are hostnames or `*.suffix` wildcards, at most 64. Like `network.allowPrivateHosts` it is
+read from the global config file only, and private addresses stay gated by the private-network
+check whatever this lists. A trusted host sees every URL sent to it, so list only hosts you would
+be comfortable receiving anything the run knows. For everything else, the approval card's
+**always allow** choice (`a`, or left/right then enter) allows the whole tool for the session.
+
 ## MCP overrides
 
 Full MCP server definitions live in `~/.agents/mcp.json` or `./.agents/mcp.json`. Jazz stores only per-server `enabled` and `trusted` overrides in `config.json`. `trusted` is read from the global file only, and applies only to servers defined in `~/.agents/mcp.json`; a project file's `trusted` is ignored with a warning. See [MCP](./mcp.md#trust-controls-approval-not-identity).

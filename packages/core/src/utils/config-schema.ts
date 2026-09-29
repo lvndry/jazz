@@ -86,7 +86,9 @@ import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
 import { isRecord } from "@/core/utils/is-record";
 import {
   describePrivateHostEntryError,
+  describeTrustedGetHostError,
   MAX_PRIVATE_HOST_ENTRIES,
+  MAX_TRUSTED_GET_HOST_ENTRIES,
 } from "@/core/utils/private-network";
 import { secretEnvVarSuffix } from "@/core/utils/secret-env-var";
 import { closestMatch } from "@/core/utils/string";
@@ -347,8 +349,19 @@ const privateHostEntry = described(
   "a hostname, *.suffix wildcard, IP address or CIDR block",
 );
 
+const trustedGetHostEntry = described(
+  z.string().superRefine((entry, refinement) => {
+    const problem = describeTrustedGetHostError(entry);
+    if (problem !== undefined) {
+      refinement.addIssue({ code: "custom", message: problem });
+    }
+  }),
+  "a hostname or *.suffix wildcard",
+);
+
 const networkShape = {
   allowPrivateHosts: z.array(privateHostEntry).max(MAX_PRIVATE_HOST_ENTRIES).exactOptional(),
+  trustedGetHosts: z.array(trustedGetHostEntry).max(MAX_TRUSTED_GET_HOST_ENTRIES).exactOptional(),
 } satisfies SchemaShape<NetworkConfig>;
 
 const streamingShape = {

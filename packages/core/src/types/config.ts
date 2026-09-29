@@ -33,6 +33,13 @@ export interface NetworkConfig {
    * block entry allows those addresses behind any name. At most 64 entries.
    */
   readonly allowPrivateHosts?: readonly string[];
+  /**
+   * Public hosts whose plain GET and HEAD requests (no body, no custom headers) skip the
+   * approval a run needs once it has read untrusted content. Each entry is a hostname
+   * (`eutils.ncbi.nlm.nih.gov`) or a `*.suffix` wildcard (`*.ncbi.nlm.nih.gov`). Everything
+   * else, and every other method, still asks. At most 64 entries.
+   */
+  readonly trustedGetHosts?: readonly string[];
 }
 
 export interface AppConfig {

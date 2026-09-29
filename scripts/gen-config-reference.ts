@@ -77,6 +77,8 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Conversations kept in each agent’s live history. Older conversations are archived, not deleted; active goal, loop and run conversations are protected. Defaults to 100.",
   "network.allowPrivateHosts":
     "Hosts on this machine or your local network agents may reach without asking: hostnames, `*.suffix` wildcards, IP addresses or CIDR blocks, at most 64. Any other private address asks for approval, and approving adds it here. Read from the global config only. See [Private network hosts](./jazz.md#private-network-hosts).",
+  "network.trustedGetHosts":
+    "Public hosts (hostnames or `*.suffix` wildcards, at most 64) whose plain GET and HEAD requests never ask for approval, even after the run read untrusted content and even with a query string. Other hosts and other methods still ask. Read from the global config only.",
   "storage.type": "Storage backend. `file` is the only one Jazz implements.",
   "storage.path": "Data directory for `file` storage. Defaults to the Jazz home (`~/.jazz`).",
   "storage.connectionString":

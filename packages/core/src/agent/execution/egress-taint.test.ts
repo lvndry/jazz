@@ -50,6 +50,7 @@ function needsApproval(
     readonly tainted?: boolean;
     readonly egress?: boolean;
     readonly messages?: readonly ChatMessage[];
+    readonly trustedHosts?: readonly string[];
   } = {},
 ): boolean {
   return taintedEgressNeedsApproval({
@@ -59,6 +60,7 @@ function needsApproval(
     policy: options.policy,
     taint: options.tainted === false ? createEgressTaint() : taintedRun(),
     messages: options.messages ?? [],
+    trustedHosts: options.trustedHosts,
   });
 }
 
@@ -224,6 +226,47 @@ describe("taintedEgressNeedsApproval", () => {
     expect(
       needsApproval("http_request", { method: "GET", url: link }, { messages: fromPage }),
     ).toBe(false);
+  });
+
+  describe("network.trustedGetHosts", () => {
+    const trusted = ["eutils.ncbi.nlm.nih.gov"];
+    const esummary = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi";
+
+    it("lets a GET to a trusted host through, query and all", () => {
+      const args = { method: "GET", url: esummary, query: { db: "pubmed", id: "1,2" } };
+      expect(needsApproval("http_request", args, { trustedHosts: trusted })).toBe(false);
+      expect(needsApproval("http_request", args)).toBe(true);
+      expect(
+        needsApproval("web_fetch", { url: `${esummary}?id=1` }, { trustedHosts: trusted }),
+      ).toBe(false);
+    });
+
+    it("matches a *.suffix wildcard but not a look-alike or the bare suffix", () => {
+      const wildcard = ["*.nih.gov"];
+      const ask = (url: string) => needsApproval("web_fetch", { url }, { trustedHosts: wildcard });
+      expect(ask("https://eutils.ncbi.nlm.nih.gov/x")).toBe(false);
+      expect(ask("https://nih.gov/x")).toBe(true);
+      expect(ask("https://evilnih.gov/x")).toBe(true);
+      expect(ask("https://nih.gov.evil.example/x")).toBe(true);
+    });
+
+    it("still asks for other hosts, other methods, bodies and custom headers", () => {
+      const options = { trustedHosts: trusted };
+      expect(needsApproval("web_fetch", { url: "https://collector.example/?d=1" }, options)).toBe(
+        true,
+      );
+      expect(needsApproval("http_request", { method: "POST", url: esummary }, options)).toBe(true);
+      expect(
+        needsApproval("http_request", { method: "GET", url: esummary, body: "x" }, options),
+      ).toBe(true);
+      expect(
+        needsApproval(
+          "http_request",
+          { method: "GET", url: esummary, headers: { authorization: "secret" } },
+          options,
+        ),
+      ).toBe(true);
+    });
   });
 
   it("gates a URL that only a queued background task result supplied", () => {

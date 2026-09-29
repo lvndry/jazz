@@ -439,6 +439,8 @@ export interface ToolExecutionContext {
    * below `high-risk` once it is marked. Shared with sub-agents by reference.
    */
   readonly egressTaint?: EgressTaint;
+  /** `network.trustedGetHosts` from the global config: GET/HEAD to these skip the taint gate. */
+  readonly trustedGetHosts?: readonly string[];
   /**
    * Whether an unanswerable approval should park the run instead of declining it.
    *

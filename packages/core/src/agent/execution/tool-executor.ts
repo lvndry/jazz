@@ -679,6 +679,7 @@ export class ToolExecutor {
               policy: getCurrentPolicy(),
               taint: context.egressTaint,
               messages: context.conversationMessages,
+              trustedHosts: context.trustedGetHosts,
             });
           const privateAddresses = yield* unlistedPrivateAddressesFor(
             egress,
@@ -1252,6 +1253,7 @@ export class ToolExecutor {
             policy,
             taint: context.egressTaint,
             messages: context.conversationMessages,
+            trustedHosts: context.trustedGetHosts,
           });
           const privateAddresses = yield* unlistedPrivateAddressesFor(
             toolMeta?.egress === true,
@@ -1615,6 +1617,7 @@ function plainToolNeedsTaintApproval(
       policy: context.getAutoApprovePolicy?.(),
       taint: context.egressTaint,
       messages: context.conversationMessages,
+      trustedHosts: context.trustedGetHosts,
     })
   );
 }

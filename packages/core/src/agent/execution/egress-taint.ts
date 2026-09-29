@@ -18,6 +18,9 @@
  *   any other call that needs a person. `high-risk` (and `true`) still approve it, and an explicit
  *   per-tool or per-command allowlist entry still counts.
  *
+ * A GET or HEAD to a host the operator listed in `network.trustedGetHosts` also stays automatic,
+ * even with a query: the operator decided that host may see whatever the run puts in its URL.
+ *
  * Two kinds of egress call stay automatic, because they cannot carry anything the run learned:
  *
  * - `FIXED_ENDPOINT_EGRESS_TOOLS`: tools that only talk to an endpoint the operator configured
@@ -31,6 +34,7 @@
 
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy, EgressTaint } from "@/core/types/tools";
+import { hostIsTrustedForGet } from "@/core/utils/private-network";
 import { hasExternalUntrustedFrame } from "@/core/utils/untrusted-content";
 
 /** Most sources an approval message lists; the rest are summarised as a count. */
@@ -176,6 +180,23 @@ function describeRequest(toolName: string, args: Record<string, unknown>, url: s
   return method === undefined ? url : `${method} ${url}`;
 }
 
+/** The URL of a GET/HEAD with no body or custom headers, a query allowed, or undefined. */
+function readOnlyRequestUrl(toolName: string, args: Record<string, unknown>): string | undefined {
+  const url = args["url"];
+  if (typeof url !== "string") {
+    return undefined;
+  }
+  if (GET_ONLY_URL_TOOLS.has(toolName)) {
+    return url;
+  }
+  if (toolName === "http_request") {
+    const method = egressRequestMethod(toolName, args) ?? "";
+    const sendsBody = args["body"] !== undefined || args["headers"] !== undefined;
+    return SAFE_HTTP_METHODS.has(method) && !sendsBody ? url : undefined;
+  }
+  return undefined;
+}
+
 /** The URL of a call that sends nothing but that URL, or undefined for any other call. */
 function plainGetUrl(toolName: string, args: Record<string, unknown>): string | undefined {
   const url = args["url"];
@@ -231,6 +252,8 @@ export interface EgressGateInput {
   readonly policy: AutoApprovePolicy | undefined;
   readonly taint: EgressTaint | undefined;
   readonly messages: readonly ChatMessage[] | undefined;
+  /** `network.trustedGetHosts`: hosts whose plain GET/HEAD requests are never gated. */
+  readonly trustedHosts?: readonly string[] | undefined;
 }
 
 /** Whether a policy tier still approves egress after untrusted content entered the run. */
@@ -257,6 +280,10 @@ export function taintedEgressNeedsApproval(input: EgressGateInput): boolean {
   }
   const url = plainGetUrl(input.toolName, input.args);
   if (url !== undefined && urlAlreadyKnown(url, input.messages ?? [])) {
+    return false;
+  }
+  const readOnlyUrl = readOnlyRequestUrl(input.toolName, input.args);
+  if (readOnlyUrl !== undefined && hostIsTrustedForGet(readOnlyUrl, input.trustedHosts)) {
     return false;
   }
   return true;

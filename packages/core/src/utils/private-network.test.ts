@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   classifyAddress,
   describePrivateHostEntryError,
+  describeTrustedGetHostError,
+  hostIsTrustedForGet,
   isIpLiteral,
   parsePrivateHostAllowlist,
 } from "./private-network";
@@ -114,4 +116,25 @@ describe("describePrivateHostEntryError", () => {
       expect(describePrivateHostEntryError(entry)).toBeString();
     },
   );
+});
+
+describe("trusted GET hosts", () => {
+  it("accepts hostnames and wildcards and refuses addresses and blocks", () => {
+    expect(describeTrustedGetHostError("eutils.ncbi.nlm.nih.gov")).toBeUndefined();
+    expect(describeTrustedGetHostError("*.nih.gov")).toBeUndefined();
+    expect(describeTrustedGetHostError("10.0.0.1")).toBeDefined();
+    expect(describeTrustedGetHostError("10.0.0.0/8")).toBeDefined();
+    expect(describeTrustedGetHostError("::1")).toBeDefined();
+    expect(describeTrustedGetHostError("")).toBeDefined();
+  });
+
+  it("matches the URL's host, ignoring case and a trailing dot, over http and https only", () => {
+    const entries = ["Example.COM"];
+    expect(hostIsTrustedForGet("https://example.com./a?b=1", entries)).toBe(true);
+    expect(hostIsTrustedForGet("http://EXAMPLE.com/", entries)).toBe(true);
+    expect(hostIsTrustedForGet("ftp://example.com/", entries)).toBe(false);
+    expect(hostIsTrustedForGet("not a url", entries)).toBe(false);
+    expect(hostIsTrustedForGet("https://example.com/", undefined)).toBe(false);
+    expect(hostIsTrustedForGet("https://a.example.com/", entries)).toBe(false);
+  });
 });
