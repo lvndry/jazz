@@ -106,6 +106,6 @@ what it wants, tells your [notify targets](../configure/notifications.md), and w
 
 - [Wake triggers, reminders, and background jobs](../tools/index.md): the tools, their risk
   levels, and exact arguments
-- [Automation](./automation.md): choosing between these and a schedule
+- [Starting runs](./starting-runs.md): choosing between these and a schedule
 - [Scheduled runs](../surfaces/scheduled.md): work on a clock rather than work an agent chose
 - [Unattended runs](../security/unattended-runs.md): what to bound before any of this runs alone

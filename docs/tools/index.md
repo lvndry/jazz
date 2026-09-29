@@ -220,7 +220,7 @@ dumps, and intermediate artifacts live, referenced from memory rather than dupli
 
 ### Reminders
 
-Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them. See [Reminders](../concepts/automation.md).
+Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them. See [Reminders](../concepts/starting-runs.md).
 
 For CLI-hosted agents, `add_reminder` installs the same real one-shot host-scheduler job
 (`launchd` on macOS, an `at` job on Linux) used for wake triggers, so a reminder fires even if
@@ -256,7 +256,7 @@ loop after the run; nothing else has either, and no tool can start a loop. See [
 
 Opt-in per agent. A trigger causes the agent to actually run again with a given prompt, resuming
 the exact conversation it was scheduled from: unlike a reminder, which just delivers a note to a
-person. See [Reminders](../concepts/automation.md) for how the two compare.
+person. See [Reminders](../concepts/starting-runs.md) for how the two compare.
 
 `register_trigger` does not depend on `jazz daemon` running to actually fire. Registering a
 trigger installs a real one-shot job with the host's own scheduler: a `launchd` job on macOS, an

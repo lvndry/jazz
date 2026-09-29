@@ -23,7 +23,7 @@ description: "Explore Jazz capabilities and how they work: agents, tools, skills
 ## Automation
 
 - [Goals and loops](./goals-and-loops.md) keep working toward an objective or rerun a prompt until its purpose is met.
-- [Automation](./automation.md) compares scripts, schedules, workflows, webhooks, wake triggers, and reminders.
+- [Starting runs](./starting-runs.md) explains commands, workflows, schedules, and event triggers.
 - A [workflow](./workflows.md) packages a prompt with repeatable run settings.
 - [Deferred work](./deferred-work.md) covers wake triggers, reminders, and background jobs that outlast a turn.
 

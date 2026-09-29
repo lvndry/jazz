@@ -146,7 +146,7 @@ expands what it can into multiple entries and rejects what it can't with an expl
 rather than silently scheduling something else.
 
 Neither launchd nor cron fires a job whose slot passed while the machine was asleep: see
-[Scheduling](../concepts/automation.md) and [Surfaces → Scheduled](../surfaces/scheduled.md).
+[Scheduling](../concepts/starting-runs.md) and [Surfaces → Scheduled](../surfaces/scheduled.md).
 
 ---
 
