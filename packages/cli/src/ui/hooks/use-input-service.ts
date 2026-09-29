@@ -363,6 +363,9 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
         }
 
         case "line-end": {
+          if (currentValue.length === 0) {
+            return InputResults.ignored();
+          }
           // Move to end of current line (find next newline)
           const lineEndIdx = currentValue.indexOf("\n", currentCursor);
           nextCursor = lineEndIdx === -1 ? currentValue.length : lineEndIdx;

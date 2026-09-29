@@ -12,6 +12,12 @@ import type { GlyphSet } from "../glyphs";
 import { formatPreciseDuration } from "../text/format";
 import type { RoleSegment, TextRole } from "../text/roles";
 
+/** The first rows of a file mutation's diff, and how many more the expand key reveals. */
+export interface ReceiptDiffPreview {
+  readonly lines: readonly string[];
+  readonly hiddenLines: number;
+}
+
 export type ReceiptStatus = "ok" | "failed" | "denied";
 
 export interface ToolReceipt {
@@ -33,6 +39,8 @@ export interface ToolReceipt {
   readonly detail?: string;
   /** The command-risk classifier's verdict, when it decided this call. */
   readonly classifiedRisk?: string;
+  /** A write_file / edit_file diff, shown under the receipt line. */
+  readonly diffPreview?: ReceiptDiffPreview;
 }
 
 export interface ToolReceiptInput {
@@ -48,6 +56,7 @@ export interface ToolReceiptInput {
   readonly formattedResult?: string | undefined;
   readonly durationMs: number;
   readonly classifiedRisk?: string | undefined;
+  readonly diffPreview?: ReceiptDiffPreview | null | undefined;
 }
 
 const FALLBACK_FAILURE = "Tool execution failed";
@@ -68,7 +77,13 @@ export function toolReceipt(input: ToolReceiptInput): ToolReceipt {
     reason !== undefined && !denied && input.toolName !== undefined
       ? failureOutcome(input.toolName, reason)
       : undefined;
-  const args = input.argsPreview?.trim();
+  const diffPreview = failed ? undefined : (input.diffPreview ?? undefined);
+  const argsPreview = input.argsPreview?.trim();
+  // The diff replaces the content snippet the arguments carry after the path.
+  const args =
+    diffPreview !== undefined && argsPreview !== undefined
+      ? (argsPreview.split("  ")[0] ?? argsPreview)
+      : argsPreview;
   const notDone =
     denied && input.toolName !== undefined ? declinedOutcome(input.toolName) : failure?.notDone;
 
@@ -83,6 +98,7 @@ export function toolReceipt(input: ToolReceiptInput): ToolReceipt {
     ...(failure?.remedy === undefined ? {} : { remedyKey: failure.remedy }),
     ...(!failed && detail.length > 0 && detail !== outcome ? { detail } : {}),
     ...(input.classifiedRisk === undefined ? {} : { classifiedRisk: input.classifiedRisk }),
+    ...(diffPreview === undefined ? {} : { diffPreview }),
   };
 }
 
@@ -112,7 +128,59 @@ export function receiptFromMeta(candidate: unknown): ToolReceipt | null {
     ...text("remedyKey"),
     ...text("detail"),
     ...text("classifiedRisk"),
+    ...diffPreviewFromMeta(record["diffPreview"]),
   };
+}
+
+function diffPreviewFromMeta(candidate: unknown): { readonly diffPreview?: ReceiptDiffPreview } {
+  if (candidate === null || typeof candidate !== "object") {
+    return {};
+  }
+  const record = candidate as Record<string, unknown>;
+  const lines = record["lines"];
+  const hiddenLines = record["hiddenLines"];
+  if (
+    !Array.isArray(lines) ||
+    !lines.every((line) => typeof line === "string") ||
+    typeof hiddenLines !== "number"
+  ) {
+    return {};
+  }
+  return { diffPreview: { lines: lines, hiddenLines } };
+}
+
+/** The key that opens the whole diff behind a receipt's preview. */
+export const EXPAND_DIFF_KEY = "ctrl+e";
+
+export interface ReceiptDiffRow {
+  readonly text: string;
+  readonly role: TextRole;
+}
+
+/** A receipt's diff preview as role-tagged rows, ending in the expand hint when rows are hidden. */
+export function receiptDiffRows(receipt: ToolReceipt): ReceiptDiffRow[] {
+  const preview = receipt.diffPreview;
+  if (preview === undefined) {
+    return [];
+  }
+  const rows: ReceiptDiffRow[] = preview.lines.map((line) => ({
+    text: line,
+    role: line.startsWith("+")
+      ? "success"
+      : line.startsWith("-")
+        ? "error"
+        : line.startsWith("@@")
+          ? "secondary"
+          : "muted",
+  }));
+  if (preview.hiddenLines > 0) {
+    const noun = preview.hiddenLines === 1 ? "line" : "lines";
+    rows.push({
+      text: `… ${String(preview.hiddenLines)} more ${noun} · ${EXPAND_DIFF_KEY} to expand`,
+      role: "muted",
+    });
+  }
+  return rows;
 }
 
 /** What each part of a receipt is, so a renderer can treat one differently (highlight the args). */

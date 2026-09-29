@@ -8,7 +8,7 @@ import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { toError } from "@/core/utils/errors";
 import { jazzStateApprovalNotice, jazzStateChangeReason } from "@/core/utils/jazz-state-paths";
-import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
+import { diffExceedsPreview, FILE_MUTATION_PREVIEW_LINES } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -226,8 +226,8 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           );
           const needsExpansion =
             wasTruncated ||
-            args.content.length > FILE_MUTATION_PREVIEW_CHARS ||
-            diff.length > FILE_MUTATION_PREVIEW_CHARS;
+            diffExceedsPreview(diff) ||
+            args.content.split("\n").length > FILE_MUTATION_PREVIEW_LINES;
           const fullDiff = needsExpansion
             ? generateDiff(originalContent, args.content, target, {
                 isNewFile,

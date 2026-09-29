@@ -2140,8 +2140,14 @@ export function FullscreenBridge(): React.ReactNode {
       }
 
       // Ctrl+O expands the last truncated tool output. Approval already claimed
-      // the key above when a long field is on the card.
-      if (isCtrlLetter({ name, ctrl }, "o")) {
+      // the key above when a long field is on the card. Ctrl+E does the same while
+      // the composer is empty and something can expand; otherwise it stays end-of-line.
+      if (
+        isCtrlLetter({ name, ctrl }, "o") ||
+        (isCtrlLetter({ name, ctrl }, "e") &&
+          composerRef.current.text.length === 0 &&
+          store.getExpandableDiff() != null)
+      ) {
         const payload = store.getExpandableDiff();
         if (payload === null || payload === undefined) {
           store.printOutput({

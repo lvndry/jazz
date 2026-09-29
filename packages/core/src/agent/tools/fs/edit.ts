@@ -10,7 +10,7 @@ import { toError } from "@/core/utils/errors";
 import { jazzStateApprovalNotice, jazzStateChangeReason } from "@/core/utils/jazz-state-paths";
 import { withLock } from "@/core/utils/storage";
 import { buildLineOffsets, findAllOccurrenceLineNumbers, offsetToLine } from "@/core/utils/string";
-import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
+import { diffExceedsPreview } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -864,10 +864,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
                 newContent,
                 target,
               );
-              const needsExpansion =
-                wasTruncated ||
-                newContent.length > FILE_MUTATION_PREVIEW_CHARS ||
-                diff.length > FILE_MUTATION_PREVIEW_CHARS;
+              const needsExpansion = wasTruncated || diffExceedsPreview(diff);
               const fullDiff = needsExpansion
                 ? generateDiff(fileContent, newContent, target, {
                     maxLines: Number.POSITIVE_INFINITY,
