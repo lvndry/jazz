@@ -38,8 +38,10 @@ from providers you configured:
   "name": "incident-media-analyst",
   "config": {
     "persona": "coder",
-    "llmProvider": "openrouter",
-    "llmModel": "z-ai/glm-5.3-flash",
+    "llm": {
+      "provider": "openrouter",
+      "model": "z-ai/glm-5.3-flash"
+    },
     "companions": {
       "analyze:image": "openrouter/inclusionai/ling-3.0-flash-vl",
       "analyze:audio": "alibaba/qwen3.6-27b",

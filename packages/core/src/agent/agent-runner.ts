@@ -177,7 +177,7 @@ function resolveCanGenerateMedia(
 ): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
     const metadata = yield* Effect.tryPromise({
-      try: () => getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+      try: () => getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
       catch: (error) => error,
     }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
     if (metadata === undefined) return false;
@@ -191,7 +191,7 @@ function resolveSupportedAttachmentKinds(
 ): Effect.Effect<readonly AttachmentKind[], never, LLMService> {
   return Effect.gen(function* () {
     const metadata = yield* Effect.tryPromise({
-      try: () => getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+      try: () => getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
       catch: (error) => error,
     }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
@@ -199,11 +199,11 @@ function resolveSupportedAttachmentKinds(
     // catalog usually knows nothing about — most local tags are absent from models.dev
     // entirely. Without this, a local multimodal model reads as text-only and jazz refuses to
     // send it an image it can read perfectly well.
-    if (agent.config.llmProvider === "ollama") {
+    if (agent.config.llm.provider === "ollama") {
       const llmService = yield* LLMServiceTag;
       const baseUrl = llmService.resolveLocalProviderBaseUrl("ollama", undefined);
       const extras = yield* llmService
-        .fetchOllamaModelDetails(baseUrl, agent.config.llmModel)
+        .fetchOllamaModelDetails(baseUrl, agent.config.llm.model)
         .pipe(Effect.catchAll(() => Effect.succeed<OllamaShowExtras>({})));
 
       // Today this only ever yields "image" — the provider cannot transport anything else — but
@@ -420,24 +420,24 @@ function initializeAgentRun(
             UNANSWERED_HISTORY_TOOL_RESULT,
           );
     const persona = agent.config.persona;
-    const provider: ProviderName = agent.config.llmProvider;
+    const provider: ProviderName = agent.config.llm.provider;
     // Local servers can change models between runs. The live model and window flow into
     // metrics, the footer, and context accounting; the saved ID is a fallback.
     const servedLlamaCppModel =
       provider === "llamacpp" ? yield* resolveLlamaCppServerModel(appConfig.llm) : undefined;
     const servedVllmModel =
       provider === "vllm"
-        ? yield* resolveVllmServerModel(agent.config.llmModel, appConfig.llm)
+        ? yield* resolveVllmServerModel(agent.config.llm.model, appConfig.llm)
         : undefined;
     const servedSglangModel =
       provider === "sglang"
-        ? yield* resolveSglangServerModel(agent.config.llmModel, appConfig.llm)
+        ? yield* resolveSglangServerModel(agent.config.llm.model, appConfig.llm)
         : undefined;
     const model =
       servedLlamaCppModel?.modelId ??
       servedVllmModel?.modelId ??
       servedSglangModel?.modelId ??
-      agent.config.llmModel;
+      agent.config.llm.model;
     const serverContextWindow =
       servedLlamaCppModel?.contextWindow ??
       servedVllmModel?.contextWindow ??
@@ -475,7 +475,7 @@ function initializeAgentRun(
       ...(options.telemetryParent ? { telemetryParent: options.telemetryParent } : {}),
       provider,
       model,
-      reasoningEffort: agent.config.reasoning ?? "disable",
+      reasoningEffort: agent.config.llm.reasoning ?? "disable",
       maxIterations: resolvedMaxIterations,
       maxCostUSD: resolvedMaxCostUSD,
     });
@@ -738,7 +738,7 @@ function initializeAgentRun(
     // Whether this model can produce media itself. Drives one line of prompt guidance so a
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
-    const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
+    const attachmentsAreLocal = isLocalServerProvider(agent.config.llm.provider);
     const activePreferences = boundary.injectsPreferences
       ? yield* resolveActivePreferences(agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE], logger)
       : [];
@@ -1050,8 +1050,8 @@ export class AgentRunner {
           ),
           appConfig,
           freeLocalModel: isZeroCostLocalModel(
-            options.agent.config.llmProvider,
-            options.agent.config.llmModel,
+            options.agent.config.llm.provider,
+            options.agent.config.llm.model,
           ),
           reservationId: randomUUID(),
         };
@@ -1238,8 +1238,8 @@ export class AgentRunner {
         );
       }
 
-      const provider = agent.config.llmProvider;
-      const model = agent.config.llmModel;
+      const provider = agent.config.llm.provider;
+      const model = agent.config.llm.model;
       const goal =
         lastUserMessageText(messages) ??
         "Continue the current task; keep tool results still relevant to it.";

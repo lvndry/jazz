@@ -36,8 +36,7 @@ const AGENT: Agent = {
   name: "parker",
   config: {
     persona: "default",
-    llmProvider: "openai",
-    llmModel: "gpt-4",
+    llm: { provider: "openai", model: "gpt-4" },
     tools: ["danger", "harmless"],
   },
   createdAt: new Date("2026-08-01T00:00:00Z"),

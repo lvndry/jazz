@@ -69,7 +69,7 @@ Two files almost certainly need editing: the defaults are tuned for **this**
 (TypeScript / Bun / Effect-TS) repo:
 
 1. **`agents/*.json`: pick your model.**
-   Change `llmProvider`, `llmModel`, and optionally `reasoning` (for example `medium`, or `disable`). The checked-in reviewer uses `chatgpt/gpt-6-luna`; the assistant uses `chatgpt/gpt-5.6-luna`.
+   Change `llm.provider`, `llm.model`, and optionally `reasoning` (for example `medium`, or `disable`). The checked-in reviewer uses `chatgpt/gpt-6-luna`; the assistant uses `chatgpt/gpt-5.6-luna`.
 2. **`workflows/code-review/WORKFLOW.md`: match your codebase.** Its **"Runtime
    Model"** section describes Jazz's specifics (single-threaded JS, Effect-TS
    error channels, Bun). Replace it with your language, framework, and the risk

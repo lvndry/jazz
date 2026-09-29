@@ -21,7 +21,7 @@ const { handleSpecialCommand } = await import("./handler");
 const testAgent = {
   id: "a",
   name: "A",
-  config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4", tools: [] },
+  config: { persona: "default", llm: { provider: "openai", model: "gpt-4" }, tools: [] },
 } as unknown as Agent;
 
 function baseContext(overrides: Partial<CommandContext> = {}): CommandContext {

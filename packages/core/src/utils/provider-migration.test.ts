@@ -11,22 +11,24 @@ describe("migrateAgentProviderName", () => {
     const { record, changed } = migrateAgentProviderName({
       id: "agent-1",
       config: {
-        llmProvider: "google",
-        llmModel: "gemini-2.5-pro",
-        summarizerModel: "google/gemini-2.5-flash",
-        llmApiKeys: { google: "AIza-key", openai: "sk-key" },
+        llm: {
+          provider: "google",
+          model: "gemini-2.5-pro",
+          summarizerModel: "google/gemini-2.5-flash",
+          apiKeys: { google: "AIza-key", openai: "sk-key" },
+        },
       },
     });
 
     expect(changed).toBe(true);
-    const config = (record as { config: Record<string, unknown> }).config;
-    expect(config["llmProvider"]).toBe("gemini");
-    expect(config["summarizerModel"]).toBe("gemini/gemini-2.5-flash");
-    expect(config["llmApiKeys"]).toEqual({ openai: "sk-key", gemini: "AIza-key" });
+    const llm = (record as { config: { llm: Record<string, unknown> } }).config.llm;
+    expect(llm["provider"]).toBe("gemini");
+    expect(llm["summarizerModel"]).toBe("gemini/gemini-2.5-flash");
+    expect(llm["apiKeys"]).toEqual({ openai: "sk-key", gemini: "AIza-key" });
   });
 
   it("leaves an already-migrated agent untouched", () => {
-    const input = { id: "a", config: { llmProvider: "gemini", llmModel: "gemini-2.5-pro" } };
+    const input = { id: "a", config: { llm: { provider: "gemini", model: "gemini-2.5-pro" } } };
     const { record, changed } = migrateAgentProviderName(input);
     expect(changed).toBe(false);
     expect(record).toBe(input);
@@ -34,26 +36,26 @@ describe("migrateAgentProviderName", () => {
 
   it("does not touch other providers or a summarizer on another provider", () => {
     const { changed } = migrateAgentProviderName({
-      config: { llmProvider: "openai", summarizerModel: "anthropic/claude-haiku-4-5" },
+      config: { llm: { provider: "openai", summarizerModel: "anthropic/claude-haiku-4-5" } },
     });
     expect(changed).toBe(false);
   });
 
   it("does not rewrite a model id that merely contains google", () => {
     const { record, changed } = migrateAgentProviderName({
-      config: { llmProvider: "openrouter", llmModel: "google/gemini-2.5-flash" },
+      config: { llm: { provider: "openrouter", model: "google/gemini-2.5-flash" } },
     });
     expect(changed).toBe(false);
-    expect((record as { config: Record<string, unknown> }).config["llmModel"]).toBe(
+    expect((record as { config: { llm: Record<string, unknown> } }).config.llm["model"]).toBe(
       "google/gemini-2.5-flash",
     );
   });
 
   it("keeps a key already stored under the new name", () => {
     const { record } = migrateAgentProviderName({
-      config: { llmProvider: "google", llmApiKeys: { google: "old", gemini: "new" } },
+      config: { llm: { provider: "google", apiKeys: { google: "old", gemini: "new" } } },
     });
-    expect((record as { config: Record<string, unknown> }).config["llmApiKeys"]).toEqual({
+    expect((record as { config: { llm: Record<string, unknown> } }).config.llm["apiKeys"]).toEqual({
       gemini: "new",
     });
   });

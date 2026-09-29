@@ -38,25 +38,27 @@ Agents are one JSON file each under `~/.jazz/agents/<id>.json`:
   "name": "reviewer",
   "config": {
     "persona": "coder",
-    "llmProvider": "anthropic",
-    "llmModel": "claude-sonnet-4-5",
-    "tools": ["read_file", "grep", "find", "ls", "execute_command"],
-    "reasoning": "medium"
+    "llm": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5",
+      "reasoning": "medium"
+    },
+    "tools": ["read_file", "grep", "find", "ls", "execute_command"]
   }
 }
 ```
 
 Useful optional fields:
 
-| Field             | Effect                                                                                                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `reasoning`       | `disable`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. The selected model validates the control surface.                                                                 |
-| `temperature`     | Sampling temperature from `0` to `2`. Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it |
-| `summarizerModel` | `provider/model` used for context compaction **and** `execute_command` risk classification: point it at something cheap                                                             |
-| `customTools`     | Declare extra tools (`record` or `command` handlers) without changing Jazz. See [Agent configuration](../configure/agents.md#custom-tools)                                          |
-| `companions`      | Bind specialist `provider/model` pairs for image, audio, or video analysis and generation without changing the primary model; see [Model companions](../features/media.md)          |
-| `envAllowlist`    | Exempt specific env vars from secret scrubbing for `execute_command`                                                                                                                |
-| `deniedTools`     | Remove named tools from this agent after every other capability source is applied                                                                                                   |
+| Field                 | Effect                                                                                                                                                                              |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `llm.reasoning`       | `disable`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. The selected model validates the control surface.                                                                 |
+| `llm.temperature`     | Sampling temperature from `0` to `2`. Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it |
+| `llm.summarizerModel` | `provider/model` used for context compaction **and** `execute_command` risk classification: point it at something cheap                                                             |
+| `customTools`         | Declare extra tools (`record` or `command` handlers) without changing Jazz. See [Agent configuration](../configure/agents.md#custom-tools)                                          |
+| `companions`          | Bind specialist `provider/model` pairs for image, audio, or video analysis and generation without changing the primary model; see [Model companions](../features/media.md)          |
+| `envAllowlist`        | Exempt specific env vars from secret scrubbing for `execute_command`                                                                                                                |
+| `deniedTools`         | Remove named tools from this agent after every other capability source is applied                                                                                                   |
 
 `createdAt` and `updatedAt` are optional in a file you write by hand. Jazz stamps them when it creates or saves the agent, and falls back to the file's own created and modified times when they are absent.
 
@@ -86,7 +88,7 @@ There's no single best answer, but a few reliable calls:
 - **A cheap fast model for scheduled digests and CI review.** These read and summarize; they don't need frontier reasoning, and they run often enough for cost to matter.
 - **A strong model for anything multi-step or ambiguous.** Long autonomous runs are where weak models lose the thread, and a failed 40-minute run costs more than the model would have.
 - **A self-hosted model (`ollama`, `llamacpp`, `vllm`, `sglang`) when prompts must stay on your infrastructure.** No provider key unless the server requires one, and no provider per-token cost. Network-capable tools and exporters remain separate choices; see [Local and air-gapped models](./local-models.md).
-- **`summarizerModel` cheap, main model expensive.** Compaction is summarization; it rarely needs your best model, and it runs on long tasks precisely when you're already spending.
+- **`llm.summarizerModel` cheap, main model expensive.** Compaction is summarization; it rarely needs your best model, and it runs on long tasks precisely when you're already spending.
 - **Primary model for orchestration, companions for media.** Keep the tool-capable model you trust and route image, audio, or video understanding and generation to specialists.
 
 If a task turns out harder than expected, switch to an agent configured with a stronger model using `/switch` (or `/models`).

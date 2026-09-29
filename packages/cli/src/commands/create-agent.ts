@@ -335,10 +335,12 @@ export function createAgentCommand(
     // Build agent configuration
     const config: AgentConfig = {
       persona: agentAnswers.persona,
-      llmProvider: agentAnswers.llmProvider,
-      llmModel: selectedModel,
-      ...(agentAnswers.reasoning && { reasoning: agentAnswers.reasoning }),
-      ...(typeof agentAnswers.numCtx === "number" && { numCtx: agentAnswers.numCtx }),
+      llm: {
+        provider: agentAnswers.llmProvider,
+        model: selectedModel,
+        ...(agentAnswers.reasoning && { reasoning: agentAnswers.reasoning }),
+        ...(typeof agentAnswers.numCtx === "number" && { numCtx: agentAnswers.numCtx }),
+      },
       ...(uniqueToolNames.length > 0 && { tools: uniqueToolNames }),
       ...(agentAnswers.webSearchProvider && { webSearchProvider: agentAnswers.webSearchProvider }),
     };
@@ -351,7 +353,7 @@ export function createAgentCommand(
     );
 
     yield* terminal.success(
-      `${agent.name} is ready · ${formatProviderDisplayName(config.llmProvider)} ${config.llmModel} · ${String(uniqueToolNames.length)} tools`,
+      `${agent.name} is ready · ${formatProviderDisplayName(config.llm.provider)} ${config.llm.model} · ${String(uniqueToolNames.length)} tools`,
     );
   });
 }

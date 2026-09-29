@@ -110,8 +110,7 @@ async function main(): Promise<void> {
         description: "End-to-end test agent",
         config: {
           persona: "default",
-          llmProvider: "vllm",
-          llmModel: STUB_MODEL_ID,
+          llm: { provider: "vllm", model: STUB_MODEL_ID },
           tools: ["read_file", "execute_command"],
         },
         createdAt: "2026-01-01T00:00:00.000Z",

@@ -184,7 +184,10 @@ export function resumeRun(options: ResumeRunOptions) {
             ...storedAgent,
             config: {
               ...storedAgent.config,
-              llmApiKeys: { ...storedAgent.config.llmApiKeys, ...options.providerApiKeys },
+              llm: {
+                ...storedAgent.config.llm,
+                apiKeys: { ...storedAgent.config.llm.apiKeys, ...options.providerApiKeys },
+              },
             },
           };
 

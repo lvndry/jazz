@@ -36,7 +36,7 @@ were reading it.
 So compaction summarizes the middle instead, and rebuilds as `[system, summary, recent turns]`.
 
 It costs an extra model call and loses real detail. That is why it is visible rather than silent,
-why `summarizerModel` lets you point it at something cheap, and why the agent can trigger it
+why `llm.summarizerModel` lets you point it at something cheap, and why the agent can trigger it
 itself with `summarize_context` when it knows it needs room.
 
 Trimming below that is coarser, and protects one invariant absolutely: an assistant message's

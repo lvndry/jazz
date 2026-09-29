@@ -17,10 +17,14 @@ import { join } from "node:path";
 import { ensureChatSandbox, listChatSandboxes, sandboxOwnership } from "./chat-sandbox";
 import { type Ownership, type PinnedDirectory, withDirectory } from "./sandbox-fs";
 
-export interface AgentConfig {
-  llmProvider: string;
-  llmModel: string;
+export interface AgentLlmConfig {
+  provider: string;
+  model: string;
   reasoning: string;
+}
+
+export interface AgentConfig {
+  llm: AgentLlmConfig;
   persona: string;
   [key: string]: unknown;
 }

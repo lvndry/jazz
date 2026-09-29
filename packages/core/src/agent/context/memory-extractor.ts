@@ -81,14 +81,14 @@ function buildMemoryExtractorAgent(
   extractorModelConfig: ExtractorModelConfig,
 ): Agent {
   const sameModel =
-    extractorModelConfig.provider === parentAgent.config.llmProvider &&
-    extractorModelConfig.model === parentAgent.config.llmModel;
+    extractorModelConfig.provider === parentAgent.config.llm.provider &&
+    extractorModelConfig.model === parentAgent.config.llm.model;
 
   const {
     numCtx: _numCtx,
     maxContextTokens: _maxContextTokens,
-    ...configWithoutWindowPins
-  } = parentAgent.config;
+    ...llmWithoutWindowPins
+  } = parentAgent.config.llm;
 
   return {
     id: MEMORY_EXTRACTOR_AGENT_ID,
@@ -96,9 +96,12 @@ function buildMemoryExtractorAgent(
     description:
       "an internal agent that saves durable, user-stated facts to long-term memory before older context is compacted away.",
     config: {
-      ...(sameModel ? parentAgent.config : configWithoutWindowPins),
-      llmProvider: extractorModelConfig.provider,
-      llmModel: extractorModelConfig.model,
+      ...parentAgent.config,
+      llm: {
+        ...(sameModel ? parentAgent.config.llm : llmWithoutWindowPins),
+        provider: extractorModelConfig.provider,
+        model: extractorModelConfig.model,
+      },
       persona: "memory-extractor",
       tools: [VIEW_MEMORY_TOOL_NAME, MANAGE_MEMORY_TOOL_NAME],
     },

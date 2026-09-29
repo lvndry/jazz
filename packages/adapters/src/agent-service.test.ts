@@ -34,7 +34,7 @@ describe("AgentService", () => {
       expect(result.name).toBe("test-agent");
       expect(result.description).toBe("A test agent");
       expect(result.config.persona).toBe("default");
-      expect(result.config.llmProvider).toBe("openai");
+      expect(result.config.llm.provider).toBe("openai");
       expect(mockStorage.saveAgent).toHaveBeenCalled();
     });
 
@@ -73,7 +73,7 @@ describe("AgentService", () => {
       const existingAgent: Agent = {
         id: "id-1",
         name: "old-name",
-        config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
+        config: { persona: "default", llm: { provider: "openai", model: "gpt-4" } },
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -116,8 +116,7 @@ describe("AgentService", () => {
   describe("validateAgentConfig envAllowlist", () => {
     const baseConfig: AgentConfig = {
       persona: "default",
-      llmProvider: "openai",
-      llmModel: "gpt-4",
+      llm: { provider: "openai", model: "gpt-4" },
     };
 
     it("accepts well-formed allowlist names", async () => {
@@ -189,8 +188,7 @@ describe("AgentService", () => {
   describe("validateAgentConfig customTools", () => {
     const baseConfig: AgentConfig = {
       persona: "default",
-      llmProvider: "openai",
-      llmModel: "gpt-4",
+      llm: { provider: "openai", model: "gpt-4" },
     };
 
     it("accepts a valid record-handler tool", async () => {
@@ -544,14 +542,13 @@ describe("AgentService", () => {
   describe("validateAgentConfig summarizerModel", () => {
     const baseConfig: AgentConfig = {
       persona: "default",
-      llmProvider: "openai",
-      llmModel: "gpt-4",
+      llm: { provider: "openai", model: "gpt-4" },
     };
 
     it("accepts a valid summarizerModel", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
-        summarizerModel: "anthropic/claude-3-5-haiku-latest",
+        llm: { ...baseConfig.llm, summarizerModel: "anthropic/claude-3-5-haiku-latest" },
       });
       await expect(Effect.runPromise(program)).resolves.toBeUndefined();
     });
@@ -564,7 +561,7 @@ describe("AgentService", () => {
     it("accepts a null summarizerModel as a cleared field", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
-        summarizerModel: null as unknown as string,
+        llm: { ...baseConfig.llm, summarizerModel: null as unknown as string },
       });
       await expect(Effect.runPromise(program)).resolves.toBeUndefined();
     });
@@ -572,7 +569,7 @@ describe("AgentService", () => {
     it("rejects a summarizerModel with no slash", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
-        summarizerModel: "gpt-4",
+        llm: { ...baseConfig.llm, summarizerModel: "gpt-4" },
       });
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
@@ -585,7 +582,7 @@ describe("AgentService", () => {
     it("rejects a summarizerModel with an unknown provider", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
-        summarizerModel: "notaprovider/some-model",
+        llm: { ...baseConfig.llm, summarizerModel: "notaprovider/some-model" },
       });
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
@@ -599,8 +596,7 @@ describe("AgentService", () => {
   describe("validateAgentConfig companions", () => {
     const baseConfig: AgentConfig = {
       persona: "default",
-      llmProvider: "openai",
-      llmModel: "gpt-4",
+      llm: { provider: "openai", model: "gpt-4" },
     };
 
     it("accepts a well-formed companions map", async () => {
@@ -663,8 +659,7 @@ describe("AgentService", () => {
   describe("validateAgentConfig required fields", () => {
     const baseConfig: AgentConfig = {
       persona: "default",
-      llmProvider: "openai",
-      llmModel: "gpt-4",
+      llm: { provider: "openai", model: "gpt-4" },
     };
 
     const expectRejected = async (config: AgentConfig) => {
@@ -683,22 +678,35 @@ describe("AgentService", () => {
     });
 
     it("rejects a provider that is not in AVAILABLE_PROVIDERS", async () => {
-      // @ts-expect-error - unknown provider
-      await expectRejected({ ...baseConfig, llmProvider: "definitely-not-a-provider" });
+      await expectRejected({
+        ...baseConfig,
+        // @ts-expect-error - unknown provider
+        llm: { ...baseConfig.llm, provider: "definitely-not-a-provider" },
+      });
     });
 
     it("rejects a provider that differs only in case", async () => {
       // @ts-expect-error - wrong case
-      await expectRejected({ ...baseConfig, llmProvider: "OpenAI" });
+      await expectRejected({ ...baseConfig, llm: { ...baseConfig.llm, provider: "OpenAI" } });
     });
 
     it("rejects an empty model", async () => {
-      await expectRejected({ ...baseConfig, llmModel: "   " });
+      await expectRejected({ ...baseConfig, llm: { ...baseConfig.llm, model: "   " } });
     });
 
     it("rejects a missing model", async () => {
       // @ts-expect-error - absent required field
-      await expectRejected({ persona: "default", llmProvider: "openai" });
+      await expectRejected({ persona: "default", llm: { provider: "openai" } });
+    });
+
+    it("rejects the flat llmProvider and llmModel fields, naming config.llm", async () => {
+      const program = service.validateAgentConfig({
+        persona: "default",
+        llmProvider: "openai",
+        llmModel: "gpt-4o",
+      } as never);
+      const failure = await Effect.runPromise(Effect.flip(program));
+      expect(failure).toMatchObject({ field: "config.llm" });
     });
 
     it("rejects an empty persona", async () => {
@@ -709,8 +717,7 @@ describe("AgentService", () => {
   describe("validateAgentConfig optional scalars", () => {
     const baseConfig: AgentConfig = {
       persona: "default",
-      llmProvider: "openai",
-      llmModel: "gpt-4",
+      llm: { provider: "openai", model: "gpt-4" },
     };
 
     const expectRejected = async (config: AgentConfig) => {
@@ -728,42 +735,48 @@ describe("AgentService", () => {
 
     it("accepts structured reasoning selections", async () => {
       for (const reasoning of ["disable", "minimal", "xhigh", "max"] as const) {
-        await expectAccepted({ ...baseConfig, reasoning });
+        await expectAccepted({ ...baseConfig, llm: { ...baseConfig.llm, reasoning } });
       }
     });
 
     it("rejects an invalid reasoning selection", async () => {
       await expectRejected({
         ...baseConfig,
-        reasoning: "maximum" as never,
+        llm: { ...baseConfig.llm, reasoning: "maximum" as never },
       });
     });
 
     it("accepts temperature at both ends of the range", async () => {
-      await expectAccepted({ ...baseConfig, temperature: 0 });
-      await expectAccepted({ ...baseConfig, temperature: 2 });
+      await expectAccepted({ ...baseConfig, llm: { ...baseConfig.llm, temperature: 0 } });
+      await expectAccepted({ ...baseConfig, llm: { ...baseConfig.llm, temperature: 2 } });
     });
 
     it("rejects temperature outside the range", async () => {
-      await expectRejected({ ...baseConfig, temperature: -0.1 });
-      await expectRejected({ ...baseConfig, temperature: 2.1 });
+      await expectRejected({ ...baseConfig, llm: { ...baseConfig.llm, temperature: -0.1 } });
+      await expectRejected({ ...baseConfig, llm: { ...baseConfig.llm, temperature: 2.1 } });
     });
 
     it("rejects a temperature that is not a finite number", async () => {
-      await expectRejected({ ...baseConfig, temperature: Number.NaN });
-      await expectRejected({ ...baseConfig, temperature: Number.POSITIVE_INFINITY });
+      await expectRejected({ ...baseConfig, llm: { ...baseConfig.llm, temperature: Number.NaN } });
+      await expectRejected({
+        ...baseConfig,
+        llm: { ...baseConfig.llm, temperature: Number.POSITIVE_INFINITY },
+      });
       // @ts-expect-error - numeric strings are not numbers
-      await expectRejected({ ...baseConfig, temperature: "0.7" });
+      await expectRejected({ ...baseConfig, llm: { ...baseConfig.llm, temperature: "0.7" } });
     });
 
     it("accepts positive whole context sizes", async () => {
-      await expectAccepted({ ...baseConfig, numCtx: 8192, maxContextTokens: 32_000 });
+      await expectAccepted({
+        ...baseConfig,
+        llm: { ...baseConfig.llm, numCtx: 8192, maxContextTokens: 32_000 },
+      });
     });
 
     it("rejects zero, negative, or fractional context sizes", async () => {
-      await expectRejected({ ...baseConfig, numCtx: 0 });
-      await expectRejected({ ...baseConfig, maxContextTokens: -1 });
-      await expectRejected({ ...baseConfig, numCtx: 1024.5 });
+      await expectRejected({ ...baseConfig, llm: { ...baseConfig.llm, numCtx: 0 } });
+      await expectRejected({ ...baseConfig, llm: { ...baseConfig.llm, maxContextTokens: -1 } });
+      await expectRejected({ ...baseConfig, llm: { ...baseConfig.llm, numCtx: 1024.5 } });
     });
 
     it("accepts a known web search provider", async () => {

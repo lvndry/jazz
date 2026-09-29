@@ -899,7 +899,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
           parentAgent: {
             id: "agent-1",
             name: "test",
-            config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+            config: { persona: "default", llm: { provider: "openai", model: "gpt-4o-mini" } },
             createdAt: new Date(),
             updatedAt: new Date(),
           },
@@ -1422,7 +1422,7 @@ describe("ToolExecutor execute_command allowlist and classifier evidence", () =>
   const parentAgent = {
     id: "agent-1",
     name: "test",
-    config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+    config: { persona: "default", llm: { provider: "openai", model: "gpt-4o-mini" } },
     createdAt: new Date(),
     updatedAt: new Date(),
   } as const;
@@ -1785,8 +1785,7 @@ describe("bound media during approval preflight", () => {
           updatedAt: new Date(),
           config: {
             persona: "default",
-            llmProvider: "ollama",
-            llmModel: "text",
+            llm: { provider: "ollama", model: "text" },
             companions: {
               "generate:image": "ollama/painter",
               "analyze:image": "ollama/vision",

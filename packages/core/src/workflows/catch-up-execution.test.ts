@@ -25,7 +25,7 @@ import {
 const agent: Agent = {
   id: "test-agent",
   name: "test-agent",
-  config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+  config: { persona: "default", llm: { provider: "openai", model: "gpt-4o-mini" } },
   createdAt: new Date(0),
   updatedAt: new Date(0),
 };

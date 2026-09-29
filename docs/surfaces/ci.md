@@ -72,7 +72,7 @@ Then add **one** repo secret (Settings → Secrets and variables → Actions):
 | `GITHUB_TOKEN`       | automatic                                   | read PR context, post comments |
 
 The checked-in agents use `openai`, so `OPENAI_API_KEY` is the one to add if you
-change nothing. That is the key `jazz.yml` passes. Point `config.llmProvider` at
+change nothing. That is the key `jazz.yml` passes. Point `config.llm.provider` at
 another provider and add its key as the secret, plus one `<PROVIDER>_API_KEY:` line
 beside `OPENAI_API_KEY` in the workflow's two `Run` steps. The variable names are
 in [Model providers](../configure/providers.md).

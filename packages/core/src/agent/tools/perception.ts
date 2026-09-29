@@ -194,8 +194,7 @@ function buildCompanionAgent(
     description: `Ephemeral ${describeRole(role)} companion delegated by ${parentAgent.name}`,
     config: {
       persona: "default",
-      llmProvider: parsed.provider,
-      llmModel: parsed.model,
+      llm: { provider: parsed.provider, model: parsed.model },
     },
     createdAt: now,
     updatedAt: now,
@@ -320,7 +319,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
 
       yield* logger.info("Running model companion", {
         parentAgentId: parentAgent.id,
-        companionModel: agentModelString(companionAgent.config),
+        companionModel: agentModelString(companionAgent.config.llm),
         role: job.role,
         attachmentCount: job.attachments.length,
       });
@@ -364,7 +363,10 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       const childCostUnknown =
         response.costIncomplete === true ||
         (response.costUSD === undefined &&
-          !isZeroCostLocalModel(companionAgent.config.llmProvider, companionAgent.config.llmModel));
+          !isZeroCostLocalModel(
+            companionAgent.config.llm.provider,
+            companionAgent.config.llm.model,
+          ));
       if (childCostUnknown) context.recordChildCostUnknown?.();
 
       yield* presentation.collapseEphemeralRegion(regionId, label, {
@@ -425,7 +427,11 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       context,
     ).pipe(
       Effect.map((response) =>
-        describeGeneratedMedia(response, args.modality, agentModelString(companionAgent.config)),
+        describeGeneratedMedia(
+          response,
+          args.modality,
+          agentModelString(companionAgent.config.llm),
+        ),
       ),
     );
 

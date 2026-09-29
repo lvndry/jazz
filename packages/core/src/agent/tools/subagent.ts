@@ -307,7 +307,7 @@ function runSubagent(args: SpawnSubagentArgs, context: ToolExecutionContext, run
         persona: args.persona ?? "default",
         ...(args.reasoning
           ? {
-              reasoning: args.reasoning,
+              llm: { ...parentAgent.config.llm, reasoning: args.reasoning },
             }
           : {}),
       },
@@ -460,7 +460,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
     const childCostUnknown =
       childSpend?.costIncomplete === true ||
       (response.costUSD === undefined &&
-        !isZeroCostLocalModel(subAgent.config.llmProvider, subAgent.config.llmModel));
+        !isZeroCostLocalModel(subAgent.config.llm.provider, subAgent.config.llm.model));
 
     let result = response.content;
     const stoppedAt = subagentStopReason(response);
@@ -890,18 +890,18 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           // Fetch model's actual context window from models.dev (used for splitting budget)
           const modelMetadata = yield* Effect.tryPromise({
             try: () =>
-              getModelsDevMetadata(parentAgent.config.llmModel, parentAgent.config.llmProvider),
+              getModelsDevMetadata(parentAgent.config.llm.model, parentAgent.config.llm.provider),
             catch: () => new Error("Failed to fetch model metadata"),
           }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
           const contextWindowMaxTokens = resolveEffectiveContextWindow({
-            provider: parentAgent.config.llmProvider,
+            provider: parentAgent.config.llm.provider,
             ...(modelMetadata && { modelMaxTokens: modelMetadata.contextWindow }),
-            ...(typeof parentAgent.config.numCtx === "number" && {
-              pinnedContextWindow: parentAgent.config.numCtx,
+            ...(typeof parentAgent.config.llm.numCtx === "number" && {
+              pinnedContextWindow: parentAgent.config.llm.numCtx,
             }),
-            ...(typeof parentAgent.config.maxContextTokens === "number" && {
-              agentMaxTokens: parentAgent.config.maxContextTokens,
+            ...(typeof parentAgent.config.llm.maxContextTokens === "number" && {
+              agentMaxTokens: parentAgent.config.llm.maxContextTokens,
             }),
           }).tokens;
 

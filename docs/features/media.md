@@ -10,8 +10,10 @@ best for reasoning and tool use, then bind specialist models to media roles:
 ```json
 {
   "config": {
-    "llmProvider": "openai",
-    "llmModel": "gpt-5.4-mini",
+    "llm": {
+      "provider": "openai",
+      "model": "gpt-5.4-mini"
+    },
     "companions": {
       "analyze:image": "openrouter/inclusionai/ling-3.0-flash-vl",
       "analyze:audio": "alibaba/qwen3.6-27b",

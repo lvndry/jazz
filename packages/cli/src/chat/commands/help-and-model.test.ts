@@ -18,7 +18,7 @@ import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 const agent: Agent = {
   id: "help-model-agent",
   name: "Helper",
-  config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4.1", tools: [] },
+  config: { persona: "default", llm: { provider: "openai", model: "gpt-4.1" }, tools: [] },
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -184,9 +184,9 @@ describe("/model", () => {
 
     const result = await run({ type: "model", args: ["gpt-5"] }, terminal);
 
-    expect(result.newAgent?.config.llmModel).toBe("gpt-5");
-    expect(result.newAgent?.config.llmProvider).toBe("openai");
-    expect(agent.config.llmModel).toBe("gpt-4.1");
+    expect(result.newAgent?.config.llm.model).toBe("gpt-5");
+    expect(result.newAgent?.config.llm.provider).toBe("openai");
+    expect(agent.config.llm.model).toBe("gpt-4.1");
   });
 
   test("accepts the provider-qualified form", async () => {
@@ -194,7 +194,7 @@ describe("/model", () => {
 
     const result = await run({ type: "model", args: ["openai/gpt-5"] }, terminal);
 
-    expect(result.newAgent?.config.llmModel).toBe("gpt-5");
+    expect(result.newAgent?.config.llm.model).toBe("gpt-5");
   });
 
   test("refuses a model the provider does not list, with a suggestion", async () => {
@@ -217,7 +217,7 @@ describe("/model", () => {
     const result = await run({ type: "model", args: [] }, terminal);
 
     expect(search).toHaveBeenCalled();
-    expect(result.newAgent?.config.llmModel).toBe("gpt-5");
+    expect(result.newAgent?.config.llm.model).toBe("gpt-5");
   });
 
   test("prints the current model when the terminal cannot prompt", async () => {

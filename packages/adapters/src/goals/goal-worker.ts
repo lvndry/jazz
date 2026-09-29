@@ -177,8 +177,8 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
     const agent = yield* agents.getAgent(goal.agentId);
     const startedAt = Date.now();
     const repaired = yield* llm
-      .createChatCompletion(agent.config.llmProvider, {
-        model: agent.config.llmModel,
+      .createChatCompletion(agent.config.llm.provider, {
+        model: agent.config.llm.model,
         messages: goalEvaluationRepairMessages(
           goal.plan,
           goal.lastProgress,
@@ -189,8 +189,8 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
         maxTokens: REPAIR_MAX_OUTPUT_TOKENS,
         reasoning: "disable",
         outputSchema: goalEvaluationSchemaForPlan(goal.plan),
-        ...(agent.config.llmApiKeys !== undefined
-          ? { providerApiKeys: agent.config.llmApiKeys }
+        ...(agent.config.llm.apiKeys !== undefined
+          ? { providerApiKeys: agent.config.llm.apiKeys }
           : {}),
       })
       .pipe(Effect.either);

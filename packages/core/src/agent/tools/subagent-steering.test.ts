@@ -24,7 +24,7 @@ import type { AgentRunnerOptions } from "../types";
 const parentAgent: Agent = {
   id: "parent",
   name: "parent",
-  config: { persona: "default", llmProvider: "openai", llmModel: "gpt-test" },
+  config: { persona: "default", llm: { provider: "openai", model: "gpt-test" } },
   createdAt: new Date(),
   updatedAt: new Date(),
 };

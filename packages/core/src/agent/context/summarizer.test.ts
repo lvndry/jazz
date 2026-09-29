@@ -27,8 +27,7 @@ import type { AgentResponse } from "../types";
 // Helper to create a mock agent
 function createMockAgent(overrides: Partial<Agent> = {}): Agent {
   const config: AgentConfig = {
-    llmProvider: "openai",
-    llmModel: "gpt-4",
+    llm: { provider: "openai", model: "gpt-4" },
     persona: "default",
     tools: [],
   };
@@ -166,11 +165,13 @@ describe("Summarizer", () => {
     it("uses a valid configured summarizerModel", () => {
       const agent = createMockAgent({
         config: {
-          llmProvider: "openai",
-          llmModel: "gpt-4",
+          llm: {
+            provider: "openai",
+            model: "gpt-4",
+            summarizerModel: "anthropic/claude-3-5-haiku-latest",
+          },
           persona: "default",
           tools: [],
-          summarizerModel: "anthropic/claude-3-5-haiku-latest",
         },
       });
       const result = selectSummarizerModel(agent);
@@ -184,11 +185,9 @@ describe("Summarizer", () => {
     it("falls back to the parent model and warns on an invalid summarizerModel", () => {
       const agent = createMockAgent({
         config: {
-          llmProvider: "openai",
-          llmModel: "gpt-4",
+          llm: { provider: "openai", model: "gpt-4", summarizerModel: "garbage" },
           persona: "default",
           tools: [],
-          summarizerModel: "garbage",
         },
       });
       const result = selectSummarizerModel(agent);
@@ -199,11 +198,9 @@ describe("Summarizer", () => {
     it("treats a null summarizerModel as unset (parent model, no warning)", () => {
       const agent = createMockAgent({
         config: {
-          llmProvider: "openai",
-          llmModel: "gpt-4",
+          llm: { provider: "openai", model: "gpt-4", summarizerModel: null as unknown as string },
           persona: "default",
           tools: [],
-          summarizerModel: null as unknown as string,
         },
       });
       const result = selectSummarizerModel(agent);
@@ -214,11 +211,9 @@ describe("Summarizer", () => {
     it("falls back and warns on a non-string summarizerModel without throwing", () => {
       const agent = createMockAgent({
         config: {
-          llmProvider: "openai",
-          llmModel: "gpt-4",
+          llm: { provider: "openai", model: "gpt-4", summarizerModel: 42 as unknown as string },
           persona: "default",
           tools: [],
-          summarizerModel: 42 as unknown as string,
         },
       });
       const result = selectSummarizerModel(agent);
@@ -240,11 +235,13 @@ describe("Summarizer", () => {
 
       const agent = createMockAgent({
         config: {
-          llmProvider: "openai",
-          llmModel: "gpt-4",
+          llm: {
+            provider: "openai",
+            model: "gpt-4",
+            summarizerModel: "anthropic/claude-3-5-haiku-latest",
+          },
           persona: "default",
           tools: [],
-          summarizerModel: "anthropic/claude-3-5-haiku-latest",
         },
       });
       const messages: ChatMessage[] = [{ role: "user", content: "Test" }];
@@ -255,8 +252,8 @@ describe("Summarizer", () => {
         ) as Effect.Effect<ChatMessage, Error, never>,
       );
 
-      expect(capturedAgent?.config.llmProvider).toBe("anthropic");
-      expect(capturedAgent?.config.llmModel).toBe("claude-3-5-haiku-latest");
+      expect(capturedAgent?.config.llm.provider).toBe("anthropic");
+      expect(capturedAgent?.config.llm.model).toBe("claude-3-5-haiku-latest");
     });
 
     it("builds the summarizer agent with the parent model by default", async () => {
@@ -278,8 +275,8 @@ describe("Summarizer", () => {
         ) as Effect.Effect<ChatMessage, Error, never>,
       );
 
-      expect(capturedAgent?.config.llmProvider).toBe("openai");
-      expect(capturedAgent?.config.llmModel).toBe("gpt-4");
+      expect(capturedAgent?.config.llm.provider).toBe("openai");
+      expect(capturedAgent?.config.llm.model).toBe("gpt-4");
     });
   });
 
@@ -1325,8 +1322,7 @@ describe("bounded summarizer input", () => {
     };
     const agent = createMockAgent({
       config: {
-        llmProvider: "vllm",
-        llmModel: "old-model",
+        llm: { provider: "vllm", model: "old-model" },
         persona: "default",
         tools: [],
       },
@@ -1354,7 +1350,7 @@ describe("bounded summarizer input", () => {
       fetchSglangServerModel: () => Effect.succeed({ modelId: "new-model", contextWindow: 512 }),
     };
     const agent = createMockAgent({
-      config: { llmProvider: "sglang", llmModel: "old-model", persona: "default", tools: [] },
+      config: { llm: { provider: "sglang", model: "old-model" }, persona: "default", tools: [] },
     });
     const chunks: string[] = [];
     const runner: RecursiveRunner = (options) => {

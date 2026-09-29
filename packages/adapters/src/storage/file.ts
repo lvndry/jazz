@@ -178,6 +178,18 @@ export class FileStorageService implements StorageService {
           rawConfig["persona"] = rawConfig["agentType"] || "default";
         }
 
+        const llmSettings = rawConfig["llm"];
+        if (typeof llmSettings !== "object" || llmSettings === null || Array.isArray(llmSettings)) {
+          return yield* Effect.fail(
+            new StorageError({
+              operation: "read",
+              path,
+              reason:
+                'Missing config.llm. Nest the model settings as "llm": { "provider": ..., "model": ... }; the flat llmProvider and llmModel fields are no longer read.',
+            }),
+          );
+        }
+
         const baseConfig = rawConfig as unknown as AgentConfig;
         const configWithNormalizedTools: AgentConfig =
           normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;

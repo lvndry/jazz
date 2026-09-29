@@ -4,9 +4,11 @@
   "model": "vllm/qwen3.8-27b",
   "config": {
     "persona": "default",
-    "llmProvider": "vllm",
-    "llmModel": "qwen3.8-27b",
-    "reasoning": "medium",
+    "llm": {
+      "provider": "vllm",
+      "model": "qwen3.8-27b",
+      "reasoning": "medium"
+    },
     "tools": [
       "ls",
       "cd",

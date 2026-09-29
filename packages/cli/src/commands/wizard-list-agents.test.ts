@@ -18,8 +18,7 @@ function agent(partial: {
     updatedAt: new Date("2026-01-02T00:00:00.000Z"),
     config: {
       persona: "default",
-      llmProvider: "anthropic",
-      llmModel: partial.model,
+      llm: { provider: "anthropic", model: partial.model },
     },
   };
 }

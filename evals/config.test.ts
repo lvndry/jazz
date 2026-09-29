@@ -33,10 +33,10 @@ describe("committed eval agents obey the cost guardrail", () => {
     const dir = join(import.meta.dir, "agents");
     for (const file of readdirSync(dir).filter((name) => name.endsWith(".json"))) {
       const agent = JSON.parse(readFileSync(join(dir, file), "utf-8")) as {
-        config: { llmProvider: string; llmModel: string };
+        config: { llm: { provider: string; model: string } };
       };
-      const allowed = isAllowedEvalModel(agent.config.llmProvider, agent.config.llmModel);
-      expect(allowed, `${file} uses ${agent.config.llmProvider}/${agent.config.llmModel}`).toBe(
+      const allowed = isAllowedEvalModel(agent.config.llm.provider, agent.config.llm.model);
+      expect(allowed, `${file} uses ${agent.config.llm.provider}/${agent.config.llm.model}`).toBe(
         true,
       );
     }

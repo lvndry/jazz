@@ -16,7 +16,7 @@ afterAll(() => {
 const agent = {
   id: "continue-agent",
   name: "Continuer",
-  config: { persona: "default", llmProvider: "openai", llmModel: "gpt-5", tools: [] },
+  config: { persona: "default", llm: { provider: "openai", model: "gpt-5" }, tools: [] },
   createdAt: new Date(),
   updatedAt: new Date(),
 } as Agent;

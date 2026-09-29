@@ -115,11 +115,11 @@ export function editAgentCommand(
 
     while (true) {
       const reasoningControl = yield* (yield* LLMServiceTag).resolveReasoningControl(
-        agent.config.llmProvider,
-        agent.config.llmModel,
+        agent.config.llm.provider,
+        agent.config.llm.model,
       );
       const reasoningAdjustment = describeReasoningAdjustment(
-        agent.config.reasoning,
+        agent.config.llm.reasoning,
         reasoningControl,
       );
       const formatDate = (date: Date): string =>
@@ -133,14 +133,14 @@ export function editAgentCommand(
           : []),
         fmt.keyValueCompact(
           "Model",
-          `${formatProviderDisplayName(agent.config.llmProvider)} · ${agent.config.llmModel}`,
+          `${formatProviderDisplayName(agent.config.llm.provider)} · ${agent.config.llm.model}`,
         ),
         fmt.keyValueCompact("Persona", agent.config.persona || "default"),
         fmt.keyValueCompact(
           "Reasoning",
           reasoningAdjustment
-            ? `${formatReasoningSelection(agent.config.reasoning)} (${reasoningAdjustment})`
-            : formatReasoningSelection(agent.config.reasoning),
+            ? `${formatReasoningSelection(agent.config.llm.reasoning)} (${reasoningAdjustment})`
+            : formatReasoningSelection(agent.config.llm.reasoning),
         ),
         fmt.keyValueCompact("Tools", `${agent.config.tools ? agent.config.tools.length : 0}`),
         fmt.keyValueCompact(
@@ -180,13 +180,13 @@ export function editAgentCommand(
 
       // Get current provider info for model selection
       const currentProviderInfo = yield* llmService
-        .getProvider(agent.config.llmProvider)
+        .getProvider(agent.config.llm.provider)
         .pipe(Effect.catchAll(() => Effect.succeed(null as LLMProvider | null)));
 
       // Check if current model is reasoning model (needed for field choices)
       // Use models.dev metadata directly for more accuracy (especially for newer models)
       const currentModelMeta = yield* Effect.promise(() =>
-        getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+        getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
       );
       const currentModelIsReasoning = currentModelMeta?.isReasoningModel ?? false;
       const supportsTools = currentModelMeta?.supportsTools ?? true; // Default to true if unknown to avoid blocking tools
@@ -194,7 +194,7 @@ export function editAgentCommand(
       // Auto-cleanup: if model doesn't support tools but agent has them, clear them
       if (!supportsTools && agent.config.tools && agent.config.tools.length > 0) {
         yield* terminal.warn(
-          `\n⚠️  The current model (${agent.config.llmModel}) does not support tools. Clearing configured tools.`,
+          `\n⚠️  The current model (${agent.config.llm.model}) does not support tools. Clearing configured tools.`,
         );
 
         // Clear tools in the database
@@ -224,7 +224,7 @@ export function editAgentCommand(
             value: "tools",
             disabled: !supportsTools,
           },
-          ...(agent.config.llmProvider === "ollama"
+          ...(agent.config.llm.provider === "ollama"
             ? [{ name: "Context Window", value: "contextWindow" }]
             : []),
           { name: "Max Context Tokens", value: "maxContextTokens" },
@@ -245,7 +245,7 @@ export function editAgentCommand(
       if (fieldToUpdate === "tools") {
         if (!supportsTools) {
           yield* terminal.warn(
-            `\n⚠️  The current model (${agent.config.llmModel}) does not support tools.`,
+            `\n⚠️  The current model (${agent.config.llm.model}) does not support tools.`,
           );
           continue;
         }
@@ -519,21 +519,24 @@ export function editAgentCommand(
       let updatedConfig: AgentConfig = {
         ...agent.config,
         ...(editAnswers.persona && { persona: editAnswers.persona }),
-        ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
-        ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
-        ...(editAnswers.reasoning && { reasoning: editAnswers.reasoning }),
-        ...(typeof editAnswers.numCtx === "number" && { numCtx: editAnswers.numCtx }),
-        ...(typeof editAnswers.maxContextTokens === "number" && {
-          maxContextTokens: editAnswers.maxContextTokens,
-        }),
+        llm: {
+          ...agent.config.llm,
+          ...(editAnswers.llmProvider && { provider: editAnswers.llmProvider }),
+          ...(editAnswers.llmModel && { model: editAnswers.llmModel }),
+          ...(editAnswers.reasoning && { reasoning: editAnswers.reasoning }),
+          ...(typeof editAnswers.numCtx === "number" && { numCtx: editAnswers.numCtx }),
+          ...(typeof editAnswers.maxContextTokens === "number" && {
+            maxContextTokens: editAnswers.maxContextTokens,
+          }),
+        },
         ...(editAnswers.tools &&
           editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
         ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
       };
       if (editAnswers.maxContextTokens === null) {
-        const { maxContextTokens: _cleared, ...withoutCeiling } = updatedConfig;
+        const { maxContextTokens: _cleared, ...llmWithoutCeiling } = updatedConfig.llm;
         void _cleared;
-        updatedConfig = withoutCeiling;
+        updatedConfig = { ...updatedConfig, llm: llmWithoutCeiling };
       }
       if (editAnswers.llmApiKeyProvider) {
         updatedConfig = setAgentApiKeyOverride(
@@ -782,7 +785,7 @@ async function promptForAgentUpdates(
   // Update LLM model (only if provider wasn't already updated)
   if (fieldToUpdate === "llmModel" && !answers.llmProvider) {
     // Use current provider to get available models
-    const providerToUse = currentAgent.config.llmProvider;
+    const providerToUse = currentAgent.config.llm.provider;
     const providerInfo =
       currentProviderInfo ||
       (await Effect.runPromise(llmService.getProvider(providerToUse)).catch((error: unknown) => {
@@ -845,14 +848,14 @@ async function promptForAgentUpdates(
             name: formatProviderDisplayName(provider),
             value: provider,
           })),
-          default: currentAgent.config.llmProvider,
+          default: currentAgent.config.llm.provider,
         }),
       );
       if (!provider) {
         return null;
       }
 
-      const existingAgentOverride = currentAgent.config.llmApiKeys?.[provider];
+      const existingAgentOverride = currentAgent.config.llm.apiKeys?.[provider];
       const isOptional = isLocalServerProvider(provider);
       if (existingAgentOverride) {
         await Effect.runPromise(
@@ -967,7 +970,7 @@ async function promptForAgentUpdates(
       selectedCategories = categorySelection;
 
       if (selectedCategories.includes(searchCategoryName)) {
-        const providerName = currentAgent.config.llmProvider;
+        const providerName = currentAgent.config.llm.provider;
         if (providerName) {
           const webSearchProvider = await Effect.runPromise(
             configureWebSearch(terminal, configService, llmService, providerName),
@@ -999,8 +1002,8 @@ async function promptForAgentUpdates(
       terminal,
       currentAgent,
       llmService,
-      currentAgent.config.llmProvider,
-      currentAgent.config.llmModel,
+      currentAgent.config.llm.provider,
+      currentAgent.config.llm.model,
     );
     if (reasoning === null) {
       return null;
@@ -1010,12 +1013,13 @@ async function promptForAgentUpdates(
 
   if (fieldToUpdate === "contextWindow") {
     const detectedContextWindow = currentProviderInfo?.supportedModels.find(
-      (model) => model.id === currentAgent.config.llmModel,
+      (model) => model.id === currentAgent.config.llm.model,
     )?.contextWindow;
     const result = await Effect.runPromise(
       terminal.select<number>("What context window should this agent use?", {
         choices: buildOllamaContextChoices(detectedContextWindow),
-        default: currentAgent.config.numCtx ?? defaultOllamaContextWindow(detectedContextWindow),
+        default:
+          currentAgent.config.llm.numCtx ?? defaultOllamaContextWindow(detectedContextWindow),
       }),
     );
     if (result === undefined) {
@@ -1040,7 +1044,7 @@ function setAgentApiKeyOverride(
   provider: ProviderName,
   apiKey: string | undefined,
 ): AgentConfig {
-  const nextMap = { ...(config.llmApiKeys ?? {}) };
+  const nextMap = { ...(config.llm.apiKeys ?? {}) };
   if (apiKey && apiKey.length > 0) {
     nextMap[provider] = apiKey;
   } else {
@@ -1048,12 +1052,12 @@ function setAgentApiKeyOverride(
   }
 
   if (Object.keys(nextMap).length === 0) {
-    const { llmApiKeys: _unused, ...rest } = config;
+    const { apiKeys: _unused, ...llmWithoutApiKeys } = config.llm;
     void _unused;
-    return rest;
+    return { ...config, llm: llmWithoutApiKeys };
   }
 
-  return { ...config, llmApiKeys: nextMap };
+  return { ...config, llm: { ...config.llm, apiKeys: nextMap } };
 }
 
 export const MIN_AGENT_MAX_CONTEXT_TOKENS = 1_000;
@@ -1066,7 +1070,7 @@ function promptForMaxContextTokens(
   terminal: TerminalService,
   currentAgent: Agent,
 ): Effect.Effect<number | null | undefined, never> {
-  const current = currentAgent.config.maxContextTokens;
+  const current = currentAgent.config.llm.maxContextTokens;
   return terminal
     .ask(
       `Max context tokens for this agent? (blank = use the model's full window, min ${MIN_AGENT_MAX_CONTEXT_TOKENS.toLocaleString()})`,
@@ -1104,7 +1108,7 @@ async function promptForReasoning(
 ): Promise<ReasoningSelection | null> {
   const control = await Effect.runPromise(llmService.resolveReasoningControl(provider, model));
   return (
-    (await promptForReasoningSelection(terminal, currentAgent.config.reasoning, { control })) ??
+    (await promptForReasoningSelection(terminal, currentAgent.config.llm.reasoning, { control })) ??
     null
   );
 }

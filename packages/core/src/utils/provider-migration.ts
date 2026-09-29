@@ -28,32 +28,35 @@ export function migrateAgentProviderName(raw: unknown): { record: unknown; chang
   const config = record["config"];
   if (!config || typeof config !== "object") return { record: raw, changed: false };
 
-  const agentConfig = { ...(config as Record<string, unknown>) };
+  const llm = (config as Record<string, unknown>)["llm"];
+  if (!llm || typeof llm !== "object") return { record: raw, changed: false };
+
+  const llmConfig = { ...(llm as Record<string, unknown>) };
   let changed = false;
 
-  if (agentConfig["llmProvider"] === LEGACY_PROVIDER_NAME) {
-    agentConfig["llmProvider"] = RENAMED_PROVIDER_NAME;
+  if (llmConfig["provider"] === LEGACY_PROVIDER_NAME) {
+    llmConfig["provider"] = RENAMED_PROVIDER_NAME;
     changed = true;
   }
 
-  const summarizer = agentConfig["summarizerModel"];
+  const summarizer = llmConfig["summarizerModel"];
   if (typeof summarizer === "string" && summarizer.startsWith(`${LEGACY_PROVIDER_NAME}/`)) {
-    agentConfig["summarizerModel"] =
+    llmConfig["summarizerModel"] =
       `${RENAMED_PROVIDER_NAME}/${summarizer.slice(LEGACY_PROVIDER_NAME.length + 1)}`;
     changed = true;
   }
 
-  const apiKeys = agentConfig["llmApiKeys"];
+  const apiKeys = llmConfig["apiKeys"];
   if (apiKeys && typeof apiKeys === "object" && LEGACY_PROVIDER_NAME in apiKeys) {
     const { [LEGACY_PROVIDER_NAME]: legacyKey, ...rest } = apiKeys as Record<string, unknown>;
     // A key already stored under the new name wins; the legacy one is dropped.
-    agentConfig["llmApiKeys"] =
+    llmConfig["apiKeys"] =
       RENAMED_PROVIDER_NAME in rest ? rest : { ...rest, [RENAMED_PROVIDER_NAME]: legacyKey };
     changed = true;
   }
 
   if (!changed) return { record: raw, changed: false };
-  return { record: { ...record, config: agentConfig }, changed: true };
+  return { record: { ...record, config: { ...config, llm: llmConfig } }, changed: true };
 }
 
 const LEGACY_KEYRING_ACCOUNT = `llm.${LEGACY_PROVIDER_NAME}.api_key`;

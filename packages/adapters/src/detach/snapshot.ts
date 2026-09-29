@@ -390,7 +390,10 @@ export async function createDetachSnapshot(
       throw new Error("Agent configuration is invalid.");
     }
     const clean = structuredClone(agent) as { config: Record<string, unknown> };
-    delete clean.config["llmApiKeys"];
+    const llm = clean.config["llm"];
+    if (typeof llm === "object" && llm !== null) {
+      delete (llm as Record<string, unknown>)["apiKeys"];
+    }
     const persona = clean.config["persona"];
     if (typeof persona === "string") {
       await addPersona(persona, jazzHome, bundleDirectory, entries, byteCount);

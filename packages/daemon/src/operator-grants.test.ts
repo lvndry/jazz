@@ -129,7 +129,7 @@ describe("changing what an agent may do", () => {
   const writes = [
     ["POST", "/agents", { name: "new", config: { tools: ["execute_command"] } }],
     ["PATCH", "/agents/sonnet", { config: { tools: ["execute_command", "http_request"] } }],
-    ["PATCH", "/agents/sonnet", { config: { llmProvider: "openai", llmModel: "gpt-5" } }],
+    ["PATCH", "/agents/sonnet", { config: { llm: { provider: "openai", model: "gpt-5" } } }],
     ["PATCH", "/agents/sonnet", { description: "only the description" }],
     ["DELETE", "/agents/sonnet", undefined],
     ["POST", "/personas", { name: "open", systemPrompt: "anything goes" }],

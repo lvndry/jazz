@@ -53,7 +53,7 @@ export function priceOneOffCall(
   agent: Pick<Agent, "config">,
   usage: (UsageCostTokens & { readonly totalTokens: number }) | undefined,
 ): Effect.Effect<CallSpend> {
-  return priceModelCall(agent.config.llmProvider, agent.config.llmModel, usage);
+  return priceModelCall(agent.config.llm.provider, agent.config.llm.model, usage);
 }
 
 /** {@link priceOneOffCall} for a call made on a named provider and model. */
@@ -95,8 +95,8 @@ export function agentRunSpend(
   const totalTokens = (response.usage?.promptTokens ?? 0) + (response.usage?.completionTokens ?? 0);
   const known = isRunCostKnown(
     response.costUSD,
-    agent.config.llmProvider,
-    agent.config.llmModel,
+    agent.config.llm.provider,
+    agent.config.llm.model,
     response.costIncomplete === true,
   );
   return spendOf(totalTokens, known ? (response.costUSD ?? 0) : undefined);

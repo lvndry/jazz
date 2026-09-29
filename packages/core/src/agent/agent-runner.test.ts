@@ -405,8 +405,7 @@ describe("AgentRunner", () => {
     description: "A test agent for unit testing",
     config: {
       persona: "default",
-      llmProvider: "openai",
-      llmModel: "gpt-4",
+      llm: { provider: "openai", model: "gpt-4" },
       tools: ["tool1", "tool2"],
     },
     createdAt: new Date(),
@@ -521,8 +520,7 @@ describe("AgentRunner", () => {
         ...mockAgent,
         config: {
           ...mockAgent.config,
-          llmProvider: "vllm",
-          llmModel: "stale-model-from-last-run",
+          llm: { provider: "vllm", model: "stale-model-from-last-run" },
         },
       };
 
@@ -553,7 +551,7 @@ describe("AgentRunner", () => {
       } as unknown as LLMService;
       const agent: Agent = {
         ...mockAgent,
-        config: { ...mockAgent.config, llmProvider: "sglang", llmModel: "stale-model" },
+        config: { ...mockAgent.config, llm: { provider: "sglang", model: "stale-model" } },
       };
 
       await runWithTestLayers(

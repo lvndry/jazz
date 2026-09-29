@@ -2137,7 +2137,7 @@ function listRuns() {
  * One agent, as much of it as somebody choosing between them needs.
  *
  * Fields are projected one by one rather than returning the stored agent, because
- * `AgentConfig` carries `llmApiKeys` and a list endpoint is no place to hand those out.
+ * `AgentConfig` carries `llm.apiKeys` and a list endpoint is no place to hand those out.
  */
 function projectAgentSummary(agent: Agent) {
   return {
@@ -2145,8 +2145,8 @@ function projectAgentSummary(agent: Agent) {
     name: agent.name,
     ...(agent.description !== undefined ? { description: agent.description } : {}),
     persona: agent.config.persona,
-    provider: agent.config.llmProvider,
-    model: agent.config.llmModel,
+    provider: agent.config.llm.provider,
+    model: agent.config.llm.model,
     tools: agent.config.tools ?? [],
   };
 }
@@ -2157,7 +2157,7 @@ function projectAgentSummary(agent: Agent) {
  * Kept separate from the summary because a list of agents is not the place to send every
  * agent's custom tools and allowlists — an editor opens one at a time and asks for it here.
  *
- * `llmApiKeys` is destructured off rather than omitted field by field, so a secret-bearing
+ * `llm.apiKeys` is destructured off rather than omitted field by field, so a secret-bearing
  * field added to `AgentConfig` later cannot quietly start being served: the rest of the
  * config passes through, and that one has to be put back deliberately to escape.
  * `apiKeyProviders` names which providers have a per-agent override without revealing any
@@ -2165,11 +2165,11 @@ function projectAgentSummary(agent: Agent) {
  * a blank box that means either "unset" or "hidden".
  */
 function projectAgentDetail(agent: Agent) {
-  const { llmApiKeys, ...config } = agent.config;
+  const { apiKeys, ...llm } = agent.config.llm;
   return {
     ...projectAgentSummary(agent),
-    config,
-    apiKeyProviders: Object.keys(llmApiKeys ?? {}),
+    config: { ...agent.config, llm },
+    apiKeyProviders: Object.keys(apiKeys ?? {}),
     createdAt: agent.createdAt.toISOString(),
     updatedAt: agent.updatedAt.toISOString(),
   };
@@ -2226,7 +2226,7 @@ function agentErrorResponse(error: unknown): Response {
  * Why a body cannot become an agent config, if it cannot.
  *
  * Only the things `validateAgentConfig` cannot see are checked here: that the config is an
- * object at all, and that it does not carry `llmApiKeys`. Keys are refused rather than
+ * object at all, and that it does not carry `llm.apiKeys`. Keys are refused rather than
  * scrubbed — silently dropping one would look like it had been saved, and this door never
  * hands them back, so a caller could not tell. They belong in the keyring, via the CLI.
  */
@@ -2235,8 +2235,8 @@ function configBodyProblem(config: unknown): string | undefined {
   if (!isRecord(config)) {
     return "config must be a JSON object";
   }
-  if ("llmApiKeys" in config) {
-    return "config.llmApiKeys cannot be set over HTTP — use `jazz agent edit` so the key goes to the keyring";
+  if (isRecord(config["llm"]) && "apiKeys" in config["llm"]) {
+    return "config.llm.apiKeys cannot be set over HTTP — use `jazz agent edit` so the key goes to the keyring";
   }
   return undefined;
 }

@@ -9,7 +9,7 @@ import { createPluginSession } from "./plugin-session";
 const agent = {
   id: "a",
   name: "a",
-  config: { persona: "p", llmProvider: "openai" as const, llmModel: "m" },
+  config: { persona: "p", llm: { provider: "openai" as const, model: "m" } },
   model: "openai/m" as const,
   createdAt: new Date(),
   updatedAt: new Date(),

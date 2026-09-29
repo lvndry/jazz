@@ -32,8 +32,7 @@ const mockAgent: Agent = {
   name: "ci-reviewer",
   config: {
     persona: "default",
-    llmProvider: "openai",
-    llmModel: "gpt-4o-mini",
+    llm: { provider: "openai", model: "gpt-4o-mini" },
   },
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-01T00:00:00.000Z"),

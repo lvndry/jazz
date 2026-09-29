@@ -362,7 +362,7 @@ export function runAgentOnceCommand(
               ...agent.config,
               ...(options.reasoning !== undefined
                 ? {
-                    reasoning: options.reasoning,
+                    llm: { ...agent.config.llm, reasoning: options.reasoning },
                   }
                 : {}),
               ...(options.companions !== undefined ? { companions: options.companions } : {}),
@@ -372,13 +372,13 @@ export function runAgentOnceCommand(
 
     if (options.reasoning !== undefined) {
       const control = yield* (yield* LLMServiceTag).resolveReasoningControl(
-        agent.config.llmProvider,
-        agent.config.llmModel,
+        agent.config.llm.provider,
+        agent.config.llm.model,
       );
       const adjustment = describeReasoningAdjustment(options.reasoning, control);
       if (adjustment) {
         process.stderr.write(
-          `Warning: --reasoning ${options.reasoning}: ${agent.config.llmProvider}/${agent.config.llmModel}: ${adjustment}\n`,
+          `Warning: --reasoning ${options.reasoning}: ${agent.config.llm.provider}/${agent.config.llm.model}: ${adjustment}\n`,
         );
       }
     }
@@ -403,8 +403,8 @@ export function runAgentOnceCommand(
       conversationKey !== undefined
         ? yield* buildWorkStatePreamble(agent.id, conversationKey, {
             modelHint: {
-              provider: agentForRun.config.llmProvider,
-              modelId: agentForRun.config.llmModel,
+              provider: agentForRun.config.llm.provider,
+              modelId: agentForRun.config.llm.model,
             },
           })
         : undefined;
@@ -475,8 +475,8 @@ export function runAgentOnceCommand(
       onRunSpend: (spend) => {
         runSpend = runSpendAsCallSpend(
           spend,
-          agentForRun.config.llmProvider,
-          agentForRun.config.llmModel,
+          agentForRun.config.llm.provider,
+          agentForRun.config.llm.model,
         );
       },
       onToolBatchStopped: (calls) => {
@@ -552,8 +552,8 @@ export function runAgentOnceCommand(
           costUSD: runResult.costUSD ?? 0,
           costKnown: isRunCostKnown(
             runResult.costUSD,
-            agentForRun.config.llmProvider,
-            agentForRun.config.llmModel,
+            agentForRun.config.llm.provider,
+            agentForRun.config.llm.model,
             runResult.costIncomplete === true,
           ),
           ...(runResult.costCapped === true ? { costCapped: true } : {}),

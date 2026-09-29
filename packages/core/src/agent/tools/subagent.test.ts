@@ -63,7 +63,7 @@ const parentAgent: Agent = {
   id: "parent-agent",
   name: "Parent",
   description: "",
-  config: { persona: "default" } as Agent["config"],
+  config: { persona: "default", llm: { provider: "openai", model: "gpt-4" } },
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -142,11 +142,9 @@ describe("summarize_context", () => {
     ...parentAgent,
     config: {
       persona: "default",
-      llmProvider: "openai",
-      llmModel: "gpt-4",
+      // maxContextTokens is small enough that most of the conversation is old rather than recent.
+      llm: { provider: "openai", model: "gpt-4", maxContextTokens: 2000 },
       tools: [],
-      // Small enough that most of the conversation is old rather than recent.
-      maxContextTokens: 2000,
     } as Agent["config"],
   };
 
@@ -717,8 +715,8 @@ describe("spawn_subagent reasoning effort", () => {
         ...parentAgent,
         config: {
           persona: "default",
-          reasoning: "medium",
-        } as Agent["config"],
+          llm: { ...parentAgent.config.llm, reasoning: "medium" },
+        },
       };
       await runSpawnArgs(
         presentation,
@@ -726,7 +724,7 @@ describe("spawn_subagent reasoning effort", () => {
         { parentAgent: effortParent },
       );
 
-      expect(captured()?.agent.config.reasoning).toBe("high");
+      expect(captured()?.agent.config.llm.reasoning).toBe("high");
     } finally {
       spy.mockRestore();
     }
@@ -741,8 +739,8 @@ describe("spawn_subagent reasoning effort", () => {
         ...parentAgent,
         config: {
           persona: "default",
-          reasoning: "medium",
-        } as Agent["config"],
+          llm: { ...parentAgent.config.llm, reasoning: "medium" },
+        },
       };
       await runSpawnArgs(
         presentation,
@@ -750,7 +748,7 @@ describe("spawn_subagent reasoning effort", () => {
         { parentAgent: effortParent },
       );
 
-      expect(captured()?.agent.config.reasoning).toBe("medium");
+      expect(captured()?.agent.config.llm.reasoning).toBe("medium");
     } finally {
       spy.mockRestore();
     }

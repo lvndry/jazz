@@ -145,7 +145,7 @@ describe("the stores built on it", () => {
     writeAgentFile(home, {
       id: "tg_1",
       name: "Jazz",
-      config: { llmProvider: "openai", llmModel: "gpt", reasoning: "low", persona: "default" },
+      config: { llm: { provider: "openai", model: "gpt", reasoning: "low" }, persona: "default" },
     });
     expect(readAgentFile(home, "tg_1").name).toBe("Jazz");
     expect(() => lstatSync(join(outside, "tg_1.json"))).toThrow();

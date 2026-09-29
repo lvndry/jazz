@@ -64,7 +64,7 @@ function harness(repair?: string, caps?: DaemonConfig): Harness {
       Effect.succeed({
         id: AGENT_ID,
         name: "agent",
-        config: { llmProvider: "ollama", llmModel: "model" },
+        config: { llm: { provider: "ollama", model: "model" } },
       }),
   } as unknown as AgentService;
   const llm = {

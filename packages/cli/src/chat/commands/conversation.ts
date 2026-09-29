@@ -94,7 +94,7 @@ export function handleStartCommand(
     );
 
     const modelMeta = yield* Effect.promise(() =>
-      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+      getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
     );
     if (
       modelMeta &&
@@ -103,7 +103,7 @@ export function handleStartCommand(
       agent.config.tools.length > 0
     ) {
       yield* terminal.warn(
-        `${agent.config.llmModel} does not support tools, so this agent's tools are off for this model.`,
+        `${agent.config.llm.model} does not support tools, so this agent's tools are off for this model.`,
       );
     }
 

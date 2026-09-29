@@ -20,12 +20,14 @@ is `jazz agent create`; edit the generated file for fields the wizard does not e
   "description": "Correlates incident evidence and produces an executive visual briefing.",
   "config": {
     "persona": "coder",
-    "llmProvider": "openai",
-    "llmModel": "gpt-5.4-mini",
-    "summarizerModel": "openai/gpt-5.4-mini",
-    "reasoning": "medium",
-    "maxContextTokens": 64000,
-    "temperature": 0.2,
+    "llm": {
+      "provider": "openai",
+      "model": "gpt-5.4-mini",
+      "summarizerModel": "openai/gpt-5.4-mini",
+      "reasoning": "medium",
+      "temperature": 0.2,
+      "maxContextTokens": 64000
+    },
     "deniedTools": ["execute_command"],
     "tools": ["publish_briefing"],
     "customTools": [
@@ -74,21 +76,21 @@ provider configuration, the system keyring, or narrowly allowlisted environment 
 
 - `persona` names a built-in or installed persona. It defaults to `default` when Jazz creates an
   agent.
-- `llmProvider` and `llmModel` select the primary reasoning and tool-use model.
-- `summarizerModel` is a `provider/model` used for context compaction and command risk
+- `llm` groups every model setting below. `llm.provider` and `llm.model` select the primary reasoning and tool-use model.
+- `llm.summarizerModel` is a `provider/model` used for context compaction and command risk
   classification. If it is missing or invalid, Jazz uses the primary model.
-- `reasoning` selects an effort: `disable`, `minimal`, `low`, `medium`, `high`,
+- `llm.reasoning` selects an effort: `disable`, `minimal`, `low`, `medium`, `high`,
   `xhigh`, or `max`. Jazz maps that one user-facing value to the selected
   provider/model control surface before serializing a request.
-- `temperature` accepts `0` through `2`. Jazz omits it when unset; models that reject custom
+- `llm.temperature` accepts `0` through `2`. Jazz omits it when unset; models that reject custom
   temperature ignore it.
-- `numCtx` sets Ollama's `num_ctx` to a positive token count.
-- `maxContextTokens` places a positive per-agent ceiling on the effective context window across
+- `llm.numCtx` sets Ollama's `num_ctx` to a positive token count.
+- `llm.maxContextTokens` places a positive per-agent ceiling on the effective context window across
   providers. Jazz warns and compacts against that ceiling.
 - `companions` binds specialist models independently for `analyze` and `generate` across `image`,
   `audio`, and `video`. See [Model companions](../features/media.md).
 
-`llmApiKeys` can override provider keys inside an agent file, but plaintext credentials make the
+`llm.apiKeys` can override provider keys inside an agent file, but plaintext credentials make the
 file difficult to share safely. Prefer `jazz config set <provider>` (it prompts for the key), environment variables, or the keyring.
 
 ## Tool access

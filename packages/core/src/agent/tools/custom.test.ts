@@ -53,8 +53,7 @@ function makeAgent(
     name: "Test Agent",
     config: {
       persona: "default",
-      llmProvider: "openai",
-      llmModel: "gpt-4",
+      llm: { provider: "openai", model: "gpt-4" },
       tools,
       customTools,
       ...(envAllowlist !== undefined ? { envAllowlist } : {}),
@@ -519,8 +518,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       name: "Custom Tool Agent",
       config: {
         persona: "default",
-        llmProvider: "openai",
-        llmModel: "gpt-4",
+        llm: { provider: "openai", model: "gpt-4" },
         tools: ["propose_action"],
         customTools: [recordToolDefinition],
       },
@@ -647,8 +645,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       name: "Custom Tool Agent",
       config: {
         persona: "default",
-        llmProvider: "openai",
-        llmModel: "gpt-4",
+        llm: { provider: "openai", model: "gpt-4" },
         tools: ["propose_action", "second_action"],
         customTools: [recordToolDefinition, secondToolDefinition],
       },
@@ -757,8 +754,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       name: "Custom Tool Agent",
       config: {
         persona: "default",
-        llmProvider: "openai",
-        llmModel: "gpt-4",
+        llm: { provider: "openai", model: "gpt-4" },
         tools: ["propose_action"],
         customTools: [recordToolDefinition],
       },
@@ -876,8 +872,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       name: "Custom Tool Agent",
       config: {
         persona: "default",
-        llmProvider: "openai",
-        llmModel: "gpt-4",
+        llm: { provider: "openai", model: "gpt-4" },
         tools: ["propose_action"],
         customTools: [recordToolDefinition],
       },
@@ -1152,8 +1147,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
         name: "Agent B",
         config: {
           persona: "default",
-          llmProvider: "openai",
-          llmModel: "gpt-4",
+          llm: { provider: "openai", model: "gpt-4" },
           envAllowlist: [],
         },
         createdAt: new Date(),

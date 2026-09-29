@@ -227,12 +227,14 @@ function readAgentModel(agentId: string): {
 } {
   try {
     const parsed = JSON.parse(readFileSync(resolveAgentConfigPath(agentId), "utf-8")) as {
-      config?: { llmProvider?: string; llmModel?: string; reasoning?: string };
+      config?: { llm?: { provider?: string; model?: string; reasoning?: string } };
     };
     return {
-      provider: parsed.config?.llmProvider ?? "unknown",
-      model: parsed.config?.llmModel ?? "unknown",
-      ...(parsed.config?.reasoning !== undefined ? { reasoning: parsed.config.reasoning } : {}),
+      provider: parsed.config?.llm?.provider ?? "unknown",
+      model: parsed.config?.llm?.model ?? "unknown",
+      ...(parsed.config?.llm?.reasoning !== undefined
+        ? { reasoning: parsed.config.llm.reasoning }
+        : {}),
     };
   } catch {
     return { provider: "unknown", model: "unknown" };
@@ -539,16 +541,16 @@ export function assertAllowedAgent(
   jazzHome: string = getJazzHomeDirectory(),
 ): void {
   const agentPath = resolveAgentConfigPath(agentId, jazzHome);
-  let parsed: { config?: { llmProvider?: string; llmModel?: string } };
+  let parsed: { config?: { llm?: { provider?: string; model?: string } } };
   try {
     parsed = JSON.parse(readFileSync(agentPath, "utf-8")) as {
-      config?: { llmProvider?: string; llmModel?: string };
+      config?: { llm?: { provider?: string; model?: string } };
     };
   } catch {
     throw new Error(`eval: cannot read agent "${agentId}" at ${agentPath} to verify its model.`);
   }
-  const provider = parsed.config?.llmProvider ?? "";
-  const model = parsed.config?.llmModel ?? "";
+  const provider = parsed.config?.llm?.provider ?? "";
+  const model = parsed.config?.llm?.model ?? "";
   if (!isAllowedEvalModel(provider, model)) {
     throw new Error(
       `eval cost guardrail: agent "${agentId}" uses "${provider}/${model}". Only OpenRouter ":free" models, Ollama models, or gpt-5.4-nano/gpt-5.4-mini are permitted.`,

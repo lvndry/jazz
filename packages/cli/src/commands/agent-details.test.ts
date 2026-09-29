@@ -7,7 +7,7 @@ import type { Agent } from "@jazz/core/types/agent";
 import { describe, expect, it } from "bun:test";
 import { agentDetailFields } from "./agent-details";
 
-function agent(provider: Agent["config"]["llmProvider"], model: string): Agent {
+function agent(provider: Agent["config"]["llm"]["provider"], model: string): Agent {
   return {
     id: "a1",
     name: "Research",
@@ -16,12 +16,14 @@ function agent(provider: Agent["config"]["llmProvider"], model: string): Agent {
     updatedAt: new Date("2026-01-02T00:00:00Z"),
     config: {
       persona: "researcher",
-      llmProvider: provider,
-      llmModel: model,
-      reasoning: "high",
+      llm: {
+        provider,
+        model,
+        reasoning: "high",
+        apiKeys: { [provider]: "secret-api-key" },
+      },
       tools: ["web_search"],
       deniedTools: ["execute_command"],
-      llmApiKeys: { [provider]: "secret-api-key" },
       customTools: [
         {
           name: "private_tool",

@@ -58,8 +58,8 @@ export function makeJudge(
   return async (prompt) => {
     const agentFile = join(import.meta.dir, "agents", `${agentId}.json`);
     const provider = (
-      JSON.parse(readFileSync(agentFile, "utf-8")) as { config?: { llmProvider?: string } }
-    ).config?.llmProvider;
+      JSON.parse(readFileSync(agentFile, "utf-8")) as { config?: { llm?: { provider?: string } } }
+    ).config?.llm?.provider;
     const providers = provider === undefined ? [] : [provider];
     const sandbox = createSandbox(
       "judge",

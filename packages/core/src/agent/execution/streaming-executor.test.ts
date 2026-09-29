@@ -110,8 +110,7 @@ describe("executeWithStreaming", () => {
         name: "test-agent",
         config: {
           persona: "default",
-          llmModel: "gpt-4",
-          llmProvider: "openai",
+          llm: { provider: "openai", model: "gpt-4" },
           reasoningEffort: "medium",
         },
         prompts: { system: "system prompt" },
@@ -366,8 +365,7 @@ describe("executeWithStreaming", () => {
         name: "test-agent",
         config: {
           persona: "default",
-          llmModel: "gpt-4",
-          llmProvider: "openai",
+          llm: { provider: "openai", model: "gpt-4" },
           reasoningEffort: "medium",
         },
         prompts: { system: "system prompt" },
@@ -488,8 +486,7 @@ describe("executeWithStreaming", () => {
         name: "test-agent",
         config: {
           persona: "default",
-          llmModel: "gpt-4",
-          llmProvider: "openai",
+          llm: { provider: "openai", model: "gpt-4" },
           reasoningEffort: "medium",
         },
         prompts: { system: "system prompt" },
@@ -637,7 +634,7 @@ function makeStreamingHarness(input: {
   const agent = {
     id: "agent-1",
     name: "test-agent",
-    config: { persona: "default", llmModel: "gpt-4", llmProvider: "openai" },
+    config: { persona: "default", llm: { provider: "openai", model: "gpt-4" } },
     createdAt: new Date(),
     updatedAt: new Date(),
   } as any;

@@ -52,8 +52,7 @@ export class AgentServiceImpl implements AgentService {
         // Create default agent configuration
         const defaultConfig: AgentConfig = {
           persona: "default",
-          llmProvider: "openai",
-          llmModel: "gpt-4o",
+          llm: { provider: "openai", model: "gpt-4o" },
         };
 
         const normalizedTools = normalizeToolConfig(config.tools, { agentId: id });
@@ -149,6 +148,7 @@ export class AgentServiceImpl implements AgentService {
         const mergedConfig: AgentConfig = {
           ...existingAgent.config,
           ...updates.config,
+          llm: { ...existingAgent.config.llm, ...updates.config?.llm },
         };
 
         const normalizedTools = normalizeToolConfig(mergedConfig.tools, {
@@ -198,37 +198,50 @@ export class AgentServiceImpl implements AgentService {
         );
       }
 
-      const llmProvider: unknown = config.llmProvider;
+      const llm: unknown = config.llm;
+      if (typeof llm !== "object" || llm === null || Array.isArray(llm)) {
+        return yield* Effect.fail(
+          new AgentConfigurationError({
+            agentId: "unknown",
+            field: "config.llm",
+            message: `Missing or invalid config.llm ${JSON.stringify(llm)}`,
+            suggestion:
+              'Nest the model settings as "llm": { "provider": "openai", "model": "gpt-4o" }. The flat llmProvider and llmModel fields are no longer read.',
+          }),
+        );
+      }
+
+      const llmProvider: unknown = config.llm.provider;
       if (typeof llmProvider !== "string" || !isProviderName(llmProvider)) {
         return yield* Effect.fail(
           new AgentConfigurationError({
             agentId: "unknown",
-            field: "config.llmProvider",
+            field: "config.llm.provider",
             message: `Unknown LLM provider ${JSON.stringify(llmProvider)}`,
             suggestion: `Use one of: ${AVAILABLE_PROVIDERS.join(", ")}.`,
           }),
         );
       }
 
-      const llmModel: unknown = config.llmModel;
+      const llmModel: unknown = config.llm.model;
       if (typeof llmModel !== "string" || llmModel.trim().length === 0) {
         return yield* Effect.fail(
           new AgentConfigurationError({
             agentId: "unknown",
-            field: "config.llmModel",
+            field: "config.llm.model",
             message: `Invalid LLM model ${JSON.stringify(llmModel)}`,
             suggestion: `Name a model the provider serves, e.g. "gpt-4o" for openai.`,
           }),
         );
       }
 
-      if (config.llmApiKeys) {
-        for (const [provider, apiKey] of Object.entries(config.llmApiKeys)) {
+      if (config.llm.apiKeys) {
+        for (const [provider, apiKey] of Object.entries(config.llm.apiKeys)) {
           if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
             return yield* Effect.fail(
               new AgentConfigurationError({
                 agentId: "unknown",
-                field: `config.llmApiKeys.${provider}`,
+                field: `config.llm.apiKeys.${provider}`,
                 message: "LLM API key overrides must be non-empty strings",
                 suggestion: "Set a valid API key string or remove the provider override.",
               }),
@@ -237,13 +250,13 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
-      const summarizerModel: unknown = config.summarizerModel;
+      const summarizerModel: unknown = config.llm.summarizerModel;
       if (summarizerModel !== undefined && summarizerModel !== null) {
         if (typeof summarizerModel !== "string" || parseProviderModel(summarizerModel) === null) {
           return yield* Effect.fail(
             new AgentConfigurationError({
               agentId: "unknown",
-              field: "config.summarizerModel",
+              field: "config.llm.summarizerModel",
               message: `Invalid summarizerModel ${JSON.stringify(summarizerModel)}`,
               suggestion:
                 'Use "provider/model" with a known provider, e.g. "anthropic/claude-3-5-haiku-latest", or remove the field to use the agent\'s own model.',
@@ -418,13 +431,13 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
-      const reasoning: unknown = config.reasoning;
+      const reasoning: unknown = config.llm.reasoning;
       if (reasoning !== undefined && reasoning !== null) {
         if (!isReasoningSelection(reasoning)) {
           return yield* Effect.fail(
             new AgentConfigurationError({
               agentId: "unknown",
-              field: "config.reasoning",
+              field: "config.llm.reasoning",
               message: `Invalid reasoning selection ${JSON.stringify(reasoning)}`,
               suggestion:
                 "Use a structured reasoning selection: disabled, toggle, effort, manual, or adaptive.",
@@ -433,7 +446,7 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
-      const temperature: unknown = config.temperature;
+      const temperature: unknown = config.llm.temperature;
       if (temperature !== undefined && temperature !== null) {
         // The ceiling is the permissive superset across providers (OpenAI allows up to 2,
         // Anthropic only 1). Per-model limits are enforced at call time via
@@ -447,7 +460,7 @@ export class AgentServiceImpl implements AgentService {
           return yield* Effect.fail(
             new AgentConfigurationError({
               agentId: "unknown",
-              field: "config.temperature",
+              field: "config.llm.temperature",
               message: `Invalid temperature ${JSON.stringify(temperature)}`,
               suggestion:
                 "Use a number between 0 and 2, or remove the field to use the provider default.",
@@ -457,13 +470,13 @@ export class AgentServiceImpl implements AgentService {
       }
 
       for (const field of ["numCtx", "maxContextTokens"] as const) {
-        const value: unknown = config[field];
+        const value: unknown = config.llm[field];
         if (value === undefined || value === null) continue;
         if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
           return yield* Effect.fail(
             new AgentConfigurationError({
               agentId: "unknown",
-              field: `config.${field}`,
+              field: `config.llm.${field}`,
               message: `Invalid ${field} ${JSON.stringify(value)}`,
               suggestion:
                 "Use a positive whole number of tokens, or remove the field to use the default.",

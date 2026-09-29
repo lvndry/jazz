@@ -63,7 +63,7 @@ export function chatWithAIAgentCommand(
 
     // Check if model supports tools and warn if not
     const modelMeta = yield* Effect.promise(() =>
-      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+      getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
     );
     if (
       modelMeta &&
@@ -73,7 +73,7 @@ export function chatWithAIAgentCommand(
     ) {
       yield* terminal.log("");
       yield* terminal.warn(
-        `⚠️  The current model (${agent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
+        `⚠️  The current model (${agent.config.llm.model}) does not support tools. Your configured tools will not be available.`,
       );
     }
 

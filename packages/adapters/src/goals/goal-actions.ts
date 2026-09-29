@@ -217,8 +217,8 @@ export function proposeGoal(options: {
       }
     }
     const completion = yield* llm
-      .createChatCompletion(options.agent.config.llmProvider, {
-        model: options.agent.config.llmModel,
+      .createChatCompletion(options.agent.config.llm.provider, {
+        model: options.agent.config.llm.model,
         messages: [
           {
             role: "system",
@@ -231,15 +231,15 @@ export function proposeGoal(options: {
         maxTokens: PLANNER_MAX_OUTPUT_TOKENS,
         reasoning: "disable",
         outputSchema: goalDraftSchema,
-        ...(options.agent.config.llmApiKeys !== undefined
-          ? { providerApiKeys: options.agent.config.llmApiKeys }
+        ...(options.agent.config.llm.apiKeys !== undefined
+          ? { providerApiKeys: options.agent.config.llm.apiKeys }
           : {}),
       })
       .pipe(Effect.either);
     if (completion._tag === "Left") {
       const failed: GoalProposal = {
         kind: "failed",
-        reason: `Jazz could not draft a goal proposal: the planning call to ${options.agent.config.llmProvider}/${options.agent.config.llmModel} failed (${toError(completion.left).message}).`,
+        reason: `Jazz could not draft a goal proposal: the planning call to ${options.agent.config.llm.provider}/${options.agent.config.llm.model} failed (${toError(completion.left).message}).`,
       };
       return failed;
     }

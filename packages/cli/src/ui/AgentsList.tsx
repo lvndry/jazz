@@ -14,9 +14,11 @@ interface AgentListItem {
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly config: {
-    readonly llmProvider: string;
-    readonly llmModel: string;
-    readonly reasoning?: ReasoningSelection | undefined;
+    readonly llm: {
+      readonly provider: string;
+      readonly model: string;
+      readonly reasoning?: ReasoningSelection | undefined;
+    };
     readonly persona?: string | undefined;
     readonly tools?: readonly string[] | undefined;
   };
@@ -113,7 +115,7 @@ export function AgentsList(props: {
       >
         {props.agents.map((agent, index) => {
           const persona = agent.config.persona ?? "default";
-          const reasoning = formatReasoningSelection(agent.config.reasoning);
+          const reasoning = formatReasoningSelection(agent.config.llm.reasoning);
           const description =
             agent.description && agent.description !== agent.name ? agent.description : "";
 
@@ -134,7 +136,7 @@ export function AgentsList(props: {
                 </Text>
                 {sp}
                 <Text color={THEME.agent}>
-                  {padRight(truncateEnd(agentModelString(agent.config), modelW), modelW)}
+                  {padRight(truncateEnd(agentModelString(agent.config.llm), modelW), modelW)}
                 </Text>
                 {sp}
                 <Text color={THEME.secondary}>
@@ -158,7 +160,7 @@ export function AgentsList(props: {
                   dimColor
                   italic
                 >
-                  {agent.config.llmProvider} · {truncateEnd(agent.id, 24)} · created{" "}
+                  {agent.config.llm.provider} · {truncateEnd(agent.id, 24)} · created{" "}
                   {formatDate(agent.createdAt)}
                 </Text>
               </Box>

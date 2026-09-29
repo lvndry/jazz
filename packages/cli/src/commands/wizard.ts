@@ -355,7 +355,7 @@ function agentUsage(
     return {
       id: agent.id,
       name: agent.name,
-      model: agentModelString(agent.config),
+      model: agentModelString(agent.config.llm),
       persona: agent.config.persona,
       ...(used === undefined ? {} : { lastUsedMs: used }),
     };
@@ -532,7 +532,7 @@ function agentChoicesFor(
   return agents.map((agent) => ({
     id: agent.id,
     name: agent.name,
-    model: agentModelString(agent.config),
+    model: agentModelString(agent.config.llm),
     persona: agent.config.persona,
     ...(agent.description !== undefined && agent.description !== agent.name
       ? { description: agent.description }
@@ -604,7 +604,11 @@ function showAgentActions(agent: Agent): Effect.Effect<AgentAction, never, never
         kind: "menu",
         title: agent.name,
         options: [
-          { label: "Start a conversation", value: "start", hint: agentModelString(agent.config) },
+          {
+            label: "Start a conversation",
+            value: "start",
+            hint: agentModelString(agent.config.llm),
+          },
           { label: "Details", value: "details", hint: "model, tools, access" },
           { label: "Edit", value: "edit", hint: "change its model, persona or tools" },
           { label: "Delete", value: "delete", hint: "asks first" },
@@ -663,10 +667,10 @@ function confirmAndDeleteAgent(agent: Agent) {
 
 /** models.dev pricing for an agent's model, skipped for local models that cost nothing. */
 function modelMetadataFor(agent: Agent) {
-  return isZeroCostLocalModel(agent.config.llmProvider, agent.config.llmModel)
+  return isZeroCostLocalModel(agent.config.llm.provider, agent.config.llm.model)
     ? Effect.succeed(undefined)
     : Effect.tryPromise({
-        try: () => getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+        try: () => getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
         catch: (error) => error,
       }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 }
@@ -677,9 +681,9 @@ function localHostUrlFor(agent: Agent) {
     const llmService = yield* LLMServiceTag;
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
-    return isLocalServerProvider(agent.config.llmProvider) &&
-      (agent.config.llmProvider !== "ollama" || !isOllamaCloudModel(agent.config.llmModel))
-      ? llmService.resolveLocalProviderBaseUrl(agent.config.llmProvider, appConfig.llm)
+    return isLocalServerProvider(agent.config.llm.provider) &&
+      (agent.config.llm.provider !== "ollama" || !isOllamaCloudModel(agent.config.llm.model))
+      ? llmService.resolveLocalProviderBaseUrl(agent.config.llm.provider, appConfig.llm)
       : undefined;
   });
 }

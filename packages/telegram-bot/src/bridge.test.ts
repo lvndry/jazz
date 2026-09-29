@@ -146,9 +146,7 @@ beforeEach(() => {
       id: "telegram",
       name: "Jazz",
       config: {
-        llmProvider: "openai",
-        llmModel: "gpt-5.4",
-        reasoning: "medium",
+        llm: { provider: "openai", model: "gpt-5.4", reasoning: "medium" },
         persona: "default",
       },
     }),

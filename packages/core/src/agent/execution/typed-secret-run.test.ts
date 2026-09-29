@@ -148,8 +148,7 @@ function runContext(): AgentRunContext {
     name: "test-agent",
     config: {
       persona: "default",
-      llmModel: "m",
-      llmProvider: "ollama",
+      llm: { provider: "ollama", model: "m" },
       reasoningEffort: "disable",
     },
   } as never;

@@ -4,7 +4,7 @@ import { sessionOpenLine } from "./session-open";
 describe("sessionOpenLine", () => {
   const agent = {
     name: "sol",
-    config: { llmProvider: "openai", llmModel: "gpt-5.6", reasoning: "medium" },
+    config: { llm: { provider: "openai", model: "gpt-5.6", reasoning: "medium" } },
   } as Parameters<typeof sessionOpenLine>[0];
 
   test("names who, which model, how hard it thinks and where, in one line", () => {

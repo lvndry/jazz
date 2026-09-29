@@ -108,14 +108,14 @@ function buildSummarizerAgent(
   summarizerModelConfig: SummarizerModelConfig,
 ): Agent {
   const sameModel =
-    summarizerModelConfig.provider === parentAgent.config.llmProvider &&
-    summarizerModelConfig.model === parentAgent.config.llmModel;
+    summarizerModelConfig.provider === parentAgent.config.llm.provider &&
+    summarizerModelConfig.model === parentAgent.config.llm.model;
 
   const {
     numCtx: _numCtx,
     maxContextTokens: _maxContextTokens,
-    ...configWithoutWindowPins
-  } = parentAgent.config;
+    ...llmWithoutWindowPins
+  } = parentAgent.config.llm;
 
   return {
     id: "summarizer",
@@ -123,9 +123,12 @@ function buildSummarizerAgent(
     description:
       "an internal agent that compresses a transcript into a summary another agent can resume from.",
     config: {
-      ...(sameModel ? parentAgent.config : configWithoutWindowPins),
-      llmProvider: summarizerModelConfig.provider,
-      llmModel: summarizerModelConfig.model,
+      ...parentAgent.config,
+      llm: {
+        ...(sameModel ? parentAgent.config.llm : llmWithoutWindowPins),
+        provider: summarizerModelConfig.provider,
+        model: summarizerModelConfig.model,
+      },
       persona: "summarizer",
       tools: [], // No tools—summarizer should only produce text, not use tools
     },
@@ -169,7 +172,7 @@ export function chunkForSummarizer(
 
 /** Build a token-counter hint from an agent's provider/model. */
 function modelHintFromAgent(agent: Agent): ModelHint {
-  return { provider: agent.config.llmProvider, modelId: agent.config.llmModel };
+  return { provider: agent.config.llm.provider, modelId: agent.config.llm.model };
 }
 
 interface SummarizerModelConfig {
@@ -189,11 +192,11 @@ export function selectSummarizerModel(parentAgent: Agent): {
   warning?: string;
 } {
   const parentConfig: SummarizerModelConfig = {
-    provider: parentAgent.config.llmProvider,
-    model: parentAgent.config.llmModel,
+    provider: parentAgent.config.llm.provider,
+    model: parentAgent.config.llm.model,
   };
 
-  const configured: unknown = parentAgent.config.summarizerModel;
+  const configured: unknown = parentAgent.config.llm.summarizerModel;
   if (configured === undefined || configured === null) {
     return { config: parentConfig };
   }
@@ -908,8 +911,8 @@ export const Summarizer = {
         conversationId,
         summarizerProvider: summarizerModelConfig.provider,
         summarizerModel: summarizerModelConfig.model,
-        parentProvider: agent.config.llmProvider,
-        parentModel: agent.config.llmModel,
+        parentProvider: agent.config.llm.provider,
+        parentModel: agent.config.llm.model,
       });
 
       // Anything already in task state is durable on disk, so the summary need not carry
@@ -942,11 +945,11 @@ export const Summarizer = {
         ...(servedModel.contextWindow !== undefined && {
           serverContextWindow: servedModel.contextWindow,
         }),
-        ...(summarizer.config.numCtx !== undefined && {
-          pinnedContextWindow: summarizer.config.numCtx,
+        ...(summarizer.config.llm.numCtx !== undefined && {
+          pinnedContextWindow: summarizer.config.llm.numCtx,
         }),
-        ...(summarizer.config.maxContextTokens !== undefined && {
-          agentMaxTokens: summarizer.config.maxContextTokens,
+        ...(summarizer.config.llm.maxContextTokens !== undefined && {
+          agentMaxTokens: summarizer.config.llm.maxContextTokens,
         }),
       }).tokens;
       const inputBudget = Math.floor(summarizerWindow * SUMMARIZER_INPUT_BUDGET_RATIO);

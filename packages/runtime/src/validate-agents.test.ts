@@ -7,21 +7,21 @@ import { validateAgents } from "./validate-agents";
 
 const storage = mkdtempSync(path.join(tmpdir(), "jazz-validate-agents-"));
 mkdirSync(path.join(storage, "agents"));
-const agentFile = (id: string, config: Record<string, unknown>) =>
+const agentFile = (id: string, provider: string, tools: string[]) =>
   JSON.stringify({
     id,
     name: id,
-    config: { persona: "default", llmModel: "m", tools: [], ...config },
+    config: { persona: "default", llm: { provider, model: "m" }, tools },
     createdAt: "2026-09-27T00:00:00.000Z",
     updatedAt: "2026-09-27T00:00:00.000Z",
   });
 writeFileSync(
   path.join(storage, "agents", "good.json"),
-  agentFile("good", { llmProvider: "openai", tools: ["read_file"] }),
+  agentFile("good", "openai", ["read_file"]),
 );
 writeFileSync(
   path.join(storage, "agents", "typo.json"),
-  agentFile("typo", { llmProvider: "opneai", tools: ["read_fille"] }),
+  agentFile("typo", "opneai", ["read_fille"]),
 );
 writeFileSync(path.join(storage, "agents", "broken.json"), '{"id": "broken"');
 
