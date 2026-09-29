@@ -256,8 +256,16 @@ export function parseOpenConversationValue(
 
 // ─── Commands ────────────────────────────────────────────────────────────────
 
-/** What `/` offers on home. Starting a conversation needs no command: enter does it. */
+/** The command that starts a conversation with the chosen agent, as enter on the button does. */
+export const START_COMMAND = "start-conversation";
+
+/** What `/` offers on home. */
 export const HOME_COMMANDS: readonly ActiveHomeCommand[] = [
+  {
+    name: "start",
+    description: "start a conversation with the chosen agent",
+    value: START_COMMAND,
+  },
   { name: "new", description: "create an agent", value: "create-agent" },
   { name: "resume", description: "continue an earlier conversation", value: "resume-conversation" },
   { name: "agents", description: "see, edit or delete your agents", value: "list-agents" },
@@ -404,7 +412,7 @@ export function homeIntent(model: HomeModel, state: HomeState, key: HomeKey): Ho
     }
     const chosen = matches[Math.min(state.commandIndex, matches.length - 1)];
     if (isEnter(key)) {
-      return chosen === undefined ? NO_CHANGE : { kind: "answer", value: chosen.value };
+      return chosen === undefined ? NO_CHANGE : commandAnswer(model, state, chosen.value);
     }
     if (key.name === "tab") {
       return chosen === undefined
@@ -415,7 +423,7 @@ export function homeIntent(model: HomeModel, state: HomeState, key: HomeKey): Ho
   }
   if (isEnter(key) && state.draft.startsWith("/")) {
     const command = commandNamed(model, state.draft);
-    return command === undefined ? NO_CHANGE : { kind: "answer", value: command.value };
+    return command === undefined ? NO_CHANGE : commandAnswer(model, state, command.value);
   }
   if (key.name === "up" || key.name === "down") {
     return {
@@ -441,6 +449,15 @@ export function homeIntent(model: HomeModel, state: HomeState, key: HomeKey): Ho
     patch: { waitingValue: undefined, commandIndex: 0 },
     edit: true,
   };
+}
+
+/** A command's answer; `/start` becomes a start of the chosen agent, with nothing typed to send. */
+function commandAnswer(model: HomeModel, state: HomeState, value: string): HomeIntent {
+  if (value !== START_COMMAND) {
+    return { kind: "answer", value };
+  }
+  const agent = targetAgent(model, state.agentId);
+  return agent === undefined ? NO_CHANGE : { kind: "answer", value: `${START_PREFIX}${agent.id}` };
 }
 
 function firstRunIntent(model: HomeModel, state: HomeState, key: HomeKey): HomeIntent {

@@ -117,6 +117,13 @@ describe("keys", () => {
     });
   });
 
+  it("/start starts with the chosen agent and sends nothing typed", () => {
+    expect(homeIntent(HOME, at({ agentId: "luna", draft: "/start" }), { name: "return" })).toEqual({
+      kind: "answer",
+      value: "start:luna",
+    });
+  });
+
   it("letters and digits always type, even the ones that used to be shortcuts", () => {
     for (const character of ["n", "r", "q", "s", "1", "2"]) {
       expect(homeIntent(HOME, at({}), { name: character, sequence: character })).toEqual({
