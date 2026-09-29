@@ -13,14 +13,8 @@ import { PreWrappedText } from "./components/PreWrappedText";
 import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
 import ErrorBoundary from "./ErrorBoundary";
-import { InkHome } from "./InkHome";
-import { WizardHome } from "./WizardHome";
-import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
-import { agentDetailsBodyHeight, agentDetailsRows } from "./models/agent-details";
-import { centredWindowStart } from "./text/picker-window";
-import { clipTerminalCells } from "./text/terminal-cells";
-import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { useInputHandler } from "./hooks/use-input-service";
+import { InkHome } from "./InkHome";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
@@ -36,6 +30,12 @@ import StatusFooter from "./StatusFooter";
 import { store, useOutputSlice, usePromptSlice, useSessionSlice, type ActiveMenu } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId } from "./types";
+import { WizardHome } from "./WizardHome";
+import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
+import { markdownToAnsi } from "./markdown/ansi";
+import { agentDetailsBodyHeight, agentDetailsRows } from "./models/agent-details";
+import { centredWindowStart } from "./text/picker-window";
+import { clipTerminalCells } from "./text/terminal-cells";
 import packageJson from "../../../../package.json";
 
 // ============================================================================
@@ -111,24 +111,24 @@ const StatusFooterIsland = React.memo(StatusFooterIslandComponent);
 // Uses TerminalOutputAdapter for two-tier Static/live rendering.
 // ============================================================================
 
-function renderPendingStream(pending: PendingStream, cols: number): string {
+export function renderPendingStream(pending: PendingStream, cols: number): string {
   // The renderer's display config is wired up via store; for this island we
-  // default to formatMarkdown. If the user's display config is `hybrid`, the
-  // renderer will set its own pending text via store.appendStream — the buffer
-  // contains raw markdown either way. We always render with `formatMarkdown`
-  // here; the activity-island's display config doesn't change formatting
-  // semantics for the pending tail.
+  // default to the shared parser's rendered mode. If the user's display
+  // config is `hybrid`, the renderer will set its own pending text via
+  // store.appendStream — the buffer contains raw markdown either way. We
+  // always render in "rendered" syntax here; the activity-island's display
+  // config doesn't change formatting semantics for the pending tail.
   //
   // Pre-wrap to terminal width: under heavy live-area re-rendering Yoga can
   // miscalculate the available width and degenerate into character-by-character
   // wrapping. Hard-wrapping upstream + rendering with PreWrappedText
   // (wrap="truncate") sidesteps that. Same pattern as formatReasoningText
   // in ink-presentation-service.ts.
-  const formatted = formatMarkdown(pending.rawTail);
-  const dimmed = pending.kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
   const width = Math.max(20, cols - PADDING_BUDGET - PADDING.content - RAIL_WIDTH);
+  const formatted = markdownToAnsi(pending.rawTail, { width, syntax: "rendered" });
+  const dimmed = pending.kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
   // Same speaker rail as settled slices so the live tail is seamless.
-  return railStreamLines(wrapToWidth(dimmed, width), pending.kind);
+  return railStreamLines(dimmed, pending.kind);
 }
 
 function OutputIslandComponent(): React.ReactElement {
