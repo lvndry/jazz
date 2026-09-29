@@ -6,7 +6,7 @@ import type {
 } from "@jazz/core/interfaces/terminal";
 import type { GlyphSet } from "./glyphs";
 import { contextPercent, meterFilledCells, meterTone } from "./meter";
-import { THEME } from "./theme";
+import type { TextRole } from "./text/roles";
 
 /**
  * How a command report reads, independent of any terminal: jazz speaking, not the agent.
@@ -21,21 +21,9 @@ import { THEME } from "./theme";
  * muted and aligned within each run of fields; numbers in a run right-align so their
  * digits line up. Each renderer maps the roles below onto its own colours.
  */
-export type ReportRole =
-  | "label"
-  | "text"
-  | "strong"
-  | "secondary"
-  | "muted"
-  | "accent"
-  | "success"
-  | "warning"
-  | "error"
-  | "border";
-
 export interface ReportSegment {
   readonly text: string;
-  readonly role: ReportRole;
+  readonly role: TextRole;
 }
 
 export interface ReportLine {
@@ -64,7 +52,7 @@ export const REPORT_METER_CELLS = 20;
 
 const NUMERIC_VALUE = /^[~≈$-]?\d/;
 
-function toneRole(tone: ReportTone | undefined, fallback: ReportRole): ReportRole {
+function toneRole(tone: ReportTone | undefined, fallback: TextRole): TextRole {
   return tone === undefined ? fallback : tone;
 }
 
@@ -146,7 +134,7 @@ function itemLines(
         { text: " ", role: "muted" },
       );
     }
-    const nameRole: ReportRole =
+    const nameRole: TextRole =
       row.tone !== undefined
         ? row.tone
         : row.marker === "current"
@@ -236,7 +224,7 @@ export function reportLines(report: TerminalReport, glyphs: GlyphSet): ReportLin
 function wrapSegments(segments: readonly ReportSegment[], width: number): ReportSegment[][] {
   const rows: ReportSegment[][] = [[]];
   let used = 0;
-  const push = (text: string, role: ReportRole): void => {
+  const push = (text: string, role: TextRole): void => {
     const row = rows[rows.length - 1] as ReportSegment[];
     const last = row.at(-1);
     if (last !== undefined && last.role === role) {
@@ -316,43 +304,8 @@ export function reportPlainText(report: TerminalReport, glyphs: GlyphSet, width?
 export function reportStyledText(
   report: TerminalReport,
   glyphs: GlyphSet,
-  paint: (role: ReportRole, text: string) => string,
+  paint: (role: TextRole, text: string) => string,
   width?: number,
 ): string {
   return textOf(report, glyphs, width, (segment) => paint(segment.role, segment.text));
-}
-
-/** How a report role is set: a theme colour, and whether it carries weight. */
-export interface RoleStyle {
-  readonly fg: string;
-  readonly bold: boolean;
-}
-
-/**
- * The one table from a command report's roles to colours. The scrollback and fullscreen
- * renderers both read it, so a report looks the same in either and a theme change reaches both.
- */
-export function reportRoleStyle(role: ReportRole): RoleStyle {
-  switch (role) {
-    case "label":
-      return { fg: THEME.secondary, bold: true };
-    case "text":
-      return { fg: THEME.selected, bold: false };
-    case "strong":
-      return { fg: THEME.selected, bold: true };
-    case "secondary":
-      return { fg: THEME.secondary, bold: false };
-    case "muted":
-      return { fg: THEME.muted, bold: false };
-    case "accent":
-      return { fg: THEME.primary, bold: false };
-    case "success":
-      return { fg: THEME.success, bold: false };
-    case "warning":
-      return { fg: THEME.warning, bold: false };
-    case "error":
-      return { fg: THEME.error, bold: false };
-    case "border":
-      return { fg: THEME.border, bold: false };
-  }
 }

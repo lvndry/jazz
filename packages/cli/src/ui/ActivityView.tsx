@@ -5,20 +5,16 @@
 
 import { Box, Text } from "ink";
 import React, { useEffect, useRef, useState } from "react";
-import type { ActivityState } from "./activity-state";
+import type { ActivityState, TodoSnapshotItem } from "./activity-state";
 import { ActivityIndicator } from "./components/ActivityIndicator";
 import { getGlyphs } from "./glyphs";
+import { planProgress, todoLine } from "./models/todo";
+import { formatElapsed } from "./text/format";
+import { roleStyle } from "./text/roles";
 import { PADDING, THEME } from "./theme";
 
 /** Seconds before the elapsed counter appears (avoids a "0s" flash). */
 const ELAPSED_VISIBLE_AFTER_S = 2;
-
-export function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return `${minutes}m ${rest.toString().padStart(2, "0")}s`;
-}
 
 /**
  * Self-ticking elapsed counter. Resets whenever `resetKey` changes; when
@@ -44,44 +40,49 @@ function useElapsedSeconds(resetKey: string, externalStart?: number): number {
 
 function ElapsedText({ seconds }: { seconds: number }): React.ReactElement | null {
   if (seconds < ELAPSED_VISIBLE_AFTER_S) return null;
-  return <Text dimColor> · {formatElapsed(seconds)}</Text>;
+  return <Text dimColor> · {formatElapsed(seconds * 1000)}</Text>;
 }
-
-type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
 
 /**
- * Completed splits by evidence, not by status.
- *
- * A todo the agent finished without running anything is still finished — it belongs on the
- * done side of the list — but it is a weaker claim than one with a verification behind it.
- * Shown by shape rather than hue so the two are distinguishable at a glance.
+ * The plan from the shared plan model: its heading and `N of M`, then each item's mark and
+ * text set the way the fullscreen live zone sets them.
  */
-function todoStatusGlyph(status: TodoStatus, verified: boolean): string {
-  switch (status) {
-    case "completed":
-      return verified ? getGlyphs().success : getGlyphs().warn;
-    case "in_progress":
-      return getGlyphs().proposed;
-    case "cancelled":
-      return getGlyphs().error;
-    case "pending":
-    default:
-      return getGlyphs().pending;
-  }
-}
-
-function todoStatusColor(status: TodoStatus, verified: boolean): string {
-  switch (status) {
-    case "completed":
-      return verified ? THEME.success : THEME.warning;
-    case "in_progress":
-      return THEME.agent;
-    case "cancelled":
-      return THEME.muted;
-    case "pending":
-    default:
-      return THEME.warning;
-  }
+function PlanList({ todos }: { todos: readonly TodoSnapshotItem[] }): React.ReactElement {
+  const glyphs = getGlyphs();
+  const { label, progress } = planProgress(todos);
+  return (
+    <Box
+      marginTop={1}
+      paddingLeft={PADDING.nested}
+      flexDirection="column"
+    >
+      <Box>
+        <Text
+          bold
+          color={THEME.secondary}
+        >
+          {label}
+        </Text>
+        <Text color={THEME.muted}> {progress}</Text>
+      </Box>
+      {todos.map((todo, index) => {
+        const line = todoLine(todo, glyphs);
+        return (
+          <Box key={`${todo.content}-${index}`}>
+            <Text color={roleStyle(line.mark.role).fg}>{line.mark.text}</Text>
+            <Text> </Text>
+            <Text
+              color={roleStyle(line.content.role).fg}
+              bold={line.bold}
+              strikethrough={line.strikethrough}
+            >
+              {line.content.text}
+            </Text>
+          </Box>
+        );
+      })}
+    </Box>
+  );
 }
 
 function AgentHeader({
@@ -222,21 +223,7 @@ export const ActivityView = React.memo(function ActivityView({
             <ElapsedText seconds={elapsedSeconds} />
           </Box>
           {activity.todoSnapshot && activity.todoSnapshot.length > 0 ? (
-            <Box
-              marginTop={1}
-              paddingLeft={PADDING.nested}
-              flexDirection="column"
-            >
-              {activity.todoSnapshot.map((todo, index) => (
-                <Box key={`${todo.content}-${index}`}>
-                  <Text color={todoStatusColor(todo.status, todo.verifiedBy !== undefined)}>
-                    {todoStatusGlyph(todo.status, todo.verifiedBy !== undefined)}
-                  </Text>
-                  <Text> </Text>
-                  <Text>{todo.content}</Text>
-                </Box>
-              ))}
-            </Box>
+            <PlanList todos={activity.todoSnapshot} />
           ) : null}
         </Box>
       );

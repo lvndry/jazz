@@ -859,6 +859,7 @@ export class ToolExecutor {
             yield* renderer.handleEvent({
               type: "tool_execution_complete",
               toolCallId: toolCall.id,
+              toolName: finalToolName,
               result: resultString,
               durationMs: toolDuration,
               success: result.success,
@@ -924,6 +925,7 @@ export class ToolExecutor {
             yield* renderer.handleEvent({
               type: "tool_execution_complete",
               toolCallId: toolCall.id,
+              toolName: name,
               result: `Error: ${errorMessage}`,
               durationMs: toolDuration,
               success: false,
@@ -1250,6 +1252,7 @@ export class ToolExecutor {
                   yield* renderer.handleEvent({
                     type: "tool_execution_complete",
                     toolCallId: toolCall.id,
+                    toolName: toolCall.function.name,
                     result: "Interrupted by user",
                     durationMs: 0,
                     success: false,
@@ -1406,6 +1409,7 @@ function detachInFlightToolCalls(
         yield* renderer.handleEvent({
           type: "tool_execution_complete",
           toolCallId: toolCall.id,
+          toolName: name,
           result: "Running in the background",
           durationMs: 0,
           success: true,

@@ -7,14 +7,17 @@ import { Box, Text } from "ink";
 import React from "react";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { getGlyphs } from "./glyphs";
+import { receiptFromMeta, receiptMark, receiptParts, type ToolReceipt } from "./models/receipt";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
+import { paintRole, paintSegments } from "./text/roles";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
 import { dimReasoningMarkdownOutput, spaceReasoningSections } from "../presentation/format-utils";
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
 
-/** The status icon an entry leads with, from the current glyph set and theme. */
+// Icons and colours are read per render, so a `/theme` switch or the ASCII glyph set reaches
+// entries already in the scrollback.
 function iconFor(type: OutputType): React.ReactElement {
   const glyphs = getGlyphs();
   switch (type) {
@@ -36,7 +39,6 @@ function iconFor(type: OutputType): React.ReactElement {
   }
 }
 
-/** The text colour of an entry, from the current theme. */
 function colorFor(type: OutputType): string {
   switch (type) {
     case "success":
@@ -58,6 +60,24 @@ function colorFor(type: OutputType): string {
 }
 
 /**
+ * A settled tool call, laid out from the same receipt parts the fullscreen transcript uses: the
+ * status mark, then app, arguments, outcome, and on a denial or failure what did not happen.
+ * Receipts sit tight against each other so a burst of calls reads as one group.
+ */
+function ReceiptLine({ receipt }: { receipt: ToolReceipt }): React.ReactElement {
+  const glyphs = getGlyphs();
+  const mark = receiptMark(receipt, glyphs);
+  return (
+    <Box paddingLeft={PADDING.content}>
+      <Text wrap="wrap">
+        {paintRole(mark.role, mark.text)}{" "}
+        {paintSegments(receiptParts(receipt, glyphs, { duration: true }))}
+      </Text>
+    </Box>
+  );
+}
+
+/**
  * Individual output entry component - memoized to prevent re-renders
  * when other entries are added to the list.
  *
@@ -76,6 +96,11 @@ export const OutputEntryView = React.memo(function OutputEntryView({
   entry: OutputEntryWithId;
   addSpacing: boolean;
 }): React.ReactElement {
+  const receipt = receiptFromMeta(entry.meta?.["toolReceipt"]);
+  if (receipt !== null) {
+    return <ReceiptLine receipt={receipt} />;
+  }
+
   const icon = iconFor(entry.type);
   const color = colorFor(entry.type);
 

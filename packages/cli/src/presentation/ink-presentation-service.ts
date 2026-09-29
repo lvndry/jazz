@@ -76,15 +76,16 @@ import { isInsideOpenStructure } from "./markdown-split";
 import {
   addStep,
   EMPTY_TURN,
-  formatReceiptCost,
   formatStepBreakdown,
   formatTurnReceipt,
   type TurnTotals,
 } from "./turn-receipt";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { getGlyphs } from "../ui/glyphs";
+import { receiptFromMeta } from "../ui/models/receipt";
 import { store } from "../ui/store";
 import type { SubagentChannel } from "../ui/subagent-runs";
+import { formatCost } from "../ui/text/format";
 import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
 import { separatorLine, stripAnsiCodes } from "../utils/string-utils";
 
@@ -113,7 +114,7 @@ function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionColla
     const parts = [`${label} completed`, `${seconds}s`];
     if (outcome.totalTokens !== undefined)
       parts.push(`${formatCompactCount(outcome.totalTokens)} tok`);
-    if (outcome.costUSD !== undefined) parts.push(formatReceiptCost(outcome.costUSD));
+    if (outcome.costUSD !== undefined) parts.push(formatCost(outcome.costUSD));
     return chalk.dim(chalk.italic(`${glyphs.success} ${parts.join(" · ")}`));
   }
   const verb = outcome.status === "failed" ? "failed" : "interrupted";
@@ -1134,17 +1135,8 @@ function inkStopSummary(): InterruptSummary {
   let start = entries.length;
   while (start > 0 && entries[start - 1]?.type !== "user") start -= 1;
   const receipts = entries.slice(start).flatMap((entry): ReceiptFacts[] => {
-    const receipt = entry.meta?.["toolReceipt"] as Partial<ReceiptFacts> | undefined;
-    return receipt?.app === undefined || receipt.status === undefined
-      ? []
-      : [
-          {
-            app: receipt.app,
-            summary: receipt.summary ?? "",
-            status: receipt.status,
-            ...(receipt.args === undefined ? {} : { args: receipt.args }),
-          },
-        ];
+    const receipt = receiptFromMeta(entry.meta?.["toolReceipt"]);
+    return receipt === null ? [] : [receipt];
   });
   const activity = session.activity;
   const running =

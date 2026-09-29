@@ -17,6 +17,7 @@ import { memo, type ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
 import { useThemeRevision } from "./theme-revision";
 import type { FooterModel, Viewport } from "./types";
+import { formatCost, formatElapsed } from "../text/format";
 import {
   fitTerminalSegments,
   terminalCellWidth,
@@ -27,10 +28,6 @@ import { THEME } from "../theme";
 export interface FooterSegment {
   readonly text: string;
   readonly fg: string;
-}
-
-export function formatCost(costUsd: number): string {
-  return `$${costUsd.toFixed(2)}`;
 }
 
 /**
@@ -54,13 +51,6 @@ export function formatUsage(
     return `${tokens}${separator}${cost}`;
   }
   return tokens ?? cost;
-}
-
-export function formatElapsed(elapsedMs: number): string {
-  const seconds = Math.max(0, Math.round(elapsedMs / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
 /**

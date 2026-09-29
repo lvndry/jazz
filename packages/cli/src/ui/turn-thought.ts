@@ -10,6 +10,8 @@
  * blocks) cannot disagree about the wording.
  */
 
+import { formatPreciseDuration } from "./text/format";
+
 export interface TurnThought {
   readonly steps: number;
   readonly durationMs: number;
@@ -40,16 +42,6 @@ export function addThoughtStep(
 /** Everything the turn thought, as one text to read. */
 export function thoughtText(thought: TurnThought): string {
   return thought.texts.join("\n\n");
-}
-
-/** Tenths under a minute (`4.1s`), then minutes and seconds (`2m 5s`). */
-export function formatPreciseDuration(durationMs: number): string {
-  const ms = Math.max(0, Math.round(durationMs));
-  if (ms < 1_000) return `${String(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1_000);
-  return `${String(minutes)}m ${String(seconds)}s`;
 }
 
 /** `thought for 9.6s across 5 steps`: the duration, and the step count once there is more than one. */

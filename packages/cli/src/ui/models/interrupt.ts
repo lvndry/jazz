@@ -12,6 +12,7 @@
 
 import type { TodoSnapshotItem } from "../activity-state";
 import { actionClass } from "./approval";
+import { formatPreciseDuration } from "../text/format";
 
 /** Rows each list shows before the rest collapse into `+N more`. */
 export const INTERRUPT_LIST_ROWS = 3;
@@ -74,12 +75,7 @@ export function interruptSummary(snapshot: InterruptSnapshot): InterruptSummary 
 
 /** `stopped by you after 6.2s`: tenths under a minute, minutes and seconds after. */
 export function stoppedHeading(elapsedMs: number): string {
-  const ms = Math.max(0, Math.round(elapsedMs));
-  const duration =
-    ms < 60_000
-      ? `${(ms / 1_000).toFixed(1)}s`
-      : `${String(Math.floor(ms / 60_000))}m ${String(Math.round((ms % 60_000) / 1_000))}s`;
-  return `stopped by you after ${duration}`;
+  return `stopped by you after ${formatPreciseDuration(elapsedMs)}`;
 }
 
 /** The summary as plain lines, for a renderer that prints text: the words both surfaces share. */
