@@ -119,6 +119,16 @@ export interface PromptStep {
 /** How a choice's tag reads: its readiness, a consequence, or plain information. */
 export type PromptTagTone = "success" | "warning" | "accent" | "muted";
 
+/** One styled run of text inside a choice preview. `fg` is a theme-independent hex color. */
+export interface ChoicePreviewSpan {
+  readonly text: string;
+  readonly fg?: string;
+  readonly bold?: boolean;
+}
+
+/** One line of a choice preview, as a sequence of styled runs. */
+export type ChoicePreviewLine = readonly ChoicePreviewSpan[];
+
 /** A choice in a list prompt. `tag` is a short state shown flush right, such as "key saved". */
 export interface PromptChoice<T> {
   readonly name: string;
@@ -127,6 +137,8 @@ export interface PromptChoice<T> {
   readonly disabled?: boolean;
   readonly tag?: string;
   readonly tagTone?: PromptTagTone;
+  /** Rendered live beside (fullscreen) or beneath (Ink) the choice while it is highlighted. */
+  readonly preview?: readonly ChoicePreviewLine[];
 }
 
 /**

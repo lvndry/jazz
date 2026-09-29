@@ -1,3 +1,4 @@
+import type { ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useMemo } from "react";
 import { ChoiceMeta } from "./PromptParts";
@@ -187,40 +188,74 @@ function PickerRowLine({
   const labelColor = row.active ? THEME.selected : THEME.secondary;
 
   return (
-    <Box flexDirection="row">
-      <Text
-        color={THEME.primary}
-        bold
-      >
-        {row.active ? `${getGlyphs().rail} ` : "  "}
-      </Text>
-      {row.matchIndex >= 0 && queryLength > 0 ? (
+    <Box flexDirection="column">
+      <Box flexDirection="row">
         <Text
-          color={labelColor}
-          bold={row.active}
+          color={THEME.primary}
+          bold
         >
-          {row.label.slice(0, row.matchIndex)}
+          {row.active ? `${getGlyphs().rail} ` : "  "}
+        </Text>
+        {row.matchIndex >= 0 && queryLength > 0 ? (
           <Text
-            color={THEME.primary}
-            bold
+            color={labelColor}
+            bold={row.active}
           >
-            {row.label.slice(row.matchIndex, row.matchIndex + queryLength)}
+            {row.label.slice(0, row.matchIndex)}
+            <Text
+              color={THEME.primary}
+              bold
+            >
+              {row.label.slice(row.matchIndex, row.matchIndex + queryLength)}
+            </Text>
+            {row.label.slice(row.matchIndex + queryLength)}
           </Text>
-          {row.label.slice(row.matchIndex + queryLength)}
-        </Text>
-      ) : (
-        <Text
-          color={labelColor}
-          bold={row.active}
+        ) : (
+          <Text
+            color={labelColor}
+            bold={row.active}
+          >
+            {row.label}
+          </Text>
+        )}
+        <ChoiceMeta
+          description={row.description}
+          tag={row.tag}
+          tagTone={row.tagTone}
+        />
+      </Box>
+      {row.active && row.preview !== undefined ? <PickerRowPreview lines={row.preview} /> : null}
+    </Box>
+  );
+}
+
+/** The active row's preview, indented beneath its label so it reads as belonging to it. */
+function PickerRowPreview({
+  lines,
+}: {
+  readonly lines: readonly ChoicePreviewLine[];
+}): React.ReactElement {
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, lineIndex) => (
+        <Box
+          key={String(lineIndex)}
+          flexDirection="row"
         >
-          {row.label}
-        </Text>
-      )}
-      <ChoiceMeta
-        description={row.description}
-        tag={row.tag}
-        tagTone={row.tagTone}
-      />
+          <Text>{"    "}</Text>
+          <Text>
+            {line.map((span, spanIndex) => (
+              <Text
+                key={String(spanIndex)}
+                color={span.fg ?? THEME.muted}
+                bold={span.bold === true}
+              >
+                {span.text}
+              </Text>
+            ))}
+          </Text>
+        </Box>
+      ))}
     </Box>
   );
 }

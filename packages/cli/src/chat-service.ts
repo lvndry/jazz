@@ -275,7 +275,10 @@ export class ChatServiceImpl implements ChatService {
       let sessionTurnCount = 0;
       /** Spend caps already warned about this session, by window, so each warns once. */
       const warnedSpendCaps = new Set<string>();
-      let sessionLimits: SessionLimits = {};
+      let sessionLimits: SessionLimits =
+        appConfig.chat?.defaultCostLimitUSD !== undefined
+          ? { maxCostUSD: appConfig.chat.defaultCostLimitUSD }
+          : {};
       let autoApprovePolicy: AutoApprovePolicy = SAFE_MODE_POLICY;
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];

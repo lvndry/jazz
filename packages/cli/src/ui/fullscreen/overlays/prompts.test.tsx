@@ -602,8 +602,14 @@ describe("question overlay", () => {
       WIDE,
     );
     const frame = captureCharFrame();
-    expect(frame).toContain("y / n");
-    expect(frame).toContain("answer");
+    const lines = rows(frame);
+    const buttonRow = lines.find((line) => line.includes("Yes, book it"));
+    expect(buttonRow).toBeDefined();
+    // The keys legend below names the y/n shortcut once; the button row itself must not repeat it.
+    expect(buttonRow).not.toContain("y / n");
+
+    const legendRow = lines.find((line) => line.includes("y/n"));
+    expect(legendRow).toContain("answer");
 
     const filled = spanWithText(captureSpans(), " Yes, book it ");
     const other = spanWithText(captureSpans(), " No, leave it ");

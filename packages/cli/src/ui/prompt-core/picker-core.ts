@@ -22,7 +22,7 @@
  * function here, not two components.
  */
 
-import type { PromptTagTone } from "@jazz/core/interfaces/terminal";
+import type { ChoicePreviewLine, PromptTagTone } from "@jazz/core/interfaces/terminal";
 import { rankPickerMatches } from "../text/picker-window";
 
 /** A single choice as the core sees it. Hosts map their domain choices to this. */
@@ -34,6 +34,8 @@ export interface PickerChoice {
   /** A short state shown flush right, such as "key saved". */
   readonly tag?: string;
   readonly tagTone?: PromptTagTone;
+  /** Rendered beneath the label while this choice is the active row. */
+  readonly preview?: readonly ChoicePreviewLine[];
 }
 
 export type PickerType = "select" | "search" | "checkbox" | "questionnaire";
@@ -144,6 +146,7 @@ export interface PickerRow {
   readonly description?: string;
   readonly tag?: string;
   readonly tagTone?: PromptTagTone;
+  readonly preview?: readonly ChoicePreviewLine[];
   readonly disabled: boolean;
   readonly active: boolean;
   readonly selected: boolean;
@@ -176,6 +179,7 @@ export function derivePickerView(state: PickerState): PickerView {
     ...(entry.choice.description === undefined ? {} : { description: entry.choice.description }),
     ...(entry.choice.tag === undefined ? {} : { tag: entry.choice.tag }),
     ...(entry.choice.tagTone === undefined ? {} : { tagTone: entry.choice.tagTone }),
+    ...(entry.choice.preview === undefined ? {} : { preview: entry.choice.preview }),
     disabled: entry.choice.disabled === true,
     active: index === state.cursor,
     selected: state.checked.has(entry.originalIndex),

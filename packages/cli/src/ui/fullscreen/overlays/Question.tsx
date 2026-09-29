@@ -29,6 +29,7 @@
  *     the line below it is what you can do about it.
  */
 
+import type { ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
 import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
@@ -81,6 +82,15 @@ const BUTTON_PAD = 1;
 /** Cells between the two buttons. */
 const BUTTON_GAP = 3;
 
+/** Share of the inner width a preview pane takes when any choice carries one. */
+const PREVIEW_SHARE = 0.4;
+
+/** Cells between the list and the preview pane. */
+const PREVIEW_GAP = 3;
+
+/** The preview pane never drops below this width; below it, it is not worth showing. */
+const PREVIEW_MIN_WIDTH = 12;
+
 /** Relative luminance above which text on the accent reads best dark. */
 const LIGHT_ACCENT_LUMINANCE = 0.45;
 
@@ -112,6 +122,8 @@ export interface QuestionChoice {
   /** A short state flush right on the row: "key saved", "asks first". */
   readonly tag?: string;
   readonly tagTone?: QuestionTagTone;
+  /** Rendered live in a pane to the right of the list while this choice is highlighted. */
+  readonly preview?: readonly ChoicePreviewLine[];
 }
 
 /** Descriptions with tab-separated columns, lined up across the choices by the shared picker rule. */
@@ -311,6 +323,16 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
   const total = model.choices.length + (custom ? 1 : 0);
   const selected = Math.max(0, Math.min(model.selected, Math.max(0, total - 1)));
 
+  // A choice preview takes a pane of its own to the right of the list, so the
+  // list's own column math runs against a narrower width — never the full card.
+  const previewCandidateWidth = Math.floor(inner * PREVIEW_SHARE);
+  const hasPreview =
+    model.choices.some((choice) => choice.preview !== undefined) &&
+    previewCandidateWidth >= PREVIEW_MIN_WIDTH &&
+    inner - previewCandidateWidth - PREVIEW_GAP >= PREVIEW_MIN_WIDTH;
+  const previewWidth = hasPreview ? previewCandidateWidth : 0;
+  const bodyInner = hasPreview ? inner - previewWidth - PREVIEW_GAP : inner;
+
   // Descriptions align into their own column so the choices read as a table.
   // Labels keep the majority of the row: the label is the answer, the
   // description is only the reason for it.
@@ -320,12 +342,13 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
     (widest, choice) => Math.max(widest, displayWidth(choice.tag ?? "")),
     0,
   );
-  const tagColumn = widestTag > 0 ? Math.min(widestTag, Math.floor(inner / 3)) : 0;
+  const tagColumn = widestTag > 0 ? Math.min(widestTag, Math.floor(bodyInner / 3)) : 0;
   const bodyWidth = Math.max(
     4,
-    inner - markColumn - (tagColumn > 0 ? tagColumn + DESCRIPTION_GAP : 0),
+    bodyInner - markColumn - (tagColumn > 0 ? tagColumn + DESCRIPTION_GAP : 0),
   );
-  const described = model.choices.some((choice) => (choice.description ?? "").length > 0);
+  const described =
+    !hasPreview && model.choices.some((choice) => (choice.description ?? "").length > 0);
   const longestLabel = model.choices.reduce(
     (widest, choice) => Math.max(widest, displayWidth(oneLine(choice.label))),
     0,
@@ -370,6 +393,9 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
       visible: items,
       start: 0,
       listOffset: 0,
+      hasPreview: false,
+      previewWidth: 0,
+      selectedPreview: undefined,
       height: placed.height,
       cardHeight: Math.max(1, placed.height - HINT_ROWS),
       left: placed.left,
@@ -407,13 +433,17 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
     );
   }, 0);
   // A tag column is flush right, so a list that carries tags spans the card instead of centering.
+  // A preview pane pins the list to the left edge of its own column too — there is nothing to
+  // center against once the row reads as two panes rather than one floating block.
   const listOffset =
-    filterable || tagColumn > 0 || widestOptionRow >= inner
+    hasPreview || filterable || tagColumn > 0 || widestOptionRow >= bodyInner
       ? 0
-      : centeredOffset(widestOptionRow, inner);
+      : centeredOffset(widestOptionRow, bodyInner);
 
   const { height, left, top } = placeOverlay(viewport, frame, fixedRows + listRows + HINT_ROWS);
   const cardHeight = Math.max(1, height - HINT_ROWS);
+  const selectedChoice = items[selected] ?? null;
+  const selectedPreview = selectedChoice?.preview;
   return {
     fullscreen,
     width,
@@ -434,11 +464,66 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
     visible,
     start,
     listOffset,
+    hasPreview,
+    previewWidth,
+    selectedPreview,
     height,
     cardHeight,
     left,
     top,
   };
+}
+
+/** The highlighted choice's preview, wrapping each line rather than clipping it. */
+function PreviewPane({
+  lines,
+  width,
+}: {
+  readonly lines: readonly ChoicePreviewLine[];
+  readonly width: number;
+}): ReactNode {
+  return (
+    <>
+      {lines.flatMap((line, lineIndex) => {
+        // A caption is almost always one plain span; word-wrap it across rows rather than
+        // clipping it, so "no color; every line reads the same" is not "no color; every ...".
+        // A swatch or other multi-span line keeps its styling on one row instead — wrapping a
+        // run of separately-colored spans would need to split a span mid-run, which is not
+        // worth it for the short, single-row content every current preview actually uses.
+        const onlySpan = line.length === 1 ? line[0] : undefined;
+        const rows =
+          onlySpan === undefined
+            ? [line]
+            : wrapLines(onlySpan.text, width).map((piece) => [{ ...onlySpan, text: piece }]);
+        return rows.map((row, rowIndex) => (
+          <text
+            key={`${String(lineIndex)}-${String(rowIndex)}`}
+            style={{ height: 1, flexShrink: 0, wrapMode: "none", truncate: true }}
+          >
+            {row.map((span, spanIndex) => {
+              const content = clip(span.text, width);
+              const style = { fg: span.fg ?? THEME.secondary };
+              return span.bold === true ? (
+                <b
+                  key={String(spanIndex)}
+                  style={style}
+                >
+                  {content}
+                </b>
+              ) : (
+                <span
+                  key={String(spanIndex)}
+                  style={style}
+                >
+                  {content}
+                </span>
+              );
+            })}
+          </text>
+        ));
+      })}
+    </>
+  );
 }
 
 export function Question({ model, viewport }: QuestionProps): ReactNode {
@@ -462,6 +547,9 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     visible,
     start,
     listOffset,
+    hasPreview,
+    previewWidth,
+    selectedPreview,
     height,
     cardHeight,
     left,
@@ -601,216 +689,236 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
 
         <box style={{ height: 1, flexShrink: 0 }} />
 
-        <box
-          style={{
-            height: listRows,
-            flexShrink: 0,
-            flexDirection: "column",
-            paddingLeft: listOffset,
-          }}
-        >
-          {model.buttons === true ? (
-            <>
-              <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-                <text style={{ width: GUTTER, flexShrink: 0 }}>{" ".repeat(GUTTER)}</text>
-                <text style={{ wrapMode: "none" }}>
-                  {model.choices.flatMap((choice, index) => {
-                    const filled = index === selected;
-                    const label = `${" ".repeat(BUTTON_PAD)}${oneLine(choice.label)}${" ".repeat(BUTTON_PAD)}`;
-                    return [
-                      ...(index > 0
-                        ? [<span key={`gap-${String(index)}`}>{" ".repeat(BUTTON_GAP)}</span>]
-                        : []),
-                      filled ? (
-                        <b
-                          key={choice.value}
-                          style={{ fg: onAccent(THEME.primary), bg: THEME.primary }}
-                        >
-                          {label}
-                        </b>
-                      ) : (
-                        <span
-                          key={choice.value}
-                          style={{ fg: THEME.secondary, bg: THEME.surfaceStrong }}
-                        >
-                          {label}
-                        </span>
-                      ),
-                    ];
-                  })}
-                </text>
-                <box style={{ flexGrow: 1 }} />
-                <text style={{ fg: THEME.muted, flexShrink: 0 }}>y / n</text>
-              </box>
-              {items.length > model.choices.length ? (
-                <>
-                  <box style={{ height: 1, flexShrink: 0 }} />
-                  <box
-                    style={{
-                      height: 1,
-                      flexShrink: 0,
-                      flexDirection: "row",
-                      ...(selected === model.choices.length
-                        ? { backgroundColor: THEME.surfaceStrong }
-                        : {}),
-                    }}
-                  >
-                    <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
-                      {selected === model.choices.length ? `${glyphs.arrow} ` : " ".repeat(GUTTER)}
-                    </text>
-                    {selected === model.choices.length ? (
-                      <CaretValue
-                        value={model.customValue ?? ""}
-                        caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
-                        width={Math.max(4, inner - GUTTER)}
-                        placeholder={CUSTOM_HINT}
-                      />
-                    ) : (
-                      <text style={{ fg: THEME.muted, attributes: TextAttributes.ITALIC }}>
-                        {CUSTOM_HINT}
+        <box style={{ height: listRows, flexShrink: 0, flexDirection: "row" }}>
+          <box
+            style={{
+              height: listRows,
+              flexShrink: 0,
+              flexDirection: "column",
+              paddingLeft: listOffset,
+            }}
+          >
+            {model.buttons === true ? (
+              <>
+                <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
+                  <text style={{ width: GUTTER, flexShrink: 0 }}>{" ".repeat(GUTTER)}</text>
+                  <text style={{ wrapMode: "none" }}>
+                    {model.choices.flatMap((choice, index) => {
+                      const filled = index === selected;
+                      const label = `${" ".repeat(BUTTON_PAD)}${oneLine(choice.label)}${" ".repeat(BUTTON_PAD)}`;
+                      return [
+                        ...(index > 0
+                          ? [<span key={`gap-${String(index)}`}>{" ".repeat(BUTTON_GAP)}</span>]
+                          : []),
+                        filled ? (
+                          <b
+                            key={choice.value}
+                            style={{ fg: onAccent(THEME.primary), bg: THEME.primary }}
+                          >
+                            {label}
+                          </b>
+                        ) : (
+                          <span
+                            key={choice.value}
+                            style={{ fg: THEME.secondary, bg: THEME.surfaceStrong }}
+                          >
+                            {label}
+                          </span>
+                        ),
+                      ];
+                    })}
+                  </text>
+                </box>
+                {items.length > model.choices.length ? (
+                  <>
+                    <box style={{ height: 1, flexShrink: 0 }} />
+                    <box
+                      style={{
+                        height: 1,
+                        flexShrink: 0,
+                        flexDirection: "row",
+                        ...(selected === model.choices.length
+                          ? { backgroundColor: THEME.surfaceStrong }
+                          : {}),
+                      }}
+                    >
+                      <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
+                        {selected === model.choices.length
+                          ? `${glyphs.arrow} `
+                          : " ".repeat(GUTTER)}
                       </text>
-                    )}
-                  </box>
-                </>
-              ) : null}
-            </>
-          ) : filterable && items.length === 0 ? (
-            <text style={{ fg: THEME.muted, height: 1, flexShrink: 0 }}>No matching options</text>
-          ) : (
-            visible.map((choice, offset) => {
-              const index = start + offset;
-              const isSelected = index === selected;
-              const remaining = heights
-                .slice(start, index)
-                .reduce((left, rows) => left - rows, listRows);
-              const shownRows = Math.max(1, Math.min(layouts[index]?.rows ?? 1, remaining));
+                      {selected === model.choices.length ? (
+                        <CaretValue
+                          value={model.customValue ?? ""}
+                          caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
+                          width={Math.max(4, inner - GUTTER)}
+                          placeholder={CUSTOM_HINT}
+                        />
+                      ) : (
+                        <text style={{ fg: THEME.muted, attributes: TextAttributes.ITALIC }}>
+                          {CUSTOM_HINT}
+                        </text>
+                      )}
+                    </box>
+                  </>
+                ) : null}
+              </>
+            ) : filterable && items.length === 0 ? (
+              <text style={{ fg: THEME.muted, height: 1, flexShrink: 0 }}>No matching options</text>
+            ) : (
+              visible.map((choice, offset) => {
+                const index = start + offset;
+                const isSelected = index === selected;
+                const remaining = heights
+                  .slice(start, index)
+                  .reduce((left, rows) => left - rows, listRows);
+                const shownRows = Math.max(1, Math.min(layouts[index]?.rows ?? 1, remaining));
 
-              if (choice === null) {
+                if (choice === null) {
+                  return (
+                    <box
+                      key="custom"
+                      style={{
+                        height: 1,
+                        flexShrink: 0,
+                        flexDirection: "row",
+                        ...(isSelected ? { backgroundColor: THEME.surfaceStrong } : {}),
+                      }}
+                    >
+                      <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
+                        {isSelected ? `${glyphs.arrow} ` : " ".repeat(GUTTER)}
+                      </text>
+                      <text style={{ fg: THEME.muted, width: NUMBER_COLUMN, flexShrink: 0 }}>
+                        {windowChoiceNumber(offset)}
+                      </text>
+                      {isSelected ? (
+                        <CaretValue
+                          value={model.customValue ?? ""}
+                          caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
+                          width={Math.max(4, inner - GUTTER - NUMBER_COLUMN)}
+                          placeholder={CUSTOM_HINT}
+                        />
+                      ) : (
+                        <text
+                          style={{
+                            fg: THEME.muted,
+                            attributes: TextAttributes.ITALIC,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {clip(CUSTOM_HINT, Math.max(4, inner - GUTTER - NUMBER_COLUMN))}
+                        </text>
+                      )}
+                    </box>
+                  );
+                }
+
+                const isChecked = checked.has(choice.value);
+                const disabled = choice.disabled === true;
+                const labelColor = disabled
+                  ? THEME.muted
+                  : isSelected
+                    ? THEME.selected
+                    : THEME.secondary;
+                const layout = layouts[index] ?? layoutChoice(choice, labelWidth, descriptionWidth);
+                const labelLines = layout.labelLines.slice(0, shownRows);
+                const descriptionLines = layout.descriptionLines.slice(0, shownRows);
                 return (
                   <box
-                    key="custom"
+                    key={choice.value}
                     style={{
-                      height: 1,
+                      height: shownRows,
                       flexShrink: 0,
-                      flexDirection: "row",
+                      flexDirection: "column",
                       ...(isSelected ? { backgroundColor: THEME.surfaceStrong } : {}),
                     }}
                   >
-                    <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
-                      {isSelected ? `${glyphs.arrow} ` : " ".repeat(GUTTER)}
-                    </text>
-                    <text style={{ fg: THEME.muted, width: NUMBER_COLUMN, flexShrink: 0 }}>
-                      {windowChoiceNumber(offset)}
-                    </text>
-                    {isSelected ? (
-                      <CaretValue
-                        value={model.customValue ?? ""}
-                        caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
-                        width={Math.max(4, inner - GUTTER - NUMBER_COLUMN)}
-                        placeholder={CUSTOM_HINT}
-                      />
-                    ) : (
-                      <text
-                        style={{
-                          fg: THEME.muted,
-                          attributes: TextAttributes.ITALIC,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {clip(CUSTOM_HINT, Math.max(4, inner - GUTTER - NUMBER_COLUMN))}
-                      </text>
-                    )}
-                  </box>
-                );
-              }
-
-              const isChecked = checked.has(choice.value);
-              const disabled = choice.disabled === true;
-              const labelColor = disabled
-                ? THEME.muted
-                : isSelected
-                  ? THEME.selected
-                  : THEME.secondary;
-              const layout = layouts[index] ?? layoutChoice(choice, labelWidth, descriptionWidth);
-              const labelLines = layout.labelLines.slice(0, shownRows);
-              const descriptionLines = layout.descriptionLines.slice(0, shownRows);
-              return (
-                <box
-                  key={choice.value}
-                  style={{
-                    height: shownRows,
-                    flexShrink: 0,
-                    flexDirection: "column",
-                    ...(isSelected ? { backgroundColor: THEME.surfaceStrong } : {}),
-                  }}
-                >
-                  {Array.from({ length: shownRows }, (_, row) => {
-                    const label = labelLines[row] ?? "";
-                    const description = descriptionLines[row] ?? "";
-                    return (
-                      <box
-                        key={`${choice.value}-${String(row)}`}
-                        style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
-                      >
-                        <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
-                          {isSelected && row === 0 ? `${glyphs.arrow} ` : " ".repeat(GUTTER)}
-                        </text>
-                        <text style={{ fg: THEME.muted, width: NUMBER_COLUMN, flexShrink: 0 }}>
-                          {row === 0 ? windowChoiceNumber(offset) : " ".repeat(NUMBER_COLUMN)}
-                        </text>
-                        {checkbox ? (
-                          <text style={{ width: CHECKBOX_COLUMN, flexShrink: 0 }}>
-                            {row === 0 ? (
-                              <>
-                                <span style={{ fg: THEME.muted }}>[</span>
-                                <span style={{ fg: isChecked ? THEME.primary : THEME.muted }}>
-                                  {isChecked ? glyphs.success : " "}
-                                </span>
-                                <span style={{ fg: THEME.muted }}>{"] "}</span>
-                              </>
+                    {Array.from({ length: shownRows }, (_, row) => {
+                      const label = labelLines[row] ?? "";
+                      const description = descriptionLines[row] ?? "";
+                      return (
+                        <box
+                          key={`${choice.value}-${String(row)}`}
+                          style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
+                        >
+                          <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
+                            {isSelected && row === 0 ? `${glyphs.arrow} ` : " ".repeat(GUTTER)}
+                          </text>
+                          <text style={{ fg: THEME.muted, width: NUMBER_COLUMN, flexShrink: 0 }}>
+                            {row === 0 ? windowChoiceNumber(offset) : " ".repeat(NUMBER_COLUMN)}
+                          </text>
+                          {checkbox ? (
+                            <text style={{ width: CHECKBOX_COLUMN, flexShrink: 0 }}>
+                              {row === 0 ? (
+                                <>
+                                  <span style={{ fg: THEME.muted }}>[</span>
+                                  <span style={{ fg: isChecked ? THEME.primary : THEME.muted }}>
+                                    {isChecked ? glyphs.success : " "}
+                                  </span>
+                                  <span style={{ fg: THEME.muted }}>{"] "}</span>
+                                </>
+                              ) : (
+                                " ".repeat(CHECKBOX_COLUMN)
+                              )}
+                            </text>
+                          ) : null}
+                          <text style={{ width: labelWidth, flexShrink: 0 }}>
+                            {isSelected ? (
+                              <b style={{ fg: labelColor }}>{label}</b>
                             ) : (
-                              " ".repeat(CHECKBOX_COLUMN)
+                              <span style={{ fg: labelColor }}>{label}</span>
                             )}
                           </text>
-                        ) : null}
-                        <text style={{ width: labelWidth, flexShrink: 0 }}>
-                          {isSelected ? (
-                            <b style={{ fg: labelColor }}>{label}</b>
-                          ) : (
-                            <span style={{ fg: labelColor }}>{label}</span>
-                          )}
-                        </text>
-                        {descriptionWidth > 0 ? (
-                          <text
-                            style={{
-                              fg: THEME.muted,
-                              width: descriptionWidth + DESCRIPTION_GAP,
-                              flexShrink: 0,
-                            }}
-                          >
-                            {`${" ".repeat(DESCRIPTION_GAP)}${description}`}
-                          </text>
-                        ) : null}
-                        {tagColumn > 0 ? (
-                          <text
-                            style={{
-                              fg: tagColor(choice.tagTone),
-                              width: tagColumn + DESCRIPTION_GAP,
-                              flexShrink: 0,
-                            }}
-                          >
-                            {row === 0 && (choice.tag ?? "").length > 0
-                              ? `${" ".repeat(DESCRIPTION_GAP + Math.max(0, tagColumn - displayWidth(clip(choice.tag ?? "", tagColumn))))}${clip(choice.tag ?? "", tagColumn)}`
-                              : ""}
-                          </text>
-                        ) : null}
-                      </box>
-                    );
-                  })}
-                </box>
-              );
-            })
-          )}
+                          {descriptionWidth > 0 ? (
+                            <text
+                              style={{
+                                fg: THEME.muted,
+                                width: descriptionWidth + DESCRIPTION_GAP,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {`${" ".repeat(DESCRIPTION_GAP)}${description}`}
+                            </text>
+                          ) : null}
+                          {tagColumn > 0 ? (
+                            <text
+                              style={{
+                                fg: tagColor(choice.tagTone),
+                                width: tagColumn + DESCRIPTION_GAP,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {row === 0 && (choice.tag ?? "").length > 0
+                                ? `${" ".repeat(DESCRIPTION_GAP + Math.max(0, tagColumn - displayWidth(clip(choice.tag ?? "", tagColumn))))}${clip(choice.tag ?? "", tagColumn)}`
+                                : ""}
+                            </text>
+                          ) : null}
+                        </box>
+                      );
+                    })}
+                  </box>
+                );
+              })
+            )}
+          </box>
+          {hasPreview ? (
+            <box
+              style={{
+                height: listRows,
+                width: previewWidth,
+                flexShrink: 0,
+                flexDirection: "column",
+                paddingLeft: PREVIEW_GAP,
+              }}
+            >
+              {selectedPreview === undefined ? null : (
+                <PreviewPane
+                  lines={selectedPreview}
+                  width={previewWidth}
+                />
+              )}
+            </box>
+          ) : null}
         </box>
 
         <box style={{ height: 1, flexShrink: 0 }} />

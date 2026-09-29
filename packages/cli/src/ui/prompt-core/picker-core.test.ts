@@ -64,6 +64,17 @@ describe("derivePickerView", () => {
     expect(view.rows[1]?.selected).toBe(false);
     expect(view.rows[2]?.selected).toBe(true);
   });
+
+  it("carries a choice's preview through to its row, and leaves it off choices without one", () => {
+    const withPreview: readonly PickerChoice[] = [
+      { label: "Full", value: "full", preview: [[{ text: "swatch" }]] },
+      { label: "None", value: "none" },
+    ];
+    const state = createPickerState({ type: "select", choices: withPreview, initialCursor: 0 });
+    const view = derivePickerView(state);
+    expect(view.rows[0]?.preview).toEqual([[{ text: "swatch" }]]);
+    expect(view.rows[1]?.preview).toBeUndefined();
+  });
 });
 
 describe("reducePicker", () => {

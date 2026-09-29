@@ -27,6 +27,7 @@ import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import { TERMINAL_NOTIFICATION_SETTINGS } from "@/core/notify/terminal-notification";
 import type {
   AnthropicProviderConfig,
+  ChatConfig,
   ChatGPTProviderConfig,
   AppConfig,
   ContextConfig,
@@ -506,6 +507,10 @@ const schedulerShape = {
   mode: exhaustiveEnum<SchedulerMode>()(["auto", "in-process"]).exactOptional(),
 } satisfies SchemaShape<SchedulerConfig>;
 
+const chatShape = {
+  defaultCostLimitUSD: dollars.exactOptional(),
+} satisfies SchemaShape<ChatConfig>;
+
 const uiShape = {
   theme: described(
     z.string().regex(/^[a-z0-9][a-z0-9-]*(:(dark|light))?$/),
@@ -631,6 +636,7 @@ const configFileShape = {
   daemon: z.strictObject(daemonShape).exactOptional(),
   notify: z.strictObject(notifyShape).exactOptional(),
   ui: z.strictObject(uiShape).exactOptional(),
+  chat: z.strictObject(chatShape).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;
 
 /** A whole config file, as it may appear on disk. */

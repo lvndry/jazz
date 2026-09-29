@@ -14,7 +14,7 @@ import {
 } from "@jazz/core/constants/local-providers";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
-import type { TerminalService } from "@jazz/core/interfaces/terminal";
+import type { ChoicePreviewLine, TerminalService } from "@jazz/core/interfaces/terminal";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type {
@@ -41,11 +41,15 @@ import {
   parseSpendLimitInput,
   SPEND_LIMIT_SETTINGS,
 } from "./spend-limits";
+import { commitTheme } from "../chat/commands/handler";
 import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
 import { writeClipboard } from "../ui/fullscreen/clipboard";
+import { activeKeymapMode } from "../ui/keymaps";
 import { configuredProviderNames } from "../ui/models/configured-providers";
 import { store, type ActiveMenuOption } from "../ui/store";
+import { THEME } from "../ui/theme";
+import { pickThemeInteractively } from "../ui/theme-picker-prompt";
 
 /**
  * Menu actions for the config wizard
@@ -501,6 +505,101 @@ function configureWebSearchProviders() {
   });
 }
 
+/** How a chat reply's `**bold** and \`code\`` reads under each output mode. */
+const OUTPUT_MODE_PREVIEWS: Readonly<Record<OutputMode, readonly ChoicePreviewLine[]>> = {
+  hybrid: [
+    [
+      { text: "**", fg: THEME.muted },
+      { text: "bold", fg: THEME.selected, bold: true },
+      { text: "**", fg: THEME.muted },
+      { text: " and ", fg: THEME.secondary },
+      { text: "`code`", fg: THEME.primary },
+    ],
+    [{ text: "Markdown stays visible, styled on top.", fg: THEME.muted }],
+  ],
+  raw: [
+    [{ text: "**bold** and `code`", fg: THEME.secondary }],
+    [{ text: "No styling at all — safe to copy or pipe.", fg: THEME.muted }],
+  ],
+  rendered: [
+    [
+      { text: "bold", fg: THEME.selected, bold: true },
+      { text: " and ", fg: THEME.secondary },
+      { text: "code", fg: THEME.primary },
+    ],
+    [{ text: "Markdown is fully interpreted, markers dropped.", fg: THEME.muted }],
+  ],
+  quiet: [
+    [{ text: "(nothing prints)", fg: THEME.muted }],
+    [{ text: "For cron jobs and scripts reading only the result.", fg: THEME.muted }],
+  ],
+};
+
+/** Standard xterm 16-color hues — visibly cruder than the theme's own palette, on purpose. */
+const ANSI_16_RED = "#CD0000";
+const ANSI_16_GREEN = "#00CD00";
+const ANSI_16_YELLOW = "#CDCD00";
+const ANSI_16_BLUE = "#0000EE";
+const ANSI_16_MAGENTA = "#CD00CD";
+
+const FULL_COLOR_SWATCH: ChoicePreviewLine = [
+  { text: "██ ", fg: THEME.primary },
+  { text: "██ ", fg: THEME.success },
+  { text: "██ ", fg: THEME.warning },
+  { text: "██ ", fg: THEME.error },
+  { text: "██", fg: THEME.selected },
+];
+
+/** How each color profile paints the same five-swatch sample. */
+const COLOR_PROFILE_PREVIEWS: Readonly<
+  Record<"auto" | ColorProfile, readonly ChoicePreviewLine[]>
+> = {
+  auto: [FULL_COLOR_SWATCH, [{ text: "Detected from your terminal.", fg: THEME.muted }]],
+  full: [FULL_COLOR_SWATCH, [{ text: "Every hue exactly as designed.", fg: THEME.muted }]],
+  basic: [
+    [
+      { text: "██ ", fg: ANSI_16_RED },
+      { text: "██ ", fg: ANSI_16_GREEN },
+      { text: "██ ", fg: ANSI_16_YELLOW },
+      { text: "██ ", fg: ANSI_16_BLUE },
+      { text: "██", fg: ANSI_16_MAGENTA },
+    ],
+    [{ text: "16 colors, rounded to the nearest one.", fg: THEME.muted }],
+  ],
+  none: [
+    [
+      { text: "██ ", fg: THEME.muted },
+      { text: "██ ", fg: THEME.muted },
+      { text: "██ ", fg: THEME.muted },
+      { text: "██ ", fg: THEME.muted },
+      { text: "██", fg: THEME.muted },
+    ],
+    [{ text: "No color; every line reads the same.", fg: THEME.muted }],
+  ],
+};
+
+/** How the same log line reads under each format. */
+const LOG_FORMAT_PREVIEWS: Readonly<Record<LoggingConfig["format"], readonly ChoicePreviewLine[]>> =
+  {
+    plain: [
+      [
+        { text: "12:03:41 ", fg: THEME.muted },
+        { text: "INFO  ", fg: THEME.success },
+        { text: "agent started", fg: THEME.secondary },
+      ],
+      [{ text: "One line per entry, read at a glance.", fg: THEME.muted }],
+    ],
+    json: [
+      [{ text: '{"level":"info","msg":"agent started"}', fg: THEME.secondary }],
+      [{ text: "One JSON object per line, for log processors.", fg: THEME.muted }],
+    ],
+  };
+
+/** Marks a choice as the value already saved, so a picker never leaves you guessing which one. */
+function currentTag(isCurrent: boolean): { tag?: string; tagTone?: "accent" } {
+  return isCurrent ? { tag: "current", tagTone: "accent" } : {};
+}
+
 function configureOutputDisplay() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -529,6 +628,7 @@ function configureOutputDisplay() {
         choices: [
           { name: `Output mode (${displayConfig.mode})`, value: "mode" },
           { name: `Color profile (${colorProfileLabel})`, value: "color-profile" },
+          { name: `Theme (${appConfig.ui?.theme ?? "system"})`, value: "theme" },
           {
             name: `Show reasoning (${displayConfig.showReasoning ? "on" : "off"})`,
             value: "show-reasoning",
@@ -553,11 +653,32 @@ function configureOutputDisplay() {
       switch (selection) {
         case "mode": {
           const mode = yield* terminal.select<OutputMode>("Select output mode:", {
+            default: displayConfig.mode,
             choices: [
-              { name: "Hybrid (styled, copy-paste friendly)", value: "hybrid" },
-              { name: "Raw (plain text)", value: "raw" },
-              { name: "Rendered (styled)", value: "rendered" },
-              { name: "Quiet (suppress output, for cron/background)", value: "quiet" },
+              {
+                name: "Hybrid (styled, copy-paste friendly)",
+                value: "hybrid",
+                preview: OUTPUT_MODE_PREVIEWS.hybrid,
+                ...currentTag(displayConfig.mode === "hybrid"),
+              },
+              {
+                name: "Raw (plain text)",
+                value: "raw",
+                preview: OUTPUT_MODE_PREVIEWS.raw,
+                ...currentTag(displayConfig.mode === "raw"),
+              },
+              {
+                name: "Rendered (styled)",
+                value: "rendered",
+                preview: OUTPUT_MODE_PREVIEWS.rendered,
+                ...currentTag(displayConfig.mode === "rendered"),
+              },
+              {
+                name: "Quiet (suppress output, for cron/background)",
+                value: "quiet",
+                preview: OUTPUT_MODE_PREVIEWS.quiet,
+                ...currentTag(displayConfig.mode === "quiet"),
+              },
             ],
           });
           if (mode) {
@@ -568,11 +689,32 @@ function configureOutputDisplay() {
         }
         case "color-profile": {
           const profile = yield* terminal.select<"auto" | ColorProfile>("Select color profile:", {
+            default: colorProfileLabel,
             choices: [
-              { name: "Auto (default)", value: "auto" },
-              { name: "Full", value: "full" },
-              { name: "Basic", value: "basic" },
-              { name: "None", value: "none" },
+              {
+                name: "Auto (default)",
+                value: "auto",
+                preview: COLOR_PROFILE_PREVIEWS.auto,
+                ...currentTag(colorProfileLabel === "auto"),
+              },
+              {
+                name: "Full",
+                value: "full",
+                preview: COLOR_PROFILE_PREVIEWS.full,
+                ...currentTag(colorProfileLabel === "full"),
+              },
+              {
+                name: "Basic",
+                value: "basic",
+                preview: COLOR_PROFILE_PREVIEWS.basic,
+                ...currentTag(colorProfileLabel === "basic"),
+              },
+              {
+                name: "None",
+                value: "none",
+                preview: COLOR_PROFILE_PREVIEWS.none,
+                ...currentTag(colorProfileLabel === "none"),
+              },
             ],
           });
           if (profile) {
@@ -583,6 +725,17 @@ function configureOutputDisplay() {
               yield* configService.set("output.colorProfile", profile);
               yield* terminal.success(`Color profile set to ${profile}.`);
             }
+          }
+          break;
+        }
+        case "theme": {
+          if (terminal.isInteractive && activeKeymapMode() === "fullscreen") {
+            const chosen = yield* Effect.promise(() => pickThemeInteractively());
+            if (chosen !== undefined) {
+              yield* commitTheme(terminal, chosen);
+            }
+          } else {
+            yield* terminal.info("Run /theme in chat to preview and switch themes.");
           }
           break;
         }
@@ -656,16 +809,19 @@ function configureScheduler() {
       const appConfig = yield* configService.appConfig;
       const currentMode = appConfig.scheduler?.mode ?? "auto";
 
-      const selection = yield* terminal.select<string>("Scheduler settings:", {
-        choices: [
-          { name: `Auto${currentMode === "auto" ? " (current)" : ""}`, value: "auto" },
-          {
-            name: `In-process${currentMode === "in-process" ? " (current)" : ""}`,
-            value: "in-process",
-          },
-          { name: "Back", value: "back" },
-        ],
-      });
+      const selection = yield* terminal.select<string>(
+        "Scheduler settings: what starts your unattended goals and loops on schedule.",
+        {
+          choices: [
+            { name: `Auto${currentMode === "auto" ? " (current)" : ""}`, value: "auto" },
+            {
+              name: `In-process${currentMode === "in-process" ? " (current)" : ""}`,
+              value: "in-process",
+            },
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
 
       if (!selection || selection === "back") {
         break;
@@ -757,8 +913,10 @@ function configureNotifications() {
 }
 
 /**
- * Daily and monthly dollar caps for goals and for all unattended work (`daemon.*`), unlimited
- * until set. A reached cap stops the unattended work it covers from starting; chat never counts.
+ * Daily and monthly dollar caps for goals and for all unattended work (`daemon.*`), plus a
+ * default per-session cap for chat (`chat.defaultCostLimitUSD`). Each is unlimited until set.
+ * A reached daemon cap stops the unattended work it covers from starting; a reached chat cap
+ * asks before continuing, same as `/limit`.
  */
 function configureSpendLimits() {
   return Effect.gen(function* () {
@@ -766,13 +924,13 @@ function configureSpendLimits() {
     const configService = yield* AgentConfigServiceTag;
 
     while (true) {
-      const caps = (yield* configService.appConfig).daemon;
+      const config = yield* configService.appConfig;
       const selection = yield* terminal.select<string>(
-        "Spend limits (a reached limit stops unattended work until it clears; chat is never capped):",
+        "Spend limits: unattended work stops at its cap; chat asks before continuing past its own.",
         {
           choices: [
             ...SPEND_LIMIT_SETTINGS.map((setting) => ({
-              name: `${setting.label} (${describeSpendLimit(setting.read(caps))})`,
+              name: `${setting.label} (${describeSpendLimit(setting.read(config))})`,
               value: setting.key,
             })),
             { name: "Back", value: "back" },
@@ -784,7 +942,7 @@ function configureSpendLimits() {
         break;
       }
 
-      const current = setting.read(caps);
+      const current = setting.read(config);
       const raw = yield* terminal.ask(`${setting.label}, in USD (leave empty for unlimited):`, {
         simple: true,
         cancellable: true,
@@ -875,12 +1033,15 @@ function configureLogging() {
       const appConfig = yield* configService.appConfig;
       const currentFormat = appConfig.logging?.format ?? "plain";
 
-      const selection = yield* terminal.select<string>("Logging settings:", {
-        choices: [
-          { name: `Log format (${currentFormat})`, value: "format" },
-          { name: "Back", value: "back" },
-        ],
-      });
+      const selection = yield* terminal.select<string>(
+        "Logging settings: how diagnostic logs are written to the logs directory on disk.",
+        {
+          choices: [
+            { name: `Log format (${currentFormat})`, value: "format" },
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
 
       if (!selection || selection === "back") {
         break;
@@ -888,9 +1049,20 @@ function configureLogging() {
 
       if (selection === "format") {
         const nextFormat = yield* terminal.select<LoggingConfig["format"]>("Select log format:", {
+          default: currentFormat,
           choices: [
-            { name: "Plain (human readable)", value: "plain" },
-            { name: "JSON (structured for log processors)", value: "json" },
+            {
+              name: "Plain (human readable)",
+              value: "plain",
+              preview: LOG_FORMAT_PREVIEWS.plain,
+              ...currentTag(currentFormat === "plain"),
+            },
+            {
+              name: "JSON (structured for log processors)",
+              value: "json",
+              preview: LOG_FORMAT_PREVIEWS.json,
+              ...currentTag(currentFormat === "json"),
+            },
           ],
         });
 

@@ -29,11 +29,20 @@ describe("parseSpendLimitInput", () => {
 });
 
 describe("wizard spend limits", () => {
-  it("offers the goal day and month caps first", () => {
+  it("offers the goal day and month caps first, and chat's default cap last", () => {
     expect(SPEND_LIMIT_SETTINGS.slice(0, 2).map((setting) => setting.key)).toEqual([
       "daemon.goals.dailyCostUSD",
       "daemon.goals.monthlyCostUSD",
     ]);
+    expect(SPEND_LIMIT_SETTINGS.at(-1)?.key).toBe("chat.defaultCostLimitUSD");
+  });
+
+  it("reads the chat default cap from config.chat, not config.daemon", () => {
+    const setting = SPEND_LIMIT_SETTINGS.find(
+      (candidate) => candidate.key === "chat.defaultCostLimitUSD",
+    );
+    expect(setting?.read({ chat: { defaultCostLimitUSD: 2.5 } } as AppConfig)).toBe(2.5);
+    expect(setting?.read({} as AppConfig)).toBeUndefined();
   });
 
   it("writes a goal cap to config.json and removes it again when set to unlimited", async () => {
@@ -61,5 +70,29 @@ describe("wizard spend limits", () => {
 
     expect(written.daemon).toEqual({ goals: { dailyCostUSD: 3, monthlyCostUSD: 40 } });
     expect(cleared.daemon).toEqual({ goals: { monthlyCostUSD: 40 } });
+  });
+
+  it("writes chat's default cap to config.json and removes it again when set to unlimited", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "jazz-spend-limits-"));
+    directories.push(directory);
+    const configPath = path.join(directory, "config.json");
+    const service = await Effect.runPromise(
+      Effect.map(
+        FileSystem.FileSystem,
+        (fs) => new AgentConfigServiceImpl({} as AppConfig, {}, configPath, fs),
+      ).pipe(Effect.provide(NodeFileSystem.layer)),
+    );
+
+    await Effect.runPromise(
+      applySpendLimit(service, "chat.defaultCostLimitUSD", { kind: "limit", dollars: 2.5 }),
+    );
+    const written = JSON.parse(readFileSync(configPath, "utf8"));
+    await Effect.runPromise(
+      applySpendLimit(service, "chat.defaultCostLimitUSD", { kind: "unlimited" }),
+    );
+    const cleared = JSON.parse(readFileSync(configPath, "utf8"));
+
+    expect(written.chat).toEqual({ defaultCostLimitUSD: 2.5 });
+    expect(cleared.chat).toBeUndefined();
   });
 });

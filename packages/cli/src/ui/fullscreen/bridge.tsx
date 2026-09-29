@@ -15,7 +15,7 @@
 
 import { search, type SearchHit } from "@jazz/adapters/history/conversation-search";
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
-import { isTerminalReport } from "@jazz/core/interfaces/terminal";
+import { isTerminalReport, type ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
@@ -459,6 +459,7 @@ function choiceModel(
     readonly disabled?: boolean;
     readonly tag?: string;
     readonly tagTone?: QuestionTagTone;
+    readonly preview?: readonly ChoicePreviewLine[];
   }[],
   originalIndices?: readonly number[],
 ): QuestionChoice[] {
@@ -469,6 +470,7 @@ function choiceModel(
     ...(choice.disabled === true ? { disabled: true } : {}),
     ...(choice.tag === undefined ? {} : { tag: choice.tag }),
     ...(choice.tagTone === undefined ? {} : { tagTone: choice.tagTone }),
+    ...(choice.preview === undefined ? {} : { preview: choice.preview }),
   }));
 }
 
