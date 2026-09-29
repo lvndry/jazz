@@ -23,6 +23,15 @@ function itemSegment(rows: readonly LiveRow[], content: string): LiveSegment | u
   return rows.flatMap((row) => row.segments).find((segment) => segment.text === content);
 }
 
+/** The mark that precedes an item's content: `[...gutter, mark, " ", content, ...]`. */
+function itemMark(rows: readonly LiveRow[], content: string): LiveSegment | undefined {
+  for (const row of rows) {
+    const contentIndex = row.segments.findIndex((segment) => segment.text === content);
+    if (contentIndex >= 2) return row.segments[contentIndex - 2];
+  }
+  return undefined;
+}
+
 describe("the plan in the live zone", () => {
   beforeAll(() => {
     setThemeVariant("dark");
@@ -49,9 +58,19 @@ describe("the plan in the live zone", () => {
   });
 
   it("never paints a pending step in warning amber", () => {
+    // Warning amber is reserved for a *completed* step nothing verified — see the plan
+    // model's own rule that it must never read as "not started yet". A genuinely
+    // pending step (never reached) always stays on the muted, unmarked colour.
     const rows = liveRows(plan(), VIEWPORT);
-    const colours = rows.flatMap((row) => row.segments.map((segment) => segment.fg));
-    expect(colours).not.toContain(THEME.warning);
+    const pendingMark = itemMark(rows, "draft the reply to Dana");
+    expect(pendingMark?.fg).not.toBe(THEME.warning);
+    expect(pendingMark?.fg).toBe(THEME.muted);
+  });
+
+  it("marks a completed step nothing verified in warning, distinct from one that was checked", () => {
+    const rows = liveRows(plan(), VIEWPORT);
+    const doneMark = itemMark(rows, "read the venue thread");
+    expect(doneMark?.fg).toBe(THEME.warning);
   });
 
   it("moves the current step's mark with the frame", () => {

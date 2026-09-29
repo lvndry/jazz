@@ -39,7 +39,9 @@ import { highlightCodeLine } from "./syntax-spans";
 import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
 import { RETRY_BAND_ROWS, type RetryBand } from "../models/retry";
+import { planProgress, planWindow, todoLine } from "../models/todo";
 import { formatElapsed } from "../text/format";
+import { roleStyle } from "../text/roles";
 import { MOTION, THEME } from "../theme";
 import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
 import { useThemeRevision } from "./theme-revision";
@@ -225,41 +227,24 @@ function waitingRow(
 export const TODO_WINDOW_ROWS = 10;
 
 /**
- * A plan item reads by weight and mark, not by a colour per status: done is
- * muted and struck through behind a success check, the current step is bold
- * with its own moving cell, and what is still to come is quiet. Warning amber
- * never means "not started yet".
+ * A plan item from the shared plan model, laid out as a live row. The model gives the current
+ * step a resting mark; the band swaps in a moving frame for it.
  */
 function todoItemSegments(todo: TodoSnapshotItem, tick: number, glyphs: GlyphSet): LiveSegment[] {
-  switch (todo.status) {
-    case "completed":
-      return [
-        { text: glyphs.todoDone, fg: THEME.success },
-        { text: " ", fg: THEME.muted },
-        { text: todo.content, fg: THEME.muted, strikethrough: true },
-      ];
-    case "in_progress": {
-      const frames = glyphs.spinnerFrames;
-      return [
-        { text: frames[tick % frames.length] ?? glyphs.todoActive, fg: THEME.primary },
-        { text: " ", fg: THEME.muted },
-        { text: todo.content, fg: THEME.selected, bold: true },
-      ];
-    }
-    case "cancelled":
-      return [
-        { text: glyphs.todoCancelled, fg: THEME.muted },
-        { text: " ", fg: THEME.muted },
-        { text: todo.content, fg: THEME.muted, strikethrough: true },
-      ];
-    case "pending":
-    default:
-      return [
-        { text: glyphs.todoPending, fg: THEME.muted },
-        { text: " ", fg: THEME.muted },
-        { text: todo.content, fg: THEME.muted },
-      ];
-  }
+  const line = todoLine(todo, glyphs);
+  const frames = glyphs.spinnerFrames;
+  const markText =
+    line.kind === "active" ? (frames[tick % frames.length] ?? line.mark.text) : line.mark.text;
+  return [
+    { text: markText, fg: roleStyle(line.mark.role).fg },
+    { text: " ", fg: THEME.muted },
+    {
+      text: line.content.text,
+      fg: roleStyle(line.content.role).fg,
+      ...(line.bold ? { bold: true } : {}),
+      ...(line.strikethrough ? { strikethrough: true } : {}),
+    },
+  ];
 }
 
 function todoPanelRows(
@@ -271,31 +256,21 @@ function todoPanelRows(
 ): LiveRow[] {
   if (todos.length === 0 || maxRows <= 0) return [];
 
-  const done = todos.filter((todo) => todo.status === "completed").length;
+  const { label, progress } = planProgress(todos);
   const header = alignRow(
     "todo-header",
-    [...gutter(glyphs), { text: "plan", fg: THEME.secondary, bold: true }],
-    [{ text: `${String(done)} of ${String(todos.length)}`, fg: THEME.muted }],
+    [...gutter(glyphs), { text: label, fg: THEME.secondary, bold: true }],
+    [{ text: progress, fg: THEME.muted }],
     width,
   );
 
   // One row for the header; the rest of the budget goes to items, capped so
-  // the band never asks for more than the window it actually slides, with a
-  // possible `+N more` overflow row eating one of those slots.
+  // the band never asks for more than the window it actually slides.
   const itemSlots = Math.max(0, Math.min(TODO_WINDOW_ROWS, maxRows - 1));
   if (itemSlots === 0) return [header];
 
-  // Slide the window to the first item still in play, but hold back one slot
-  // so the item that just finished stays on screen long enough to show its
-  // checkmark instead of vanishing the instant it completes.
-  const firstIncomplete = todos.findIndex((todo) => todo.status !== "completed");
-  const anchor = firstIncomplete < 0 ? -1 : Math.max(0, firstIncomplete - 1);
-  const start = anchor < 0 ? Math.max(0, todos.length - itemSlots) : anchor;
-
-  const overflow = todos.length - start - itemSlots;
-  const shownCount = overflow > 0 ? itemSlots - 1 : itemSlots;
-  const showItems = todos.slice(start, start + Math.max(0, shownCount));
-  const itemRows = showItems.map((todo, index) =>
+  const { start, items, overflow } = planWindow(todos, itemSlots);
+  const itemRows = items.map((todo, index) =>
     alignRow(
       `todo:${todo.content}:${start + index}`,
       [...gutter(glyphs), ...todoItemSegments(todo, tick, glyphs)],
