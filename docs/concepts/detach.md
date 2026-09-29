@@ -2,7 +2,7 @@
 description: "Move a chat conversation to your own SSH server, close the laptop, watch and steer it from anywhere, then bring it and its file changes back."
 ---
 
-# Continue on your server
+# Remote handoff
 
 Start a task in chat, hand it to a server you own, and close the laptop. The server keeps
 working. Later, from any machine, you watch it, answer its questions, and bring the

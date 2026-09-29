@@ -2,7 +2,7 @@
 description: "What a Jazz peer is, why asking another agent is not an HTTP call, and how tiers, framing, and the ledger bound a relationship you cannot audit from the inside."
 ---
 
-# Peers: talking to someone else's agent
+# Peers
 
 A peer is another Jazz agent this installation has explicitly chosen to trust. Your agent asks
 it open-ended questions with `ask_peer`; its agent answers under its own policy. Requests travel

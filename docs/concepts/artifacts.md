@@ -2,7 +2,7 @@
 description: "How Jazz reports files an agent produced, and why a rendered chart and a generated image are labelled differently everywhere they appear."
 ---
 
-# Artifacts: files a run produced
+# Artifacts
 
 An **attachment** is a file going _into_ a run. An **artifact** is one coming _out_. Both carry
 a path rather than bytes.
@@ -51,6 +51,6 @@ are dropped at the boundary.
 
 ## Related
 
-- [Model companions](../features/media.md): analysis and generation on specialist models
+- [Model companions](./media.md): analysis and generation on specialist models
 - [Tools](../tools/index.md): which tools produce files
 - [Headless](../surfaces/headless.md): the JSON envelope

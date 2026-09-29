@@ -96,7 +96,7 @@ Command-line and workflow values override application defaults for that run.
 }
 ```
 
-Both values are fractions of the effective model context window. Jazz requires `warnThresholdRatio < compactThresholdRatio < 0.95`; invalid values are reported and the defaults apply. See [Long-running work](../features/long-running-work.md).
+Both values are fractions of the effective model context window. Jazz requires `warnThresholdRatio < compactThresholdRatio < 0.95`; invalid values are reported and the defaults apply. See [Long-running work](../concepts/long-running-work.md).
 
 ## Logs and history retention
 

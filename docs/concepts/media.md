@@ -2,7 +2,7 @@
 description: "Compose one Jazz agent from specialist models for image, audio, and video understanding and generation without changing its identity, tools, or memory."
 ---
 
-# Model companions for images, audio, and video
+# Model companions
 
 A Jazz agent does not need one model to be good at everything. Keep the primary model that is
 best for reasoning and tool use, then bind specialist models to media roles:

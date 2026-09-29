@@ -4,8 +4,8 @@ description: "Keep Jazz working toward an objective until it is verifiably done 
 
 # Goals and loops
 
-Some work does not fit in one turn. A **goal** keeps the agent working toward an objective until it
-is done. A **loop** reruns a prompt on a schedule until what it watches for happens.
+A **goal** keeps the agent working toward an objective until it is done. A **loop** reruns a
+prompt on a schedule until what it watches for happens.
 
 ## Goals
 
@@ -32,7 +32,7 @@ There is no turn limit. Each turn is held to the agent loop's own limits (iterat
 token, cost, and time caps if you set them in config), like any turn. What goals and loops spend
 together is unlimited by default; set a daily or monthly cap in `jazz` > Settings >
 Spend Limits (`daemon.goals.dailyCostUSD`, `daemon.goals.monthlyCostUSD`). A reached cap holds the next cycle back until it clears,
-without failing the goal: see [daily and monthly caps](../concepts/budgets.md#daily-and-monthly-caps). If the
+without failing the goal: see [daily and monthly caps](./budgets.md#daily-and-monthly-caps). If the
 goal needs you (a question or a blocker it cannot get past), the chat asks right there and carries
 on with your answer.
 

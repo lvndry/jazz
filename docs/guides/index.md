@@ -22,7 +22,7 @@ These are complete jobs, not prompt galleries. Each guide combines Jazz features
 - [Run inbox triage](./inbox-triage.md)
 - [Build a weekly multi-agent research radar](./research-digest.md)
 
-A guide belongs here only when its commands and configuration are maintained. Short prompt ideas belong on the [features](../features/index.md) page, not in separate documentation files.
+A guide belongs here only when its commands and configuration are maintained. Individual capabilities are covered under [Concepts](../concepts/index.md).
 
 ## Tutorial pipeline
 

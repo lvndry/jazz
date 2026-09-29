@@ -2,7 +2,7 @@
 description: "How a Jazz agent starts work that outlives the turn it was asked in, then resumes the same conversation when that work is done or due."
 ---
 
-# Work that outlives the turn
+# Deferred work
 
 A chat turn ends when the answer comes back. That is a problem for anything the answer depends
 on and cannot wait for: a build that takes twenty minutes, a follow-up that matters tomorrow, a
@@ -106,6 +106,6 @@ what it wants, tells your [notify targets](../configure/notifications.md), and w
 
 - [Wake triggers, reminders, and background jobs](../tools/index.md): the tools, their risk
   levels, and exact arguments
-- [Automation](../features/automation.md): choosing between these and a schedule
+- [Automation](./automation.md): choosing between these and a schedule
 - [Scheduled runs](../surfaces/scheduled.md): work on a clock rather than work an agent chose
 - [Unattended runs](../security/unattended-runs.md): what to bound before any of this runs alone

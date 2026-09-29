@@ -56,7 +56,7 @@ Useful optional fields:
 | `llm.temperature`     | Sampling temperature from `0` to `2`. Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it |
 | `llm.summarizerModel` | `provider/model` used for context compaction **and** `execute_command` risk classification: point it at something cheap                                                             |
 | `customTools`         | Declare extra tools (`record` or `command` handlers) without changing Jazz. See [Agent configuration](../configure/agents.md#custom-tools)                                          |
-| `companions`          | Bind specialist `provider/model` pairs for image, audio, or video analysis and generation without changing the primary model; see [Model companions](../features/media.md)          |
+| `companions`          | Bind specialist `provider/model` pairs for image, audio, or video analysis and generation without changing the primary model; see [Model companions](../concepts/media.md)          |
 | `envAllowlist`        | Exempt specific env vars from secret scrubbing for `execute_command`                                                                                                                |
 | `deniedTools`         | Remove named tools from this agent after every other capability source is applied                                                                                                   |
 
@@ -100,5 +100,5 @@ If a task turns out harder than expected, switch to an agent configured with a s
 - [Personas](../concepts/personas.md): change how it talks without touching what it knows
 - [Tools](../concepts/tools.md): what it can do, and what the risk tiers mean
 - [Workflows](../concepts/workflows.md): run it on a schedule
-- [Model companions](../features/media.md): tune one agent with several specialist models
+- [Model companions](../concepts/media.md): tune one agent with several specialist models
 - [Evals](../maintainers/testing-and-evals.md): measure whether a config change actually helped

@@ -117,7 +117,7 @@ Analysis and generation bind independently, per medium:
 A companion run is bounded, tool-free, and isolated: analysis returns evidence, generation
 returns a file, and neither creates a second identity or conversation. A cheap text model can
 orchestrate the work while a vision model does the looking. See
-[Model companions](../features/media.md).
+[Model companions](./media.md).
 
 ---
 
@@ -216,7 +216,7 @@ The bounds, none of them optional:
 - **Children never outlive the turn.** If the parent answers while children are still going,
   Jazz cancels the paused ones, waits for the rest, and gives the parent one more step to read
   their results. Work that should continue after the turn is a
-  [goal](../features/goals-and-loops.md). A run that parks or detaches stops its children; a
+  [goal](./goals-and-loops.md). A run that parks or detaches stops its children; a
   resumed run starts with none.
 - **Their approvals name them.** In chat, a child's approval prompt starts with its name. In an
   unattended run, a child's gated call is declined and the child reports that to the parent.

@@ -160,6 +160,6 @@ minimal `PATH`.
 ## Related
 
 - [Workflows](../concepts/workflows.md): the file format and frontmatter
-- [Automation](../features/automation.md): the other unattended shapes, and when to pick which
+- [Automation](../concepts/automation.md): the other unattended shapes, and when to pick which
 - [Guides](../guides/index.md): scheduled recipes with install steps
 - [Headless](./headless.md): for dynamic prompts instead of a fixed workflow file

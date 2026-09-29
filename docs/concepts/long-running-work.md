@@ -49,7 +49,7 @@ from the cause.
 
 Detail is lost when history is summarized. Three things are designed to outlive it:
 
-- **[Work state](../concepts/conversations-and-memory.md)** holds the objective, decisions, open
+- **[Work state](./conversations-and-memory.md)** holds the objective, decisions, open
   questions, and next step. History records what was said; work state records intent, which is
   the half only the agent knows.
 - **Todos** hold the list of work and its verification status.
@@ -78,7 +78,7 @@ semantic similarity, at the price of a model call per check.
 
 Defaults are 100 iterations, and no cost, token, or duration cap. Set them globally in
 `~/.jazz/config.json`, per workflow in frontmatter, or per run on the command line. See
-[Budgets](../concepts/budgets.md).
+[Budgets](./budgets.md).
 
 For exact thresholds and the code that enforces them, read the
 [context lifecycle](../maintainers/context-lifecycle.md) and

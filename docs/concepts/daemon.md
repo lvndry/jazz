@@ -2,7 +2,7 @@
 description: "The daemon is what lets Jazz act with no terminal open: serving runs over HTTP, owning the schedule ticker, answering peers, and serving webhooks."
 ---
 
-# Daemon: Jazz with no terminal attached
+# Daemon
 
 A chat (`jazz`, or `jazz agent chat`) and `jazz run` are one process talking to one terminal. Some things have to happen
 when nobody is typing:

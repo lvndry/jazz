@@ -2,7 +2,7 @@
 description: "Cap a Jazz run by iterations, cost, tokens, or wall-clock time, watch what it is spending with /cost and /limit, and know when a cap can be crossed."
 ---
 
-# Budgets: capping and watching a run
+# Budgets
 
 Four caps bound a run, and every one of them is optional except the first.
 
@@ -184,7 +184,7 @@ caps one bridge's own runs.
 
 ## Related
 
-- [Long-running work](../features/long-running-work.md): what happens as the context fills
+- [Long-running work](./long-running-work.md): what happens as the context fills
 - [Workflow frontmatter](../configure/workflows.md): the caps as workflow fields
 - [Configuration](../configure/jazz.md#run-budgets): the defaults and the enforcement model
 - [Headless](../surfaces/headless.md): the full JSON envelope

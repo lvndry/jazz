@@ -88,7 +88,7 @@ provider configuration, the system keyring, or narrowly allowlisted environment 
 - `llm.maxContextTokens` places a positive per-agent ceiling on the effective context window across
   providers. Jazz warns and compacts against that ceiling.
 - `companions` binds specialist models independently for `analyze` and `generate` across `image`,
-  `audio`, and `video`. See [Model companions](../features/media.md).
+  `audio`, and `video`. See [Model companions](../concepts/media.md).
 
 `llm.apiKeys` can override provider keys inside an agent file, but plaintext credentials make the
 file difficult to share safely. Prefer `jazz config set <provider>` (it prompts for the key), environment variables, or the keyring.

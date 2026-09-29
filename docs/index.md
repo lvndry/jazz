@@ -18,7 +18,7 @@ The first run opens a home menu; choose **Create agent** to pick a model provide
 ## Choose what you need
 
 - **New to Jazz:** [install it and complete your first useful run](./getting-started/index.md).
-- **Evaluating Jazz:** [browse its features](./features/index.md) and [compare where it runs](./surfaces/index.md).
+- **Evaluating Jazz:** [explore its capabilities](./concepts/index.md) and [compare where it runs](./surfaces/index.md).
 - **Building an agent:** understand the [core concepts](./concepts/index.md), then [configure Jazz](./configure/index.md).
 - **Solving a real job:** copy a maintained [guide](./guides/index.md).
 - **Operating it safely:** read the [security model](./security/index.md), and [what Jazz sends over the network on its own](./security/privacy.md).
@@ -40,7 +40,7 @@ Jazz is not a chat wrapper. It adds the machinery required for useful work: tool
 - **Optional advisory plugins:** install explicitly trusted, digest-pinned extensions without adding
   their code, credentials, network calls, or latency to other users' runs.
 
-The [features overview](./features/index.md) explains those capabilities without requiring you to read the implementation.
+The [concepts overview](./concepts/index.md) links to each capability and how to use it.
 
 ## Exact syntax
 

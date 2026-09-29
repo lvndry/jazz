@@ -195,7 +195,7 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "peers[].maxConcurrentRuns":
     "Runs this peer may have in flight at once; a request past it is refused with `429`. Defaults to 4.",
   "hosts[].name":
-    "Name of a machine registered for detached conversations. See [Detached conversations](../features/detach.md).",
+    "Name of a machine registered for detached conversations. See [Detached conversations](../concepts/detach.md).",
   "hosts[].sshTarget": "SSH config alias for the machine.",
   "hosts[].workspacePath": "Absolute directory on the machine dedicated to Jazz transfers.",
   "hosts[].allowFileSecrets":
