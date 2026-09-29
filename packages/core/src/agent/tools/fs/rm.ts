@@ -1,11 +1,9 @@
-/** Approved removal preserves the internal protection registry and its ancestors. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { toError } from "@/core/utils/errors";
-import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -14,6 +12,7 @@ import {
 } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
 import { describeFootprint, measureFootprint } from "./footprint";
+import { jazzStateApproval } from "./jazz-state-approval";
 
 /**
  * Remove files or directories tool
@@ -50,13 +49,17 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
       Effect.gen(function* () {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
-        yield* Effect.try({ try: () => assertNotProtectionStateMutation(target), catch: toError });
         const recurse = args.recursive === true ? " recursively" : "";
         const footprint = yield* measureFootprint(target);
+        const impact = footprint === undefined ? undefined : describeFootprint(footprint);
         const message = `About to delete${recurse}: ${target}\n\nThis action may be irreversible.`;
-        return footprint === undefined
-          ? message
-          : { message, impact: describeFootprint(footprint) };
+        const approval = jazzStateApproval(message, [target]);
+        if (impact === undefined) {
+          return approval;
+        }
+        return typeof approval === "string"
+          ? { message: approval, impact }
+          : { ...approval, impact };
       }),
 
     handler: (args: RmArgs, context: ToolExecutionContext) =>
@@ -64,7 +67,6 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
-        yield* Effect.try({ try: () => assertNotProtectionStateMutation(target), catch: toError });
 
         try {
           // Basic safeguards: do not allow deleting root or home dir directly

@@ -14,27 +14,30 @@ list.
 
 ## Where Jazz keeps things
 
-| Variable               | Effect                                                                                                                                                                                                            |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `JAZZ_HOME`            | Directory for config, agents, conversations, memory, logs and secrets. Defaults to `~/.jazz`. `--data-dir` wins.                                                                                                  |
-| `JAZZ_CONFIG_PATH`     | Global config file to use instead of `$JAZZ_HOME/config.json`. `~` is expanded.                                                                                                                                   |
-| `JAZZ_LOG_DIR`         | Directory for log files. Defaults to `$JAZZ_HOME/logs`.                                                                                                                                                           |
-| `JAZZ_DISABLE_KEYRING` | Any value other than empty, `0` or `false` turns off the OS keyring and the secrets-file fallback, so Jazz stores no secrets and reads keys only from the environment. Useful for CI and for isolated test homes. |
+| Variable                         | Effect                                                                                                                                                                                                            |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JAZZ_HOME`                      | Directory for config, agents, conversations, memory, logs and secrets. Defaults to `~/.jazz`. `--data-dir` wins.                                                                                                  |
+| `JAZZ_CONFIG_PATH`               | Global config file to use instead of `$JAZZ_HOME/config.json`. `~` is expanded.                                                                                                                                   |
+| `JAZZ_LOG_DIR`                   | Directory for log files. Defaults to `$JAZZ_HOME/logs`.                                                                                                                                                           |
+| `JAZZ_DISABLE_KEYRING`           | Any value other than empty, `0` or `false` turns off the OS keyring and the secrets-file fallback, so Jazz stores no secrets and reads keys only from the environment. Useful for CI and for isolated test homes. |
+| `JAZZ_CHATGPT_CREDENTIAL`        | Optional JSON ChatGPT OAuth bundle used only when Jazz has no stored ChatGPT credential. Jazz removes it from child-process environments after reading it.                                                        |
+| `JAZZ_CHATGPT_CREDENTIAL_OUTPUT` | Optional file path where Jazz writes a rotated ChatGPT OAuth bundle after refresh. The file is created with mode `0600`; use it only to persist the refreshed credential in hosted CI.                            |
 
 ## Terminal and display
 
-| Variable                          | Effect                                                                                                                                 |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `JAZZ_OUTPUT_MODE`                | `rendered`, `hybrid`, `raw` or `quiet`. Wins over `output.mode`; `--output` wins over it. Other values are ignored.                    |
-| `JAZZ_NO_TUI`                     | `1` turns off the terminal UI entirely and prints plain output. `--no-tui` sets it.                                                    |
-| `JAZZ_FULLSCREEN`                 | `0` or `false` keeps the interactive UI but draws it inline instead of on the alternate screen.                                        |
-| `JAZZ_A11Y`, `INK_SCREEN_READER`  | `1` turns off the fullscreen interface, for screen readers.                                                                            |
-| `JAZZ_THEME`                      | `light` or `dark`. When unset, Jazz reads `COLORFGBG` and otherwise assumes dark. `/theme` in a chat shows how to set it.              |
-| `JAZZ_UI_GLYPHS`                  | `unicode` or `ascii` symbols. Detected from the terminal when unset.                                                                   |
-| `JAZZ_TABLE_STYLE`                | `unicode`, `minimal` or `ascii` borders for Markdown tables. Follows `JAZZ_UI_GLYPHS` when unset.                                      |
-| `JAZZ_TERMINAL`                   | Overrides terminal detection, such as `iterm2`, `terminal-app`, `warp` or `xterm`. Detected from `TERM_PROGRAM` and `TERM` when unset. |
-| `NO_COLOR`, `NODE_DISABLE_COLORS` | Any value turns color off.                                                                                                             |
-| `VISUAL`, `EDITOR`                | Editor for `jazz persona edit` and `jazz mcp add`, after the `editor` setting. Falls back to `vi`.                                     |
+| Variable                          | Effect                                                                                                                                                                                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `JAZZ_OUTPUT_MODE`                | `rendered`, `hybrid`, `raw` or `quiet`. Wins over `output.mode`; `--output` wins over it. Other values are ignored.                                                                                                            |
+| `JAZZ_NO_TUI`                     | `1` turns off the terminal UI entirely and prints plain output. `--no-tui` sets it.                                                                                                                                            |
+| `JAZZ_FULLSCREEN`                 | `0` or `false` keeps the interactive UI but draws it inline instead of on the alternate screen.                                                                                                                                |
+| `JAZZ_A11Y`, `INK_SCREEN_READER`  | `1` turns off the fullscreen interface, for screen readers.                                                                                                                                                                    |
+| `JAZZ_THEME`                      | `light` or `dark`. When unset, Jazz reads `COLORFGBG` and otherwise assumes dark. `/theme` in a chat shows how to set it.                                                                                                      |
+| `JAZZ_UI_GLYPHS`                  | `unicode` or `ascii` symbols. Detected from the terminal when unset.                                                                                                                                                           |
+| `JAZZ_TABLE_STYLE`                | `unicode`, `minimal` or `ascii` borders for Markdown tables. Follows `JAZZ_UI_GLYPHS` when unset.                                                                                                                              |
+| `JAZZ_TERMINAL`                   | Overrides terminal detection, such as `iterm2`, `terminal-app`, `warp` or `xterm`. Detected from `TERM_PROGRAM` and `TERM` when unset.                                                                                         |
+| `JAZZ_NOTIFICATIONS_TERMINAL`     | `auto`, `osc99`, `osc777`, `osc9` or `off`: how desktop notifications reach the terminal. Wins over `notifications.terminal`. Other values are ignored. See [Desktop notifications](./notifications.md#desktop-notifications). |
+| `NO_COLOR`, `NODE_DISABLE_COLORS` | Any value turns color off.                                                                                                                                                                                                     |
+| `VISUAL`, `EDITOR`                | Editor for `jazz persona edit` and `jazz mcp add`, after the `editor` setting. Falls back to `vi`.                                                                                                                             |
 
 ## Network and catalogs
 
@@ -55,6 +58,15 @@ list.
 | `JAZZ_SCHEDULER`              | `in-process` leaves scheduled work to `jazz daemon` instead of launchd or cron, like `scheduler.mode`.                                |
 | `JAZZ_DAEMON_TICK_MS`         | How often the daemon checks for due work, in milliseconds. Defaults to 5000.                                                          |
 | `JAZZ_DISABLE_CATCH_UP`       | `1` skips the prompt to run workflows missed while the machine was off, and the failed-runs notice.                                   |
+
+`JAZZ_NOTIFY_<NAME>_<FIELD>` supplies a notify target secret, taking precedence over the
+keyring: for example, `JAZZ_NOTIFY_PHONE_BOT_TOKEN`, `JAZZ_NOTIFY_TEAM_WEBHOOK_URL`, or
+`JAZZ_NOTIFY_OPS_SECRET`. Target names and field names become uppercase with underscores.
+See [Notifications](./notifications.md).
+
+`JAZZ_SPEND_LEDGER=parent` tells a child process that its caller records its spend. The child
+skips its own ledger recording and cap checks; chat bridges set this to avoid counting
+a run twice. Leave it unset for standalone runs.
 
 ## Model provider keys and servers
 
@@ -86,7 +98,7 @@ A provider key in the environment is used when no key is saved for that provider
 | `xai`        | `XAI_API_KEY`                                       |
 | `zhipuai`    | `ZHIPU_API_KEY`                                     |
 
-`chatgpt` has no key variable: sign in from **Update configuration** → **LLM Providers** in
+`chatgpt` has no key variable: sign in from **Settings** → **LLM Providers** in
 the `jazz` home menu.
 
 Self-hosted servers are found at these addresses. A saved `llm.<provider>.base_url` wins
@@ -148,6 +160,15 @@ The bridges read these when they start each run. Each bridge's README has the fu
 [iMessage on your Mac](../../packages/imessage-bot/README.md),
 [iMessage through Photon](../../packages/photon-bot/README.md) and
 [WhatsApp](../../packages/whatsapp-bot/README.md).
+
+Bridge controls:
+
+| Variable                       | Effect                                                                                                                                                                             |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JAZZ_BOT_MAX_CONCURRENT_RUNS` | Maximum active runs across a bridge process. Positive integer; defaults to 4.                                                                                                      |
+| `JAZZ_BOT_MAX_QUEUED_MESSAGES` | Maximum messages waiting behind a conversation’s active run. Positive integer; defaults to 5.                                                                                      |
+| `JAZZ_BRIDGE_HEALTH_PORT`      | Optional health HTTP port for iMessage, Photon and WhatsApp. Disabled when unset. Telegram and Discord use their existing HTTP servers.                                            |
+| `JAZZ_APPROVALS_HOME`          | Jazz home whose parked runs Telegram or Discord operators may approve or reject. Unset disables these chat commands. Runs as the bridge process, outside the conversation sandbox. |
 
 Shared by every bridge:
 

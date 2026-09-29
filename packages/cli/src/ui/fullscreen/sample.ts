@@ -106,7 +106,7 @@ const APPROVAL: ApprovalOverlay = {
     { label: "reminder", value: "10 minutes before" },
   ],
   consequence: "Not undoable from jazz — the invite leaves immediately.",
-  alwaysLabel: "always allow calendar_create",
+  alwaysLabel: "always allow calendar_create this session",
   armed: true,
 };
 

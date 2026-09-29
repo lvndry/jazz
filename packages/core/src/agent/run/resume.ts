@@ -13,7 +13,7 @@ import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import type { RunBudget } from "@/core/types/remote-door";
-import type { ApprovalOutcome, AutoApprovePolicy } from "@/core/types/tools";
+import type { ApprovalOutcome, AutoApprovePolicy, ResolvedUserSecret } from "@/core/types/tools";
 import { currentProcessOwner } from "@/core/utils/process";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse, RunStarter } from "../types";
@@ -43,6 +43,11 @@ export interface ResumeRunOptions {
         readonly kind: "file-picker";
         readonly value:
           { readonly kind: "selected"; readonly path: string } | { readonly kind: "cancelled" };
+      }
+    | {
+        /** Held in this process's memory for the resumed segment; never stored. */
+        readonly kind: "secret";
+        readonly value: ResolvedUserSecret;
       };
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
@@ -244,7 +249,9 @@ export function resumeRun(options: ResumeRunOptions) {
           ? { resolvedUserInputs: new Map([[pending.toolCallId, options.outcome.value]]) }
           : options.outcome.kind === "file-picker" && pending.kind === "file-picker"
             ? { resolvedFilePickers: new Map([[pending.toolCallId, options.outcome.value]]) }
-            : undefined;
+            : options.outcome.kind === "secret" && pending.kind === "secret"
+              ? { resolvedUserSecrets: new Map([[pending.toolCallId, options.outcome.value]]) }
+              : undefined;
     if (resolved === undefined) {
       return yield* Effect.fail(
         new RunNotResumableError(options.runId, "its pending input has a different kind"),

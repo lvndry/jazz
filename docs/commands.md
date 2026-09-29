@@ -281,11 +281,12 @@ one, runs begun from somewhere else entirely.
 | `jazz runs approve <runId>` | Approve what a parked run is waiting for; blocks until it finishes                                               |
 | `jazz runs reject <runId>`  | Refuse what it's waiting for; `--note <text>` tells it why                                                       |
 | `jazz runs answer <runId>`  | Answer a question the run asked, in your own words: `--response <text>` (empty declines it)                      |
+| `jazz runs secret <runId>`  | Type the secret the run asked for, hidden (or pipe it in); held in memory for the resumed run. Empty declines    |
 | `jazz runs cancel <runId>`  | Abandon a parked run without answering it                                                                        |
 
 A run parks when it hits something needing your approval and nobody is there to give it: see
 [Daemon](#jazz-daemon) for answering one from a different process than the one that started it.
-With a [notify channel](configure/notifications.md) the approval request reaches your phone, and
+With a [notify target](configure/notifications.md) the approval request reaches your phone, and
 a Telegram or Discord bridge can answer it with `/approve <runId>`.
 
 ---
@@ -294,24 +295,24 @@ a Telegram or Discord bridge can answer it with `/approve <runId>`.
 
 What every run on this machine cost today and this month, from the machine-wide ledger under
 `$JAZZ_HOME/spend`, with a breakdown by source (chat, workflows, goals, loops, bots, ...) and by
-agent, and where each configured spend ceiling stands. `--json` emits
-`{ ok, day, month, today, thisMonth, ceilings, unreadableLines }`. See
-[Budgets](concepts/budgets.md#day-and-month-ceilings).
+agent, what unattended runs spent today, and where each `daemon` spend cap stands. `--json`
+emits `{ ok, day, month, today, thisMonth, caps, unreadableLines }`. See
+[Budgets](concepts/budgets.md#daily-and-monthly-caps).
 
 ---
 
 ## `jazz notify`
 
-Where results, reminders, parked approvals and failures reach you while you are away. See
-[Notifications](configure/notifications.md).
+Where results, reminders, parked approvals, failures and pauses reach you while you are away:
+the `notify.targets` list. See [Notifications](configure/notifications.md).
 
-| Command                   | Purpose                                                                                                                                                                                |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz notify list`        | List the configured channels. `--json`                                                                                                                                                 |
-| `jazz notify add <name>`  | Add or replace a channel: `--type telegram\|discord\|webhook\|desktop`, `--chat-id`, `--channel-id`, `--url`, `--api-base-url`, `--events`, `--approve-from-chat`. Asks for its secret |
-| `jazz notify test <name>` | Send a test through one channel and report what it answered. `--json`                                                                                                                  |
-| `jazz notify outbox`      | Show notifications still waiting, with the last error and next retry. `--json`                                                                                                         |
-| `jazz notify retry`       | Re-arm notifications that stopped retrying and deliver the outbox now. `--json`                                                                                                        |
+| Command                   | Purpose                                                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz notify list`        | List the targets (one desktop target while `notify.targets` is unset). `--json`                                                                                                             |
+| `jazz notify add <name>`  | Add or replace a target: `--kind desktop\|ntfy\|webhook\|telegram\|discord`, `--url`, `--chat-id`, `--channel-id`, `--api-base-url`, `--events`, `--approve-from-chat`. Asks for its secret |
+| `jazz notify test <name>` | Send a test through one target and report what it answered. `--json`                                                                                                                        |
+| `jazz notify outbox`      | Show notifications still waiting, with the last error and next retry. `--json`                                                                                                              |
+| `jazz notify retry`       | Re-arm notifications that stopped retrying and deliver the outbox now. `--json`                                                                                                             |
 
 ---
 
@@ -351,7 +352,7 @@ See [Daemon](./concepts/daemon.md#granting-authority-over-http).
 | `jazz daemon status`                | Whether this home’s daemon is running and supervised, its last tick and pending work, pause state, today’s spend against the daily caps, and everything waiting for you. `--json`; exits 1 when not running                                                                                                    |
 | `jazz daemon logs`                  | Print recent daemon output; `-n, --lines <n>` and `-f, --follow`                                                                                                                                                                                                                                               |
 | `jazz daemon pause`                 | Stop background work from starting: goal cycles, loop runs, triggers, and new HTTP runs. Running work finishes and waiting items can still be answered                                                                                                                                                         |
-| `jazz daemon resume`                | Start background work again; after a pause at the daily cap, lift the cap for the rest of the day. Refused inside a process a Jazz agent started, and over HTTP it needs the operator token                                                                                                                    |
+| `jazz daemon resume`                | Start background work again; when a machine daily cap is reached, lift it for the rest of the day. Refused inside a process a Jazz agent started, and over HTTP it needs the operator token                                                                                                                    |
 | `jazz daemon install`               | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (optional: also answer peers), `--host`, `--port`, `--yes` |
 | `jazz daemon uninstall`             | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                                                 |
 
@@ -847,7 +848,8 @@ While a sub-agent is open, Enter sends your draft to it instead of to the main c
 sub-agent reads it between tool calls, the same point where the main agent picks up
 queued messages, and treats it as guidance on its current task. If it finishes before
 reaching another tool call, Jazz says the message was not delivered. Finished sub-agents
-stay in the list until your next message. Companions started by `analyze_media` and
+stay in the list until your next message. The agent can steer its sub-agents too: its messages appear in the sub-agent's log as
+`↳ parent: …`, and a pause shows as `⏸ Paused by the parent agent` until it resumes. Companions started by `analyze_media` and
 `generate_media` are listed too, but take no messages: each makes a single model call with
 no tool calls to pause between.
 

@@ -1,0 +1,19 @@
+{
+  "name": "@jazz/daemon",
+  "version": "0.15.6",
+  "private": true,
+  "description": "The Jazz daemon: authenticated HTTP server, scheduled trigger/goal/loop/job ticks, attention gating, and OS service install.",
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@jazz/adapters": "workspace:*",
+    "@jazz/core": "workspace:*",
+    "hono": "^4.13.5",
+    "plist": "^5.0.0"
+  }
+}

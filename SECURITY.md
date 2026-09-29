@@ -70,7 +70,7 @@ triage a non-issue than miss a real one.
 
 ## How Jazz protects you
 
-**Approval gating is the primary control.** 23 of the 51 built-in agent-facing tools are gated.
+**Approval gating is the primary control.** 23 of the 54 built-in agent-facing tools are gated.
 11 of them come in approval pairs: they do not act when the model calls them; they describe
 what they would do (including a real diff for edits) and wait for approval, from you or from
 the policy tier on an unattended run. The other 12 are plain tools above `read-only`, which the
@@ -95,9 +95,10 @@ Implementation and the documented set of known bypasses:
 [`shell.ts`](packages/core/src/agent/tools/shell.ts),
 [`shell.security.test.ts`](packages/core/src/agent/tools/shell.security.test.ts).
 
-**Environment sanitization.** Shell commands run with variables matching
-`API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive), plus everything prefixed
-`SSH_`, stripped from the environment. An agent's `envAllowlist` can exempt specific names when
+**Environment sanitization.** Shell commands run with every variable stripped whose name has a
+secret word in it (`SECRET`, `TOKEN`, `PASSWORD`, `CREDENTIALS`, `APIKEY`, `AUTH`, `PASS`, `COOKIE`,
+or `KEY` after another word), every variable Jazz reads a secret from (`JAZZ_PEER_TOKEN_*`,
+`JAZZ_WEBHOOK_*`, `JAZZ_NOTIFY_*` target secrets), and everything prefixed `SSH_`. An agent's `envAllowlist` can exempt specific names when
 a command genuinely needs one. Implementation:
 [`env.ts`](packages/core/src/utils/env.ts).
 
@@ -111,7 +112,7 @@ does not block inference, tools, MCP, or telemetry export. See
 cost records under `~/.jazz/telemetry/`. Routine operational logs contain tool IDs,
 outcomes, and durations rather than command text, arguments, results, or error messages.
 The local tool audit record keeps a bounded, redacted argument shape. Credential-bearing
-fields in structured metadata (including nested headers) are replaced with `<redacted>`
+fields in structured metadata (including nested headers) are replaced with `[redacted:<name>]`
 before a log is written. OTLP export is explicit and uses a private, bounded local outbox
 for pending traces and logs. Local records can still contain sensitive non-secret context;
 protect `~/.jazz` and send OTLP only to an approved destination.
@@ -195,10 +196,11 @@ not you. At `high-risk`, a message, or a prompt injection inside a web page the 
 trim the toolset. See
 [Chat platforms → security](docs/surfaces/chat.md#security-for-chat-surfaces).
 
-Below `high-risk`, Jazz narrows what injected content can do on its own: model-chosen URLs reach
-public hosts only unless the agent lists private ones in `network.allowPrivateHosts`, the read
-tools omit credential contents while allowing metadata and approved whole-file copies, outside content
-reaches the model labelled as untrusted, and once a run has read it, egress tools need approval.
+Below `high-risk`, Jazz narrows what injected content can do on its own: a model-chosen URL on
+this machine or your network asks for approval unless it is in the global
+`network.allowPrivateHosts`, secret values in every tool result are redacted before the model sees
+them, outside content reaches the model labelled as untrusted, and once a run has read it, egress
+tools need approval.
 See [Secrets and egress](docs/security/secrets-and-egress.md).
 
 ### Before approving, ask
@@ -238,6 +240,12 @@ Jazz resolves every secret in this order, and uses the first hit:
 
 On a shared host, prefer 1 or 2. Set `JAZZ_DISABLE_KEYRING=1` to force the file path.
 
+The `chatgpt` provider uses an OAuth bundle rather than an API key. Hosted workflows can supply
+the copied bundle in `JAZZ_CHATGPT_CREDENTIAL`; Jazz captures and removes that variable before
+starting agent child processes, then stores the credential through the normal keyring/file
+backend. When `JAZZ_CHATGPT_CREDENTIAL_OUTPUT` is configured, a successful refresh writes the
+rotated bundle to that path with mode `0600` so the workflow can persist it.
+
 Secrets resolved from the environment or the keyring are never written back into the config
 file. To check what is on disk:
 
@@ -254,7 +262,7 @@ covered by the keyring: treat them as sensitive in their own right.
 
 1. **Stop the run**: double-Escape interrupts generation and any running tool; otherwise exit the process.
 2. **Check what happened**: `~/.jazz/logs/` has every tool invocation with its arguments;
-   credential-bearing fields are shown as `<redacted>`.
+   credential-bearing fields are shown as `[redacted:<name>]`.
 3. **Recover**: inspect `git status` and `git reflog`, then restore only the affected paths or branch from a known-good commit. For non-Git files, use your backup or trash.
 4. **Report it**: if the cause was Jazz acting without approval rather than an approval you granted, that is [in scope](#scope).
 

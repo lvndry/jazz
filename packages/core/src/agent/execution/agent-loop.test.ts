@@ -10,6 +10,7 @@ import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
+import { frameUntrusted } from "@/core/utils/untrusted-content";
 import {
   buildBudgetPressureMessage,
   buildCostBudgetPressureMessage,
@@ -25,6 +26,7 @@ import {
 } from "./agent-loop";
 import { buildContextPressureMessage } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
+import { createEgressTaint, detachedResultMessage } from "./egress-taint";
 import { ToolExecutor } from "./tool-executor";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
@@ -507,71 +509,81 @@ describe("executeAgentLoop", () => {
     }
   });
 
-  it("should handle tool calls and continue", async () => {
-    let iteration = 0;
-    const strategy: CompletionStrategy = {
-      shouldShowReasoning: false,
-      getCompletion: () => {
-        iteration++;
-        if (iteration === 1) {
+  it.each(["external", "local-file"] as const)(
+    "records %s tool provenance in history and continues",
+    async (kind) => {
+      let iteration = 0;
+      const strategy: CompletionStrategy = {
+        shouldShowReasoning: false,
+        getCompletion: () => {
+          iteration++;
+          if (iteration === 1) {
+            return Effect.succeed({
+              completion: {
+                id: "c1",
+                model: "gpt-4",
+                content: "",
+                toolCalls: [
+                  {
+                    id: "call_1",
+                    type: "function" as const,
+                    function: { name: "test_tool", arguments: "{}" },
+                  },
+                ],
+              },
+              interrupted: false,
+            });
+          }
           return Effect.succeed({
-            completion: {
-              id: "c1",
-              model: "gpt-4",
-              content: "",
-              toolCalls: [
-                {
-                  id: "call_1",
-                  type: "function" as const,
-                  function: { name: "test_tool", arguments: "{}" },
-                },
-              ],
-            },
+            completion: { id: "c2", model: "gpt-4", content: "Done with tools" },
             interrupted: false,
           });
-        }
-        return Effect.succeed({
-          completion: { id: "c2", model: "gpt-4", content: "Done with tools" },
-          interrupted: false,
-        });
-      },
-      presentResponse: () => Effect.void,
-      onComplete: () => Effect.void,
-      getRenderer: () => null,
-    };
+        },
+        presentResponse: () => Effect.void,
+        onComplete: () => Effect.void,
+        getRenderer: () => null,
+      };
 
-    // Mock ToolExecutor
-    const originalExecute = ToolExecutor.executeToolCalls;
-    ToolExecutor.executeToolCalls = mock(() =>
-      Effect.succeed([
-        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
-      ]),
-    );
+      // Mock ToolExecutor
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() =>
+        Effect.succeed([
+          {
+            toolCallId: "call_1",
+            name: "test_tool",
+            result: "output",
+            success: true,
+            untrusted: { kind, source: "test_tool" },
+          },
+        ]),
+      );
 
-    const result = await Effect.runPromise(
-      executeAgentLoop(
-        makeOptions({ maxIterations: 5 }),
-        makeRunContext(),
-        displayConfig,
-        strategy,
-        defaultObserver,
-        runRecursive,
-      ).pipe(Effect.provide(TestLayer)),
-    );
+      const result = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 5 }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
 
-    expect(result.content).toBe("Done with tools");
-    expect(ToolExecutor.executeToolCalls).toHaveBeenCalled();
+      expect(result.content).toBe("Done with tools");
+      expect(ToolExecutor.executeToolCalls).toHaveBeenCalled();
 
-    // Confirms the tool-branch ("continue") appended a tool-result message
-    // to the conversation before the loop moved on to the final ("final") response.
-    const toolMessage = result.messages?.find(
-      (message) => message.role === "tool" && message.tool_call_id === "call_1",
-    );
-    expect(toolMessage).toBeDefined();
-    expect(toolMessage?.name).toBe("test_tool");
+      // Confirms the tool-branch ("continue") appended a tool-result message
+      // to the conversation before the loop moved on to the final ("final") response.
+      const toolMessage = result.messages?.find(
+        (message) => message.role === "tool" && message.tool_call_id === "call_1",
+      );
+      expect(toolMessage).toBeDefined();
+      expect(toolMessage?.name).toBe("test_tool");
+      expect(toolMessage?.egressTainted).toBe(kind === "external" ? true : undefined);
 
-    ToolExecutor.executeToolCalls = originalExecute;
-  });
+      ToolExecutor.executeToolCalls = originalExecute;
+    },
+  );
 
   it("only takes queued guidance when another model iteration will run", async () => {
     const originalExecute = ToolExecutor.executeToolCalls;
@@ -650,6 +662,80 @@ describe("executeAgentLoop", () => {
       );
       expect(queued).toBeUndefined();
       expect(seenByModel).toContain("Change the search scope");
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
+  it("marks the live run when a queued background result holds external output", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    let queued: string | undefined;
+    ToolExecutor.executeToolCalls = mock(() => {
+      queued = detachedResultMessage(
+        frameUntrusted("curl output", { kind: "external", source: "execute_command curl" }),
+      );
+      return Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]);
+    });
+    let calls = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        calls += 1;
+        return Effect.succeed(
+          calls === 1
+            ? {
+                completion: {
+                  id: "c1",
+                  model: "gpt-4",
+                  content: "",
+                  toolCalls: [
+                    {
+                      id: "call_1",
+                      type: "function" as const,
+                      function: { name: "test_tool", arguments: "{}" },
+                    },
+                  ],
+                },
+                interrupted: false,
+              }
+            : { completion: { id: "c2", model: "gpt-4", content: "Done" }, interrupted: false },
+        );
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const liveTaint = createEgressTaint();
+
+    try {
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({
+            checkQueuedMessage: () => {
+              const message = queued;
+              queued = undefined;
+              return message;
+            },
+          }),
+          makeRunContext({
+            maxIterations: 2,
+            context: {
+              agentId: "agent-1",
+              conversationId: "conv-123",
+              unrestrictedTools: true,
+              egressTaint: liveTaint,
+            },
+          }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+
+      expect(liveTaint.isTainted()).toBe(true);
     } finally {
       ToolExecutor.executeToolCalls = originalExecute;
     }
@@ -1349,6 +1435,48 @@ describe("executeAgentLoop", () => {
         expect(
           kept?.some((message) => message.role === "tool" && message.tool_call_id === "call_1"),
         ).toBe(true);
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("records the run's live taint on the failed transcript", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() =>
+        Effect.succeed([
+          { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+        ]),
+      );
+      const liveTaint = createEgressTaint();
+      liveTaint.mark("a sub-agent's web_fetch");
+      let kept: readonly ChatMessage[] | undefined;
+
+      try {
+        await Effect.runPromise(
+          executeAgentLoop(
+            makeOptions({
+              maxIterations: 5,
+              onFailedTurn: (messages) => {
+                kept = messages;
+              },
+            }),
+            makeRunContext({
+              context: {
+                agentId: "agent-1",
+                conversationId: "conv-123",
+                unrestrictedTools: true,
+                egressTaint: liveTaint,
+              },
+            }),
+            displayConfig,
+            strategyFailingAfter(1),
+            defaultObserver,
+            runRecursive,
+          ).pipe(Effect.flip, Effect.provide(TestLayer)) as Effect.Effect<unknown, never, never>,
+        );
+
+        expect(kept).toBeDefined();
+        expect(createEgressTaint(kept).isTainted()).toBe(true);
       } finally {
         ToolExecutor.executeToolCalls = originalExecute;
       }
@@ -2921,6 +3049,43 @@ describe("a tool batch stopped part-way", () => {
     expect(stopped).toEqual([response.stoppedToolCalls]);
   });
 
+  it("frames and flags a completed external result when the batch stops", async () => {
+    const externalRegistry = {
+      ...registry,
+      executeTool: (name: string) =>
+        name === "fast_tool"
+          ? Effect.succeed({
+              success: true,
+              result: "page body https://attacker.example/",
+              untrusted: { kind: "external" as const, source: "web_fetch attacker.example" },
+            })
+          : Effect.never,
+    } as any;
+    const response = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ runMetrics: realMetrics() }),
+        displayConfig,
+        batchStrategy(100),
+        defaultObserver,
+        runRecursive,
+      ).pipe(
+        Effect.provide(Layer.merge(TestLayer, Layer.succeed(ToolRegistryTag, externalRegistry))),
+      ),
+    );
+
+    const fastAnswer = response.messages?.find(
+      (message) => message.role === "tool" && message.tool_call_id === "fast",
+    );
+    expect(fastAnswer?.content).toContain('kind="external"');
+    expect(fastAnswer?.egressTainted).toBe(true);
+    expect(
+      createEgressTaint(
+        (response.messages ?? []).map((message) => ({ ...message, content: "[cleared]" })),
+      ).isTainted(),
+    ).toBe(true);
+  });
+
   it("reports the same when the run's time budget stops the batch", async () => {
     const response = await Effect.runPromise(
       executeAgentLoop(
@@ -2964,5 +3129,163 @@ describe("a tool batch stopped part-way", () => {
         { id: "slow", name: "slow_tool", status: "interrupted" },
       ],
     ]);
+  });
+});
+
+describe("sub-agents in the loop", () => {
+  const toolCallTurn = (id: string) =>
+    Effect.succeed({
+      completion: {
+        id,
+        model: "gpt-4",
+        content: "",
+        toolCalls: [
+          {
+            id: `call_${id}`,
+            type: "function" as const,
+            function: { name: "test_tool", arguments: "{}" },
+          },
+        ],
+      },
+      interrupted: false,
+    });
+  const answerTurn = (id: string, content: string) =>
+    Effect.succeed({ completion: { id, model: "gpt-4", content }, interrupted: false });
+
+  it("holds an answer given before a child's result was read, then lets the next one stand", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    const presented: string[] = [];
+    const seenByModel: string[][] = [];
+    ToolExecutor.executeToolCalls = mock((_calls, context) => {
+      const supervisor = context.subagents;
+      if (supervisor === undefined) {
+        throw new Error("the loop gave the tool no supervisor");
+      }
+      const hooks = supervisor.register({ name: "digest" });
+      return supervisor
+        .start(
+          hooks.id,
+          Effect.sleep("20 millis").pipe(Effect.as({ success: true, result: "three headlines" })),
+        )
+        .pipe(
+          Effect.as([
+            {
+              toolCallId: "call_c1",
+              name: "test_tool",
+              result: { agentId: hooks.id },
+              success: true,
+            },
+          ]),
+        );
+    }) as typeof ToolExecutor.executeToolCalls;
+
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages, iteration) => {
+        seenByModel.push(messages.map((message) => String(message.content)));
+        if (iteration === 0) {
+          return toolCallTurn("c1");
+        }
+        return answerTurn(`c${String(iteration + 1)}`, iteration === 1 ? "draft" : "final");
+      },
+      presentResponse: (_name, content) =>
+        Effect.sync(() => {
+          presented.push(content);
+        }),
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    try {
+      const response = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions(),
+          makeRunContext({ maxIterations: 5 }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(response.content).toBe("final");
+      expect(presented).toEqual(["final"]);
+      expect(seenByModel[2]?.some((content) => content.includes("wait_subagents"))).toBe(true);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
+  it("awaits beforeStep ahead of every model call and reports spend after each step", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([{ toolCallId: "call_c1", name: "test_tool", result: "ok", success: true }]),
+    ) as typeof ToolExecutor.executeToolCalls;
+    const order: string[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (_messages, iteration) => {
+        order.push(`model ${String(iteration)}`);
+        return iteration === 0 ? toolCallTurn("c1") : answerTurn("c2", "done");
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    let spendReports = 0;
+    try {
+      await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({
+            beforeStep: () => Effect.sync(() => order.push("before step")),
+            onIterationSpend: () => {
+              spendReports++;
+            },
+          }),
+          makeRunContext({ maxIterations: 3 }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(order).toEqual(["before step", "model 0", "before step", "model 1"]);
+      expect(spendReports).toBeGreaterThanOrEqual(2);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
+  it("stops a child as cost-capped once the shared pool is spent", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([{ toolCallId: "call_c1", name: "test_tool", result: "ok", success: true }]),
+    ) as typeof ToolExecutor.executeToolCalls;
+    let modelCalls = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        modelCalls++;
+        return toolCallTurn(`c${String(modelCalls)}`);
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    try {
+      const response = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ sharedCostExhausted: () => true }),
+          makeRunContext({ maxIterations: 5 }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+      expect(modelCalls).toBe(1);
+      expect(response.costCapped).toBe(true);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
   });
 });

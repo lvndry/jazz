@@ -377,6 +377,8 @@ async function handleIncoming(
     chatId: String(message.chatId),
     senderId: normalizeHandle(message.sender),
     text: raw,
+    ownText: message.text.trim(),
+    privateChat: chat !== undefined && !chat.isGroup,
   });
 }
 

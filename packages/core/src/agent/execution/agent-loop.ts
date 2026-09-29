@@ -49,6 +49,7 @@ import type { MemoryDelivery } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput, WorkspaceFileActivity } from "@/core/types/plugin";
 import type { StreamEvent } from "@/core/types/streaming";
+import type { EgressTaint } from "@/core/types/tools";
 import { sha256Hex } from "@/core/utils/hash";
 import { conversationLogGroup } from "@/core/utils/log-group";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -56,6 +57,7 @@ import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
 import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
+import { messageCarriesEgressTaint, recordEgressTaint } from "./egress-taint";
 import { stoppedToolCallResult, ToolBatchLedger } from "./tool-batch-ledger";
 import { ToolExecutor, type ToolCallOutcome } from "./tool-executor";
 import type { ReduceToolResultsFn } from "../context/advised-tool-clearing";
@@ -76,7 +78,10 @@ import {
 import { Summarizer, type AutoCompaction, type RecursiveRunner } from "../context/summarizer";
 import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
 import { persistLargeToolResults } from "../context/tool-result-offload";
-import { closeUnansweredToolCalls } from "../context/unanswered-tool-calls";
+import {
+  closeUnansweredToolCalls,
+  type UnansweredToolCallAnswer,
+} from "../context/unanswered-tool-calls";
 import {
   beginIteration,
   calibrateTokenCounter,
@@ -96,6 +101,7 @@ import {
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
 import { lifecycleEventForStreamEvent } from "../plugins/lifecycle-bridge";
+import { createSubagentSupervisor, type SubagentSupervisor } from "../subagents/supervisor";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 /**
@@ -290,9 +296,15 @@ interface LoopState {
    * text only, and tool calls the provider returns anyway are dropped.
    */
   awaitingGoalDecision: boolean;
+  /**
+   * Set when the model answered before reading results its sub-agents produced: the
+   * next step is told to read them first, instead of the answer standing.
+   */
+  unreadSubagentNotice: string | undefined;
 }
 
 interface LoopDeps {
+  subagents: SubagentSupervisor;
   agent: AgentRunnerOptions["agent"];
   options: AgentRunnerOptions;
   actualConversationId: string;
@@ -674,7 +686,7 @@ function notifyStoppedBatch(state: LoopState, options: LoopDeps["options"]): voi
 function stoppedCallAnswer(
   batch: ActiveToolBatch | undefined,
   reason: string,
-): (toolCall: { readonly id: string; readonly name: string }) => string {
+): (toolCall: { readonly id: string; readonly name: string }) => UnansweredToolCallAnswer {
   return (toolCall) => {
     if (batch === undefined) {
       return `Tool execution stopped (${reason}) before this tool returned a result.`;
@@ -683,7 +695,14 @@ function stoppedCallAnswer(
     const status = batch.ledger.statusOf(canonicalId);
     const outcome = batch.ledger.outcomeOf(canonicalId);
     if (status === "completed" && outcome !== undefined) {
-      return formatToolResultForContext(toolCall.name, outcome.result);
+      const formatted = formatToolResultForContext(toolCall.name, outcome.result);
+      if (outcome.untrusted === undefined) {
+        return formatted;
+      }
+      return {
+        content: frameUntrusted(formatted, outcome.untrusted),
+        ...(outcome.untrusted.kind === "external" ? { egressTainted: true as const } : {}),
+      };
     }
     return stoppedToolCallResult(status === "completed" ? "interrupted" : status, reason);
   };
@@ -713,10 +732,10 @@ function closeStoppedBatch(state: LoopState, options: LoopDeps["options"], reaso
 function remainingRunBudget(
   deps: Pick<
     LoopDeps,
-    "runMetrics" | "maxDurationMs" | "maxCostUSD" | "maxTokens" | "modelMetadata"
+    "runMetrics" | "maxDurationMs" | "maxCostUSD" | "maxTokens" | "modelMetadata" | "subagents"
   >,
 ): RemainingRunBudget {
-  const { runMetrics, maxDurationMs, maxCostUSD, maxTokens, modelMetadata } = deps;
+  const { runMetrics, maxDurationMs, maxCostUSD, maxTokens, modelMetadata, subagents } = deps;
   const remaining: { maxDurationMs?: number; maxCostUSD?: number; maxTokens?: number } = {};
   if (maxDurationMs !== undefined) {
     const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
@@ -725,7 +744,10 @@ function remainingRunBudget(
   if (maxCostUSD !== undefined) {
     const spent = computeRunCost(runMetrics, modelMetadata);
     if (!spent.costIncomplete) {
-      remaining.maxCostUSD = Math.max(0, maxCostUSD - (spent.costUSD ?? 0));
+      remaining.maxCostUSD = Math.max(
+        0,
+        maxCostUSD - (spent.costUSD ?? 0) - subagents.liveCostUSD(),
+      );
     }
   }
   if (maxTokens !== undefined) {
@@ -740,6 +762,7 @@ function remainingRunBudget(
  * spend is already part of the parent's figure.
  */
 function reportRunSpend(deps: LoopDeps): Effect.Effect<void> {
+  deps.options.onIterationSpend?.(computeRunCost(deps.runMetrics, deps.modelMetadata).costUSD);
   const renderer = deps.strategy.getRenderer();
   if (deps.options.internal === true || renderer === null) {
     return Effect.void;
@@ -756,7 +779,8 @@ function reportRunSpend(deps: LoopDeps): Effect.Effect<void> {
 /**
  * Hand a failed turn's transcript to the caller before the failure unwinds it — otherwise
  * the caller reverts to the history it passed in and the turn's work is lost. Dangling tool
- * calls are closed on the copy so it stays valid to send.
+ * calls are closed on the copy so it stays valid to send, and the run's live egress taint is
+ * recorded on it so the next turn starts marked.
  *
  * Parking is skipped: its transcript rides the signal, and its unanswered tool call must
  * stay unanswered to resume.
@@ -765,6 +789,7 @@ function reportFailedTurn(
   error: unknown,
   state: LoopState,
   options: LoopDeps["options"],
+  egressTaint: EgressTaint | undefined,
 ): Effect.Effect<void> {
   const onFailedTurn = options.onFailedTurn;
   if (onFailedTurn === undefined || options.internal === true || isRunParkRequested(error)) {
@@ -775,7 +800,7 @@ function reportFailedTurn(
       currentMessages: [...state.currentMessages],
     };
     closeDanglingToolCalls(transcript, stoppedCallAnswer(state.activeToolBatch, "the run failed"));
-    onFailedTurn(transcript.currentMessages);
+    onFailedTurn(recordEgressTaint(transcript.currentMessages, egressTaint));
   });
 }
 
@@ -896,6 +921,7 @@ function handleToolPhase(
       },
       recordSideSpend: (spend: RunCost) => recordSideSpend(runMetrics, spend),
       remainingRunBudget: () => remainingRunBudget(deps),
+      subagents: deps.subagents,
       attachMedia: (attachment: MessageAttachment) => {
         if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) return;
         pendingAttachments.push(attachment);
@@ -1120,6 +1146,7 @@ function handleToolPhase(
             content: formattedResult,
             tool_call_id: toolCall.id,
             ...(memoryDelivery !== undefined ? { memoryDelivery } : {}),
+            ...(provenance?.kind === "external" ? { egressTainted: true as const } : {}),
           });
           recordToolResultTokens(runMetrics, toolCall.function.name, formattedResult.length);
         }
@@ -1276,6 +1303,9 @@ function recoverFromContextOverflow(
       runRecursive,
       contextWindowMaxTokens,
       mayExtractMemories(options),
+      undefined,
+      undefined,
+      deps.context.egressTaint,
     ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
     if (compacted !== undefined && compacted.tokensAfter < compacted.tokensBefore) {
       state.currentMessages = compacted.messages;
@@ -1337,9 +1367,16 @@ function runIteration(
     // Only take guidance when an iteration will actually make another model call.
     // Taking it after the last tool batch would clear the UI queue even though
     // the iteration or run budget can stop the child before it reads the message.
+    if (options.beforeStep !== undefined) {
+      yield* options.beforeStep();
+    }
     const queuedMessage = options.checkQueuedMessage?.();
     if (queuedMessage) {
-      state.currentMessages.push({ role: "user", content: queuedMessage });
+      const queued: ChatMessage = { role: "user", content: queuedMessage };
+      state.currentMessages.push(queued);
+      if (messageCarriesEgressTaint(queued)) {
+        deps.context.egressTaint?.mark("a background task's output");
+      }
     }
 
     if (!options.internal && strategy.shouldShowReasoning) {
@@ -1438,6 +1475,7 @@ function runIteration(
       runRecursive,
       contextWindowMaxTokens,
       allowMemoryExtraction,
+      deps.context.egressTaint,
     ).pipe(Effect.map(Option.some));
     // A summarizer call is a model call of its own; Esc has to reach it like any other.
     const interruptSignal = strategy.getInterruptSignal?.();
@@ -1574,9 +1612,12 @@ function runIteration(
       timeBudgetMsg?.content,
       tokenBudgetMsg?.content,
       costBudgetMsg?.content,
+      ...deps.subagents.takeNotices(),
+      state.unreadSubagentNotice,
     ]
       .filter(Boolean)
       .join("\n");
+    state.unreadSubagentNotice = undefined;
     const messagesForLLM = pressureContent
       ? ([
           ...state.currentMessages,
@@ -1741,6 +1782,14 @@ function runIteration(
       return { kind: "continue" } as const;
     }
 
+    // An answer given while sub-agents were still working, or before their results
+    // were read, waits for them and goes back to the model once, so the answer can use them.
+    const unreadSubagents = yield* deps.subagents.settleBeforeAnswer();
+    if (unreadSubagents !== undefined) {
+      state.unreadSubagentNotice = unreadSubagents;
+      return { kind: "continue" } as const;
+    }
+
     // No tool calls - final response
     yield* logger.info("Agent provided final response", {
       agentId: agent.id,
@@ -1831,10 +1880,11 @@ export function executeAgentLoop(
       const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
         Option.none(),
       );
-      return { logger, finalizeFiberRef };
+      const subagents = yield* createSubagentSupervisor();
+      return { logger, finalizeFiberRef, subagents };
     }),
     // Use: main loop
-    ({ logger, finalizeFiberRef }) =>
+    ({ logger, finalizeFiberRef, subagents }) =>
       Effect.gen(function* () {
         const { agent } = options;
         const {
@@ -1930,6 +1980,7 @@ export function executeAgentLoop(
           overflowRecoveryUsed: false,
           activeToolBatch: undefined,
           awaitingGoalDecision: false,
+          unreadSubagentNotice: undefined,
         };
         let finished = false;
         let interrupted = false;
@@ -1976,7 +2027,9 @@ export function executeAgentLoop(
           runRecursive,
           supportedAttachmentKinds,
           memoryOpportunities,
+          subagents,
         };
+        subagents.bindCostCap(maxCostUSD, () => computeRunCost(runMetrics, modelMetadata).costUSD);
 
         // A resumed run rejoins a turn that stopped between a tool call and its result.
         // Handing that transcript straight to the model would ask it to reason about a call
@@ -1990,7 +2043,11 @@ export function executeAgentLoop(
             "",
             0,
             deps,
-          ).pipe(Effect.tapError((error) => reportFailedTurn(error, state, options)));
+          ).pipe(
+            Effect.tapError((error) =>
+              reportFailedTurn(error, state, options, deps.context.egressTaint),
+            ),
+          );
           if (pendingPhase === "interrupted") {
             finished = true;
             interrupted = true;
@@ -2005,7 +2062,9 @@ export function executeAgentLoop(
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
             const iteration = runIteration(state, i, deps).pipe(
-              Effect.tapError((error) => reportFailedTurn(error, state, options)),
+              Effect.tapError((error) =>
+                reportFailedTurn(error, state, options, deps.context.egressTaint),
+              ),
             );
             const remainingMs = remainingRunBudget(deps).maxDurationMs;
             // The deadline interrupts the iteration wherever it is (a model call, a tool
@@ -2054,12 +2113,21 @@ export function executeAgentLoop(
           // only defined once spend is actually known.
           if (maxCostUSD !== undefined) {
             const runCost = computeRunCost(runMetrics, modelMetadata);
-            if (runCost.costUSD !== undefined && runCost.costUSD >= maxCostUSD) {
+            const spentWithChildren =
+              runCost.costUSD === undefined ? undefined : runCost.costUSD + subagents.liveCostUSD();
+            if (spentWithChildren !== undefined && spentWithChildren >= maxCostUSD) {
               costCapped = true;
               state.iterationsUsed = i + 1;
-              yield* observer.onCostCapReached(agent.name, maxCostUSD, runCost.costUSD);
+              yield* observer.onCostCapReached(agent.name, maxCostUSD, spentWithChildren);
               break;
             }
+          }
+
+          // A child's share of its parent's cost cap, spent together with its siblings.
+          if (options.sharedCostExhausted?.() === true) {
+            costCapped = true;
+            state.iterationsUsed = i + 1;
+            break;
           }
 
           // Same soft-checkpoint timing as maxCostUSD, but needs no pricing lookup —
@@ -2132,8 +2200,10 @@ export function executeAgentLoop(
         ),
       ),
     // Release: cleanup
-    ({ logger, finalizeFiberRef }) =>
+    ({ logger, finalizeFiberRef, subagents }) =>
       Effect.gen(function* () {
+        // Sub-agents never outlive the run that started them.
+        yield* subagents.close();
         const fiberOption = yield* Ref.get(finalizeFiberRef);
         if (Option.isSome(fiberOption)) {
           yield* Fiber.await(fiberOption.value).pipe(

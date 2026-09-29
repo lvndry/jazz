@@ -15,6 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { NodeFileSystem } from "@effect/platform-node";
+import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
@@ -838,7 +839,10 @@ export async function applyDetachResult(input: {
   }
   await Effect.runPromise(
     saveConversation(
-      withRemoteTurnsInUiTranscript(handedOff, withoutRemoteMemorySources(handedOff, history)),
+      withRemoteTurnsInUiTranscript(
+        handedOff,
+        withHandedOffEgressTaint(handedOff, withoutRemoteMemorySources(handedOff, history)),
+      ),
       undefined,
       {
         fenceHeldBy: initial.handoffId,
@@ -890,6 +894,18 @@ export function withoutRemoteMemorySources(
       : rest;
   });
   return { ...returned, messages };
+}
+
+/**
+ * The returned transcript still marked as having read external content when the handoff was.
+ * The remote host writes the returned flags, so a transcript that came back without them
+ * would otherwise lift the egress restriction here.
+ */
+export function withHandedOffEgressTaint(
+  handedOff: Conversation,
+  returned: Conversation,
+): Conversation {
+  return { ...returned, messages: carryEgressTaint(handedOff.messages, returned.messages) };
 }
 
 /**

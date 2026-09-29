@@ -51,6 +51,25 @@ export interface UserInputRequest {
   readonly allowMultiple?: boolean;
 }
 
+/** A secret the person types for this run: what it is for and the name it is held under. */
+export interface SecretInputRequest {
+  /** What the secret is for, shown to the person. */
+  readonly prompt: string;
+  /** The kebab-case name the value is held under, shown as `[redacted:<name>]`. */
+  readonly name: string;
+}
+
+/**
+ * What came back from asking the person to type a secret.
+ *
+ * `unavailable` carries why when a person is there but cannot type it safely: a shared chat,
+ * where everyone in it would read the reply.
+ */
+export type SecretInputOutcome =
+  | { readonly kind: "provided"; readonly value: string }
+  | { readonly kind: "declined" }
+  | { readonly kind: "unavailable"; readonly reason?: "shared-chat" };
+
 /**
  * Request for file picker input.
  * Used by the ask_file_picker tool to let users select files interactively.
@@ -345,6 +364,15 @@ export interface PresentationService {
    * @returns The user's response (either selected suggestion or custom text)
    */
   readonly requestUserInput: (request: UserInputRequest) => Effect.Effect<UserInputOutcome, never>;
+
+  /**
+   * Ask the person to type a secret, with the value hidden as they type and never echoed,
+   * shown or kept anywhere. Used by the ask_user_secret tool. A presentation without it cannot
+   * ask, which reads as `unavailable`.
+   */
+  readonly requestSecretInput?: (
+    request: SecretInputRequest,
+  ) => Effect.Effect<SecretInputOutcome, never>;
 
   /**
    * Request file selection from the user with fuzzy path filtering.

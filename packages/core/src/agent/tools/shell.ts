@@ -9,6 +9,9 @@ import {
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
+import type { KnownSecret } from "@/core/secrets/redaction";
+import { redactionPlaceholder } from "@/core/secrets/secret-names";
+import { userSecretNamesIn } from "@/core/secrets/user-secrets";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { formatDuration } from "@/core/utils/duration";
 import { createSanitizedEnv } from "@/core/utils/env";
@@ -26,10 +29,14 @@ import {
 } from "./base-tool";
 import {
   bindCappedStdio,
+  type CappedOutput,
   DEFAULT_SPAWN_OUTPUT_CAP_BYTES,
   formatCappedStream,
+  formatRedactedCappedStream,
+  REDACTION_LOOKAHEAD_BYTES,
 } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
+import { toolKnownSecrets } from "./tool-secrets";
 
 /**
  * Patterns that block obviously dangerous shell commands before execution.
@@ -535,6 +542,11 @@ export function runShellCommand(input: {
   readonly timeoutMs: number;
   readonly env: NodeJS.ProcessEnv;
   readonly interactive?: boolean;
+  /**
+   * Secrets to redact from stdout and stderr before they are capped, for output a model reads.
+   * Shape-recognized secrets are redacted too.
+   */
+  readonly redact?: readonly KnownSecret[];
 }): Effect.Effect<ShellCommandOutput, Error> {
   return Effect.async((resume) => {
     let settled = false;
@@ -575,7 +587,18 @@ export function runShellCommand(input: {
       return;
     }
 
-    const snapshot = bindCappedStdio(child.stdout, child.stderr, EXECUTE_COMMAND_OUTPUT_CAP_BYTES);
+    const redact = input.redact;
+    const snapshot = bindCappedStdio(
+      child.stdout,
+      child.stderr,
+      redact === undefined
+        ? EXECUTE_COMMAND_OUTPUT_CAP_BYTES
+        : EXECUTE_COMMAND_OUTPUT_CAP_BYTES + REDACTION_LOOKAHEAD_BYTES,
+    );
+    const formatStream = (output: CappedOutput, streamName: "stdout" | "stderr"): string =>
+      redact === undefined
+        ? formatCappedStream(output, streamName, EXECUTE_COMMAND_OUTPUT_CAP_BYTES)
+        : formatRedactedCappedStream(output, streamName, EXECUTE_COMMAND_OUTPUT_CAP_BYTES, redact);
 
     // A killed command keeps whatever it printed first. Failing here without reading
     // `snapshot()` threw that away, so a job that logged for fourteen minutes and then hit
@@ -586,14 +609,10 @@ export function runShellCommand(input: {
       }
       const collected = snapshot();
       const note = `Command timed out after ${input.timeoutMs}ms and was killed; any output above is what it printed first.`;
-      const stderr = formatCappedStream(
-        collected.stderr,
-        "stderr",
-        EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
-      );
+      const stderr = formatStream(collected.stderr, "stderr");
       finish(
         Effect.succeed({
-          stdout: formatCappedStream(collected.stdout, "stdout", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
+          stdout: formatStream(collected.stdout, "stdout"),
           stderr: stderr.length > 0 ? `${stderr}\n${note}` : note,
           exitCode: TIMEOUT_EXIT_CODE,
         }),
@@ -612,8 +631,8 @@ export function runShellCommand(input: {
       const collected = snapshot();
       finish(
         Effect.succeed({
-          stdout: formatCappedStream(collected.stdout, "stdout", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
-          stderr: formatCappedStream(collected.stderr, "stderr", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
+          stdout: formatStream(collected.stdout, "stdout"),
+          stderr: formatStream(collected.stderr, "stderr"),
           // A signal death reports a null code, and calling that 0 reads as success.
           exitCode: code ?? (signal !== null ? SIGNAL_EXIT_CODE : 0),
         }),
@@ -671,9 +690,11 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
       "Run a non-interactive shell command; stdin is empty. Use a dedicated tool whenever one covers the task, including tools from search_tools; use this for git and everything else. " +
       "Read-only commands may be auto-approved; anything that mutates needs approval. " +
       "sudo and inline -c/-e code are blocked: write code to a temp file and run it. The environment has no secrets and takes no env vars. " +
+      "Put a secret from ask_user_secret in the command as its placeholder; the person approves every such command. " +
       "stdout and stderr are each capped at 256 KB.",
     tags: ["shell", "execution"],
     riskLevel: "unknown",
+    userSecretArguments: ["command"],
     timeoutMs: SHELL_COMMAND_MAX_TIMEOUT_MS,
     parameters: executeCommandParameters,
     validate: makeZodValidator(executeCommandParameters),
@@ -702,12 +723,24 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
         const timeout = args.timeout ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
         const description = args.description.trim();
 
-        return `Command: ${args.command}
+        const message = `Command: ${args.command}
 Description: ${description}
 Working Directory: ${workingDir}
 Timeout: ${formatDuration(timeout)}
 
 This command will be executed on your system. Only approve commands you trust.`;
+        const typedSecrets =
+          context.userSecrets === undefined
+            ? []
+            : userSecretNamesIn(args.command, context.userSecrets);
+        if (typedSecrets.length === 0) {
+          return message;
+        }
+        const placeholders = typedSecrets.map(redactionPlaceholder).join(", ");
+        return {
+          message: `${message}\n\nApproving puts the secret you typed in place of ${placeholders} when the command runs.`,
+          alwaysAsk: true,
+        };
       }),
 
     approvalErrorMessage: "Command execution requires explicit user approval for security reasons.",
@@ -765,6 +798,7 @@ This command will be executed on your system. Only approve commands you trust.`;
             workingDir,
             timeoutMs: timeout,
             env: sanitizedEnv,
+            redact: yield* toolKnownSecrets(),
           }).pipe(
             Effect.catchAll((error: unknown) =>
               Effect.succeed({

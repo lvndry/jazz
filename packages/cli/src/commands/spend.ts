@@ -1,11 +1,18 @@
 /**
  * `jazz spend`: what this machine's runs cost today and this month, broken down by agent and by
- * source, and where each configured spend ceiling stands. Reads the machine-wide ledger under
+ * source, and where each configured `daemon` spend cap stands. Reads the machine-wide ledger under
  * `$JAZZ_HOME/spend` (see `@jazz/core/spend/ledger`).
  */
 
+import { capLifted } from "@jazz/core/daemon/attention";
+import { daemonStatePath, readDaemonStateFile } from "@jazz/core/daemon/daemon-state";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
-import { ceilingStatuses } from "@jazz/core/spend/ceilings";
+import {
+  type CapStatus,
+  capStatuses,
+  listCapAgents,
+  unknownAgentCapKeys,
+} from "@jazz/core/spend/caps";
 import { type DaySpend, readSpend, type SpendTotals } from "@jazz/core/spend/ledger";
 import { SPEND_SOURCE_LABELS, type SpendSource } from "@jazz/core/spend/sources";
 import { Effect } from "effect";
@@ -42,6 +49,29 @@ function sourceEntries(day: DaySpend): ReadonlyArray<readonly [string, SpendTota
   );
 }
 
+function describeCapState(cap: CapStatus): string {
+  if (cap.liftedUntil !== undefined && (cap.reached || cap.unverifiable)) {
+    return `  lifted until ${new Date(cap.liftedUntil).toLocaleString()}`;
+  }
+  if (cap.reached) {
+    return "  REACHED";
+  }
+  if (cap.unverifiable) {
+    return `  BLOCKED: ${cap.unpricedRuns} unpriced run${cap.unpricedRuns === 1 ? "" : "s"} today`;
+  }
+  if (cap.unpricedRuns > 0) {
+    return `  plus ${cap.unpricedRuns} unpriced run${cap.unpricedRuns === 1 ? "" : "s"}`;
+  }
+  return "";
+}
+
+/** One cap's line in `jazz spend`, its key padded to `keyWidth`. */
+export function describeCap(cap: CapStatus, keyWidth: number): string {
+  const amount = (value: number) =>
+    cap.measure === "cost" ? dollars(value) : `${value.toLocaleString("en-US")} tokens`;
+  return `  ${cap.key.padEnd(keyWidth)}  ${amount(cap.spent)} of ${amount(cap.limit)}${describeCapState(cap)}`;
+}
+
 export function spendCommand(options: { readonly json: boolean }) {
   return Effect.gen(function* () {
     const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
@@ -51,22 +81,32 @@ export function spendCommand(options: { readonly json: boolean }) {
       return;
     }
     const spend = report.right;
-    const ceilings = ceilingStatuses(appConfig.spend, spend);
-    const ceilingLines =
-      ceilings.length === 0
-        ? ["", "Ceilings: none (unlimited). Set them with `jazz config` > Spend limits."]
+    const daemonState = yield* Effect.promise(() => readDaemonStateFile(daemonStatePath()));
+    const agents = yield* listCapAgents();
+    const caps = capStatuses(appConfig.daemon, spend, {
+      agents,
+      ...(capLifted(daemonState, new Date()) && daemonState.capLiftedUntil !== undefined
+        ? { machineCapLiftedUntil: daemonState.capLiftedUntil }
+        : {}),
+    });
+    const unknownAgents = agents.length > 0 ? unknownAgentCapKeys(appConfig.daemon, agents) : [];
+    const keyWidth = Math.max(0, ...caps.map((cap) => cap.key.length));
+    const capLines =
+      caps.length === 0
+        ? ["", "Caps: none (unlimited). Set them with `jazz` > Settings > Spend Limits."]
         : [
             "",
-            "Ceilings",
-            ...ceilings.map(
-              (ceiling) =>
-                `  ${ceiling.key.padEnd(28)}  ${dollars(ceiling.spentUSD)} of ${dollars(ceiling.limitUSD)}${ceiling.reached ? "  REACHED" : ""}`,
+            "Caps (unattended runs only; chat never counts)",
+            ...caps.map((cap) => describeCap(cap, keyWidth)),
+            ...unknownAgents.map(
+              (key) => `  daemon.agents.${key} names no agent, so its caps bind nothing.`,
             ),
           ];
     const text = [
       `Today (${spend.day}):       ${describeTotals(spend.today.total)}`,
       `This month (${spend.monthKey}): ${describeTotals(spend.month.total)}`,
-      ...ceilingLines,
+      `Unattended today:         ${describeTotals(spend.today.unattended)}`,
+      ...capLines,
       ...breakdown("This month by source", sourceEntries(spend.month)),
       ...breakdown("This month by agent", Object.entries(spend.month.byAgent)),
       ...(spend.unreadableLines > 0
@@ -81,7 +121,8 @@ export function spendCommand(options: { readonly json: boolean }) {
         month: spend.monthKey,
         today: spend.today,
         thisMonth: spend.month,
-        ceilings,
+        caps,
+        ...(unknownAgents.length > 0 ? { unknownAgentCapKeys: unknownAgents } : {}),
         unreadableLines: spend.unreadableLines,
       },
       text,

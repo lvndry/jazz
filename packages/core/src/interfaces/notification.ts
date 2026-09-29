@@ -19,6 +19,12 @@ export interface NotificationService {
    * @param options - Optional configuration (title, subtitle, sound)
    */
   readonly notify: (message: string, options?: NotificationOptions) => Effect.Effect<void, never>;
+
+  /**
+   * Whether a desktop notification can be shown here: in a terminal that shows notifications,
+   * or with an OS notifier (terminal-notifier, notify-send).
+   */
+  readonly desktopAvailable: () => Effect.Effect<boolean, never>;
 }
 
 export const NotificationServiceTag =

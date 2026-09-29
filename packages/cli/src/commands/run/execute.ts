@@ -587,15 +587,11 @@ export function runAgentOnceCommand(
       (error): error is RunParkRequested => isRunParkRequested(error) && error.runId !== undefined,
       (parked) =>
         Effect.sync(() => {
-          const request =
-            parked.pending.kind === "tool-approval" ? parked.pending.request : undefined;
           const formatted = formatOneShotParked(
             {
               runId: parked.runId ?? "",
               expiresAt: parked.expiresAt ?? "",
-              toolName: request?.toolName ?? "",
-              toolCallId: request?.toolCallId ?? "",
-              message: request?.message ?? "Waiting for input.",
+              pending: parked.pending,
             },
             outputOptions,
             parked.costUSD ?? 0,
@@ -617,7 +613,7 @@ export function runAgentOnceCommand(
         stoppedToolCalls !== undefined ? { stoppedToolCalls } : {},
       ),
     ),
-    // A run that parked, failed or hit a spend ceiling may have queued a notification.
+    // A run that parked, failed or hit a spend cap may have queued a notification.
     Effect.ensuring(drainNotifyOutbox().pipe(Effect.ignore)),
     // Only a parking run needs somewhere durable to park. Without the flag no store is in
     // the layer at all, and the recorder is a pass-through.

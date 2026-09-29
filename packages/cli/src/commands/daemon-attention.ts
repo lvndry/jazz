@@ -6,13 +6,13 @@
  * or not a daemon is running; a running one picks a pause or resume up on its next tick.
  */
 
-import { daemonStatusSnapshot, pauseDaemon, resumeDaemon } from "@jazz/adapters/daemon/attention";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import type { WaitingItem } from "@jazz/core/daemon/attention";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { formatCompactCount } from "@jazz/core/utils/string";
+import { daemonStatusSnapshot, pauseDaemon, resumeDaemon } from "@jazz/daemon/attention";
 import { Effect } from "effect";
 import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
 
@@ -29,11 +29,13 @@ function describeItem(item: WaitingItem): string {
       ? `jazz runs approve ${item.runId}  ·  jazz runs reject ${item.runId}`
       : item.runId !== undefined && item.kind === "question"
         ? `jazz runs answer ${item.runId} --response "<your answer>"`
-        : item.goalId !== undefined
-          ? `jazz goal show ${item.goalId.slice(0, 8)}`
-          : item.loopId !== undefined
-            ? `jazz loop show ${item.loopId.slice(0, 8)}`
-            : undefined;
+        : item.runId !== undefined && item.kind === "secret"
+          ? `jazz runs secret ${item.runId}`
+          : item.goalId !== undefined
+            ? `jazz goal show ${item.goalId.slice(0, 8)}`
+            : item.loopId !== undefined
+              ? `jazz loop show ${item.loopId.slice(0, 8)}`
+              : undefined;
   return [
     `  • ${item.title}`,
     `    ${item.detail.split("\n").join(" ")}`,
@@ -50,12 +52,18 @@ export function readDaemonAttention() {
 export function formatDaemonAttention(
   status: Effect.Effect.Success<ReturnType<typeof daemonStatusSnapshot>>,
 ): string {
-  const { spendToday, dailyCaps } = status;
+  const { spendToday } = status;
+  const machineDailyLimit = (measure: "cost" | "tokens") =>
+    status.caps.find(
+      (cap) => cap.scope.kind === "machine" && cap.period === "day" && cap.measure === measure,
+    )?.limit;
+  const costLimit = machineDailyLimit("cost");
+  const tokenLimit = machineDailyLimit("tokens");
   const cost =
     spendToday.costUSD !== undefined
-      ? `$${spendToday.costUSD.toFixed(2)}${dailyCaps.costUSD !== undefined ? ` of $${dailyCaps.costUSD.toFixed(2)}` : ""}`
+      ? `$${spendToday.costUSD.toFixed(2)}${costLimit !== undefined ? ` of $${costLimit.toFixed(2)}` : ""}`
       : "cost unknown";
-  const tokens = `${formatCompactCount(spendToday.totalTokens)}${dailyCaps.tokens !== undefined ? ` of ${formatCompactCount(dailyCaps.tokens)}` : ""} tokens`;
+  const tokens = `${formatCompactCount(spendToday.totalTokens)}${tokenLimit !== undefined ? ` of ${formatCompactCount(tokenLimit)}` : ""} tokens`;
   const lines = [
     `Background work: ${status.pauseReason ?? "running"}`,
     `Today: ${String(spendToday.runs)} unattended ${spendToday.runs === 1 ? "run" : "runs"} · ${tokens} · ${cost}`,
@@ -97,7 +105,7 @@ export function resumeDaemonCommand(options: { readonly json: boolean }) {
         options.json,
         { ok: true, paused: false },
         state.capLiftedUntil !== undefined && Date.parse(state.capLiftedUntil) > Date.now()
-          ? `Background work resumed; the daily cap is lifted until ${new Date(state.capLiftedUntil).toLocaleString()}.`
+          ? `Background work resumed; the machine daily caps are lifted until ${new Date(state.capLiftedUntil).toLocaleString()}.`
           : "Background work resumed.",
       ),
     ),

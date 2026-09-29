@@ -1024,6 +1024,86 @@ describe("ToolExecutor picker-style approvals", () => {
   });
 });
 
+describe("ToolExecutor approvals that always ask", () => {
+  function runWriteUnderYolo(alwaysAsk: boolean) {
+    const executed: string[] = [];
+    const receivedRequests: ApprovalRequest[] = [];
+    const registry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "write_file",
+          timeoutMs: 5000,
+          longRunning: false,
+          approvalExecuteToolName: "execute_write_file",
+          riskLevel: "low-risk" as const,
+        }),
+      executeTool: (name: string) => {
+        executed.push(name);
+        return Effect.succeed(
+          name === "write_file"
+            ? {
+                success: false,
+                result: {
+                  approvalRequired: true,
+                  message: "About to write config.json",
+                  executeToolName: "execute_write_file",
+                  executeArgs: { path: "/home/.jazz/config.json", content: "{}" },
+                  ...(alwaysAsk ? { alwaysAsk: true } : {}),
+                },
+              }
+            : { success: true, result: "written" },
+        );
+      },
+    } as unknown as ToolRegistry;
+    const presentation = {
+      ...mockPresentationService,
+      requestApproval: (request: ApprovalRequest) => {
+        receivedRequests.push(request);
+        return Effect.succeed({ approved: true });
+      },
+    } as unknown as PresentationService;
+
+    return Effect.runPromise(
+      ToolExecutor.executeToolCall(
+        {
+          id: "call_write_1",
+          type: "function",
+          function: { name: "write_file", arguments: "{}" },
+        },
+        {
+          agentId: "agent-1",
+          unrestrictedTools: true,
+          getAutoApprovePolicy: () => true,
+          autoApprovedTools: ["write_file"],
+        },
+        displayConfig,
+        null,
+        makeRunMetrics(),
+        "agent-1",
+        "conv-123",
+        new Set(["write_file"]),
+      ).pipe(Effect.provide(makeTestLayer({ registry, presentation }))) as Effect.Effect<
+        ToolCallExecutionResult,
+        unknown,
+        never
+      >,
+    ).then(() => ({ executed, receivedRequests }));
+  }
+
+  it("asks a person under yolo and a per-tool allowlist, then runs once approved", async () => {
+    const { executed, receivedRequests } = await runWriteUnderYolo(true);
+    expect(receivedRequests).toHaveLength(1);
+    expect(receivedRequests[0]?.isAutoApproved?.()).toBe(false);
+    expect(executed).toEqual(["write_file", "execute_write_file"]);
+  });
+
+  it("auto-approves the same request without the flag", async () => {
+    const { executed, receivedRequests } = await runWriteUnderYolo(false);
+    expect(receivedRequests.every((request) => request.isAutoApproved?.() === true)).toBe(true);
+    expect(executed).toEqual(["write_file", "execute_write_file"]);
+  });
+});
+
 describe("a run's effective tool set as the execution boundary", () => {
   /**
    * A registry holding both halves of one gated pair plus an unrelated tool, standing in for

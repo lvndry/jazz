@@ -22,7 +22,9 @@
  *   - It holds perfectly still. No spinner, no pulse, no countdown: motion
  *     here would be pressure applied to an irreversible choice.
  *   - The controls sit outside the band. The card is what *will happen*; the
- *     line below it is what *you can do*.
+ *     lines below it are what *you can do*. Always-allow gets a row of its
+ *     own so it is found, but stays muted and unbold: a standing grant should
+ *     never be the easiest thing to reach for.
  */
 
 import { TextAttributes } from "@opentui/core";
@@ -59,10 +61,10 @@ const LABEL_COLUMN = 11;
 /** Padding, title, padding, account, padding. Everything else scrolls. */
 const PADDED_FIXED_CARD_ROWS = 5;
 
-/** Compact cards drop the padding, put the account in the scrollable body and use two control rows. */
+/** Compact cards drop the padding and put the account in the scrollable body. */
 const COMPACT_FIXED_CARD_ROWS = 1;
-const CONTROL_ROWS = 1;
-const COMPACT_CONTROL_ROWS = 2;
+/** Accept and reject, then always-allow on its own row — never the easiest thing to reach for. */
+const CONTROL_ROWS = 2;
 
 /**
  * Collapsed field preview, in terminal cells. Long enough to recognise the
@@ -364,11 +366,10 @@ export function approvalLayout(model: ApprovalOverlay, viewport: Viewport) {
   // into the scrolling body.
   const padded = !compact;
   const fixedCardRows = padded ? PADDED_FIXED_CARD_ROWS : COMPACT_FIXED_CARD_ROWS;
-  const controlRows = compact ? COMPACT_CONTROL_ROWS : CONTROL_ROWS;
-  const windowedHeight = fixedCardRows + bodyRows.length + controlRows;
+  const windowedHeight = fixedCardRows + bodyRows.length + CONTROL_ROWS;
   const placement = placeOverlay(viewport, frame, windowedHeight);
   const { height, left, top } = placement;
-  const cardHeight = Math.max(1, height - controlRows);
+  const cardHeight = Math.max(1, height - CONTROL_ROWS);
 
   // Every resulting field is on screen before you commit — so when the viewport
   // cannot hold it all the region scrolls rather than being cut short.
@@ -512,9 +513,10 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
     : "";
   const expandHint = expandable ? `ctrl+o ${expanded ? "collapse" : "expand"}` : "";
   const editHint = model.editableArg === undefined ? "" : `e edit ${model.editableArg}`;
-  const rightHint = [scrollHint, expandHint, editHint, `a ${model.alwaysLabel}`]
+  const rightHint = [scrollHint, expandHint, editHint]
     .filter((part) => part.length > 0)
     .join(" · ");
+  const alwaysLine = clip(`a ${model.alwaysLabel}`, inner);
   const acceptLabel = model.acceptLabel ?? "accept";
   const rejectLabel = model.rejectLabel ?? "reject";
   const legendWidth = Math.max(0, width - LEGEND_INDENT * 2);
@@ -595,7 +597,7 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
       {compact ? (
         <box
           style={{
-            height: COMPACT_CONTROL_ROWS,
+            height: CONTROL_ROWS,
             flexShrink: 0,
             flexDirection: "column",
             backgroundColor: THEME.canvas,
@@ -614,32 +616,37 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
             <b style={{ fg: THEME.selected }}>esc</b>
             <span style={{ fg: THEME.secondary }}>{` ${rejectLabel}`}</span>
           </text>
-          <text style={{ fg: THEME.muted }}>{bodyScrolls ? "up/down more · " : ""}a always</text>
+          <text style={{ fg: THEME.muted }}>
+            {clip(`${bodyScrolls ? "up/down more · " : ""}a ${model.alwaysLabel}`, inner)}
+          </text>
         </box>
       ) : (
         <box
           style={{
             height: CONTROL_ROWS,
             flexShrink: 0,
-            flexDirection: "row",
+            flexDirection: "column",
             backgroundColor: THEME.canvas,
             paddingLeft: LEGEND_INDENT,
             paddingRight: LEGEND_INDENT,
           }}
         >
-          <text>
-            {model.armed ? (
-              <b style={{ fg: THEME.primary }}>enter</b>
-            ) : (
-              <span style={{ fg: THEME.secondary, attributes: TextAttributes.DIM }}>enter</span>
-            )}
-            <span style={{ fg: THEME.secondary }}>{` ${acceptLabel}`}</span>
-            <span style={{ fg: THEME.muted }}>{"    "}</span>
-            <b style={{ fg: THEME.selected }}>esc</b>
-            <span style={{ fg: THEME.secondary }}>{` ${rejectLabel}`}</span>
-          </text>
-          <box style={{ flexGrow: 1 }} />
-          <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(rightHint, rightBudget)}</text>
+          <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
+            <text>
+              {model.armed ? (
+                <b style={{ fg: THEME.primary }}>enter</b>
+              ) : (
+                <span style={{ fg: THEME.secondary, attributes: TextAttributes.DIM }}>enter</span>
+              )}
+              <span style={{ fg: THEME.secondary }}>{` ${acceptLabel}`}</span>
+              <span style={{ fg: THEME.muted }}>{"    "}</span>
+              <b style={{ fg: THEME.selected }}>esc</b>
+              <span style={{ fg: THEME.secondary }}>{` ${rejectLabel}`}</span>
+            </text>
+            <box style={{ flexGrow: 1 }} />
+            <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(rightHint, rightBudget)}</text>
+          </box>
+          <text style={{ fg: THEME.muted }}>{alwaysLine}</text>
         </box>
       )}
     </box>

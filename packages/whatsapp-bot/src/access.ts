@@ -23,6 +23,11 @@ export function isGroupJid(jid: Jid): boolean {
   return jid.endsWith("@g.us");
 }
 
+/** Whether `jid` is a one-to-one chat: a phone number or a per-thread `@lid` identifier. */
+export function isDirectChatJid(jid: Jid): boolean {
+  return jid.endsWith("@s.whatsapp.net") || jid.endsWith("@lid");
+}
+
 /**
  * Reduce a JID or a hand-written phone number to one comparable form.
  *

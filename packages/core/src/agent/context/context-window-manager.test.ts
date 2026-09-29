@@ -4,6 +4,7 @@ import { ContextWindowManager } from "./context-window-manager";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
+import { createEgressTaint } from "../execution/egress-taint";
 
 const mockLogger = {
   debug: () => Effect.void,
@@ -237,6 +238,41 @@ describe("ContextWindowManager", () => {
       expect(kinds).toContain("summary");
       expect(kinds).toContain("continuation");
       expect(result.messages.at(-1)?.content).toBe("latest question");
+    });
+  });
+
+  describe("trim and egress taint", () => {
+    it("keeps the run marked when the only tainted message is trimmed away", async () => {
+      const manager = new ContextWindowManager({ maxTokens: 120, protectedRecentTurns: 1 });
+      const filler = "x".repeat(200);
+      const messages: ConversationMessages = [
+        makeMessage("system", "system"),
+        makeMessage("user", "read the page"),
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            { id: "fetch", type: "function", function: { name: "web_fetch", arguments: "{}" } },
+          ],
+        },
+        {
+          role: "tool",
+          name: "web_fetch",
+          tool_call_id: "fetch",
+          content: filler,
+          egressTainted: true,
+        },
+        makeMessage("assistant", filler),
+        makeMessage("user", "latest question"),
+      ] as ConversationMessages;
+
+      const result = await Effect.runPromise(
+        manager.trim(messages, mockLogger, "agent-1", "conv-1").pipe(Effect.provide(TestLayer)),
+      );
+
+      expect(result.messages.some((message) => message.tool_call_id === "fetch")).toBe(false);
+      expect(result.messages[0].egressTainted).toBeUndefined();
+      expect(createEgressTaint(result.messages).isTainted()).toBe(true);
     });
   });
 

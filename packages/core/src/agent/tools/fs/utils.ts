@@ -67,18 +67,25 @@ export function spawnCollect(
     cwd?: string;
     timeout?: number;
     env?: Record<string, string | undefined>;
+    /** Written to the child's stdin, which is then closed. */
+    input?: string;
   } = {},
 ): Effect.Effect<CollectedProcessOutput, never, never> {
   return Effect.async<CollectedProcessOutput>((resume) => {
     const child = spawn(cmd, args, {
       cwd: options.cwd,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       env: options.env,
       timeout: options.timeout ?? 30_000,
       detached: false,
     });
 
     const snapshot = bindCappedStdio(child.stdout, child.stderr, DEFAULT_SPAWN_OUTPUT_CAP_BYTES);
+    if (options.input !== undefined && child.stdin !== null) {
+      // A child that exits without reading all of its input closes the pipe early.
+      child.stdin.on("error", () => undefined);
+      child.stdin.end(options.input);
+    }
 
     child.on("close", (code: number | null) => {
       const collected = snapshot();

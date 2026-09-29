@@ -2,10 +2,11 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { JazzEnvelope, JazzRun } from "@jazz/bot-shared/jazz-run";
+import type { JazzEnvelope, JazzRun, JazzRunHandlers } from "@jazz/bot-shared/jazz-run";
 import { renderPlain, type OutgoingMessage } from "@jazz/bot-shared/surface";
 import { todayUsage } from "@jazz/bot-shared/usage-store";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { waitUntil } from "@jazz/bot-shared/wait-until";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   type Bridge,
   type BridgeConfig,
@@ -25,6 +26,9 @@ let prompts: string[];
 let finishers: ((envelope?: JazzEnvelope) => void)[];
 let sent: OutgoingMessage[];
 let bridge: Bridge;
+let runHandlers: JazzRunHandlers;
+let questionAnswers: { requestId: string; response: string }[];
+let approvals: { toolCallId: string; approved: boolean }[];
 
 function fakeSurface(): DiscordSurface {
   return {
@@ -75,7 +79,8 @@ function config(): BridgeConfig {
   };
 }
 
-function startRun(options: { prompt: string }): JazzRun {
+function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): JazzRun {
+  runHandlers = handlers;
   prompts.push(options.prompt);
   let settle: (envelope: JazzEnvelope) => void = () => {};
   const result = new Promise<JazzEnvelope>((resolve) => {
@@ -86,8 +91,15 @@ function startRun(options: { prompt: string }): JazzRun {
     result,
     cancelled: () => false,
     lastSpend: () => undefined,
-    approve: () => Promise.resolve(),
-    answerQuestion: () => Promise.resolve(),
+    approve: (decisions) => {
+      approvals.push(...decisions);
+      return Promise.resolve();
+    },
+    answerQuestion: (requestId, response) => {
+      questionAnswers.push({ requestId, response });
+      return Promise.resolve();
+    },
+    answerSecret: () => Promise.resolve(),
     cancel: () => settle({ ok: false, error: "cancelled" }),
   };
 }
@@ -100,11 +112,6 @@ function dm(content: string, extras: Partial<DiscordMessage> = {}): DiscordMessa
     author: { id: OWNER },
     ...extras,
   };
-}
-
-async function until(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 500 && !condition(); attempt += 1) await Bun.sleep(1);
-  if (!condition()) throw new Error("condition never became true");
 }
 
 beforeEach(() => {
@@ -123,6 +130,9 @@ beforeEach(() => {
       },
     }),
   );
+  runHandlers = {};
+  questionAnswers = [];
+  approvals = [];
   prompts = [];
   finishers = [];
   sent = [];
@@ -135,11 +145,134 @@ beforeEach(() => {
 
 afterEach(async () => {
   for (const finish of finishers) finish();
-  await until(() => !bridge.runner.busy(DM_CHANNEL));
+  await waitUntil(() => !bridge.runner.busy(DM_CHANNEL));
   rmSync(dataDir, { recursive: true, force: true });
 });
 
 const runtime = { botUserId: BOT, applicationId: BOT };
+
+describe("guild questions", () => {
+  const OTHER = "300000000000000001";
+  const GUILD_CHANNEL = "200000000000000002";
+  let allowedUsers: Set<string>;
+
+  function guildMessage(content: string, extras: Partial<DiscordMessage> = {}): DiscordMessage {
+    return { ...dm(content, extras), channel_id: extras.channel_id ?? GUILD_CHANNEL };
+  }
+
+  beforeEach(() => {
+    allowedUsers = new Set([OWNER, OTHER]);
+    bridge = createBridge(
+      {
+        ...config(),
+        createThreads: false,
+        allowedUserIds: allowedUsers,
+        allowedChannelIds: new Set([GUILD_CHANNEL]),
+      },
+      fakeSurface(),
+      {
+        startRun,
+        fetchChannel: () =>
+          Promise.resolve({ type: 0, parentId: undefined, guildId: "400000000000000001" }),
+      },
+    );
+  });
+
+  async function askQuestion(): Promise<{ turn: Promise<void> }> {
+    const turn = dispatchMessage(bridge, runtime, guildMessage(`<@${BOT}> create a note`));
+    await waitUntil(() => prompts.length === 1);
+    runHandlers.onUserInputRequired?.({
+      type: "user_input_required",
+      requestId: "q1",
+      question: "What should the file be called?",
+    });
+    await waitUntil(() => bridge.runner.awaitsReplyFrom(GUILD_CHANNEL, OWNER));
+    return { turn };
+  }
+
+  async function requestApproval(): Promise<{ turn: Promise<void> }> {
+    const turn = dispatchMessage(bridge, runtime, guildMessage(`<@${BOT}> clean the build`));
+    await waitUntil(() => prompts.length === 1);
+    runHandlers.onApprovalRequired?.({
+      type: "approval_required",
+      toolCallId: "tc1",
+      toolName: "execute_command",
+    });
+    await waitUntil(() => bridge.runner.awaitsReplyFrom(GUILD_CHANNEL, OWNER));
+    return { turn };
+  }
+
+  test("the requester approves with a bare choice number, without another mention", async () => {
+    const { turn } = await requestApproval();
+    await dispatchMessage(bridge, runtime, guildMessage("1"));
+    expect(approvals).toEqual([{ toolCallId: "tc1", approved: true }]);
+    finishers[0]?.();
+    await turn;
+    expect(prompts).toEqual(["clean the build"]);
+  });
+
+  test("unaddressed chatter during an approval is dropped, not queued, and fetches nothing", async () => {
+    const fetchSpy = spyOn(globalThis, "fetch");
+    try {
+      const { turn } = await requestApproval();
+      await dispatchMessage(
+        bridge,
+        runtime,
+        guildMessage("lunch anyone?", {
+          attachments: [
+            { id: "a1", filename: "menu.png", url: "https://cdn.example/menu.png", size: 10 },
+          ],
+        }),
+      );
+      expect(approvals).toEqual([]);
+      expect(bridge.runner.awaitsReplyFrom(GUILD_CHANNEL, OWNER)).toBe(true);
+      finishers[0]?.();
+      await turn;
+      await waitUntil(() => !bridge.runner.busy(GUILD_CHANNEL));
+      expect(prompts).toEqual(["clean the build"]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test("the requester can answer without another mention, then chatter is gated again", async () => {
+    const { turn } = await askQuestion();
+    await dispatchMessage(bridge, runtime, guildMessage("notes.md"));
+    expect(questionAnswers).toEqual([{ requestId: "q1", response: "notes.md" }]);
+    expect(bridge.runner.awaitsReplyFrom(GUILD_CHANNEL, OWNER)).toBe(false);
+    finishers[0]?.();
+    await turn;
+    await dispatchMessage(bridge, runtime, guildMessage("unaddressed chatter"));
+    expect(prompts).toEqual(["create a note"]);
+  });
+
+  test("a pending question does not bypass sender or channel authorization", async () => {
+    const { turn } = await askQuestion();
+    await dispatchMessage(
+      bridge,
+      runtime,
+      guildMessage("someone else's answer", { author: { id: OTHER } }),
+    );
+    await dispatchMessage(
+      bridge,
+      runtime,
+      guildMessage(`<@${BOT}> outsider answer`, { author: { id: "500000000000000001" } }),
+    );
+    await dispatchMessage(
+      bridge,
+      runtime,
+      guildMessage(`<@${BOT}> wrong channel`, { channel_id: "600000000000000001" }),
+    );
+    allowedUsers.delete(OWNER);
+    await dispatchMessage(bridge, runtime, guildMessage("revoked requester's answer"));
+    expect(questionAnswers).toEqual([]);
+    expect(bridge.runner.awaitsReplyFrom(GUILD_CHANNEL, OWNER)).toBe(true);
+    finishers[0]?.();
+    await turn;
+    expect(prompts).toEqual(["create a note"]);
+  });
+});
 
 describe("messages", () => {
   test("parked-run commands retain operator authorization without starting an agent", async () => {
@@ -168,11 +301,11 @@ describe("messages", () => {
   test("two quick messages in one conversation run one after the other", async () => {
     const first = dispatchMessage(bridge, runtime, dm("first"));
     const second = dispatchMessage(bridge, runtime, dm("second"));
-    await until(() => prompts.length === 1);
+    await waitUntil(() => prompts.length === 1);
     await second;
     expect(prompts).toEqual(["first"]);
     finishers[0]?.();
-    await until(() => prompts.length === 2);
+    await waitUntil(() => prompts.length === 2);
     expect(prompts[1]).toBe("second");
     finishers[1]?.();
     await first;
@@ -180,7 +313,7 @@ describe("messages", () => {
 
   test("records a failed run's spend through the shared runner", async () => {
     const done = dispatchMessage(bridge, runtime, dm("start a paid run"));
-    await until(() => prompts.length === 1);
+    await waitUntil(() => prompts.length === 1);
     finishers[0]?.({
       ok: false,
       error: "provider failed",
@@ -189,7 +322,7 @@ describe("messages", () => {
       tokenUsage: { totalTokens: 42 },
     });
     await done;
-    await until(() => !bridge.runner.busy(DM_CHANNEL));
+    await waitUntil(() => !bridge.runner.busy(DM_CHANNEL));
     expect(await todayUsage(dataDir, "discord")).toMatchObject({
       costUSD: 0.25,
       tokens: 42,
@@ -220,7 +353,7 @@ describe("messages", () => {
           ],
         }),
       );
-      await until(() => prompts.length === 1);
+      await waitUntil(() => prompts.length === 1);
       const path = prompts[0]?.split("\n\n").at(-1) ?? "";
       expect(prompts[0]?.startsWith("what does this say?")).toBe(true);
       expect(path).toBe(join(dataDir, "dc-media", "att1.ogg"));

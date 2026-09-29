@@ -13,10 +13,10 @@ import {
   keyringDelete,
   keyringSet,
 } from "@jazz/adapters/secrets/keyring";
-import { peerTokenPath } from "@jazz/adapters/secrets/registry";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { LedgerEntry } from "@jazz/core/interfaces/peers";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
+import { peerTokenPath } from "@jazz/core/secrets/registry";
 import { isPeerTier, PEER_TIERS, type PeerConfig, type PeerTier } from "@jazz/core/types/peer";
 import { Duration, Effect } from "effect";
 

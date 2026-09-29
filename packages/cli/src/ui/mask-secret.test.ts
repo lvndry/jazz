@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { maskSecret, maskSecretCaret } from "./mask-secret";
+import { displayedInput, maskSecret, maskSecretCaret } from "./mask-secret";
 
 describe("maskSecret", () => {
   test("reveals the last 6 characters for keys of length 6 or more", () => {
@@ -47,5 +47,20 @@ describe("maskSecretCaret", () => {
   test("keeps a caret in the hidden prefix on the mask", () => {
     expect(maskSecretCaret("abcdefghij", 2)).toBe(3);
     expect(maskSecretCaret("abcdefghij", 0)).toBe(0);
+  });
+});
+
+describe("displayedInput", () => {
+  test("conceal draws a bullet per character and nothing of the value", () => {
+    expect(displayedInput("hunter22", 3, "conceal")).toEqual({ text: "••••••••", caret: 3 });
+    expect(displayedInput("pa🔑ss", 4, "conceal")).toEqual({ text: "•••••", caret: 3 });
+  });
+
+  test("tail keeps the existing masked-but-recognisable display", () => {
+    expect(displayedInput("abcdefgh", 8, "tail").text).toBe("***cdefgh");
+  });
+
+  test("plain shows the value as typed", () => {
+    expect(displayedInput("hello", 2, "plain")).toEqual({ text: "hello", caret: 2 });
   });
 });

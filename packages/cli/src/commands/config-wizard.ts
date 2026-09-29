@@ -4,6 +4,7 @@
  * spend limits.
  */
 
+import { loadChatGPTCredential } from "@jazz/adapters/llm/chatgpt";
 import { normalizeLocalProviderBaseUrl } from "@jazz/adapters/llm/models";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import {
@@ -13,16 +14,18 @@ import {
 } from "@jazz/core/constants/local-providers";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
+import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type {
   AppConfig,
+  DaemonConfig,
   LoggingConfig,
   SchedulerMode,
+  TerminalNotificationSetting,
   WebSearchProviderName,
 } from "@jazz/core/types/config";
 import type { ColorProfile, OutputMode } from "@jazz/core/types/output";
-import type { SpendLimits } from "@jazz/core/types/spend";
 import { isRecord } from "@jazz/core/utils/is-record";
 import {
   configuredProviderApiKey,
@@ -31,6 +34,7 @@ import {
 } from "@jazz/core/utils/provider-model";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
+import { addPrivateHost, applyPrivateHosts, removePrivateHost } from "./private-hosts";
 import {
   applySpendLimit,
   describeSpendLimit,
@@ -39,6 +43,7 @@ import {
 } from "./spend-limits";
 import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
+import { writeClipboard } from "../ui/fullscreen/clipboard";
 import { configuredProviderNames } from "../ui/models/configured-providers";
 import { store, type ActiveMenuOption } from "../ui/store";
 
@@ -53,6 +58,7 @@ type ConfigMenuAction =
   | "logging"
   | "notifications"
   | "spend-limits"
+  | "private-hosts"
   | "back";
 
 /**
@@ -97,6 +103,10 @@ export function configWizardCommand() {
           yield* configureSpendLimits();
           break;
         }
+        case "private-hosts": {
+          yield* configurePrivateHosts();
+          break;
+        }
         case "back": {
           stayInMenu = false;
           break;
@@ -106,10 +116,14 @@ export function configWizardCommand() {
   });
 }
 
-function spendHint(limits: SpendLimits | undefined): string {
+function spendHint(caps: DaemonConfig | undefined): string {
   const parts = [
-    ...(limits?.dayUSD === undefined ? [] : [`$${String(limits.dayUSD)} / day`]),
-    ...(limits?.monthUSD === undefined ? [] : [`$${String(limits.monthUSD)} / month`]),
+    ...(caps?.goals?.dailyCostUSD === undefined
+      ? []
+      : [`$${String(caps.goals.dailyCostUSD)} / day`]),
+    ...(caps?.goals?.monthlyCostUSD === undefined
+      ? []
+      : [`$${String(caps.goals.monthlyCostUSD)} / month`]),
   ];
   return parts.length === 0 ? "no limit" : parts.join(" · ");
 }
@@ -145,7 +159,15 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
       value: "notifications",
       hint: notifications === undefined ? "not set up" : notifications ? "on" : "off",
     },
-    { label: "Spend limits", value: "spend-limits", hint: spendHint(config.spend) },
+    { label: "Spend limits", value: "spend-limits", hint: spendHint(config.daemon) },
+    {
+      label: "Private network hosts",
+      value: "private-hosts",
+      hint:
+        (config.network?.allowPrivateHosts?.length ?? 0) === 0
+          ? "none allowed"
+          : `${String(config.network?.allowPrivateHosts?.length)} allowed`,
+    },
     { label: "Back", value: "back" },
   ];
 }
@@ -167,6 +189,44 @@ function showConfigMenu(
       },
     );
   });
+}
+
+/** Copy a saved credential on explicit `c`; return true only when the user chose to edit it. */
+function copyOrEditCredential(
+  terminal: TerminalService,
+  label: string,
+  credential: string,
+): Effect.Effect<boolean> {
+  return Effect.gen(function* () {
+    const action = yield* terminal.ask(`${label}: ••••••••  [e]dit · [c]opy`, {
+      hidden: true,
+      keys: ["e", "c"],
+    });
+    if (action === "e") return true;
+    if (action === "c") yield* copyCredential(terminal, credential, label);
+    return false;
+  });
+}
+
+/** Write a credential to the system clipboard without putting it in terminal output. */
+function copyCredential(
+  terminal: TerminalService,
+  credential: string,
+  label: string,
+): Effect.Effect<void> {
+  return Effect.tryPromise({
+    try: () => writeClipboard(credential),
+    catch: (error) => error as Error,
+  }).pipe(
+    Effect.flatMap((copied) =>
+      copied
+        ? terminal.success(`${label} copied to clipboard.`)
+        : terminal.error(
+            "Could not access a clipboard. Install a clipboard utility and try again.",
+          ),
+    ),
+    Effect.catchAll((error) => terminal.error(`Could not copy credential: ${error.message}`)),
+  );
 }
 
 function configureLLMProviders() {
@@ -232,18 +292,36 @@ function configureLLMProviders() {
 
         // Ollama uses a key for :cloud models; the OpenAI-compatible local servers can require keys.
         if (provider === "llamacpp" || provider === "vllm" || provider === "sglang") {
-          const serverKey = yield* terminal.password(
+          const existingKey = configuredProviderApiKey(config.llm, provider);
+          if (
+            existingKey &&
+            !(yield* copyOrEditCredential(terminal, providerDisplay, existingKey))
+          ) {
+            continue;
+          }
+          const serverKey = yield* terminal.ask(
             `${providerDisplay} server API key (only if it runs with --api-key; leave empty to keep current):`,
+            { simple: true, secret: true, cancellable: true },
           );
+          if (serverKey === undefined) continue;
           if (serverKey?.trim()) {
             yield* configService.set(`llm.${provider}.api_key`, serverKey);
             yield* terminal.success(`${providerDisplay} API key updated.`);
           }
         }
         if (provider === "ollama") {
-          const cloudKey = yield* terminal.password(
+          const existingKey = configuredProviderApiKey(config.llm, provider);
+          if (
+            existingKey &&
+            !(yield* copyOrEditCredential(terminal, "Ollama Cloud", existingKey))
+          ) {
+            continue;
+          }
+          const cloudKey = yield* terminal.ask(
             "Ollama Cloud API key (only for :cloud models; leave empty to keep current):",
+            { simple: true, secret: true, cancellable: true },
           );
+          if (cloudKey === undefined) continue;
           if (cloudKey?.trim()) {
             yield* configService.set(`llm.${provider}.api_key`, cloudKey);
             yield* terminal.success("Ollama Cloud API key updated.");
@@ -256,7 +334,32 @@ function configureLLMProviders() {
 
       if (provider === "chatgpt") {
         if (isChatGPTSignedIn(config.llm)) {
-          const action = yield* terminal.select<"keep" | "switch" | "sign-out">(
+          const credentialAction = yield* terminal.ask(
+            "OAuth credential: ••••••••  [e]dit account · [c]opy credential",
+            { hidden: true, keys: ["e", "c"] },
+          );
+          if (credentialAction === "c") {
+            const result = yield* Effect.either(
+              Effect.tryPromise({
+                try: loadChatGPTCredential,
+                catch: (error) => error as Error,
+              }),
+            );
+            if (result._tag === "Left") {
+              yield* terminal.error(`Could not read ChatGPT credential: ${result.left.message}`);
+            } else if (!result.right) {
+              yield* terminal.error("ChatGPT credential is unavailable. Sign in again.");
+            } else {
+              yield* copyCredential(
+                terminal,
+                JSON.stringify(result.right),
+                "ChatGPT OAuth credential",
+              );
+            }
+            continue;
+          }
+          if (credentialAction !== "e") continue;
+          const accountAction = yield* terminal.select<"keep" | "switch" | "sign-out">(
             "You are signed in to ChatGPT.",
             {
               choices: [
@@ -266,9 +369,9 @@ function configureLLMProviders() {
               ],
             },
           );
-          if (action === "sign-out") {
+          if (accountAction === "sign-out") {
             yield* signOutOfChatGPT(terminal, configService);
-          } else if (action === "switch") {
+          } else if (accountAction === "switch") {
             yield* signInToChatGPT(terminal, configService);
           }
         } else {
@@ -278,9 +381,16 @@ function configureLLMProviders() {
         continue;
       }
 
-      const apiKey = yield* terminal.password(
+      const existingKey = configuredProviderApiKey(config.llm, provider);
+      if (existingKey && !(yield* copyOrEditCredential(terminal, providerDisplay, existingKey))) {
+        continue;
+      }
+
+      const apiKey = yield* terminal.ask(
         `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
+        { simple: true, secret: true, cancellable: true },
       );
+      if (apiKey === undefined) continue;
 
       if (apiKey?.trim()) {
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
@@ -365,9 +475,18 @@ function configureWebSearchProviders() {
         const provider = selection as WebSearchProviderName;
 
         yield* terminal.info(`Configuring ${provider}...`);
-        const apiKey = yield* terminal.password(
+        const existingKey = config.web_search?.[provider]?.api_key;
+        if (
+          existingKey &&
+          !(yield* copyOrEditCredential(terminal, `${provider} API key`, existingKey))
+        ) {
+          continue;
+        }
+        const apiKey = yield* terminal.ask(
           `Enter API Key for ${provider} (leave empty to keep current):`,
+          { simple: true, secret: true, cancellable: true },
         );
+        if (apiKey === undefined) continue;
 
         if (apiKey?.trim()) {
           yield* configService.set(`web_search.${provider}.api_key`, apiKey);
@@ -561,6 +680,17 @@ function configureScheduler() {
   });
 }
 
+const TERMINAL_NOTIFICATION_CHOICES: readonly {
+  readonly name: string;
+  readonly value: TerminalNotificationSetting;
+}[] = [
+  { name: "auto: detect kitty, Ghostty, WezTerm, Warp or iTerm2", value: "auto" },
+  { name: "osc99: kitty's notification sequence", value: "osc99" },
+  { name: "osc777: Ghostty, WezTerm, Warp", value: "osc777" },
+  { name: "osc9: iTerm2", value: "osc9" },
+  { name: "off: always use the system notifier", value: "off" },
+];
+
 function configureNotifications() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -570,11 +700,13 @@ function configureNotifications() {
       const appConfig = yield* configService.appConfig;
       const enabled = appConfig.notifications?.enabled ?? true;
       const sound = appConfig.notifications?.sound ?? true;
+      const terminalSetting = appConfig.notifications?.terminal ?? "auto";
 
       const selection = yield* terminal.select<string>("Notification settings:", {
         choices: [
           { name: `System notifications (${enabled ? "on" : "off"})`, value: "enabled" },
           { name: `Notification sound (${sound ? "on" : "off"})`, value: "sound" },
+          { name: `Terminal notifications (${terminalSetting})`, value: "terminal" },
           { name: "Back", value: "back" },
         ],
       });
@@ -602,6 +734,21 @@ function configureNotifications() {
           yield* terminal.success(`Notification sound ${nextValue ? "enabled" : "disabled"}.`);
           break;
         }
+        case "terminal": {
+          const nextValue = yield* terminal.select<TerminalNotificationSetting>(
+            "How should notifications reach your terminal?",
+            {
+              choices: TERMINAL_NOTIFICATION_CHOICES,
+              default: terminalSetting,
+            },
+          );
+          if (nextValue === undefined) {
+            break;
+          }
+          yield* configService.set("notifications.terminal", nextValue);
+          yield* terminal.success(`Terminal notifications set to ${nextValue}.`);
+          break;
+        }
       }
 
       yield* terminal.log("");
@@ -610,8 +757,8 @@ function configureNotifications() {
 }
 
 /**
- * Day and month spend ceilings for goals and for every run, all unlimited until set. A reached
- * ceiling stops unattended runs from starting; chat only warns.
+ * Daily and monthly dollar caps for goals and for all unattended work (`daemon.*`), unlimited
+ * until set. A reached cap stops the unattended work it covers from starting; chat never counts.
  */
 function configureSpendLimits() {
   return Effect.gen(function* () {
@@ -619,13 +766,13 @@ function configureSpendLimits() {
     const configService = yield* AgentConfigServiceTag;
 
     while (true) {
-      const spend = (yield* configService.appConfig).spend;
+      const caps = (yield* configService.appConfig).daemon;
       const selection = yield* terminal.select<string>(
-        "Spend limits (a reached limit stops scheduled and background runs; chat only warns):",
+        "Spend limits (a reached limit stops unattended work until it clears; chat is never capped):",
         {
           choices: [
             ...SPEND_LIMIT_SETTINGS.map((setting) => ({
-              name: `${setting.label} (${describeSpendLimit(setting.read(spend))})`,
+              name: `${setting.label} (${describeSpendLimit(setting.read(caps))})`,
               value: setting.key,
             })),
             { name: "Back", value: "back" },
@@ -637,7 +784,7 @@ function configureSpendLimits() {
         break;
       }
 
-      const current = setting.read(spend);
+      const current = setting.read(caps);
       const raw = yield* terminal.ask(`${setting.label}, in USD (leave empty for unlimited):`, {
         simple: true,
         cancellable: true,
@@ -659,6 +806,61 @@ function configureSpendLimits() {
       yield* terminal.success(
         `${setting.label}: ${parsed.kind === "limit" ? describeSpendLimit(parsed.dollars) : "unlimited"}.`,
       );
+      yield* terminal.log("");
+    }
+  });
+}
+
+function configurePrivateHosts() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+
+    while (true) {
+      const hosts = (yield* configService.appConfig).network?.allowPrivateHosts ?? [];
+      const selection = yield* terminal.select<string>(
+        "Private network hosts agents reach without asking (any other local address asks first, and approving adds it here):",
+        {
+          choices: [
+            ...hosts.map((host) => ({ name: `${host} (remove)`, value: `remove:${host}` })),
+            { name: "Add a host", value: "add" },
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
+      if (selection === undefined || selection === "back") {
+        break;
+      }
+
+      if (selection === "add") {
+        const raw = yield* terminal.ask(
+          "Host (homeassistant.local, *.lan, 192.168.1.10 or 192.168.1.0/24):",
+          {
+            simple: true,
+            cancellable: true,
+            validate: (input) => {
+              const result = addPrivateHost(hosts, input);
+              return result.kind === "invalid" ? result.message : true;
+            },
+          },
+        );
+        if (raw === undefined) {
+          continue;
+        }
+        const result = addPrivateHost(hosts, raw);
+        if (result.kind === "invalid") {
+          yield* terminal.warn(result.message);
+          continue;
+        }
+        yield* applyPrivateHosts(configService, result.hosts);
+        yield* terminal.success(`Agents can now reach ${raw.trim()} without asking.`);
+        yield* terminal.log("");
+        continue;
+      }
+
+      const host = selection.slice("remove:".length);
+      yield* applyPrivateHosts(configService, removePrivateHost(hosts, host));
+      yield* terminal.success(`Removed ${host}. Reaching it asks for approval again.`);
       yield* terminal.log("");
     }
   });

@@ -23,10 +23,10 @@ import type { Agent } from "@/core/types";
 import { describeAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { JsonValue } from "@/core/types/plugin";
+import type { EgressTaint } from "@/core/types/tools";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { UNTRUSTED_DATA_INSTRUCTION } from "@/core/utils/untrusted-content";
-import type { AgentResponse } from "../types";
 import type { AdvisedDecision, ReduceToolResultsFn } from "./advised-tool-clearing";
 import { logContextRung } from "./context-telemetry";
 import { resolveContextThresholds } from "./context-thresholds";
@@ -36,6 +36,8 @@ import { extractMemories } from "./memory-extractor";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 import { toolResultsProtectFromIndex } from "./tool-result-clearing";
 import { appendJournalEntry, pruneJournal } from "./work-journal";
+import { messageCarriesEgressTaint } from "../execution/egress-taint";
+import type { AgentResponse } from "../types";
 import { formatWorkState, readWorkState } from "./work-state";
 
 /** Longest tool-argument string kept verbatim in a summarizer transcript. */
@@ -524,6 +526,7 @@ export const Summarizer = {
     runRecursive: RecursiveRunner,
     modelContextWindow?: number,
     allowMemoryExtraction = false,
+    egressTaint?: EgressTaint,
   ): Effect.Effect<
     AutoCompaction,
     never,
@@ -593,6 +596,9 @@ export const Summarizer = {
           runRecursive,
           maxTokens,
           allowMemoryExtraction,
+          undefined,
+          undefined,
+          egressTaint,
         ),
       );
 
@@ -643,6 +649,8 @@ export const Summarizer = {
    *   supplies it so `/compact` is plugin-driven too. It never removes a message.
    * @param onPhase - Optional observer notified as compaction crosses its phases (prune, then
    *   summarize), so an interface can show the work live. Absent for silent callers.
+   * @param egressTaint - The live run's taint. When it is marked, the summary carries
+   *   `egressTainted` even if no summarized message does.
    */
   compact(
     currentMessages: ConversationMessages,
@@ -653,6 +661,7 @@ export const Summarizer = {
     allowMemoryExtraction = false,
     reduceToolResults?: ReduceToolResultsFn,
     onPhase?: CompactionProgressObserver,
+    egressTaint?: EgressTaint,
   ): Effect.Effect<
     CompactionOutcome | undefined,
     Error,
@@ -684,6 +693,8 @@ export const Summarizer = {
               .pipe(Effect.catchAll(() => Effect.void)),
           );
         });
+      const egressTainted =
+        egressTaint?.isTainted() === true || currentMessages.some(messageCarriesEgressTaint);
       const hint = modelHintFromAgent(agent);
       const tokensBefore =
         DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint) +
@@ -803,7 +814,7 @@ export const Summarizer = {
       const compactedMessages: ConversationMessages = [
         systemMessage,
         ...pinnedMessages,
-        summaryMessage,
+        { ...summaryMessage, ...(egressTainted ? { egressTainted: true as const } : {}) },
         COMPACTION_CONTINUATION_MESSAGE,
         ...sanitizedRecentMessages,
       ] as ConversationMessages;
@@ -829,6 +840,7 @@ export const Summarizer = {
         messagesBefore: currentMessages.length,
         messagesAfter: compactedMessages.length,
         summary: summaryMessage.content,
+        ...(egressTainted ? { egressTainted: true as const } : {}),
       });
       yield* pruneJournal(agent.id, conversationId);
 

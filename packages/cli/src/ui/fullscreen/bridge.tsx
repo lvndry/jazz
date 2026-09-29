@@ -524,6 +524,7 @@ function overlayFromPrompt(
         ...(prompt.type === "password" || prompt.options?.["secret"] === true
           ? { masked: true }
           : {}),
+        ...(prompt.options?.["conceal"] === true ? { concealed: true } : {}),
         ...(typeof prompt.options?.["placeholder"] === "string"
           ? { placeholder: prompt.options["placeholder"] }
           : {}),

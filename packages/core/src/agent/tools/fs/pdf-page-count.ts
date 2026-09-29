@@ -28,7 +28,11 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
   const parameters = z
     .object({
       path: z.string().min(1).describe("Absolute or relative to the working directory."),
-      password: z.string().min(1).optional().describe("For encrypted PDFs."),
+      password: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("For encrypted PDFs: the placeholder from ask_user_secret."),
     })
     .strict();
 
@@ -37,6 +41,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
   return defineTool<FileSystem.FileSystem | FileSystemContextService, PdfPageCountParams>({
     name: "pdf_page_count",
     disclosure: "internal",
+    userSecretArguments: ["password"],
     description: "Return a PDF's page count and file size. Call it before read_pdf on a large PDF.",
     tags: ["filesystem", "pdf", "info"],
     parameters,
@@ -90,8 +95,8 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
                 success: false,
                 result: null,
                 error: args.password
-                  ? "Failed to extract PDF info: the password provided is incorrect."
-                  : "Failed to extract PDF info: this PDF is password-protected. Retry with the `password` argument.",
+                  ? "Failed to extract PDF info: the password provided is incorrect. Ask the person again with ask_user_secret and pass the new placeholder as `password`."
+                  : "Failed to extract PDF info: this PDF is password-protected. Ask the person for its password with ask_user_secret and pass the placeholder it returns as `password`.",
               };
             }
             return {

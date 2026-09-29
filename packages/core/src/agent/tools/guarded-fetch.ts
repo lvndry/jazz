@@ -7,9 +7,11 @@
  * `fetch` does not:
  *
  * 1. **Public destinations only.** The hostname is resolved and every address it resolves to
- *    must be public (see `classifyAddress`), unless the agent's `network.allowPrivateHosts`
- *    lists the hostname or the address. Loopback, RFC 1918, link-local (including the cloud
- *    metadata service at 169.254.169.254), CGNAT, IPv4-mapped IPv6 and `0.0.0.0` are refused.
+ *    must be public (see `classifyAddress`), unless the global `network.allowPrivateHosts` or
+ *    an approval for this call lists the hostname or the address. Loopback, RFC 1918,
+ *    link-local (including the cloud metadata service at 169.254.169.254), CGNAT, IPv4-mapped
+ *    IPv6 and `0.0.0.0` are refused. The executor asks for approval before a call whose URL
+ *    reaches an unlisted private address (see `unlistedPrivateAddresses`).
  * 2. **Every redirect hop is checked.** Redirects are followed by hand, up to
  *    `MAX_REDIRECT_HOPS`, and each `Location` passes the same destination check before it is
  *    requested.
@@ -27,6 +29,8 @@
  */
 
 import { promises as dnsPromises } from "node:dns";
+import { Effect } from "effect";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { ToolExecutionContext } from "@/core/types";
 import {
   classifyAddress,
@@ -76,24 +80,91 @@ export class EgressRefusedError extends Error {
 
 /** Destination policy for one model-directed request. */
 export interface EgressPolicy {
-  /** The agent's `network.allowPrivateHosts` entries. */
+  /** `network.allowPrivateHosts` entries, plus any addresses approved for this call. */
   readonly allowPrivateHosts?: readonly string[];
   /** Replaces system DNS; tests pass a fixed table. */
   readonly resolveHost?: HostResolver;
 }
 
-/** The private-network allowlist of the agent running this tool call, if any. */
-export function egressPolicyForContext(context: ToolExecutionContext | undefined): EgressPolicy {
-  const allowPrivateHosts = context?.parentAgent?.config.network?.allowPrivateHosts;
-  return allowPrivateHosts !== undefined ? { allowPrivateHosts } : {};
+/**
+ * The private hosts this tool call may reach: the global `network.allowPrivateHosts`, plus the
+ * addresses a person or the run's policy approved for this call.
+ */
+export function egressPolicyForContext(
+  context: ToolExecutionContext | undefined,
+): Effect.Effect<EgressPolicy, never, AgentConfigService> {
+  return Effect.gen(function* () {
+    const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
+    const allowPrivateHosts = [
+      ...(appConfig.network?.allowPrivateHosts ?? []),
+      ...(context?.approvedPrivateAddresses ?? []),
+    ];
+    return allowPrivateHosts.length > 0 ? { allowPrivateHosts } : {};
+  });
 }
 
 function refusalFor(host: string, address: string, addressClass: string): EgressRefusedError {
   const target = host === address ? address : `${host} (${address})`;
   return new EgressRefusedError(
     `Refused to connect to ${target}: it is a ${addressClass} address. ` +
-      `List the host in the agent's network.allowPrivateHosts to reach it.`,
+      `To reach it, call the tool again with that URL directly so the user can approve it.`,
   );
+}
+
+/** A private address `url` would reach, and what kind of address it is. */
+export interface PrivateDestination {
+  readonly address: string;
+  readonly addressClass: string;
+}
+
+async function privateDestinations(
+  host: string,
+  allowlist: PrivateHostAllowlist,
+  resolveHost: HostResolver,
+): Promise<readonly PrivateDestination[]> {
+  if (isIpLiteral(host)) {
+    const addressClass = classifyAddress(host);
+    return addressClass !== "public" && !allowlist.allowsAddress(host)
+      ? [{ address: host, addressClass }]
+      : [];
+  }
+  if (allowlist.allowsHostname(host)) {
+    return [];
+  }
+  const addresses = await resolveHost(unbracketHost(host));
+  if (addresses.length === 0) {
+    throw new EgressRefusedError(`Could not resolve ${host}: no addresses.`);
+  }
+  return addresses.flatMap((address) => {
+    const addressClass = classifyAddress(address);
+    return addressClass !== "public" && !allowlist.allowsAddress(address)
+      ? [{ address, addressClass }]
+      : [];
+  });
+}
+
+/**
+ * The private addresses `url` would reach that `policy` does not list: what a person has to
+ * approve before the request is sent. Empty for a public destination, and for a URL the fetch
+ * itself will refuse (not http(s), unresolvable), which then reports its own error.
+ */
+export async function unlistedPrivateAddresses(
+  url: string,
+  policy: EgressPolicy = {},
+): Promise<readonly PrivateDestination[]> {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return [];
+    }
+    return await privateDestinations(
+      normalizeHostname(parsed.hostname),
+      parsePrivateHostAllowlist(policy.allowPrivateHosts),
+      policy.resolveHost ?? systemResolver,
+    );
+  } catch {
+    return [];
+  }
 }
 
 async function assertDestinationAllowed(
@@ -109,34 +180,20 @@ async function assertDestinationAllowed(
   }
 
   const host = normalizeHostname(url.hostname);
-  if (isIpLiteral(host)) {
-    const addressClass = classifyAddress(host);
-    if (addressClass !== "public" && !allowlist.allowsAddress(host)) {
-      throw refusalFor(host, host, addressClass);
-    }
-    return;
-  }
-
-  if (allowlist.allowsHostname(host)) {
-    return;
-  }
-
-  let addresses: readonly string[];
+  let refused: readonly PrivateDestination[];
   try {
-    addresses = await resolveHost(unbracketHost(host));
+    refused = await privateDestinations(host, allowlist, resolveHost);
   } catch (error) {
+    if (error instanceof EgressRefusedError) {
+      throw error;
+    }
     throw new EgressRefusedError(
       `Could not resolve ${host}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  if (addresses.length === 0) {
-    throw new EgressRefusedError(`Could not resolve ${host}: no addresses.`);
-  }
-  for (const address of addresses) {
-    const addressClass = classifyAddress(address);
-    if (addressClass !== "public" && !allowlist.allowsAddress(address)) {
-      throw refusalFor(host, address, addressClass);
-    }
+  const first = refused[0];
+  if (first !== undefined) {
+    throw refusalFor(host, first.address, first.addressClass);
   }
 }
 

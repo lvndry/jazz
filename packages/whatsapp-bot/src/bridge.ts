@@ -28,7 +28,13 @@ import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-impo
 import { installShutdown } from "@jazz/bot-shared/shutdown";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
 import qrcode from "qrcode-terminal";
-import { type AccessConfig, decideAccess, normalizeJid, parseJidList } from "./access";
+import {
+  type AccessConfig,
+  decideAccess,
+  isDirectChatJid,
+  normalizeJid,
+  parseJidList,
+} from "./access";
 import { agentIdForChat, jidFromAgentId } from "./agents";
 import { createWhatsAppSurface } from "./surface";
 import { connect, type Connection, type WhatsAppMessage } from "./whatsapp";
@@ -245,7 +251,7 @@ async function promptFrom(
   return parts.join("\n");
 }
 
-async function handleIncoming(
+export async function handleIncoming(
   config: BridgeConfig,
   runner: TurnRunner,
   connection: Connection,
@@ -256,16 +262,26 @@ async function handleIncoming(
   if (message.isFromMe) return;
 
   const senderId = normalizeJid(message.senderJid);
-  const decision = decideAccess(config, {
+  const incoming = {
     chatJid: message.chatJid,
     senderJid: message.senderJid,
-    // The requester's plain "1" answers their own approval; requiring a mention
-    // for it would leave the run waiting out its timeout.
-    addressesBot:
-      addressesBot(message, connection.selfJid) ||
-      runner.awaitsReplyFrom(message.chatJid, senderId),
-  });
+    addressesBot: addressesBot(message, connection.selfJid),
+  };
+  const decision = decideAccess(config, incoming);
   if (!decision.allowed) {
+    // The requester's plain "1" answers their own approval without a mention, or the run
+    // would wait out its timeout. Anything else they say unaddressed is dropped.
+    if (
+      runner.awaitsReplyFrom(message.chatJid, senderId) &&
+      decideAccess(config, { ...incoming, addressesBot: true }).allowed
+    ) {
+      await runner.tryAnswerPending({
+        chatId: message.chatJid,
+        senderId,
+        text: message.text.trim(),
+      });
+      return;
+    }
     // Never answered: a reply would tell a stranger that something automated
     // reads this number.
     //
@@ -283,7 +299,12 @@ async function handleIncoming(
   const prompt = await promptFrom(message, connection, config.jazzHome);
   if (prompt.length === 0) return;
 
-  await runner.handle({ chatId: message.chatJid, senderId, text: prompt });
+  await runner.handle({
+    chatId: message.chatJid,
+    senderId,
+    text: prompt,
+    privateChat: isDirectChatJid(message.chatJid),
+  });
 }
 
 export async function startBridge(): Promise<void> {

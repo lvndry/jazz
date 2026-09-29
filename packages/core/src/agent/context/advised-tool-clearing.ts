@@ -15,6 +15,7 @@ import type {
 } from "@/core/types/plugin";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
 import { MIN_CLEARABLE_RESULT_TOKENS, placeholderFor } from "./tool-result-clearing";
+import { messageCarriesEgressTaint } from "../execution/egress-taint";
 
 const PREVIEW_HEAD = 320;
 const PREVIEW_TAIL = 140;
@@ -182,7 +183,12 @@ export function reduceToolResultsAdvised(
               toolCallId,
               options.retrievableIds?.has(toolCallId) === true,
             );
-      const replacement: ChatMessage = { ...message, content, cleared: true };
+      const replacement: ChatMessage = {
+        ...message,
+        content,
+        cleared: true,
+        ...(messageCarriesEgressTaint(message) ? { egressTainted: true as const } : {}),
+      };
       clearedCount += 1;
       tokensReclaimed += originalTokens - counter.countMessage(replacement, options.modelHint);
       return replacement;

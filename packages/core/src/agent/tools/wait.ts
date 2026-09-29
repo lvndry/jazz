@@ -21,6 +21,7 @@ import { defineApprovalTool, makeZodValidator, type ApprovalToolPair } from "./b
 import { tailForModel } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
 import { denylistBlockedError, runShellCommand } from "./shell";
+import { toolKnownSecrets } from "./tool-secrets";
 
 export type WaitToolDeps = FileSystemContextService | LoggerService | FileSystem.FileSystem;
 
@@ -144,6 +145,7 @@ The command runs repeatedly and unattended until it succeeds or the time runs ou
         let lastExitCode = -1;
         let lastStdout = "";
         let lastStderr = "";
+        const known = yield* toolKnownSecrets();
 
         while (true) {
           const remainingMs = deadline - Date.now();
@@ -156,6 +158,7 @@ The command runs repeatedly and unattended until it succeeds or the time runs ou
             workingDir,
             timeoutMs: remainingMs,
             env,
+            redact: known,
           }).pipe(
             Effect.catchAll((error: unknown) =>
               Effect.succeed({

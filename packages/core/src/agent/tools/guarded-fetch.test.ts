@@ -7,9 +7,9 @@
 import type { Server } from "bun";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { testConfigLayer } from "@/core/agent/test-config";
 import { silentLogger } from "@/core/agent/test-logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
-import type { Agent } from "@/core/types/agent";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import {
   EgressRefusedError,
@@ -48,11 +48,9 @@ let server: Server<undefined>;
 let origin: string;
 let secondServer: Server<undefined>;
 
-function contextAllowing(allowPrivateHosts: readonly string[]): ToolExecutionContext {
-  return {
-    agentId: "agent",
-    parentAgent: { config: { network: { allowPrivateHosts } } } as unknown as Agent,
-  };
+/** A call whose private destinations were approved, as the executor passes them to the tool. */
+function contextAllowing(approvedPrivateAddresses: readonly string[]): ToolExecutionContext {
+  return { agentId: "agent", approvedPrivateAddresses };
 }
 
 function runHttp(
@@ -60,7 +58,9 @@ function runHttp(
   context: ToolExecutionContext = { agentId: "agent" },
 ): Promise<ToolExecutionResult> {
   return Effect.runPromise(
-    createHttpRequestTool().execute(args, context) as Effect.Effect<ToolExecutionResult>,
+    createHttpRequestTool()
+      .execute(args, context)
+      .pipe(Effect.provide(testConfigLayer())) as Effect.Effect<ToolExecutionResult>,
   );
 }
 
@@ -313,11 +313,12 @@ describe("byte budgets and timers", () => {
 describe("web_fetch (audit repro webfetch.ts)", () => {
   function runWebFetch(url: string, context: ToolExecutionContext = { agentId: "agent" }) {
     return Effect.runPromise(
-      Effect.provideService(
-        createWebFetchTool().execute({ url }, context),
-        LoggerServiceTag,
-        silentLogger,
-      ) as Effect.Effect<ToolExecutionResult>,
+      createWebFetchTool()
+        .execute({ url }, context)
+        .pipe(
+          Effect.provideService(LoggerServiceTag, silentLogger),
+          Effect.provide(testConfigLayer()),
+        ) as Effect.Effect<ToolExecutionResult>,
     );
   }
 

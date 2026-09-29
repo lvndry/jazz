@@ -2279,6 +2279,36 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
   });
 
+  it("names the HTTP method a URL tool will send on its approval card", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 24 });
+    await rendered.renderOnce();
+    store.setPrompt({
+      type: "select",
+      message: "Approve this action?",
+      options: {
+        choices: [
+          { label: "Yes", value: "yes" },
+          { label: "Always tool", value: "always_tool" },
+        ],
+      },
+      resolve: () => {},
+    });
+    store.setApprovalRequest({
+      toolName: "web_fetch",
+      executeToolName: "web_fetch",
+      message: "web_fetch sends data off this machine.",
+      args: { url: "https://www.bing.com/search?q=PR4G", max_length: 15000 },
+    });
+    await rendered.flush();
+    const frame = rendered.captureCharFrame();
+    expect(frame).toMatch(/method\s+GET/);
+    expect(frame).toContain("a always allow web_fetch this session");
+
+    rendered.renderer.destroy();
+    store.setApprovalRequest(null);
+    store.setPrompt(null);
+  });
+
   it("always-allows only the current command scope for shell approvals", async () => {
     const decisions: string[] = [];
     const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 24 });

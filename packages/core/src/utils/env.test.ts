@@ -89,6 +89,49 @@ describe("createSanitizedEnv", () => {
     }
   });
 
+  it("withholds Jazz's own secret variables and secret-named ones, and passes ordinary names", () => {
+    const variables: Record<string, string> = {
+      JAZZ_NOTIFY_OPS_WEBHOOK_URL: "https://discord.com/api/webhooks/1/abc",
+      JAZZ_PEER_TOKEN_SAM: "peer-token-value",
+      JAZZ_WEBHOOK_SECRET_DEPLOY: "signing-secret",
+      APP_KEY: "base64:abcdef",
+      DB_PASS: "hunter2",
+      NPM_AUTH: "npm-auth-value",
+      KEYBOARD_LAYOUT: "us",
+      TOKENIZER_PATH: "/models/tokenizer.json",
+      MONKEY: "banana",
+    };
+    const originals = Object.fromEntries(
+      Object.keys(variables).map((name) => [name, process.env[name]]),
+    );
+    Object.assign(process.env, variables);
+
+    try {
+      const sanitized = createSanitizedEnv();
+      for (const name of [
+        "JAZZ_NOTIFY_OPS_WEBHOOK_URL",
+        "JAZZ_PEER_TOKEN_SAM",
+        "JAZZ_WEBHOOK_SECRET_DEPLOY",
+        "APP_KEY",
+        "DB_PASS",
+        "NPM_AUTH",
+      ]) {
+        expect(sanitized[name]).toBeUndefined();
+      }
+      expect(sanitized["KEYBOARD_LAYOUT"]).toBe("us");
+      expect(sanitized["TOKENIZER_PATH"]).toBe("/models/tokenizer.json");
+      expect(sanitized["MONKEY"]).toBe("banana");
+    } finally {
+      for (const [name, original] of Object.entries(originals)) {
+        if (original === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = original;
+        }
+      }
+    }
+  });
+
   it("still blocks SSH_* vars even when allowlisted", () => {
     const originalValue = process.env["SSH_AUTH_SOCK"];
     process.env["SSH_AUTH_SOCK"] = "/tmp/ssh-agent.sock";

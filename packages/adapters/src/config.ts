@@ -1,6 +1,6 @@
 /**
  * Implements `AgentConfigService`: reads/writes `~/.jazz/config.json`, resolving secrets from
- * env vars, the OS keyring, or the file itself (see `secrets/registry`) without ever
+ * env vars, the OS keyring, or the file itself (see `core/secrets/registry`) without ever
  * persisting a secret that came from somewhere other than the file back into it.
  *
  * Loading checks the global file and any project `./.jazz/config.json` against
@@ -17,6 +17,19 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { MCPServerConfig, MCPServerDefinitionSource } from "@jazz/core/interfaces/mcp-server";
+import { collectKnownSecrets, type KnownSecret } from "@jazz/core/secrets/redaction";
+import {
+  SECRET_PATHS,
+  CHATGPT_CREDENTIAL_PATH,
+  CHATGPT_ACCESS_TOKEN_PATH,
+  CHATGPT_REFRESH_TOKEN_PATH,
+  heldSecretPaths,
+  isSecretPath,
+  mcpServerSecretPath,
+  type McpServerSecretField,
+  runtimeSecretPaths,
+  secretValueFromEnv,
+} from "@jazz/core/secrets/registry";
 import { ConfigurationError, ConfigurationNotFoundError } from "@jazz/core/types/errors";
 import type {
   AppConfig,
@@ -31,6 +44,8 @@ import {
   checkConfigWrite,
   formatConfigIssues,
   mcpServerEntryName,
+  missingNamedListEntry,
+  namedListEntryOf,
   parseConfigFile,
   type ConfigFile,
   validateEffectiveConfig,
@@ -59,13 +74,6 @@ import {
   keyringSet,
   type KeyringBackend,
 } from "./secrets/keyring";
-import {
-  SECRET_PATHS,
-  isSecretPath,
-  mcpServerSecretPath,
-  type McpServerSecretField,
-  secretValueFromEnv,
-} from "./secrets/registry";
 
 /**
  * ~/.jazz/config.json can hold API keys, so it is created private to the user
@@ -76,6 +84,12 @@ const CONFIG_DIR_MODE = 0o700;
 
 /** A config file as parsed from JSON, before any checking: the shape `set` edits and writes back. */
 type ConfigDocument = Record<string, unknown>;
+
+/**
+ * How long the known secrets are reused before the keyring is read again, so a token another
+ * process stores (`jazz peers add` in a second terminal) is withheld within a minute.
+ */
+const KNOWN_SECRETS_TTL_MS = 60_000;
 
 /** Where `storeSecret` put a secret, which decides what the config file keeps of it. */
 type SecretDestination = "keyring" | "file" | "cleared" | "nowhere";
@@ -114,6 +128,13 @@ export class AgentConfigServiceImpl implements AgentConfigService {
    * config file. Tracked so a command can report the failure instead of claiming success.
    */
   private readonly unstorableSecrets = new Set<string>();
+  private knownSecretsCache:
+    | {
+        readonly revision: number;
+        readonly resolvedAtMs: number;
+        readonly secrets: readonly KnownSecret[];
+      }
+    | undefined;
 
   constructor(
     initialConfig: AppConfig,
@@ -233,6 +254,12 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         }
 
         const checked = parseCheckedConfigFile(path, nextDocument);
+        if (checked.report !== undefined) {
+          process.stderr.write(
+            `${checked.report.trimEnd()}\njazz: not saving ${key}: ${path} would no longer be valid.\n`,
+          );
+          return;
+        }
 
         const nextRuntime =
           this.sources === undefined
@@ -284,7 +311,8 @@ export class AgentConfigServiceImpl implements AgentConfigService {
    *
    * A secret with no structural home cannot use that fallback — JSON.stringify would discard
    * it — so it is left unstored and reported through `secretStorageUnavailable` rather than
-   * silently lost.
+   * silently lost. So is a secret for a list entry that does not exist (a notify target, a
+   * webhook or a peer not configured), which would belong to nothing.
    */
   private storeSecret(key: string, value: unknown): Effect.Effect<SecretDestination, never> {
     return Effect.gen(
@@ -292,6 +320,11 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         if (typeof value !== "string" || value.trim() === "") {
           yield* keyringDelete(this.keyringBackend, key);
           return "cleared" as const;
+        }
+
+        if (missingNamedListEntry(this.currentConfig, key) !== undefined) {
+          this.unstorableSecrets.add(key);
+          return "nowhere" as const;
         }
 
         const stored = yield* keyringSet(this.keyringBackend, key, value);
@@ -310,6 +343,33 @@ export class AgentConfigServiceImpl implements AgentConfigService {
 
   get appConfig(): Effect.Effect<AppConfig, never> {
     return Effect.succeed(this.currentConfig);
+  }
+
+  /**
+   * Every secret Jazz holds, resolved once per config revision and at most every
+   * {@link KNOWN_SECRETS_TTL_MS}, so redacting a tool result does not read the keyring each time.
+   */
+  get knownSecrets(): Effect.Effect<readonly KnownSecret[], never> {
+    return Effect.gen(
+      function* (this: AgentConfigServiceImpl) {
+        const now = Date.now();
+        const cached = this.knownSecretsCache;
+        if (
+          cached !== undefined &&
+          cached.revision === this.currentRevision &&
+          now - cached.resolvedAtMs < KNOWN_SECRETS_TTL_MS
+        ) {
+          return cached.secrets;
+        }
+        const revision = this.currentRevision;
+        const config = this.currentConfig;
+        const backend = this.keyringBackend;
+        const held = yield* resolveHeldSecrets(config, (path) => keyringGet(backend, path));
+        const secrets = collectKnownSecrets(config, process.env, held);
+        this.knownSecretsCache = { revision, resolvedAtMs: now, secrets };
+        return secrets;
+      }.bind(this),
+    );
   }
 
   /**
@@ -541,6 +601,22 @@ function mergeMcpServers(
   return merged;
 }
 
+/**
+ * The project config without its `network` section. Which private hosts agents may reach is the
+ * user's call, so a config file that came with a cloned repository cannot widen it.
+ */
+function withoutProjectNetwork(localPath: string, local: ConfigFile): ConfigFile {
+  if (local.network === undefined) {
+    return local;
+  }
+  process.stderr.write(
+    `jazz: ignoring network in ${localPath}. Only your global config lists private hosts; ` +
+      "edit them with jazz > Settings > Private network hosts.\n",
+  );
+  const { network: _network, ...rest } = local;
+  return rest;
+}
+
 /** Tell the user a project config tried to set MCP trust, which only the global config can. */
 function noticeIgnoredProjectTrust(
   localPath: string,
@@ -578,7 +654,10 @@ export function createConfigLayer(
       const checkedLocal =
         files.local === undefined
           ? EMPTY_CONFIG_FILE
-          : yield* requireValidConfigFile(files.local.path, files.local.document);
+          : withoutProjectNetwork(
+              files.local.path,
+              yield* requireValidConfigFile(files.local.path, files.local.document),
+            );
       const { mcpServers: globalOverrides, ...globalSettings } = checkedGlobal;
       const { mcpServers: localOverrides, ...localSettings } = checkedLocal;
 
@@ -766,7 +845,7 @@ function buildRuntimeConfig(sources: RuntimeConfigSources): AppConfig {
 /** Capture the already-resolved secret overlay so rebuilding sources never drops credentials. */
 function snapshotResolvedSecrets(config: AppConfig): Map<string, string> {
   const values = new Map<string, string>();
-  const paths = new Set([...SECRET_PATHS, ...collectSecretPaths(config)]);
+  const paths = new Set([...SECRET_PATHS, ...runtimeSecretPaths(config)]);
   for (const path of paths) {
     const value = deepGet(config, path);
     if (nonEmptyString(value)) values.set(path, value);
@@ -795,35 +874,48 @@ function chmodQuietly(
 }
 
 /**
- * Every secret-bearing path present in a config, including providers Jazz does
- * not ship support for, so nothing is left behind in plaintext.
+ * The values of every secret Jazz holds outside the runtime config (see `heldSecretPaths`), from
+ * the environment first and then `readKeyring`, named by their config path.
  */
-function collectSecretPaths(config: Partial<AppConfig>): string[] {
-  const record = config as unknown as Record<string, unknown>;
-  const paths: string[] = [];
-
-  for (const section of ["llm", "web_search"]) {
-    const providers = record[section];
-    if (!providers || typeof providers !== "object") continue;
-    for (const [provider, providerConfig] of Object.entries(providers)) {
-      if (!providerConfig || typeof providerConfig !== "object") continue;
-      if (typeof (providerConfig as Record<string, unknown>)["api_key"] !== "string") continue;
-      paths.push(`${section}.${provider}.api_key`);
-    }
-  }
-
-  // Pick up OTLP headers by whatever name the backend uses, so a credential
-  // under a non-standard header still migrates out of the file.
-  const otlpHeaders = (record["telemetry"] as Record<string, unknown> | undefined)?.["otlp"] as
-    Record<string, unknown> | undefined;
-  const headers = otlpHeaders?.["headers"];
-  if (headers && typeof headers === "object") {
-    for (const [name, value] of Object.entries(headers)) {
-      if (typeof value === "string") paths.push(`telemetry.otlp.headers.${name}`);
-    }
-  }
-
-  return paths;
+export function resolveHeldSecrets(
+  config: AppConfig,
+  readKeyring: (path: string) => Effect.Effect<string | undefined, never>,
+  env: NodeJS.ProcessEnv = process.env,
+): Effect.Effect<KnownSecret[], never> {
+  return Effect.gen(function* () {
+    const outside = heldSecretPaths(config).filter(
+      (path) => !nonEmptyString(deepGet(config, path)),
+    );
+    const found = yield* Effect.all(
+      outside.map((path) => {
+        const fromEnv = secretValueFromEnv(path, env);
+        return nonEmptyString(fromEnv)
+          ? Effect.succeed([path, fromEnv] as const)
+          : readKeyring(path).pipe(Effect.map((value) => [path, value] as const));
+      }),
+      { concurrency: "unbounded" },
+    );
+    return found.flatMap(([name, value]) => {
+      if (!nonEmptyString(value)) return [];
+      if (name !== CHATGPT_CREDENTIAL_PATH) return [{ name, value }];
+      try {
+        const credential: unknown = JSON.parse(value);
+        if (credential === null || typeof credential !== "object") return [{ name, value }];
+        const record = credential as Record<string, unknown>;
+        return [
+          { name, value },
+          ...(typeof record["access"] === "string"
+            ? [{ name: CHATGPT_ACCESS_TOKEN_PATH, value: record["access"] }]
+            : []),
+          ...(typeof record["refresh"] === "string"
+            ? [{ name: CHATGPT_REFRESH_TOKEN_PATH, value: record["refresh"] }]
+            : []),
+        ];
+      } catch {
+        return [{ name, value }];
+      }
+    });
+  });
 }
 
 function nonEmptyString(value: unknown): value is string {
@@ -850,7 +942,7 @@ function resolveSecrets(
 
     const resolved = structuredClone(config) as unknown as ConfigDocument;
     const fromEnv = new Set<string>();
-    const candidates = new Set([...SECRET_PATHS, ...collectSecretPaths(config)]);
+    const candidates = new Set([...SECRET_PATHS, ...runtimeSecretPaths(config)]);
 
     for (const path of candidates) {
       const envValue = secretValueFromEnv(path);
@@ -1494,14 +1586,30 @@ function isBlankSecret(value: unknown): boolean {
 /**
  * Whether a dotted path can be written into the config object at all.
  *
- * False when the first segment names a list. `AppConfig.webhooks` and `AppConfig.peers` are
- * arrays, so `deepSet` on `webhooks.mira.token` would silently swap the array for an object
- * and take every configured entry with it.
+ * False when the path goes through a list, by the schema or by the value in `config`.
+ * `webhooks`, `peers` and `notify.targets` are lists of named entries, so `deepSet` on
+ * `webhooks.mira.token` or `notify.targets.phone.botToken` would swap the list for an object
+ * holding the secret in plaintext, whether or not the list exists yet.
  */
 function structuralHomeFor(config: AppConfig, path: string): boolean {
-  const root = splitConfigPath(path)?.[0];
-  if (root === undefined) return false;
-  return !Array.isArray((config as unknown as Record<string, unknown>)[root]);
+  const segments = splitConfigPath(path);
+  if (segments === undefined || segments.length === 0) {
+    return false;
+  }
+  if (namedListEntryOf(path) !== undefined) {
+    return false;
+  }
+  let current: unknown = config;
+  for (const segment of segments.slice(0, -1)) {
+    if (current === null || typeof current !== "object") {
+      return true;
+    }
+    current = (current as Record<string, unknown>)[segment];
+    if (Array.isArray(current)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

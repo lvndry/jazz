@@ -5,15 +5,21 @@
  */
 import type { Effect } from "effect";
 import type z from "zod";
+import type { SubagentSupervisor } from "@/core/agent/subagents/supervisor";
 import type { LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
+import type { UserSecretStore } from "@/core/secrets/user-secrets";
 import type { Agent } from "@/core/types/agent";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, MemoryExposure, MemorySource } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
+
+/** A secret typed for a parked ask_user_secret call, or the person declining to type one. */
+export type ResolvedUserSecret =
+  { readonly kind: "provided"; readonly value: string } | { readonly kind: "declined" };
 
 // Re-export ToolRiskLevel from tool-registry interface
 export type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
@@ -255,6 +261,11 @@ export interface ApprovalRequiredResult {
    * merged into its args under `_selectedOptionId`.
    */
   readonly options?: readonly ApprovalOption[];
+  /**
+   * A person answers this request under every auto-approve policy and allowlist; with nobody
+   * to ask, the run parks for approval.
+   */
+  readonly alwaysAsk?: true;
 }
 
 /**
@@ -350,6 +361,12 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
+  /**
+   * Private addresses approved for this call only, on top of the global
+   * `network.allowPrivateHosts`. Set by the executor after a person or the run's policy approved a
+   * call whose URL reaches them.
+   */
+  readonly approvedPrivateAddresses?: readonly string[];
   /** User messages the model may quote for memory writes; tool output cannot add to this set. */
   readonly memorySources?: readonly MemorySource[];
   /** Trace context inherited by a child agent invoked from this tool. */
@@ -408,6 +425,13 @@ export interface ToolExecutionContext {
     string,
     { readonly kind: "selected"; readonly path: string } | { readonly kind: "cancelled" }
   >;
+  /** Secrets typed after a run parked on ask_user_secret, held in memory only. */
+  readonly resolvedUserSecrets?: ReadonlyMap<string, ResolvedUserSecret>;
+  /**
+   * This run's typed secrets: what `ask_user_secret` holds and what the registry substitutes
+   * into a tool that accepts them. Shared with sub-agents by reference.
+   */
+  readonly userSecrets?: UserSecretStore;
   /** The individual call currently executing. Set on a per-call context copy. */
   readonly toolCallId?: string;
   /**
@@ -444,6 +468,8 @@ export interface ToolExecutionContext {
    * a tool call.
    */
   readonly onToolEvent?: (event: ToolProgressEvent) => void;
+  /** The sub-agents of the run executing this tool; set by the agent loop for every run. */
+  readonly subagents?: SubagentSupervisor;
   /** Iteration budget for a sub-agent spawned here — its own, not the parent's remainder. */
   readonly maxSubagentIterations?: number;
   /**

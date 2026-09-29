@@ -66,6 +66,10 @@ silently yields an error string.
 stdout is exactly one single-line object. Always one line, always one object: on success
 _and_ on failure.
 
+An invalid configuration file or a missing `--config` path also returns this failure
+envelope with `code: "failed"` and `costUSD: 0`, even before the agent starts. Recovery
+instructions stay on stderr. `jazz workflow run --json` follows the same rule.
+
 ```jsonc
 // success
 {
@@ -271,7 +275,7 @@ rather keep the batch path and take tool events only.
 ## Asking the human something
 
 An unattended run has nobody to ask, so by default the tools that solicit an answer ,
-`ask_user_question`, `ask_file_picker`: are **not offered to the model at all**. It never
+`ask_user_question`, `ask_file_picker`, `ask_user_secret`: are **not offered to the model at all**. It never
 sees them, so it cannot spend a round on a question that will not be answered, and cannot
 mistake a blank for a reply and act on it. A run in CI or cron that stopped to ask
 something would hang until its timeout for nobody's benefit.

@@ -24,7 +24,6 @@ import {
 import { type Agent, type AgentConfig, type CustomToolDefinition } from "@jazz/core/types/index";
 import { COMPANION_ROLES, isCompanionRole } from "@jazz/core/types/llm";
 import { isReasoningSelection } from "@jazz/core/types/model-capabilities";
-import { describePrivateHostEntryError } from "@jazz/core/utils/private-network";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { isValidStorageKey } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
@@ -334,22 +333,6 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
-      const network: unknown = config.network;
-      if (network !== undefined && network !== null) {
-        const networkError = describeNetworkConfigError(network);
-        if (networkError !== undefined) {
-          return yield* Effect.fail(
-            new AgentConfigurationError({
-              agentId: "unknown",
-              field: networkError.field,
-              message: networkError.message,
-              suggestion:
-                'Use { "allowPrivateHosts": ["homeassistant.local", "192.168.1.0/24"] } with hostnames, *.suffix wildcards, IP addresses or CIDR blocks.',
-            }),
-          );
-        }
-      }
-
       // Validate customTools
       if (config.customTools) {
         if (!Array.isArray(config.customTools)) {
@@ -565,47 +548,6 @@ export class AgentServiceImpl implements AgentService {
       }
     });
   }
-}
-
-/** Most entries an agent's `network.allowPrivateHosts` may hold. */
-const MAX_ALLOW_PRIVATE_HOSTS = 64;
-
-/** The first problem with an agent's `network` section, or undefined when it is valid. */
-function describeNetworkConfigError(
-  network: unknown,
-): { readonly field: string; readonly message: string } | undefined {
-  if (typeof network !== "object" || network === null || Array.isArray(network)) {
-    return { field: "config.network", message: "network must be an object" };
-  }
-  for (const key of Object.keys(network)) {
-    if (key !== "allowPrivateHosts") {
-      return { field: `config.network.${key}`, message: `Unknown network setting "${key}"` };
-    }
-  }
-  const allowPrivateHosts: unknown = (network as Record<string, unknown>)["allowPrivateHosts"];
-  if (allowPrivateHosts === undefined) {
-    return undefined;
-  }
-  const field = "config.network.allowPrivateHosts";
-  if (!Array.isArray(allowPrivateHosts)) {
-    return { field, message: "allowPrivateHosts must be an array of hosts" };
-  }
-  if (allowPrivateHosts.length > MAX_ALLOW_PRIVATE_HOSTS) {
-    return {
-      field,
-      message: `allowPrivateHosts cannot contain more than ${String(MAX_ALLOW_PRIVATE_HOSTS)} entries (${String(allowPrivateHosts.length)} provided)`,
-    };
-  }
-  for (const entry of allowPrivateHosts as readonly unknown[]) {
-    if (typeof entry !== "string") {
-      return { field, message: "Each allowPrivateHosts entry must be a string" };
-    }
-    const entryError = describePrivateHostEntryError(entry);
-    if (entryError !== undefined) {
-      return { field, message: `Invalid allowPrivateHosts entry: ${entryError}` };
-    }
-  }
-  return undefined;
 }
 
 function validateAgentName(name: string): Effect.Effect<void, ValidationError> {

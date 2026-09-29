@@ -49,6 +49,22 @@ type JudgedResponse = Pick<
 >;
 
 /**
+ * Whether retrying a run that failed with `code` can produce an answer. A content filter
+ * withholds the same answer to the same prompt every time, so retrying only pays for it again.
+ */
+export function isRetryableAnswerFailure(code: AnswerFailureCode): boolean {
+  return code !== "content_filtered";
+}
+
+/**
+ * Whether a run called any tool. A run that did has already acted (sent a message, ran a
+ * command), so running the same prompt again repeats those effects.
+ */
+export function ranTools(response: Pick<AgentResponse, "toolCalls">): boolean {
+  return (response.toolCalls?.length ?? 0) > 0;
+}
+
+/**
  * Whether a model call answered with nothing: no visible text and zero
  * completion tokens (a missing usage report counts as zero).
  */

@@ -41,6 +41,7 @@ import {
   type OllamaShowExtras,
 } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
+import { LLM_PROVIDER_ENV_VARS, llmProviderApiKeyFromEnv } from "@jazz/core/secrets/registry";
 import type {
   ChatCompletionOptions,
   ChatCompletionResponse,
@@ -114,7 +115,6 @@ import shortUUID from "short-uuid";
 import { createMinimax } from "vercel-minimax-ai-provider";
 import { createZhipu } from "zhipu-ai-provider";
 import { z } from "zod";
-import { LLM_PROVIDER_ENV_VARS, llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
 import {
   CHATGPT_CODEX_BASE_URL,

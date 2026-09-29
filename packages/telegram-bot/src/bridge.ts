@@ -120,7 +120,7 @@ export interface BridgeConfig {
   readonly jazzHome: string;
   readonly builtinPersonasDir: string;
   readonly port: number;
-  /** Per-day spend ceiling in USD across all chats; 0 disables the cap. */
+  /** Per-day spend cap in USD across all chats; 0 disables it. */
   readonly dailyCostCapUsd: number;
   /** Reverse-geocoder base URL for shared locations; empty string disables it. */
   readonly geocodeUrl: string;
@@ -403,7 +403,9 @@ export async function handleCallback(bridge: Bridge, callback: CallbackQuery): P
 // --- Dispatch -------------------------------------------------------------
 
 export interface TelegramMessage extends TelegramMediaFields {
-  readonly chat?: { readonly id?: number };
+  readonly message_id?: number;
+  /** `private` for a one-to-one chat with the bot; `group`, `supergroup` or `channel` otherwise. */
+  readonly chat?: { readonly id?: number; readonly type?: string };
   readonly from?: {
     readonly id?: number;
     readonly first_name?: string;
@@ -475,6 +477,9 @@ export function inboundFrom(message: TelegramMessage): InboundMessage | undefine
     senderId,
     // A command is read as typed; a quote only gives prose its context.
     text: text.startsWith("/") ? text : withReplyContext(message, text),
+    ownText: text,
+    privateChat: message.chat?.type === "private",
+    ...(message.message_id !== undefined ? { ref: String(message.message_id) } : {}),
   };
 }
 

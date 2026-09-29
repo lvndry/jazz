@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { closeUserSecretStore, openUserSecretStore } from "@jazz/core/secrets/user-secrets";
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
   formatLogLineAsJson,
@@ -70,9 +71,9 @@ describe("LoggerService", () => {
       const output = formatLogLineAsJson("info", "Request", args);
       const parsed = JSON.parse(output);
 
-      expect(parsed.attributes.apiKey).toBe("<redacted>");
+      expect(parsed.attributes.apiKey).toBe("[redacted:apiKey]");
       expect(parsed.attributes.headers).toEqual({
-        authorization: "<redacted>",
+        authorization: "[redacted:authorization]",
         accept: "application/json",
       });
       expect(output).not.toContain("top-secret");
@@ -99,7 +100,7 @@ describe("LoggerService", () => {
         credentials: { password: "top-secret" },
       });
 
-      expect(output).toContain('"credentials":"<redacted>"');
+      expect(output).toContain('"credentials":"[redacted:credentials]"');
       expect(output).not.toContain("top-secret");
     });
 
@@ -124,7 +125,8 @@ describe("LoggerService", () => {
         expect(output).toContain("[INFO] Tool call recorded");
         expect(output).not.toContain("[TOOL_CALL]");
       }
-      expect(output).toContain("<redacted>");
+      expect(output).toContain("[redacted:authorization]");
+      expect(output).toContain("[redacted:access_token]");
       expect(output).not.toContain("tool-secret");
       expect(output).not.toContain("nested-tool-secret");
     }
@@ -145,7 +147,7 @@ describe("LoggerService", () => {
     expect(summary).toEqual({
       command: `<omitted: ${args.command.length} chars>`,
       url: `<omitted: ${args.url.length} chars>`,
-      body: { message: `<omitted: ${secret.length} chars>`, apiKey: "<redacted>" },
+      body: { message: `<omitted: ${secret.length} chars>`, apiKey: "[redacted:apiKey]" },
       method: "POST",
       retries: "<number>",
       otherField5: "<omitted: 6 chars>",
@@ -217,5 +219,29 @@ describe("LoggerService", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  describe("secrets a person typed for a run in progress", () => {
+    it("are replaced by their placeholder in every format while the run holds them", () => {
+      const typed = "p4ss-typed-by-person";
+      const store = openUserSecretStore();
+      store.hold("pdf-password", typed);
+      try {
+        const lines = [
+          formatLogLineAsJson("info", `ran with ${typed}`, { command: `unlock ${typed}` }, "s"),
+          formatLogLineAsPlain("info", `ran with ${typed}`, { nested: [{ value: typed }] }),
+        ];
+        for (const line of lines) {
+          expect(line).not.toContain(typed);
+          expect(line.split("[redacted:pdf-password]").length - 1).toBe(2);
+        }
+        expect(
+          formatToolCallLogLine("s", "execute_command", { command: `unlock ${typed}` }),
+        ).not.toContain(typed);
+      } finally {
+        closeUserSecretStore(store);
+      }
+      expect(formatLogLineAsPlain("info", `ran with ${typed}`)).toContain(typed);
+    });
   });
 });

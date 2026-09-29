@@ -1,16 +1,18 @@
-import type { PendingRunInput } from "@jazz/adapters/daemon/resume-owned-run";
 import { pendingLoopInput } from "@jazz/adapters/loops/loop-actions";
+import type { PendingRunInput } from "@jazz/adapters/runs/resume-owned-run";
 import type { LoopRecord, LoopSchedule } from "@jazz/core/agent/loop/loop-record";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
 import { formatCompactCount } from "@jazz/core/utils/string";
 import { Effect } from "effect";
+import { typedSecretCommand } from "@/cli/goals/describe-goal";
 
 /** Where a loop is described, which decides how its commands are spelled. */
 export type LoopSurface = "chat" | "cli";
 
 /** What a loop's run waits on from the user (see `pendingLoopInput`). */
-export type PendingLoopInput = Pick<PendingRunInput, "kind" | "described">;
+export type PendingLoopInput = Pick<PendingRunInput, "kind" | "described"> &
+  Partial<Pick<PendingRunInput, "runId">>;
 
 export function describeLoopSchedule(schedule: LoopSchedule): string {
   if (schedule.kind === "cron") {
@@ -26,7 +28,11 @@ export function loopStatus(loop: LoopRecord, pending?: PendingLoopInput): string
   switch (loop.state.kind) {
     case "active":
       if (pending !== undefined) {
-        return pending.kind === "question" ? "waiting for your answer" : "waiting for approval";
+        return pending.kind === "secret"
+          ? "waiting for a secret you type"
+          : pending.kind === "question"
+            ? "waiting for your answer"
+            : "waiting for approval";
       }
       if (loop.run !== undefined) {
         return loop.run.stopAfter !== undefined
@@ -58,6 +64,9 @@ export function nextLoopCommands(
   switch (loop.state.kind) {
     case "active":
       if (pending !== undefined) {
+        if (pending.kind === "secret") {
+          return [typedSecretCommand(pending.runId), `${command} cancel ${name}`];
+        }
         return pending.kind === "question"
           ? [`${command} answer ${name} <your answer>`, `${command} cancel ${name}`]
           : [`${command} approve ${name}`, `${command} reject ${name} [why]`];

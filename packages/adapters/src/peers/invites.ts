@@ -26,6 +26,7 @@ import type {
   RedeemInviteInput,
 } from "@jazz/core/interfaces/peer-invites";
 import { PeerInviteServiceTag } from "@jazz/core/interfaces/peer-invites";
+import { peerTokenPath } from "@jazz/core/secrets/registry";
 import {
   inviteStatus,
   isInviteId,
@@ -38,7 +39,6 @@ import { Effect, Layer } from "effect";
 import { upsertPeer } from "@/adapters/peers/config";
 import { getPeersDirectory } from "@/adapters/peers/ledger";
 import { detectKeyringBackend, keyringSet, type KeyringBackend } from "@/adapters/secrets/keyring";
-import { peerTokenPath } from "@/adapters/secrets/registry";
 
 const INVITES_SUBDIRECTORY = "invites";
 
@@ -59,9 +59,9 @@ function sha256Hex(value: string): string {
 
 /**
  * Mirrors the daemon's own bearer-token comparison (`tokenMatches` in
- * `@jazz/adapters/daemon/server`): does not return on the first differing byte, so a redeem
+ * `packages/daemon/src/server.ts`): does not return on the first differing byte, so a redeem
  * secret cannot be guessed one character at a time over a slow link. Kept local rather than
- * imported — `adapters/peers` sits below `adapters/daemon` in the dependency direction, and
+ * imported — adapters sits below the daemon package in the dependency direction, and
  * this is four lines, not worth inverting that for.
  */
 function hashesMatch(expected: string, presented: string): boolean {

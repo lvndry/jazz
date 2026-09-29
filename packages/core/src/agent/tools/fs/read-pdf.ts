@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
@@ -82,7 +83,10 @@ function loadLocalPdf(
  * Download a remote PDF through `guardedFetch`, streaming against the size cap with the timeout
  * covering the whole transfer.
  */
-function loadRemotePdf(url: string, context: ToolExecutionContext): Effect.Effect<PdfBytes, never> {
+function loadRemotePdf(
+  url: string,
+  context: ToolExecutionContext,
+): Effect.Effect<PdfBytes, never, AgentConfigService> {
   return Effect.gen(function* () {
     let parsedUrl: URL;
     try {
@@ -96,12 +100,13 @@ function loadRemotePdf(url: string, context: ToolExecutionContext): Effect.Effec
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PDF_DOWNLOAD_TIMEOUT_MS);
+    const egressPolicy = yield* egressPolicyForContext(context);
     const downloaded = yield* Effect.tryPromise({
       try: async (): Promise<PdfBytes> => {
         const { response } = await fetchWithUserAgentFallback(url, {
           signal: controller.signal,
           accept: "application/pdf,*/*",
-          policy: egressPolicyForContext(context),
+          policy: egressPolicy,
         });
         if (!response.ok) {
           await response.body?.cancel().catch(() => undefined);
@@ -147,7 +152,7 @@ function loadRemotePdf(url: string, context: ToolExecutionContext): Effect.Effec
 function loadPdfBytes(
   args: { readonly path?: string | undefined; readonly url?: string | undefined },
   context: ToolExecutionContext,
-): Effect.Effect<PdfBytes, never, FsToolDeps> {
+): Effect.Effect<PdfBytes, never, FsToolDeps | AgentConfigService> {
   if (args.url !== undefined) return loadRemotePdf(args.url, context);
   if (args.path !== undefined) return loadLocalPdf(args.path, context);
   return Effect.succeed(pdfFailure("Provide exactly one of path or url."));
@@ -197,7 +202,9 @@ function buildTablesSection(getTableResult: {
   return { section, tables };
 }
 
-export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+export function createReadPdfTool(): Tool<
+  FileSystem.FileSystem | FileSystemContextService | AgentConfigService
+> {
   const parameters = z
     .object({
       path: z
@@ -222,7 +229,11 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
         .positive()
         .optional()
         .describe("Max characters returned. Default 512000."),
-      password: z.string().min(1).optional().describe("For encrypted PDFs."),
+      password: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("For encrypted PDFs: the placeholder from ask_user_secret."),
     })
     .strict()
     .refine((value) => (value.path === undefined) !== (value.url === undefined), {
@@ -231,13 +242,17 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
   type ReadPdfParams = z.infer<typeof parameters>;
 
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadPdfParams>({
+  return defineTool<
+    FileSystem.FileSystem | FileSystemContextService | AgentConfigService,
+    ReadPdfParams
+  >({
     name: "read_pdf",
     disclosure: "private",
     // With `url`, the model chooses an address to fetch, so bytes can ride out in the path or
     // query string just as with web_fetch. That makes this an egress tool even though its local
     // `path` mode touches nothing but disk.
     egress: true,
+    userSecretArguments: ["password"],
     description:
       "Extract text and tables from a local or remote PDF's text layer. For a large PDF, call pdf_page_count first, then read 10–20 pages per call.",
     tags: ["filesystem", "read", "pdf"],
@@ -274,8 +289,8 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
               result: null,
               error: isPdfPasswordError(parseError)
                 ? args.password
-                  ? "PDF parsing failed: the password provided is incorrect."
-                  : "PDF parsing failed: this PDF is password-protected. Retry with the `password` argument."
+                  ? "PDF parsing failed: the password provided is incorrect. Ask the person again with ask_user_secret and pass the new placeholder as `password`."
+                  : "PDF parsing failed: this PDF is password-protected. Ask the person for its password with ask_user_secret and pass the placeholder it returns as `password`."
                 : `PDF parsing failed: ${parseError.message}`,
             } satisfies ToolExecutionResult;
           }

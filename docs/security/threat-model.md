@@ -77,8 +77,9 @@ URLs the model chooses (`http_request`, `web_fetch`, `read_pdf`, and the pages `
 `create_composition` render) reach public hosts only. One guarded fetch resolves each hostname,
 refuses loopback, private, link-local (including cloud metadata), CGNAT, IPv4-mapped and
 unspecified addresses in every spelling, re-checks every redirect hop, drops credential and custom
-headers on cross-origin redirects, and streams bodies against a byte cap. An agent reaches its own
-network only through the hosts listed in `network.allowPrivateHosts`.
+headers on cross-origin redirects, and streams bodies against a byte cap. An agent reaches your
+own network only through hosts in the global `network.allowPrivateHosts`, or after you approve the
+address, which then joins that list. A project config cannot widen it.
 
 Tool results that carry someone else's words (web pages, API responses, search results, MCP output,
 peer answers, the output of every shell and custom command, files outside the working directory)
@@ -98,18 +99,28 @@ destination, and a local operator must consent to those declarations for the cur
 ### Secrets
 
 Secrets resolve from environment variables, then the OS keyring, then a mode-`0600` local config
-fallback when no keyring is usable. Filesystem tools protect `.env`, `.env.*`, `secrets.json`,
-Jazz's global config and credential lock/temp files, resolving symlinks. Discovery and metadata
-remain available; content reads omit values and point to approved whole-file `cp`. Copies and
-moves persist destination protection in the current Jazz home's private registry, so renamed
-backups stay protected. Edit previews cannot read protected contents. This is not an OS sandbox:
-other credential names, external programs, hard links and other Jazz homes are outside this
-contract. `execute_command` is gated by approval instead. Shell children lose variables whose names look credential-bearing
+fallback when no keyring is usable. Files read normally; secret values in every tool result
+(file contents, command output, errors, approval previews) are replaced before the model, the
+transcript, logs or an approver see them: exactly for every secret Jazz holds and every
+credential-named environment variable, by shape for `.env`-style assignments, key formats and
+private keys. Tools that slice, cap or search their output redact first, so a line range, a
+byte offset, an output cap or a `grep` pattern cannot split a secret or probe its value. Writes
+putting a placeholder where the target file or Jazz holds a secret are refused, and so is a
+`write_file` that would drop a line holding one. Recognition by shape is best-effort and a
+transformed secret is not caught; `execute_command` stays gated by approval for that reason.
+Edits to Jazz's own config and state under `$JAZZ_HOME` (`config.json`, approvals, agents, tokens)
+through the file tools always ask, under every approval policy. Shell children lose variables whose names look credential-bearing
 and all `SSH_*` variables unless an exact valid name appears in the agent's `envAllowlist`. Log and
 telemetry serializers redact known credential fields. Routine INFO/ERROR logs and shared telemetry
 events omit command text, tool arguments, results, and prompt/completion text. The local tool audit
 record keeps a bounded argument shape; transcripts and other local records remain sensitive plaintext.
 Pending OTLP traces and logs are stored in a private, bounded outbox until delivery or expiry.
+
+The ChatGPT OAuth access and refresh tokens are registered as known secrets for tool-output
+redaction. Hosted runs can bootstrap them from `JAZZ_CHATGPT_CREDENTIAL`; Jazz removes that
+environment variable before starting child processes and stores the bundle through its normal
+private credential backend. A configured `JAZZ_CHATGPT_CREDENTIAL_OUTPUT` receives the rotated
+bundle after refresh, so only a trusted workflow should read or persist that file.
 
 ### Memory writes
 
@@ -178,9 +189,9 @@ the bridge by replacing a published composition or another readable store with a
 - **Prompt-injection immunity:** hostile content can steer actions already permitted by the toolset
   and active policy.
 - **Host isolation:** a shell-capable agent can reach whatever its OS user and network can reach.
-  The private-network check covers Jazz's own fetch tools, not programs the shell runs, and the
-  filesystem protection covers recognized credential paths and registered copies, not arbitrary
-  credentials (`~/.ssh`, cloud CLI tokens). See [Secrets and egress](./secrets-and-egress.md#read-tools-and-jazzs-secret-files).
+  The private-network check covers Jazz's own fetch tools, not programs the shell runs, and output
+  redaction catches secrets Jazz knows or recognizes by shape, not one a command transforms first.
+  See [Secrets and egress](./secrets-and-egress.md#secret-values-in-tool-output).
 - **DNS rebinding:** the guarded fetch resolves a hostname before the runtime connects and
   resolves it again to connect, so a name whose answer changes in between (a zero-TTL rebinding
   record) can still reach a private address. IP-literal URLs and redirect targets are unaffected.

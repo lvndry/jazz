@@ -37,7 +37,7 @@ Read `/tmp/jazz-pr-context.json` for intent and previously raised issues. Run `e
 
 ### 2. Assemble the board
 
-Spawn specialist sub-agents with `spawn_subagent` (persona `coder`, `name` = the lens name). Every lens below whose trigger matches MUST be spawned — skipping a triggered lens requires an explicit justification in the verdict. Lenses marked "always" run on every PR regardless of size.
+Spawn specialist sub-agents with `spawn_subagent` (persona `coder`, `name` = the lens name). Each call returns an `agentId` at once; start up to four, collect their findings with `wait_subagents`, then start the next ones. Every lens below whose trigger matches MUST be spawned — skipping a triggered lens requires an explicit justification in the verdict. Lenses marked "always" run on every PR regardless of size.
 
 | Lens (sub-agent name)    | Trigger                                                                                                | Hunts for                                                                                                                                                                                             |
 | ------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

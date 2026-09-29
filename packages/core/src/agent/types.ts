@@ -1,6 +1,7 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
+import type { UserSecretStore } from "@/core/secrets/user-secrets";
 import type { RunOrigin } from "@/core/spend/sources";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
@@ -9,7 +10,12 @@ import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/typ
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput } from "@/core/types/plugin";
 import type { RemoteCaller } from "@/core/types/remote-door";
-import type { EgressTaint, StoppedToolCall, ToolProgressEvent } from "@/core/types/tools";
+import type {
+  EgressTaint,
+  ResolvedUserSecret,
+  StoppedToolCall,
+  ToolProgressEvent,
+} from "@/core/types/tools";
 import type {
   ApprovalOutcome,
   AutoApprovePolicy,
@@ -196,8 +202,8 @@ export interface AgentRunnerOptions {
    */
   readonly startedBy?: RunStarter;
   /**
-   * Which entry point started this run, for the spend ledger, the spend ceilings and the
-   * notify channel. Unset reads as `{ source: "run" }`: unattended, so a reached ceiling
+   * Which entry point started this run, for the spend ledger, the spend caps and the
+   * notify targets. Unset reads as `{ source: "run" }`: unattended, so a reached cap
    * refuses it. Ignored for internal runs, whose cost is part of their parent's.
    */
   readonly origin?: RunOrigin;
@@ -208,7 +214,7 @@ export interface AgentRunnerOptions {
   readonly toolAllowlist?: readonly string[];
   /**
    * Withhold the tools that solicit an answer from a human (`ask_user_question`,
-   * `ask_file_picker`), so the model is never offered a way to block on somebody
+   * `ask_file_picker`, `ask_user_secret`), so the model is never offered a way to block on somebody
    * who isn't there.
    *
    * Interactive surfaces leave this off. A headless run sets it unless its caller
@@ -244,6 +250,14 @@ export interface AgentRunnerOptions {
     string,
     { readonly kind: "selected"; readonly path: string } | { readonly kind: "cancelled" }
   >;
+  /** Secrets typed when resuming an ask_user_secret parked in another process; memory only. */
+  readonly resolvedUserSecrets?: ReadonlyMap<string, ResolvedUserSecret>;
+  /**
+   * The typed-secret store of the run this one belongs to, for a sub-agent: it redacts and
+   * substitutes the parent's typed secrets, and the parent closes it. A top-level run opens its
+   * own and closes it when it ends.
+   */
+  readonly userSecrets?: UserSecretStore;
   /**
    * This run is continuing a parked one. Its history already ends mid-turn, so no user
    * message is appended.
@@ -280,6 +294,20 @@ export interface AgentRunnerOptions {
    * that sub-agent; other internal runs (compaction, extraction) leave it unset.
    */
   readonly checkQueuedMessage?: () => string | undefined;
+  /**
+   * Awaited at the start of each iteration, before `checkQueuedMessage` and the LLM call.
+   * `spawn_subagent` sets it on a child so the parent can pause it there; a paused child makes
+   * no model call until this returns.
+   */
+  readonly beforeStep?: () => Effect.Effect<void>;
+  /**
+   * Checked with the run's own caps between iterations: true stops the run as cost-capped.
+   * `spawn_subagent` sets it on a child to the parent's pool, so children running at once share
+   * one cost cap instead of each spending the parent's whole remainder.
+   */
+  readonly sharedCostExhausted?: () => boolean;
+  /** Told the run's cost so far after each iteration, so a parent can count a child's live spend. */
+  readonly onIterationSpend?: (costUSD: number | undefined) => void;
   /**
    * Callback invoked when a tool call the user detached with Ctrl+B (see
    * `getBackgroundSignal` on `CompletionStrategy`) finishes running. Receives a

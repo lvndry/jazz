@@ -4,6 +4,8 @@
  * Explicit overrides are trusted operator configuration and are injected as-is.
  * Never pass agent- or tool-supplied environment maps as overrides.
  */
+import { isWithheldEnvVarName } from "@/core/secrets/registry";
+
 export type ProcessEnvRecord = Record<string, string | undefined>;
 
 /**
@@ -19,15 +21,12 @@ export function isAgentStartedProcess(): boolean {
 }
 
 /**
- * Var names that match the sensitive-name scrub by coincidence but never
- * hold a secret value themselves — a directory path, not a credential. The
- * scrub matches on substring, so `PASSWORD_STORE_DIR` (the standard `pass`
- * env var jazz's own email/calendar skills tell users to rely on) contains
- * "PASSWORD" and was being silently stripped, pointing `pass` at its default
- * (empty) store instead of wherever the operator actually configured it —
- * `pass`/`himalaya` then failed in a way that looked like missing secrets
- * rather than a stripped env var. Safe to always pass through, independent
- * of any agent's `envAllowlist`.
+ * Var names that match the sensitive-name scrub by coincidence but never hold a secret value
+ * themselves: a directory path, not a credential. The scrub withholds any name with a secret word
+ * in it, so `PASSWORD_STORE_DIR` (the standard `pass` env var jazz's own email/calendar skills
+ * tell users to rely on) would be stripped, pointing `pass` at its default (empty) store and
+ * failing in a way that looks like missing secrets. Safe to always pass through, independent of
+ * any agent's `envAllowlist`.
  */
 const ALWAYS_SAFE_DESPITE_SENSITIVE_NAME = new Set(["PASSWORD_STORE_DIR"]);
 
@@ -37,7 +36,7 @@ const ALWAYS_SAFE_DESPITE_SENSITIVE_NAME = new Set(["PASSWORD_STORE_DIR"]);
  *
  * @param overrides - Trusted values injected as-is; these bypass name scrubbing.
  * @param allowlist - Env var names exempted from the sensitive-name scrub
- * regex. A name only appears in the result if it is present in
+ * (`isWithheldEnvVarName`). A name only appears in the result if it is present in
  * `process.env` — the allowlist never invents a value. The `SSH_*` prefix
  * block and the `key in baseEnv` guard still apply regardless of allowlist
  * membership. `PWD` reflects Jazz's current process directory when this
@@ -73,11 +72,7 @@ export function createSanitizedEnv(
 
     const isAllowlisted = allowlist.includes(key) || ALWAYS_SAFE_DESPITE_SENSITIVE_NAME.has(key);
 
-    if (
-      (!isAllowlisted && /API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH/i.test(key)) ||
-      key in baseEnv ||
-      key.startsWith("SSH_")
-    ) {
+    if ((!isAllowlisted && isWithheldEnvVarName(key)) || key in baseEnv || key.startsWith("SSH_")) {
       continue;
     }
 

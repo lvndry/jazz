@@ -240,6 +240,17 @@ describe("locally-rejected requests are not retried", () => {
     const converted = convertToLLMError(new Error("Missing API key"), "openai");
     expect((converted as LLMRequestError).permanent).toBeUndefined();
   });
+
+  it("does not retry a missing ChatGPT sign-in as a network failure", () => {
+    const signInError = Object.assign(new Error("Not signed in to ChatGPT"), {
+      name: "ChatGPTSignInRequiredError",
+    });
+    const converted = convertToLLMError(signInError, "chatgpt");
+
+    expect(converted).toMatchObject({ permanent: true, message: "Not signed in to ChatGPT" });
+    expect(isRetryableLLMError(converted)).toBe(false);
+    expect(describeRetryableLLMError(converted)).toBe("rejected request");
+  });
 });
 
 describe("convertToLLMError - Ollama Cloud plan rejection", () => {

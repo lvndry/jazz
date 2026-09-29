@@ -1,5 +1,9 @@
 import type { ChatMessage } from "@/core/types/message";
 
+/** The answer given to one unanswered call: its text, or its text plus the host's taint flag. */
+export type UnansweredToolCallAnswer =
+  string | { readonly content: string; readonly egressTainted?: true };
+
 /**
  * Give every assistant `tool_calls` entry without a `role: "tool"` answer a synthetic one,
  * placed right after that call's existing answers so the transcript stays valid to send.
@@ -11,13 +15,16 @@ import type { ChatMessage } from "@/core/types/message";
  * unanswered call is what the resume answers.
  *
  * `content` is the answer, or a function choosing one per call (a stopped batch answers a call
- * that completed with its real result and one that did not with why).
+ * that completed with its real result, framed and flagged like any delivered result, and one
+ * that did not with why).
  *
  * Returns the input unchanged when nothing is unanswered.
  */
 export function closeUnansweredToolCalls<Messages extends readonly ChatMessage[]>(
   messages: Messages,
-  content: string | ((toolCall: { readonly id: string; readonly name: string }) => string),
+  content:
+    | string
+    | ((toolCall: { readonly id: string; readonly name: string }) => UnansweredToolCallAnswer),
 ): Messages {
   const answered = new Set(
     messages
@@ -51,14 +58,18 @@ export function closeUnansweredToolCalls<Messages extends readonly ChatMessage[]
       if (answered.has(toolCall.id)) {
         continue;
       }
+      const answer =
+        typeof content === "string"
+          ? content
+          : content({ id: toolCall.id, name: toolCall.function.name });
       closed.push({
         role: "tool",
         name: toolCall.function.name,
-        content:
-          typeof content === "string"
-            ? content
-            : content({ id: toolCall.id, name: toolCall.function.name }),
+        content: typeof answer === "string" ? answer : answer.content,
         tool_call_id: toolCall.id,
+        ...(typeof answer !== "string" && answer.egressTainted === true
+          ? { egressTainted: true as const }
+          : {}),
       });
     }
   }

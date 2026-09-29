@@ -109,11 +109,6 @@ export function agentDetailFields(
     { section: "Access", label: "Web search", value: config.webSearchProvider ?? "default" },
     { section: "Access", label: "Memory scopes", value: list(config.memoryScopes ?? ["personal"]) },
     { section: "Access", label: "Env allowlist", value: list(config.envAllowlist) },
-    {
-      section: "Access",
-      label: "Private hosts",
-      value: list(config.network?.allowPrivateHosts),
-    },
   );
   const companions = Object.entries(config.companions ?? {});
   for (const [role, model] of companions) {

@@ -24,13 +24,14 @@
 import { z } from "zod";
 import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import { TERMINAL_NOTIFICATION_SETTINGS } from "@/core/notify/terminal-notification";
 import type {
   AnthropicProviderConfig,
   ChatGPTProviderConfig,
   AppConfig,
   ContextConfig,
+  CostCaps,
   DaemonConfig,
-  DaemonNotifyConfig,
   LLMConfig,
   LLMProviderConfig,
   LlamaCppProviderConfig,
@@ -38,6 +39,7 @@ import type {
   LoggingConfig,
   MCPServerOverride,
   NotificationsConfig,
+  TerminalNotificationSetting,
   OllamaProviderConfig,
   SglangProviderConfig,
   OtlpTelemetryConfig,
@@ -49,6 +51,7 @@ import type {
   UiConfig,
   VllmProviderConfig,
   WebSearchConfig,
+  NetworkConfig,
 } from "@/core/types/config";
 import { WEB_SEARCH_PROVIDERS } from "@/core/types/config";
 import { DISCLOSURE_TIERS } from "@/core/types/disclosure-tier";
@@ -59,17 +62,18 @@ import {
   type ReasoningControlSurface,
 } from "@/core/types/model-capabilities";
 import {
-  type DesktopNotifyChannel,
-  type DiscordNotifyChannel,
-  NOTIFY_CHANNEL_NAME_PATTERN,
+  type DesktopNotifyTarget,
+  type DiscordNotifyTarget,
   NOTIFY_SUBSCRIBABLE_EVENTS,
-  type TelegramNotifyChannel,
-  type WebhookNotifyChannel,
+  NOTIFY_TARGET_NAME_PATTERN,
+  type NotifyConfig,
+  type NtfyNotifyTarget,
+  type TelegramNotifyTarget,
+  type WebhookNotifyTarget,
 } from "@/core/types/notify";
 import type { ColorProfile, OutputConfig, OutputMode } from "@/core/types/output";
 import type { PeerConfig } from "@/core/types/peer";
 import type { DoorLimits, RunBudget } from "@/core/types/remote-door";
-import type { SpendConfig, SpendLimits } from "@/core/types/spend";
 import type { StreamingConfig } from "@/core/types/streaming";
 import type {
   WebhookConfig,
@@ -79,6 +83,10 @@ import type {
 } from "@/core/types/webhook";
 import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
 import { isRecord } from "@/core/utils/is-record";
+import {
+  describePrivateHostEntryError,
+  MAX_PRIVATE_HOST_ENTRIES,
+} from "@/core/utils/private-network";
 import { secretEnvVarSuffix } from "@/core/utils/secret-env-var";
 import { closestMatch } from "@/core/utils/string";
 
@@ -328,6 +336,20 @@ const webSearchShape = {
   provider: z.enum(WEB_SEARCH_PROVIDERS).exactOptional(),
 } satisfies SchemaShape<WebSearchConfig>;
 
+const privateHostEntry = described(
+  z.string().superRefine((entry, refinement) => {
+    const problem = describePrivateHostEntryError(entry);
+    if (problem !== undefined) {
+      refinement.addIssue({ code: "custom", message: problem });
+    }
+  }),
+  "a hostname, *.suffix wildcard, IP address or CIDR block",
+);
+
+const networkShape = {
+  allowPrivateHosts: z.array(privateHostEntry).max(MAX_PRIVATE_HOST_ENTRIES).exactOptional(),
+} satisfies SchemaShape<NetworkConfig>;
+
 const streamingShape = {
   enabled: z.union([flag, z.literal("auto")]).exactOptional(),
   textBufferMs: wholeNumber.exactOptional(),
@@ -346,68 +368,87 @@ const outputShape = {
 const notifyEvents = z.array(z.enum(NOTIFY_SUBSCRIBABLE_EVENTS));
 const httpUrl = described(z.url({ protocol: /^https?$/ }), "an http:// or https:// URL");
 
-const telegramChannelShape = {
-  type: z.literal("telegram"),
-  events: notifyEvents.exactOptional(),
-  chatId: text.exactOptional(),
-  botToken: text.exactOptional(),
-  apiBaseUrl: httpUrl.exactOptional(),
-  approveFromChat: flag.exactOptional(),
-} satisfies SchemaShape<TelegramNotifyChannel>;
-
-const discordChannelShape = {
-  type: z.literal("discord"),
-  events: notifyEvents.exactOptional(),
-  webhookUrl: text.exactOptional(),
-  channelId: text.exactOptional(),
-  botToken: text.exactOptional(),
-  apiBaseUrl: httpUrl.exactOptional(),
-  approveFromChat: flag.exactOptional(),
-} satisfies SchemaShape<DiscordNotifyChannel>;
-
-const webhookChannelShape = {
-  type: z.literal("webhook"),
-  events: notifyEvents.exactOptional(),
-  url: httpUrl.exactOptional(),
-  secret: text.exactOptional(),
-} satisfies SchemaShape<WebhookNotifyChannel>;
-
-const desktopChannelShape = {
-  type: z.literal("desktop"),
-  events: notifyEvents.exactOptional(),
-} satisfies SchemaShape<DesktopNotifyChannel>;
-
-const notifyChannelSchema = z.discriminatedUnion("type", [
-  z.strictObject(telegramChannelShape),
-  z.strictObject(discordChannelShape),
-  z.strictObject(webhookChannelShape),
-  z.strictObject(desktopChannelShape),
-]);
-
-/** Channel names are storage keys (the outbox keeps one file per channel). */
-const channelName = described(
-  safeRecordKey.regex(NOTIFY_CHANNEL_NAME_PATTERN),
+/** Target names are storage keys: the outbox keeps one file per target. */
+const targetName = described(
+  z.string().regex(NOTIFY_TARGET_NAME_PATTERN),
   "a lowercase name of letters, digits, - and _",
 );
+
+const targetCommon = { name: targetName, events: notifyEvents.exactOptional() };
+
+const desktopTargetShape = {
+  ...targetCommon,
+  kind: z.literal("desktop"),
+} satisfies SchemaShape<DesktopNotifyTarget>;
+
+const ntfyTargetShape = {
+  ...targetCommon,
+  kind: z.literal("ntfy"),
+  url: httpUrl,
+} satisfies SchemaShape<NtfyNotifyTarget>;
+
+const webhookTargetShape = {
+  ...targetCommon,
+  kind: z.literal("webhook"),
+  url: httpUrl,
+} satisfies SchemaShape<WebhookNotifyTarget>;
+
+const telegramTargetShape = {
+  ...targetCommon,
+  kind: z.literal("telegram"),
+  chatId: z.string().min(1),
+  apiBaseUrl: httpUrl.exactOptional(),
+  approveFromChat: flag.exactOptional(),
+} satisfies SchemaShape<TelegramNotifyTarget>;
+
+const discordTargetShape = {
+  ...targetCommon,
+  kind: z.literal("discord"),
+  channelId: text.exactOptional(),
+  apiBaseUrl: httpUrl.exactOptional(),
+  approveFromChat: flag.exactOptional(),
+} satisfies SchemaShape<DiscordNotifyTarget>;
+
+const notifyTargetSchema = z.discriminatedUnion("kind", [
+  z.strictObject(desktopTargetShape),
+  z.strictObject(ntfyTargetShape),
+  z.strictObject(webhookTargetShape),
+  z.strictObject(telegramTargetShape),
+  z.strictObject(discordTargetShape),
+]);
+
+const notifyShape = {
+  targets: z
+    .array(notifyTargetSchema)
+    .refine(
+      (targets) => new Set(targets.map((target) => target.name)).size === targets.length,
+      "every target needs its own name",
+    )
+    .exactOptional(),
+} satisfies SchemaShape<NotifyConfig>;
 
 const notificationsShape = {
   enabled: flag.exactOptional(),
   sound: flag.exactOptional(),
-  channels: z.record(channelName, notifyChannelSchema).exactOptional(),
+  terminal: exhaustiveEnum<TerminalNotificationSetting>()(
+    TERMINAL_NOTIFICATION_SETTINGS,
+  ).exactOptional(),
 } satisfies SchemaShape<NotificationsConfig>;
 
-const dollars = described(z.number().positive(), "a number of dollars greater than 0");
+const dollars = described(z.number().positive(), "a number greater than 0");
 
-const spendLimitsShape = {
-  dayUSD: dollars.exactOptional(),
-  monthUSD: dollars.exactOptional(),
-} satisfies SchemaShape<SpendLimits>;
+const costCapsShape = {
+  dailyCostUSD: dollars.exactOptional(),
+  monthlyCostUSD: dollars.exactOptional(),
+} satisfies SchemaShape<CostCaps>;
 
-const spendShape = {
-  ...spendLimitsShape,
-  goals: z.strictObject(spendLimitsShape).exactOptional(),
-  agents: z.record(nonEmptySafeRecordKey, z.strictObject(spendLimitsShape)).exactOptional(),
-} satisfies SchemaShape<SpendConfig>;
+const daemonShape = {
+  token: text.exactOptional(),
+  ...costCapsShape,
+  dailyTokens: positiveWholeNumber.exactOptional(),
+  goals: z.strictObject(costCapsShape).exactOptional(),
+  agents: z.record(nonEmptySafeRecordKey, z.strictObject(costCapsShape)).exactOptional(),
+} satisfies SchemaShape<DaemonConfig & { readonly token?: string }>;
 
 type OtlpSignal = NonNullable<OtlpTelemetryConfig["signals"]>[number];
 
@@ -563,6 +604,7 @@ const configFileShape = {
   logging: z.strictObject(loggingShape).exactOptional(),
   llm: z.strictObject(llmShape).exactOptional(),
   web_search: z.strictObject(webSearchShape).exactOptional(),
+  network: z.strictObject(networkShape).exactOptional(),
   output: z.strictObject(outputShape).exactOptional(),
   mcpServers: z.record(safeRecordKey, mcpOverrideSchema).exactOptional(),
   notifications: z.strictObject(notificationsShape).exactOptional(),
@@ -586,21 +628,8 @@ const configFileShape = {
     .array(z.strictObject(webhookShape))
     .superRefine(distinctSecretEnvVars)
     .exactOptional(),
-  daemon: z
-    .strictObject({
-      token: text.exactOptional(),
-      dailyCostUSD: described(z.number().positive(), "a number greater than 0").exactOptional(),
-      dailyTokens: positiveWholeNumber.exactOptional(),
-      notify: z
-        .strictObject({
-          desktop: flag.exactOptional(),
-          ntfyUrl: described(z.url(), "an https URL").exactOptional(),
-          webhookUrl: described(z.url(), "an http or https URL").exactOptional(),
-        } satisfies SchemaShape<DaemonNotifyConfig>)
-        .exactOptional(),
-    } satisfies SchemaShape<DaemonConfig & { readonly token?: string }>)
-    .exactOptional(),
-  spend: z.strictObject(spendShape).exactOptional(),
+  daemon: z.strictObject(daemonShape).exactOptional(),
+  notify: z.strictObject(notifyShape).exactOptional(),
   ui: z.strictObject(uiShape).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;
 
@@ -1111,4 +1140,64 @@ function checkAgainst(schema: z.ZodType, prefix: Path, value: unknown): ConfigWr
     ok: false,
     problem: `${formatConfigPath([...prefix, ...relativePath])} expected ${expected}`,
   };
+}
+
+/** A path that goes through one entry of a list of named entries, like `webhooks.<name>.token`. */
+export interface NamedListEntry {
+  /** The list's own path, like `["notify", "targets"]`. */
+  readonly listPath: readonly string[];
+  /** The `name` of the entry the path goes through. */
+  readonly entryName: string;
+}
+
+/**
+ * The list entry a path goes through, read from the schema: `notify.targets.phone.botToken`
+ * goes through the `notify.targets` entry named `phone`. Undefined for a path through no list.
+ * Such a path has no place in config.json: a list holds entries, and a dotted write into it
+ * would turn it into an object.
+ */
+export function namedListEntryOf(path: string): NamedListEntry | undefined {
+  const segments = parsePath(path);
+  if (segments === undefined) {
+    return undefined;
+  }
+  let current: z.ZodType | undefined = ConfigFileSchema;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    if (current === undefined) {
+      return undefined;
+    }
+    if (unwrap(current) instanceof z.ZodArray) {
+      return { listPath: segments.slice(0, index), entryName: segments[index] as string };
+    }
+    current = childSchema(current, segments[index] as string);
+  }
+  return undefined;
+}
+
+/**
+ * The list entry `path` goes through when `config` has no entry by that name, so a value for
+ * it (a target's bot token, a webhook's secret) would belong to nothing. Undefined when the
+ * entry exists or the path goes through no list.
+ */
+export function missingNamedListEntry(config: object, path: string): NamedListEntry | undefined {
+  const entry = namedListEntryOf(path);
+  if (entry === undefined) {
+    return undefined;
+  }
+  let list: unknown = config;
+  for (const segment of entry.listPath) {
+    list =
+      list !== null && typeof list === "object"
+        ? (list as Record<string, unknown>)[segment]
+        : undefined;
+  }
+  const exists =
+    Array.isArray(list) &&
+    list.some(
+      (candidate: unknown) =>
+        candidate !== null &&
+        typeof candidate === "object" &&
+        (candidate as { name?: unknown }).name === entry.entryName,
+    );
+  return exists ? undefined : entry;
 }

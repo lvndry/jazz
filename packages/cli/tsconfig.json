@@ -9,6 +9,7 @@
   "references": [
     { "path": "../core" },
     { "path": "../adapters" },
+    { "path": "../daemon" },
     { "path": "../bot-shared" },
     { "path": "../imessage-bot" },
     { "path": "../photon-bot" },

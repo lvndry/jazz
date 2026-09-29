@@ -15,6 +15,9 @@ import {
   type ToolRequirements,
   type ToolSummary,
 } from "@/core/interfaces/tool-registry";
+import { redactToolResult } from "@/core/secrets/redaction";
+import { redactionPlaceholder } from "@/core/secrets/secret-names";
+import { planUserSecrets, substituteUserSecrets } from "@/core/secrets/user-secrets";
 import { ToolNotFoundError } from "@/core/types/errors";
 import type {
   ToolCategory,
@@ -23,6 +26,7 @@ import type {
   ToolExecutionResult,
 } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
+import { toolKnownSecrets } from "./tool-secrets";
 
 /** Max length of a summary derived from a tool's `description` when no explicit `summary` is set. */
 const SUMMARY_FALLBACK_MAX_LENGTH = 100;
@@ -34,6 +38,49 @@ function truncateForSummary(description: string): string {
   const cut = firstLine.slice(0, SUMMARY_FALLBACK_MAX_LENGTH);
   const lastSpace = cut.lastIndexOf(" ");
   return `${lastSpace > 0 ? cut.slice(0, lastSpace) : cut}...`;
+}
+
+/** What a call carrying this run's typed-secret placeholders may do. */
+type UserSecretGate =
+  | { readonly kind: "run"; readonly args: Record<string, unknown> }
+  | { readonly kind: "refused"; readonly error: string };
+
+/**
+ * Put this run's typed secrets into `args` for a tool that accepts them, or refuse the call.
+ *
+ * An approval tool's proposing half keeps the placeholders, so the approval shows them and
+ * the stored request never holds a value; its execute half, which runs once approved, gets the
+ * values. A call with no typed-secret placeholder runs as written.
+ */
+function gateUserSecrets(
+  tool: Tool<ToolRequirements>,
+  args: Record<string, unknown>,
+  context: ToolExecutionContext,
+  acceptingTools: () => readonly string[],
+): UserSecretGate {
+  const store = context.userSecrets;
+  if (store === undefined) {
+    return { kind: "run", args };
+  }
+  const accepted = tool.userSecretArguments ?? [];
+  const plan = planUserSecrets(args, accepted, store);
+  if (plan.kind === "none") {
+    return { kind: "run", args };
+  }
+  if (plan.kind === "refuse") {
+    const placeholders = plan.names.map(redactionPlaceholder).join(", ");
+    const remedy = plan.toolAccepts
+      ? `${tool.name} takes it only in ${accepted.join(", ")}.`
+      : `Pass it to ${acceptingTools().join(", ")}.`;
+    return {
+      kind: "refused",
+      error: `${tool.name} was not run: ${placeholders} stands for a secret the person typed. ${remedy}`,
+    };
+  }
+  if (tool.approvalExecuteToolName !== undefined) {
+    return { kind: "run", args };
+  }
+  return { kind: "run", args: substituteUserSecrets(args, accepted, store) };
 }
 
 /**
@@ -321,6 +368,18 @@ class DefaultToolRegistry implements ToolRegistry {
     });
   }
 
+  /** The visible tools a typed secret may reach, with the arguments that take it. */
+  userSecretAcceptingToolNames(): readonly string[] {
+    const names: string[] = [];
+    this.tools.forEach((tool) => {
+      const accepted = tool.userSecretArguments ?? [];
+      if (accepted.length > 0 && !tool.hidden) {
+        names.push(`${tool.name} (${accepted.join(", ")})`);
+      }
+    });
+    return names.sort();
+  }
+
   executeTool(
     name: string,
     args: Record<string, unknown>,
@@ -340,13 +399,19 @@ class DefaultToolRegistry implements ToolRegistry {
 
       yield* logToolExecutionStart(name, args);
 
+      const secretGate = gateUserSecrets(tool, args, context, () =>
+        registry.userSecretAcceptingToolNames(),
+      );
+      const execution: Effect.Effect<ToolExecutionResult, Error, ToolRequirements> =
+        secretGate.kind === "refused"
+          ? Effect.succeed({ success: false, result: null, error: secretGate.error })
+          : tool.execute(secretGate.args, context);
       // Execute tool and catch all errors (both Effect typed failures and defects/throws)
       // Use sandbox to promote defects into the error channel, then either to convert to values
-      const eitherResult = yield* tool.execute(args, context).pipe(Effect.sandbox, Effect.either);
+      const eitherResult = yield* execution.pipe(Effect.sandbox, Effect.either);
 
-      let result: ToolExecutionResult;
+      let unredacted: ToolExecutionResult;
       if (eitherResult._tag === "Left") {
-        const durationMs = Date.now() - start;
         const cause = eitherResult.left;
 
         // Extract error message from the Cause: check typed failure first, then defects
@@ -363,18 +428,16 @@ class DefaultToolRegistry implements ToolRegistry {
             : "Unknown error";
         }
 
-        yield* logToolExecutionError(name, durationMs, errorMessage);
-        yield* recordMisfire(name, "runtime_error", errorMessage, durationMs, args);
-
-        result = {
+        unredacted = {
           success: false,
           result: null,
           error: errorMessage,
         };
       } else {
-        // Effect succeeded - use the result
-        result = eitherResult.right;
+        unredacted = eitherResult.right;
       }
+      const knownSecrets = yield* toolKnownSecrets();
+      const result = redactToolResult(unredacted, knownSecrets);
 
       const durationMs = Date.now() - start;
 

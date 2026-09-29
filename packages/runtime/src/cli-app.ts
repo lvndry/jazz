@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { RunAnswer } from "@jazz/adapters/daemon/resume-owned-run";
+import type { RunAnswer } from "@jazz/adapters/runs/resume-owned-run";
 import { formatOneShotError } from "@jazz/cli/commands/run/envelope";
 import {
   isReasoningEffortFlag,
@@ -7,6 +7,7 @@ import {
   VALID_REASONING_EFFORTS,
   resolveStreamOption,
 } from "@jazz/cli/commands/run/flags";
+import { failEnvelope } from "@jazz/cli/helpers/json-output";
 import {
   parseDurationMs,
   parsePositiveFloat,
@@ -63,6 +64,8 @@ interface CliRunOptions {
   readonly session?: boolean;
   /** Report a run a shutdown signal stopped, for commands with a one-envelope stdout. */
   readonly onStoppedBySignal?: (signal: ShutdownSignal) => void;
+  /** Report a failure building the application layer, before the command can print a result. */
+  readonly onStartupFailure?: (message: string) => void;
 }
 
 type AppLayerModule = typeof import("./app-layer");
@@ -77,6 +80,17 @@ function cliRuntimeOptions(program: Command): CliRuntimeOptions {
   };
 }
 
+/**
+ * Whether the command being run was given `--json`, set before its action runs. Such a command
+ * promises one JSON envelope on stdout, so a startup failure has to print one too.
+ */
+let invokedCommandWantsJson = false;
+
+/** The `{ ok: false, error }` envelope a `--json` command prints when it cannot start. */
+function printGenericStartupFailureEnvelope(message: string): void {
+  failEnvelope(true, message);
+}
+
 // Actions load the agent stack only when a command actually runs, so
 // `jazz --help` / `jazz --version` stay on the Commander tree.
 async function runCliAction(
@@ -84,9 +98,15 @@ async function runCliAction(
   config: CliRuntimeOptions,
   options?: CliRunOptions,
 ): Promise<void> {
+  const onStartupFailure =
+    options?.onStartupFailure ??
+    (invokedCommandWantsJson ? printGenericStartupFailureEnvelope : undefined);
   try {
     const [{ runCliEffect }, effect] = await Promise.all([import("./app-layer"), loadEffect()]);
-    runCliEffect(effect, config, options);
+    runCliEffect(effect, config, {
+      ...options,
+      ...(onStartupFailure !== undefined ? { onStartupFailure } : {}),
+    });
   } catch (error) {
     console.error("Fatal error:", error);
     throw error;
@@ -101,6 +121,11 @@ function printInterruptedEnvelope(signal: ShutdownSignal): void {
   process.stdout.write(
     formatOneShotError("interrupted", { json: true }, undefined, { code: "interrupted", signal }),
   );
+}
+
+/** Emit the ordinary failure contract even when configuration prevents startup. */
+function printStartupFailureEnvelope(message: string): void {
+  process.stdout.write(formatOneShotError(message, { json: true }));
 }
 
 /** Build the full command path (`agent list`) by walking up to the root program. */
@@ -399,7 +424,12 @@ function registerRunCommand(program: Command): void {
           {
             skipCatchUp: true,
             skipUpdateCheck: true,
-            ...(json ? { onStoppedBySignal: printInterruptedEnvelope } : {}),
+            ...(json
+              ? {
+                  onStoppedBySignal: printInterruptedEnvelope,
+                  onStartupFailure: printStartupFailureEnvelope,
+                }
+              : {}),
           },
         );
       },
@@ -1712,7 +1742,7 @@ function registerDaemonCommand(program: Command): void {
   daemonCommand
     .command("resume")
     .description(
-      "Start background work again; after a daily-cap pause, lifts the cap for the rest of the day",
+      "Start background work again; when a machine daily cap is reached, lifts it for the rest of the day",
     )
     .option("--json", "Emit a single JSON envelope")
     .action((options: { json?: boolean }) =>
@@ -2603,8 +2633,10 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
 function registerSpendCommand(program: Command): void {
   program
     .command("spend")
-    .description("What runs on this machine cost today and this month, by agent and source")
-    .option("--json", "Emit a single JSON envelope { ok, today, thisMonth, ceilings }")
+    .description(
+      "What runs on this machine cost today and this month, by agent and source, against the daemon spend caps",
+    )
+    .option("--json", "Emit a single JSON envelope { ok, today, thisMonth, caps }")
     .action((options: { json?: boolean }) =>
       runCliAction(
         () =>
@@ -2619,18 +2651,20 @@ function registerSpendCommand(program: Command): void {
 function registerNotifyCommands(program: Command): void {
   const notifyCommand = program
     .command("notify")
-    .description("Notify channels: where results, reminders, approvals and failures reach you");
+    .description(
+      "Notify targets: where results, reminders, approvals, failures and pauses reach you",
+    );
 
   notifyCommand
     .command("list")
     .alias("ls")
-    .description("List the configured notify channels")
-    .option("--json", "Emit a single JSON envelope { ok, channels }")
+    .description("List the notify targets")
+    .option("--json", "Emit a single JSON envelope { ok, targets, implicit }")
     .action((options: { json?: boolean }) =>
       runCliAction(
         () =>
           import("@jazz/cli/commands/notify").then((mod) =>
-            mod.listNotifyChannelsCommand({ json: options.json === true }),
+            mod.listNotifyTargetsCommand({ json: options.json === true }),
           ),
         cliRuntimeOptions(program),
       ),
@@ -2638,15 +2672,15 @@ function registerNotifyCommands(program: Command): void {
 
   notifyCommand
     .command("add <name>")
-    .description("Add or replace a notify channel; asks for its secret on a terminal")
-    .requiredOption("--type <type>", "telegram, discord, webhook or desktop")
+    .description("Add or replace a notify target by name; asks for its secret on a terminal")
+    .requiredOption("--kind <kind>", "desktop, ntfy, webhook, telegram or discord")
     .option("--chat-id <id>", "Telegram chat id to post in")
     .option("--channel-id <id>", "Discord channel id, when posting as a bot instead of a webhook")
-    .option("--url <url>", "Webhook endpoint that receives signed JSON")
+    .option("--url <url>", "ntfy topic URL, or the endpoint a webhook target posts JSON to")
     .option("--api-base-url <url>", "Self-hosted Telegram Bot API or Discord API base URL")
     .option(
       "--events <list>",
-      "Comma-separated: reminder, approval-needed, unattended-failed, spend-ceiling (default: all)",
+      "Comma-separated: waiting, paused, reminder, unattended-failed, spend-cap (default: all)",
     )
     .option(
       "--approve-from-chat",
@@ -2656,7 +2690,7 @@ function registerNotifyCommands(program: Command): void {
       (
         name: string,
         options: {
-          type: string;
+          kind: string;
           chatId?: string;
           channelId?: string;
           url?: string;
@@ -2668,9 +2702,9 @@ function registerNotifyCommands(program: Command): void {
         runCliAction(
           () =>
             import("@jazz/cli/commands/notify").then((mod) =>
-              mod.addNotifyChannelCommand({
+              mod.addNotifyTargetCommand({
                 name,
-                type: options.type,
+                kind: options.kind,
                 ...(options.chatId !== undefined ? { chatId: options.chatId } : {}),
                 ...(options.channelId !== undefined ? { channelId: options.channelId } : {}),
                 ...(options.url !== undefined ? { url: options.url } : {}),
@@ -2685,13 +2719,13 @@ function registerNotifyCommands(program: Command): void {
 
   notifyCommand
     .command("test <name>")
-    .description("Send a test message through one channel and report what it answered")
-    .option("--json", "Emit a single JSON envelope { ok, channel }")
+    .description("Send a test message through one target and report what it answered")
+    .option("--json", "Emit a single JSON envelope { ok, target }")
     .action((name: string, options: { json?: boolean }) =>
       runCliAction(
         () =>
           import("@jazz/cli/commands/notify").then((mod) =>
-            mod.testNotifyChannelCommand({ channel: name, json: options.json === true }),
+            mod.testNotifyTargetCommand({ target: name, json: options.json === true }),
           ),
         cliRuntimeOptions(program),
       ),
@@ -2808,6 +2842,22 @@ function registerRunsCommands(program: Command): void {
               response: options.response,
               json: options.json === true,
             }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  runsCommand
+    .command("secret <runId>")
+    .description(
+      "Type the secret a parked run asked you for: hidden as you type, or read from the first line of piped stdin, and held only in memory for the resumed run",
+    )
+    .option("--json", "Emit a single JSON envelope { ok, runId, answer }")
+    .action((runId: string, options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/run/lifecycle").then((mod) =>
+            mod.answerRunSecretCommand({ runId, json: options.json === true }),
           ),
         cliRuntimeOptions(program),
       ),
@@ -3009,7 +3059,12 @@ function registerWorkflowCommands(program: Command): void {
             skipCatchUp: isWorkflowRunCommand,
             skipUpdateCheck: json,
             session: true,
-            ...(json ? { onStoppedBySignal: printInterruptedEnvelope } : {}),
+            ...(json
+              ? {
+                  onStoppedBySignal: printInterruptedEnvelope,
+                  onStartupFailure: printStartupFailureEnvelope,
+                }
+              : {}),
           },
         );
       },
@@ -3232,6 +3287,7 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
     }
     secureJazzHome();
     setCurrentCommandName(commandPath(actionCommand));
+    invokedCommandWantsJson = actionCommand.opts()["json"] === true;
   });
 
   registerRunCommand(program);

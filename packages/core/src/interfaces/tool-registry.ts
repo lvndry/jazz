@@ -115,6 +115,12 @@ export interface Tool<R = never> {
   readonly tags?: readonly string[];
   /** Alternative names the LLM may use to call this tool. Resolved transparently at execution time. */
   readonly aliases?: readonly string[];
+  /**
+   * Tools granted together with this one, because it cannot be used without them:
+   * `spawn_subagent` starts children that only `wait_subagents` collects. An agent granted this
+   * tool gets these too, unless it denies them.
+   */
+  readonly companionTools?: readonly string[];
   /** Zod schema for arguments. Validated before `execute` unless a custom `validate` is used. */
   readonly parameters: z.ZodTypeAny;
   /**
@@ -185,6 +191,17 @@ export interface Tool<R = never> {
    * grants read-only answers, never those.
    */
   readonly peerGrantRequired?: boolean;
+  /**
+   * The top-level string arguments a secret the person typed into `ask_user_secret` may reach.
+   * The registry replaces each `[redacted:<name>]` of this run's typed secrets in these
+   * arguments with the value just before the tool runs; for an approval pair that is the
+   * execute half, after the approval was shown and granted. A call carrying one anywhere else,
+   * or to a tool without this list, is refused.
+   *
+   * Name only arguments whose value stays on this machine and is written nowhere: a local
+   * reader's password, or `execute_command`'s command, which a person approves every time.
+   */
+  readonly userSecretArguments?: readonly string[];
   /**
    * Optional helper for approval-based tools pointing to the follow-up tool name
    * that should be made available once user confirmation is granted.

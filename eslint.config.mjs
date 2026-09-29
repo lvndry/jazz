@@ -1,3 +1,4 @@
+import { readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 // Used via js.configs.* - ESLint can mis-detect this as extraneous in flat configs
@@ -13,6 +14,17 @@ import tseslint from "typescript-eslint";
 
 const tsconfigRootDir = path.dirname(fileURLToPath(import.meta.url));
 const nodeGlobals = globals.node;
+
+/**
+ * Packages below `@jazz/daemon` in the dependency direction: every package except the daemon
+ * itself and the packages that compose it. `scripts/package-layering.test.ts` checks the same set.
+ */
+const DAEMON_CONSUMERS = new Set(["daemon", "cli", "runtime", "website"]);
+const DAEMON_FREE_PACKAGES = readdirSync(path.join(tsconfigRootDir, "packages"), {
+  withFileTypes: true,
+})
+  .filter((entry) => entry.isDirectory() && !DAEMON_CONSUMERS.has(entry.name))
+  .map((entry) => entry.name);
 
 export default [
   // The website package lints with its own config (see packages/website/README.md).
@@ -102,11 +114,44 @@ export default [
     },
   },
   {
+    files: DAEMON_FREE_PACKAGES.map((packageName) => `packages/${packageName}/**/*.{ts,tsx}`),
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@jazz/daemon", "@jazz/daemon/*", "@/daemon/*"],
+              message:
+                "@jazz/daemon depends on this package; move the shared piece down into @jazz/adapters instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    /**
+     * Every package's source, and every test and benchmark below, is linted in the one TypeScript
+     * program `tsconfig.eslint.json` describes. A program per package tsconfig would load each
+     * dependency's sources again (cli alone pulls in core, adapters and daemon), so typed lint
+     * memory would grow with every package added.
+     */
+    files: ["packages/*/src/**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: "./tsconfig.eslint.json",
+        tsconfigRootDir,
+      },
+    },
+  },
+  {
     // Benchmarks share the test tsconfig; they print results, so console is fine.
     files: ["bench/**/*.ts"],
     languageOptions: {
       parserOptions: {
-        project: "./tsconfig.test.json",
+        project: "./tsconfig.eslint.json",
         tsconfigRootDir,
       },
       globals: {
@@ -124,7 +169,7 @@ export default [
     files: ["**/*.test.{ts,tsx}"],
     languageOptions: {
       parserOptions: {
-        project: "./tsconfig.test.json",
+        project: "./tsconfig.eslint.json",
         tsconfigRootDir,
       },
       globals: {

@@ -13,7 +13,8 @@
  *   - A masked value is replaced before it is measured or windowed. The
  *     prefix stays hidden (`***`) and only the last few characters are
  *     shown, so a pasted API key can be recognised without flashing the
- *     whole secret.
+ *     whole secret. A concealed value (a secret typed for the agent) shows
+ *     one bullet per character and nothing of the value.
  *   - The value scrolls horizontally rather than wrapping. A wrapped input
  *     changes the height of the overlay as you type, which moves everything
  *     under the reader's hands; a fixed row does not.
@@ -27,7 +28,7 @@ import { OVERLAY_Z_INDEX } from "./centered";
 import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 import { stepperSegments, type QuestionStep } from "./stepper";
 import { getGlyphs } from "../../glyphs";
-import { maskSecret, maskSecretCaret } from "../../mask-secret";
+import { concealValue, maskSecret, maskSecretCaret } from "../../mask-secret";
 import {
   clipTerminalCells,
   clipTerminalCellsFromStart,
@@ -57,6 +58,8 @@ export interface TextPromptModel {
   readonly caret: number;
   /** Set for secrets: the prefix is masked before it is measured. */
   readonly masked?: boolean;
+  /** Set for a secret the person types for the agent: every character is drawn as a bullet. */
+  readonly concealed?: boolean;
   /** Shown only while the value is empty. */
   readonly placeholder?: string;
   /** The last validation failure, in prose. */
@@ -148,6 +151,7 @@ export interface CaretValueProps {
   /** Columns the value may occupy. It scrolls inside them; it never wraps. */
   readonly width: number;
   readonly masked?: boolean;
+  readonly concealed?: boolean;
   readonly placeholder?: string;
 }
 
@@ -162,6 +166,7 @@ export function CaretValue({
   caret,
   width,
   masked,
+  concealed,
   placeholder,
 }: CaretValueProps): ReactNode {
   if (value.length === 0 && (placeholder ?? "").length > 0) {
@@ -176,8 +181,10 @@ export function CaretValue({
     );
   }
 
-  const display = masked === true ? maskSecret(value) : value;
-  const displayCaret = masked === true ? maskSecretCaret(value, caret) : caret;
+  const display =
+    concealed === true ? concealValue(value) : masked === true ? maskSecret(value) : value;
+  const displayCaret =
+    concealed === true ? caret : masked === true ? maskSecretCaret(value, caret) : caret;
   const cells = caretCells(display, displayCaret, width);
 
   return (
@@ -409,6 +416,7 @@ export function TextPrompt({ model, viewport }: TextPromptProps): ReactNode {
             caret={model.caret}
             width={valueWidth}
             {...(model.masked === true ? { masked: true } : {})}
+            {...(model.concealed === true ? { concealed: true } : {})}
             {...(model.placeholder === undefined ? {} : { placeholder: model.placeholder })}
           />
         </box>

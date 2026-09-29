@@ -32,6 +32,8 @@ export interface JournalEntry {
   readonly messagesAfter: number;
   /** The summary text produced by this compaction. */
   readonly summary: string;
+  /** Set when the summarized history had read external content; the preamble carries it. */
+  readonly egressTainted?: true;
 }
 
 export function journalPath(agentId: string, conversationId: string): string {
@@ -148,7 +150,8 @@ export function workStateSizeBytes(
  * Drop the oldest journal entries until the file is back under the cap.
  *
  * Oldest-first because the newest records describe where the task actually is; an old
- * record of finished work is the most expendable thing here.
+ * record of finished work is the most expendable thing here. A dropped entry's
+ * `egressTainted` moves onto the oldest kept entry, so pruning never relaxes egress.
  */
 export function pruneJournal(
   agentId: string,
@@ -164,7 +167,16 @@ export function pruneJournal(
             const entries = await Effect.runPromise(readJournal(agentId, conversationId));
             // Halve the record count rather than trimming one at a time, so pruning is
             // amortized instead of running on every subsequent append.
-            const keep = entries.slice(Math.ceil(entries.length / 2));
+            const dropped = entries.slice(0, Math.ceil(entries.length / 2));
+            const kept = entries.slice(Math.ceil(entries.length / 2));
+            const [firstKept, ...laterKept] = kept;
+            const carriesTaint =
+              firstKept !== undefined &&
+              dropped.some((entry) => entry.egressTainted === true) &&
+              !kept.some((entry) => entry.egressTainted === true);
+            const keep = carriesTaint
+              ? [{ ...firstKept, egressTainted: true as const }, ...laterKept]
+              : kept;
             await writeFileDurably(
               journalPath(agentId, conversationId),
               keep.map((entry) => `${JSON.stringify(entry)}\n`).join(""),

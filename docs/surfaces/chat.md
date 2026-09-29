@@ -97,7 +97,7 @@ What the Telegram bridge demonstrates: worth reading before you write your own:
 | **Cancellation**          | A ⏹ button kills the child process mid-run.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | **Approvals**             | Each tool needing a human gets its own accept/reject message, answered only by the person whose message started the run. A parallel batch of tool calls grows **⚡ Approve all N** / **🚫 Reject all N** so the whole batch clears in one tap, and an operator's `/mode yolo` opts a conversation out of prompting altogether (yolo runs at `high-risk`). Both bridges do this.                                                                                                                   |
 | **Reminders**             | `/remind 30m …`, persisted to disk so they survive restarts and fire late if the bridge was down.                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Spend cap**             | `JAZZ_DAILY_COST_CAP_USD`: known `costUSD` is accumulated per day; after an unpriced run, further requests pause until the next UTC day.                                                                                                                                                                                                                                                                                                                                                          |
+| **Spend cap**             | `JAZZ_DAILY_COST_CAP_USD`: known `costUSD` is accumulated per day; after an unpriced run, further requests pause until the next local day. Runs are recorded in the spend ledger `jazz spend` reads.                                                                                                                                                                                                                                                                                              |
 | **Local inference**       | Point `JAZZ_TELEGRAM_PROVIDER=ollama` at a local model: no provider key or per-message model cost. Tools and telemetry keep their own network policy.                                                                                                                                                                                                                                                                                                                                             |
 | **Allowlist**             | Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is silently ignored.                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
@@ -140,6 +140,11 @@ DM the bot, or `@mention` it in an allowlisted channel. For the account-creation
 table and mention-gating details, see
 [`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
 
+When the agent is waiting for your answer or approval, you can reply in the same channel
+without mentioning it again, including with `DISCORD_CREATE_THREADS=0`. Only the person
+who started that run gets this exception; user, channel, and guild allowlists still apply.
+Once the pending prompts are answered, ordinary mention-gating resumes.
+
 Same `jazz run` contract as Telegram. What Discord adds on top:
 
 | Feature                   | How it works                                                                                                                                                                                                                                                                                                                                      |
@@ -178,6 +183,14 @@ uses the same Jazz agent surface behind a hosted iMessage transport.
 | **Allow-list shape** | Handles (E.164 or Apple ID) and group rowids for iMessage; numbers and group JIDs for WhatsApp. Both deny-by-default; being allowed to DM never admits you to a group.                                                           |
 | **Isolation**        | Per-conversation uid sandboxing is a Linux mechanism the containerised bridges use. On a Mac or a linked device every chat shares one `JAZZ_HOME` and runs as your user.                                                         |
 | **Sanctioning**      | WhatsApp publishes no API for personal accounts; the bridge speaks the WhatsApp Web protocol via Baileys. Unusual behaviour can get a number limited or banned. Use a dedicated one if it matters.                               |
+
+**Secrets the agent asks for** (`ask_user_secret`, a PDF password, say) are collected only in a
+one-to-one chat with the bot: your next message is the value, it goes to the run over its private
+pipe and is never forwarded as a turn, and the agent sees only `[redacted:<name>]`. Telegram deletes
+your message once it is read; Discord, WhatsApp and iMessage bots cannot, so the prompt asks you to
+delete it. In a group, a server channel or a Photon space the secret is not collected, and the chat
+is told to take it to a private chat. See
+[Secrets the person types](../security/secrets-and-egress.md#secrets-the-person-types).
 
 ---
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { enqueueNotification } from "@jazz/core/notify/outbox";
-import type { NotifyChannelConfig } from "@jazz/core/types/notify";
+import type { NotifyTarget } from "@jazz/core/types/notify";
 import { DELIVERY_RETRY_INITIAL_MS, type DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { afterEach, describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
@@ -28,31 +28,36 @@ function temporaryHome(): string {
   return home;
 }
 
-const channels: Record<string, NotifyChannelConfig> = {
-  phone: { type: "telegram", chatId: "1" },
-};
+const targets: readonly NotifyTarget[] = [
+  { name: "phone", kind: "telegram", chatId: "1" },
+  { name: "desk", kind: "desktop" },
+];
 
 const configLayer = Layer.succeed(AgentConfigServiceTag, {
-  appConfig: Effect.succeed({ notifications: { channels } }),
+  appConfig: Effect.succeed({ notify: { targets } }),
 } as unknown as AgentConfigService);
 
 function drain(home: string, now: number, outcome: DeliveryOutcome, sent: string[] = []) {
   const options: DrainOptions = {
     home,
     now,
-    send: (channelName) =>
+    send: (target) =>
       Effect.sync(() => {
-        sent.push(channelName);
+        sent.push(target.name);
         return outcome;
       }),
   };
   return Effect.runPromise(drainNotifyOutbox(options).pipe(Effect.provide(configLayer)));
 }
 
-async function queueOne(home: string, now: number) {
+async function queueOne(
+  home: string,
+  now: number,
+  onTargets: readonly NotifyTarget[] = targets.slice(0, 1),
+) {
   await Effect.runPromise(
     enqueueNotification(
-      channels,
+      onTargets,
       { kind: "unattended-failed", source: "workflow", error: "boom" },
       { home, now },
     ),
@@ -66,7 +71,7 @@ describe("drainNotifyOutbox", () => {
 
     const report = await drain(home, 1_000, { delivered: true });
 
-    expect(report).toEqual({ delivered: 1, failed: 0 });
+    expect(report).toEqual({ delivered: 1, failed: 0, dropped: 0 });
     expect(await Effect.runPromise(listOutbox(home))).toEqual([]);
   });
 
@@ -106,5 +111,21 @@ describe("drainNotifyOutbox", () => {
     expect(stopped[0]?.delivery).toMatchObject({ status: "failed", lastError: "HTTP 401" });
     expect(rearmed).toBe(1);
     expect(report.delivered).toBe(1);
+  });
+
+  it("drops a desktop notification that cannot be shown instead of keeping it failed", async () => {
+    const home = temporaryHome();
+    await queueOne(home, 1_000, targets);
+
+    const report = await drain(home, 1_000, {
+      delivered: false,
+      error: "terminal-notifier not found",
+      retryable: false,
+    });
+    const left = await Effect.runPromise(listOutbox(home));
+
+    expect(report).toEqual({ delivered: 0, failed: 2, dropped: 1 });
+    expect(left.map((entry) => entry.target)).toEqual(["phone"]);
+    expect(left[0]?.delivery).toMatchObject({ status: "failed" });
   });
 });

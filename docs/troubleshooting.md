@@ -49,7 +49,7 @@ abandoned".
   `curl http://127.0.0.1:8080/v1/models` for llama.cpp.
 - **Check the address Jazz uses.** A saved `llm.ollama.base_url` (or `llamacpp`, `vllm`,
   `sglang`) wins over `OLLAMA_BASE_URL` and the other variables. Change it under
-  **Update configuration** → **LLM Providers** in the `jazz` home menu.
+  **Settings** → **LLM Providers** in the `jazz` home menu.
 - **A large model loading from disk** can take longer than two minutes before its first
   word. Raise `llm.streamIdleTimeoutMs` (or `JAZZ_STREAM_IDLE_TIMEOUT_MS`), and set
   `llm.ollama.keep_alive` to `30m` or `-1` so Ollama keeps the model loaded between runs.

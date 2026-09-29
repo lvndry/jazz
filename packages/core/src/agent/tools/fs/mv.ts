@@ -1,11 +1,9 @@
-/** Approved whole-file transfers keep bytes out of tool results and preserve secret protection. */
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { toError } from "@/core/utils/errors";
-import { assertNotProtectionStateMutation } from "@/core/utils/protected-files";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -14,8 +12,8 @@ import {
 } from "../base-tool";
 import { replacePathAtomically } from "./atomic-replace";
 import { describeFootprint, measureFootprint } from "./footprint";
-import { protectFileTransfer } from "./protected-transfer";
 import { buildKeyFromContext } from "../context-utils";
+import { jazzStateApproval } from "./jazz-state-approval";
 
 /**
  * Move or rename files and directories tool.
@@ -57,17 +55,19 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
           args.destination,
           { skipExistenceCheck: true },
         );
-        yield* Effect.try({
-          try: () => assertNotProtectionStateMutation(destination),
-          catch: toError,
-        });
-        yield* Effect.try({ try: () => assertNotProtectionStateMutation(source), catch: toError });
         const overwrite = args.force === true ? " (will overwrite if exists)" : "";
-        const message = `About to move: ${source}\n       to: ${destination}${overwrite}`;
         const footprint = yield* measureFootprint(source);
-        return footprint === undefined
-          ? message
-          : { message, impact: describeFootprint(footprint) };
+        const impact = footprint === undefined ? undefined : describeFootprint(footprint);
+        const approval = jazzStateApproval(
+          `About to move: ${source}\n       to: ${destination}${overwrite}`,
+          [source, destination],
+        );
+        if (impact === undefined) {
+          return approval;
+        }
+        return typeof approval === "string"
+          ? { message: approval, impact }
+          : { ...approval, impact };
       }),
 
     handler: (args: MvArgs, context: ToolExecutionContext) =>
@@ -113,12 +113,6 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
             error: `Destination exists: ${destination}. Use force: true to overwrite.`,
           };
         }
-
-        yield* Effect.try({ try: () => assertNotProtectionStateMutation(source), catch: toError });
-        yield* Effect.tryPromise({
-          try: () => protectFileTransfer(source, destination),
-          catch: toError,
-        });
 
         return yield* moveAtomically(fs, source, destination, destExists).pipe(
           Effect.map(() => ({ success: true, result: `Moved: ${source} → ${destination}` })),

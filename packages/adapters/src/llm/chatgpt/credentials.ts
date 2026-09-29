@@ -2,6 +2,9 @@
  * Keyring storage for the ChatGPT sign-in, and the refresh path every model request goes through.
  */
 
+import { CHATGPT_CREDENTIAL_PATH } from "@jazz/core/secrets/registry";
+import { clearRuntimeSecret, registerRuntimeSecret } from "@jazz/core/secrets/runtime-secrets";
+import { writeFileDurably } from "@jazz/core/utils/durable-file";
 import { FILE_LOCK_MAX_WAIT_MS, withFileLock } from "@jazz/core/utils/file-lock";
 import { getChatGptCredentialLockPath } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
@@ -18,7 +21,20 @@ import {
 } from "./oauth";
 
 /** Outside the `llm.<provider>.api_key` namespace the config service resolves as secrets. */
-const CREDENTIAL_ACCOUNT = "chatgpt.oauth.credential";
+const CREDENTIAL_ACCOUNT = CHATGPT_CREDENTIAL_PATH;
+const ACCESS_REDACTION_NAME = "chatgpt-access-token";
+const REFRESH_REDACTION_NAME = "chatgpt-refresh-token";
+
+function registerCredentialSecrets(credential: ChatGPTCredential | undefined): void {
+  registerRuntimeSecret(ACCESS_REDACTION_NAME, credential?.access ?? "");
+  registerRuntimeSecret(REFRESH_REDACTION_NAME, credential?.refresh ?? "");
+}
+
+/** CI bootstrap input and refresh output are captured once, then removed from child environments. */
+let bootstrapCredentialRaw = process.env["JAZZ_CHATGPT_CREDENTIAL"];
+delete process.env["JAZZ_CHATGPT_CREDENTIAL"];
+const credentialOutputPath = process.env["JAZZ_CHATGPT_CREDENTIAL_OUTPUT"];
+delete process.env["JAZZ_CHATGPT_CREDENTIAL_OUTPUT"];
 
 /**
  * Refresh this long before the access token expires, so a request that starts just before expiry
@@ -78,15 +94,41 @@ export interface CredentialStorage {
 const keyringStorage: CredentialStorage = {
   read: async () => {
     const backend = await Effect.runPromise(detectKeyringBackend());
-    return Effect.runPromise(keyringGet(backend, CREDENTIAL_ACCOUNT));
+    const stored = await Effect.runPromise(keyringGet(backend, CREDENTIAL_ACCOUNT));
+    if (stored !== undefined || bootstrapCredentialRaw === undefined) {
+      bootstrapCredentialRaw = undefined;
+      registerCredentialSecrets(parseCredential(stored));
+      return stored;
+    }
+
+    const bootstrap = parseCredential(bootstrapCredentialRaw);
+    bootstrapCredentialRaw = undefined;
+    if (bootstrap === undefined) {
+      throw new ChatGPTSignInRequiredError(
+        "JAZZ_CHATGPT_CREDENTIAL must contain a valid copied ChatGPT credential bundle",
+      );
+    }
+    if (
+      !(await Effect.runPromise(keyringSet(backend, CREDENTIAL_ACCOUNT, JSON.stringify(bootstrap))))
+    ) {
+      throw new Error(
+        "Could not store the ChatGPT sign-in: no keyring is available (JAZZ_DISABLE_KEYRING is set).",
+      );
+    }
+    registerCredentialSecrets(bootstrap);
+    return JSON.stringify(bootstrap);
   },
   write: async (value) => {
     const backend = await Effect.runPromise(detectKeyringBackend());
-    return Effect.runPromise(keyringSet(backend, CREDENTIAL_ACCOUNT, value));
+    const written = await Effect.runPromise(keyringSet(backend, CREDENTIAL_ACCOUNT, value));
+    if (written) registerCredentialSecrets(parseCredential(value));
+    return written;
   },
   remove: async () => {
     const backend = await Effect.runPromise(detectKeyringBackend());
     await Effect.runPromise(keyringDelete(backend, CREDENTIAL_ACCOUNT));
+    clearRuntimeSecret(ACCESS_REDACTION_NAME);
+    clearRuntimeSecret(REFRESH_REDACTION_NAME);
   },
 };
 
@@ -118,8 +160,10 @@ export function createChatGPTCredentialStore(dependencies: {
   readonly storage: CredentialStorage;
   readonly refresh: (refreshToken: string, signal: AbortSignal) => Promise<ChatGPTCredential>;
   readonly lockPath: () => string;
+  /** Called after a rotated credential has been persisted, for hosted runners to update their secret. */
+  readonly onRefresh?: (credential: ChatGPTCredential) => Promise<void>;
 }): ChatGPTCredentialStore {
-  const { storage, refresh, lockPath } = dependencies;
+  const { storage, refresh, lockPath, onRefresh } = dependencies;
   let memoized: ChatGPTCredential | undefined;
   let pendingRefresh: Promise<ChatGPTCredential> | undefined;
   /**
@@ -176,6 +220,7 @@ export function createChatGPTCredentialStore(dependencies: {
         return current;
       }
       await write(refreshed);
+      await onRefresh?.(refreshed);
       return refreshed;
     });
 
@@ -230,6 +275,14 @@ const defaultStore = createChatGPTCredentialStore({
   storage: keyringStorage,
   refresh: refreshChatGPTCredential,
   lockPath: getChatGptCredentialLockPath,
+  ...(credentialOutputPath === undefined
+    ? {}
+    : {
+        onRefresh: (credential: ChatGPTCredential) =>
+          writeFileDurably(credentialOutputPath, `${JSON.stringify(credential)}\n`, {
+            mode: 0o600,
+          }),
+      }),
 });
 
 export const loadChatGPTCredential = defaultStore.load;

@@ -18,8 +18,10 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import puppeteer from "puppeteer-core";
 import { z } from "zod";
+import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import type { KnownSecret } from "@/core/secrets/redaction";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
@@ -27,6 +29,7 @@ import { defineTool, makeZodValidator } from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 import { type EgressPolicy, egressPolicyForContext } from "./guarded-fetch";
 import { guardPageRequests } from "./guarded-page";
+import { toolKnownSecrets } from "./tool-secrets";
 import {
   type BrowserExecutableLookup,
   createSystemBrowserLookup,
@@ -89,6 +92,7 @@ async function renderPdf(
   executablePath: string,
   options: { landscape: boolean; format: NonNullable<CreatePdfArgs["format"]> },
   policy: EgressPolicy,
+  known: readonly KnownSecret[],
 ): Promise<void> {
   const browser = await puppeteer.launch({
     browser: "chrome",
@@ -100,7 +104,7 @@ async function renderPdf(
   });
   try {
     const page = await browser.newPage();
-    await guardPageRequests(page, htmlPath, policy);
+    await guardPageRequests(page, htmlPath, policy, known);
     await page.goto(`file://${htmlPath}`, { waitUntil: "networkidle0" });
     await page.pdf({
       path: pdfPath,
@@ -117,8 +121,11 @@ async function renderPdf(
 
 export function createPdfTool(
   browserLookup: () => BrowserExecutableLookup = createSystemBrowserLookup,
-): Tool<FileSystem.FileSystem | FileSystemContextService> {
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, CreatePdfArgs>({
+): Tool<FileSystem.FileSystem | FileSystemContextService | AgentConfigService> {
+  return defineTool<
+    FileSystem.FileSystem | FileSystemContextService | AgentConfigService,
+    CreatePdfArgs
+  >({
     name: "create_pdf",
     disclosure: "internal",
     summary:
@@ -151,6 +158,8 @@ export function createPdfTool(
         const htmlPath = `${pdfPath}.source.html`;
         yield* fs.writeFileString(htmlPath, args.html);
 
+        const egressPolicy = yield* egressPolicyForContext(context);
+        const known = yield* toolKnownSecrets();
         yield* Effect.tryPromise({
           try: () =>
             renderPdf(
@@ -161,7 +170,8 @@ export function createPdfTool(
                 landscape: args.landscape ?? false,
                 format: args.format ?? "A4",
               },
-              egressPolicyForContext(context),
+              egressPolicy,
+              known,
             ),
           catch: (error) => new Error(`Failed to render PDF: ${toError(error).message}`),
         });

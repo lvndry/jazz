@@ -14,14 +14,17 @@
 #   Actions tab dispatch    -> either job
 #
 # Configuration lives in .github/jazz/ (agent configs + workflow prompts).
-# Secrets: GITHUB_TOKEN (automatic), plus the <PROVIDER>_API_KEY your agent configs
-#          name — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, any of them.
+# Secrets: GITHUB_TOKEN (automatic), JAZZ_CHATGPT_CREDENTIAL, and a GitHub App
+#          installation used only to persist rotated ChatGPT OAuth credentials.
 # Setup and customization guide: .github/jazz/README.md
 
 name: Jazz
 
 concurrency:
-  group: jazz-${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  # ChatGPT refresh tokens rotate and are shared by all PRs. Keep the complete run,
+  # including the secret update, inside one repository-wide queue.
+  group: jazz-chatgpt-oauth-${{ github.repository }}
+  queue: max
   cancel-in-progress: false
 
 on:
@@ -266,7 +269,7 @@ jobs:
           bun-version: latest
 
       - name: Install Jazz
-        run: bun install -g jazz-ai --trust
+        run: bun install -g jazz-ai@latest --trust
 
       - name: Setup Jazz agent and workflow
         env:
@@ -337,15 +340,17 @@ jobs:
             }
 
       - name: Run code review
+        id: run-code-review
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
+          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set +e -uo pipefail
-          if ! env | grep -qE '^[A-Z0-9_]+_API_KEY=.'; then
-            echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
-            echo "No model provider API key is configured." > /tmp/jazz-error.txt
+          if [ -z "${JAZZ_CHATGPT_CREDENTIAL:-}" ]; then
+            echo "::error::Add the copied ChatGPT credential bundle as the JAZZ_CHATGPT_CREDENTIAL Actions secret. See .github/jazz/README.md."
+            echo "No ChatGPT credential is configured." > /tmp/jazz-error.txt
             : > /tmp/jazz-review.txt
             echo 1 > /tmp/jazz-review-exit
             exit 0
@@ -361,6 +366,30 @@ jobs:
             printf '%s\n' "$error" > /tmp/jazz-error.txt
             printf '### Jazz Code Review\n\nSkipped: %s\n' "$error" >> "$GITHUB_STEP_SUMMARY"
           fi
+          if [ -s "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT" ]; then
+            echo "credential_rotated=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create ChatGPT secret updater token
+        id: chatgpt-app-token
+        if: always() && steps.run-code-review.outputs.credential_rotated == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.JAZZ_GITHUB_APP_ID }}
+          private-key: ${{ secrets.JAZZ_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.repository }}
+          permission-secrets: write
+
+      - name: Save rotated ChatGPT credential
+        if: always() && steps.run-code-review.outputs.credential_rotated == 'true'
+        env:
+          GH_TOKEN: ${{ steps.chatgpt-app-token.outputs.token }}
+          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
+        run: |
+          set -euo pipefail
+          gh secret set JAZZ_CHATGPT_CREDENTIAL --repo "$GITHUB_REPOSITORY" < "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
+          rm -f "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
 
       - name: Post review comments
         if: always()
@@ -670,9 +699,9 @@ jobs:
 
   # On-demand PR assistant — triggered by a /jazz comment or manual workflow dispatch.
   assistant:
-    # Depends only on resolve. The `concurrency` group above serializes runs on
-    # the same PR, so a `/jazz` question no longer waits for a full code review
-    # and the two jazz jobs don't burst the same provider account concurrently.
+    # Depends only on resolve. The workflow queue serializes this rotating
+    # credential across runs; event conditions ensure only one model job runs
+    # within a workflow run.
     needs: [resolve]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -687,8 +716,7 @@ jobs:
         github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR'
-      ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
-      (github.event_name == 'push' && needs.resolve.outputs.pr_number != '' && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
+      ) && needs.resolve.outputs.pr_head_repo_full_name == github.repository)
       )
     steps:
       - name: Checkout PR head
@@ -704,7 +732,7 @@ jobs:
           bun-version: latest
 
       - name: Install Jazz
-        run: bun install -g jazz-ai --trust
+        run: bun install -g jazz-ai@latest --trust
 
       - name: Setup Jazz agent and workflow
         env:
@@ -788,14 +816,16 @@ jobs:
             }
 
       - name: Run Jazz assistant
+        id: run-assistant
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
+          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set -euo pipefail
-          if ! env | grep -qE '^[A-Z0-9_]+_API_KEY=.'; then
-            echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
+          if [ -z "${JAZZ_CHATGPT_CREDENTIAL:-}" ]; then
+            echo "::error::Add the copied ChatGPT credential bundle as the JAZZ_CHATGPT_CREDENTIAL Actions secret. See .github/jazz/README.md."
             exit 1
           fi
           set +e
@@ -810,7 +840,31 @@ jobs:
             printf '%s\n' "$error" > /tmp/jazz-error.txt
             printf '### Jazz PR Assistant\n\nSkipped: %s\n' "$error" >> "$GITHUB_STEP_SUMMARY"
           fi
+          if [ -s "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT" ]; then
+            echo "credential_rotated=true" >> "$GITHUB_OUTPUT"
+          fi
           exit "$status"
+
+      - name: Create ChatGPT secret updater token
+        id: chatgpt-app-token
+        if: always() && steps.run-assistant.outputs.credential_rotated == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.JAZZ_GITHUB_APP_ID }}
+          private-key: ${{ secrets.JAZZ_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.repository }}
+          permission-secrets: write
+
+      - name: Save rotated ChatGPT credential
+        if: always() && steps.run-assistant.outputs.credential_rotated == 'true'
+        env:
+          GH_TOKEN: ${{ steps.chatgpt-app-token.outputs.token }}
+          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
+        run: |
+          set -euo pipefail
+          gh secret set JAZZ_CHATGPT_CREDENTIAL --repo "$GITHUB_REPOSITORY" < "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
+          rm -f "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
 
       - name: Post PR comment
         if: always()

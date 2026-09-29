@@ -191,6 +191,12 @@ export interface Surface {
 
   /** Best-effort "the agent is working" hint; only called when `typingIndicator` is true. */
   typing?(chatId: ChatId): Promise<void>;
+
+  /**
+   * Delete a message the person sent, for a platform that lets a bot remove it from their
+   * chat. Called on the reply that answered a secret; leave it out where a bot cannot.
+   */
+  deleteReceived?(chatId: ChatId, ref: MessageRef): Promise<void>;
 }
 
 /**

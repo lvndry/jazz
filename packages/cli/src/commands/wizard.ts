@@ -49,9 +49,6 @@ import {
 import { store, type ActiveAgentChoice, type ActiveHomeDetection } from "../ui/store";
 
 /**
- * Wizard menu option identifiers
- */
-/**
  * Interactive wizard command - the main entry point when `jazz` is run with no arguments
  */
 export function wizardCommand() {
@@ -225,7 +222,7 @@ function wizardSession() {
           break;
         }
 
-        case "config": {
+        case "settings": {
           yield* configWizardCommand();
           yield* terminal.clear();
           break;
@@ -880,7 +877,7 @@ function promptNotificationsOnFirstRun(
       yield* terminal.log("");
     } else {
       yield* terminal.info("No API keys detected from environment.");
-      yield* terminal.log("  Set up a key via 'Update configuration' or export OPENAI_API_KEY");
+      yield* terminal.log("  Set up a key via 'Settings' or export OPENAI_API_KEY");
       yield* terminal.log("");
     }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  backgroundDaemonSpawnOptions,
   decideDaemonToken,
   describeDaemonStart,
   formatDaemonTokenProvisionFailure,
@@ -99,5 +100,12 @@ describe("unsupervisedDaemonNote", () => {
   it("is empty for a supervised daemon", () => {
     expect(unsupervisedDaemonNote(true)).toBeUndefined();
     expect(unsupervisedDaemonNote(false)).toContain("jazz daemon install");
+  });
+});
+
+describe("background daemon spawn", () => {
+  it("starts in a session of its own, with no controlling terminal", () => {
+    const options = backgroundDaemonSpawnOptions(["jazz", "daemon", "--foreground"], 7);
+    expect(options).toMatchObject({ detached: true, stdin: "ignore", stdout: 7, stderr: 7 });
   });
 });

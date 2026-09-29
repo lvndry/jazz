@@ -10,6 +10,7 @@
  * its two controls with the verb that will happen: `enter send`, `esc don't send`.
  */
 
+import { egressRequestMethod } from "@jazz/core/agent/execution/egress-taint";
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import type { PendingApproval } from "../store";
@@ -401,6 +402,7 @@ export function approvalFacts(pending: PendingApproval): ApprovalFacts {
   const app = pending.toolName.split(/[_.]/)[0] ?? pending.toolName;
   const command = pending.toolName === "execute_command" ? pending.args["command"] : undefined;
   const commandKey = typeof command === "string" ? extractCommandApprovalKey(command) : undefined;
+  const method = egressRequestMethod(pending.executeToolName, pending.args);
   const intent = approvalIntent({
     toolName: pending.toolName,
     args: pending.args,
@@ -408,12 +410,20 @@ export function approvalFacts(pending: PendingApproval): ApprovalFacts {
     ...(pending.impact === undefined ? {} : { impact: pending.impact }),
     ...(pending.previewDiff === undefined ? {} : { previewDiff: pending.previewDiff }),
   });
-  const fields = entries
-    .filter(([key]) => key !== accountEntry?.[0] && !intent.consumedKeys.includes(key))
-    .map(([label, value]) => ({
-      label,
-      value: typeof value === "string" ? value : JSON.stringify(value),
-    }));
+  const fields = [
+    ...(method === undefined ? [] : [{ label: "method", value: method }]),
+    ...entries
+      .filter(
+        ([key]) =>
+          key !== accountEntry?.[0] &&
+          !intent.consumedKeys.includes(key) &&
+          !(method !== undefined && key === "method"),
+      )
+      .map(([label, value]) => ({
+        label,
+        value: typeof value === "string" ? value : JSON.stringify(value),
+      })),
+  ];
   return {
     app,
     title: BUILT_IN_TITLES[pending.toolName] ?? approvalTitle(pending.executeToolName),
