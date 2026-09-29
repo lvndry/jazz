@@ -153,7 +153,7 @@ and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.
 - [ ] `bun test` passes
 - [ ] `bun run test:e2e` passes (`jazz run --json` against a scripted model server)
 - [ ] `bun run build:binary` succeeds
-- [ ] Changes a user must act on are listed under `[Unreleased]` in `CHANGELOG.md`
+- [ ] The PR description explains breaking changes and any migration steps
 - [ ] Update relevant READMEs if interfaces change
 
 ## Getting Help
