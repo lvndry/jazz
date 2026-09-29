@@ -955,6 +955,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
     };
 
+    if (usage.billedCostUSD !== undefined) {
+      rollIntoFooter(usage.billedCostUSD);
+      return usage.billedCostUSD;
+    }
+
     const cachedMeta = getModelsDevMetadataSync(model, provider);
     if (cachedMeta !== undefined) {
       const totalCost = computeCost(cachedMeta);

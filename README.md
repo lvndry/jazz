@@ -64,8 +64,9 @@ no extra installs:
 > fetch https://en.wikipedia.org/wiki/Jazz and give me the short version
 ```
 
-When provider pricing is known, each answer reports its actual cost from your own key; unknown
-pricing is marked unknown rather than presented as free.
+When provider pricing is known, Jazz reports the estimated cost; providers that return a billed
+amount can report their actual per-call charge. Unknown pricing is marked unknown rather than
+presented as free.
 
 With a minute of setup each, Jazz also does the bigger jobs:
 

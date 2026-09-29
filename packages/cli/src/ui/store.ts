@@ -558,7 +558,7 @@ export class UIStore {
   };
 
   addSessionCostUSD = (deltaUSD: number): void => {
-    if (!deltaUSD) return;
+    if (!Number.isFinite(deltaUSD) || deltaUSD < 0) return;
     this.sessionCostUSD += deltaUSD;
     this.updateRunStats({ costUSD: this.sessionCostUSD });
   };

@@ -64,6 +64,8 @@ export interface ChatCompletionResponse {
     reasoningTokens?: number;
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
+    /** Provider-reported billed amount, when the provider returns an authoritative per-call cost. */
+    billedCostUSD?: number;
   };
   toolsDisabled?: boolean;
   /** Estimated character count of tool definitions sent in this request (for telemetry). */

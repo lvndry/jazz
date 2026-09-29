@@ -77,7 +77,7 @@ To switch accounts or sign out, choose **ChatGPT** under **Settings** → **LLM 
 
 ## OpenRouter for model portability
 
-OpenRouter is useful when the workflow should stay stable while the underlying hosted model changes. `openrouter/free` routes to an available free model; it is useful for experiments but not a reliability guarantee. `openrouter/auto` is also a router rather than a fixed model, so exact capabilities and pricing depend on the selected upstream model.
+OpenRouter is useful when the workflow should stay stable while the underlying hosted model changes. `openrouter/free` routes to an available free model; it is useful for experiments but not a reliability guarantee. `openrouter/auto` is also a router rather than a fixed model, so exact capabilities and pricing depend on the selected upstream model. Jazz requests OpenRouter usage accounting and uses its per-call `usage.cost` when returned, falling back to the catalog estimate otherwise. See OpenRouter's [usage accounting guide](https://openrouter.ai/docs/use-cases/usage-accounting).
 
 Create separate agents when you need a pinned production model and an experimental router. That keeps evaluation and cost attribution honest.
 
@@ -87,6 +87,19 @@ jazz agent create
 ```
 
 The [CI reviewer](../guides/pr-review.md) shows the same workflow running through OpenRouter or a self-hosted model.
+
+## Vercel AI Gateway
+
+Vercel AI Gateway can select among upstream providers and reports the per-call amount in `providerMetadata.gateway.cost`. Jazz uses that amount when available. See Vercel's [AI Gateway pricing guide](https://vercel.com/academy/ai-gateway/ai-gateway-pricing).
+
+## OrcaRouter
+
+OrcaRouter exposes an OpenAI-compatible catalog of provider-prefixed model IDs, plus routed models such as `orcarouter/auto`. Jazz requests OrcaRouter's per-call cost annotation and uses its reported charge in the footer when present; otherwise the footer falls back to the catalog-based estimate. The router's automatically selected upstream can differ between calls, so its reported charge is more accurate than estimating from the configured router model. See OrcaRouter's [per-request cost documentation](https://docs.orcarouter.ai/operations/per-request-cost).
+
+```bash
+export ORCAROUTER_API_KEY="..."
+jazz agent create
+```
 
 ## NVIDIA NIM
 

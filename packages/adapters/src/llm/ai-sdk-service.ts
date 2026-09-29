@@ -87,6 +87,7 @@ import { compactToolJsonSchema } from "@jazz/core/utils/tool-json-schema";
 import {
   createOpenRouter,
   openrouter as openrouterDefaultInstance,
+  type OpenRouterChatSettings,
   type OpenRouterProviderOptions,
   type OpenRouterProviderSettings,
 } from "@openrouter/ai-sdk-provider";
@@ -207,6 +208,30 @@ function suppressStreamTextUnhandledRejections(
       void Promise.resolve(value).catch(() => {});
     }
   }
+}
+
+/** Read a provider-reported router charge from AI SDK metadata, when the provider exposes one. */
+function routerBilledCostUSD(provider: string, metadata: unknown): number | undefined {
+  if (!isRecord(metadata)) return undefined;
+  if (provider === "ai_gateway") {
+    const gatewayMetadata = metadata["gateway"];
+    if (!isRecord(gatewayMetadata)) return undefined;
+    const cost = gatewayMetadata["cost"];
+    return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
+  }
+  if (provider === "openrouter") {
+    const providerMetadata = metadata["openrouter"];
+    if (!isRecord(providerMetadata)) return undefined;
+    const usage = providerMetadata["usage"];
+    if (!isRecord(usage)) return undefined;
+    const cost = usage["cost"];
+    return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
+  }
+  if (provider !== "orcarouter") return undefined;
+  const providerMetadata = metadata["orcarouter"];
+  if (!isRecord(providerMetadata)) return undefined;
+  const cost = providerMetadata["billedCostUSD"];
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
 }
 
 interface AISDKConfig {
@@ -1101,9 +1126,9 @@ function selectModel(
       const openrouter = (
         createOpenRouter as (
           config: OpenRouterProviderSettings,
-        ) => (modelId: ModelName) => LanguageModel
+        ) => (modelId: ModelName, settings: OpenRouterChatSettings) => LanguageModel
       )(config);
-      model = openrouter(modelId);
+      model = openrouter(modelId, { usage: { include: true } });
       break;
     }
     case "orcarouter": {
@@ -1112,7 +1137,37 @@ function selectModel(
         name: "orcarouter",
         baseURL: "https://api.orcarouter.ai/v1",
         includeUsage: true,
-        ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+        headers: {
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          "X-OrcaRouter-Include-Cost": "true",
+        },
+        metadataExtractor: {
+          extractMetadata: ({ parsedBody }) => {
+            if (!isRecord(parsedBody) || !isRecord(parsedBody["usage"])) {
+              return Promise.resolve(undefined);
+            }
+            const cost = parsedBody["usage"]["cost_usd"];
+            return Promise.resolve(
+              typeof cost === "number" && Number.isFinite(cost) && cost >= 0
+                ? { orcarouter: { billedCostUSD: cost } }
+                : undefined,
+            );
+          },
+          createStreamExtractor: () => {
+            let billedCostUSD: number | undefined;
+            return {
+              processChunk: (parsedChunk: unknown) => {
+                if (!isRecord(parsedChunk) || !isRecord(parsedChunk["usage"])) return;
+                const cost = parsedChunk["usage"]["cost_usd"];
+                if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
+                  billedCostUSD = cost;
+                }
+              },
+              buildMetadata: () =>
+                billedCostUSD === undefined ? undefined : { orcarouter: { billedCostUSD } },
+            };
+          },
+        },
         fetch: llmFetch,
       });
       model = orcarouter(modelId);
@@ -2091,6 +2146,8 @@ class AISDKService implements LLMService {
         // Extract usage information
         if (result.usage) {
           const usageData = result.usage;
+          const providerMetadata = result.providerMetadata;
+          const billedCostUSD = routerBilledCostUSD(providerName, providerMetadata);
           usage = {
             promptTokens: usageData.inputTokens ?? 0,
             completionTokens: usageData.outputTokens ?? 0,
@@ -2104,6 +2161,7 @@ class AISDKService implements LLMService {
             ...(usageData.inputTokenDetails?.cacheWriteTokens != null && {
               cacheWriteTokens: usageData.inputTokenDetails.cacheWriteTokens,
             }),
+            ...(billedCostUSD !== undefined ? { billedCostUSD } : {}),
           };
         }
 

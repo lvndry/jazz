@@ -15,6 +15,8 @@ export interface UsageCostTokens {
   readonly completionTokens: number;
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
+  /** Authoritative per-call charge returned by the provider, when available. */
+  readonly billedCostUSD?: number;
 }
 
 /**
@@ -23,7 +25,8 @@ export interface UsageCostTokens {
  * fall back to the full input rate (an overestimate). Cache writes without a cache-write price
  * fall back to the input rate too, which understates providers that charge a premium for them
  * (Anthropic bills 1.25x); {@link isUsageCostIncomplete} reports that case so the figure is not
- * passed off as exact.
+ * passed off as exact. An authoritative `billedCostUSD` on the usage sample takes precedence over
+ * these token-rate estimates.
  *
  * Returns null when no pricing is known at all.
  */
@@ -31,6 +34,7 @@ export function computeUsageCostUSD(
   tokens: UsageCostTokens,
   pricing: UsageCostPricing | undefined,
 ): number | null {
+  if (tokens.billedCostUSD !== undefined) return tokens.billedCostUSD;
   if (pricing?.inputPricePerMillion === undefined && pricing?.outputPricePerMillion === undefined) {
     return null;
   }
@@ -62,6 +66,7 @@ export function isUsageCostIncomplete(
   tokens: UsageCostTokens,
   pricing: UsageCostPricing | undefined,
 ): boolean {
+  if (tokens.billedCostUSD !== undefined) return false;
   return (
     (tokens.cacheWriteTokens ?? 0) > 0 &&
     pricing?.cacheWritePricePerMillion === undefined &&

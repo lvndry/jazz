@@ -330,8 +330,10 @@ The conversation header places a local model's resolved `host:port` immediately 
 name. When width is tight, the host drops before the model or health facts. Ollama Cloud models
 do not get a local host label.
 
-Usage on the right is billed input/output tokens plus estimated USD, compactly
-formatted (`20k/40k $0.26`). Mode and spend never drop at a narrow width.
+Usage on the right is billed input/output tokens plus USD, compactly formatted
+(`20k/40k $0.26`). It uses a provider-reported charge when available and otherwise
+estimates from catalog prices. A known zero is shown; unknown pricing stays omitted.
+Mode and spend never drop at a narrow width.
 
 [**interface.html**](../design/interface.html) renders the specified design in full colour ,
 the session, approval, subagents, reasoning and search screens, plus an 80-column

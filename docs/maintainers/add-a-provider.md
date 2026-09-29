@@ -167,7 +167,8 @@ are typed (`LLMRateLimitError`) so they're distinguishable from real failures.
 
 ## Cost accounting
 
-Pricing comes from the catalog, per million input and output tokens:
+Pricing usually comes from the catalog, per million input and output tokens. Providers that report
+an authoritative per-call charge can supply that instead:
 
 ```text
 ownCost = promptTokens/1e6 × inputPrice + completionTokens/1e6 × outputPrice
@@ -175,9 +176,8 @@ total   = ownCost + Σ(sub-agent cost)
 ```
 
 A figure is emitted whenever _either_ side is known: a free local parent that delegated to a
-paid cloud sub-agent still reports real spend. When neither side is priced (an uncatalogued
-local model), cost is omitted rather than reported as `$0.00`, because those aren't the same
-claim.
+paid cloud sub-agent still reports real spend. A known zero is included; when neither side is
+priced (an uncatalogued local model), cost stays omitted rather than being reported as `$0.00`.
 
 Per-run records land in `~/.jazz/telemetry/` as local JSON. Nothing is transmitted anywhere.
 Command-risk classifier tokens are stored separately (`classifierUsage` on the run,

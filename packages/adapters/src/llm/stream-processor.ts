@@ -13,6 +13,7 @@ import type { ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
 import { toFinishReason, type FinishReason } from "@jazz/core/types/chat";
 import { type LLMError } from "@jazz/core/types/errors";
 import type { ToolCall } from "@jazz/core/types/tools";
+import { isRecord } from "@jazz/core/utils/is-record";
 import type { LanguageModelUsage, streamText } from "ai";
 import { Chunk, Effect, Option } from "effect";
 import type { ParseChunk, ReasoningParser } from "./reasoning";
@@ -23,6 +24,29 @@ import { toJazzToolCall } from "./tool-call-parts";
  * Type for AI SDK StreamText result
  */
 type StreamTextResult = ReturnType<typeof streamText>;
+
+/** Read the reported call cost from providers that expose one in AI SDK metadata. */
+function routerBilledCostUSD(provider: string, metadata: unknown): number | undefined {
+  if (!isRecord(metadata)) return undefined;
+  const providerMetadata =
+    provider === "ai_gateway"
+      ? metadata["gateway"]
+      : provider === "openrouter"
+        ? metadata["openrouter"]
+        : provider === "orcarouter"
+          ? metadata["orcarouter"]
+          : undefined;
+  if (!isRecord(providerMetadata)) return undefined;
+  const cost =
+    provider === "ai_gateway"
+      ? providerMetadata["cost"]
+      : provider === "openrouter" && isRecord(providerMetadata["usage"])
+        ? providerMetadata["usage"]["cost"]
+        : provider === "orcarouter"
+          ? providerMetadata["billedCostUSD"]
+          : undefined;
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
+}
 
 /**
  * Default for how long the stream may go without producing anything before it
@@ -673,6 +697,8 @@ export class StreamProcessor {
         ]));
 
       if (usageResult) {
+        const providerMetadata = await result.providerMetadata;
+        const reportedCost = routerBilledCostUSD(this.config.providerName, providerMetadata);
         usage = {
           promptTokens: usageResult.inputTokens ?? 0,
           completionTokens: usageResult.outputTokens ?? 0,
@@ -690,6 +716,7 @@ export class StreamProcessor {
           ...(usageResult.inputTokenDetails?.cacheWriteTokens != null && {
             cacheWriteTokens: usageResult.inputTokenDetails.cacheWriteTokens,
           }),
+          ...(reportedCost !== undefined ? { billedCostUSD: reportedCost } : {}),
         };
 
         // Emit usage update

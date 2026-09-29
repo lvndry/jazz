@@ -9,7 +9,8 @@
  * gives up the least useful thing rather than wrapping. Mode and spend never
  * drop — the first because acting without knowing the mode is how you get a
  * surprise, the second because a spend you cannot see is a spend you cannot
- * stop. Spend is billed input/output tokens plus estimated USD.
+ * stop. Spend is billed input/output tokens plus USD when known, preferring a provider-reported
+ * charge over an estimate from catalog prices.
  */
 
 import { formatCompactCount } from "@jazz/core/utils/string";
