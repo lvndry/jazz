@@ -475,10 +475,12 @@ jazz loop resume <loop>              # a budget-limited loop gets one more defau
 jazz loop cancel <loop>
 ```
 
-`--every` takes a duration (`10m`, `1h30m`, at least a minute) or a five-field cron expression,
-read in `--tz` (default: this machine's timezone). An interval loop runs right away; a cron loop
+`--every` takes a duration (`10m`, `1h`, `1h30m`, at least a minute) or a five- or six-field cron
+expression. Six fields add seconds first: `--every '*/10 * * * * *'` schedules every ten seconds.
+Cron is read in `--tz` (default: this machine's timezone). An interval loop runs right away; a cron loop
 waits for its first scheduled time. Runs missed while the daemon was down collapse into one, and a
-loop never overlaps itself, including while a run waits for an approval.
+loop never overlaps itself, including while a run waits for an approval. Intervals are measured
+from the previous run's completion. Actual starts depend on the daemon's polling.
 
 A loop ends when its run calls `end_loop` (it gets that tool, and only loop runs do), when it
 reaches `--max-runs` or `--until`, or when you cancel it. Three failed runs in a row stop it
@@ -499,6 +501,10 @@ waiting drops that run. A Jazz agent cannot start, resume, approve, or answer a 
 starts a loop for the chat's agent in its current directory, after asking what its runs may do
 without asking. `/loop help` lists the commands; they mirror `jazz loop`. Opening a conversation
 shows its loops that wait for you, and the next `jazz` counts them under **Resume conversation**.
+
+`10m` means every ten minutes; `1h` means every hour. `/loop 10s` is refused: chat intervals must
+be at least one minute, and chat cron takes exactly five fields. See the [full loop syntax](./concepts/goals-and-loops.md#interval-syntax)
+for interval units, cron fields, examples, and every chat control.
 
 ## `jazz imessage`
 

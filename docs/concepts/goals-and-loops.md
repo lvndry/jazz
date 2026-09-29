@@ -68,19 +68,109 @@ shell, `jazz goal draft|start` plans a goal without a chat; see [`jazz goal`](..
 
 ## Loops
 
+A loop repeats a prompt for the current agent in a separate conversation, through `jazz daemon`.
+Starting one asks what its runs may do without approval and starts the daemon if needed.
+
+### Interval syntax
+
+```text
+/loop <interval> <prompt>
+/loop every <interval> <prompt>
+```
+
+Both forms mean the same thing. The prompt is everything after the interval.
+
+| Interval      | Meaning          |
+| ------------- | ---------------- |
+| `1m` or `60s` | Every minute     |
+| `10m`         | Every 10 minutes |
+| `1h` or `60m` | Every hour       |
+| `1h30m`       | Every 90 minutes |
+| `1d`          | Every 24 hours   |
+
+Use whole numbers with `s` (seconds), `m` (minutes), `h` (hours), or `d` (days).
+Combine units without spaces, as in `1h30m`. Bare numbers, decimals such as `1.5h`,
+and spelled-out units such as `10minutes` are invalid.
+
+The minimum interval is **one minute**. `/loop 10s <prompt>` is refused; it is not rounded up.
+Seconds are valid when the total is at least a minute, as in `90s` or `1m30s`.
+
 ```text
 /loop 10m check whether the deploy finished and tell me
+/loop 1h check whether the deploy finished and tell me
+/loop every 1h30m check the build queue and report changes
+```
+
+An interval loop runs immediately, then waits the interval after each run finishes.
+If a check takes two minutes, `10m` puts the next check about twelve minutes after the previous
+one started. Use cron for runs aligned to clock times.
+
+### Cron syntax
+
+```text
+/loop cron <minute> <hour> <day-of-month> <month> <day-of-week> <prompt>
+```
+
+Supply exactly five schedule fields, separated by spaces, without quotes. The rest is the prompt.
+Schedules use this machine's timezone.
+
+| Field syntax | Meaning     | Example                                                   |
+| ------------ | ----------- | --------------------------------------------------------- |
+| `*`          | Every value | `*` in the hour field: every hour                         |
+| A number     | One value   | `8` in the hour field: 08:00                              |
+| `,`          | A list      | `mon,wed,fri`                                             |
+| `-`          | A range     | `mon-fri`                                                 |
+| `/`          | A step      | `*/10` in the minute field: minutes 0, 10, 20, 30, 40, 50 |
+
+Weekday names such as `mon` and month names such as `jan` are accepted.
+
+```text
+/loop cron */10 * * * * check whether the deploy finished and tell me
+/loop cron 0 * * * * check whether the deploy finished and tell me
 /loop cron 0 8 * * mon-fri read my calendar and unread mail and give me a five-line brief
 ```
 
-A loop reruns its prompt on an interval (at least a minute) or a cron schedule in your timezone, in
-a conversation of its own. It never overlaps itself, and runs missed while the daemon was down
-collapse into one. Starting one asks what its runs may do without asking.
+These run every ten clock minutes, on the hour, and at 08:00 on weekdays, respectively.
+A cron loop waits for its first scheduled time. A loop never overlaps itself, including while
+a run waits for approval. Runs missed while the daemon was down collapse into one.
+
+### Every ten seconds
+
+Chat's `/loop cron` reads only five fields. For a schedule with seconds, use `jazz loop start`
+from your shell with a six-field cron expression: **second, minute, hour, day-of-month, month,
+day-of-week**.
+
+```bash
+jazz loop start --agent assistant --every '*/10 * * * * *' \
+  'Check whether the deploy finished and tell me'
+```
+
+Replace `assistant` with your agent's name. This schedules checks at seconds 0, 10, 20, 30, 40,
+and 50 of each minute. Actual starts depend on the daemon's polling and the previous run
+finishing; this is not a precise ten-second timer.
+
+### Manage a loop
+
+`<loop>` is its name, full ID, or a unique ID prefix. `/loop list` shows this conversation's loops.
+
+| Command                        | Action                                                  |
+| ------------------------------ | ------------------------------------------------------- |
+| `/loop` or `/loop help`        | Show usage                                              |
+| `/loop list`                   | List this conversation's loops and their latest results |
+| `/loop approve <loop>`         | Approve the action its run is waiting on                |
+| `/loop reject <loop> [why]`    | Reject that action, optionally explaining why           |
+| `/loop answer <loop> <answer>` | Answer its run's question                               |
+| `/loop pause <loop>`           | Pause future runs                                       |
+| `/loop resume <loop>`          | Resume a paused, failed, or budget-limited loop         |
+| `/loop cancel <loop>`          | End the loop                                            |
+
+Pausing or canceling lets an active run finish; a run waiting for your input is dropped.
+Completed and canceled loops cannot resume. Resuming a budget-limited loop extends its budget.
 
 A loop ends when its run says its purpose is met, when it reaches its run limit or end time, or when
 you cancel it. Three failed runs in a row stop it for you to look at. A run that needs an approval
-waits; `/loop approve <loop>` answers it. See [`jazz loop`](../commands.md#jazz-loop) for schedules,
-budgets, and the shell commands.
+waits; `/loop approve <loop>` answers it. To set a name, timezone, run limit, end time, or spend
+budget when starting, use [`jazz loop start`](../commands.md#jazz-loop) from your shell.
 
 ## Goal or loop?
 

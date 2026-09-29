@@ -43,7 +43,7 @@ const PINNED_ORDER: Record<string, string[]> = {
     "concepts/tools",
     "concepts/media",
     "concepts/conversations-and-memory",
-    "concepts/long-running-work",
+    "concepts/context-management",
     "concepts/artifacts",
     "concepts/goals-and-loops",
     "concepts/automation",

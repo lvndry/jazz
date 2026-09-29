@@ -184,7 +184,7 @@ caps one bridge's own runs.
 
 ## Related
 
-- [Long-running work](./long-running-work.md): what happens as the context fills
+- [Context management](./context-management.md): what happens as the context fills
 - [Workflow frontmatter](../configure/workflows.md): the caps as workflow fields
 - [Configuration](../configure/jazz.md#run-budgets): the defaults and the enforcement model
 - [Headless](../surfaces/headless.md): the full JSON envelope
