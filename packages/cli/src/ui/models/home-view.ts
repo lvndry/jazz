@@ -25,7 +25,7 @@ export const TITLE_MAX_LENGTH = 48;
 /** A waiting conversation's need, where it shares a line with other text, stays this short. */
 export const BRIEF_DETAIL_LENGTH = 56;
 
-export const COMPOSER_PLACEHOLDER = "Or type your first message";
+export const COMPOSER_PLACEHOLDER = "Type / for commands, or type your first message";
 export const FIRST_RUN_PITCH = "One agent for your email, calendar, files and the web.";
 export const FIRST_RUN_PROMISE = "It asks before it touches anything real.";
 export const FIRST_RUN_SETUP_LEAD = "Setup takes about a minute:";
