@@ -72,6 +72,40 @@ and making its executable available to Jazz, this config adds Rust:
 }
 ```
 
+For Python, install [`pyright`](https://microsoft.github.io/pyright/#/installation), which ships
+a `pyright-langserver` binary:
+
+```sh
+npm install --global pyright
+```
+
+Then add:
+
+```json
+{
+  "servers": [
+    {
+      "id": "python",
+      "command": "pyright-langserver",
+      "args": ["--stdio"],
+      "extensions": [".py"],
+      "languageId": "python",
+      "rootMarkers": [
+        "pyrightconfig.json",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt"
+      ]
+    }
+  ]
+}
+```
+
+Prefer [`python-lsp-server`](https://github.com/python-lsp/python-lsp-server) instead? Install it
+with `pip install python-lsp-server` and use `command: "pylsp"` with `args: []` — same
+`extensions`, `languageId`, and `rootMarkers` as above.
+
 Keep any existing server objects when adding another language. The fields mean:
 
 | Field         | Meaning                                                                                    |
@@ -90,6 +124,6 @@ starts its server then and supplies diagnostics on the next model request. A new
 read on the next request; changing the executable starts a new server, while an old idle server
 exits after two minutes. Use `JAZZ_LSP_CONFIG` to point to a different JSON file.
 
-The Rust entry above illustrates the configuration format; Jazz's live server verification has
-covered TypeScript, not Rust. For the tested TypeScript setup, approval behavior, and current
-limitations, see the [full LSP guide](../../docs/configure/lsp-plugin.md).
+The Rust and Python entries above illustrate the configuration format; Jazz's live server
+verification has covered TypeScript, not Rust or Python. For the tested TypeScript setup, approval
+behavior, and current limitations, see the [full LSP guide](../../docs/configure/lsp-plugin.md).
