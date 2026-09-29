@@ -28,7 +28,7 @@ import { Effect } from "effect";
 /** The local name becomes a directory, so it must remain a plain slug. */
 const VALID_SKILL_NAME = /^[a-zA-Z0-9_-]+$/;
 
-export interface InstallSkillOptions {
+export interface AddSkillOptions {
   /** Skip the confirmation prompt. Required for non-interactive installs. */
   readonly yes?: boolean;
   /** Re-fetch the catalog instead of using the cached snapshot. */
@@ -100,7 +100,7 @@ function formatSkillMetadata(metadata: RegistrySkillMetadata): string {
  */
 function confirmInstall(
   download: RegistrySkillDownload,
-  options: InstallSkillOptions,
+  options: AddSkillOptions,
 ): Effect.Effect<boolean, never, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -144,9 +144,9 @@ function confirmInstall(
  * Install one reviewed marketplace skill as a new, exact `SKILL.md` file.
  * Existing directories are never overwritten.
  */
-export function installSkillCommand(
+export function addSkillCommand(
   name: string,
-  options: InstallSkillOptions = {},
+  options: AddSkillOptions = {},
 ): Effect.Effect<
   void,
   NetworkError | ValidationError | FileSystemError,
@@ -190,7 +190,7 @@ export function installSkillCommand(
           path: target.directory,
           operation: "install",
           reason: `A skill directory named "${localName}" already exists`,
-          suggestion: `Remove ${target.directory} first if you intend to reinstall it.`,
+          suggestion: `Run jazz skill remove ${localName} first if you intend to reinstall it.`,
         }),
       );
     }
@@ -265,7 +265,7 @@ export function listLibrarySkillsCommand(options?: {
       yield* terminal.log("");
     }
 
-    yield* terminal.info("Install one: jazz skill install <name>");
+    yield* terminal.info("Install one: jazz skill add <name>");
   });
 }
 
@@ -305,6 +305,6 @@ export function browseSkillLibraryCommand(options?: {
       return;
     }
 
-    yield* installSkillCommand(selected, { refresh: options?.refresh === true });
+    yield* addSkillCommand(selected, { refresh: options?.refresh === true });
   });
 }

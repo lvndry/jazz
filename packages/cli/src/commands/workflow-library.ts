@@ -33,7 +33,7 @@ import { CHALK_THEME } from "@/cli/ui/theme";
 /** The local name becomes a directory under ~/.jazz/workflows, so it must stay a plain slug. */
 const VALID_LOCAL_NAME = /^[a-zA-Z0-9_-]+$/;
 
-export interface InstallWorkflowOptions {
+export interface AddWorkflowOptions {
   /** Install under a different local name (avoids clashing with an existing workflow). */
   readonly as?: string;
   /** Skip the confirmation prompt. Required for non-interactive installs. */
@@ -65,7 +65,7 @@ function confirmInstall(
   download: RegistryWorkflowDownload,
   localName: string,
   shadows: string | undefined,
-  options: InstallWorkflowOptions,
+  options: AddWorkflowOptions,
 ): Effect.Effect<boolean, never, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -129,9 +129,9 @@ function confirmInstall(
 /**
  * Download one library workflow into ~/.jazz/workflows/<name>/WORKFLOW.md.
  */
-export function installWorkflowCommand(
+export function addWorkflowCommand(
   name: string,
-  options: InstallWorkflowOptions = {},
+  options: AddWorkflowOptions = {},
 ): Effect.Effect<
   void,
   NetworkError | ValidationError | FileSystemError | Error,
@@ -241,7 +241,7 @@ export function listLibraryWorkflowsCommand(options?: {
       yield* terminal.log("");
     }
 
-    yield* terminal.info("Install one: jazz workflow install <name>");
+    yield* terminal.info("Install one: jazz workflow add <name>");
   });
 }
 
@@ -284,6 +284,6 @@ export function browseWorkflowLibraryCommand(options?: {
       return;
     }
 
-    yield* installWorkflowCommand(selected, { refresh: options?.refresh === true });
+    yield* addWorkflowCommand(selected, { refresh: options?.refresh === true });
   });
 }

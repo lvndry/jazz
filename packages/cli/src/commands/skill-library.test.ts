@@ -9,7 +9,7 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import type { RegistrySkillDownload } from "@jazz/core/types/skill-registry";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Exit, Layer } from "effect";
-import { filterSkillEntries, installSkillCommand, isValidSkillName } from "./skill-library";
+import { filterSkillEntries, addSkillCommand, isValidSkillName } from "./skill-library";
 
 /** Command-level regressions for confirmation, path safety, and exact writes. */
 
@@ -99,7 +99,7 @@ describe("skill marketplace commands", () => {
     );
 
     const exit = await Effect.runPromiseExit(
-      installSkillCommand("release-council", { yes: true }).pipe(Effect.provide(layer)),
+      addSkillCommand("release-council", { yes: true }).pipe(Effect.provide(layer)),
     );
 
     expect(Exit.isSuccess(exit)).toBe(true);
@@ -116,7 +116,7 @@ describe("skill marketplace commands", () => {
       Layer.succeed(TerminalServiceTag, plainTerminal),
     );
 
-    await Effect.runPromise(installSkillCommand("release-council").pipe(Effect.provide(layer)));
+    await Effect.runPromise(addSkillCommand("release-council").pipe(Effect.provide(layer)));
 
     expect(plainTerminal.error as ReturnType<typeof mock>).toHaveBeenCalled();
     expect(() => readFileSync(join(jazzHome, "skills", "release-council", "SKILL.md"))).toThrow();
@@ -130,7 +130,7 @@ describe("skill marketplace commands", () => {
     );
 
     const exit = await Effect.runPromiseExit(
-      installSkillCommand("../outside", { yes: true }).pipe(Effect.provide(layer)),
+      addSkillCommand("../outside", { yes: true }).pipe(Effect.provide(layer)),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);

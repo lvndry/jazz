@@ -20,8 +20,8 @@ Jazz is pre-1.0. Its version is `0.MINOR.PATCH`:
 renamed or removed config key, flag or envelope field, or a default that now grants less. A
 default that grants _more_ is never shipped silently in any release.
 
-Every release's changes are in [`CHANGELOG.md`](../CHANGELOG.md), with breaking changes
-under their own heading and a before/after table.
+Read the [GitHub release notes](https://github.com/lvndry/jazz/releases) before updating.
+Breaking changes should include the migration steps needed to keep your setup working.
 
 ## Updating
 
@@ -51,12 +51,12 @@ jazz config validate
 ```
 
 It names each rejected key, and suggests the closest known one (`autoApproveCommands: not a
-setting, did you mean autoApprovedCommands?`). Look it up in the release's **Breaking**
-section in [`CHANGELOG.md`](../CHANGELOG.md), rename or remove it, and run
+setting, did you mean autoApprovedCommands?`). Look it up in the
+[GitHub release notes](https://github.com/lvndry/jazz/releases), rename or remove it, and run
 `jazz config validate` again until it exits 0.
 
 ## Going back
 
-If a release breaks something the changelog did not warn about, reinstall the previous
+If a release breaks something the release notes did not warn about, reinstall the previous
 version with `JAZZ_VERSION` as shown above and
 [open an issue](https://github.com/lvndry/jazz/issues) with the error.

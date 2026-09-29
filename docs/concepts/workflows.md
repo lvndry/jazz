@@ -98,7 +98,7 @@ Other people's workflows are one command away:
 ```bash
 jazz workflow browse             # pick one, read the whole file, install it
 jazz workflow search             # list what the library offers
-jazz workflow install <name>     # straight to ~/.jazz/workflows/<name>/WORKFLOW.md
+jazz workflow add <name>     # straight to ~/.jazz/workflows/<name>/WORKFLOW.md
 ```
 
 Installing prints the full `WORKFLOW.md`, frontmatter first, and asks. That is deliberate: the

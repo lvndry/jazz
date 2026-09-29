@@ -1,7 +1,7 @@
 /**
  * `WorkflowService`: discovers and loads WORKFLOW.md definitions (global and
  * local), the automated prompts that agents run on a schedule. Jazz ships no
- * built-in workflows; shared ones come from the library via `jazz workflow install`.
+ * built-in workflows; shared ones come from the library via `jazz workflow add`.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";

@@ -41,6 +41,12 @@ alongside skills, personas, and workflows. A listing is a discovery and review s
 trust grant: use `jazz plugin add`, `inspect`, `trust`, and `enable` as separate local decisions.
 The marketplace exposes the plugin's exact version, artifact digest, hooks, capabilities, network
 destinations, data classes, and secrets before installation.
+Each plugin page shows the local `add`, `trust`, and `enable` commands in order. Reviewed
+plugins install by catalog id; community plugins install from their repository pinned to the
+listed commit. The displayed enable command applies to all agents; add `--agent <id-or-name>`
+to enable the plugin for just one agent.
+The declared surface lists each capability by kind and name, including tools, slash commands,
+personas, skills, and lifecycle hooks.
 
 ## Trust means code execution
 

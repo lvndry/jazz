@@ -154,9 +154,9 @@ JSON file under `$JAZZ_HOME/agents/`, which you can write by hand (see
 | `jazz workflow history [name]`   | Show run history                                                                                                                |
 | `jazz workflow browse`           | Browse the library and install a workflow (interactive). `--refresh`                                                            |
 | `jazz workflow search`           | List every workflow the library offers. `--refresh`                                                                             |
-| `jazz workflow install <name>`   | Install a library workflow into `~/.jazz/workflows/`. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh` |
+| `jazz workflow add <name>`       | Install a library workflow into `~/.jazz/workflows/`. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh` |
 
-`install` prints the whole `WORKFLOW.md`, frontmatter included, and asks before writing it: the
+`add` prints the whole `WORKFLOW.md`, frontmatter included, and asks before writing it: the
 frontmatter decides what the workflow may do unattended, so non-interactive runs must pass `--yes`.
 The catalog is cached under `<jazz home>/cache/workflow-registry.json` and keeps working offline;
 `JAZZ_LIBRARY_URL` points Jazz at a self-hosted library.
@@ -579,9 +579,9 @@ for both paths.
 | `jazz persona delete <identifier>` | Delete a custom persona                                                                              |
 | `jazz persona browse`              | Browse the library and install a persona (interactive). `--refresh`                                  |
 | `jazz persona search`              | List every persona the library offers. `--refresh`                                                   |
-| `jazz persona install <name>`      | Install a library persona. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh` |
+| `jazz persona add <name>`          | Install a library persona. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh` |
 
-`install` prints the full system prompt and asks before writing it: a persona becomes an agent's
+`add` prints the full system prompt and asks before writing it: a persona becomes an agent's
 instructions, so non-interactive runs must pass `--yes`. The catalog is cached under
 `<jazz home>/cache/persona-registry.json` and keeps working offline; `JAZZ_LIBRARY_URL`
 points Jazz at a self-hosted library.
@@ -592,12 +592,13 @@ See [Personas](./concepts/personas.md).
 
 ## `jazz skill`
 
-| Command                     | Purpose                                                                                               |
-| --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `jazz skill list`           | List the skills agents can load, by source; `--json` prints one document                              |
-| `jazz skill browse`         | Browse the reviewed skill marketplace and install a skill (interactive). `--refresh`                  |
-| `jazz skill search [query]` | Search marketplace skill names, descriptions, tags, and metadata. `--refresh`                         |
-| `jazz skill install <name>` | Install one reviewed `SKILL.md` into `~/.jazz/skills/`. `-y`/`--yes` (skip confirmation), `--refresh` |
+| Command                     | Purpose                                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `jazz skill list`           | List the skills agents can load, by source; `--json` prints one document                                |
+| `jazz skill browse`         | Browse the reviewed skill marketplace and install a skill (interactive). `--refresh`                    |
+| `jazz skill search [query]` | Search marketplace skill names, descriptions, tags, and metadata. `--refresh`                           |
+| `jazz skill add <name>`     | Install one reviewed `SKILL.md` into `~/.jazz/skills/`. `-y`/`--yes` (skip confirmation), `--refresh`   |
+| `jazz skill remove <name>`  | Remove a global skill and its files. `-y`/`--yes` skips confirmation and is required non-interactively. |
 
 Marketplace skills are instruction-only. Installation prints the complete file, asks for
 confirmation, writes only `SKILL.md`, and never executes or imports the downloaded text. Non-

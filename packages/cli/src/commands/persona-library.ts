@@ -1,3 +1,12 @@
+/**
+ * CLI commands for the persona library — a shared catalog of personas that
+ * users can browse and copy into their own `~/.jazz/personas/`.
+ *
+ * An installed persona becomes the system prompt of whichever agent uses it, so
+ * every install shows the prompt in full and asks before writing it to disk.
+ * Non-interactive runs must pass `--yes` to accept that explicitly.
+ */
+
 import { isBuiltinPersona } from "@jazz/adapters/persona-service";
 import {
   PersonaRegistryServiceTag,
@@ -18,16 +27,7 @@ import type {
 import chalk from "chalk";
 import { Effect } from "effect";
 
-/**
- * CLI commands for the persona library — a shared catalog of personas that
- * users can browse and copy into their own `~/.jazz/personas/`.
- *
- * An installed persona becomes the system prompt of whichever agent uses it, so
- * every install shows the prompt in full and asks before writing it to disk.
- * Non-interactive runs must pass `--yes` to accept that explicitly.
- */
-
-export interface InstallPersonaOptions {
+export interface AddPersonaOptions {
   /** Install under a different local name (avoids clashing with an existing persona). */
   readonly as?: string;
   /** Skip the confirmation prompt. Required for non-interactive installs. */
@@ -53,7 +53,7 @@ function formatMeta(entry: RegistryPersonaEntry): string {
 function confirmInstall(
   download: RegistryPersonaDownload,
   localName: string,
-  options: InstallPersonaOptions,
+  options: AddPersonaOptions,
 ): Effect.Effect<boolean, never, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -97,9 +97,9 @@ function confirmInstall(
 /**
  * Download one library persona into ~/.jazz/personas/.
  */
-export function installPersonaCommand(
+export function addPersonaCommand(
   name: string,
-  options: InstallPersonaOptions = {},
+  options: AddPersonaOptions = {},
 ): Effect.Effect<
   void,
   NetworkError | StorageError | PersonaAlreadyExistsError | ValidationError,
@@ -180,7 +180,7 @@ export function listLibraryPersonasCommand(options?: {
       yield* terminal.log("");
     }
 
-    yield* terminal.info("Install one: jazz persona install <name>");
+    yield* terminal.info("Install one: jazz persona add <name>");
   });
 }
 
@@ -223,6 +223,6 @@ export function browseLibraryCommand(options?: {
       return;
     }
 
-    yield* installPersonaCommand(selected, { refresh: options?.refresh === true });
+    yield* addPersonaCommand(selected, { refresh: options?.refresh === true });
   });
 }

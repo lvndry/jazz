@@ -62,14 +62,22 @@ does not add tools, credentials, network access, or approval authority. Its inst
 steer an agent, so read the content and its source before installing it.
 
 Install a skill from the cached catalog with `jazz skill browse`, `jazz skill search`, or
-`jazz skill install <name>`. Jazz shows the complete `SKILL.md`, its source URL, and metadata before
+`jazz skill add <name>`. Jazz shows the complete `SKILL.md`, its source URL, and metadata before
 writing it to `~/.jazz/skills/<name>/SKILL.md`; non-interactive installs must pass `--yes`. The
 installer accepts only a single reviewed `SKILL.md` and never executes files from the catalog.
+Each marketplace skill page shows its `jazz skill add <name>` command alongside the full
+instruction source, so you can review and install it without manually copying files.
 
 The catalog is cached under `<jazz home>/cache/skill-registry.json`, works offline after its first
 successful fetch, and can be pointed at a self-hosted library with `JAZZ_LIBRARY_URL`. The website
 is curated through pull requests, so a listing is a review and provenance signal—not a claim that
 the instructions are harmless or universally correct.
+
+Remove a global skill with `jazz skill remove <name>`. Jazz confirms before deleting the
+whole `~/.jazz/skills/<name>/` directory, including its assets; non-interactive removal requires
+`--yes`. Built-in, project, shared-agent, and plugin skills are outside this command's scope.
+Linked skill roots or directories are refused. Removing a global override may reveal a skill
+with the same name from another source on the next run.
 
 ## Skill, tool, or workflow
 

@@ -96,6 +96,23 @@ describe("createCLIApp help path", () => {
     const config = program.commands.find((command) => command.name() === "config");
     expect(config?.commands.map((command) => command.name())).toContain("validate");
   });
+
+  it("uses add for every library command and offers global skill removal", () => {
+    const program = createCLIApp();
+    for (const family of ["skill", "persona", "workflow"]) {
+      const command = program.commands.find((entry) => entry.name() === family);
+      const names = command?.commands.map((entry) => entry.name()) ?? [];
+      expect(names).toContain("add");
+      expect(names).not.toContain("install");
+      const add = command?.commands.find((entry) => entry.name() === "add");
+      expect(add?.options.map((option) => option.flags)).toEqual(
+        expect.arrayContaining(["-y, --yes", "--refresh"]),
+      );
+    }
+    const skill = program.commands.find((entry) => entry.name() === "skill");
+    const remove = skill?.commands.find((entry) => entry.name() === "remove");
+    expect(remove?.options.map((option) => option.flags)).toContain("-y, --yes");
+  });
 });
 
 describe("firstOperand", () => {
