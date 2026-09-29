@@ -1114,7 +1114,12 @@ function stepFrom(activity: ActivityState): StepLine | undefined {
  * single most important string on the screen, so it is looked for explicitly
  * rather than left to land somewhere in a list.
  */
-const APPROVAL_CHOICES: readonly ApprovalChoice[] = ["accept", "always", "reject"];
+/** The choices the card offers, in the order left and right walk them. */
+function approvalChoicesFor(pending: PendingApproval): readonly ApprovalChoice[] {
+  return approvalFacts(pending).trustHost === undefined
+    ? ["accept", "always", "reject"]
+    : ["accept", "always", "host", "reject"];
+}
 
 /** The always-allow answer a prompt offers: the command when it lists one, else the tool. */
 function alwaysApprovalValue(prompt: {
@@ -1145,6 +1150,7 @@ function approvalFrom(
     fieldOffset,
     expanded,
     alwaysLabel: facts.alwaysLabel,
+    ...(facts.trustHost === undefined ? {} : { trustHost: facts.trustHost }),
     choice,
     armed,
     ...(intent.headline === undefined ? {} : { headline: intent.headline }),
@@ -2084,18 +2090,23 @@ export function FullscreenBridge(): React.ReactNode {
         if (approvalArmedForRef.current !== approvalRef.current) return true;
         if (active === null) return true;
         if (name === "left" || name === "right") {
+          const choices = approvalChoicesFor(approvalRef.current);
           setApprovalChoice((current) => {
-            const index = APPROVAL_CHOICES.indexOf(current) + (name === "left" ? -1 : 1);
-            return (
-              APPROVAL_CHOICES[Math.max(0, Math.min(APPROVAL_CHOICES.length - 1, index))] ?? current
-            );
+            const index = choices.indexOf(current) + (name === "left" ? -1 : 1);
+            return choices[Math.max(0, Math.min(choices.length - 1, index))] ?? current;
           });
           return true;
         }
         if (name === "return" || name === "enter") {
           const chosen = approvalChoiceRef.current;
           active.resolve(
-            chosen === "reject" ? "no" : chosen === "always" ? alwaysApprovalValue(active) : "yes",
+            chosen === "reject"
+              ? "no"
+              : chosen === "always"
+                ? alwaysApprovalValue(active)
+                : chosen === "host" && approvalFacts(approvalRef.current).trustHost !== undefined
+                  ? "always_get_host"
+                  : "yes",
           );
           return true;
         }
@@ -2110,6 +2121,18 @@ export function FullscreenBridge(): React.ReactNode {
           approvalRef.current.editableArg !== undefined
         ) {
           active.resolve("edit");
+          return true;
+        }
+        // Unmodified `h` trusts the request's host for plain GETs, only when the card offers it.
+        if (
+          name === "h" &&
+          !ctrl &&
+          !superKey &&
+          !meta &&
+          !option &&
+          approvalFacts(approvalRef.current).trustHost !== undefined
+        ) {
+          active.resolve("always_get_host");
           return true;
         }
         // Unmodified `a` only. Ctrl+A and Cmd+A are "go to start of line" in

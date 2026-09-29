@@ -2150,6 +2150,26 @@ describe("fullscreen bridge", () => {
     reject.rendered.renderer.destroy();
   });
 
+  it("h trusts the host of a plain GET and approves it", async () => {
+    const trust = await armedApproval();
+    await trust.rendered.mockInput.pressKey("h");
+    await settleKeypress(trust.rendered.flush);
+    expect(await trust.outcome).toEqual({ approved: true, alwaysTrustGetHost: "example.com" });
+    trust.rendered.renderer.destroy();
+  });
+
+  it("walks to the host chip with right and confirms it with enter", async () => {
+    const trust = await armedApproval();
+    for (const key of ["ARROW_RIGHT", "ARROW_RIGHT"]) {
+      await trust.rendered.mockInput.pressKey(key);
+      await settleKeypress(trust.rendered.flush);
+    }
+    await trust.rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(trust.rendered.flush);
+    expect(await trust.outcome).toEqual({ approved: true, alwaysTrustGetHost: "example.com" });
+    trust.rendered.renderer.destroy();
+  });
+
   it("still accepts on a bare enter, since focus starts on accept", async () => {
     const accept = await armedApproval();
     await accept.rendered.mockInput.pressKey("RETURN");

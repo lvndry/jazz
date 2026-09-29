@@ -218,7 +218,10 @@ other methods still ask.
 }
 ```
 
-Entries are hostnames or `*.suffix` wildcards, at most 64. Like `network.allowPrivateHosts` it is
+Add or remove hosts from `jazz` > **Settings** > **Trusted public sites (GET)**. When an approval
+is for a plain GET, the prompt also offers to always allow GET requests to that host (`h` on the
+fullscreen card), which adds it to this list. Entries are hostnames or `*.suffix` wildcards, at
+most 64. This is separate from `network.allowPrivateHosts`, which covers local addresses. Like `network.allowPrivateHosts` it is
 read from the global config file only, and private addresses stay gated by the private-network
 check whatever this lists. A trusted host sees every URL sent to it, so list only hosts you would
 be comfortable receiving anything the run knows. For everything else, the approval card's
