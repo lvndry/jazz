@@ -14,18 +14,19 @@
  *   the same shape `create_pdf` returns.
  *
  * Who chooses the companion:
- * - **A human, always, interactively.** The proposal carries the capable models as
- *   picker-style approval options (`ApprovalRequest.options`); the executor renders
- *   them like any approval card and never auto-approves them — there is nothing to
- *   approve until somebody picked a row.
+ * - **A human, always, interactively.** The person first picks a provider from those with
+ *   models capable of the requested role. If it needs an API key, Jazz asks for it in a
+ *   masked prompt and stores it through the config service. The approval picker then lists
+ *   only that provider's capable models; choosing and approving one is required before
+ *   media is sent.
  * - **A pre-bound companion, unattended.** `config.companions["<action>:<modality>"]` names a
  *   `"provider/model"` chosen ahead of time; binding it *is* the consent, so bound runs
  *   skip the prompt entirely — which is what makes cron and bridge runs work where no
  *   one can answer a picker. During batch approval preflight, bound tools only resolve
  *   that consent; the companion runs after the entire batch is cleared to execute.
  *
- * When nothing capable is available, the failure says exactly what would fix it — add an
- * API key for a provider that has such models — rather than a bare refusal.
+ * When no capable provider is available, the failure says what would fix it — configure a
+ * provider whose models support the requested role — rather than returning a bare refusal.
  */
 
 import { Effect, Option } from "effect";
@@ -436,12 +437,11 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
     );
 
   /**
-   * Standing consent first, then a picker, then the kind refusal.
+   * Standing consent first, then a provider picker and a model approval, then the kind refusal.
    *
-   * Both directions take exactly this path — only the copy around it differs — so the
-   * key-setup detour and the "nobody can pick here" wording live once. A bound companion
-   * skips the prompt entirely: binding it in the agent's config is the operator's standing
-   * consent, and it is the only path an unattended run can take.
+   * A bound companion skips prompts: binding it in agent config is standing consent. Interactive
+   * runs choose a provider first, configure its credential if needed, then expose only that
+   * provider's models capable of the requested role in the existing approval picker.
    */
   const resolveCompanion = (parentAgent: Agent, role: CompanionRole, _toolName: string) =>
     Effect.gen(function* () {
@@ -466,69 +466,98 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
         ) satisfies CompanionChoice;
       }
 
-      let candidateList = yield* listCandidates(role);
-
-      if (candidateList.available.length === 0) {
-        const canPrompt = presentation.canPromptForApproval?.() === true;
-
-        // The kind refusal: if a provider has capable models but no key, offer to
-        // add one right here and rescan — the human never leaves the flow.
-        if (canPrompt && candidateList.missingKeyProviders.length > 0) {
-          const terminalOption = yield* Effect.serviceOption(TerminalServiceTag);
-          if (Option.isSome(terminalOption)) {
-            const terminal = terminalOption.value;
-            const wantsKey = yield* terminal.confirm(
-              `No model that can do ${describeRole(role)} is reachable yet. Add an API key now?`,
-              true,
-            );
-            if (wantsKey) {
-              const missingProviders = candidateList.missingKeyProviders;
-              const provider =
-                missingProviders.length === 1
-                  ? missingProviders[0]!
-                  : yield* terminal.select("Which provider?", {
-                      choices: missingProviders.map((name) => ({ name, value: name })),
-                    });
-              if (provider !== undefined) {
-                const apiKey = yield* terminal.ask(`${provider} API Key:`, {
-                  simple: true,
-                  secret: true,
-                  cancellable: true,
-                  placeholder: "Paste your API key... (Esc to cancel)",
-                });
-                if (apiKey !== undefined && apiKey.trim().length > 0) {
-                  const configService = yield* AgentConfigServiceTag;
-                  yield* configService.set(`llm.${provider}.api_key`, apiKey.trim());
-                  yield* terminal.success("API key saved.");
-                  candidateList = yield* listCandidates(role);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      if (candidateList.available.length === 0) {
-        const canPrompt = presentation.canPromptForApproval?.() === true;
+      const canPrompt = presentation.canPromptForApproval?.() === true;
+      if (!canPrompt) {
+        const candidateList = yield* listCandidates(role);
         const keyHint =
           candidateList.missingKeyProviders.length > 0
-            ? ` No model that can do ${describeRole(role)} is reachable yet: adding an API key for ${candidateList.missingKeyProviders.join(", ")} would fix this.`
-            : ` No provider in the catalog currently offers a conversational model with ${describeRole(role)}.`;
-        yield* logger.info("No capable companion models available", {
-          role,
-          missingKeyProviders: candidateList.missingKeyProviders,
-        });
+            ? ` Add an API key for ${candidateList.missingKeyProviders.join(", ")} and bind a companion in agent config.`
+            : " Bind a companion in agent config.";
         return {
           kind: "unavailable",
-          error: canPrompt
-            ? `Cannot delegate ${role}.${keyHint}`
-            : `Cannot delegate ${role}: nobody can pick a companion in this session.${keyHint} Bind one ahead of time with \`jazz agent edit\` (companions).`,
+          error: `Cannot delegate ${role}: nobody can pick a companion in this session.${keyHint}`,
         } satisfies CompanionChoice;
+      }
+
+      const terminalOption = yield* Effect.serviceOption(TerminalServiceTag);
+      if (Option.isNone(terminalOption)) {
+        return {
+          kind: "unavailable",
+          error: `Cannot delegate ${role}: no interactive provider picker is available. Bind a companion in agent config.`,
+        } satisfies CompanionChoice;
+      }
+      const terminal = terminalOption.value;
+      let candidateList = yield* listCandidates(role);
+      const providers = [
+        ...new Set([
+          ...candidateList.available.map((candidate) => candidate.provider),
+          ...candidateList.missingKeyProviders,
+        ]),
+      ].sort((left, right) => left.localeCompare(right));
+
+      if (providers.length === 0) {
+        const message = `No provider in the catalog currently offers a conversational model with ${describeRole(role)}.`;
+        yield* logger.info("No capable companion models available", { role });
+        return { kind: "unavailable", error: message } satisfies CompanionChoice;
+      }
+
+      const provider = yield* terminal.search<string>(
+        `Choose a provider for ${describeRole(role)}:`,
+        {
+          choices: providers.map((name) => ({
+            name,
+            value: name,
+            ...(candidateList.missingKeyProviders.includes(name)
+              ? { tag: "API key needed", tagTone: "warning" as const }
+              : {}),
+          })),
+          placeholder: "Type to filter providers",
+        },
+      );
+      if (provider === undefined) {
+        return {
+          kind: "unavailable",
+          error: `No provider selected for ${role}; media delegation was cancelled.`,
+        } satisfies CompanionChoice;
+      }
+
+      if (candidateList.missingKeyProviders.includes(provider)) {
+        if (provider === "chatgpt") {
+          return {
+            kind: "unavailable",
+            error:
+              "ChatGPT uses subscription sign-in rather than an API key. Sign in with `jazz config`, then retry the companion selection.",
+          } satisfies CompanionChoice;
+        }
+        const apiKey = yield* terminal.ask(`${provider} API key:`, {
+          simple: true,
+          secret: true,
+          cancellable: true,
+          placeholder: "Paste the key; Esc cancels",
+        });
+        if (apiKey === undefined || apiKey.trim().length === 0) {
+          return {
+            kind: "unavailable",
+            error: `No API key was added for ${provider}; media delegation was cancelled.`,
+          } satisfies CompanionChoice;
+        }
+        const configService = yield* AgentConfigServiceTag;
+        yield* configService.set(`llm.${provider}.api_key`, apiKey.trim());
+        yield* terminal.success(`${provider} API key saved.`);
+        candidateList = yield* listCandidates(role);
+      }
+
+      const providerModels = candidateList.available.filter(
+        (candidate) => candidate.provider === provider,
+      );
+      if (providerModels.length === 0) {
+        const error = `No model from ${provider} is currently available for ${describeRole(role)}. Check its credentials and model access, then try again.`;
+        return { kind: "unavailable", error } satisfies CompanionChoice;
       }
 
       return {
         kind: "pick",
-        options: candidateList.available.map((candidate) => ({
+        options: providerModels.map((candidate) => ({
           id: candidate.id,
           label: candidate.model.displayName ?? candidate.model.modelId,
           detail: `${candidate.provider} · ${formatModelPriceLine(candidate.model)}`,
