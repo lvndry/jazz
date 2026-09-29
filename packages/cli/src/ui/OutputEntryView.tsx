@@ -13,8 +13,8 @@ import { paintRole, paintSegments } from "./text/roles";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
 import { dimReasoningMarkdownOutput, spaceReasoningSections } from "../presentation/format-utils";
-import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
+import { markdownToAnsi } from "./markdown/ansi";
 
 // Icons and colours are read per render, so a `/theme` switch or the ASCII glyph set reaches
 // entries already in the scrollback.
@@ -114,21 +114,20 @@ export const OutputEntryView = React.memo(function OutputEntryView({
       kind === "reasoning"
         ? spaceReasoningSections(entry.message as string)
         : (entry.message as string);
-    const formatted = formatMarkdown(raw);
-    const display = kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
-    // Pre-wrap + PreWrappedText (wrap="truncate"), same as the pending tail in
-    // App.tsx: a bare <Text wrap="wrap"> lets Yoga re-wrap settled slices,
-    // which degenerates into char-by-char wrapping under live re-render load.
-    // Each line carries the speaker rail (cyan = agent, indigo = reasoning) —
-    // the transcript's color-coded left edge.
+    // Pre-wrap, same as the pending tail in App.tsx: a bare <Text wrap="wrap">
+    // lets Yoga re-wrap settled slices, which degenerates into char-by-char
+    // wrapping under live re-render load. Each line carries the speaker rail
+    // (cyan = agent, indigo = reasoning) — the transcript's color-coded left edge.
     const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content - RAIL_WIDTH);
+    const formatted = markdownToAnsi(raw, { width, syntax: "rendered" });
+    const display = kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
     return (
       <Box
         marginTop={addSpacing ? 1 : 0}
         marginBottom={0}
         paddingLeft={PADDING.content}
       >
-        <PreWrappedText>{railStreamLines(wrapToWidth(display, width), kind)}</PreWrappedText>
+        <PreWrappedText>{railStreamLines(display, kind)}</PreWrappedText>
       </Box>
     );
   }

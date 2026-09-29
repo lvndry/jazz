@@ -32,7 +32,6 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 | store-writes         | `UIStore.appendStream` / batched `printOutput`                           | per delta / per message     |
 | stream-processor     | `StreamProcessor.process` over a synthetic provider stream               | per stream delta            |
 | reasoning-parser     | `TagPairParser.feed`, passthrough vs `<think>` vs split tags             | per stream delta            |
-| format-markdown      | one-shot `formatMarkdown` regex pipeline                                 | per reply                   |
 | token-counter        | `TokenCounter.countText`/`countMessage`, BPE vs ratio branches           | per message                 |
 | context-window       | `ContextWindowManager.calculateTotalTokens`, BPE vs ratio                | per turn on long chats      |
 | tool-result-clearing | `clearToolResults` walk, BPE vs ratio                                    | per turn on long chats      |

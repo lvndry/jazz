@@ -1,9 +1,25 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
-import { stripAnsiCodes } from "./markdown-formatter";
-import { codeColor, CHALK_THEME, THEME } from "../ui/theme";
+import { codeColor, THEME } from "../ui/theme";
+
+// The shared markdown parser's bullets, task marks and the horizontal rule read from the
+// glyph set; force Unicode (jazz's default) rather than leaving this to the process's own
+// terminal-capability detection. Restored in afterAll, unlike transcript.test.tsx's own
+// beforeAll — a whole-suite run showed a later file's frame assertions are not robust to
+// inheriting this setting, so it must not leak past this file's own tests.
+const previousGlyphMode = process.env["JAZZ_UI_GLYPHS"];
+beforeAll(() => {
+  process.env["JAZZ_UI_GLYPHS"] = "unicode";
+});
+afterAll(() => {
+  if (previousGlyphMode === undefined) {
+    delete process.env["JAZZ_UI_GLYPHS"];
+  } else {
+    process.env["JAZZ_UI_GLYPHS"] = previousGlyphMode;
+  }
+});
 
 // Test helper class to access protected methods
 class TestCLIRenderer extends CLIRenderer {
@@ -34,9 +50,20 @@ function createTestRenderer(): TestCLIRenderer {
 
 describe("CLIRenderer", () => {
   let renderer: TestCLIRenderer;
+  let previousChalkLevel: (typeof chalk)["level"];
 
   beforeEach(() => {
+    // Every assertion in this file compares an exact plain string, so the chalk level must
+    // be 0 for the run — the ambient default is NOT reliable: an earlier test file can leave
+    // it raised (a known pitfall; see string-utils.test.ts's own note on this), and the shared
+    // parser paints even a plain word if a role's colour differs from the terminal default.
+    previousChalkLevel = chalk.level;
+    chalk.level = 0;
     renderer = createTestRenderer();
+  });
+
+  afterEach(() => {
+    chalk.level = previousChalkLevel;
   });
 
   describe("renderChunk", () => {
@@ -69,58 +96,56 @@ describe("CLIRenderer", () => {
     });
 
     it("should render headers correctly", () => {
+      // The shared parser (also used by fullscreen and Ink) renders a heading as bold
+      // weight, not a coloured hue, and drops the "##" marker rather than styling it in
+      // place — the same "no glyph, no hue" rule the fullscreen typography pass shipped.
       const text = "## Header\n";
       const result = renderer.testRenderChunk(text, 0);
-      expect(result).toBe(chalk.bold.hex(THEME.selected)("## Header") + "\n");
+      expect(result).toBe("Header\n");
     });
 
     it("should render blockquotes correctly", () => {
       const text = "> Quote\n";
       const result = renderer.testRenderChunk(text, 0);
-      expect(result).toBe(
-        `${CHALK_THEME.reasoning(">")} ${chalk.italic.hex("#94A3B8")("Quote")}\n`,
-      );
+      expect(result).toBe("▏ Quote\n");
     });
 
     it("should render unordered lists correctly", () => {
+      // A bullet is normalised to the glyph set's own marker instead of keeping the
+      // author's own "-"/"*"/"+" character, so every list reads the same regardless of
+      // which one a model happened to write.
       const text = "- Item\n";
       const result = renderer.testRenderChunk(text, 0);
-      expect(result).toBe(`  ${codeColor("-")} Item\n`);
+      expect(result).toBe("  ∙ Item\n");
     });
 
     it("should render ordered lists correctly", () => {
       const text = "1. Item\n";
       const result = renderer.testRenderChunk(text, 0);
-      expect(result).toBe(`  ${codeColor("1.")} Item\n`);
+      expect(result).toBe("  1. Item\n");
     });
 
     it("should render horizontal rules correctly", () => {
+      // The rule runs to the terminal width (falls back to 80 columns off a real TTY),
+      // capped at the prose measure.
       const text = "---\n";
       const result = renderer.testRenderChunk(text, 0);
-      // Horizontal rules now include a newline at the end
-      expect(result).toBe(CHALK_THEME.muted("────────────────────────────────────────") + "\n");
+      expect(result).toBe("─".repeat(80) + "\n");
     });
 
     it("should render code blocks when complete", () => {
-      // When a complete code block arrives in a single chunk, it's fully formatted.
-      // Note: marked-terminal pipes code blocks through cli-highlight when
-      // chalk colors are enabled, so we assert on visible content rather
-      // than exact ANSI bytes — body color depends on the `typescript`
-      // grammar's keyword/operator/number rules.
+      // Without real chalk colour (chalk.level 0 in this test process — see
+      // string-utils.test.ts's own note on this) a fence keeps its ``` markers instead of
+      // a painted band, same as the design's own "a band with no colour is only padding"
+      // rule; assert on visible content rather than exact ANSI bytes.
       const chunk = "```typescript\nconst x = 1;\n```\n";
       const result = renderer.testRenderChunk(chunk, 0);
-
-      // Fences stay yellow.
-      expect(result).toContain(codeColor("```typescript"));
-      expect(result).toContain(codeColor("```"));
-      // Body content is present (regardless of intra-line highlighting).
-      const stripped = stripAnsiCodes(result);
-      expect(stripped).toContain("const x = 1;");
+      expect(result).toBe("```typescript\nconst x = 1;\n```\n");
 
       // Content outside code block (plain)
       const chunk2 = "Plain text\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
-      expect(result2).toBe("Plain text\n");
+      expect(result2).toBe("\nPlain text\n");
     });
 
     it("should handle code blocks split across chunks", () => {
@@ -147,17 +172,13 @@ describe("CLIRenderer", () => {
       // Start and end code block in same chunk
       const chunk1 = "```typescript\nconst x = 1;\n```\n";
       const result1 = renderer.testRenderChunk(chunk1, 0);
-      const lines = result1.split("\n");
-      expect(lines[0]).toBe(codeColor("```typescript"));
-      // Body line: assert visible content (intra-line ANSI varies with
-      // cli-highlight's typescript grammar).
-      expect(stripAnsiCodes(lines[1] ?? "")).toContain("const x = 1;");
-      expect(lines[2]).toBe(codeColor("```"));
+      expect(result1).toBe("```typescript\nconst x = 1;\n```\n");
 
-      // Next chunk should be plain (not green)
+      // Next chunk gets one blank line first — a fence is set off from what follows it,
+      // same as heading and table blocks — then plain text, not still inside the fence.
       const chunk2 = "Normal text after code block\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
-      expect(result2).toBe("Normal text after code block\n");
+      expect(result2).toBe("\nNormal text after code block\n");
     });
 
     it("should handle multiple code blocks in sequence", () => {
@@ -168,17 +189,12 @@ describe("CLIRenderer", () => {
       // Second code block
       const chunk2 = "```python\nprint('hello')\n```\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
-      const lines = result2.split("\n");
-      expect(lines[0]).toBe(codeColor("```python"));
-      // Body line: assert visible content (cli-highlight applies python
-      // grammar to keywords/strings/etc.; we don't pin exact ANSI bytes).
-      expect(stripAnsiCodes(lines[1] ?? "")).toContain("print('hello')");
-      expect(lines[2]).toBe(codeColor("```"));
+      expect(result2).toBe("\n```python\nprint('hello')\n```\n");
 
-      // Text after should be plain
+      // Text after should be plain, past the fence
       const chunk3 = "Normal text\n";
       const result3 = renderer.testRenderChunk(chunk3, 0);
-      expect(result3).toBe("Normal text\n");
+      expect(result3).toBe("\nNormal text\n");
     });
 
     it("should buffer partial headers", () => {
@@ -190,7 +206,7 @@ describe("CLIRenderer", () => {
       // Chunk 2: " Header\n" (should complete the header)
       const chunk2 = " Header\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
-      expect(result2).toBe(chalk.bold.hex(THEME.selected)("## Header") + "\n");
+      expect(result2).toBe("Header\n");
     });
 
     it("should buffer partial headers with leading spaces", () => {
@@ -202,7 +218,7 @@ describe("CLIRenderer", () => {
       // Chunk 2: " Header\n" (should complete the header)
       const chunk2 = " Header\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
-      expect(result2).toBe(chalk.bold.hex(THEME.selected)("## Header") + "\n");
+      expect(result2).toBe("Header\n");
     });
 
     it("should buffer partial bold markers", () => {
@@ -227,15 +243,15 @@ describe("CLIRenderer", () => {
       // Chunk 2: " Hea"
       expect(renderer.testRenderChunk(" Hea", 0)).toBe("");
       // Chunk 3: "der\n"
-      expect(renderer.testRenderChunk("der\n", 0)).toBe(
-        chalk.bold.hex(THEME.selected)("## Header") + "\n",
-      );
+      expect(renderer.testRenderChunk("der\n", 0)).toBe("Header\n");
     });
 
     it("should handle multiple lines correctly", () => {
+      // Two lines with no blank line between them are one paragraph in CommonMark — a
+      // soft break, which the shared parser joins with a space, the same as fullscreen.
       const text = "Line 1\nLine 2\n";
       const result = renderer.testRenderChunk(text, 0);
-      expect(result).toBe("Line 1\nLine 2\n");
+      expect(result).toBe("Line 1 Line 2\n");
     });
 
     it("should handle mixed content with split header", () => {
@@ -248,31 +264,32 @@ describe("CLIRenderer", () => {
       // Chunk 2: " Header\n"
       const chunk2 = " Header\n";
       const result2 = renderer.testRenderChunk(chunk2, 0);
-      expect(result2).toBe(chalk.bold.hex(THEME.selected)("## Header") + "\n");
+      // A heading is set off by a blank line from what came before it.
+      expect(result2).toBe("\nHeader\n");
     });
 
     it("should render strikethrough text correctly", () => {
       const text = "~~Strikethrough~~\n";
       const result = renderer.testRenderChunk(text, 0);
-      expect(result).toBe(chalk.strikethrough("Strikethrough") + "\n");
+      expect(result).toBe("Strikethrough\n");
     });
 
     it("should render task lists correctly", () => {
       const text = "- [ ] Unchecked task\n- [x] Checked task\n- [X] Checked task uppercase\n";
       const result = renderer.testRenderChunk(text, 0);
       const lines = result.split("\n");
-      expect(lines[0]).toBe(`  ${CHALK_THEME.muted("○")} Unchecked task`);
-      expect(lines[1]).toBe(`  ${CHALK_THEME.success("✓")} Checked task`);
-      expect(lines[2]).toBe(`  ${CHALK_THEME.success("✓")} Checked task uppercase`);
+      expect(lines[0]).toBe("  ○ Unchecked task");
+      expect(lines[1]).toBe("  ✓ Checked task");
+      expect(lines[2]).toBe("  ✓ Checked task uppercase");
     });
 
     it("should render nested unordered lists correctly", () => {
       const text = "- Item 1\n  - Nested item\n    - Deeply nested\n";
       const result = renderer.testRenderChunk(text, 0);
       const lines = result.split("\n");
-      expect(lines[0]).toBe(`  ${codeColor("-")} Item 1`);
-      expect(lines[1]).toBe(`    ${codeColor("-")} Nested item`);
-      expect(lines[2]).toBe(`      ${codeColor("-")} Deeply nested`);
+      expect(lines[0]).toBe("  ∙ Item 1");
+      expect(lines[1]).toBe("    ∙ Nested item");
+      expect(lines[2]).toBe("      ∙ Deeply nested");
     });
 
     it("should render nested ordered lists correctly", () => {
@@ -288,9 +305,9 @@ describe("CLIRenderer", () => {
       const text = "- Item 1\n  1. Nested ordered\n    - Deeply nested unordered\n";
       const result = renderer.testRenderChunk(text, 0);
       const lines = result.split("\n");
-      expect(lines[0]).toBe(`  ${codeColor("-")} Item 1`);
-      expect(lines[1]).toBe(`    ${codeColor("1.")} Nested ordered`);
-      expect(lines[2]).toBe(`      ${codeColor("-")} Deeply nested unordered`);
+      expect(lines[0]).toBe("  ∙ Item 1");
+      expect(lines[1]).toBe("    1. Nested ordered");
+      expect(lines[2]).toBe("      ∙ Deeply nested unordered");
     });
   });
 
@@ -347,7 +364,7 @@ describe("CLIRenderer", () => {
 
       // Now flush should return the formatted header
       const result3 = renderer.testFlushBuffer();
-      expect(result3).toBe(chalk.bold.hex(THEME.selected)("## Header"));
+      expect(result3).toBe("Header");
     });
 
     it("should flush partial header as styled header if stream ends", () => {
@@ -355,7 +372,7 @@ describe("CLIRenderer", () => {
       const result = renderer.testFlushBuffer();
       // If the stream ends, we process what we have.
       // Since "## Partial" matches the header regex (start of string), it gets styled.
-      expect(result).toBe(chalk.bold.hex(THEME.selected)("## Partial"));
+      expect(result).toBe("Partial");
     });
   });
 

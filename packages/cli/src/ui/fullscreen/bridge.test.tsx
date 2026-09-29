@@ -15,11 +15,11 @@ import chalk from "chalk";
 import { Effect } from "effect";
 import { createAccumulator, reduceEvent } from "@/cli/presentation/activity-reducer";
 import { InkPresentationService } from "@/cli/presentation/ink-presentation-service";
-import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
 import { InkTerminalService } from "@jazz/cli/terminal";
 import packageJson from "../../../../../package.json";
 import { getGlyphs } from "../glyphs";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
+import { markdownToAnsi } from "../markdown/ansi";
 import { HOME_COMMANDS } from "../models/home-view";
 import { store, type ActiveHome } from "../store";
 import { applyTheme, THEME } from "../theme";
@@ -565,7 +565,7 @@ describe("fullscreen bridge", () => {
     const listed = rendered.captureCharFrame();
     // The list opens at its head, with the first entry highlighted, rather than
     // wrapped so the tail of the list sits above the selection.
-    expect(listed).toContain(`${getGlyphs().rail} /agents`);
+    expect(listed).toContain(`${getGlyphs().bandBar} /agents`);
     expect(listed).not.toContain("/workflows");
 
     await rendered.mockInput.pressKey("h");
@@ -3242,8 +3242,9 @@ describe("fullscreen bridge", () => {
     });
 
     it("leaves no escape sequence in a frame built from formatted markdown", async () => {
-      const markdown = formatMarkdown(
+      const markdown = markdownToAnsi(
         "Docs at https://example.com/deep/path and [the guide](https://example.com/guide).",
+        { width: 80, syntax: "rendered" },
       );
       // Proves the producer really does style its output, so a clean frame below
       // means the transcript stripped it rather than that there was nothing to
