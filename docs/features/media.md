@@ -49,13 +49,16 @@ capability boundary.
 
 ## Interactive and unattended selection
 
-In the terminal, an unbound agent can ask you to choose among currently configured models that
-support the requested role. The approval card shows the provider and known price. Jazz never
-silently chooses a paid provider.
+In the terminal, an unbound agent first asks you to choose a provider that offers models for the
+requested role. If that provider is not configured, Jazz asks for its credential in a masked prompt
+(and saves it to Jazz config); it then offers only that provider's capable models in the approval
+picker, with known prices shown. The chosen model is not run until you approve the media delegation.
+ChatGPT uses subscription sign-in rather than an API key; sign in with `jazz config` before
+selecting it. Jazz never silently chooses a paid provider.
 
-CI, schedules, webhooks, and chat bridges cannot stop at a picker. Bind every role the job may use in the agent
-JSON before running unattended. That binding is standing consent to send the selected media and
-task to that provider.
+CI, schedules, webhooks, and chat bridges cannot stop at an interactive provider/model picker. Bind
+every role the job may use in the agent JSON before running unattended. That binding is standing
+consent to send the selected media and task to that provider.
 
 For one headless run, override analysis companions without changing the saved agent:
 

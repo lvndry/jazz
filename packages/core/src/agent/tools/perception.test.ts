@@ -81,7 +81,7 @@ function makePresentation(canPrompt: boolean): PresentationService {
   } as unknown as PresentationService;
 }
 
-/** Both providers configured, so the proposal path never touches the models.dev catalog. */
+/** Three providers configured: two media-capable providers and one text-only provider. */
 function makeLlmService(): LLMService {
   const textOnly = {
     id: "mistral-small",
@@ -95,6 +95,12 @@ function makeLlmService(): LLMService {
     supportsTools: false,
     ingestImage: true,
   };
+  const openaiVision = {
+    id: "gpt-vision",
+    displayName: "GPT Vision",
+    supportsTools: true,
+    ingestImage: true,
+  };
   const painter = {
     id: "draws-things",
     displayName: "Draws Things",
@@ -106,11 +112,17 @@ function makeLlmService(): LLMService {
       Effect.succeed([
         { name: "mistral", configured: true },
         { name: "ollama", configured: true },
+        { name: "openai", configured: true },
       ]),
     getProvider: (name: string) =>
       Effect.succeed({
         name,
-        supportedModels: name === "ollama" ? [visionOnly, painter] : [textOnly],
+        supportedModels:
+          name === "ollama"
+            ? [visionOnly, painter]
+            : name === "openai"
+              ? [openaiVision]
+              : [textOnly],
         defaultModel: "x",
         authenticate: () => Effect.void,
       }),
@@ -146,6 +158,14 @@ interface ProposalOutcome {
   readonly error?: string;
 }
 
+function makeTerminal(selectedProvider = "ollama"): TerminalService {
+  return {
+    search: () => Effect.succeed(selectedProvider),
+    ask: () => Effect.succeed(undefined),
+    success: () => Effect.void,
+  } as unknown as TerminalService;
+}
+
 function runProposal(args: Record<string, unknown>, context: ToolExecutionContext) {
   const tools = createPerceptionTools();
   const proposal = tools.find((candidate) => candidate.name === "analyze_media")!;
@@ -153,6 +173,7 @@ function runProposal(args: Record<string, unknown>, context: ToolExecutionContex
     Layer.succeed(LoggerServiceTag, silentLogger),
     Layer.succeed(PresentationServiceTag, makePresentation(true)),
     Layer.succeed(LLMServiceTag, makeLlmService()),
+    Layer.succeed(TerminalServiceTag, makeTerminal()),
   );
   return Effect.runPromise(
     proposal.execute(args, context).pipe(Effect.provide(layer)) as Effect.Effect<
@@ -163,8 +184,8 @@ function runProposal(args: Record<string, unknown>, context: ToolExecutionContex
   ) as Promise<ProposalOutcome>;
 }
 
-describe("analyze_media empty state", () => {
-  it("offers API-key setup, saves it, rescans, and then proposes the picker", async () => {
+describe("analyze_media provider and model selection", () => {
+  it("selects a provider, saves its missing API key, and then offers its capable models", async () => {
     let openaiConfigured = false;
     const setCalls: string[] = [];
 
@@ -195,7 +216,7 @@ describe("analyze_media empty state", () => {
     } as unknown as LLMService;
 
     const terminal = {
-      confirm: () => Effect.succeed(true),
+      search: () => Effect.succeed("openai"),
       ask: () => Effect.succeed("sk-test-key"),
       success: () => Effect.void,
     };
@@ -236,7 +257,7 @@ describe("analyze_media empty state", () => {
     expect(result.options?.map((option) => option.id)).toEqual(["openai/gpt-5"]);
   });
 
-  it("falls back to guidance when the person declines key setup", async () => {
+  it("cancels cleanly when the selected provider's key prompt is cancelled", async () => {
     const llmService: LLMService = {
       listProviders: () =>
         Effect.succeed([
@@ -246,16 +267,15 @@ describe("analyze_media empty state", () => {
       getProvider: (name: string) =>
         Effect.succeed({
           name,
-          supportedModels: [
-            { id: "mistral-small", displayName: "Mistral Small", supportsTools: true },
-          ],
+          supportedModels: [],
           defaultModel: "x",
           authenticate: () => Effect.void,
         }),
     } as unknown as LLMService;
 
     const terminal = {
-      confirm: () => Effect.succeed(false),
+      search: () => Effect.succeed("openai"),
+      ask: () => Effect.succeed(undefined),
     };
     const tools = createPerceptionTools();
     const proposal = tools.find((candidate) => candidate.name === "analyze_media")!;
@@ -280,7 +300,7 @@ describe("analyze_media empty state", () => {
     )) as ProposalOutcome;
 
     expect(outcome.success).toBe(false);
-    expect(outcome.error).toContain("adding an API key for openai");
+    expect(outcome.error).toContain("No API key was added for openai");
   });
 });
 
@@ -323,7 +343,7 @@ describe("analyze_media proposal", () => {
 
     expect(result.approvalRequired).toBe(true);
     expect(result.executeToolName).toBe("execute_analyze_media");
-    // The text-only provider's model is absent; only the capable one appears.
+    // The selected provider is ollama; only its image-capable models appear.
     expect(result.options).toHaveLength(1);
     expect(result.options[0]?.id).toBe("ollama/gemma4:12b");
     expect(result.options[0]?.detail).toContain("ollama");
@@ -339,6 +359,7 @@ function runTool(name: string, args: Record<string, unknown>, context: ToolExecu
     Layer.succeed(LoggerServiceTag, silentLogger),
     Layer.succeed(PresentationServiceTag, makePresentation(true)),
     Layer.succeed(LLMServiceTag, makeLlmService()),
+    Layer.succeed(TerminalServiceTag, makeTerminal()),
   );
   return Effect.runPromise(
     tool.execute(args, context).pipe(Effect.provide(layer)) as Effect.Effect<
