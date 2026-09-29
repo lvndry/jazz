@@ -810,7 +810,7 @@ function configureScheduler() {
       const currentMode = appConfig.scheduler?.mode ?? "auto";
 
       const selection = yield* terminal.select<string>(
-        "Scheduler settings: what starts your unattended goals and loops on schedule — the platform's own scheduler, or Jazz's daemon.",
+        "Scheduler settings: what starts your unattended goals and loops on schedule.",
         {
           choices: [
             { name: `Auto${currentMode === "auto" ? " (current)" : ""}`, value: "auto" },
@@ -913,8 +913,10 @@ function configureNotifications() {
 }
 
 /**
- * Daily and monthly dollar caps for goals and for all unattended work (`daemon.*`), unlimited
- * until set. A reached cap stops the unattended work it covers from starting; chat never counts.
+ * Daily and monthly dollar caps for goals and for all unattended work (`daemon.*`), plus a
+ * default per-session cap for chat (`chat.defaultCostLimitUSD`). Each is unlimited until set.
+ * A reached daemon cap stops the unattended work it covers from starting; a reached chat cap
+ * asks before continuing, same as `/limit`.
  */
 function configureSpendLimits() {
   return Effect.gen(function* () {
@@ -922,13 +924,13 @@ function configureSpendLimits() {
     const configService = yield* AgentConfigServiceTag;
 
     while (true) {
-      const caps = (yield* configService.appConfig).daemon;
+      const config = yield* configService.appConfig;
       const selection = yield* terminal.select<string>(
-        "Spend limits (a reached limit stops unattended work until it clears; chat is never capped):",
+        "Spend limits: unattended work stops at its cap; chat asks before continuing past its own.",
         {
           choices: [
             ...SPEND_LIMIT_SETTINGS.map((setting) => ({
-              name: `${setting.label} (${describeSpendLimit(setting.read(caps))})`,
+              name: `${setting.label} (${describeSpendLimit(setting.read(config))})`,
               value: setting.key,
             })),
             { name: "Back", value: "back" },
@@ -940,7 +942,7 @@ function configureSpendLimits() {
         break;
       }
 
-      const current = setting.read(caps);
+      const current = setting.read(config);
       const raw = yield* terminal.ask(`${setting.label}, in USD (leave empty for unlimited):`, {
         simple: true,
         cancellable: true,
@@ -1032,7 +1034,7 @@ function configureLogging() {
       const currentFormat = appConfig.logging?.format ?? "plain";
 
       const selection = yield* terminal.select<string>(
-        "Logging settings: how diagnostic logs are written to the logs directory on disk — not what jazz prints to you.",
+        "Logging settings: how diagnostic logs are written to the logs directory on disk.",
         {
           choices: [
             { name: `Log format (${currentFormat})`, value: "format" },

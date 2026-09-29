@@ -241,6 +241,8 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "The theme, such as `jazz`, `catppuccin:light` or a file in `~/.jazz/themes`. `/theme` writes it; `JAZZ_THEME` wins. Defaults to `system` (your terminal's own colours).",
   "ui.canvas":
     "`inherit` leaves your terminal's background showing; `painted` fills every cell with the theme's background. Defaults to `inherit`.",
+  "chat.defaultCostLimitUSD":
+    "Starting value of a new chat session's `/limit usd` cap, in dollars. `/limit` can still raise, lower or clear it for that session. Unset is unlimited.",
 };
 
 export interface ConfigReferenceRow {

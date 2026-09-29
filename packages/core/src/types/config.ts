@@ -111,6 +111,14 @@ export interface AppConfig {
   readonly daemon?: DaemonConfig;
   /** How the interactive interface looks. */
   readonly ui?: UiConfig;
+  /** Defaults for interactive chat sessions. */
+  readonly chat?: ChatConfig;
+}
+
+/** Defaults applied to every new chat session; `/limit` can still change them for that session. */
+export interface ChatConfig {
+  /** Starting value of this conversation's `/limit` USD cap. Unset means uncapped by default. */
+  readonly defaultCostLimitUSD?: number;
 }
 
 /** Whether the interface's ground is the terminal's own background or the theme's. */
