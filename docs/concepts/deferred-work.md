@@ -8,8 +8,7 @@ A chat turn ends when the answer comes back. That is a problem for anything the 
 on and cannot wait for: a build that takes twenty minutes, a follow-up that matters tomorrow, a
 hundred repositories to check.
 
-Jazz gives an agent three ways to leave work running and come back to it. They differ in what
-starts them and who they come back to, and picking the wrong one is the usual mistake.
+Jazz supports wake triggers, background jobs, and reminders:
 
 | Shape               | Starts             | Comes back           | Resumes the conversation |
 | ------------------- | ------------------ | -------------------- | ------------------------ |
@@ -18,8 +17,6 @@ starts them and who they come back to, and picking the wrong one is the usual mi
 | **Reminder**        | at a time you name | a person is told     | no                       |
 
 ## Reminders are for people, triggers are for agents
-
-This is the distinction worth being precise about, because both take a time.
 
 A **reminder** delivers a note. Nothing runs and nothing is decided. "Tell me at six that the
 lease expires" is a reminder.
@@ -36,9 +33,7 @@ If a person needs to read something, use a reminder. If a decision needs making,
 `enqueue_batch` runs several independent shell commands at once, with a concurrency cap and
 per-job retry, without holding the turn open.
 
-When every job reaches a final state, the conversation resumes. The agent is told each job's
-status **and what it printed**, because a batch exists to find something out and an exit code
-alone would tell it nothing.
+When every job reaches a final state, the conversation resumes with each job's status and output.
 
 Use it when the work is wide rather than long: check forty repositories, run a test suite per
 package, probe a list of hosts.

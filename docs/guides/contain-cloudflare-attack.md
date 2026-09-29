@@ -8,8 +8,6 @@ Use this pattern when suspicious traffic needs investigation immediately, but bl
 
 A monitoring alert starts Jazz with request samples and deployment context. Independent subagents test competing explanations: abuse, application regression, or a legitimate traffic spike. The parent reconciles their evidence and, when containment is justified, proposes a narrowly scoped Cloudflare WAF action. Jazz persists the run before Cloudflare changes production traffic. An operator reviews the exact rule and resumes the same investigation after approving or rejecting it.
 
-This is a good Jazz workload because it combines unattended execution, isolated subagents, a huge external API, deferred tool loading, and asynchronous human control around a consequential action.
-
 ## What you need
 
 - A Cloudflare-managed zone and permission to edit its WAF configuration.
@@ -32,7 +30,7 @@ jazz mcp test cloudflare
 
 This tutorial deliberately disables Cloudflare's code mode. The server then advertises individual API endpoints, allowing Jazz to gate the specific WAF mutation rather than approving a generic remote code executor.
 
-Cloudflare exposes roughly 2,500 endpoints this way. Jazz does not paste every full schema into the model context: tools begin as names and summaries, and the agent retrieves a relevant schema only when needed. This is exactly the kind of integration progressive tool disclosure is designed for.
+Cloudflare exposes roughly 2,500 endpoints this way. Tools begin as names and summaries; the agent retrieves a full schema only when needed.
 
 Leave the server untrusted. Jazz will treat every Cloudflare tool as high-risk regardless of its self-declared annotation. Add the Cloudflare MCP category to `edge-responder`:
 

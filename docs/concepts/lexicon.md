@@ -4,15 +4,6 @@ description: "The Jazz glossary: which word means what, which two words are not 
 
 # Lexicon: what Jazz's words mean
 
-This page tells you which word to use, and which two words are not the same thing.
-
-Jazz has a lot of nouns that sound alike. Several used to be genuinely interchangeable, which is
-worse than having too many. A name that means two things is never wrong, only ambiguous, so
-nothing forces the confusion into the open.
-
-This page is the reference. Where two terms were collapsed into one, it says so, because
-the old name still appears in older discussions.
-
 ---
 
 ## What runs
@@ -28,8 +19,6 @@ the old name still appears in older discussions.
 
 ## Units of interaction
 
-This is where the collisions were.
-
 | Term             | What it is                                                                                                            | How many           |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------ |
 | **Conversation** | The thread. Identified by a caller-supplied key such as `--conversation` or a Telegram chat id. Holds the transcript. | 1                  |
@@ -41,10 +30,6 @@ This is where the collisions were.
 **A run is not a conversation.** A conversation is what was said; a run is one attempt to
 say something. Several runs share one conversation, which is why `--conversation` gives an
 unattended bridge memory across invocations.
-
-> **Gone: "session".** It used to mean two unrelated things, a conversation's transcript
-> and a sitting at the terminal, with two incompatible id formats that met in one field.
-> The transcript half is now just the conversation. The other half is a **log scope**.
 
 | Term                 | What it is                                                                                                                                               |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -72,18 +57,6 @@ unattended bridge memory across invocations.
 be wrong or stale. A run's state is a fact about a process. They can disagree without
 either being broken: a model can be planning its next step while the run it is planning
 inside has already parked, waiting for someone to approve a tool.
-
-> **Gone: "task".** It meant four things: this work state, todos, `spawn_subagent`'s
-> `task` argument, and a family of error classes nothing ever threw. The errors are
-> deleted, the state is _work state_ (matching the directory it has always been stored in),
-> and `task` survives only as the plain-English name for a brief you hand a sub-agent.
->
-> **Gone: work items.** Work state used to carry its own list of work alongside todos,
-> with a different status vocabulary, leaving the model to guess which to update. Todos
-> won, because they are the list the interface draws. The one idea worth keeping came with them:
-> a todo records `verifiedBy`, so a completed item with nothing in it says plainly that
-> the work was written but never checked. Progress and evidence stay separate fields;
-> "unverified" is not a stage of work, and a status enum is the wrong place for it.
 
 ## Content
 

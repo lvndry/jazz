@@ -1,12 +1,10 @@
 ---
-description: "The five kinds of state a Jazz agent carries, who writes each one, how long it lasts, and why memory is the one that compounds."
+description: "The five kinds of state a Jazz agent carries, who writes each one, and how long it lasts."
 ---
 
 # Conversations, state, and memory
 
-Jazz keeps five kinds of state, and they are separate on purpose. Collapsing any two of them
-produces the same failure: something that mattered gets discarded, or something that stopped
-being true gets carried forever.
+Jazz keeps five kinds of state:
 
 | Kind                     | Written by                     | Scope            | Survives                  |
 | ------------------------ | ------------------------------ | ---------------- | ------------------------- |
@@ -31,10 +29,7 @@ in them is gone. That is what the next two exist to survive.
 The agent's account of what it is doing: the goal, the constraints, what it has decided, what is
 still open, what it means to do next. One per conversation, discarded when the work ends.
 
-Its job is to survive compaction. History records what was said; work state records _intent_,
-which only the agent knows and only while it still holds it in context. Written as JSON rather
-than prose because it is edited repeatedly, and models patch structured documents far more
-reliably than they rewrite paragraphs.
+Work state is stored as JSON and survives compaction.
 
 **Work state is subjective; a run is objective.** Work state is the agent's diary and can be
 stale or wrong. A run's state is a fact about a process. The two can disagree without either
@@ -43,12 +38,10 @@ already parked, waiting for an approval.
 
 ## Todos
 
-The list of work, with status and priority, rendered in the interface. Work state deliberately
-holds no second list, because carrying one left the model guessing which to update.
+The list of work, with status and priority, rendered in the interface. Work state has no
+separate work list.
 
-One field is worth knowing about: a todo records `verifiedBy`, so a completed item with nothing
-in it says plainly that the work was written but never checked. Progress and evidence stay
-separate, because "unverified" is not a stage of work and a status enum is the wrong place for it.
+A todo records verification evidence in `verifiedBy`, separately from its status.
 
 ## Scratchpad
 
@@ -258,14 +251,6 @@ flowchart LR
     style MEM fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
     style BET fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
 ```
-
-Each conversation leaves the agent knowing more about the person than the last one did. The
-model does not change; the context it operates in does. This is cheaper than fine-tuning, more
-private than cloud-side personalization, and more composable than either — swap the model,
-keep the memory.
-
-The goal is an agent that gets measurably better at serving you over time, not because it was
-retrained, but because it remembers what you care about and how you want things done.
 
 ### CLI access
 

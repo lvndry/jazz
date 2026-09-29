@@ -13,8 +13,7 @@ Four caps bound a run, and every one of them is optional except the first.
 | `maxTokens`     |   unset | Prompt plus completion tokens, **own run only, not children**    |
 | `maxDurationMs` |   unset | Wall-clock time                                                  |
 
-Those two differ on purpose. Use a cost cap when an agent delegates, because children are where
-the money goes. Use a token cap on a model nobody has priced, because it needs no pricing data.
+Use a cost cap to bound delegation spend. Token caps work without pricing data.
 
 Two more shape delegation itself: `maxSubagentIterations` (30) and `maxSubagentDepth` (3), where
 `0` disables delegation outright.
@@ -81,8 +80,7 @@ one, so you get asked to confirm rather than losing work in flight.
 }
 ```
 
-A failed envelope still carries `costUSD`, `costKnown` and `tokenUsage`, because a run that
-failed or timed out still spent money and an unattended deployment has to account for it. A run
+A failed envelope still carries `costUSD`, `costKnown` and `tokenUsage`. A run
 killed from outside leaves no envelope; `--events spend` streams `run_spend` events with the
 running total so the caller can use the last one. The chat bridges do exactly that: their daily
 spend cap counts failed, timed-out and cancelled runs, not only answered ones.
@@ -120,15 +118,13 @@ which means a self-hosted Ollama, llama.cpp, vLLM, or SGLang model. Anything els
 `costUSD` stays `0` for compatibility with consumers that read it blindly. Check `costKnown`, not
 the number.
 
-One unknown child makes the parent's total unknown too. Reporting the sum of the parts it
-happened to know would be worse than admitting it cannot say.
+One unknown child makes the parent's total unknown too.
 
 The same goes for cache writes: when the pricing data has no cache-write rate for the model,
 they are priced at the plain input rate and the total is marked unknown, since providers such as
 Anthropic charge more for them.
 
-The edge case that proves the rule: an Ollama model with a cloud tag has a local provider name
-and remote billing, so it does not count as free.
+An Ollama model with a cloud tag uses remote billing and does not count as free.
 
 A cost cap cannot be enforced against a model nobody has priced. That is the case `maxTokens`
 exists for.

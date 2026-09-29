@@ -4,11 +4,8 @@ description: "Put a Jazz agent in your pipeline: PR review bots, release-note dr
 
 # CI/CD. Jazz in your pipeline
 
-How to get an agent reviewing your pull requests and writing your release notes.
-
-Jazz reviews every pull request in this repository, and writes every release's notes. Not
-as a demo: as the actual process. This page is how to get the same thing, and how to run
-Jazz in any pipeline.
+Jazz reviews pull requests and writes release notes in this repository. Copy its setup or
+run Jazz in your own pipeline.
 
 ---
 
@@ -47,7 +44,7 @@ flowchart TD
 
 - **`code-review`** runs automatically on non-draft PRs from the same repository, and on demand via `/jazz-review`. It posts **inline comments on specific lines**, not a wall of text at the bottom.
 - **`assistant`** answers `/jazz <anything>` on a PR ("summarize this", "why does this work", "is this backwards compatible") grounded in the real diff and the real code.
-- **`resolve`** exists because the three triggers carry PR context in three different shapes. It normalizes them, and reacts 👀 to the triggering comment so you know it's alive.
+- **`resolve`** normalizes PR context from each trigger and reacts 👀 to the triggering comment.
 
 Release notes work the same way: [`release.yml`](../../.github/workflows/release.yml) bumps
 the version, tags it, then runs an agent over every commit since the last tag and creates

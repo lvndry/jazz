@@ -6,8 +6,7 @@ description: "Build a mixed-model Jazz incident agent that understands screensho
 
 This tutorial builds an incident agent whose everyday reasoning stays on an inexpensive text model.
 Specialists inspect screenshots, recordings, and screen captures; an image-generation companion
-turns the verified timeline into a briefing card. The same agent works interactively and in CI
-because every companion choice is saved ahead of time.
+turns the verified timeline into a briefing card.
 
 ## 1. Configure the providers
 
@@ -52,9 +51,7 @@ from providers you configured:
 }
 ```
 
-These are open-weight models wherever one exists for the job, reached through OpenRouter so no
-single vendor's key is required. They show the shape of the decision rather than a single right
-answer:
+The example uses these models:
 
 | Role             | Model here                                 | Weights | In $/M | Why this one                                                |
 | ---------------- | ------------------------------------------ | ------- | ------ | ----------------------------------------------------------- |
@@ -64,15 +61,10 @@ answer:
 | `analyze:video`  | `openrouter/inclusionai/ling-3.0-flash-vl` | open    | 0.06   | Same model as image, bound separately so you can change one |
 | `generate:image` | `openrouter/google/gemini-3.1-flash-image` | closed  | 0.5    | No open-weight model in the catalog returns an image        |
 
-That last row is worth being honest about. Image generation is the one role here with no
-open-weight option: nothing in the catalog that Jazz can reach emits an image alongside text.
-Binding a closed model for that one role, and nothing else, is exactly what per-role bindings are
-for.
-
-Two notes that cost an afternoon otherwise. The provider segment is Jazz's provider name, so
+The provider segment is Jazz's provider name:
 Gemini models are `gemini/...` when you hold a Google key directly and `openrouter/google/...`
-through OpenRouter. And prices move, so treat the numbers above as the reason for each choice
-rather than a quote; `jazz agent list --can image` shows what your own keys actually reach.
+through OpenRouter. Prices change; `jazz agent list --can image` shows the models available
+with your configured providers.
 
 Jazz validates the role names and the `provider/model` shape when it loads the agent, but it
 cannot know which providers you actually pay for.

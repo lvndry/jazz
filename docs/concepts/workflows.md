@@ -29,9 +29,6 @@ jazz workflow run merged-pr-recap        # now
 jazz workflow schedule merged-pr-recap   # every Friday at 5pm, as merged-pr-recap/default
 ```
 
-You could paste the same prompt into a chat instead. The file gives you three things a paste
-does not: a name, a schedule, and a diff when somebody changes it.
-
 ## What the frontmatter does
 
 | Field                    | Decides                             |
@@ -40,10 +37,6 @@ does not: a name, a schedule, and a diff when somebody changes it.
 | `schedule`               | Its default frequency, as a cron    |
 | `autoApprove`            | What it may do with nobody watching |
 | `maxCostUSD` and friends | When to stop                        |
-
-Those live next to the prompt on purpose. If someone changes `autoApprove` from `read-only` to
-`high-risk`, that shows up in the pull request, right beside whatever prompt change they wanted
-it for.
 
 Every field is listed in [workflow frontmatter](../configure/workflows.md).
 
@@ -75,7 +68,7 @@ jazz workflow scheduled merged-pr-recap                                 # both, 
 jazz workflow unschedule merged-pr-recap/monthly                        # just that one
 ```
 
-The same file serves both because the prompt can read who fired it:
+The prompt can use these schedule placeholders:
 
 | Placeholder            | Value                                                     |
 | ---------------------- | --------------------------------------------------------- |
@@ -101,9 +94,8 @@ jazz workflow search             # list what the library offers
 jazz workflow add <name>     # straight to ~/.jazz/workflows/<name>/WORKFLOW.md
 ```
 
-Installing prints the full `WORKFLOW.md`, frontmatter first, and asks. That is deliberate: the
-frontmatter is where `autoApprove` lives, and a workflow you did not write gets to run unattended
-only with the tier you read and accepted. `--as <name>` installs under a different local name.
+Installing prints the full `WORKFLOW.md` and asks for confirmation. Review its prompt and
+`autoApprove` tier before accepting. `--as <name>` installs under a different local name.
 Contributing one is a pull request: [CONTRIBUTING.md](../../CONTRIBUTING.md#contributing-to-the-library).
 
 ## Workflow, skill, or agent?
@@ -124,10 +116,8 @@ Friday, the skill says how that kind of work is done.
 jazz workflow run merged-pr-recap --auto-approve
 ```
 
-This is the same code path the scheduler uses. If it works here, it works on Friday.
-
-Skip this and you get the usual surprise: the prompt worked when you tested it, because you
-approved things by hand without noticing, and at 5pm nobody is there to approve them.
+This uses the scheduler's approval policy. Test it before scheduling; manual approvals during
+an interactive run can hide actions that will be refused unattended.
 
 ## Related
 

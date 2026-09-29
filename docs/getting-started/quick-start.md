@@ -4,8 +4,6 @@ description: "Install the Jazz CLI with one curl command and run your first AI a
 
 # Quick start
 
-How to get from nothing to a working agent.
-
 ## 1. Install the CLI
 
 The install script downloads a single self-contained binary for macOS or Linux. It needs no
@@ -24,9 +22,6 @@ curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh |
   JAZZ_VERSION=v0.15.21 JAZZ_INSTALL_DIR="$HOME/bin" bash
 ```
 
-The variables go after the pipe because they configure `bash`, which runs the script, not
-`curl`, which only downloads it.
-
 ### Verify where a binary came from
 
 The checksum check proves the download is intact. To prove it was built by this
@@ -40,8 +35,7 @@ gh attestation verify jazz-darwin-arm64.gz --repo lvndry/jazz
 ```
 
 Swap in the asset for your platform (`jazz-linux-x64.gz`, `jazz-linux-arm64-musl.gz`, and so
-on). Releases older than the provenance step have no attestation to check. A passing check names the workflow run that built the
-file and the commit it was built from.
+on).
 
 Jazz is also on npm, which installs the same macOS or Linux binary through your package
 manager:
@@ -87,8 +81,6 @@ only variable cost is the model you choose, and there are two ways to make that 
 - **Keep it entirely local**: choose `ollama`, and the model runs on your machine too.
 
 ## 3. Update Jazz
-
-Keep Jazz up to date with the latest features and improvements:
 
 ```bash
 jazz update

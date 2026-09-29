@@ -5,8 +5,7 @@ description: "How Jazz reports files an agent produced, and why a rendered chart
 # Artifacts: files a run produced
 
 An **attachment** is a file going _into_ a run. An **artifact** is one coming _out_. Both carry
-a path rather than bytes, for the same reason: the file already exists on disk, and copying it
-into a message or a JSON envelope only makes both bigger.
+a path rather than bytes.
 
 ```json
 {
@@ -18,19 +17,10 @@ into a message or a JSON envelope only makes both bigger.
 }
 ```
 
-## Provenance is a field, not a guess
+## Provenance
 
-`source` is either `rendered` or `model`, and the distinction is user-facing rather than an
-implementation detail.
-
-A chart rendered from HTML the model wrote has exact numbers and reproduces byte-for-byte. An
-image from a generative model has neither property, and will happily invent an axis label.
-Presenting them identically tells somebody the numbers in a chart came from a model's
-imagination when they did not. Or the reverse, which is worse.
-
-So anything a model painted is announced as such wherever it appears: the terminal prints
-`chart (AI-generated): /path/to.png`, while a rendered file gets no such warning because it
-needs none.
+`source` is either `rendered` or `model`. The terminal labels model-generated files:
+`chart (AI-generated): /path/to.png`. Rendered files have no generation label.
 
 | `source`   | Means                                        | Produced by                             |
 | ---------- | -------------------------------------------- | --------------------------------------- |
@@ -50,14 +40,8 @@ directory the agent happens to be in. The path is printed either way.
 Every producer returns its own artifacts on the tool result. Nothing downstream recognises files
 by tool name.
 
-That matters because the alternative is what Jazz did before: the runner looked up
-`toolResults["create_composition"]`, validated its exact shape, and every new producer needed a
-branch in the runner, in the JSON envelope, and in every chat bridge. Now a new producer that
-returns a well-formed artifact is surfaced by all of them without touching any of them. That is
-why `generate_media` needed no changes outside its own file.
-
-Malformed entries are dropped at the boundary rather than propagated, since custom and MCP tools
-can return anything.
+New producers that return well-formed artifacts are surfaced automatically. Malformed entries
+are dropped at the boundary.
 
 ## How each surface presents them
 
