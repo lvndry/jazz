@@ -902,7 +902,7 @@ describe("fullscreen bridge", () => {
     renderer.destroy();
     store.setActiveMenu(null);
     expect(fresh).toContain("with sol");
-    expect(fresh).toContain("Or type your first message");
+    expect(fresh).toContain("Type / for commands, or type your first message");
   });
 
   it("runs a slash command from the home composer without starting a conversation", async () => {
