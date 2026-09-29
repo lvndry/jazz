@@ -25,8 +25,6 @@ function ThemedBridge(): ReactNode {
   return <FullscreenBridge />;
 }
 
-export { decideFullscreen } from "./mount";
-
 export interface FullscreenHandle {
   readonly release: () => void;
 }

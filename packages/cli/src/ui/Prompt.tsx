@@ -19,17 +19,15 @@ import { SearchSelect } from "./components/SearchSelect";
 import { TextInput } from "./components/TextInput";
 import { getGlyphs } from "./glyphs";
 import { InputResults, useInputHandler, useTextInput } from "./hooks/use-input-service";
-import { PICKER_WINDOW_SIZE } from "./picker-window";
 import { initialChoiceIndex } from "./prompt-core/picker-adapter";
 import { readPromptStep } from "./prompt-core/stepper";
 import { isCursorOnFirstLine, isCursorOnLastLine } from "./queue-recall";
 import { store } from "./store";
 import { mergeSuggestions } from "./suggestion-menu";
+import { PICKER_WINDOW_SIZE } from "./text/picker-window";
 import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
 import { useFileMentions } from "./use-file-mentions";
-
-const G = getGlyphs();
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
 
@@ -377,7 +375,7 @@ function PromptComponent({
                 color={THEME.prompt}
                 bold
               >
-                {G.rail}{" "}
+                {getGlyphs().rail}{" "}
               </Text>
               <Box
                 flexDirection="column"
@@ -424,7 +422,7 @@ function PromptComponent({
                   color={THEME.error}
                   bold
                 >
-                  {G.error} {validationError}
+                  {getGlyphs().error} {validationError}
                 </Text>
               </Box>
             )}

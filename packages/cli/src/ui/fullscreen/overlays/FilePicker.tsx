@@ -22,17 +22,17 @@
  */
 
 import type { ReactNode } from "react";
+import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
-import { THEME } from "../../theme";
 import {
   clipTerminalCells,
   clipTerminalCellsFromStart,
   terminalCellWidth,
-} from "../terminal-cells";
+} from "../../text/terminal-cells";
+import { THEME } from "../../theme";
 import { COMPACT_HEIGHT, type Viewport } from "../types";
-import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
-import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
-import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 
 /** Fixed windowed height: the card does not resize as the filter narrows. */
 const WINDOWED_HEIGHT = 19;

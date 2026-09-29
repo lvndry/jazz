@@ -38,9 +38,6 @@ import { memo, useEffect, useState, type ReactNode } from "react";
 import { highlightCodeLine } from "./syntax-spans";
 import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
-import { RETRY_BAND_ROWS, type RetryBand } from "../models/retry";
-import { MOTION, THEME } from "../theme";
-import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
 import { useThemeRevision } from "./theme-revision";
 import {
   LIVE_ZONE_MAX_ROWS,
@@ -49,6 +46,9 @@ import {
   type StepLine,
   type Viewport,
 } from "./types";
+import { RETRY_BAND_ROWS, type RetryBand } from "../models/retry";
+import { fitTerminalSegments, terminalSegmentsWidth } from "../text/terminal-cells";
+import { MOTION, THEME } from "../theme";
 
 /** Truncation marker. ASCII, because every monospace font has had it since 1970. */
 export interface LiveSegment {

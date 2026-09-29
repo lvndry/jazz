@@ -25,8 +25,8 @@ import { setThemeVariant, THEME } from "../theme";
 import { Footer, formatUsage } from "./Footer";
 import { Header, headerGroups, meterFilledCells } from "./Header";
 import { hintsFor } from "./keymap";
-import { terminalCellWidth } from "./terminal-cells";
 import type { Connector, FooterModel, HeaderModel } from "./types";
+import { terminalCellWidth } from "../text/terminal-cells";
 
 beforeAll(() => {
   process.env["JAZZ_UI_GLYPHS"] = "unicode";

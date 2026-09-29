@@ -6,8 +6,8 @@ import {
   type PromptStepPosition,
   type StepState,
 } from "../../prompt-core/stepper";
+import { terminalCellWidth } from "../../text/terminal-cells";
 import { THEME } from "../../theme";
-import { terminalCellWidth } from "../terminal-cells";
 
 export type QuestionStep = PromptStepPosition;
 

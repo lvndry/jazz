@@ -40,10 +40,10 @@ import {
   type HomeState,
   type HomeWaiting,
 } from "../../models/home-view";
+import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells";
 import { groundPaint, THEME } from "../../theme";
 import { commandSuggestRows } from "../Input";
 import { CaretValue } from "../overlays/TextPrompt";
-import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
 

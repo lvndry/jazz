@@ -14,34 +14,48 @@ import { dimReasoningMarkdownOutput, spaceReasoningSections } from "../presentat
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
 
-// Icons routed through the glyph module so they degrade to ASCII when the
-// user's font/terminal don't render Unicode dingbats reliably. Computed
-// once per process — `getGlyphs()` reads env at module init; tests that
-// flip the env mid-process should restart the module if they need a
-// different set, but that's intentional (we don't want a per-render env
-// read).
-const G = getGlyphs();
-const ICONS: Record<OutputType, React.ReactElement> = {
-  success: <Text color={THEME.success}>{G.success}</Text>,
-  error: <Text color={THEME.error}>{G.error}</Text>,
-  warn: <Text color={THEME.warning}>{G.warn}</Text>,
-  info: <Text color={THEME.info}>{G.info}</Text>,
-  debug: <Text color={THEME.secondary}>{G.debug}</Text>,
-  user: <Text color={THEME.primary}>{G.arrow}</Text>,
-  log: <></>,
-  streamContent: <></>,
-};
+/** The status icon an entry leads with, from the current glyph set and theme. */
+function iconFor(type: OutputType): React.ReactElement {
+  const glyphs = getGlyphs();
+  switch (type) {
+    case "success":
+      return <Text color={THEME.success}>{glyphs.success}</Text>;
+    case "error":
+      return <Text color={THEME.error}>{glyphs.error}</Text>;
+    case "warn":
+      return <Text color={THEME.warning}>{glyphs.warn}</Text>;
+    case "info":
+      return <Text color={THEME.info}>{glyphs.info}</Text>;
+    case "debug":
+      return <Text color={THEME.secondary}>{glyphs.debug}</Text>;
+    case "user":
+      return <Text color={THEME.primary}>{glyphs.arrow}</Text>;
+    case "log":
+    case "streamContent":
+      return <></>;
+  }
+}
 
-const COLORS: Record<OutputType, string> = {
-  success: THEME.success,
-  error: THEME.error,
-  warn: THEME.warning,
-  debug: THEME.secondary,
-  user: THEME.primary,
-  info: THEME.info,
-  log: THEME.selected,
-  streamContent: THEME.selected,
-};
+/** The text colour of an entry, from the current theme. */
+function colorFor(type: OutputType): string {
+  switch (type) {
+    case "success":
+      return THEME.success;
+    case "error":
+      return THEME.error;
+    case "warn":
+      return THEME.warning;
+    case "debug":
+      return THEME.secondary;
+    case "user":
+      return THEME.primary;
+    case "info":
+      return THEME.info;
+    case "log":
+    case "streamContent":
+      return THEME.selected;
+  }
+}
 
 /**
  * Individual output entry component - memoized to prevent re-renders
@@ -62,8 +76,8 @@ export const OutputEntryView = React.memo(function OutputEntryView({
   entry: OutputEntryWithId;
   addSpacing: boolean;
 }): React.ReactElement {
-  const icon = ICONS[entry.type];
-  const color = COLORS[entry.type];
+  const icon = iconFor(entry.type);
+  const color = colorFor(entry.type);
 
   if (entry.type === "streamContent") {
     // streamContent slices are stored RAW by the scrollback buffer (so the
@@ -112,7 +126,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
                 color={THEME.primary}
                 bold
               >
-                {G.rail}{" "}
+                {getGlyphs().rail}{" "}
               </Text>
               <PreWrappedText color={THEME.selected}>{line}</PreWrappedText>
             </Box>
@@ -188,7 +202,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
       marginTop={0}
       marginBottom={0}
     >
-      {ICONS.warn}
+      {iconFor("warn")}
       <Text> </Text>
       <Text color={THEME.warning}>[Unsupported UI output]</Text>
     </Box>

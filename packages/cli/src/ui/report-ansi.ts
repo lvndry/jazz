@@ -1,32 +1,12 @@
 import type { TerminalReport } from "@jazz/core/interfaces/terminal";
 import chalk from "chalk";
 import { getGlyphs } from "./glyphs";
-import { reportStyledText, type ReportRole } from "./report-layout";
-import { THEME } from "./theme";
+import { reportRoleStyle, reportStyledText, type ReportRole } from "./report-layout";
 
 function paint(role: ReportRole, text: string): string {
-  switch (role) {
-    case "label":
-      return chalk.bold.hex(THEME.secondary)(text);
-    case "text":
-      return chalk.hex(THEME.selected)(text);
-    case "strong":
-      return chalk.bold.hex(THEME.selected)(text);
-    case "secondary":
-      return chalk.hex(THEME.secondary)(text);
-    case "muted":
-      return chalk.hex(THEME.muted)(text);
-    case "accent":
-      return chalk.hex(THEME.primary)(text);
-    case "success":
-      return chalk.hex(THEME.success)(text);
-    case "warning":
-      return chalk.hex(THEME.warning)(text);
-    case "error":
-      return chalk.hex(THEME.error)(text);
-    case "border":
-      return chalk.hex(THEME.border)(text);
-  }
+  const style = reportRoleStyle(role);
+  const color = chalk.hex(style.fg);
+  return style.bold ? color.bold(text) : color(text);
 }
 
 /**

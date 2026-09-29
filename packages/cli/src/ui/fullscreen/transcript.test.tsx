@@ -18,8 +18,6 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
 import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
-import { setThemeVariant, THEME } from "../theme";
-import { terminalCellWidth } from "./terminal-cells";
 import {
   inlineSegments,
   parseProse,
@@ -27,6 +25,8 @@ import {
   transcriptRows,
   type RenderRow,
 } from "./Transcript";
+import { terminalCellWidth } from "../text/terminal-cells";
+import { setThemeVariant, THEME } from "../theme";
 import { measureFor, PROSE_MEASURE, type Block, type Viewport } from "./types";
 
 beforeAll(() => {

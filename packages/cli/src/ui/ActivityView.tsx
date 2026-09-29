@@ -10,8 +10,6 @@ import { ActivityIndicator } from "./components/ActivityIndicator";
 import { getGlyphs } from "./glyphs";
 import { PADDING, THEME } from "./theme";
 
-const G = getGlyphs();
-
 /** Seconds before the elapsed counter appears (avoids a "0s" flash). */
 const ELAPSED_VISIBLE_AFTER_S = 2;
 
@@ -61,14 +59,14 @@ type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
 function todoStatusGlyph(status: TodoStatus, verified: boolean): string {
   switch (status) {
     case "completed":
-      return verified ? G.success : G.warn;
+      return verified ? getGlyphs().success : getGlyphs().warn;
     case "in_progress":
-      return G.proposed;
+      return getGlyphs().proposed;
     case "cancelled":
-      return G.error;
+      return getGlyphs().error;
     case "pending":
     default:
-      return G.pending;
+      return getGlyphs().pending;
   }
 }
 
@@ -105,7 +103,7 @@ function AgentHeader({
           <Text> </Text>
         </>
       ) : (
-        <Text color={THEME.agent}>{G.bullet} </Text>
+        <Text color={THEME.agent}>{getGlyphs().bullet} </Text>
       )}
       <Text
         bold
@@ -251,7 +249,7 @@ export const ActivityView = React.memo(function ActivityView({
           marginTop={1}
         >
           <Text color={THEME.error}>
-            {G.error} {activity.message}
+            {getGlyphs().error} {activity.message}
           </Text>
         </Box>
       );

@@ -12,8 +12,6 @@ import { composeRecalledBuffer, isCursorOnFirstLine } from "./queue-recall";
 import { store } from "./store";
 import { PADDING, THEME } from "./theme";
 
-const G = getGlyphs();
-
 /** Per-entry truncation width — keeps the preview block bounded vertically. */
 const ENTRY_PREVIEW_MAX_CHARS = 80;
 
@@ -121,7 +119,7 @@ export function QueueInput({
               key={`${queue.length - visibleEntries.length + index}`}
               dimColor
             >
-              {`  ${G.bullet} `}
+              {`  ${getGlyphs().bullet} `}
               {truncateEntry(entry)}
             </Text>
           ))}
@@ -137,7 +135,7 @@ export function QueueInput({
           color={THEME.prompt}
           bold
         >
-          {G.rail}{" "}
+          {getGlyphs().rail}{" "}
         </Text>
         <Box
           flexDirection="column"

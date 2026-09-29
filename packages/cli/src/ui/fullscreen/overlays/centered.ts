@@ -1,4 +1,4 @@
-import { terminalCellWidth } from "../terminal-cells";
+import { terminalCellWidth } from "../../text/terminal-cells";
 
 /**
  * Only one overlay is ever open at a time, but painting order otherwise falls

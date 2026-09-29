@@ -5,6 +5,7 @@
 
 import type { ColorProfile, RenderTheme } from "@jazz/core/types";
 import chalk from "chalk";
+import { getGlyphs } from "../ui/glyphs";
 import { CHALK_THEME, noColorRequested } from "../ui/theme";
 
 /**
@@ -53,38 +54,40 @@ function themeColors(): RenderTheme["colors"] {
 }
 
 /**
+ * Status icons from the shared glyph set, so a colour profile follows the same Unicode or
+ * ASCII choice (`JAZZ_UI_GLYPHS`, terminal detection) as every other surface.
+ */
+function glyphIcons(): RenderTheme["icons"] {
+  const glyphs = getGlyphs();
+  return {
+    thinking: glyphs.pending,
+    tool: glyphs.arrow,
+    success: glyphs.success,
+    error: glyphs.error,
+    warning: glyphs.warn,
+    info: glyphs.info,
+  };
+}
+
+/**
  * Full color theme with all features
  */
 function createFullColorTheme(): RenderTheme {
   return {
     colors: themeColors(),
-    icons: {
-      thinking: "◔",
-      tool: "⌁",
-      success: "✔",
-      error: "✖",
-      warning: "⚠",
-      info: "ℹ",
-    },
+    icons: glyphIcons(),
     separatorWidth: DISPLAY.SEPARATOR_WIDTH,
     separatorChar: DISPLAY.SEPARATOR_CHAR,
   };
 }
 
 /**
- * Basic color theme (16 colors only, no emojis)
+ * Basic color theme (16 colors only)
  */
 function createBasicColorTheme(): RenderTheme {
   return {
     colors: themeColors(),
-    icons: {
-      thinking: "[*]",
-      tool: "[>]",
-      success: "[+]",
-      error: "[!]",
-      warning: "[!]",
-      info: "[i]",
-    },
+    icons: glyphIcons(),
     separatorWidth: DISPLAY.SEPARATOR_WIDTH,
     separatorChar: "-",
   };

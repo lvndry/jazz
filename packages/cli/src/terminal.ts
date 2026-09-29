@@ -20,14 +20,14 @@ import { createLineSource, type LineSource } from "@/cli/stdin-lines";
 import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { TerminalDimensionsProvider } from "@/cli/ui/contexts/TerminalDimensionsContext";
-import { mountFullscreenApp, type FullscreenHandle } from "@/cli/ui/fullscreen/attach";
-import { screenReaderRequested } from "@/cli/ui/fullscreen/mount";
+import type { FullscreenHandle, mountFullscreenApp } from "@/cli/ui/fullscreen/attach";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { setActiveKeymap } from "@/cli/ui/keymaps";
 import { maskSecret } from "@/cli/ui/mask-secret";
 import { reportAnsiText } from "@/cli/ui/report-ansi";
 import { reportPlainText } from "@/cli/ui/report-layout";
 import { store } from "@/cli/ui/store";
+import { screenReaderRequested } from "@/cli/ui/terminal-capabilities";
 import { CHALK_THEME, PADDING_BUDGET } from "@/cli/ui/theme";
 import type { Choice, OutputEntry } from "@/cli/ui/types";
 
@@ -135,7 +135,11 @@ export class InkTerminalService implements TerminalService {
   private disposed = false;
   private unregisterRendererFallback: (() => void) | null = null;
 
-  constructor(options: { fullscreen?: boolean } = {}) {
+  /**
+   * `mountFullscreen` is the fullscreen interface's mount function, passed in already loaded so
+   * the constructor owns the screen before it returns. Without it, Ink renders.
+   */
+  constructor(options: { mountFullscreen?: typeof mountFullscreenApp } = {}) {
     // Guard against multiple instantiation
     if (instanceExists) {
       throw new Error(
@@ -144,11 +148,11 @@ export class InkTerminalService implements TerminalService {
       );
     }
 
-    if (options.fullscreen === false) {
+    if (options.mountFullscreen === undefined) {
       this.mountInk();
     } else {
       setActiveKeymap("fullscreen");
-      this.fullscreen = mountFullscreenApp({
+      this.fullscreen = options.mountFullscreen({
         onFailure: this.fallbackToInk,
       });
       this.unregisterRendererFallback = store.registerRendererFallbackHandler(this.fallbackToInk);
@@ -735,9 +739,21 @@ export class PlainTerminalService implements TerminalService {
 export function createTerminalServiceLayer(
   options: { fullscreen?: boolean } = {},
 ): Layer.Layer<TerminalService, never, never> {
+  if (options.fullscreen === false) {
+    return Layer.effect(
+      TerminalServiceTag,
+      Effect.sync(() => new InkTerminalService()),
+    );
+  }
+  // Loaded here rather than imported at the top so Ink and plain sessions never evaluate
+  // OpenTUI. Its graph uses top-level await, so it can only be loaded asynchronously.
   return Layer.effect(
     TerminalServiceTag,
-    Effect.sync(() => new InkTerminalService(options)),
+    Effect.promise(() => import("@/cli/ui/fullscreen/attach")).pipe(
+      Effect.map(
+        (fullscreen) => new InkTerminalService({ mountFullscreen: fullscreen.mountFullscreenApp }),
+      ),
+    ),
   );
 }
 

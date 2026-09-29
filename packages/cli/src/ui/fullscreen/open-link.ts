@@ -1,5 +1,5 @@
 import { openBrowser } from "@jazz/adapters/oauth/loopback";
-import { terminalCellWidth } from "./terminal-cells";
+import { terminalCellWidth } from "../text/terminal-cells";
 
 const OPENABLE_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 

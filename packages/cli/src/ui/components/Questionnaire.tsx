@@ -2,6 +2,7 @@ import type { Suggestion } from "@jazz/core/interfaces/presentation";
 import { Box, Text } from "ink";
 import React, { useMemo } from "react";
 import { TextInput } from "./TextInput";
+import { getGlyphs } from "../glyphs";
 import { useInputHandler, InputPriority, InputResults } from "../hooks/use-input-service";
 import {
   binaryAnswerIndices,
@@ -135,8 +136,10 @@ export function Questionnaire({
     if (allowMultiple) {
       return (
         <Text color={row.active ? THEME.selected : THEME.secondary}>
-          {row.active ? "› " : "  "}
-          <Text color={row.selected ? THEME.selected : "gray"}>{row.selected ? "[✓]" : "[ ]"}</Text>
+          {row.active ? `${getGlyphs().arrow} ` : "  "}
+          <Text color={row.selected ? THEME.selected : THEME.muted}>
+            {row.selected ? `[${getGlyphs().todoDone}]` : "[ ]"}
+          </Text>
         </Text>
       );
     }
@@ -184,7 +187,7 @@ export function Questionnaire({
         <Box marginTop={suggestions.length > 0 ? 1 : 0}>
           <Box>
             <Text
-              color={state.cursor === customOptionIndex ? THEME.selected : "gray"}
+              color={state.cursor === customOptionIndex ? THEME.selected : THEME.muted}
               bold={state.cursor === customOptionIndex}
             >
               {state.cursor === customOptionIndex ? "› " : "  "}

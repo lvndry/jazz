@@ -13,20 +13,25 @@ import { PreWrappedText } from "./components/PreWrappedText";
 import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
 import ErrorBoundary from "./ErrorBoundary";
+import { InkHome } from "./InkHome";
 import { WizardHome } from "./WizardHome";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
-import { agentDetailsBodyHeight, agentDetailsRows } from "./fullscreen/screens/AgentDetails";
-import { windowStart } from "./fullscreen/screens/AgentPicker";
-import { skillDetailBodyRows, skillListRows } from "./fullscreen/screens/SkillBrowser";
-import { clipTerminalCells } from "./fullscreen/terminal-cells";
-import { InkHome } from "./InkHome";
+import { agentDetailsBodyHeight, agentDetailsRows } from "./models/agent-details";
+import { centredWindowStart } from "./text/picker-window";
+import { clipTerminalCells } from "./text/terminal-cells";
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
-import { filterSkills, skillDetailRows, skillLine } from "./skill-browser";
+import {
+  filterSkills,
+  skillDetailBodyRows,
+  skillDetailRows,
+  skillLine,
+  skillListRows,
+} from "./skill-browser";
 import StatusFooter from "./StatusFooter";
 import { store, useOutputSlice, usePromptSlice, useSessionSlice, type ActiveMenu } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
@@ -228,7 +233,7 @@ function InkSkillBrowserView({
   const [offset, setOffset] = useState(0);
   const matches = filterSkills(menu.skills, query);
   const visibleRows = skillListRows({ width: cols, height: rows });
-  const start = windowStart(matches.length, selected, visibleRows);
+  const start = centredWindowStart(matches.length, selected, visibleRows);
   const detailRows = detail === null ? [] : skillDetailRows(detail, cols);
   const detailHeight = skillDetailBodyRows({ width: cols, height: rows });
   const maxOffset = Math.max(0, detailRows.length - detailHeight);

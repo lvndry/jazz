@@ -4,7 +4,7 @@
  * the fullscreen overlay and the Ink prompt each map the states to their own styling.
  */
 
-import { terminalCellWidth } from "../fullscreen/terminal-cells";
+import { terminalCellWidth } from "../text/terminal-cells";
 
 export interface PromptStepPosition {
   readonly labels: readonly string[];

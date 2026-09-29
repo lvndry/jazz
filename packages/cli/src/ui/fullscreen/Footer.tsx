@@ -15,10 +15,14 @@
 import { formatCompactCount } from "@jazz/core/utils/string";
 import { memo, type ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
-import { THEME } from "../theme";
-import { fitTerminalSegments, terminalCellWidth, terminalSegmentsWidth } from "./terminal-cells";
 import { useThemeRevision } from "./theme-revision";
 import type { FooterModel, Viewport } from "./types";
+import {
+  fitTerminalSegments,
+  terminalCellWidth,
+  terminalSegmentsWidth,
+} from "../text/terminal-cells";
+import { THEME } from "../theme";
 
 export interface FooterSegment {
   readonly text: string;

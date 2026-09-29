@@ -2,12 +2,10 @@ import { Box, Text, useInput } from "ink";
 import React, { useMemo } from "react";
 import { ChoiceMeta } from "./PromptParts";
 import { getGlyphs } from "../glyphs";
-import { pickerWindowStart } from "../picker-window";
 import { originalValuesFromPicker, toPickerChoices, usePicker } from "../prompt-core";
+import { pickerWindowStart } from "../text/picker-window";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
-
-const G = getGlyphs();
 
 interface ScrollableMultiSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];
@@ -108,7 +106,7 @@ export function ScrollableMultiSelect<T = unknown>({
               color={THEME.primary}
               bold
             >
-              {row.active ? G.rail : " "}
+              {row.active ? getGlyphs().rail : " "}
             </Text>
             <Text
               color={row.active ? THEME.selected : THEME.secondary}
