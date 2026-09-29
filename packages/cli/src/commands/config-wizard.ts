@@ -19,6 +19,7 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type {
   AppConfig,
+  TaintedEgressMode,
   DaemonConfig,
   LoggingConfig,
   SchedulerMode,
@@ -41,6 +42,7 @@ import {
   parseSpendLimitInput,
   SPEND_LIMIT_SETTINGS,
 } from "./spend-limits";
+import { addTrustedGetHost, applyTrustedGetHosts, removeTrustedGetHost } from "./trusted-get-hosts";
 import { commitTheme } from "../chat/commands/handler";
 import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
@@ -63,6 +65,8 @@ type ConfigMenuAction =
   | "notifications"
   | "spend-limits"
   | "private-hosts"
+  | "trusted-hosts"
+  | "tainted-egress"
   | "back";
 
 /**
@@ -109,6 +113,14 @@ export function configWizardCommand() {
         }
         case "private-hosts": {
           yield* configurePrivateHosts();
+          break;
+        }
+        case "trusted-hosts": {
+          yield* configureTrustedGetHosts();
+          break;
+        }
+        case "tainted-egress": {
+          yield* configureTaintedEgress();
           break;
         }
         case "back": {
@@ -171,6 +183,19 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
         (config.network?.allowPrivateHosts?.length ?? 0) === 0
           ? "none allowed"
           : `${String(config.network?.allowPrivateHosts?.length)} allowed`,
+    },
+    {
+      label: "Trusted public sites (GET)",
+      value: "trusted-hosts",
+      hint:
+        (config.network?.trustedGetHosts?.length ?? 0) === 0
+          ? "none trusted"
+          : `${String(config.network?.trustedGetHosts?.length)} trusted`,
+    },
+    {
+      label: "Web request safety",
+      value: "tainted-egress",
+      hint: TAINTED_EGRESS_LABELS[config.network?.taintedEgress ?? "allow"].hint,
     },
     { label: "Back", value: "back" },
   ];
@@ -1019,6 +1044,100 @@ function configurePrivateHosts() {
       const host = selection.slice("remove:".length);
       yield* applyPrivateHosts(configService, removePrivateHost(hosts, host));
       yield* terminal.success(`Removed ${host}. Reaching it asks for approval again.`);
+      yield* terminal.log("");
+    }
+  });
+}
+
+const TAINTED_EGRESS_LABELS: Readonly<
+  Record<TaintedEgressMode, { readonly name: string; readonly hint: string }>
+> = {
+  auto: {
+    name: "Auto: allow while you are present, ask in unattended runs",
+    hint: "auto",
+  },
+  ask: {
+    name: "Defensive: ask before any request to an untrusted host after reading untrusted content",
+    hint: "defensive",
+  },
+  allow: { name: "Allow all: never ask about web requests (default)", hint: "allow all" },
+};
+
+function configureTaintedEgress() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const current = (yield* configService.appConfig).network?.taintedEgress ?? "allow";
+    const modes: readonly TaintedEgressMode[] = ["allow", "auto", "ask"];
+    const next = yield* terminal.select<TaintedEgressMode>(
+      "Web request safety: what happens when an agent that read untrusted content (a web page, an email) composes a request to a host you have not trusted. A hostile page could try to steer that request into leaking data.",
+      {
+        default: current,
+        choices: modes.map((mode) => ({
+          name: TAINTED_EGRESS_LABELS[mode].name,
+          value: mode,
+          ...currentTag(mode === current),
+        })),
+      },
+    );
+    if (next === undefined || next === current) {
+      return;
+    }
+    yield* configService.set("network.taintedEgress", next === "allow" ? undefined : next);
+    yield* terminal.success(`Web request safety: ${TAINTED_EGRESS_LABELS[next].hint}.`);
+    yield* terminal.log("");
+  });
+}
+
+function configureTrustedGetHosts() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+
+    while (true) {
+      const hosts = (yield* configService.appConfig).network?.trustedGetHosts ?? [];
+      const selection = yield* terminal.select<string>(
+        "Trusted public sites: plain GET requests to these websites never ask, even after an agent read untrusted content (local addresses are under Private network hosts).",
+        {
+          choices: [
+            ...hosts.map((host) => ({ name: `${host} (remove)`, value: `remove:${host}` })),
+            { name: "Add a host", value: "add" },
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
+      if (selection === undefined || selection === "back") {
+        break;
+      }
+
+      if (selection === "add") {
+        const raw = yield* terminal.ask("Host (eutils.ncbi.nlm.nih.gov or *.wikipedia.org):", {
+          simple: true,
+          cancellable: true,
+          validate: (input) => {
+            const result = addTrustedGetHost(hosts, input);
+            return result.kind === "invalid" ? result.message : true;
+          },
+        });
+        if (raw === undefined) {
+          continue;
+        }
+        const result = addTrustedGetHost(hosts, raw);
+        if (result.kind === "invalid") {
+          yield* terminal.warn(result.message);
+          continue;
+        }
+        yield* applyTrustedGetHosts(configService, result.hosts);
+        yield* terminal.success(`GET requests to ${raw.trim().toLowerCase()} no longer ask.`);
+        yield* terminal.log("");
+        continue;
+      }
+
+      const host = selection.slice("remove:".length);
+      yield* applyTrustedGetHosts(configService, removeTrustedGetHost(hosts, host));
+      yield* terminal.success(
+        `Removed ${host}. GET requests to it ask again after untrusted reads.`,
+      );
       yield* terminal.log("");
     }
   });

@@ -408,6 +408,30 @@ describe("approval overlay", () => {
     chosen.renderer.destroy();
   });
 
+  it("offers a GET-host chip and its key only when the request is a plain GET", async () => {
+    const withHost = await draw(
+      <Approval
+        model={{ ...APPROVAL, armed: true, trustHost: "eutils.example" }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = withHost.captureCharFrame();
+    expect(frame).toMatch(/always allow send_email\s+GET eutils\.example\s+reject/);
+    expect(frame).toContain("h host");
+    withHost.renderer.destroy();
+
+    const without = await draw(
+      <Approval
+        model={{ ...APPROVAL, armed: true }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    expect(without.captureCharFrame()).not.toContain("h host");
+    without.renderer.destroy();
+  });
+
   it("keeps always-allow on screen when navigation hints crowd the controls", async () => {
     for (const viewport of [WIDE, TINY]) {
       const { renderer, captureCharFrame } = await draw(

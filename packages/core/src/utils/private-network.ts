@@ -349,3 +349,41 @@ export function parsePrivateHostAllowlist(
     },
   };
 }
+
+/** Most entries `network.trustedGetHosts` may hold. */
+export const MAX_TRUSTED_GET_HOST_ENTRIES = 64;
+
+/** Why one `network.trustedGetHosts` entry is invalid, or undefined when it is valid. */
+export function describeTrustedGetHostError(rawEntry: string): string | undefined {
+  const entry = rawEntry.trim();
+  const name = entry.startsWith("*.") ? entry.slice(2) : entry;
+  return HOSTNAME_PATTERN.test(normalizeHostname(name)) && !isIPv4(name) && !name.includes(":")
+    ? undefined
+    : `"${entry}" is not a hostname or *.suffix wildcard`;
+}
+
+/** Whether `url`'s host is one of the configured `network.trustedGetHosts`. */
+export function hostIsTrustedForGet(url: string, entries: readonly string[] | undefined): boolean {
+  if (entries === undefined || entries.length === 0) {
+    return false;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return false;
+  }
+  const hostname = normalizeHostname(parsed.hostname);
+  return entries.some((rawEntry) => {
+    if (describeTrustedGetHostError(rawEntry) !== undefined) {
+      return false;
+    }
+    const entry = rawEntry.trim();
+    return entry.startsWith("*.")
+      ? hostname.endsWith(`.${normalizeHostname(entry.slice(2))}`)
+      : hostname === normalizeHostname(entry);
+  });
+}

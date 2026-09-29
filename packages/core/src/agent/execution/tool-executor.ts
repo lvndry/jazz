@@ -53,6 +53,7 @@ import {
   unlistedPrivateAddressesFor,
 } from "./private-destination";
 import type { ToolBatchLedger } from "./tool-batch-ledger";
+import { rememberTrustedGetHost } from "./trusted-get-hosts";
 import {
   emitToolInvocation,
   recordToolError,
@@ -361,9 +362,11 @@ export class ToolExecutor {
     PresentationService | LoggerService | AgentConfigService
   > {
     return Effect.gen(function* () {
+      const presentation = yield* PresentationServiceTag;
+      const canPromptNow = presentation.canPromptForApproval?.() === true;
       const taintGated = () =>
         context.egressTaint !== undefined &&
-        plainToolNeedsTaintApproval(name, args, toolMeta.egress, context);
+        plainToolNeedsTaintApproval(name, args, toolMeta.egress, context, canPromptNow);
       const privateGated = () =>
         privateDestinationNeedsApproval(
           privateAddresses,
@@ -427,6 +430,9 @@ export class ToolExecutor {
       }
       if (outcome.approved && outcome.alwaysApproveTool && context.onAutoApproveTool) {
         context.onAutoApproveTool(outcome.alwaysApproveTool);
+      }
+      if (outcome.approved && outcome.alwaysTrustGetHost) {
+        yield* rememberTrustedGetHost(outcome.alwaysTrustGetHost, context);
       }
       if (outcome.approved && privateGated()) {
         yield* rememberPrivateAddresses(privateAddresses);
@@ -679,6 +685,9 @@ export class ToolExecutor {
               policy: getCurrentPolicy(),
               taint: context.egressTaint,
               messages: context.conversationMessages,
+              trustedHosts: context.trustedGetHosts,
+              mode: context.taintedEgress,
+              canPrompt,
             });
           const privateAddresses = yield* unlistedPrivateAddressesFor(
             egress,
@@ -838,6 +847,10 @@ export class ToolExecutor {
             if (outcome.alwaysApproveTool && context.onAutoApproveTool) {
               context.onAutoApproveTool(outcome.alwaysApproveTool);
               yield* logger.info("User chose to always approve tool");
+            }
+
+            if (outcome.alwaysTrustGetHost) {
+              yield* rememberTrustedGetHost(outcome.alwaysTrustGetHost, context);
             }
 
             if (!isAutoApproved) {
@@ -1179,7 +1192,7 @@ export class ToolExecutor {
               }
               const taintGated =
                 context.egressTaint !== undefined &&
-                plainToolNeedsTaintApproval(name, args, toolMeta.egress, context);
+                plainToolNeedsTaintApproval(name, args, toolMeta.egress, context, false);
               const privateAddresses = yield* unlistedPrivateAddressesFor(
                 toolMeta.egress,
                 args,
@@ -1252,6 +1265,9 @@ export class ToolExecutor {
             policy,
             taint: context.egressTaint,
             messages: context.conversationMessages,
+            trustedHosts: context.trustedGetHosts,
+            mode: context.taintedEgress,
+            canPrompt: false,
           });
           const privateAddresses = yield* unlistedPrivateAddressesFor(
             toolMeta?.egress === true,
@@ -1605,6 +1621,7 @@ function plainToolNeedsTaintApproval(
   args: Record<string, unknown>,
   egress: boolean,
   context: ToolExecutionContext,
+  canPrompt: boolean,
 ): boolean {
   return (
     !isToolNameAutoApproved(name, context.autoApprovedTools) &&
@@ -1615,6 +1632,9 @@ function plainToolNeedsTaintApproval(
       policy: context.getAutoApprovePolicy?.(),
       taint: context.egressTaint,
       messages: context.conversationMessages,
+      trustedHosts: context.trustedGetHosts,
+      mode: context.taintedEgress,
+      canPrompt,
     })
   );
 }

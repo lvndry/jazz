@@ -25,6 +25,13 @@ export interface SchedulerConfig {
  * Public internet hosts are always reachable. Loopback, private, link-local and other
  * non-public addresses are refused unless listed here.
  */
+/**
+ * What happens when an agent that has read untrusted content composes a request to a host you
+ * have not trusted: `allow` (the default) never asks, `auto` lets it through while a person is
+ * present and asks when nobody is (unattended runs), `ask` always asks.
+ */
+export type TaintedEgressMode = "auto" | "ask" | "allow";
+
 export interface NetworkConfig {
   /**
    * Private hosts agents may reach. Each entry is a hostname (`homeassistant.local`), a
@@ -33,6 +40,15 @@ export interface NetworkConfig {
    * block entry allows those addresses behind any name. At most 64 entries.
    */
   readonly allowPrivateHosts?: readonly string[];
+  /**
+   * Public hosts whose plain GET and HEAD requests (no body, no custom headers) skip the
+   * approval a run needs once it has read untrusted content. Each entry is a hostname
+   * (`eutils.ncbi.nlm.nih.gov`) or a `*.suffix` wildcard (`*.ncbi.nlm.nih.gov`). Everything
+   * else, and every other method, still asks. At most 64 entries.
+   */
+  readonly trustedGetHosts?: readonly string[];
+  /** See `TaintedEgressMode`. Defaults to `allow`. */
+  readonly taintedEgress?: TaintedEgressMode;
 }
 
 export interface AppConfig {

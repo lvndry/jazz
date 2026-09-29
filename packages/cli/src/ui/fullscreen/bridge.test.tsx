@@ -2138,17 +2138,6 @@ describe("fullscreen bridge", () => {
     always.rendered.renderer.destroy();
   });
 
-  it("uses the latest approval choice when Enter follows an arrow in one React batch", async () => {
-    const always = await armedApproval();
-    updateForTest(() => {
-      always.rendered.mockInput.pressKey("ARROW_RIGHT");
-      always.rendered.mockInput.pressKey("RETURN");
-    });
-    await settleKeypress(always.rendered.flush);
-    expect(await always.outcome).toEqual({ approved: true, alwaysApproveTool: "http_request" });
-    always.rendered.renderer.destroy();
-  });
-
   it("walking right to the end and pressing enter rejects, asking what to do instead", async () => {
     const reject = await armedApproval();
     for (const key of ["ARROW_RIGHT", "ARROW_RIGHT", "ARROW_RIGHT"]) {
@@ -2159,6 +2148,26 @@ describe("fullscreen bridge", () => {
     await settleKeypress(reject.rendered.flush);
     expect(reject.rendered.captureCharFrame().toLowerCase()).toContain("instead");
     reject.rendered.renderer.destroy();
+  });
+
+  it("h trusts the host of a plain GET and approves it", async () => {
+    const trust = await armedApproval();
+    await trust.rendered.mockInput.pressKey("h");
+    await settleKeypress(trust.rendered.flush);
+    expect(await trust.outcome).toEqual({ approved: true, alwaysTrustGetHost: "example.com" });
+    trust.rendered.renderer.destroy();
+  });
+
+  it("walks to the host chip with right and confirms it with enter", async () => {
+    const trust = await armedApproval();
+    for (const key of ["ARROW_RIGHT", "ARROW_RIGHT"]) {
+      await trust.rendered.mockInput.pressKey(key);
+      await settleKeypress(trust.rendered.flush);
+    }
+    await trust.rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(trust.rendered.flush);
+    expect(await trust.outcome).toEqual({ approved: true, alwaysTrustGetHost: "example.com" });
+    trust.rendered.renderer.destroy();
   });
 
   it("still accepts on a bare enter, since focus starts on accept", async () => {

@@ -204,6 +204,48 @@ that lands on an unlisted private address is refused rather than asked about; th
 request that URL directly, which asks you. See
 [secrets and egress](../security/secrets-and-egress.md#network-egress) for what the guard checks.
 
+## Web request safety
+
+A page or email an agent reads can try to steer its next request into leaking data, because a
+composed URL carries data to whatever host it names. `network.taintedEgress` sets what Jazz does
+about that once a run has read untrusted content (a web page, an API response, a shell command's
+output):
+
+| Value             | While you are present                   | Unattended runs      |
+| ----------------- | --------------------------------------- | -------------------- |
+| `allow` (default) | requests go through                     | requests go through  |
+| `auto`            | requests go through                     | ask (park or refuse) |
+| `ask`             | ask for every host you have not trusted | ask                  |
+
+The default trusts the agent's requests, which keeps research and automation flowing. If you
+want hardened security, choose `ask` for the strictest posture, or `auto` to keep holding
+unattended runs, where a hostile input costs the most because nobody sees the request. Set it
+from `jazz` > **Settings** > **Web request safety**. Like the other `network` settings it is read
+from the global config file only.
+
+## Trusted GET hosts
+
+Under `ask` (and in unattended runs under `auto`), a GET the model composed asks for your
+approval after untrusted content was read, because the URL itself can carry data to any host.
+`network.trustedGetHosts` lists public hosts you accept that for: a plain `GET` or `HEAD` to them
+(no body, no custom headers, a query string is fine) goes through without asking. Other hosts and
+other methods still ask.
+
+```json
+{
+  "network": { "trustedGetHosts": ["eutils.ncbi.nlm.nih.gov", "*.wikipedia.org"] }
+}
+```
+
+Add or remove hosts from `jazz` > **Settings** > **Trusted public sites (GET)**. When an approval
+is for a plain GET, the prompt also offers to always allow GET requests to that host (`h` on the
+fullscreen card), which adds it to this list. Entries are hostnames or `*.suffix` wildcards, at
+most 64. This is separate from `network.allowPrivateHosts`, which covers local addresses. Like `network.allowPrivateHosts` it is
+read from the global config file only, and private addresses stay gated by the private-network
+check whatever this lists. A trusted host sees every URL sent to it, so list only hosts you would
+be comfortable receiving anything the run knows. For everything else, the approval card's
+**always allow** choice (`a`, or left/right then enter) allows the whole tool for the session.
+
 ## MCP overrides
 
 Full MCP server definitions live in `~/.agents/mcp.json` or `./.agents/mcp.json`. Jazz stores only per-server `enabled` and `trusted` overrides in `config.json`. `trusted` is read from the global file only, and applies only to servers defined in `~/.agents/mcp.json`; a project file's `trusted` is ignored with a warning. See [MCP](./mcp.md#trust-controls-approval-not-identity).
