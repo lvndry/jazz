@@ -18,7 +18,7 @@
  *   any other call that needs a person. `high-risk` (and `true`) still approve it, and an explicit
  *   per-tool or per-command allowlist entry still counts.
  *
- * `network.taintedEgress` relaxes this: `allow` never gates, and `auto` (the default) does not
+ * `network.taintedEgress` relaxes this: `allow` (the default) never gates, and `auto` does not
  * gate while a person can answer a prompt, so only unattended runs, where nobody would see the
  * request, are held. `ask` gates every call as described above.
  *

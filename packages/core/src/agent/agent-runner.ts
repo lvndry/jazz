@@ -823,7 +823,7 @@ function initializeAgentRun(
       model,
       egressTaint: options.egressTaint ?? createEgressTaint(history),
       trustedGetHosts: [...(appConfig.network?.trustedGetHosts ?? [])],
-      taintedEgress: appConfig.network?.taintedEgress ?? "auto",
+      taintedEgress: appConfig.network?.taintedEgress ?? "allow",
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
       ...(Option.isSome(pluginSession)
         ? {

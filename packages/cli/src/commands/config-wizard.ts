@@ -195,7 +195,7 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
     {
       label: "Web request safety",
       value: "tainted-egress",
-      hint: TAINTED_EGRESS_LABELS[config.network?.taintedEgress ?? "auto"].hint,
+      hint: TAINTED_EGRESS_LABELS[config.network?.taintedEgress ?? "allow"].hint,
     },
     { label: "Back", value: "back" },
   ];
@@ -1053,22 +1053,22 @@ const TAINTED_EGRESS_LABELS: Readonly<
   Record<TaintedEgressMode, { readonly name: string; readonly hint: string }>
 > = {
   auto: {
-    name: "Auto: ask only when nobody is watching (recommended)",
+    name: "Auto: allow while you are present, ask in unattended runs",
     hint: "auto",
   },
   ask: {
     name: "Defensive: ask before any request to an untrusted host after reading untrusted content",
     hint: "defensive",
   },
-  allow: { name: "Allow all: never ask about web requests", hint: "allow all" },
+  allow: { name: "Allow all: never ask about web requests (default)", hint: "allow all" },
 };
 
 function configureTaintedEgress() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
-    const current = (yield* configService.appConfig).network?.taintedEgress ?? "auto";
-    const modes: readonly TaintedEgressMode[] = ["auto", "ask", "allow"];
+    const current = (yield* configService.appConfig).network?.taintedEgress ?? "allow";
+    const modes: readonly TaintedEgressMode[] = ["allow", "auto", "ask"];
     const next = yield* terminal.select<TaintedEgressMode>(
       "Web request safety: what happens when an agent that read untrusted content (a web page, an email) composes a request to a host you have not trusted. A hostile page could try to steer that request into leaking data.",
       {
@@ -1083,7 +1083,7 @@ function configureTaintedEgress() {
     if (next === undefined || next === current) {
       return;
     }
-    yield* configService.set("network.taintedEgress", next === "auto" ? undefined : next);
+    yield* configService.set("network.taintedEgress", next === "allow" ? undefined : next);
     yield* terminal.success(`Web request safety: ${TAINTED_EGRESS_LABELS[next].hint}.`);
     yield* terminal.log("");
   });

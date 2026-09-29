@@ -32,7 +32,7 @@ describe("settingsMenuOptions", () => {
     expect(options.at(-1)).toEqual({ label: "Back", value: "back" });
     expect(hintOf(options, "private-hosts")).toBe("none allowed");
     expect(hintOf(options, "trusted-hosts")).toBe("none trusted");
-    expect(hintOf(options, "tainted-egress")).toBe("auto");
+    expect(hintOf(options, "tainted-egress")).toBe("allow all");
   });
 
   it("says plainly when nothing is set up yet", () => {

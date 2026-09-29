@@ -211,20 +211,21 @@ composed URL carries data to whatever host it names. `network.taintedEgress` set
 about that once a run has read untrusted content (a web page, an API response, a shell command's
 output):
 
-| Value            | While you are present                   | Unattended runs      |
-| ---------------- | --------------------------------------- | -------------------- |
-| `auto` (default) | requests go through                     | ask (park or refuse) |
-| `ask`            | ask for every host you have not trusted | ask                  |
-| `allow`          | requests go through                     | requests go through  |
+| Value             | While you are present                   | Unattended runs      |
+| ----------------- | --------------------------------------- | -------------------- |
+| `allow` (default) | requests go through                     | requests go through  |
+| `auto`            | requests go through                     | ask (park or refuse) |
+| `ask`             | ask for every host you have not trusted | ask                  |
 
-Choose `ask` for the strictest posture, or set it from `jazz` > **Settings** > **Web request
-safety**. Unattended runs are where a hostile input costs the most, since nobody sees the
-request, so `auto` keeps holding them; `allow` turns that off too. Like the other `network`
-settings it is read from the global config file only.
+The default trusts the agent's requests, which keeps research and automation flowing. If you
+want hardened security, choose `ask` for the strictest posture, or `auto` to keep holding
+unattended runs, where a hostile input costs the most because nobody sees the request. Set it
+from `jazz` > **Settings** > **Web request safety**. Like the other `network` settings it is read
+from the global config file only.
 
 ## Trusted GET hosts
 
-With `ask` (and in unattended runs under `auto`), a GET the model composed asks for your
+Under `ask` (and in unattended runs under `auto`), a GET the model composed asks for your
 approval after untrusted content was read, because the URL itself can carry data to any host.
 `network.trustedGetHosts` lists public hosts you accept that for: a plain `GET` or `HEAD` to them
 (no body, no custom headers, a query string is fine) goes through without asking. Other hosts and
