@@ -31,6 +31,19 @@ export interface AnsiMarkdownOptions {
    * on its own, so the break has to survive at the slice's edge.
    */
   readonly keepEdgeBlankLines?: boolean;
+  /**
+   * Wrap prose (paragraphs, headings, list and quote text) to the measure. Defaults to on.
+   *
+   * Off for a renderer with its own live reflow — Ink's `<Text wrap>` re-wraps a settled
+   * message to the real column width on every render, including after a terminal resize, so
+   * pre-wrapping it here would freeze that message at whatever width it first drew at. With
+   * this off, a text block becomes one unbroken line (still carrying its marker and indent)
+   * and Ink does the wrapping. Tables and code fences always wrap to `width` regardless — a
+   * table's columns and a fence's band are a layout, not running text, and have always been
+   * committed at format time (`getTerminalWidth()` inside the legacy formatter's own table
+   * layout), so this flag changes nothing for either.
+   */
+  readonly wrapProse?: boolean;
 }
 
 /** Code sits this far inside its band, so it lines up with the prose around it. */
@@ -128,25 +141,32 @@ interface Layout {
   readonly syntax: MarkdownSyntax;
   readonly glyphs: GlyphSet;
   readonly hyperlinks: boolean;
+  readonly wrapProse: boolean;
 }
 
 function textLines(block: Extract<MarkdownBlock, { kind: "text" }>, layout: Layout): string[] {
   const markerWidth = block.marker === undefined ? 0 : terminalCellWidth(block.marker.text);
+  const lead = (atFirstLine: boolean): string => {
+    if (block.marker === undefined) {
+      return " ".repeat(block.indent);
+    }
+    const markerText =
+      atFirstLine || block.repeatMarker === true
+        ? paintSpans([block.marker], layout.hyperlinks)
+        : " ".repeat(markerWidth);
+    return " ".repeat(block.indent) + markerText;
+  };
+  if (!layout.wrapProse) {
+    return [lead(true) + spanLine(block.spans, layout.hyperlinks)];
+  }
   const wrapped = wrapStyledSpans(
     block.spans,
     Math.max(1, layout.prose - block.indent - markerWidth),
     sameMarkdownStyle,
   );
-  return wrapped.map((line, lineIndex) => {
-    let lead = " ".repeat(block.indent);
-    if (block.marker !== undefined) {
-      lead +=
-        lineIndex === 0 || block.repeatMarker === true
-          ? paintSpans([block.marker], layout.hyperlinks)
-          : " ".repeat(markerWidth);
-    }
-    return lead + spanLine(line, layout.hyperlinks);
-  });
+  return wrapped.map(
+    (line, lineIndex) => lead(lineIndex === 0) + spanLine(line, layout.hyperlinks),
+  );
 }
 
 function fenceLines(block: Extract<MarkdownBlock, { kind: "fence" }>, layout: Layout): string[] {
@@ -216,9 +236,11 @@ function blockLines(block: MarkdownBlock, layout: Layout): string[] {
           : paint(layout.glyphs.divider.repeat(layout.prose), { fg: THEME.border }, false),
       ];
     case "heading":
-      return wrapStyledSpans(block.spans, layout.prose, sameMarkdownStyle).map((line) =>
-        spanLine(line, layout.hyperlinks),
-      );
+      return layout.wrapProse
+        ? wrapStyledSpans(block.spans, layout.prose, sameMarkdownStyle).map((line) =>
+            spanLine(line, layout.hyperlinks),
+          )
+        : [spanLine(block.spans, layout.hyperlinks)];
     case "fence":
       return fenceLines(block, layout);
     case "table":
@@ -247,6 +269,7 @@ export function markdownToAnsi(markdown: string, options: AnsiMarkdownOptions): 
     syntax,
     glyphs,
     hyperlinks: options.hyperlinks ?? chalk.level > 0,
+    wrapProse: options.wrapProse ?? true,
   };
 
   const lines: string[] = [];

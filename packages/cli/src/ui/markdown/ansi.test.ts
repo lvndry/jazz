@@ -155,4 +155,48 @@ describe("markdownToAnsi", () => {
     const withoutOption = markdownToAnsi("\nBody.", { width: WIDTH, glyphs });
     expect(withoutOption.startsWith("\n")).toBe(false);
   });
+
+  describe("wrapProse: false", () => {
+    it("leaves a long paragraph as one line, for a renderer that reflows it itself", () => {
+      const long = Array.from({ length: 20 }, (_, index) => `word${String(index)}`).join(" ");
+      const line = plain(long, { width: 30, wrapProse: false });
+      expect(line.split("\n")).toHaveLength(1);
+      expect(line).toBe(long);
+    });
+
+    it("still breaks list items onto their own line, since that is structure, not a wrap", () => {
+      const markdown = ["- first item", "- second item"].join("\n");
+      const lines = plain(markdown, { wrapProse: false }).split("\n");
+      expect(lines).toEqual(["  ∙ first item", "  ∙ second item"]);
+    });
+
+    it("leaves a long heading as one line too", () => {
+      const heading = `# ${Array.from({ length: 15 }, (_, index) => `word${String(index)}`).join(" ")}`;
+      const lines = plain(heading, { width: 30, wrapProse: false }).split("\n");
+      expect(lines).toHaveLength(1);
+    });
+
+    it("still wraps a table to width, because a table's columns are layout, not running text", () => {
+      const markdown = [
+        "| Package | Role |",
+        "| :--- | ---: |",
+        "| `@jazz/core` | Agent loop |",
+      ].join("\n");
+      const withWrap = plain(markdown, { width: WIDTH });
+      const withoutWrap = plain(markdown, { width: WIDTH, wrapProse: false });
+      expect(withoutWrap).toBe(withWrap);
+    });
+
+    it("still bands a fence to width, for the same reason", () => {
+      try {
+        chalk.level = 3;
+        const markdown = ["```bash", "echo hi", "```"].join("\n");
+        const withWrap = plain(markdown, { width: WIDTH });
+        const withoutWrap = plain(markdown, { width: WIDTH, wrapProse: false });
+        expect(withoutWrap).toBe(withWrap);
+      } finally {
+        chalk.level = 0;
+      }
+    });
+  });
 });
