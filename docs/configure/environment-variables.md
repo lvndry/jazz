@@ -8,10 +8,6 @@ Every variable Jazz reads, grouped by what it controls. A command-line flag wins
 variable, and a setting in `config.json` wins over a variable unless the row says otherwise.
 Boolean switches marked `1` accept only `1`; anything else leaves them off.
 
-The `scripts/check-environment-variables.test.ts` test fails when the code reads a `JAZZ_*`
-variable, a provider key variable or a local server URL variable that this page does not
-list.
-
 ## Where Jazz keeps things
 
 | Variable                         | Effect                                                                                                                                                                                                            |

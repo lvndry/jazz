@@ -4,7 +4,8 @@ description: "Write Jazz documentation that is concise, code-backed, runnable, a
 
 # Documentation quality standard
 
-Jazz documentation should unlock real work. More content is welcome when each page has a distinct reader, question, and maintained source of truth. Length is not the enemy; low information density and false completeness are.
+Write for people using Jazz. Help them understand a capability, set it up, and use it.
+Keep implementation details in the maintainer section.
 
 ## Start with the reader's outcome
 
@@ -20,7 +21,8 @@ Before documenting behavior:
 2. Run or mechanically validate every command and configuration field possible.
 3. Name prerequisites, persistence requirements, credentials, and network assumptions.
 4. Explain what happens on refusal, timeout, invalid input, or unavailable infrastructure.
-5. Link to the code or authoritative upstream integration.
+5. Link to the relevant user reference or authoritative integration documentation.
+   Link to implementation files when writing for maintainers.
 
 Never invent an adapter, binary, API, flag, or happy-path response to make an example look complete. If an organization-specific seam is unavoidable, describe its input/output contract plainly instead of giving a fictional command a plausible name.
 
@@ -50,7 +52,15 @@ Descriptions should identify both the subject and outcome. Headings should stand
 
 Delete throat-clearing, repeated conclusions, fake quotations, obvious transitions, and generic claims such as “powerful,” “seamless,” or “revolutionary.” Keep details that change a decision or prevent a failure.
 
-Use one strong example instead of five shallow ones. Use diagrams only when relationships are harder to understand in prose. Put exhaustive inventories in lookup pages rather than repeating them across concepts and guides.
+Prefer a short list or table to a diagram. Use a diagram only when it explains a complex
+relationship more clearly than either. Check it at the width of the documentation page.
+
+Start with what the feature does and how to use it. Avoid failure-first introductions,
+repository anecdotes, and explanations of ordinary shell syntax. Write directly: “the
+standard file for project instructions,” rather than “the cross-tool convention.”
+
+Use one complete example rather than several partial ones. Keep exhaustive inventories
+in reference pages.
 
 ## Keep documentation from drifting
 

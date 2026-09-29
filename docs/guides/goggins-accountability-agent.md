@@ -160,12 +160,4 @@ jazz workflow scheduled
 
 The weekday review runs at 18:00 and writes to Jazz's workflow logs and history. A scheduled run has nobody at the terminal, so `read-only` deliberately refuses mutation. Read [Scheduled runs](../surfaces/scheduled.md) and [unattended-run security](../security/unattended-runs.md) before granting more capability.
 
-## What this pattern unlocks
-
-- Reuse one reviewed behavior across hosted and local models.
-- Change the model without changing the persona or calling surface.
-- Change the surface without rebuilding the agent.
-- Preserve continuity across independent script or CI invocations.
-- Constrain tools per agent even when several agents share the persona.
-
-Next, read [Personas](../concepts/personas.md), [Agents](../concepts/agents.md), and [Headless runs](../surfaces/headless.md) for the underlying contracts.
+Next, read [Personas](../concepts/personas.md), [Agents](../concepts/agents.md), and [Headless runs](../surfaces/headless.md).

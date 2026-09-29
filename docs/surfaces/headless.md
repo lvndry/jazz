@@ -2,13 +2,11 @@
 description: "Call Jazz from your own code with jazz run: pass a dynamic prompt, get structured JSON back, control autonomy and timeouts: the contract every integration builds on."
 ---
 
-# Headless: the `jazz run` contract
+# Headless runs
 
 How to call Jazz from your own code and get a parseable result back.
 
-`jazz run` is the surface every non-terminal integration is built on. It takes a dynamic
-prompt, runs exactly one agent turn, and prints a clean payload. It is the difference
-between "a CLI you use" and "a runtime you build on".
+`jazz run` takes a prompt, runs one agent turn, and prints the answer.
 
 ```bash
 jazz run --agent assistant "summarize the last 5 commits"
@@ -27,9 +25,7 @@ Status messages, warnings, tool output, and NDJSON progress events go to stderr.
 
 ### Plain (default)
 
-stdout is the answer as raw markdown, trimmed, with a trailing newline. Raw markdown is
-deliberate: it's the easiest thing to translate downstream into Slack `mrkdwn`, Google
-Chat formatting, or Telegram HTML.
+stdout is the answer as raw Markdown, trimmed, with a trailing newline.
 
 ```bash
 $ jazz run --agent assistant "what is 2+2?"
@@ -41,8 +37,7 @@ silently yields an error string.
 
 ### JSON (`--json`)
 
-stdout is exactly one single-line object. Always one line, always one object: on success
-_and_ on failure.
+stdout contains one single-line JSON object on success or failure.
 
 An invalid configuration file or a missing `--config` path also returns this failure
 envelope with `code: "failed"` and `costUSD: 0`, even before the agent starts. Recovery
@@ -72,14 +67,12 @@ instructions stay on stderr. `jazz workflow run --json` follows the same rule.
 }
 ```
 
-Note that the failure envelope still reports what the run spent: a run that failed or timed
-out still spent money, and an unattended deployment needs to account for it. `costKnown` and
-`tokenUsage` are present once the run reached the model; a run that failed before that
-reports `costUSD: 0` alone.
+Failure results include spend and token usage once the run reaches the model. A failure
+before the first model call reports `costUSD: 0`.
 
-A run your caller kills leaves no envelope at all. Ask for the `spend` event category and
-keep the last `run_spend` event: it carries the run's total so far (`costUSD`,
-`costIncomplete`, `totalTokens`) after every model call and tool batch.
+A force-killed process cannot return a result. To track its spend, request the `spend`
+event category and save the latest `run_spend` event, which reports totals after each
+model call and tool batch.
 
 `code` says why a run failed, so a script can branch without parsing `error`:
 
@@ -191,24 +184,6 @@ body piped without the frame never can.
 stable key (a Telegram chat id, a Slack thread ts, a support ticket number) and Jazz
 handles the transcript for you.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as User
-    participant B as Your bridge<br/>(stateless)
-    participant J as jazz run
-    participant H as ~/.jazz/history/
-
-    U->>B: "what did I ask you yesterday?"
-    B->>J: jazz run --json --conversation 4815162342 "…"
-    J->>H: load transcript for key 4815162342
-    H-->>J: prior messages
-    Note over J: agent runs with full context
-    J->>H: save updated transcript
-    J-->>B: {"ok":true,"answer":"You asked about…"}
-    B->>U: post answer
-```
-
 Your bridge stores **nothing**. Each agent keeps its 100 most recently used conversations
 (`history.maxConversationsPerAgent`), so give each external chat its own key and let old ones
 age out: they are archived under `~/.jazz/history/archive/`, not deleted. See
@@ -252,16 +227,11 @@ rather keep the batch path and take tool events only.
 
 ## Asking the human something
 
-An unattended run has nobody to ask, so by default the tools that solicit an answer ,
-`ask_user_question`, `ask_file_picker`, `ask_user_secret`: are **not offered to the model at all**. It never
-sees them, so it cannot spend a round on a question that will not be answered, and cannot
-mistake a blank for a reply and act on it. A run in CI or cron that stopped to ask
-something would hang until its timeout for nobody's benefit.
+Unattended runs omit `ask_user_question`, `ask_file_picker`, and `ask_user_secret`
+from the tool list.
 
-Where a human _is_ reachable, the tools come back. That is detected rather than declared
-wherever it can be: **stdin being a terminal is enough on its own**, so running `jazz run`
-by hand needs no flag: the question is printed and you answer by typing a line, either the
-number of an option or something of your own.
+When stdin is a terminal, these tools are available without an extra flag.
+Answer a question by typing an option number or your own response.
 
 ```text
 ❓ Which database?
@@ -299,13 +269,10 @@ that it could not ask and the model is told to state an assumption or put the qu
 its reply instead. Time spent waiting does not count against `--timeout`, so a human can
 take as long as they like.
 
-The question is never truncated, unlike other event payloads: a clipped option is one
-nobody can meaningfully choose. Both shipped chat bridges pass this flag and render the
-suggestions as buttons.
+Questions are never truncated. Telegram and Discord render suggestions as buttons.
 
-`CI=true` overrides the terminal check, since some runners allocate a pty and a job that
-stops to ask something would wait out its timeout for nobody. An explicit
-`--interactive-stdin` still wins there, for a bridge running inside a pipeline.
+`CI=true` disables terminal input detection. An explicit `--interactive-stdin`
+still enables input events.
 
 ---
 
@@ -326,14 +293,12 @@ Omitting the policy grants nothing, here and in the interactive terminal alike: 
 ask, every gated call is declined. To run everything unasked, pass `--approval-policy high-risk`
 explicitly (see [Running fully unattended](../security/approvals.md#running-fully-unattended-yolo)). Shell
 commands under `read-only` and `low-risk` are admitted per command by the
-[classifier](../maintainers/tool-lifecycle.md#command-classifier), which is what lets
+[classifier](../security/approvals.md#shell-commands-are-classified-individually), which is what lets
 `git log` through without also unlocking `git push`.
 
-> ⚠️ **`low-risk` is narrower than it sounds.** It includes memory, reminders and
-> triggers, but not arbitrary mutation. Email, calendar, and Obsidian are _skills_ that shell
-> out via `execute_command` (`unknown`), so a `low-risk` run cannot archive an email. Keep
-> the tier low and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
-> `~/.jazz/config.json`. See the [tool inventory](../tools/index.md#what-is-not-a-built-in-tool).
+Skills such as email, calendar, and Obsidian run commands through `execute_command`.
+Their mutations may require a higher tier. Prefer human approval or a narrowly scoped
+command grant; see [email and calendar setup](../configure/email-calendar.md).
 
 Pick the lowest tier that lets the job finish. `high-risk` on a surface that accepts
 input from strangers means a prompt injection can run shell commands on that host: see
@@ -343,58 +308,39 @@ input from strangers means a prompt injection can run shell commands on that hos
 
 ## One-shot run in a sandbox
 
-CI, a review bot, any service that spins up one ephemeral container per job: these all want
-the same guarantee: the agent can do whatever the task needs, but nothing it writes should
-outlive the container, and it shouldn't be able to tamper with the config it was seeded with.
-That's a security requirement, not a filesystem preference: a compromised or misbehaving task
-shouldn't be able to plant a persona, poison the model config, or otherwise leave something
-behind for the next run to pick up.
-
-The natural-looking way to get there is a read-only root filesystem with a read-only bind mount
-straight at `JAZZ_HOME`:
+Use a fresh container per job, mount the input read-only, and give Jazz a writable,
+ephemeral data directory:
 
 ```bash
 docker run --rm --read-only --tmpfs /tmp \
-  -v /etc/myapp/jazz-config:/home/jazz/.jazz:ro \
-  my-image jazz run --agent reviewer
-```
-
-This breaks. `JAZZ_HOME` isn't read-only config: jazz writes there too: custom personas
-(`jazz persona create`), per-conversation work state and the compaction journal, cached model
-metadata. A live read-only mount at that path fails those writes, and depending on what's
-running, that shows up anywhere from a hard crash at startup (persona resolution falls through
-to listing `~/.jazz/personas`, which tries to create the directory) to a silently-dropped
-write nobody notices until task state that was supposed to survive compaction just isn't there.
-
-**Stage the config somewhere else, and copy it into a genuinely writable `JAZZ_HOME` on
-container start:**
-
-```bash
-docker run --rm --read-only --tmpfs /tmp --tmpfs /home/jazz/.jazz:rw,mode=1777 \
+  -e JAZZ_HOME=/tmp/jazz-home -e OPENAI_API_KEY \
   -v /etc/myapp/jazz-config:/config/jazz:ro \
-  my-image sh -c 'cp -r /config/jazz/. /home/jazz/.jazz/ && exec jazz run --agent reviewer'
+  -v "$PWD:/workspace:ro" -w /workspace \
+  my-image sh -c '
+    umask 077
+    mkdir -p "$JAZZ_HOME"
+    cp -r /config/jazz/. "$JAZZ_HOME/"
+    exec jazz run --agent reviewer --approval-policy read-only \
+      --max-cost-usd 2 --timeout 300000 "Review the files in this checkout."
+  '
 ```
 
-The security guarantee this was after: the agent can't tamper with its own durable config, and
-nothing it writes survives past the job: doesn't actually need a read-only permission bit on
-`JAZZ_HOME` itself. It only needs whatever the agent writes to be discarded, which `--rm` (or
-the container simply never being reused) already does. Copying the seed config into an ephemeral
-tmpfs at startup gets you that guarantee while jazz still gets one ordinary, fully-writable home
-directory: exactly like every other environment it runs in. The container's read-only root
-filesystem is still doing real work here (nothing outside `/tmp` and the seeded tmpfs can be
-touched at all); it's specifically a read-only `JAZZ_HOME` that's the wrong tool for isolating
-this agent.
+`my-image` must have Jazz and Bun installed. The seed directory must be readable by the
+container user and contain `agents/reviewer.json`; this example assumes an OpenAI agent
+and `OPENAI_API_KEY` supplied through the host environment. Use the matching credential
+for another provider.
 
-If you'd rather not do the copy in the container's own entrypoint, `JAZZ_HOME` also just
-respects the environment variable of the same name, so a wrapper script or your own image's
-entrypoint can do the copy into any writable location and point `JAZZ_HOME` there instead of
-`~/.jazz`.
+`JAZZ_HOME` holds runtime state and caches as well as configuration, so it must be writable.
+The seed configuration and checkout stay read-only; the copied configuration can change
+inside the container. Its changes and runtime state disappear when the container exits.
+Keep writable host mounts and unrelated credentials out of the job. See
+[Unattended runs](../security/unattended-runs.md) for tool and credential restrictions.
 
 ---
 
-## A complete bridge
+## Calling Jazz from Node.js
 
-Everything above, in one function. This is genuinely the whole integration:
+This function passes a message to Jazz and reads its JSON result:
 
 ```ts
 import { spawn } from "node:child_process";
@@ -440,8 +386,8 @@ export function askJazz(chatId: string, message: string): Promise<JazzResult> {
 }
 ```
 
-Swap `spawn` for your platform's SDK around it and you have a bot. That's exactly what
-the [Telegram](./chat.md) and [Discord](./chat.md) bridges do.
+For platform authentication, message delivery, and interactive approvals, see
+[Chat platforms](./chat.md).
 
 ---
 
@@ -449,5 +395,5 @@ the [Telegram](./chat.md) and [Discord](./chat.md) bridges do.
 
 - [Chat platforms](./chat.md): this contract, wired to a real transport
 - [CI/CD](./ci.md): the same contract inside GitHub Actions
-- [Tools & approval](../maintainers/tool-lifecycle.md): how risk tiers are decided
+- [Approvals](../security/approvals.md): what runs without asking
 - [Commands and flags](../commands.md): every command and flag

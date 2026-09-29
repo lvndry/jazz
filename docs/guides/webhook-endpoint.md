@@ -4,17 +4,10 @@ description: "Build an authenticated HTTP door that wakes one Jazz agent with a 
 
 # Wake an agent from another system with a webhook
 
-Everything else in Jazz starts when you do: you type, a schedule fires, CI runs a job. A
-webhook is the other direction. Something outside knocks, and an agent wakes up. A GitHub
-issue is opened, a deploy finishes, a form is submitted, and the agent reads it and answers.
+Create an authenticated issue-triage webhook, test it with `curl`, then connect it
+to GitHub. The webhook uses a fixed prompt and agent, with limits on tools and spend.
 
-This guide builds one end to end: an issue-triage door you can fire with `curl` in five
-minutes, then point GitHub at. By the end you will have used the things that make a webhook
-different from a `jazz run` in a shell script: a fixed prompt the caller cannot replace, a
-per-door credential (a bearer token, or a signing secret GitHub signs every delivery with), a
-tool ceiling and a budget for a caller who is not you, and an optional threaded conversation.
-
-## What a webhook is, precisely
+## How requests run
 
 One URL name bound to one agent and one prompt template, served by `jazz daemon`:
 
@@ -30,9 +23,7 @@ spliced in as an instruction, the same treatment `web_fetch` output and a peer's
 The run also gets none of your own context: no standing preferences from memory, no AGENTS.md,
 and no file attached because the payload names a path on your machine.
 
-That is the whole security posture, and it is why a webhook is the right shape for structured
-events from another application. When the other side needs to ask open-ended questions, you
-want a [peer](../concepts/agent-to-agent.md) instead.
+Use a [peer](../concepts/agent-to-agent.md) for open-ended requests between agents.
 
 ## 1. Pick the agent
 
@@ -63,7 +54,7 @@ Webhooks live in `~/.jazz/config.json` under `webhooks`. Add one:
 }
 ```
 
-Four of those fields carry weight:
+Required fields and disclosure:
 
 | Field            | What it decides                                                                      |
 | ---------------- | ------------------------------------------------------------------------------------ |
@@ -84,9 +75,7 @@ Four more are optional and bound what one sender can cost you:
 Leave `{{payload}}` out and the payload is appended at the end instead, with the same quoting
 and less control over where it sits.
 
-Say what you want back, in the template, as specifically as you can bear. The caller is a
-program: "reply with exactly three lines" is the difference between a response it can parse
-and a paragraph it cannot.
+Specify the response format in `promptTemplate` if the caller needs to parse it.
 
 ## 3. Mint the token
 
@@ -143,8 +132,6 @@ then a floor rather than a total.
 The daemon binds loopback by default, which GitHub cannot reach. Give it a public address
 first, a tunnel for a trial or a reverse proxy with TLS for anything lasting, and read
 [Surface access](../security/surface-access.md) before you bind anything but `127.0.0.1`.
-
-Then, in the repository's **Settings → Webhooks → Add webhook**:
 
 GitHub cannot send a bearer token. It signs every delivery instead: an HMAC-SHA256 of the body
 under a secret you share, in `X-Hub-Signature-256`. The secret itself never travels, so anyone
@@ -224,8 +211,7 @@ curl -X POST http://127.0.0.1:4747/webhooks/support-relay \
 ```
 
 Same `X-Jazz-Thread` value, same conversation, so the agent remembers what was already said.
-Sending a thread key to an `ephemeral` door is refused with a `400` rather than ignored. A
-caller that believes its turns are accumulating somewhere deserves to be told they are not.
+Sending a thread key to an `ephemeral` door returns `400`.
 
 The key is at most 200 characters. Fires with no key share one conversation rather than
 getting a fresh one each time, so a threaded door never silently behaves like an ephemeral one.
@@ -245,10 +231,9 @@ curl -X POST http://127.0.0.1:4747/webhooks/issue-triage \
 
 Jazz `POST`s each event as JSON to that URL while the run goes, then answers the original
 request as usual. The kinds are `tool-started`, `tool-finished`, and `approval-required`;
-omit the header to get all three. A misspelled kind is a `400`, not a silence.
+omit the header to get all three. An invalid event kind returns `400`.
 
-The URL must be loopback. Anywhere else, and this feature would be a way to make your daemon
-knock on doors chosen by whoever holds the token.
+The progress URL must be loopback.
 
 ## What the caller can and cannot do
 
@@ -274,9 +259,7 @@ axes:
   }
   ```
 
-An unnamed tool is not offered to the model at all. It is absent from the run, not queued for
-an approval nobody is there to give. That is what makes an injected payload a dead end: there
-is nothing outside the list for it to talk its way into.
+Tools outside the effective list are unavailable to the run.
 
 If the run does reach something needing approval, the fire returns `202` with a run id rather
 than hanging:
@@ -290,8 +273,8 @@ resumes inside the same boundary it parked in: the same tool list, no operator c
 only the budget it had left.
 
 **What one sender can cost you.** Without a `budget`, a webhook's runs fall back to your
-app-wide `maxTokens`, `maxCostUSD` and `maxDurationMs`, which are unset by default. A door that
-anyone holding its credential can fire deserves its own:
+app-wide `maxTokens`, `maxCostUSD` and `maxDurationMs`, which are unset by default.
+Set a separate limit for each webhook:
 
 ```json
 {

@@ -4,8 +4,6 @@ description: "How Jazz versions its releases while it is 0.x, where breaking cha
 
 # Upgrading Jazz
 
-How to update Jazz without surprises, and what a version number tells you before you do.
-
 ## Versioning policy
 
 Jazz is pre-1.0. Its version is `0.MINOR.PATCH`:

@@ -1,11 +1,11 @@
 ---
-description: "How Jazz reports files an agent produced, and why a rendered chart and a generated image are labelled differently everywhere they appear."
+description: "Find files a Jazz agent produced, understand their generation labels, and retrieve artifact paths from terminal, JSON, and chat output."
 ---
 
 # Artifacts
 
-An **attachment** is a file going _into_ a run. An **artifact** is one coming _out_. Both carry
-a path rather than bytes.
+Artifacts are files an agent produces, such as PDFs, images, audio, and video. Jazz reports
+their paths in terminal and JSON output, and uploads them in supported chat platforms.
 
 ```json
 {
@@ -29,19 +29,11 @@ a path rather than bytes.
 
 ## Where the files land
 
-A PDF you asked for by name is written where you asked. Every composition stays in
-`$JAZZ_HOME/compositions/<session-id>/<composition-name>.html`, so it can be reopened or revised
-without hunting through a temporary directory. Media that arrived mid-conversation was not
-requested by path, so it goes to `$JAZZ_HOME/generated/` rather than being scattered into whichever
-directory the agent happens to be in. The path is printed either way.
+- **PDFs:** the path you request.
+- **Compositions:** `$JAZZ_HOME/compositions/<session-id>/<composition-name>.html`.
+- **Generated media:** `$JAZZ_HOME/generated/`.
 
-## Producers declare, consumers don't detect
-
-Every producer returns its own artifacts on the tool result. Nothing downstream recognises files
-by tool name.
-
-New producers that return well-formed artifacts are surfaced automatically. Malformed entries
-are dropped at the boundary.
+Jazz prints the saved path so you can open or reuse the file.
 
 ## How each surface presents them
 
@@ -51,6 +43,7 @@ are dropped at the boundary.
 
 ## Related
 
+- [Compositions](./compositions.md): charts, dashboards, and interactive HTML pages
 - [Model companions](./media.md): analysis and generation on specialist models
 - [Tools](../tools/index.md): which tools produce files
 - [Headless](../surfaces/headless.md): the JSON envelope

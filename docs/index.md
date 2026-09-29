@@ -19,16 +19,13 @@ The first run opens a home menu; choose **Create agent** to pick a model provide
 
 - **New to Jazz:** [install it and complete your first useful run](./getting-started/index.md).
 - **Evaluating Jazz:** [explore its capabilities](./concepts/index.md) and [compare where it runs](./surfaces/index.md).
-- **Building an agent:** understand the [core concepts](./concepts/index.md), then [configure Jazz](./configure/index.md).
-- **Solving a real job:** copy a maintained [guide](./guides/index.md).
+- **Creating an agent:** [configure its model, persona, and tools](./getting-started/create-an-agent.md).
+- **Setting up a job:** follow a [guide](./guides/index.md).
 - **Operating it safely:** read the [security model](./security/index.md), and [what Jazz sends over the network on its own](./security/privacy.md).
 - **Finding what Jazz keeps on disk:** the [runtime data](./runtime-data/index.md) reference lists every file and directory it writes.
 - **Fixing something that went wrong:** start with [troubleshooting](./troubleshooting.md). [Uninstalling](./getting-started/uninstall.md) removes everything Jazz put on the machine.
-- **Contributing:** trace the implementation in the [maintainer guide](./maintainers/index.md).
 
-## What makes Jazz different
-
-Jazz is not a chat wrapper. It adds the machinery required for useful work: tool execution with approval boundaries, context management for long runs, durable work state, scheduling, per-conversation history, model-provider portability, and multiple user-facing surfaces.
+## What you can do
 
 - **One agent, every surface:** define an agent once and use it from the terminal, CI, schedules, bots, webhooks, or another agent.
 - **Built for automation:** `jazz run` keeps stdout clean, streams structured events to stderr, returns explicit exit codes, and supports JSON envelopes and run budgets.
@@ -36,12 +33,10 @@ Jazz is not a chat wrapper. It adds the machinery required for useful work: tool
 - **Several models inside one identity:** bind separate companions for image, audio, and video understanding or generation while the primary model keeps the plan, tools, memory, and conversation.
 - **Approvals that survive unattended work:** decline safely, ask on an interactive surface, or park a run and resume it after remote approval.
 - **Provider choice without losing the harness:** use cloud providers, Ollama, llama.cpp, vLLM, or SGLang while keeping Jazz's tools, context controls, workflows, and surfaces.
-- **Harness quality you can measure:** the eval suite tests whether context, prompts, and tools improve task reliability instead of assuming a change helped.
-- **Optional advisory plugins:** install explicitly trusted, digest-pinned extensions without adding
-  their code, credentials, network calls, or latency to other users' runs.
+- **Plugins:** install trusted extensions for additional tool recommendations and approval decisions.
 
 The [concepts overview](./concepts/index.md) links to each capability and how to use it.
 
 ## Exact syntax
 
-Commands and flags are collected in the generated [command index](./commands.md). Before updating across a minor version, read [Upgrading](./upgrading.md) for the versioning policy and how breaking changes are announced. Configuration and tool details live under [Configure](./configure/index.md) and [Tools](./tools/index.md), where examples are checked against the code.
+Find commands and flags in the [command index](./commands.md). Before updating across a minor version, read [Upgrading](./upgrading.md) for the versioning policy and how breaking changes are announced. Configuration and tool details live under [Configure](./configure/index.md) and [Tools](./tools/index.md).

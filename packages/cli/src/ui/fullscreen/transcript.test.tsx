@@ -1,15 +1,9 @@
 /** @jsxImportSource @opentui/react */
 
 /**
- * The transcript's contract, measured rather than described.
- *
- * The load-bearing test is the density one. An earlier draft of this layout was
- * measured at 32% ink and rejected as "very busy", so the design was given a
- * number to hit: ≤22% ink and ≥40% breathing rows on a realistic session. Every
- * other assertion here protects a rule that keeps that number honest — the
- * measure, the right margin, receipts without durations, chrome on the neutral
- * ramp — and one of them reads the real RGB out of the frame, which the rest of
- * this repo's suite (colour off) cannot do.
+ * Verify transcript layout, wrapping, scrolling, and colors with the terminal
+ * renderer. Cases cover narrow and wide viewports, user backgrounds, metadata,
+ * tool calls, Markdown, and streamed updates.
  */
 
 import { report as commandReport } from "@jazz/core/interfaces/terminal";
@@ -23,7 +17,6 @@ import { measureFor, type Block, type Viewport } from "./types";
 import { parseInlineMarkdown } from "../markdown/inline";
 import { parseMarkdown } from "../markdown/parse";
 import { markdownRoleColor, type MarkdownRole } from "../markdown/spans";
-import { PROSE_MEASURE } from "../text/measure";
 import { terminalCellWidth } from "../text/terminal-cells";
 import { setThemeVariant, THEME } from "../theme";
 
@@ -315,9 +308,9 @@ describe("the measure", () => {
     }
   });
 
-  it("caps running prose at the measure however wide the terminal grows", () => {
+  it("uses the available width for conversation text as the terminal grows", () => {
     for (const width of [80, 120, 200] as const) {
-      const expected = Math.min(PROSE_MEASURE, measureFor(width).prose);
+      const expected = width - 4;
       const rows = transcriptRows(SESSION, { width, height: 34 });
       const prose = rows.filter(
         (row) =>
@@ -325,23 +318,43 @@ describe("the measure", () => {
       );
       expect(prose.length).toBeGreaterThan(0);
       for (const row of prose) {
-        expect(row.contentWidth).toBe(expected);
+        expect(row.contentWidth).toBe(row.key.startsWith("u1:") ? expected - 7 : expected);
         const used = row.content.reduce((total, segment) => total + [...segment.text].length, 0);
         expect(used).toBeLessThanOrEqual(row.contentWidth);
       }
     }
-    expect(measureFor(80).prose).toBeLessThan(PROSE_MEASURE);
+    expect(measureFor(200).prose).toBe(196);
   });
 
-  it("wraps a long paragraph at the measure on a wide terminal", async () => {
+  it.each([80, 120, 200])("uses the available width for tool calls at %i columns", (width) => {
+    const args = "x".repeat(width - 35);
+    const rows = transcriptRows(
+      [
+        {
+          id: "tool-wide",
+          seq: 1,
+          kind: "tool",
+          app: "execute_command",
+          args,
+          summary: "done",
+          status: "ok",
+        },
+      ],
+      { width, height: 34 },
+    );
+    expect(rows[0]?.contentWidth).toBe(width - 4);
+    expect(rows[0]?.content.map((segment) => segment.text).join("")).toContain(args);
+  });
+
+  it("wraps a long paragraph at the available width on a wide terminal", async () => {
     const paragraph = Array.from({ length: 60 }, (_, index) => `word${String(index)}`).join(" ");
     const blocks: readonly Block[] = [{ id: "a", seq: 1, kind: "agent", markdown: paragraph }];
     const { rows } = await render(transcript(blocks, WIDE), WIDE);
     const widest = Math.max(
       ...rows.filter((row) => row.includes("word")).map((row) => row.trimEnd().length),
     );
-    expect(widest).toBeLessThanOrEqual(2 + PROSE_MEASURE);
-    expect(widest).toBeGreaterThan(PROSE_MEASURE - 12);
+    expect(widest).toBeLessThanOrEqual(2 + measureFor(WIDE.width).prose);
+    expect(widest).toBeGreaterThan(measureFor(WIDE.width).prose - 12);
   });
 
   it("gives tables and expanded output the full width instead", () => {
@@ -352,8 +365,8 @@ describe("the measure", () => {
     expect(detail.length).toBe(3);
     const measure = measureFor(WIDE.width);
     for (const row of [...table, ...detail]) {
-      expect(row.contentWidth).toBe(measure.prose + measure.metadata);
-      expect(row.contentWidth).toBeGreaterThan(measure.prose);
+      expect(row.contentWidth).toBe(measure.prose);
+      expect(row.contentWidth).toBe(WIDE.width - 4);
     }
   });
 
@@ -514,15 +527,15 @@ describe("the measure", () => {
     }
     const stamped = rows.find((line) => line.includes("14:32")) ?? "";
     const stampEnd = stamped.indexOf("14:32") + "14:32".length;
-    expect(stamped.indexOf("14:32")).toBeGreaterThan(2 + PROSE_MEASURE);
-    expect(stampEnd).toBeLessThanOrEqual(2 + PROSE_MEASURE + measureFor(wide.width).metadata);
+    expect(stamped.indexOf("14:32")).toBe(wide.width - 7);
+    expect(stampEnd).toBe(wide.width - 2);
   });
 
   it("puts the timestamp in the metadata column, not in the sentence", async () => {
     const { rows } = await render(transcript(SESSION, WIDE), WIDE);
     const row = rows.find((line) => line.includes("14:32"));
     expect(row).toBeDefined();
-    expect((row ?? "").indexOf("14:32")).toBeGreaterThan(measureFor(WIDE.width).prose);
+    expect((row ?? "").indexOf("14:32")).toBe(WIDE.width - 7);
   });
 });
 
@@ -666,12 +679,12 @@ describe("reasoning is subordinate by geometry", () => {
     },
   ];
 
-  it("sets it narrower than prose, indented, dim and never bold", async () => {
+  it("uses the available width for indented, dim reasoning", async () => {
     const rows = transcriptRows(expanded, WIDE);
     const widest = Math.max(
       ...rows.map((row) => row.content.reduce((total, seg) => total + [...seg.text].length, 0)),
     );
-    expect(widest).toBeLessThan(measureFor(WIDE.width).prose);
+    expect(widest).toBeLessThanOrEqual(WIDE.width - 2);
     for (const row of rows) {
       for (const segment of row.content) expect(segment.bold).not.toBe(true);
       expect(row.gutter[0]?.text).toBe(" ");
@@ -728,7 +741,7 @@ describe("notices and dividers", () => {
     const rows = transcriptRows(blocks, WIDE);
     expect(rows.find((row) => row.key.startsWith("n:"))?.gutter[0]?.text).toBe(getGlyphs().warn);
     expect(rows.find((row) => row.key.startsWith("d:"))?.contentWidth).toBe(
-      measureFor(WIDE.width).prose + measureFor(WIDE.width).metadata,
+      measureFor(WIDE.width).prose,
     );
 
     const { rows: frame, spans } = await render(transcript(blocks, WIDE), WIDE);
@@ -932,8 +945,8 @@ describe("lanes", () => {
     const rows = transcriptRows(lanes, WIDE);
     const plain = transcriptRows([{ id: "u", seq: 1, kind: "user", text: "hello" }], WIDE);
 
-    // Same content width at depth 0 and inside a lane: depth costs no measure.
-    expect(rows[0]?.contentWidth).toBe(plain[0]?.contentWidth);
+    // Only the lane label and its gap reduce the available text cells.
+    expect(rows[0]?.contentWidth).toBe((plain[0]?.contentWidth ?? 0) - "lane 1".length - 2);
     // Two gutter cells for every row, delegated or not, so the content column
     // is in the same place whatever the depth.
     for (const row of rows) expect(row.gutter).toHaveLength(2);
@@ -1564,11 +1577,11 @@ describe("code fences", () => {
     for (const row of band) {
       expect(row.backgroundColor).toBe(THEME.surfaceStrong);
       expect(row.bandIncludesGutter).toBe(true);
-      expect(row.contentWidth).toBe(PROSE_MEASURE);
+      expect(row.contentWidth).toBe(WIDE.width - 4);
     }
     const top = band[0];
     expect(contentText(top).trimStart()).toBe("bash");
-    expect(contentText(top).length).toBe(PROSE_MEASURE - 1);
+    expect(contentText(top).length).toBe(WIDE.width - 5);
     expect(top?.content[top.content.length - 1]?.fg).toBe(THEME.muted);
     expect(band[band.length - 1]?.content).toEqual([]);
     expect(contentText(band[1]).startsWith("curl")).toBe(true);
@@ -1585,11 +1598,11 @@ describe("code fences", () => {
     expect(contentText(rows[last + 2])).toBe("Done.");
   });
 
-  it("grows past the measure only for a line that needs it", () => {
-    const wide = "x".repeat(PROSE_MEASURE + 10);
+  it("fits a long code line within the available width", () => {
+    const wide = "x".repeat(WIDE.width - 5);
     const rows = transcriptRows(agent(`\`\`\`\n${wide}\n\`\`\``), WIDE);
     const band = rows.filter((row) => row.backgroundColor !== undefined);
-    expect(band[0]?.contentWidth).toBe(PROSE_MEASURE + 11);
+    expect(band[0]?.contentWidth).toBe(WIDE.width - 4);
   });
 
   it("strips a list item's indentation from a fence opened inside it", () => {
@@ -1618,6 +1631,6 @@ describe("metadata alignment", () => {
     const { rows } = await render(transcript(blocks, WIDE), WIDE);
     const folded = rows.find((row) => row.includes("thought for 4.1s")) ?? "";
     expect(folded).toContain("ctrl+r to read");
-    expect(folded.indexOf("4.1s")).toBeLessThan(2 + PROSE_MEASURE);
+    expect(folded.indexOf("4.1s")).toBeLessThan(2 + measureFor(WIDE.width).prose);
   });
 });

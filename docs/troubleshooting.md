@@ -93,8 +93,8 @@ Jazz stores secrets in macOS Keychain or, on Linux, the Secret Service (`secret-
 Linux machine without a desktop session usually has no Secret Service; Jazz then uses
 `~/.jazz/secrets.json`, readable only by you.
 
-- "`$JAZZ_DISABLE_KEYRING` is set, so Jazz won't store this token anywhere" means exactly
-  that: unset the variable, or supply the secret as an environment variable.
+- If `$JAZZ_DISABLE_KEYRING` prevents storage, unset it or supply the secret as an
+  environment variable.
 
 ## The daemon is not running
 

@@ -1,4 +1,5 @@
 ---
+/** Render documentation with navigation, search, code blocks, and readable Mermaid diagrams. */
 import Base from "./Base.astro";
 import type { PrevNext, SidebarSection } from "../lib/docs";
 
@@ -385,11 +386,10 @@ const jsonLd = [
   // The library loads only on pages that actually contain one.
   const blocks = document.querySelectorAll<HTMLPreElement>('pre[data-language="mermaid"]');
   if (blocks.length > 0) {
-    const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     import("mermaid").then(async ({ default: mermaid }) => {
       mermaid.initialize({
         startOnLoad: false,
-        theme: dark ? "dark" : "neutral",
+        theme: "neutral",
         themeVariables: { fontFamily: "IBM Plex Mono, monospace" },
       });
       let id = 0;
@@ -412,7 +412,17 @@ const jsonLd = [
 <style is:global>
   .mermaid-diagram {
     overflow-x: auto;
-    padding: 10px 0;
+    padding: 10px;
+    background: #ffffff;
+    border-radius: 6px;
+  }
+  .mermaid-diagram .nodeLabel,
+  .mermaid-diagram .nodeLabel p,
+  .mermaid-diagram .label text,
+  .mermaid-diagram text.actor,
+  .mermaid-diagram .noteText {
+    color: #000000 !important;
+    fill: #000000 !important;
   }
   .mermaid-diagram svg {
     max-width: 100%;

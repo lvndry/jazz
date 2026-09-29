@@ -1,13 +1,12 @@
 ---
-description: "Every jazz command and flag, verified against the source: run agents, manage sessions, configure providers, and drive headless automation."
+description: "Jazz command and flag reference for agents, conversations, providers, workflows, and unattended runs."
 ---
 
 # Jazz commands and flags
 
 This page helps you find the exact command and flag you need.
 
-Verified against [`packages/runtime/src/cli-app.ts`](../packages/runtime/src/cli-app.ts). Run `jazz <command> --help`
-for the same information at the terminal.
+Run `jazz <command> --help` for help in the terminal.
 
 ---
 
@@ -30,13 +29,8 @@ Available on every command.
 
 ## `jazz`
 
-With no arguments, launches the interactive wizard: new conversation, create/list/edit/delete
-agents, update configuration. The home screen reports what is ready under **setup** (agents) and,
-under **environment**, the same machine facts every agent receives in its system prompt: date,
-OS with shell and user, working directory, and hardware. Both come from one source, so the screen
-cannot drift from what agents are actually told. On a short terminal the environment report is the
-first section dropped, after the tip. A randomly chosen tip highlights a chat command, agent
-setting, tool, workflow, or example task available in Jazz.
+With no arguments, opens the home menu to start a conversation, manage agents, or update
+settings. The home screen shows your agents and the current machine environment.
 
 Global options work here too: `jazz --debug` and `jazz --data-dir ~/work` open the same home. The
 home needs a terminal to ask its questions. Without one (stdin or stdout piped, cron, CI), or with
@@ -49,8 +43,8 @@ classic inline interface, which prompts the same way.
 
 ## `jazz run`: headless, one-shot
 
-The command every non-terminal integration is built on. Takes a dynamic prompt, runs one
-agent turn, prints a clean payload. **stdout is the answer; all chatter goes to stderr.**
+Runs one agent turn from a prompt. The answer goes to stdout; status messages and progress
+go to stderr.
 
 ```bash
 jazz run --agent <id> [prompt]
@@ -60,8 +54,8 @@ The prompt comes from the positional argument, from an `--input-stdin` frame, or
 stdin when neither is given and stdin is not a TTY. Only a positional or framed prompt may back a
 memory write; plain piped stdin is treated as untrusted text.
 
-Framed stdin preserves UTF-8 characters across arbitrary pipe chunk boundaries, including
-incognito history. Bytes after the first newline remain available for interactive replies.
+With `--input-stdin`, send the prompt as JSON on the first line. Subsequent lines are
+available for interactive replies.
 
 | Flag                           | Default      | Purpose                                                                                                                                                                |
 | ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -79,7 +73,7 @@ incognito history. Bytes after the first newline remain available for interactiv
 | `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                                    |
 | `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing                   |
 | `--max-duration-ms <ms>`       | none         | Stop once elapsed wall-clock time reaches this budget, interrupting a model call or tool in flight, with agent pressure nudges at 50/80/90%                            |
-| `--stream`                     | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                                                            |
+| `--stream`                     | auto         | Force streaming. Text and reasoning event categories enable it automatically unless `--no-stream` is set                                                               |
 | `--no-stream`                  | off          | Disable streaming                                                                                                                                                      |
 | `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                                      |
 | `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                                                |

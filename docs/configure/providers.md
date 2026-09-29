@@ -69,7 +69,7 @@ Run `jazz`, choose **Settings**, then **LLM Providers**, then **ChatGPT**, and p
 
 Choosing ChatGPT for an agent in `jazz agent create` starts the same sign-in when you are not signed in yet.
 
-The tokens are stored in the keyring (or the Jazz secrets file on hosts without one), and `config.json` records only the account ID and plan. Jazz refreshes the token on its own. Several Jazz processes on one machine share a sign-in safely, because only one of them refreshes at a time. The model list comes from your plan, so it only shows models the plan can use. Web search uses OpenAI's built-in search unless you have chosen an external search provider.
+The tokens are stored in the keyring (or the Jazz secrets file on hosts without one), and `config.json` records only the account ID and plan. Jazz refreshes the token on its own. The model list comes from your plan, so it only shows models the plan can use. Web search uses OpenAI's built-in search unless you have chosen an external search provider.
 
 For hosted CI, set `JAZZ_CHATGPT_CREDENTIAL` to the JSON bundle copied from **Settings** → **LLM Providers** → **ChatGPT** (`c`). Jazz reads it only when no stored ChatGPT credential exists and removes the variable before launching child processes. Refresh tokens rotate, so ephemeral workflows must persist a newly refreshed bundle before the next run; serialize all workflows that use the same credential. See the [GitHub Actions setup guide](../../.github/jazz/README.md) for the Jazz workflow's GitHub App updater.
 

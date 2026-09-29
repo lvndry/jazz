@@ -7,13 +7,9 @@ description: "The Jazz authorization model: risk, disclosure, and egress as inde
 Jazz runs model-selected actions as your operating-system user. These controls reduce accidental
 and model-induced harm. They do not turn an untrusted model into an OS sandbox.
 
-What they give you is a precise answer to one question. **This caller, on this surface: what can
-it reach?**
+## Tool permissions
 
-## Every tool declares three things, and they are independent
-
-Most harnesses have one dial: approved or not. Jazz separates three properties, because
-collapsing them loses the cases that actually bite.
+Jazz controls tool execution, access to information, and network requests separately.
 
 | Property       | The question it answers                           |
 | -------------- | ------------------------------------------------- |
@@ -21,15 +17,13 @@ collapsing them loses the cases that actually bite.
 | **Disclosure** | What class of information can its _answer_ carry? |
 | **Egress**     | Does calling it send data off this machine?       |
 
-They are independent in both directions, and that is the point:
+For example:
 
 - `web_search` is read-only and mutates nothing, yet it hands a private query to a third party.
   Risk says "safe", egress says "not without asking".
 - `write_file` changes your disk and touches no network. Egress says "safe", risk says "ask".
 - `read_file` neither acts nor transmits, but its answer can carry anything on your disk.
   Disclosure is the only axis that sees it.
-
-A single "is this dangerous" flag gets at most one of those three right.
 
 ## Who is asking
 
@@ -40,9 +34,6 @@ question in two wire formats, so they share one model.
 **A webhook token holder is a counterparty, not the operator.** The secret authenticates that
 webhook, never a person, and it lives in a third party's settings screen: a GitHub repo's webhook
 config, an IFTTT applet, a proxy you do not administer.
-
-Treat whoever presents it as owner-equivalent and a leaked field in somebody else's SaaS console
-becomes a shell on your machine. Peers get the same treatment, for the same reason.
 
 So a caller's run is a stranger's run in every respect, not only its tools. It gets none of your
 context (standing preferences, AGENTS.md, files named by a path in its text), a per-door budget
@@ -65,7 +56,7 @@ anything else                     →  admitted only if named in `allow`
 | `internal` | + paths, names, what is installed. Not file contents           |
 | `private`  | + your own material, still read-only. The most any caller gets |
 
-Three consequences worth stating plainly:
+The following restrictions apply:
 
 - **Raising the tier never grants an acting tool.** Disclosure is silent about damage, so
   `execute_command` is not admitted at `private`. It is admitted by being named, at any tier.
@@ -86,8 +77,7 @@ Three consequences worth stating plainly:
 
 ## Read next
 
-- [Approvals](./approvals.md) and the [tool lifecycle](../maintainers/tool-lifecycle.md): how a
-  call is classified and executed
+- [Approvals](./approvals.md): what runs without asking
 - [Secrets and egress](./secrets-and-egress.md): keyring, the shell environment scrub, MCP trust
 - [Unattended runs](./unattended-runs.md): the checklist before you automate something
 - [Surface access](./surface-access.md): authenticating bots, webhooks, the daemon, and peers

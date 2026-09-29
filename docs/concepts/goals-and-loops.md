@@ -13,9 +13,8 @@ prompt on a schedule until what it watches for happens.
 /goal Get every recipe in ./recipes into the new format until ./check.sh passes
 ```
 
-The agent starts right away, in the conversation you are in. There is no plan to approve first, and
-nothing looks different from a normal chat: the same streaming, the same approvals under your safe
-or yolo mode, questions asked inline. A goal changes how the work gets done, not how it looks.
+The agent starts immediately in the current conversation, using your safe or yolo approval
+mode. Questions and approvals appear in chat.
 
 When a turn ends, the next one starts on its own:
 
@@ -25,8 +24,7 @@ When a turn ends, the next one starts on its own:
 
 It keeps going until the agent reports the goal done. Jazz accepts that report only when it quotes
 tool output showing the objective holds (a passing check, a file's contents, a command's result).
-If the quote is missing or does not match, the goal goes on, and the next turn is told why. A goal
-is finished when it is proven, not when the model says so.
+If the quote is missing or does not match, Jazz continues the goal and tells the next turn why.
 
 There is no turn limit. Each turn is held to the agent loop's own limits (iterations, and the
 token, cost, and time caps if you set them in config), like any turn. What goals and loops spend

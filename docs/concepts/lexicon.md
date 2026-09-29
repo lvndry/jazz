@@ -1,5 +1,5 @@
 ---
-description: "The Jazz glossary: which word means what, which two words are not the same thing, and the precise vocabulary used across these docs."
+description: "Look up Jazz terms for agents, conversations, runs, tools, memory, goals, loops, approvals, context management, and generated files."
 ---
 
 # Lexicon
@@ -52,11 +52,6 @@ unattended bridge memory across invocations.
 | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
 | **Goal** | An objective the agent keeps working toward, turn after turn, until it proves it holds with tool output. Each turn toward it is a **cycle**. See [Goals and loops](./goals-and-loops.md). | the user (`/goal`, `jazz goal`), or accepting a proposal |
 | **Loop** | A prompt rerun on a schedule, in a conversation of its own, until it ends itself or hits a limit. Each rerun is a **run**.                                                                | the user (`/loop`, `jazz loop`)                          |
-
-**Work state is subjective; a run is objective.** Work state is the agent's diary and can
-be wrong or stale. A run's state is a fact about a process. They can disagree without
-either being broken: a model can be planning its next step while the run it is planning
-inside has already parked, waiting for someone to approve a tool.
 
 ## Content
 

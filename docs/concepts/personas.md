@@ -7,14 +7,8 @@ description: "What a Jazz persona is, how it shapes behaviour and can narrow an 
 A persona is a reusable system prompt with a name. It decides how an agent works: its voice, its
 priorities, what it does when a task is unclear.
 
-Jazz keeps the persona body intact, then adds one `Jazz harness` block for cross-tool runtime rules,
-capability indexes, and applicable project instructions. Tool-specific guidance stays with the tool
-so it does not crowd the agent's identity out of the system prompt. The harness treats the
-persona's identity, tone, style, priorities, and response patterns as a binding contract throughout
-the conversation.
-
-It says nothing about which model runs. You can attach the same persona to different models,
-but how closely they follow it depends on the model and the conversation context.
+Attach the same persona to different models or agents. How closely a model follows it depends
+on the model and the conversation context.
 
 Jazz ships four: `default` for general work, `coder` for code and git, `researcher` for
 read-only investigation, and `summarizer`, which is internal and has no user to address.
@@ -60,8 +54,7 @@ Three placeholders are filled in at run time. They are what let one file serve m
 | `{agentDescription}` | The agent's own description, so one persona hosts many jobs    |
 | `{environment}`      | Live machine facts: date, OS, shell, home, hostname, user, TTY |
 
-Use `{environment}` rather than writing "you are on macOS" into the prompt. Hardcode the machine
-and the persona is wrong the first time somebody else installs it.
+Use `{environment}` for machine-specific information.
 
 ## A repeatable persona structure
 
@@ -88,9 +81,6 @@ An optional `tools` block in the frontmatter lets a persona restrict what agents
 This only ever subtracts. A persona cannot grant a tool, undo `deniedTools`, raise a disclosure
 ceiling, or change the approval policy.
 
-That separation is the point. Installing a persona from the library should never widen what
-your agent can do to your machine.
-
 ## Where they come from
 
 Built-in personas ship with Jazz. Your own live in `~/.jazz/personas/<name>/PERSONA.md`, written
@@ -106,10 +96,8 @@ jazz persona search            # everything the library offers
 
 ## Persona or agent config
 
-Ask whether you would want a second agent to inherit it.
-
-Yes, and it belongs in the persona. No, and it belongs in the agent, along with the provider,
-model, credentials, memory scopes, and tools.
+Put reusable behavior in the persona. Set the model, credentials, memory scopes, and tools
+in each [agent's configuration](../configure/agents.md).
 
 ## Related
 

@@ -149,7 +149,7 @@ Below 50% nothing is touched. For each old, large tool result it decides keep / 
 Jazz applies the decision by replacing content (never removing a message, so assistant/tool pairing
 stays valid) and only ever sends the result preview, not the whole body. The policy is asymmetric —
 a result is dropped only on a confident signal, a large uncertain one is truncated to head and tail,
-and anything else is kept — because losing a still-needed result is worse than keeping a stale one.
+and anything else is kept.
 If the plugin abstains, times out, or is absent, Jazz falls back to its deterministic tool-result
 clearer. It never touches user or assistant text.
 

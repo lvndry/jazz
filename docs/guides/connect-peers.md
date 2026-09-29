@@ -4,11 +4,10 @@ description: "Hands-on setup for peer links between two Jazz machines: approval 
 
 # Setting up peers
 
-A hands-on walkthrough for letting your agent ask a friend's agent something, and letting
-theirs ask yours. For the policy this is built on: tiers, the ledger, what no tier ever
-permits. Read [Agent-to-agent](../concepts/agent-to-agent.md) first; this page assumes you've seen it.
+Connect two Jazz installations so their agents can ask each other for help.
+Read [Agent-to-agent](../concepts/agent-to-agent.md) for disclosure tiers and request logging.
 
-This is more than agent chat. A peer is useful when responsibility must stay divided:
+Use peers when each installation needs to keep its own credentials and permissions:
 
 - a personal planning agent can ask a company-hosted engineering agent for repository status without receiving company credentials;
 - a laptop agent can ask a home-server agent to inspect local services without exposing that machine's filesystem tools to the laptop;
@@ -17,9 +16,7 @@ This is more than agent chat. A peer is useful when responsibility must stay div
 
 The receiving Jazz installation chooses the model, persona, tools, and disclosure ceiling. The caller sends a request; it never lends its permissions or dictates how the other machine executes it.
 
-You need three things, in order: something worth asking, someone willing to answer it, and a
-shared secret only the two of you know. Everything else is which network sits between you,
-and that's the actual difference between the three setups below:
+Choose the setup that matches your network:
 
 |                                        | Where the daemon binds   | Encryption            | Needs a domain? |
 | -------------------------------------- | ------------------------ | --------------------- | --------------- |
@@ -27,14 +24,8 @@ and that's the actual difference between the three setups below:
 | [A tailnet](#over-a-tailnet)           | the tailnet interface    | Tailscale's WireGuard | no              |
 | [The internet](#over-the-internet)     | loopback, behind a proxy | TLS at the proxy      | yes             |
 
-Pick the one that matches your actual situation: they don't build on each other.
-
-Every walkthrough below gets the shared secret onto both machines with an
-invite: whichever side will _answer_ creates a link, the other
-side accepts it, and nobody types or pastes a token. Each section also shows the manual way ,
-generate one with `openssl`, run `jazz peers set-token` on both sides, edit config by hand ,
-as a fold-out, for when you'd rather not have acceptance write your config for you, or you're
-scripting setup somewhere a human won't be there to confirm a link.
+The answering side creates an invite link; the caller accepts it to configure the
+connection and shared credential. Each setup also includes manual configuration.
 
 **Where the token lives:** an OS keyring when one's reachable (Keychain on macOS,
 `secret-tool`/libsecret on Linux), otherwise a `chmod 600` file at `$JAZZ_HOME/secrets.json`.
@@ -47,9 +38,7 @@ both if you'd rather manage tokens yourself.
 
 ## One machine, two agents
 
-Run both sides yourself first, with `JAZZ_HOME` pointed at two separate directories. This is
-the whole feature, fully live, with nothing exposed to a network: the fastest way to see the
-tiers actually refuse something before you involve a second computer.
+Use two separate `JAZZ_HOME` directories to test both sides on one machine.
 
 ```bash
 export ALICE=/tmp/jazz-alice
@@ -64,8 +53,8 @@ JAZZ_HOME=$BOB   jazz agent create   # name it "bob"
 JAZZ_HOME=$BOB jazz daemon --serve-peers bob --port 4748
 ```
 
-Loopback by default, so nothing outside this machine can reach it. Leave this running in its
-own terminal.
+The daemon runs in the background and listens only on loopback.
+Stop it with `JAZZ_HOME=$BOB jazz daemon stop --port 4748`.
 
 ### 2. Bob invites Alice
 
@@ -126,8 +115,7 @@ daemon, no `disclosure` needed: tiers only matter to whoever is answering):
 JAZZ_HOME=$ALICE jazz agent edit alice
 ```
 
-Tick `ask_peer` in the toolset. It only appears at all once a peer is configured: a tool the
-model can see is a tool it will try, so it stays absent otherwise.
+Select `ask_peer` in the toolset. It appears only after a peer is configured.
 
 ### 5. Ask
 
@@ -152,8 +140,7 @@ JAZZ_HOME=$BOB   jazz peers log   # what Bob was asked, and what he said
 JAZZ_HOME=$ALICE jazz peers log   # what Alice asked, and what came back
 ```
 
-The refused request shows up too, with the actual reply: that's the point of logging the
-answer and not just the outcome.
+Refused requests are logged with the reply.
 
 ---
 
@@ -164,8 +151,7 @@ network: a friend's laptop, a home server, a personal fleet. No public exposure,
 no certificate: the tailnet is already a private, encrypted network, so the daemon just binds
 to it directly instead of to loopback.
 
-This assumes Alice and Bob each run `jazz` on their own machine (not `JAZZ_HOME` tricks. That was only for sharing one machine above) and both have Tailscale installed and logged into the
-same tailnet.
+Alice and Bob each need Jazz installed and Tailscale connected to the same tailnet.
 
 ### 1. Bob finds his tailnet address
 
@@ -188,32 +174,17 @@ Bind the specific tailnet address, not `0.0.0.0`. If this machine also has a pub
 `100.x` address keeps the daemon reachable only from the tailnet, which is the whole reason to
 use one.
 
-A bearer token is still required to reach the operator routes, because the bind-safety check
-has no way to know _which_ non-loopback interface is safe. It treats all of them the same, on
-purpose. `daemon install` generates one itself and writes it straight to a private service
-environment file (`/etc/jazz/daemon.env`, `chmod 600`): owned by root on Linux, where systemd
-reads it before switching to your account, and by you on macOS, where the service reads it as
-you. It never goes
-through the OS keyring and never needs to be exported first, so there's nothing to set up on a
-headless server with no keyring and no `sudo -E`. (Only running `jazz daemon` directly in the
-foreground on a non-loopback host, without installing it, still needs that token to come from
-somewhere: the keyring on a workstation, or `$JAZZ_DAEMON_TOKEN` yourself.)
-
-This writes the unit, enables it, and starts it via `systemctl`/`launchctl`, so it survives
-reboots and closed sessions, and it doesn't report success until it's confirmed the daemon
-actually answers its own `/health` route, not just that the supervisor accepted the unit. On
-failure it prints the exact command to see why the process didn't come up
-(`journalctl -u jazz-daemon` on Linux). Nothing here invokes `sudo` on its own: you're the one
-running it. From a source checkout, use `sudo bun run cli -- daemon install …` instead; the
-installed service runs that checkout's Bun entry point directly.
+`daemon install` provisions an operator token in `/etc/jazz/daemon.env`, installs
+the system service, and starts it. If startup fails, it prints a command for
+reading the service logs.
 
 Check on it anytime with `jazz daemon status` (or `systemctl status jazz-daemon`, or
 `launchctl list | grep jazz` on macOS), read its output with `jazz daemon logs -f`, and remove it
 again with `sudo jazz daemon uninstall`.
 
-If you'd rather test in a foreground session before committing to a persistent service, run
-`jazz daemon --serve-peers bob --host 100.101.102.103` first. It only lasts until you Ctrl+C or
-close the session, since it forks nothing and writes no pidfile on purpose.
+To test in the foreground first, run
+`jazz daemon --foreground --serve-peers bob --host 100.101.102.103`.
+Stop it with Ctrl+C.
 
 ### 3. Bob invites Alice
 
@@ -221,10 +192,7 @@ close the session, since it forks nothing and writes no pidfile on purpose.
 jazz peers invite create alice --host 100.101.102.103 --disclosure internal --expires 1h
 ```
 
-Plain `http://` in the printed link, deliberately. Tailscale's WireGuard tunnel already
-encrypts everything between the two machines, and a raw TCP connection to a `100.x` address
-only ever reaches a node on your own tailnet. There is nothing TLS would add here, so the
-invite command won't warn about it either.
+The link uses `http://`; Tailscale encrypts traffic between the two machines.
 
 ### 4. Alice accepts
 
@@ -280,9 +248,8 @@ Same verification as the one-machine walkthrough: `jazz peers log` on both sides
 For a peer that isn't on a private network with you at all. This needs a domain and TLS, but
 **the daemon itself never has to leave loopback**: a reverse proxy on Bob's box terminates
 TLS and forwards only the paths that peers actually need, so the daemon's operator routes
-(`/runs`, `/health`) never become reachable from the internet even by accident. No
-`$JAZZ_DAEMON_TOKEN` needed either, for the same reason: the daemon is never bound beyond
-loopback.
+(`/runs`, `/health`) remain private. Jazz provisions the daemon's operator token
+even on loopback; peer requests use their separate peer credential.
 
 This assumes Bob has a server with a public domain (`bob-agent.example.com` below) and a
 reverse proxy already fronting it. [Caddy](https://caddyserver.com) is used here because it
@@ -294,10 +261,9 @@ gets you automatic TLS from a three-line config; nginx or anything else works th
 jazz daemon --serve-peers bob
 ```
 
-No `--host` flag. This is the default, and it's correct here. Run it under whatever already
-supervises long-lived processes on this box (systemd, launchd, a container with
-`restart: always`); the daemon itself has no pidfile or fork, by design, so something else
-has to be the thing that restarts it if it dies.
+The daemon starts in the background on loopback. For restarts after a crash or
+reboot, install it with `sudo jazz daemon install --serve-peers bob --yes`, or use
+`--foreground` under your existing process supervisor.
 
 ### 2. Bob's proxy forwards two paths
 
@@ -403,8 +369,6 @@ jazz peers log
 
 ## Next steps
 
-- [Setting up peers](../guides/connect-peers.md): how the invite flow works and why it's shaped
-  the way it is
 - [Agent-to-agent](../concepts/agent-to-agent.md): the tier model, the ledger, and what this does not protect
   you from
 - [`jazz daemon`](../commands.md#jazz-daemon): the HTTP server peers runs on top of

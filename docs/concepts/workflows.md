@@ -53,7 +53,7 @@ Closest wins. A repository can have its own `code-review` without touching yours
 
 Jazz ships no workflows of its own. The [library](#the-library) has a dozen you can install with
 one command and edit afterwards, from a morning weather briefing to a merged-pull-request recap.
-An installed copy is yours: it lives in `~/.jazz/workflows/<name>/` and nothing overwrites it.
+Installed copies live in `~/.jazz/workflows/<name>/` and can be edited locally.
 
 ## Several schedules, one workflow
 
@@ -81,12 +81,9 @@ Each label keeps its own last-run marker, so the monthly recap covers the whole 
 the weekly one ran four times in between. Catch-up treats each schedule on its own for the same
 reason. Two schedules of one workflow may not share a cron.
 
-Schedules created before labels existed are re-installed as `<name>/default` the first time Jazz
-lists them.
-
 ## The library
 
-Other people's workflows are one command away:
+Browse and install workflows:
 
 ```bash
 jazz workflow browse             # pick one, read the whole file, install it
@@ -107,8 +104,7 @@ own, and you cannot schedule it.
 
 An **[agent](./agents.md)** is who does the work.
 
-They combine. A workflow can list skills in its frontmatter: the workflow says what to do on
-Friday, the skill says how that kind of work is done.
+A workflow can list skills in its frontmatter to supply the procedures its agent should follow.
 
 ## Try it in the terminal first
 
@@ -122,5 +118,5 @@ an interactive run can hide actions that will be refused unattended.
 ## Related
 
 - [Workflow frontmatter](../configure/workflows.md): every field and its default
-- [Scheduled runs](../surfaces/scheduled.md): what installing a schedule actually does
+- [Scheduled runs](../surfaces/scheduled.md): installing and managing schedules
 - [`jazz workflow`](../commands.md): list, run, schedule, history, catch-up

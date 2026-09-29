@@ -56,9 +56,7 @@ shared personas and sandbox traversal. Conversation homes (`2750`) still receive
 State files that are replaced as a whole (`config.json`, agents, memory, run history,
 reminders, wake triggers, job batches, `state.json`) are written to a temporary file, flushed
 to disk, and renamed into place, so a crash or power cut leaves either the old file or the new
-one. Cancellation waits for an in-flight durable replacement to finish before releasing its
-store lock, so the cancelled write cannot overwrite a later writer. Locks distinguish process
-start times as well as PIDs, including when the current process reuses a crashed holder’s PID.
+one.
 
 Reminders, wake triggers, job batches, run history, and `state.json` carry a `schemaVersion`.
 When one of them cannot be read (torn JSON, a wrong shape), Jazz moves it aside to
@@ -84,7 +82,6 @@ Prefer these to reading files:
 
 A run's transcript is saved when the run finishes, not incrementally, so reading `history/`
 mid-run tells you nothing about the turn in flight. Use the daemon or `--events` for that.
-[Run lifecycle](../maintainers/run-lifecycle.md) has the exact ordering.
 
 Telemetry is the exception: it is written as events happen, whether or not you export anywhere.
 See [observability](../configure/observability.md).
@@ -114,11 +111,6 @@ background always finds its conversation where it left it. Each archived convers
 in `logs/jazz.log`. To read one, decompress it (`gunzip -c
 ~/.jazz/history/archive/conversations/<agent>/<conversation>.jsonl.gz`); to bring it back, put
 the decompressed file in `history/conversations/<agent>/`.
-
-A conversation log records each turn once. The UI scrollback saved alongside it is appended the
-same way, as the entries added since the last save, with a full copy only after `/clear`. Logs
-written by an older Jazz, which stored the whole scrollback on every save, are compacted the
-next time the conversation is saved.
 
 The history layout that predates per-agent directories (`history/<agent>.json` indexes and
 `history/sessions/`) is no longer read. The first save after upgrading moves those files to

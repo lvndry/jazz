@@ -24,10 +24,8 @@ best for reasoning and tool use, then bind specialist models to media roles:
 }
 ```
 
-The result is one stable agent, with the same persona, conversation, memory, tools, and
-surface, and different models doing the parts they are actually good at. A cheap text model can orchestrate a
-run, a vision model can inspect screenshots, and a different image model can render the final
-asset. Each role can use a different provider, price point, and privacy boundary.
+Companions keep the agent's persona, conversation, memory, and tools. Each media role can
+use a different model and provider.
 
 The six independent roles are `analyze:image`, `analyze:audio`, `analyze:video`,
 `generate:image`, `generate:audio`, and `generate:video`. Analysis and generation are separate
@@ -95,6 +93,6 @@ A companion receives its input through its provider and therefore creates egress
 parent uses a local model. A generation brief can be sensitive too. Bind only providers permitted
 to receive that material. The child
 cost contributes to the parent run's aggregate cost; if any child price is unknown, `costKnown` is
-false rather than pretending the run was free.
+false.
 
 Build a working version in [Turn incident evidence into a visual briefing](../guides/media-companions.md).

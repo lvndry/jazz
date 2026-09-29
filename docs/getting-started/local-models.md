@@ -48,7 +48,9 @@ For vLLM, choose the `vllm` provider. It defaults to `http://127.0.0.1:8000/v1`,
 
 For SGLang, choose `sglang`. It defaults to `http://127.0.0.1:30000/v1`, accepts `SGLANG_BASE_URL`, and uses the same live-model selection pattern. Its `/v1/models` cards report the served `max_model_len` for the base model; LoRA adapters inherit that window when their own card omits it. Configure the server's tool and reasoning parsers for the model you load. See [SGLang setup](../configure/providers.md#sglang).
 
-A bare `llama-server` serves whatever single model was loaded at launch and ignores the model name in each request, and that model can differ between runs. So the model chosen when the agent was created is only a hint: at the start of every run Jazz asks the server (`/v1/models`) which model it is actually serving and uses that name, along with the real context window the server was started with (`/props`, i.e. `-c`). vLLM and SGLang use the same refresh pattern and report their served context through `/v1/models` when available. Pinning `numCtx` on an agent limits Jazz's context accounting; it does not reconfigure either server.
+Jazz refreshes the served model and context window at the start of each run.
+For llama.cpp, the loaded model takes precedence over the saved agent model name.
+Setting `numCtx` limits Jazz's context accounting; it does not reconfigure the server.
 
 ## What `JAZZ_OFFLINE` does, and does not do
 

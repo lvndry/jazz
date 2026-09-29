@@ -2,7 +2,7 @@
 description: "Run a real tool-using AI agent inside Telegram, Discord, iMessage, WhatsApp, Slack, or your own app: same agent, same tools, same approval rules as the terminal."
 ---
 
-# Chat platforms. Telegram, Discord, iMessage, WhatsApp, your own app
+# Chat platforms
 
 How to put a real tool-using agent into a chat thread.
 
@@ -33,42 +33,9 @@ command. iMessage has two implementations: Photon provides a hosted line with no
 
 ## The bridge pattern
 
-Every chat bridge is the same three responsibilities. Only the middle one is
-platform-specific.
-
-```mermaid
-flowchart TB
-    subgraph platform["Your platform adapter"]
-        direction TB
-        IN["Receive a message<br/>webhook or long-poll"]
-        AUTH["Authorize the sender<br/>allowlist"]
-        FMT["Format the reply<br/>markdown → mrkdwn / HTML / embeds"]
-        OUT["Post the reply"]
-    end
-
-    subgraph jazz["Jazz (zero lines)"]
-        direction TB
-        RUN["<b>jazz run --json</b><br/>--conversation chat-id<br/>--approval-policy low-risk"]
-        MEM["History, tools, skills,<br/>model, cost accounting"]
-    end
-
-    IN --> AUTH
-    AUTH -->|allowed| RUN
-    AUTH -->|denied| DROP["Ignore"]
-    RUN --> MEM
-    MEM --> RUN
-    RUN --> FMT
-    FMT --> OUT
-
-    classDef mine fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-    classDef theirs fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-    class IN,AUTH,FMT,OUT,DROP mine
-    class RUN,MEM theirs
-```
-
-You write the orange boxes. You do not write session storage, context management, tool
-dispatch, approval logic, or cost tracking. `--conversation` and `--approval-policy`
-cover those. See [Headless](./headless.md) for the contract in full.
+For a custom chat integration, use [`jazz run`](./headless.md) to start runs and read
+results and progress events. Your adapter handles incoming messages, sender authorization,
+and replies in the platform's format.
 
 ---
 
@@ -102,27 +69,6 @@ What the Telegram bridge demonstrates: worth reading before you write your own:
 | **Allowlist**             | Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is silently ignored.                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ### The message flow
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant TG as Telegram
-    participant BR as bridge (Bun)
-    participant JZ as jazz run
-    participant LLM as Model + tools
-
-    TG->>BR: getUpdates long-poll → message
-    BR->>BR: chat id in allowlist?
-    BR->>TG: sendChatAction "typing…"
-    BR->>JZ: spawn: --json --conversation chat-id
-    JZ->>LLM: iterate: reason → call tools → observe
-    JZ--)BR: stderr NDJSON: tool_execution_start, subagent_start…
-    BR--)TG: edit status bubble (live)
-    LLM-->>JZ: final answer
-    JZ-->>BR: stdout: one JSON envelope
-    BR->>TG: sendMessage (markdown, new message so it notifies)
-    BR->>TG: edit bubble → "✅ Done · 7 tools · 12k tokens · $0.03"
-```
 
 ---
 
@@ -196,8 +142,8 @@ is told to take it to a private chat. See
 
 ## Slack, Google Chat
 
-No adapter ships. Here's what changes from the shipped bridges, and it really is just the
-edges:
+Jazz does not ship adapters for Slack or Google Chat. A custom adapter must handle
+the platform's authentication, conversation IDs, formatting, and acknowledgement deadlines:
 
 | Concern              | Telegram                          | Discord                                           | Slack                                 | Google Chat            |
 | -------------------- | --------------------------------- | ------------------------------------------------- | ------------------------------------- | ---------------------- |
@@ -217,19 +163,11 @@ Two things to get right, both platform-side:
 2. **Translate the markdown.** `jazz run` without `--json` gives you raw markdown
    precisely so you can convert it. Slack's `mrkdwn` in particular is not markdown.
 
-Everything else (memory, tools, approvals, cost) you get from the flags.
-
 ---
 
 ## Sending yourself a message
 
-A bridge is a bot, and a bot can post without being asked. Once one is running you
-have a push channel to your own phone that anything on that machine can use: a
-script, a cron job, a long-running agent run, another session on another host, you
-at a shell. It does not have to be about the bridge, and it does not have to be
-about a deploy.
-
-Each bridge ships a `notify.sh` next to it that takes one argument:
+Use a bridge's `notify.sh` script to send a message from a shell or scheduled job:
 
 ```sh
 ~/jazz/packages/telegram-bot/src/notify.sh "backup finished, 41 GB, no errors"
@@ -241,24 +179,15 @@ Each bridge ships a `notify.sh` next to it that takes one argument:
 It reads the same `.env` the bridge runs on and posts to the first allowed chat
 (`TELEGRAM_ALLOWED_CHAT_IDS`, or `DISCORD_ALLOWED_CHANNEL_IDS`).
 
-What makes it worth reaching for over any other alerting: **no run is started and
-no model is called.** It is a single API call, so it costs nothing, needs no
-provider key, and works while the agent is busy, wedged, or not running at all ,
-which is exactly when you most want to hear from the machine. It also means you can
-call it from inside something the agent is doing without recursing into a new run.
+The script sends directly through the platform API without starting an agent run or calling a model.
 
-Chain it onto anything long:
+To notify after a job:
 
 ```sh
 ./long-job.sh && notify.sh "long-job: done" || notify.sh "long-job: FAILED ($?)"
 ```
 
-Or hand it to `cron`, where it replaces the usual habit of appending to a logfile
-nobody opens. That habit has a real cost: a nightly updater on one box failed for
-over two weeks before anyone noticed, because its only output went to
-`~/jazz-autoupdate.log`. `auto-update.sh` now calls `notify.sh` instead.
-
-It exits non-zero and explains itself if the credentials are missing, so a caller
+The script exits non-zero and explains itself if the credentials are missing, so a caller
 can note that without failing whatever it was doing:
 
 ```sh
@@ -267,8 +196,7 @@ notify.sh "..." || echo "(notify failed)"
 
 ### Doing it without the script
 
-Useful from a machine that has no checkout, or when the script itself is what is
-broken. The shape matters more than the URL:
+You can also call the platform API directly:
 
 ```sh
 ENV=~/jazz/packages/telegram-bot/src/.env
@@ -282,7 +210,7 @@ curl -sS -o /dev/null -X POST \
 work fine this way"
 ```
 
-Three details that are easy to get wrong:
+When sending directly:
 
 - **Read the token, don't print it.** Assign it to a variable; never `cat` the
   `.env` or `echo` the token. Anything that reaches a terminal reaches shell
@@ -302,27 +230,10 @@ JSON body, so escaping is on you, which is the main reason to prefer `notify.sh`
 
 ## Security for chat surfaces
 
-A chat surface accepts input from **other people**. That changes the threat model in a way
-worth being blunt about.
-
-```mermaid
-flowchart LR
-    STRANGER["Message from<br/>a person"] --> AGENT["Agent<br/>(full toolset)"]
-    AGENT --> POLICY{"--approval-policy"}
-    POLICY -->|read-only| SAFE["Reads and searches only"]
-    POLICY -->|low-risk| MILD["+ durable work state,<br/>reminders, sub-agents"]
-    POLICY -->|high-risk| DANGER["+ shell, git push,<br/>file deletion<br/><b>on the host</b>"]
-
-    classDef ok fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-    classDef warn fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-    classDef bad fill:#c1443c,stroke:#7d2b26,color:#ffffff
-    class SAFE ok
-    class MILD warn
-    class DANGER bad
-```
+Restrict who can reach the bot and what their runs may do.
 
 - **Always use an allowlist.** Both bridges and Jazz have one; use both.
-- **Default to `low-risk`.** At `high-risk`, a message (or a prompt injection inside a web page the agent fetched) can run arbitrary commands on the host. That is the documented behavior of that tier, not a bug.
+- **Default to `low-risk`.** At `high-risk`, a message (or a prompt injection inside a web page the agent fetched) can run arbitrary commands on the host.
 - **Know what "yolo" costs.** Every bridge's `/mode yolo` is `high-risk` for that conversation, and it is sticky: it survives `/new` and bridge restarts until someone sets it back to safe. Only an operator can turn it on (`TELEGRAM_OPERATOR_IDS`, `DISCORD_OPERATOR_IDS`, `WHATSAPP_OPERATOR_NUMBERS`, `IMESSAGE_OPERATOR_HANDLES`, `PHOTON_OPERATOR_HANDLES`; the iMessage account owner always is one), and the same goes for Telegram's "Always allow". Anyone admitted can turn it back to safe. With no operators configured, nobody can turn approvals off from chat.
 - **An approval belongs to whoever asked.** In a group, only the person whose message started a run can approve, reject or answer its prompts; a tap or a typed `1` from anyone else does nothing. Cancelling is theirs too, or an operator's.
 - **A run gets an allowlisted environment.** The bridge passes an agent run its PATH, locale and time zone, proxies, the provider keys and endpoints Jazz reads, and Jazz's own switches. The bot token, webhook secret, WhatsApp and Photon credentials, the daemon token, and anything else in the bridge's environment are left out, so an agent that runs `env` cannot hand the bot to whoever asked. A message and an incognito transcript reach the run on stdin, never on the command line, where every account on the host could read them.
@@ -334,15 +245,15 @@ flowchart LR
 - **Cap concurrency.** `JAZZ_BOT_MAX_CONCURRENT_RUNS` (default 4) bounds how many agent runs one bridge has in flight across every chat, and `JAZZ_BOT_MAX_QUEUED_MESSAGES` (default 5) how many messages may wait behind one chat's run.
 - **Cap spend.** Use `costKnown` as well as `costUSD`. The bridges pause subsequent requests after an unpriced run; no dollar cap can guarantee the cost of that first unpriced request.
 
-Full model: [Security](../../SECURITY.md).
+See the [security model](../security/index.md).
 
 ---
 
 ## Related
 
 - [Headless](./headless.md): the contract every bridge uses
-- [`packages/telegram-bot/`](../../packages/telegram-bot/): Telegram reference implementation
-- [`packages/discord-bot/`](../../packages/discord-bot/): Discord reference implementation
+- [`packages/telegram-bot/`](../../packages/telegram-bot/): Telegram setup
+- [`packages/discord-bot/`](../../packages/discord-bot/): Discord setup
 - [`packages/photon-bot/`](../../packages/photon-bot/): hosted iMessage line
 - [`packages/imessage-bot/`](../../packages/imessage-bot/): local iMessage through your Mac
 - [`packages/whatsapp-bot/`](../../packages/whatsapp-bot/): WhatsApp, as a linked device

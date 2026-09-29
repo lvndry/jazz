@@ -7,8 +7,6 @@ description: "Authenticate every way into a Jazz agent: chat allowlists, webhook
 Every remote surface has to answer three questions before a run starts: who may start work here,
 which conversation do they resume, and what may that run reveal or execute.
 
-The four surfaces answer them differently, and the differences are not arbitrary.
-
 | Surface      | Who is authenticated   | Credential                                            | Bounded by                            |
 | ------------ | ---------------------- | ----------------------------------------------------- | ------------------------------------- |
 | **Chat bot** | a platform account     | platform allowlist of chat ids                        | the agent's own toolset               |
@@ -16,7 +14,7 @@ The four surfaces answer them differently, and the differences are not arbitrary
 | **Daemon**   | a client of the daemon | one bearer token; grants also need the operator token | the agent's own toolset               |
 | **Peer**     | one agent identity     | a per-peer token, or an invite                        | `disclosure`, `allow`, and its budget |
 
-Read the daemon row twice. Its token can start runs. Granting authority (accepting or resuming a
+The daemon token can start runs. Granting authority (accepting or resuming a
 goal, starting or resuming a loop, approving or answering a parked run, and any write to an agent
 or persona) also needs the operator token, which lives only in the OS keyring.
 
@@ -28,13 +26,12 @@ grant than one that can ask a question.
 Set the platform allowlist and nothing else answers. `TELEGRAM_ALLOWED_CHAT_IDS` and its Discord
 equivalent take comma-separated chat ids.
 
-A message from anyone else is ignored, not refused. A refusal would confirm the bot exists.
+Messages from anyone else are ignored.
 
 Each allowlisted chat gets isolated conversation state. The Telegram bridge goes further: each
 chat's agent runs as its own Unix user, under its own Jazz home.
 
-So one person's agent cannot read another's transcripts, memory, or mail credentials. The kernel
-enforces that, not a filename convention.
+This prevents one person's agent from reading another's transcripts, memory, or mail credentials.
 
 See [chat surfaces](../surfaces/chat.md) for the per-platform setup.
 
@@ -89,10 +86,7 @@ the CLI on the machine. See
 
 ## Before you bind a public port
 
-In rough order of how much each one saves you:
-
-1. **Do not.** Bind loopback and reach it over a tailnet or an SSH tunnel. Most "remote access"
-   needs are this, and it removes the entire class of problem.
+1. **Prefer private access.** Bind loopback and reach it over a tailnet or an SSH tunnel.
 2. **Terminate TLS at a reverse proxy** you already run. Jazz speaks plain HTTP; a token over
    plain HTTP on a shared network is a token you have published.
 3. **Scope who can reach the port,** with a firewall rule or a private network. Otherwise the

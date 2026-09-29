@@ -13,7 +13,6 @@ import {
   type MarkdownSyntax,
 } from "./spans";
 import { layoutTable } from "./table";
-import { PROSE_MEASURE } from "../text/measure";
 import { highlightFenceLines, type SyntaxSpan } from "../text/syntax-spans";
 import {
   sliceTerminalCells,
@@ -25,7 +24,7 @@ import { wrapStyledSpans } from "../text/wrap";
 import { THEME } from "../theme";
 
 export interface AnsiMarkdownOptions {
-  /** Cells available. Prose stops at {@link PROSE_MEASURE}; tables and code may use all of it. */
+  /** Cells available for prose, tables, and code. */
   readonly width: number;
   readonly syntax?: MarkdownSyntax;
   readonly glyphs?: GlyphSet;
@@ -275,7 +274,7 @@ export function markdownToAnsi(markdown: string, options: AnsiMarkdownOptions): 
   const width = Math.max(1, options.width);
   const layout: Layout = {
     width,
-    prose: Math.min(width, PROSE_MEASURE),
+    prose: width,
     syntax,
     glyphs,
     hyperlinks: options.hyperlinks ?? chalk.level > 0,

@@ -9,8 +9,6 @@ Jazz integrates email and calendars through skills that teach the agent to opera
 - The `email` skill uses [Himalaya](https://github.com/pimalaya/himalaya) for IMAP and SMTP accounts.
 - The `calendar` skill uses [khal](https://github.com/pimutils/khal) with vdirsyncer for CalDAV, or [gcalcli](https://github.com/insanum/gcalcli) for Google Calendar.
 
-The same setup can be reused by agents backed by different models because account access belongs to the host integration, not the model provider.
-
 ## Email
 
 Install Himalaya and configure the account outside an unattended run:
@@ -40,11 +38,11 @@ khal list now 7d
 
 Use the `calendar` skill after the host commands work. The skill can inspect events and, when approved, create or edit them.
 
-Calendar data is usually cached locally by vdirsyncer. Decide whether synchronization happens before every Jazz run, on its own schedule, or through an explicit operator command. A stale local cache is a data-quality failure, not an agent reasoning failure.
+Calendar data is usually cached locally by vdirsyncer. Decide whether synchronization happens before every Jazz run, on its own schedule, or through an explicit operator command.
 
 ## Google Calendar
 
-The calendar skill uses gcalcli for Google accounts because Google's current authentication and discovery path does not fit the khal/vdirsyncer setup used for ordinary CalDAV servers. Complete gcalcli's OAuth setup interactively, then verify `gcalcli agenda` before scheduling an agent.
+Use gcalcli for Google accounts. Complete gcalcli's OAuth setup interactively, then verify `gcalcli agenda` before scheduling an agent.
 
 ## Security boundary
 

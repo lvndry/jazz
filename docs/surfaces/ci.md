@@ -1,174 +1,140 @@
 ---
-description: "Put a Jazz agent in your pipeline: PR review bots, release-note drafting, and scheduled CI jobs with pinned models and read-only-by-default policies."
+description: "Add Jazz to your CI pipeline for pull-request summaries, code review, release notes, or failed-build analysis, with a GitHub Actions example."
 ---
 
-# CI/CD. Jazz in your pipeline
+# Jazz in CI
 
-Jazz reviews pull requests and writes release notes in this repository. Copy its setup or
-run Jazz in your own pipeline.
+Run Jazz in your pipeline when a job needs to interpret code, changes, or logs. It reads
+the input, uses the tools you allow, and returns an answer your pipeline can save or publish.
 
----
+| Job                   | Input                                     | Result                                  |
+| --------------------- | ----------------------------------------- | --------------------------------------- |
+| Pull-request summary  | The diff and relevant source files        | A summary for reviewers                 |
+| Code review           | The diff and your review instructions     | Findings to check before merging        |
+| Release notes         | Commits since the previous release        | A draft grouped by user-visible changes |
+| Failed-build analysis | Test output, build logs, and source files | Likely causes and suggested fixes       |
 
-## What runs on this repo
+Keep your existing tests and linters. A successful Jazz run means it produced an answer;
+it does not mean the changes passed review.
 
-Two jobs, three triggers, one workflow file:
-[`.github/workflows/jazz.yml`](../../.github/workflows/jazz.yml).
+## Set up an agent
 
-```mermaid
-flowchart TD
-    subgraph triggers["Triggers"]
-        PR["PR opened / ready for review"]
-        C1["comment: /jazz-review"]
-        C2["comment: /jazz &lt;question&gt;"]
-        WD["workflow_dispatch"]
-    end
+Create an agent locally with `jazz agent create`, choose a provider and model, then copy
+its JSON file from `~/.jazz/agents/` into your repository, for example
+`.ci/jazz/agents/ci-helper.json`. Use `ci-helper` as its `id` and `name`.
 
-    RESOLVE["<b>resolve</b> job<br/>work out the PR number,<br/>base SHA, head SHA,<br/>and the request text"]
+The runner needs that file and the matching provider credential. Store the API key in
+your CI secret store and pass it as an environment variable, such as `OPENAI_API_KEY` or
+`ANTHROPIC_API_KEY`. Keep credentials out of the agent file. See
+[Agent configuration](../configure/agents.md) and [Model providers](../configure/providers.md).
 
-    PR --> RESOLVE
-    C1 --> RESOLVE
-    C2 --> RESOLVE
-    WD --> RESOLVE
+Test the agent from your checkout before enabling the pipeline:
 
-    RESOLVE --> REVIEW["<b>code-review</b> job<br/>agent: ci-reviewer<br/>workflow: code-review"]
-    RESOLVE --> ASSIST["<b>assistant</b> job<br/>agent: pr-assistant<br/>workflow: pr-assistant"]
-
-    REVIEW --> INLINE["Inline, line-level<br/>review comments<br/>+ a verdict"]
-    ASSIST --> COMMENT["One PR comment<br/>answering the question"]
-
-    classDef job fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-    classDef out fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-    class RESOLVE,REVIEW,ASSIST job
-    class INLINE,COMMENT out
+```sh
+jazz run --agent ci-helper --approval-policy read-only --max-iterations 10 \
+  "Read this repository and summarize its main components. Do not modify files."
 ```
 
-- **`code-review`** runs automatically on non-draft PRs from the same repository, and on demand via `/jazz-review`. It posts **inline comments on specific lines**, not a wall of text at the bottom.
-- **`assistant`** answers `/jazz <anything>` on a PR ("summarize this", "why does this work", "is this backwards compatible") grounded in the real diff and the real code.
-- **`resolve`** normalizes PR context from each trigger and reacts 👀 to the triggering comment.
+## Example: summarize a pull request in GitHub Actions
 
-Release notes work the same way: [`release.yml`](../../.github/workflows/release.yml) bumps
-the version, tags it, then runs an agent over every commit since the last tag and creates
-the GitHub Release with the result. That job's `GITHUB_TOKEN` is read-only and the
-agent runs at a read-only approval policy; the release itself is created with a separate token.
+Add your provider key as a repository Actions secret. This example uses an OpenAI agent
+and `OPENAI_API_KEY`; change both for another provider.
 
----
-
-## Copy it into your repo
-
-```bash
-# from your repo root
-cp -r path/to/jazz/.github/jazz .github/
-cp path/to/jazz/.github/workflows/jazz.yml .github/workflows/
-```
-
-Then add **one** repo secret (Settings → Secrets and variables → Actions):
-
-| Secret               | When                                        | Purpose                        |
-| -------------------- | ------------------------------------------- | ------------------------------ |
-| `<PROVIDER>_API_KEY` | one, matching the provider your agents name | model access                   |
-| `GITHUB_TOKEN`       | automatic                                   | read PR context, post comments |
-
-The checked-in agents use `openai`, so `OPENAI_API_KEY` is the one to add if you
-change nothing. That is the key `jazz.yml` passes. Point `config.llm.provider` at
-another provider and add its key as the secret, plus one `<PROVIDER>_API_KEY:` line
-beside `OPENAI_API_KEY` in the workflow's two `Run` steps. The variable names are
-in [Model providers](../configure/providers.md).
-
-Open a PR, or comment `/jazz summarize this PR`.
-
-Two files will want editing: the defaults are tuned for a TypeScript / Bun / Effect-TS
-codebase:
-
-- `.github/jazz/agents/ci-reviewer.json`: model, provider, toolset
-- `.github/jazz/workflows/code-review/WORKFLOW.md`: what "a good review" means for _your_ stack
-
-Full setup and customization guide:
-[`.github/jazz/README.md`](../../.github/jazz/README.md).
-
----
-
-## How a CI run is wired
-
-The workflow substitutes the PR's SHAs into a workflow template, then runs Jazz headless.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant GH as GitHub Actions
-    participant FS as runner filesystem
-    participant JZ as jazz
-    participant API as GitHub API
-
-    GH->>FS: checkout PR head (fetch-depth 0, no persisted token)
-    GH->>FS: bun install -g jazz-ai
-    GH->>FS: copy .github/jazz/agents/*.json → ~/.jazz/agents/
-    GH->>FS: substitute __PR_BASE_SHA__, __PR_HEAD_SHA__,<br/>__WORKSPACE__ into WORKFLOW.md
-    GH->>API: snapshot PR text and trusted authors' comments
-    GH->>JZ: jazz workflow run code-review --auto-approve<br/>--agent ci-reviewer --max-cost-usd 2 --json
-    JZ->>FS: git diff base..head, read files, grep
-    JZ-->>GH: one JSON envelope on stdout
-    GH->>API: create review with inline comments
-```
-
-Three flags do the CI-specific work:
-
-- `--json`: stdout carries exactly one envelope, `{"ok":true,"answer":…}` or
-  `{"ok":false,"error":…}`. The run step reads it with `jq`, so a failed run is reported with
-  its cause ("Review skipped: provider authentication failed.") in the PR comment and
-  the job summary.
-- `--auto-approve`: apply the workflow's own `autoApprove:` policy instead of prompting. There is no human on a runner. The shipped workflows use `read-only`, where the command classifier admits read-only commands such as `git diff`.
-- `--max-cost-usd`: stop the run between iterations once it has spent this much.
-
-`fetch-depth: 0` matters: the agent needs real history to diff against the base.
-
----
-
-## Any pipeline, not just GitHub
-
-Nothing above is GitHub-specific except the API calls. The general shape:
+Save this as `.github/workflows/jazz-summary.yml`. It reviews same-repository pull requests
+and writes the answer to the job summary. It does not post comments or change files.
 
 ```yaml
-- run: npm install -g jazz-ai
-- run: jazz --output raw workflow run my-review --auto-approve
-  env:
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+name: Jazz PR summary
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  summarize:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+      - run: bun add -g --trust jazz-ai
+      - name: Install the agent configuration
+        run: |
+          mkdir -p "$HOME/.jazz/agents"
+          cp .ci/jazz/agents/ci-helper.json "$HOME/.jazz/agents/"
+      - name: Summarize the changes
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          {
+            printf '%s\n' 'Summarize this pull request for a reviewer. Describe the behavior changes and anything that needs manual verification. Do not modify files.'
+            git diff "$BASE_SHA" "$HEAD_SHA"
+          } | jazz run --agent ci-helper --json \
+            --approval-policy read-only --max-cost-usd 2 \
+            --max-iterations 20 --timeout 600000 > jazz-result.json
+          jq -er '.answer' jazz-result.json >> "$GITHUB_STEP_SUMMARY"
 ```
 
-Or skip workflow files entirely and use [`jazz run`](./headless.md) with a dynamic prompt:
+Full Git history lets the job compare the base and head commits. The read-only policy
+allows repository inspection and declines tools above that tier. Jazz exits nonzero if
+the run fails, so the job fails rather than publishing a successful summary.
 
-```bash
-VERDICT=$(git diff origin/main...HEAD | jazz run --json --agent reviewer \
-  --approval-policy read-only --timeout 600000)
+For inline review comments and `/jazz` commands on a pull request, use the
+[PR reviewer setup](../guides/pr-review.md).
 
-echo "$VERDICT" | jq -r '.answer'
-echo "cost: $(echo "$VERDICT" | jq -r '.costUSD')"
+## Adapt it to another pipeline
 
-# .ok means Jazz completed successfully; define a machine-readable review
-# verdict in your prompt before using the answer to gate the build.
-echo "$VERDICT" | jq -e '.ok' > /dev/null || exit 1
+GitLab CI, CircleCI, Jenkins, and other runners use the same steps: install Jazz, copy
+the agent configuration into `$JAZZ_HOME/agents/`, provide the credential, and run
+`jazz run` from the checkout. The example uses Bun; you can also install Jazz with the
+[standalone installer](../getting-started/quick-start.md#1-install-the-cli).
+
+You can pipe build logs or release history into the prompt:
+
+```sh
+{
+  printf '%s\n' 'Explain the failing tests in this log. Read source files if needed. Do not modify files.'
+  cat test-output.log
+} | jazz run --agent ci-helper --json --approval-policy read-only \
+  --max-cost-usd 2 --max-iterations 20 --timeout 600000 > jazz-result.json
+
+jq -er '.answer' jazz-result.json > build-analysis.md
 ```
 
-Because the answer is on stdout and the noise is on stderr, this composes with `jq`,
-`tee`, and every other pipeline tool you already use.
+To reuse detailed instructions across jobs, save them as a
+[workflow](../configure/workflows.md) and call `jazz workflow run`.
 
----
+## Results and limits
 
-## Practical notes for unattended runs
+With `--json`, stdout contains one JSON result; status messages and progress go to stderr.
+Save stdout separately so your pipeline can read `.ok`, `.answer`, `.error`, and `.costUSD`.
+See [Headless runs](./headless.md) for the output fields and exit codes.
 
-| Concern                           | What to do                                                                                                                                                                                                                                                      |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Runaway cost**                  | Set `--max-cost-usd`, `--max-iterations` and `--timeout`, and `timeout-minutes` on the job. The `--json` envelope reports `costUSD` per run: log it and alert on it.                                                                                            |
-| **Fork PRs**                      | The `code-review` job deliberately only runs for PRs from the same repository. A fork PR can contain a prompt injection _and_ a workflow change; don't hand it a provider secret.                                                                               |
-| **Prompt injection via the diff** | The diff, the PR text and its comments are untrusted input. Keep the reviewer at `read-only`, leave `http_request` out of its tools, feed it only trusted authors' comments, and check out with `persist-credentials: false` so no token sits in `.git/config`. |
-| **Flaky provider**                | Jazz retries transient LLM failures with capped exponential backoff (up to 10 attempts, 15-minute ceiling for the whole call), so a single 429 doesn't fail your build.                                                                                         |
-| **Reproducibility**               | Pin the model in the agent JSON. `latest` aliases move under you.                                                                                                                                                                                               |
-| **Provider choice**               | CI is where a cheap fast model usually wins. This is one field in the agent config.                                                                                                                                                                             |
-| **One-shot run in a sandbox**     | Don't bind-mount seed config straight at `JAZZ_HOME` read-only: jazz writes there too (personas, work state). See [One-shot run in a sandbox](./headless.md#one-shot-run-in-a-sandbox).                                                                         |
+Set `--max-cost-usd`, `--max-iterations`, and `--timeout` for each run, plus your CI job's
+own timeout. Budget limits can return a partial answer; check the result's cap flags if
+your job requires a complete response. Pin the Jazz version and model after validating
+the setup in your pipeline.
 
----
+Publish results in a separate CI step with only the permissions that step needs. If
+Jazz's answer will decide whether a build passes, define a structured verdict and validate
+it before using it; `.ok` only reports whether the run succeeded.
 
-## Related
+## Pull requests and credentials
 
-- [Headless](./headless.md): the `jazz run` contract
-- [CI pull-request reviewer](../guides/pr-review.md): the maintained GitHub Actions setup
-- [`.github/jazz/README.md`](../../.github/jazz/README.md): setup guide
+The example skips fork pull requests because GitHub withholds Actions secrets from those
+runs. Do not switch it to `pull_request_target` and execute a contributor's checkout with
+secrets available. See [GitHub's guidance](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target).
+
+Treat diffs, logs, and PR text as untrusted input. Start with read-only approvals and
+`persist-credentials: false`; a review agent does not need a GitHub token to inspect the
+checkout. See [Unattended runs](../security/unattended-runs.md) for approval policies and
+credential access.

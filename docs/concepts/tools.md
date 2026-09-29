@@ -1,44 +1,38 @@
 ---
-description: "What a Jazz tool is, the three properties every tool declares, how a gated call runs in two phases, and how to add one without writing a plugin."
+description: "Choose Jazz tools, control their permissions, review proposed changes before approval, and extend an agent with custom tools or MCP servers."
 ---
 
 # Tools
 
-A tool is a typed operation the model may request: a name, a description, an input schema, a
-handler, and security metadata. The model asks; Jazz decides whether the call happens.
+Tools let an agent read files, run commands, search the web, and perform other actions.
+Your agent's tool settings and approval policy control which calls can run.
 
-## Three properties, not one dial
+## Tool permissions
 
 Every tool declares **risk** (can this change something), **disclosure** (what class of
 information its answer carries), and **egress** (does this send data off the machine). They are
-independent, and [the security model](../security/index.md) explains why collapsing them loses
-the cases that bite. Risk is the one an approval policy compares against:
+independent. The approval policy checks risk; see [the security model](../security/index.md)
+for disclosure and egress controls:
 
 | Tier        | Covers                                                                     |
 | ----------- | -------------------------------------------------------------------------- |
-| `read-only` | Reads, searches, web requests                                              |
-| `low-risk`  | Todos, work state, subagents, and other bounded writes                     |
-| `high-risk` | Anything that mutates: writes, deletes, moves                              |
+| `read-only` | Reads, searches, web requests, todos, work state, scratchpad, subagents    |
+| `low-risk`  | Memory writes, reminders, and wake triggers                                |
+| `high-risk` | File writes, deletes, and moves                                            |
 | `unknown`   | `execute_command`, classified per command and then judged against the tier |
-
-**`low-risk` is narrower than it sounds.** It does not mean "moderately dangerous things".
 
 Email, calendar and Obsidian are skills that shell out through `execute_command`, so they sit at
 `unknown`. A `low-risk` run declines anything the classifier does not judge inspect-only or
 minor. The [tool inventory](../tools/index.md) has the exact classification of every tool.
 
-## Gated tools act in two phases
+## Reviewing changes
 
-A `high-risk` tool does not act when the model calls it. It returns a description of what it
-_would_ do, including a real preview diff for edits, and only after approval does Jazz invoke the
-hidden `execute_*` half of the pair.
-
-So you see the exact diff before a file is written. And an unattended run declines cleanly
-instead of half-acting, because the first phase only produced a proposal.
+Before a `high-risk` tool acts, Jazz shows the proposed operation. File edits include a
+preview diff. Approve to apply the change or reject to leave it unapplied.
 
 ## When a tier is too coarse
 
-Raising the whole policy to admit one command is the wrong move. Narrow the exception instead:
+To allow a specific tool or command, use these controls:
 
 | Control               | Where                                            | Scope                             |
 | --------------------- | ------------------------------------------------ | --------------------------------- |
@@ -53,16 +47,10 @@ Raising the whole policy to admit one command is the wrong move. Narrow the exce
 Command matching uses a parsed key, the binary plus its first subcommand, never a raw string
 prefix. Approving `git status` therefore does not also approve `git status && rm -rf /`.
 
-## How a tool reaches the model
+## Finding tools
 
-Jazz registers built-in, MCP, skill-support and agent-defined custom tools, resolves the agent
-and persona grants, subtracts explicit denials, applies caller requirements, and exposes what
-survives.
-
-Not all of it arrives the same way. Always-on categories send their full schema every turn.
-
-Deferred categories send a name and a one-line summary. The model calls `search_tools` to load a
-full schema when it needs one, which is what keeps a large MCP catalogue off every turn.
+Some tool schemas load only when needed. The agent uses `search_tools` to discover tools
+and load their arguments.
 
 ## Adding your own
 

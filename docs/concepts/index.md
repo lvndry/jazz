@@ -18,6 +18,7 @@ description: "Explore Jazz capabilities and how they work: agents, tools, skills
 
 - A [conversation](./conversations-and-memory.md) carries dialogue; work state, todos, the scratchpad, and memory each provide a different kind of continuity.
 - [Context management](./context-management.md) preserves working state, compacts history, and detects repetitive tool calls.
+- A [composition](./compositions.md) is a chart, dashboard, calculator, or interactive HTML page you can open or share.
 - An [artifact](./artifacts.md) is a file a run produced, labelled with whether a model generated it or it was rendered from data.
 
 ## Automation

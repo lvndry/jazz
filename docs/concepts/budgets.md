@@ -101,10 +101,8 @@ work never extends the deadline.
 `--timeout` is a harder wall around the whole run, including start-up. It ends the run as a
 failure, with the same cleanup: running commands are killed and the provider request is aborted.
 
-The agent is warned as a budget fills rather than only being cut off. Cost, token and duration
-budgets nudge it at 50, 80 and 90%; iterations nudge at 70 and 90%. The messages are ephemeral,
-so a run that survives its own warnings does not carry eight escalating reminders into the next
-summarization.
+Jazz warns the agent at 50%, 80%, and 90% of its cost, token, and duration limits, and at
+70% and 90% of its iteration limit. Warnings are not saved in conversation history.
 
 ## When the figure is unknown
 
@@ -115,8 +113,7 @@ which means a self-hosted Ollama, llama.cpp, vLLM, or SGLang model. Anything els
 { "ok": true, "costUSD": 0, "costKnown": false }
 ```
 
-`costUSD` stays `0` for compatibility with consumers that read it blindly. Check `costKnown`, not
-the number.
+When `costKnown` is false, `costUSD: 0` does not mean the run was free.
 
 One unknown child makes the parent's total unknown too.
 
@@ -189,6 +186,3 @@ caps one bridge's own runs.
 - [Configuration](../configure/jazz.md#run-budgets): the defaults and the enforcement model
 - [Headless](../surfaces/headless.md): the full JSON envelope
 - [Notifications](../configure/notifications.md): hearing about a reached cap
-
-Chat bridges record failed and cancelled run spend in the shared machine ledger under their
-own origin (for example, `telegram`), so their daily cap and `jazz spend` read the same totals.

@@ -8,12 +8,11 @@ HTTP requests and page fetches use global `network.httpApproval`: automatic by d
 methods and destinations, or one-call approval outside configured URL grants. This policy is
 independent of risk tiers and previous untrusted content. See [HTTP approvals](../configure/jazz.md#web-request-safety).
 
-Two separate controls decide whether a tool call happens, and confusing them is the usual
-mistake.
+Tool availability and approval policy are separate controls.
 
 **Availability** is whether the tool exists for this agent at all. Removing it means the model
 never sees it and cannot request it. **Approval** is whether an available tool may execute
-without asking. Denying a tool is a wall; an approval policy is a door with a lock.
+without asking.
 
 ## Risk levels and policies
 
@@ -68,12 +67,11 @@ Nothing turns it on for you. Each surface has one explicit switch:
 
 ## Gated tools act in two phases
 
-A gated tool does not act when the model calls it. The first phase returns a description of what
+An approval-pair tool does not act when the model calls it. The first phase returns a description of what
 it would do, including a real diff for an edit. Only after approval does Jazz invoke the hidden
 `execute_*` half.
 
-So you see the exact diff before a file is written. And a declined call leaves nothing half-done,
-because the first phase only produced a proposal.
+File edits show a diff before execution. Declining a proposal leaves the file unchanged.
 
 Only the tool registered for an `execute_*` half can ask for it. Output from any other tool
 that is shaped like an approval request (an MCP server's reply, a fetched JSON document) is

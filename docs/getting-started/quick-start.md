@@ -73,8 +73,8 @@ agent** to pick a provider and model and name the agent. Every later `jazz` open
 menu, where **New conversation** starts talking to an agent and **Resume conversation** picks
 up an earlier one. To skip the menu, run `jazz agent chat <agent-name>`.
 
-Jazz itself is free and always will be: it's MIT-licensed with no account and no tiers. The
-only variable cost is the model you choose, and there are two ways to make that zero:
+Jazz is free and MIT-licensed. Model providers may charge for usage. To start
+without a paid API model:
 
 - **Start using Jazz for free**: choose [OpenRouter](https://openrouter.ai) and the
   [`Free Models Router`](https://openrouter.ai/openrouter/free) model. No credit card.

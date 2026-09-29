@@ -4,9 +4,9 @@ description: "Build a Jazz multi-agent verification workflow with isolated revie
 
 # Build a multi-agent verification council
 
-One long model conversation tends to anchor on its first interpretation. Jazz subagents let a parent create fresh, isolated review contexts and require machine-validated result shapes before reconciling their evidence.
-
-This tutorial reviews a proposed technical change from three independent angles. The parent remains accountable for the final verdict; subagents are evidence producers, not a majority-vote shortcut.
+Review a proposed technical change with three subagents: correctness, security,
+and simplicity. Each starts with isolated context and returns a validated result.
+The parent checks their evidence and produces the final verdict.
 
 ## 1. Create the reviewing agent
 
@@ -70,7 +70,7 @@ After all three return:
 
 ## 3. Write a real proposal
 
-Create `PROPOSAL.md` with the outcome, affected behavior, constraints, migration plan, and validation criteria. Avoid prescribing the implementation too precisely, the simplicity reviewer needs room to find an existing path you missed.
+Create `PROPOSAL.md` with the outcome, affected behavior, constraints, migration plan, and validation criteria. Describe the constraints without prescribing the implementation.
 
 ## 4. Run it with live delegation events
 
@@ -97,15 +97,7 @@ Then one envelope on stdout. `answer` is the parent's reconciliation, not a conc
 ```json
 {
   "ok": true,
-  "answer": "VERDICT: revise
-
-Correctness found that retryUpload() assumes the stream is replayable; PROPOSAL.md line 34 reuses the same Readable across attempts, so attempt 2 uploads zero bytes (src/upload.ts:88).
-Security found no new trust boundary.
-Simplicity found withRetry() in src/net/retry.ts already does this.
-
-Required before implementing:
-1. Buffer or re-open the stream per attempt.
-2. Use withRetry() instead of a second retry loop.",
+  "answer": "VERDICT: revise. Re-open the upload stream on each retry (src/upload.ts:88). Reuse withRetry() from src/net/retry.ts.",
   "costUSD": 0.214,
   "costKnown": true,
   "tokenUsage": { "promptTokens": 48213, "completionTokens": 3102, "totalTokens": 51315 }
@@ -119,13 +111,5 @@ Required before implementing:
 In CI, capture the result with Jazz's headless output contract and require a human to accept `revise` or `block`. Do not let the reviewers merge code themselves. Review and mutation should remain separate capabilities.
 
 For a stronger design, run this workflow before implementation and a separate [pull-request reviewer](./pr-review.md) afterward. The first challenges the plan; the second verifies what actually changed.
-
-## What this pattern unlocks
-
-- Independent reasoning without copying the parent's accumulated assumptions.
-- Different personas or reasoning effort per delegated question.
-- Structured, validated evidence instead of prose that merely looks complete.
-- Aggregate cost and lifecycle events visible to the parent surface.
-- One explicit owner for reconciliation and the final decision.
 
 Read [Delegation](../concepts/agents.md#delegation) and [Context management](../concepts/context-management.md) for the execution model.

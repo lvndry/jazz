@@ -4,16 +4,12 @@ description: "What to decide before a Jazz agent runs with nobody watching: tool
 
 # Unattended runs
 
-An unattended agent has nobody at the terminal to catch a misunderstanding. Every control below
-exists because the usual recovery, a person saying "no, not like that", is unavailable.
-
-Work through them before increasing autonomy, roughly in this order.
+Before scheduling or deploying an unattended agent, restrict its tools, set budgets,
+and decide how it should handle approvals.
 
 ## 1. Cut the toolset first
 
-This is the strongest control and the one people skip. An agent that cannot call
-`execute_command` cannot run a shell command, whatever the approval policy says, whatever the
-prompt says, and whatever a malicious payload talks it into.
+Deny tools the job does not need. For example, deny `execute_command` to remove shell access.
 
 Use `deniedTools` rather than omission: `tools` is additive and leaving something out withholds
 nothing. A CI reviewer should hold reads, greps, and nothing that writes.
@@ -25,8 +21,7 @@ write memory or set reminders and triggers.
 `high-risk` only where the job's whole purpose is to change something, and then only with the
 toolset already cut to that one thing.
 
-Reaching for a higher policy to admit a single command is the wrong move. Use
-`autoApprovedCommands` for that one binary, and see [approvals](./approvals.md).
+For specific commands, use `autoApprovedCommands`; see [approvals](./approvals.md).
 
 ## 3. Bound the blast radius in time and money
 
@@ -95,8 +90,7 @@ and Jazz home, so one person's agent cannot read another's mail credentials.
 jazz workflow run my-job --auto-approve
 ```
 
-Same code path the scheduler uses. A job tested interactively, where you approved things by hand
-without noticing, is a job that will behave differently at 6am.
+This uses the workflow's unattended approval policy, as the scheduler does.
 
 ## Related
 

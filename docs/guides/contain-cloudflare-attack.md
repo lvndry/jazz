@@ -101,20 +101,8 @@ jazz runs show <run-id>
 
 ### What you should see
 
-The run parked rather than finished, with the pending call spelled out in full:
-
-```text
-run_01JKX8  parked  agent: incident-responder  cost: $0.18
-
-Waiting on: mcp_cloudflare_waf_rule_create (high-risk)
-  zone_id:    8f21c0e3…
-  expression: (ip.src eq 203.0.113.44 and http.request.uri.path eq "/v1/login")
-  action:     managed_challenge
-  notes:      "Rollback: delete rule; review 2026-04-22"
-
-Reasoning: 4,112 requests from one address to /v1/login in 9 minutes, 98% 401.
-Rejected: zone-wide rate limit (would affect the /v1/search spike from a partner).
-```
+The parked run shows the pending tool call and its arguments. Check the requested
+Cloudflare action against the evidence before approving it.
 
 The exit code is `2`, and production traffic is unchanged until you answer.
 
@@ -149,15 +137,4 @@ The run can revise its proposal, but the replacement Cloudflare call requires an
 
 Follow [surface access security](../security/surface-access.md) before remote access. Cloudflare's scoped identity, Jazz's per-call approval, network isolation, and Cloudflare's audit log are complementary controls.
 
-## What this unlocks
-
-- Cheap or local models can perform routine evidence reduction while isolated subagents challenge the first explanation.
-- Thousands of Cloudflare endpoints remain discoverable without consuming the model's context up front.
-- Investigation proceeds unattended, but production traffic changes remain accountable.
-- Approval covers one exact API operation rather than the Cloudflare account or future actions.
-- Rejection becomes new evidence in the same reasoning process.
-- The responder receives the applied rule ID and rollback plan from the preserved run.
-
-The same architecture works for rotating a leaked credential, pausing a compromised integration, quarantining an object, or revoking a session: automate evidence gathering and proposal quality, then put the irreversible boundary in front of a person.
-
-Read [MCP configuration](../configure/mcp.md), [Approvals](../security/approvals.md), [Delegation](../concepts/agents.md#delegation), and [`jazz runs`](../commands.md#jazz-runs) for the underlying contracts.
+Read [MCP configuration](../configure/mcp.md), [Approvals](../security/approvals.md), [Delegation](../concepts/agents.md#delegation), and [`jazz runs`](../commands.md#jazz-runs).

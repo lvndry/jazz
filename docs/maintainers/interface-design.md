@@ -56,7 +56,7 @@ Two consequences worth stating, because both were bugs before:
   density (`░▒▓█`), and indentation.
 - **There is one accent.** A full-width neutral band makes a user turn
   findable. The background covers the timestamp and right margin too; the text
-  still wraps at the prose measure. Its marker glyph identifies the speaker
+  wraps across the available conversation width. Its marker glyph identifies the speaker
   without giving either party a separate colour. Previously brand, warning and inline code were all
   the same amber, so a bulleted list with bold text and a code span rendered as
   a wall of orange.
@@ -352,12 +352,11 @@ to look, and it sits against the input, where the eye already is. The input and
 footer are anchored to the bottom, so the zone grows _upward_ and the
 conversation yields the rows; typing never moves under your hands.
 
-**The measure.** The transcript is the width of the terminal. Running text
-takes that content column (minus the rail and a two-column right margin); a
-short flush-right strip holds timestamps and lane labels once the frame is
-wide enough that they would otherwise sit on the sentence. Tool output,
-entity lists, tables and code fences take the same full content width,
-because those are scanned rather than read.
+**The width.** Conversation text, tool calls, reasoning, tables, and code use
+the available terminal width, with a two-cell gutter and two cells of right
+padding. Rows with timestamps or lane labels reserve space for those labels;
+other rows use the full content width. User message backgrounds cover the
+whole conversation row.
 
 Settled tool calls show their arguments and up to three lines of result text.
 Short receipts share a row; a receipt that exceeds the content width wraps onto
