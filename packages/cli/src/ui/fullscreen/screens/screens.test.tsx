@@ -64,7 +64,7 @@ const FIRST_RUN: HomeModel = {
     actions: [
       { label: "Start setup", value: "create-agent" },
       { label: "Use Ollama, no key needed", value: "create-agent:ollama" },
-      { label: "Settings", value: "config" },
+      { label: "Settings", value: "settings" },
     ],
     detected: [
       { label: "OPENAI_API_KEY", detail: "in your environment" },

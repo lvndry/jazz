@@ -67,11 +67,11 @@ describe("buildHome", () => {
     expect(home.firstRun?.actions.map((action) => action.value)).toEqual([
       "create-agent",
       "create-agent:ollama",
-      "config",
+      "settings",
     ]);
     expect(firstRunActions(undefined).map((action) => action.value)).toEqual([
       "create-agent",
-      "config",
+      "settings",
     ]);
   });
 });

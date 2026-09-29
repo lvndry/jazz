@@ -196,7 +196,7 @@ describe("keys", () => {
         detected: [],
         actions: [
           { label: "Start setup", value: "create-agent" },
-          { label: "Settings", value: "config" },
+          { label: "Settings", value: "settings" },
         ],
       },
     };
@@ -205,7 +205,7 @@ describe("keys", () => {
     });
     expect(homeIntent(firstRun, at({ commandIndex: 1 }), { name: "return" })).toEqual({
       kind: "answer",
-      value: "config",
+      value: "settings",
     });
     expect(homeIntent(firstRun, at({}), { name: "s", sequence: "s" })).toMatchObject({
       edit: false,

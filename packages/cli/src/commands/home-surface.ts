@@ -15,7 +15,7 @@ export function firstRunActions(ollamaModels: number | undefined): ActiveHomeAct
     ...(ollamaModels !== undefined && ollamaModels > 0
       ? [{ label: "Use Ollama, no key needed", value: "create-agent:ollama" }]
       : []),
-    { label: "Settings", value: "config" },
+    { label: "Settings", value: "settings" },
   ];
 }
 

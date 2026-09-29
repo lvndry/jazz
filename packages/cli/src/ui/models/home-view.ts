@@ -266,7 +266,7 @@ export const HOME_COMMANDS: readonly ActiveHomeCommand[] = [
   { name: "new", description: "create an agent", value: "create-agent" },
   { name: "resume", description: "continue an earlier conversation", value: "resume-conversation" },
   { name: "agents", description: "see, edit or delete your agents", value: "list-agents" },
-  { name: "settings", description: "providers, keys, theme and limits", value: "config" },
+  { name: "settings", description: "providers, keys, theme and limits", value: "settings" },
   { name: "quit", description: "leave jazz", value: "exit" },
 ];
 
