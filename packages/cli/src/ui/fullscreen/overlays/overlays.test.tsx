@@ -23,6 +23,7 @@ import {
   COLLAPSED_FIELD_CELLS,
   wrapProse,
 } from "./Approval";
+import { onAccent } from "./Question";
 import { Search, searchResultRows } from "./Search";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
@@ -131,6 +132,13 @@ function spanWithText(frame: CapturedFrame, text: string): CapturedSpan {
   return found;
 }
 
+function bgOf(span: CapturedSpan): string {
+  const [red, green, blue] = span.bg.toInts();
+  return [red, green, blue]
+    .reduce((hex, channel) => hex + channel.toString(16).padStart(2, "0"), "#")
+    .toUpperCase();
+}
+
 /** Rows on which at least one span carries the given foreground. */
 function rowsColored(frame: CapturedFrame, color: string): number[] {
   const wanted = themeHex(color);
@@ -140,12 +148,6 @@ function rowsColored(frame: CapturedFrame, color: string): number[] {
       line.spans.some((span) => span.text.trim().length > 0 && hexOf(span) === wanted),
     )
     .map(({ index }) => index);
-}
-
-/** Perceived brightness, for asserting that one affordance is dimmer than another. */
-function luminance(span: CapturedSpan): number {
-  const [red, green, blue] = span.fg.toInts();
-  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
 /** Indices of the rows a band occupies. */
@@ -207,8 +209,7 @@ describe("approval overlay", () => {
     expect(frame).toContain("can't be undone");
     expect(frame).toContain("removes");
     expect(frame).toContain("214 files, 1.3 GB");
-    expect(frame).toContain("enter delete");
-    expect(frame).toContain("esc don't delete");
+    expect(frame).toMatch(/delete\s+always allow send_email\s+don't delete/);
     // The headline replaces the tool's own prose rather than sitting beside it.
     expect(frame).not.toContain(APPROVAL.consequence);
     const headline = spanWithText(captureSpans(), "can't be undone");
@@ -350,19 +351,18 @@ describe("approval overlay", () => {
     );
     const frame = captureSpans();
 
-    const accept = spanWithText(frame, "enter");
+    const accept = spanWithText(frame, " accept ");
     expect(accept.attributes & TextAttributes.BOLD).toBe(0);
     expect(accept.attributes & TextAttributes.DIM).not.toBe(0);
-    expect(hexOf(accept)).toBe(themeHex(THEME.secondary));
 
-    const reject = spanWithText(frame, "esc");
-    expect(reject.attributes & TextAttributes.BOLD).not.toBe(0);
-    expect(hexOf(reject)).toBe(themeHex(THEME.selected));
+    const reject = spanWithText(frame, " reject ");
+    expect(reject.attributes & TextAttributes.DIM).toBe(0);
+    expect(bgOf(reject)).toBe(themeHex(THEME.surfaceStrong));
 
     renderer.destroy();
   });
 
-  it("arms accept without changing reject", async () => {
+  it("arms accept as the focused choice, filled with the accent", async () => {
     const { renderer, captureSpans } = await draw(
       <Approval
         model={{ ...APPROVAL, armed: true }}
@@ -372,36 +372,40 @@ describe("approval overlay", () => {
     );
     const frame = captureSpans();
 
-    const accept = spanWithText(frame, "enter");
+    const accept = spanWithText(frame, " accept ");
     expect(accept.attributes & TextAttributes.BOLD).not.toBe(0);
-    expect(hexOf(accept)).toBe(themeHex(THEME.primary));
-
-    const reject = spanWithText(frame, "esc");
-    expect(reject.attributes & TextAttributes.BOLD).not.toBe(0);
-    expect(hexOf(reject)).toBe(themeHex(THEME.selected));
+    expect(bgOf(accept)).toBe(themeHex(THEME.primary));
+    expect(hexOf(accept)).toBe(themeHex(onAccent(THEME.primary)));
 
     renderer.destroy();
   });
 
-  it("keeps always-allow the least attractive thing on screen", async () => {
-    for (const armed of [false, true]) {
-      const { renderer, captureSpans } = await draw(
-        <Approval
-          model={{ ...APPROVAL, armed }}
-          viewport={WIDE}
-        />,
-        WIDE,
-      );
-      const frame = captureSpans();
+  it("starts on accept, so always-allow is never filled until it is chosen", async () => {
+    const start = await draw(
+      <Approval
+        model={{ ...APPROVAL, armed: true }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const idle = allSpans(start.captureSpans()).find((span) => span.text.includes("always allow"));
+    expect(idle).toBeDefined();
+    expect(idle!.attributes & TextAttributes.BOLD).toBe(0);
+    expect(bgOf(idle!)).toBe(themeHex(THEME.surfaceStrong));
+    start.renderer.destroy();
 
-      const always = allSpans(frame).find((span) => span.text.includes("always allow"));
-      expect(always).toBeDefined();
-      expect(always!.attributes & TextAttributes.BOLD).toBe(0);
-      expect(luminance(always!)).toBeLessThan(luminance(spanWithText(frame, "enter")));
-      expect(luminance(always!)).toBeLessThan(luminance(spanWithText(frame, "esc")));
-
-      renderer.destroy();
-    }
+    const chosen = await draw(
+      <Approval
+        model={{ ...APPROVAL, armed: true, choice: "always" }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = chosen.captureSpans();
+    const always = allSpans(frame).find((span) => span.text.includes("always allow"));
+    expect(bgOf(always!)).toBe(themeHex(THEME.primary));
+    expect(bgOf(spanWithText(frame, " accept "))).toBe(themeHex(THEME.surfaceStrong));
+    chosen.renderer.destroy();
   });
 
   it("keeps always-allow on screen when navigation hints crowd the controls", async () => {
@@ -418,7 +422,9 @@ describe("approval overlay", () => {
         />,
         viewport,
       );
-      expect(captureCharFrame()).toContain("a always allow send_email");
+      expect(captureCharFrame()).toContain(
+        viewport === WIDE ? "always allow send_email" : "always",
+      );
       renderer.destroy();
     }
   });
@@ -477,7 +483,8 @@ describe("approval overlay", () => {
     // control rows are the last rows of the viewport.
     expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().bandBar);
     expect(narrowRows[NARROW.height - 2]).toContain("accept");
-    expect(narrowRows[NARROW.height - 1]).toContain("always allow");
+    expect(narrowRows[NARROW.height - 2]).toContain("always");
+    expect(narrowRows[NARROW.height - 1]).toContain("choose");
     narrow.renderer.destroy();
   });
 
@@ -496,9 +503,9 @@ describe("approval overlay", () => {
     expect(frame).toContain("averylongmailbox@");
     expect(frame).toContain("example.com");
     expect(frame).toContain("Account");
-    expect(frame).toContain("enter accept");
-    expect(frame).toContain("esc reject");
-    expect(frame).toContain("up/down more");
+    expect(frame).toContain("accept");
+    expect(frame).toContain("reject");
+    expect(frame).toContain("up/down");
     compact.renderer.destroy();
   });
 

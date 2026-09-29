@@ -22,15 +22,16 @@
  *   - It holds perfectly still. No spinner, no pulse, no countdown: motion
  *     here would be pressure applied to an irreversible choice.
  *   - The controls sit outside the band. The card is what *will happen*; the
- *     lines below it are what *you can do*. Always-allow gets a row of its
- *     own so it is found, but stays muted and unbold: a standing grant should
- *     never be the easiest thing to reach for.
+ *     lines below it are what *you can do*: accept, always allow and reject
+ *     as three choices that left and right walk and enter confirms. Focus
+ *     starts on accept, so a standing grant is never one stray enter away.
  */
 
 import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
 import { OVERLAY_Z_INDEX } from "./centered";
 import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { onAccent } from "./Question";
 import { getGlyphs } from "../../glyphs";
 import {
   approvalAccount,
@@ -47,7 +48,13 @@ import {
 } from "../../text/terminal-cells";
 import { THEME } from "../../theme";
 import { blendHex } from "../../themes/registry";
-import { COMPACT_HEIGHT, COMPACT_WIDTH, type ApprovalOverlay, type Viewport } from "../types";
+import {
+  COMPACT_HEIGHT,
+  COMPACT_WIDTH,
+  type ApprovalChoice as ApprovalChoiceName,
+  type ApprovalOverlay,
+  type Viewport,
+} from "../types";
 
 /** The legend under the band starts where the band's text does. */
 const LEGEND_INDENT = BAND_CHROME_COLUMNS - 1;
@@ -63,7 +70,7 @@ const PADDED_FIXED_CARD_ROWS = 5;
 
 /** Compact cards drop the padding and put the account in the scrollable body. */
 const COMPACT_FIXED_CARD_ROWS = 1;
-/** Accept and reject, then always-allow on its own row — never the easiest thing to reach for. */
+/** The three answers on one row, then their keys: enter starts on accept, so a standing grant is never a default. */
 const CONTROL_ROWS = 2;
 
 /**
@@ -516,14 +523,44 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const rightHint = [scrollHint, expandHint, editHint]
     .filter((part) => part.length > 0)
     .join(" · ");
-  const alwaysLine = clip(`a ${model.alwaysLabel}`, inner);
   const acceptLabel = model.acceptLabel ?? "accept";
   const rejectLabel = model.rejectLabel ?? "reject";
   const legendWidth = Math.max(0, width - LEGEND_INDENT * 2);
-  const rightBudget = Math.max(
-    0,
-    legendWidth - displayWidth(`enter ${acceptLabel}    esc ${rejectLabel}`) - TITLE_GAP,
+  const choice = model.choice ?? "accept";
+  const keysHint = "left/right choose · a always · esc";
+  const rightBudget = Math.max(0, legendWidth - displayWidth(keysHint) - TITLE_GAP);
+  const alwaysRoom = legendWidth - displayWidth(acceptLabel) - displayWidth(rejectLabel) - 12;
+  const alwaysText = displayWidth(model.alwaysLabel) <= alwaysRoom ? model.alwaysLabel : "always";
+  const choiceLabels: readonly (readonly [ApprovalChoiceName, string])[] = [
+    ["accept", acceptLabel],
+    ["always", alwaysText],
+    ["reject", rejectLabel],
+  ];
+  const choiceRow = (
+    <text style={{ height: 1, flexShrink: 0, wrapMode: "none", truncate: true }}>
+      {choiceLabels.map(([name, label], index) => {
+        const focused = name === choice;
+        const inert = name === "accept" && !model.armed;
+        const style = focused
+          ? { fg: onAccent(THEME.primary), bg: THEME.primary }
+          : { fg: THEME.secondary, bg: THEME.surfaceStrong };
+        const chip = ` ${label} `;
+        return (
+          <span key={name}>
+            {index === 0 ? null : <span>{"  "}</span>}
+            {inert ? (
+              <span style={{ ...style, attributes: TextAttributes.DIM }}>{chip}</span>
+            ) : focused ? (
+              <b style={style}>{chip}</b>
+            ) : (
+              <span style={style}>{chip}</span>
+            )}
+          </span>
+        );
+      })}
+    </text>
   );
+
   const titleRight =
     (inlineConsequence === undefined ? 0 : displayWidth(inlineConsequence) + TITLE_GAP) +
     (diffStat === undefined ? 0 : displayWidth(diffStat) + TITLE_GAP);
@@ -594,61 +631,27 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
         {padded ? <BlankRow id="pad:bottom" /> : null}
       </box>
 
-      {compact ? (
-        <box
-          style={{
-            height: CONTROL_ROWS,
-            flexShrink: 0,
-            flexDirection: "column",
-            backgroundColor: THEME.canvas,
-            paddingLeft: LEGEND_INDENT,
-            paddingRight: LEGEND_INDENT,
-          }}
-        >
-          <text style={{ height: 1, flexShrink: 0 }}>
-            {model.armed ? (
-              <b style={{ fg: THEME.primary }}>enter</b>
-            ) : (
-              <span style={{ fg: THEME.secondary, attributes: TextAttributes.DIM }}>enter</span>
-            )}
-            <span style={{ fg: THEME.secondary }}>{` ${acceptLabel}`}</span>
-            <span style={{ fg: THEME.muted }}>{" · "}</span>
-            <b style={{ fg: THEME.selected }}>esc</b>
-            <span style={{ fg: THEME.secondary }}>{` ${rejectLabel}`}</span>
+      <box
+        style={{
+          height: CONTROL_ROWS,
+          flexShrink: 0,
+          flexDirection: "column",
+          backgroundColor: THEME.canvas,
+          paddingLeft: LEGEND_INDENT,
+          paddingRight: LEGEND_INDENT,
+        }}
+      >
+        {choiceRow}
+        <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
+          <text style={{ fg: THEME.muted, wrapMode: "none", truncate: true }}>
+            {compact ? clip(`${bodyScrolls ? "up/down · " : ""}${keysHint}`, inner) : keysHint}
           </text>
-          <text style={{ fg: THEME.muted, height: 1, flexShrink: 0 }}>
-            {clip(`${bodyScrolls ? "up/down more · " : ""}a ${model.alwaysLabel}`, inner)}
-          </text>
-        </box>
-      ) : (
-        <box
-          style={{
-            height: CONTROL_ROWS,
-            flexShrink: 0,
-            flexDirection: "column",
-            backgroundColor: THEME.canvas,
-            paddingLeft: LEGEND_INDENT,
-            paddingRight: LEGEND_INDENT,
-          }}
-        >
-          <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-            <text>
-              {model.armed ? (
-                <b style={{ fg: THEME.primary }}>enter</b>
-              ) : (
-                <span style={{ fg: THEME.secondary, attributes: TextAttributes.DIM }}>enter</span>
-              )}
-              <span style={{ fg: THEME.secondary }}>{` ${acceptLabel}`}</span>
-              <span style={{ fg: THEME.muted }}>{"    "}</span>
-              <b style={{ fg: THEME.selected }}>esc</b>
-              <span style={{ fg: THEME.secondary }}>{` ${rejectLabel}`}</span>
-            </text>
-            <box style={{ flexGrow: 1 }} />
+          <box style={{ flexGrow: 1 }} />
+          {compact ? null : (
             <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(rightHint, rightBudget)}</text>
-          </box>
-          <text style={{ fg: THEME.muted }}>{alwaysLine}</text>
+          )}
         </box>
-      )}
+      </box>
     </box>
   );
 }

@@ -69,6 +69,7 @@ import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-e
 import { themePickerTarget } from "./theme-picker-keys";
 import {
   LIVE_ZONE_MAX_ROWS,
+  type ApprovalChoice,
   type ApprovalOverlay,
   type Block,
   type FooterModel,
@@ -1113,11 +1114,24 @@ function stepFrom(activity: ActivityState): StepLine | undefined {
  * single most important string on the screen, so it is looked for explicitly
  * rather than left to land somewhere in a list.
  */
+const APPROVAL_CHOICES: readonly ApprovalChoice[] = ["accept", "always", "reject"];
+
+/** The always-allow answer a prompt offers: the command when it lists one, else the tool. */
+function alwaysApprovalValue(prompt: {
+  readonly options?: { readonly choices?: readonly { readonly value: unknown }[] };
+}): string {
+  const alwaysCommand = prompt.options?.choices?.some(
+    (choice) => choice.value === "always_command",
+  );
+  return alwaysCommand ? "always_command" : "always_tool";
+}
+
 function approvalFrom(
   pending: PendingApproval,
   armed: boolean,
   fieldOffset: number,
   expanded: boolean,
+  choice: ApprovalChoice,
 ): ApprovalOverlay {
   const facts = approvalFacts(pending);
   const { intent } = facts;
@@ -1131,6 +1145,7 @@ function approvalFrom(
     fieldOffset,
     expanded,
     alwaysLabel: facts.alwaysLabel,
+    choice,
     armed,
     ...(intent.headline === undefined ? {} : { headline: intent.headline }),
     acceptLabel: intent.accept,
@@ -1182,6 +1197,8 @@ export function FullscreenBridge(): React.ReactNode {
   const [approvalArmed, setApprovalArmed] = useState(false);
   const [approvalFieldOffset, setApprovalFieldOffset] = useState(0);
   const [approvalExpanded, setApprovalExpanded] = useState(false);
+  const [approvalChoice, approvalChoiceRef, setApprovalChoice] =
+    useSynchronizedState<ApprovalChoice>("accept");
   /**
    * The composer's text and caret as one value, updated only through pure
    * updaters.
@@ -1334,6 +1351,7 @@ export function FullscreenBridge(): React.ReactNode {
     setApprovalArmedState(false);
     setApprovalFieldOffset(0);
     setApprovalExpanded(false);
+    setApprovalChoice("accept");
   }, [approval, setApprovalArmedState]);
 
   // Home is refreshed in place once its history loads; only a new showing of it (a new
@@ -2064,8 +2082,20 @@ export function FullscreenBridge(): React.ReactNode {
         }
         if (approvalArmedForRef.current !== approvalRef.current) return true;
         if (active === null) return true;
+        if (name === "left" || name === "right") {
+          setApprovalChoice((current) => {
+            const index = APPROVAL_CHOICES.indexOf(current) + (name === "left" ? -1 : 1);
+            return (
+              APPROVAL_CHOICES[Math.max(0, Math.min(APPROVAL_CHOICES.length - 1, index))] ?? current
+            );
+          });
+          return true;
+        }
         if (name === "return" || name === "enter") {
-          active.resolve("yes");
+          const chosen = approvalChoiceRef.current;
+          active.resolve(
+            chosen === "reject" ? "no" : chosen === "always" ? alwaysApprovalValue(active) : "yes",
+          );
           return true;
         }
         // `e` rewrites the tool's editable argument first. Like accept, it waits for the
@@ -2085,10 +2115,7 @@ export function FullscreenBridge(): React.ReactNode {
         // the composer, and the standing allowlist this writes outlives the
         // turn — a caret keystroke must never be able to grant it.
         if (name === "a" && !ctrl && !superKey && !meta && !option) {
-          const alwaysCommand = active.options?.choices?.some(
-            (choice) => choice.value === "always_command",
-          );
-          active.resolve(alwaysCommand ? "always_command" : "always_tool");
+          active.resolve(alwaysApprovalValue(active));
           return true;
         }
         return true;
@@ -2895,7 +2922,13 @@ export function FullscreenBridge(): React.ReactNode {
       };
     }
     if (approval !== null) {
-      next = approvalFrom(approval, approvalArmed, approvalFieldOffset, approvalExpanded);
+      next = approvalFrom(
+        approval,
+        approvalArmed,
+        approvalFieldOffset,
+        approvalExpanded,
+        approvalChoice,
+      );
     }
     return next;
   }, [
@@ -2910,6 +2943,7 @@ export function FullscreenBridge(): React.ReactNode {
     approvalArmed,
     approvalFieldOffset,
     approvalExpanded,
+    approvalChoice,
   ]);
 
   const inspectedRunning = inspectedRun?.status === "running";
