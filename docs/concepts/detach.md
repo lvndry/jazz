@@ -4,9 +4,21 @@ description: "Move a chat conversation to your own SSH server, close the laptop,
 
 # Remote handoff
 
-Start a task in chat, hand it to a server you own, and close the laptop. The server keeps
-working. Later, from any machine, you watch it, answer its questions, and bring the
-conversation and its file changes back.
+Use `/detach <host>` in chat to continue the current conversation on a registered SSH
+server. You can send it while Jazz is working. Once the current turn finishes, Jazz
+prepares the handoff; it does not move a tool call that is still running.
+
+```text
+/detach nightbox
+```
+
+Jazz asks what to continue doing, then shows the files, credential, and run limits for
+you to review. After you confirm the transfer and the remote run starts, the local chat
+closes. You can close your laptop and let the server continue.
+
+Run this from the root of a Git repository. If messages are queued after `/detach`,
+clear or send them before transferring the conversation. You can also use `/detach`
+between turns.
 
 ## Set up a server once
 
@@ -38,23 +50,11 @@ and the handoff stops with a hint to install libsecret. To keep the key in a pri
 jazz hosts add nightbox nightbox /home/you/jazz-work --allow-file-secrets
 ```
 
-## Move a conversation
+## Remote run limits
 
-In chat, from the root of a Git repository:
-
-```text
-/detach nightbox
-```
-
-Jazz asks what to continue doing, then shows what will move: the files, the credential, and
-the limits the server works under. Nothing leaves your machine until you confirm.
-
-On the server the agent works under a low-risk approval policy with a $5, 8-hour,
-100-iteration cap. Anything riskier than reading and searching, such as writing a file,
-pauses for your approval.
-
-After you confirm, the chat closes. The conversation now belongs to the server, and Jazz
-refuses to run it locally until you take it back.
+The server uses a low-risk approval policy with a $5, 8-hour, 100-iteration cap.
+Actions such as writing a file pause for your approval. Jazz prevents the conversation
+from running locally until you reclaim it.
 
 ## Watch and steer it
 
