@@ -194,8 +194,8 @@ describe("formatRelativeWhen", () => {
   const now = Date.parse("2026-08-21T12:00:00.000Z");
 
   test("reads short at every scale", () => {
-    expect(formatRelativeWhen(now, now)).toBe("now");
-    expect(formatRelativeWhen(now - 30_000, now)).toBe("now");
+    expect(formatRelativeWhen(now, now)).toBe("1m ago");
+    expect(formatRelativeWhen(now - 30_000, now)).toBe("1m ago");
     expect(formatRelativeWhen(now - 5 * 60_000, now)).toBe("5m ago");
     expect(formatRelativeWhen(now - 3 * 3_600_000, now)).toBe("3h ago");
     expect(formatRelativeWhen(now - 2 * 86_400_000, now)).toBe("2d ago");
@@ -205,6 +205,6 @@ describe("formatRelativeWhen", () => {
   });
 
   test("never reads as the future", () => {
-    expect(formatRelativeWhen(now + 86_400_000, now)).toBe("now");
+    expect(formatRelativeWhen(now + 86_400_000, now)).toBe("1m ago");
   });
 });

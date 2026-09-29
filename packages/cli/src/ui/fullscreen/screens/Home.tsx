@@ -31,7 +31,6 @@ import {
   focusedWaiting,
   footerHints,
   homeCommandMatches,
-  personaLabel,
   slashQuery,
   targetAgent,
   waitingTag,
@@ -229,7 +228,7 @@ function agentRow(agent: HomeAgent, selected: boolean, width: number): HomeRow {
       bold: selected,
     },
     { text: pad(agent.model, MODEL_COLUMN), fg: THEME.muted },
-    { text: personaLabel(agent.persona), fg: THEME.muted },
+    { text: agent.persona, fg: THEME.muted },
   ];
   return row(
     `agent:${agent.id}`,

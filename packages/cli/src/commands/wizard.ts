@@ -336,7 +336,7 @@ function agentUsage(
     return {
       id: agent.id,
       name: agent.name,
-      model: agent.config.llmModel,
+      model: agentModelString(agent.config),
       persona: agent.config.persona,
       ...(used === undefined ? {} : { lastUsedMs: used }),
     };

@@ -291,7 +291,7 @@ describe("Ink reading", () => {
   it("reads home as complete sentences", () => {
     const sentences = homeSentences(HOME, EMPTY);
     expect(sentences.start).toBe("New conversation with sol (gpt-5.6-sol)");
-    expect(sentences.agents[1]?.text).toBe("luna, gpt-5.6-luna, everyday, used 2h ago");
+    expect(sentences.agents[1]?.text).toBe("luna, gpt-5.6-luna, default, used 2h ago");
     expect(sentences.agents[2]?.text).toBe("coder-terra, gpt-5.6-sol, coder, not used yet");
     expect(sentences.waiting[0]?.text).toBe("Wedding venue, luna, asked you 1d ago");
     expect(sentences.footer).toBe("/ commands · ↓ waiting · tab all agents · esc quit");

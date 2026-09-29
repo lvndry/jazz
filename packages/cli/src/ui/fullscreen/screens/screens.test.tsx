@@ -77,7 +77,7 @@ const SETTLED: HomeModel = {
   version: "0.14.2",
   shownAt: 1,
   agents: [
-    { id: "sol", name: "sol", model: "gpt-5.6-sol", persona: "default", lastUsed: "now" },
+    { id: "sol", name: "sol", model: "gpt-5.6-sol", persona: "default", lastUsed: "1m ago" },
     { id: "luna", name: "luna", model: "gpt-5.6-luna", persona: "default", lastUsed: "2h ago" },
     {
       id: "long",
@@ -300,7 +300,7 @@ describe("home screen", () => {
 
   it("sets agents as a table and cuts a long value to its column", async () => {
     const drawn = await drawHome(SETTLED, TALL);
-    const rows = drawn.rows.filter((row) => /everyday|coder/.test(row));
+    const rows = drawn.rows.filter((row) => /default|coder/.test(row));
     const modelColumn = rows.map((row) => row.search(/gpt-5\.6|qwen3/));
     expect(new Set(modelColumn).size).toBe(1);
     const long = rows.find((row) => row.includes("lysk"));

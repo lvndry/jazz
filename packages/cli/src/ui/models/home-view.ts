@@ -37,11 +37,6 @@ export const PICK_AGENT = "pick-agent";
 
 // ─── Agents ──────────────────────────────────────────────────────────────────
 
-/** What the default persona is called on screen: it is the everyday assistant. */
-export function personaLabel(persona: string): string {
-  return persona === "default" ? "everyday" : persona;
-}
-
 export interface AgentUsage {
   readonly id: string;
   readonly name: string;
@@ -558,7 +553,7 @@ export function homeSentences(
       text: [
         agent.name,
         agent.model,
-        personaLabel(agent.persona),
+        agent.persona,
         agent.lastUsed === undefined ? "not used yet" : `used ${agent.lastUsed}`,
       ].join(", "),
       selected: !onWaiting && agent.id === target?.id,

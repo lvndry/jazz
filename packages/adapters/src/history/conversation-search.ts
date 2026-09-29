@@ -99,10 +99,10 @@ export interface SearchOptions {
   readonly now?: number;
 }
 
-/** Short relative time: "now", "5m ago", "2d ago", "1w ago". */
+/** Short relative time: "1m ago", "5m ago", "2d ago", "1w ago". */
 export function formatRelativeWhen(instantMs: number, nowMs: number): string {
   const elapsed = Math.max(0, nowMs - instantMs);
-  if (elapsed < MINUTE_MS) return "now";
+  if (elapsed < MINUTE_MS) return "1m ago";
   if (elapsed < HOUR_MS) return `${String(Math.floor(elapsed / MINUTE_MS))}m ago`;
   if (elapsed < DAY_MS) return `${String(Math.floor(elapsed / HOUR_MS))}h ago`;
   if (elapsed < WEEK_MS) return `${String(Math.floor(elapsed / DAY_MS))}d ago`;
