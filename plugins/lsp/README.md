@@ -90,7 +90,13 @@ Then add:
       "args": ["--stdio"],
       "extensions": [".py"],
       "languageId": "python",
-      "rootMarkers": ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
+      "rootMarkers": [
+        "pyrightconfig.json",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt"
+      ]
     }
   ]
 }
