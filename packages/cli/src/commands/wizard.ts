@@ -38,6 +38,7 @@ import { sessionOpenLine } from "./session-open";
 import { configuredProviderNames } from "../ui/models/configured-providers";
 import {
   PICK_AGENT,
+  START_COMMAND,
   briefDetail,
   parseOpenConversationValue,
   readableTitle,
@@ -103,6 +104,20 @@ function wizardSession() {
         case "resume-conversation": {
           yield* resumeConversation(agents, terminal);
           yield* terminal.clear();
+          break;
+        }
+
+        case START_COMMAND: {
+          const picked = yield* selectAgent(
+            agents,
+            lastUsedAgentId,
+            "start with which agent?",
+            "start",
+          );
+          if (picked !== null) {
+            yield* startChatWithAgent(picked);
+            yield* terminal.clear();
+          }
           break;
         }
 
