@@ -25,6 +25,7 @@ import {
   skillDetailRows,
   skillLine,
   skillListRows,
+  skillSourceLabel,
 } from "./skill-browser";
 import StatusFooter from "./StatusFooter";
 import { store, useOutputSlice, usePromptSlice, useSessionSlice, type ActiveMenu } from "./store";
@@ -321,7 +322,7 @@ function InkSkillBrowserView({
             color={start + index === selected ? THEME.selected : THEME.secondary}
             bold={start + index === selected}
           >
-            {`${start + index === selected ? "▏" : " "} ${clipTerminalCells(skillLine(skill.name), Math.max(1, cols - 18))}  ${skill.source}`}
+            {`${start + index === selected ? "▏" : " "} ${clipTerminalCells(skillLine(skill.name), Math.max(1, cols - 18))}  ${skillSourceLabel(skill.source)}`}
           </Text>
         ))
       )}

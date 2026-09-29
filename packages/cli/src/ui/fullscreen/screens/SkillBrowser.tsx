@@ -15,6 +15,7 @@ import {
   skillDetailRows,
   skillLine,
   skillListRows,
+  skillSourceLabel,
 } from "../../skill-browser";
 import { centredWindowStart } from "../../text/picker-window";
 import { clipTerminalCells } from "../../text/terminal-cells";
@@ -181,7 +182,7 @@ export function SkillBrowser({
                 <text
                   style={{ width: sourceWidth, fg: THEME.muted, wrapMode: "none", truncate: true }}
                 >
-                  {skill.source}
+                  {skillSourceLabel(skill.source)}
                 </text>
               </box>
             );

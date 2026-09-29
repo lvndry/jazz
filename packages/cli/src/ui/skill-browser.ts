@@ -15,6 +15,11 @@ export function skillLine(value: string): string {
     .trim();
 }
 
+/** How a skill's source reads on screen: the `agents` source is the `~/.agents` directory. */
+export function skillSourceLabel(source: SkillMetadata["source"]): string {
+  return source === "agents" ? "~/.agents" : source;
+}
+
 /** Match every space-delimited term against name, source, or description. */
 export function filterSkills(
   skills: readonly SkillMetadata[],
@@ -23,7 +28,8 @@ export function filterSkills(
   const terms = skillLine(query).toLowerCase().split(" ").filter(Boolean);
   if (terms.length === 0) return skills;
   return skills.filter((skill) => {
-    const haystack = `${skill.name} ${skill.source} ${skill.description}`.toLowerCase();
+    const haystack =
+      `${skill.name} ${skillSourceLabel(skill.source)} ${skill.description}`.toLowerCase();
     return terms.every((term) => haystack.includes(term));
   });
 }
@@ -38,7 +44,7 @@ export function skillDetailRows(skill: SkillMetadata, width: number): readonly S
   const rows: SkillDetailRow[] = [];
   const contentWidth = Math.max(1, width - 4);
   const sections = [
-    ["Source", skill.source],
+    ["Source", skillSourceLabel(skill.source)],
     ["Description", skillLine(skill.description) || "No description provided."],
     ...(skill.path === "" ? [] : [["Location", skillLine(skill.path)]]),
   ] as const;
