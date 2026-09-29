@@ -47,6 +47,17 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { spaceReasoningSections } from "../../presentation/format-utils";
+import { getGlyphs, type GlyphSet } from "../glyphs";
+import { parseMarkdown, type MarkdownBlock } from "../markdown/parse";
+import { markdownRoleColor, type MarkdownSpan } from "../markdown/spans";
+import { layoutTable } from "../markdown/table";
+import { stoppedHeading } from "../models/interrupt";
+import { receiptParts } from "../models/receipt";
+import { reportLines, type ReportSegment } from "../report-layout";
+import { formatPreciseDuration } from "../text/format";
+import { PROSE_MEASURE } from "../text/measure";
+import { roleStyle, type RoleSegment, type TextRole } from "../text/roles";
 import {
   continueFenceHighlight,
   highlightCodeLine,
@@ -55,35 +66,27 @@ import {
   sourceLanguageFromPath,
   type FenceHighlight,
   type SyntaxSpan,
-} from "./syntax-spans";
+} from "../text/syntax-spans";
+import {
+  fitTerminalSegments,
+  sliceTerminalCells,
+  terminalCellWidth,
+  terminalSegmentsWidth,
+} from "../text/terminal-cells";
+import { wrapStyledSpans } from "../text/wrap";
+import { getThemeRevision, THEME } from "../theme";
+import { foldedThoughtLine, thoughtLabel } from "../turn-thought";
+import { linkAtColumn, openLink } from "./open-link";
+import { useThemeRevision } from "./theme-revision";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
-import { spaceReasoningSections } from "../../presentation/format-utils";
-import { getGlyphs, type GlyphSet } from "../glyphs";
 import {
   measureFor,
-  PROSE_MEASURE,
   type Block,
   type Focus,
   type StoppedBlock,
   type ToolReceiptBlock,
   type Viewport,
 } from "./types";
-import { stoppedHeading } from "../models/interrupt";
-import { receiptParts } from "../models/receipt";
-import { reportLines, type ReportSegment } from "../report-layout";
-import { formatPreciseDuration } from "../text/format";
-import { roleStyle, type RoleSegment, type TextRole } from "../text/roles";
-import { getThemeRevision, THEME } from "../theme";
-import { linkAtColumn, openLink } from "./open-link";
-import {
-  fitTerminalSegments,
-  sliceTerminalCells,
-  terminalCellWidth,
-  terminalGraphemes,
-  terminalSegmentsWidth,
-} from "../text/terminal-cells";
-import { foldedThoughtLine, thoughtLabel } from "../turn-thought";
-import { useThemeRevision } from "./theme-revision";
 
 /** The rail lives in the left page margin, so the content column never moves. */
 const GUTTER = 2;
@@ -108,13 +111,6 @@ export interface Segment {
   readonly underline?: boolean;
   readonly strikethrough?: boolean;
   readonly link?: string;
-}
-
-interface InlineMarks {
-  readonly bold?: boolean;
-  readonly italic?: boolean;
-  readonly underline?: boolean;
-  readonly strikethrough?: boolean;
 }
 
 function sameInlineStyle(previous: Segment, current: Segment): boolean {
@@ -159,87 +155,8 @@ export interface RenderRow {
   readonly bandIncludesGutter?: boolean;
 }
 
-/**
- * Greedy word wrap that survives inline styling: the line breaks between words,
- * not between spans, so a bold run spanning a wrap point stays bold on both
- * rows.
- */
 function wrap(segments: readonly Segment[], measure: number): Segment[][] {
-  const width = Math.max(1, measure);
-  const lines: Segment[][] = [];
-  let line: Segment[] = [];
-  let used = 0;
-
-  const push = (segment: Segment): void => {
-    const last = line[line.length - 1];
-    if (last !== undefined && sameInlineStyle(last, segment)) {
-      line[line.length - 1] = { ...last, text: last.text + segment.text };
-      return;
-    }
-    line.push(segment);
-  };
-
-  const breakLine = (): void => {
-    lines.push(line);
-    line = [];
-    used = 0;
-  };
-
-  for (const segment of segments) {
-    // A newline is a hard break, not whitespace to flow through.
-    //
-    // Splitting on /(\s+)/ alone put the newline characters *into* a row as an
-    // ordinary space run, so a multi-line string became one row containing a
-    // literal newline — which truncates where it sits. Expanded reasoning
-    // showed only its first line, and a diff arrived as one running paragraph
-    // with every +/- marker stranded mid-sentence.
-    //
-    // Pushing the line even when it is empty is deliberate: two newlines in a
-    // row are a paragraph break, and the blank row is the break.
-    const hardLines = segment.text.split("\n");
-    for (const [index, hardLine] of hardLines.entries()) {
-      if (index > 0) breakLine();
-      // Keep the separators: a wrapped line must not lose the spaces inside it.
-      for (const word of hardLine.split(/(\s+)/)) {
-        if (word.length === 0) continue;
-        const size = terminalCellWidth(word);
-        if (/^\s+$/.test(word)) {
-          if (used > 0 && used + size <= width) {
-            push({ ...segment, text: word });
-            used += size;
-          }
-          continue;
-        }
-        if (used > 0 && used + size > width) {
-          lines.push(line);
-          line = [];
-          used = 0;
-        }
-        // A single word longer than the measure is broken rather than allowed to
-        // push past the right edge — a URL must not break the column.
-        let rest = word;
-        while (terminalCellWidth(rest) > width) {
-          let head = sliceTerminalCells(rest, width - used);
-          if (head.length === 0 && used > 0) {
-            lines.push(line);
-            line = [];
-            used = 0;
-            continue;
-          }
-          if (head.length === 0) head = terminalGraphemes(rest)[0] ?? "";
-          push({ ...segment, text: head });
-          lines.push(line);
-          line = [];
-          used = 0;
-          rest = rest.slice(head.length);
-        }
-        push({ ...segment, text: rest });
-        used += terminalCellWidth(rest);
-      }
-    }
-  }
-  if (line.length > 0) lines.push(line);
-  return lines.length > 0 ? lines : [[]];
+  return wrapStyledSpans(segments, measure, sameInlineStyle);
 }
 
 // ─── Formatting ──────────────────────────────────────────────────────────────
@@ -253,642 +170,54 @@ function wrap(segments: readonly Segment[], measure: number): Segment[][] {
  * blockquote bars where this product is required to route every glyph through
  * `getGlyphs()` so the ASCII fallback works, and it renders one subtree at one
  * measure — which forfeits exactly the prose/table measure split above. So the
- * inline grammar agent prose actually uses is tokenised here into styled spans.
+ * shared parser in `ui/markdown` produces blocks and styled spans, and this
+ * file only lays them out.
  */
-type ProseItem =
-  | {
-      readonly kind: "text";
-      readonly segments: readonly Segment[];
-      readonly indent: number;
-      /**
-       * A list marker or quote bar that opens the first row. Wrapped rows
-       * hang under the text after it, or repeat it when `repeatMarker` is set.
-       */
-      readonly marker?: Segment;
-      readonly repeatMarker?: boolean;
-    }
-  | { readonly kind: "heading"; readonly level: number; readonly segments: readonly Segment[] }
-  | { readonly kind: "blank" }
-  | { readonly kind: "rule" }
-  | { readonly kind: "fence"; readonly language: string; readonly lines: readonly string[] }
-  | { readonly kind: "table"; readonly rows: readonly (readonly string[])[] };
+type ProseItem = MarkdownBlock;
 
-function isWordCharacter(character: string | undefined): boolean {
-  return character !== undefined && /[A-Za-z0-9]/.test(character);
-}
-
-function delimiterRunLength(text: string, index: number, marker: "*" | "_"): number {
-  let length = 0;
-  while (text[index + length] === marker) length += 1;
-  return length;
-}
-
-function skipCodeSpan(text: string, index: number): number {
-  if (text[index] !== "`") return index;
-  const close = text.indexOf("`", index + 1);
-  return close === -1 ? index + 1 : close + 1;
-}
-
-function findDelimiterClose(text: string, from: number, marker: string): number {
-  let index = from;
-  const runCharacter = marker[0];
-  while (index < text.length) {
-    index = skipCodeSpan(text, index);
-    if (index >= text.length) break;
-    if (text.startsWith(marker, index) && (runCharacter === "*" || runCharacter === "_")) {
-      const run = delimiterRunLength(text, index, runCharacter);
-      if (run === marker.length) return index;
-      index += run;
-      continue;
-    }
-    if (text.startsWith(marker, index)) return index;
-    index += 1;
-  }
-  return -1;
-}
-
-function canOpenUnderscoreItalic(text: string, index: number): boolean {
-  return !isWordCharacter(text[index - 1]);
-}
-
-function canCloseUnderscoreItalic(text: string, closeIndex: number): boolean {
-  return !isWordCharacter(text[closeIndex + 1]);
-}
-
-function findUnderscoreItalicClose(text: string, from: number): number {
-  let index = from;
-  while (index < text.length) {
-    index = skipCodeSpan(text, index);
-    if (index >= text.length) break;
-    if (text[index] === "_") {
-      const run = delimiterRunLength(text, index, "_");
-      if (run === 1 && canCloseUnderscoreItalic(text, index)) return index;
-      index += run;
-      continue;
-    }
-    index += 1;
-  }
-  return -1;
-}
-
-function matchLink(
-  text: string,
-  index: number,
-): { readonly label: string; readonly url: string; readonly end: number } | undefined {
-  if (text[index] !== "[") return undefined;
-  const close = text.indexOf("]", index + 1);
-  if (close === -1 || text[close + 1] !== "(") return undefined;
-  const urlEnd = text.indexOf(")", close + 2);
-  if (urlEnd === -1) return undefined;
-  return {
-    label: text.slice(index + 1, close),
-    url: text.slice(close + 2, urlEnd).trim(),
-    end: urlEnd + 1,
-  };
-}
-
-/** Punctuation that ends a sentence rather than a URL: `see https://x.dev.` */
-const URL_TRAILING_PUNCTUATION = /[.,;:!?'"*_]+$/;
-
-/**
- * A URL written out in prose, or in CommonMark's `<https://…>` autolink form.
- * A closing parenthesis stays only when the URL opened one, so a link in
- * brackets (like this https://x.dev) does not swallow the bracket.
- */
-function matchBareUrl(
-  text: string,
-  index: number,
-): { readonly url: string; readonly end: number } | undefined {
-  if (text[index] === "<") {
-    const angle = /^<(https?:\/\/[^\s<>]+)>/.exec(text.slice(index));
-    if (angle === null) return undefined;
-    return { url: angle[1] ?? "", end: index + (angle[0]?.length ?? 0) };
-  }
-  if (text[index] !== "h" || /[\w/]/.test(text[index - 1] ?? "")) return undefined;
-  const found = /^https?:\/\/[^\s<>]+/.exec(text.slice(index));
-  if (found === null) return undefined;
-  let url = (found[0] ?? "").replace(URL_TRAILING_PUNCTUATION, "");
-  while (url.endsWith(")") && count(url, "(") < count(url, ")")) {
-    url = url.slice(0, -1).replace(URL_TRAILING_PUNCTUATION, "");
-  }
-  if (!/^https?:\/\/[^/]/.test(url)) return undefined;
-  return { url, end: index + url.length };
-}
-
-function count(text: string, character: string): number {
-  return text.split(character).length - 1;
-}
-
-/** Links read as links on every terminal: underlined, dimmed accent, and an OSC 8 target. */
-function linkSegment(label: string, url: string): Segment {
-  return {
-    text: label,
-    fg: THEME.link,
-    underline: true,
-    ...(url.length > 0 ? { link: url } : {}),
-  };
-}
-
-function matchWrapped(
-  text: string,
-  index: number,
-  open: string,
-  close: string,
-): { readonly inner: string; readonly end: number } | undefined {
-  if (!text.startsWith(open, index)) return undefined;
-  const closeAt = text.indexOf(close, index + open.length);
-  if (closeAt === -1) return undefined;
-  return { inner: text.slice(index + open.length, closeAt), end: closeAt + close.length };
-}
-
-function styledSegment(text: string, fg: string, marks: InlineMarks): Segment {
-  return {
-    text,
-    fg,
-    ...(marks.bold === true ? { bold: true } : {}),
-    ...(marks.italic === true ? { italic: true } : {}),
-    ...(marks.underline === true ? { underline: true } : {}),
-    ...(marks.strikethrough === true ? { strikethrough: true } : {}),
-  };
-}
-
-function parseInline(text: string, fg: string, glyphs: GlyphSet, marks: InlineMarks): Segment[] {
-  const segments: Segment[] = [];
-  let plain = "";
-  let index = 0;
-
-  const flushPlain = (): void => {
-    if (plain.length === 0) return;
-    if (
-      marks.bold === true ||
-      marks.italic === true ||
-      marks.underline === true ||
-      marks.strikethrough === true
-    ) {
-      segments.push(styledSegment(plain, fg, marks));
-    } else {
-      segments.push(...citations(plain, fg, glyphs));
-    }
-    plain = "";
-  };
-
-  const takeMarked = (inner: string, extra: InlineMarks, nextIndex: number): void => {
-    flushPlain();
-    if (inner.length > 0) {
-      segments.push(...parseInline(inner, fg, glyphs, { ...marks, ...extra }));
-    }
-    index = nextIndex;
-  };
-
-  while (index < text.length) {
-    if (text[index] === "\\" && index + 1 < text.length) {
-      plain += text[index + 1];
-      index += 2;
-      continue;
-    }
-
-    if (text[index] === "`") {
-      const close = text.indexOf("`", index + 1);
-      if (close !== -1) {
-        flushPlain();
-        const code = text.slice(index + 1, close);
-        if (code.length > 0) segments.push({ text: code, fg: THEME.syntaxValue });
-        index = close + 1;
-        continue;
-      }
-    }
-
-    const link = matchLink(text, index);
-    if (link !== undefined) {
-      flushPlain();
-      if (link.label.length > 0) {
-        segments.push(linkSegment(link.label, link.url));
-      }
-      index = link.end;
-      continue;
-    }
-
-    const bare = matchBareUrl(text, index);
-    if (bare !== undefined) {
-      flushPlain();
-      segments.push(linkSegment(bare.url, bare.url));
-      index = bare.end;
-      continue;
-    }
-
-    const under = matchWrapped(text, index, "<u>", "</u>");
-    if (under !== undefined) {
-      takeMarked(under.inner, { underline: true }, under.end);
-      continue;
-    }
-
-    const struck = matchWrapped(text, index, "~~", "~~");
-    if (struck !== undefined) {
-      takeMarked(struck.inner, { strikethrough: true }, struck.end);
-      continue;
-    }
-
-    const stars = delimiterRunLength(text, index, "*");
-    if (stars >= 1) {
-      const size = Math.min(stars, 3);
-      const marker = "*".repeat(size);
-      const closeAt = findDelimiterClose(text, index + size, marker);
-      if (closeAt !== -1) {
-        const extra: InlineMarks =
-          size === 3
-            ? { bold: true, italic: true }
-            : size === 2
-              ? { bold: true }
-              : { italic: true };
-        takeMarked(text.slice(index + size, closeAt), extra, closeAt + size);
-        continue;
-      }
-    }
-
-    const unders = delimiterRunLength(text, index, "_");
-    if (unders >= 2) {
-      const size = Math.min(unders, 3);
-      const marker = "_".repeat(size);
-      const closeAt = findDelimiterClose(text, index + size, marker);
-      if (closeAt !== -1) {
-        const extra: InlineMarks = size === 3 ? { bold: true, italic: true } : { bold: true };
-        takeMarked(text.slice(index + size, closeAt), extra, closeAt + size);
-        continue;
-      }
-    }
-    if (unders === 1 && canOpenUnderscoreItalic(text, index)) {
-      const closeAt = findUnderscoreItalicClose(text, index + 1);
-      if (closeAt !== -1) {
-        takeMarked(text.slice(index + 1, closeAt), { italic: true }, closeAt + 1);
-        continue;
-      }
-    }
-
-    plain += text[index];
-    index += 1;
-  }
-
-  flushPlain();
-  return segments;
-}
-
-/** Inline emphasis, code, links and citations, as styled spans. */
-export function inlineSegments(
-  text: string,
-  fg: string,
-  glyphs: GlyphSet = getGlyphs(),
-): Segment[] {
-  return parseInline(text, fg, glyphs, {});
-}
-
-/** A citation is a pointer, not prose, so it drops to the dimmed accent. */
-function citations(text: string, fg: string, glyphs: GlyphSet): Segment[] {
-  const pattern = new RegExp(`(${glyphs.citeOpen}[^${glyphs.citeClose}]*${glyphs.citeClose})`);
-  return text
-    .split(pattern)
-    .filter((piece) => piece.length > 0)
-    .map((piece) =>
-      piece.startsWith(glyphs.citeOpen)
-        ? { text: piece, fg: THEME.accentDim }
-        : { text: piece, fg },
-    );
-}
-
-/** A list item: its nesting whitespace, an ordinal when it is ordered, and its text. */
-const LIST_ITEM = /^(\s*)(?:[-*+]|(\d+[.)]))\s+(.*)$/;
-
-/** Lines that open a new block, and so end a paragraph or a list item's continuation. */
-const BLOCK_START = /^\s*(\||```|#{1,6}\s|>|[-*+]\s|\d+[.)]\s)/;
-
-/** A top-level list sits this far in from the prose edge, so its marker reads as structure. */
-const LIST_INDENT = 2;
-
-/**
- * Headings are ranked by weight and rule, never by hue and never by a glyph:
- * a marker in the rail column would read as a second speaker. The top level
- * is bold and underlined, the second bold, and anything deeper is bold
- * secondary text — still a heading, one step down the neutral ramp.
- */
-function headingSegments(text: string, level: number, glyphs: GlyphSet): Segment[] {
-  const fg = level <= 2 ? THEME.selected : THEME.secondary;
-  return inlineSegments(text, fg, glyphs).map((segment) => ({
-    ...segment,
-    bold: true,
-    ...(level <= 1 ? { underline: true } : {}),
+/** Paint parsed spans with the theme: the role becomes a colour, the marks and link carry over. */
+function segmentsOf(spans: readonly MarkdownSpan[]): Segment[] {
+  return spans.map((span) => ({
+    text: span.text,
+    fg: markdownRoleColor(span.role),
+    ...(span.bold === true ? { bold: true } : {}),
+    ...(span.italic === true ? { italic: true } : {}),
+    ...(span.underline === true ? { underline: true } : {}),
+    ...(span.strikethrough === true ? { strikethrough: true } : {}),
+    ...(span.link === undefined ? {} : { link: span.link }),
   }));
 }
 
-/**
- * Split agent markdown into items that read at the measure and items that scan.
- * CommonMark ordered markers (`1.` and `1)`) start a new item even without a blank line.
- */
-export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): ProseItem[] {
-  const items: ProseItem[] = [];
-  const lines = markdown.split("\n");
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index] ?? "";
-
-    if (line.trim().length === 0) {
-      items.push({ kind: "blank" });
-      index += 1;
-      continue;
-    }
-
-    const fence = /^(\s*)```(.*)$/.exec(line);
-    if (fence !== null) {
-      // A fence opened inside a list item is indented with it; the body loses
-      // that same indentation, as CommonMark reads it, so code starts on the
-      // band's edge instead of floating inside it.
-      const opener = (fence[1] ?? "").length;
-      const body: string[] = [];
-      index += 1;
-      while (index < lines.length && !/^\s*```/.test(lines[index] ?? "")) {
-        const bodyLine = lines[index] ?? "";
-        const leading = bodyLine.length - bodyLine.trimStart().length;
-        body.push(bodyLine.slice(Math.min(opener, leading)));
-        index += 1;
-      }
-      index += 1;
-      items.push({
-        kind: "fence",
-        language: (fence[2] ?? "").trim().split(/\s+/)[0] ?? "",
-        lines: body,
-      });
-      continue;
-    }
-
-    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-      items.push({ kind: "rule" });
-      index += 1;
-      continue;
-    }
-
-    if (/^\s*\|/.test(line)) {
-      const rows: string[][] = [];
-      while (index < lines.length && /^\s*\|/.test(lines[index] ?? "")) {
-        const raw = (lines[index] ?? "").trim();
-        // The `| --- | --- |` alignment row is markdown syntax, not data.
-        if (!/^\|[\s|:-]+\|?$/.test(raw)) {
-          rows.push(
-            raw
-              .replace(/^\|/, "")
-              .replace(/\|$/, "")
-              .split("|")
-              .map((cell) => cell.trim()),
-          );
-        }
-        index += 1;
-      }
-      items.push({ kind: "table", rows });
-      continue;
-    }
-
-    const heading = /^\s*(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
-    if (heading !== null) {
-      const level = (heading[1] ?? "#").length;
-      items.push({
-        kind: "heading",
-        level,
-        segments: headingSegments(heading[2] ?? "", level, glyphs),
-      });
-      index += 1;
-      continue;
-    }
-
-    const quote = /^\s*>\s?(.*)$/.exec(line);
-    if (quote !== null) {
-      const quoted = [quote[1] ?? ""];
-      index += 1;
-      while (index < lines.length) {
-        const next = /^\s*>\s?(.*)$/.exec(lines[index] ?? "");
-        if (next === null || (next[1] ?? "").trim().length === 0) break;
-        quoted.push((next[1] ?? "").trim());
-        index += 1;
-      }
-      items.push({
-        kind: "text",
-        indent: 0,
-        marker: { text: `${glyphs.blockquote} `, fg: THEME.border },
-        repeatMarker: true,
-        segments: inlineSegments(quoted.join(" "), THEME.secondary, glyphs),
-      });
-      continue;
-    }
-
-    const bullet = LIST_ITEM.exec(line);
-    if (bullet !== null) {
-      const depth = Math.floor(terminalCellWidth(bullet[1] ?? "") / 2);
-      const ordinal = bullet[2];
-      // Lazy continuation: the item runs on until a blank line or the start of
-      // another block, the way CommonMark reads it.
-      const body = [bullet[3] ?? ""];
-      index += 1;
-      while (index < lines.length) {
-        const candidate = lines[index] ?? "";
-        if (candidate.trim().length === 0 || BLOCK_START.test(candidate)) break;
-        body.push(candidate.trim());
-        index += 1;
-      }
-      items.push({
-        kind: "text",
-        indent: depth * 2 + LIST_INDENT,
-        marker: { text: `${ordinal ?? glyphs.bullet} `, fg: THEME.muted },
-        segments: inlineSegments(body.join(" "), THEME.selected, glyphs),
-      });
-      continue;
-    }
-
-    // A paragraph runs until a blank line or a line that starts a new item.
-    const paragraph: string[] = [];
-    while (index < lines.length) {
-      const candidate = lines[index] ?? "";
-      if (candidate.trim().length === 0 || BLOCK_START.test(candidate)) {
-        break;
-      }
-      paragraph.push(candidate.trim());
-      index += 1;
-    }
-    items.push({
-      kind: "text",
-      indent: 0,
-      segments: inlineSegments(paragraph.join(" "), THEME.selected, glyphs),
-    });
-  }
-
-  return items;
+function parseProse(markdown: string, glyphs: GlyphSet): ProseItem[] {
+  return parseMarkdown(markdown, { glyphs });
 }
 
-/**
- * Gaps first, then columns: a table that is wider than the measure must still
- * keep every column. Flooring a proportional scale (and a min of 3) used to
- * overflow the row, after which `fitTerminalSegments` ate the last cells.
- */
-/**
- * A column is never squeezed below its longest word while another column can
- * give, so "Friday" does not break into "Frid / ay". A word longer than this
- * does not get to hold the whole table hostage for its own width.
- */
-const TABLE_WORD_FLOOR_CAP = 16;
-
-function tableColumnLayout(
-  natural: readonly number[],
-  width: number,
-  longestWord: readonly number[] = [],
-): { readonly sizes: readonly number[]; readonly gap: number } {
-  const columns = natural.length;
-  if (columns === 0) return { sizes: [], gap: 0 };
-
-  let gap = columns > 1 ? RECEIPT_GAP : 0;
-  let available = width - gap * Math.max(0, columns - 1);
-  while (gap > 0 && available < columns) {
-    gap -= 1;
-    available = width - gap * (columns - 1);
-  }
-  available = Math.max(columns, available);
-
-  const total = natural.reduce((sum, size) => sum + size, 0);
-  const floor = available < columns * 3 ? 1 : 3;
-  const wordFloor = natural.map((size, index) =>
-    Math.min(size, TABLE_WORD_FLOOR_CAP, longestWord[index] ?? 1),
-  );
-  const sizes = natural.map((size, index) => {
-    if (total <= available) return Math.max(size, 1);
-    return Math.max(floor, wordFloor[index] ?? 1, Math.floor((size / total) * available));
-  });
-
-  // Take from the widest column that is still above its longest word; only
-  // when every column is down to its words does a word have to break.
-  const widestAbove = (limit: (index: number) => number): number => {
-    let widest = -1;
-    for (let index = 0; index < sizes.length; index += 1) {
-      if ((sizes[index] ?? 0) <= limit(index)) continue;
-      if (widest < 0 || (sizes[index] ?? 0) > (sizes[widest] ?? 0)) widest = index;
-    }
-    return widest;
-  };
-  let used = sizes.reduce((sum, size) => sum + size, 0);
-  while (used > available) {
-    let widest = widestAbove((index) => wordFloor[index] ?? 1);
-    if (widest < 0) widest = widestAbove(() => 1);
-    if (widest < 0) break;
-    sizes[widest] = (sizes[widest] ?? 1) - 1;
-    used -= 1;
-  }
-
-  let leftover = available - used;
-  while (leftover > 0) {
-    let grown = false;
-    for (let index = 0; index < sizes.length; index += 1) {
-      if (leftover === 0) break;
-      if ((sizes[index] ?? 0) < (natural[index] ?? 0)) {
-        sizes[index] = (sizes[index] ?? 0) + 1;
-        leftover -= 1;
-        grown = true;
-      }
-    }
-    if (!grown) break;
-  }
-
-  return { sizes, gap };
-}
-
-function padTableCell(lines: Segment[][], size: number, fg: string, lineIndex: number): Segment[] {
-  const line = lines[lineIndex];
-  if (line === undefined || line.length === 0) {
-    return [{ text: " ".repeat(size), fg }];
-  }
-  const used = terminalSegmentsWidth(line);
-  const pad = Math.max(0, size - used);
-  return pad > 0 ? [...line, { text: " ".repeat(pad), fg }] : line;
-}
-
-/**
- * Borderless columns: a table is scanned, so its chrome is whitespace and a
- * single hairline under the header. Cells carry the same inline markdown as
- * prose. Body rows sit tight unless one of them wraps, at which point a blank
- * row between records is what keeps a two-line cell from reading as two rows.
- */
 function tableRows(
-  rows: readonly (readonly string[])[],
+  item: Extract<ProseItem, { kind: "table" }>,
   width: number,
   key: string,
   gutterFor: () => readonly Segment[],
   glyphs: GlyphSet,
 ): RenderRow[] {
-  const columns = Math.max(...rows.map((row) => row.length), 1);
-  const cells = rows.map((row, rowIndex) =>
-    Array.from({ length: columns }, (_, column) => {
-      const fg = rowIndex === 0 ? THEME.secondary : THEME.selected;
-      const segments = inlineSegments(row[column] ?? "", fg, glyphs);
-      return rowIndex === 0 ? segments.map((segment) => ({ ...segment, bold: true })) : segments;
-    }),
-  );
-  const natural = Array.from({ length: columns }, (_, column) =>
-    Math.max(...cells.map((row) => terminalSegmentsWidth(row[column] ?? [])), 1),
-  );
-  const longestWord = Array.from({ length: columns }, (_, column) =>
-    Math.max(
-      ...cells.map((row) =>
-        Math.max(
-          0,
-          ...(row[column] ?? [])
-            .flatMap((segment) => segment.text.split(/\s+/))
-            .map((word) => terminalCellWidth(word)),
-        ),
-      ),
-      1,
-    ),
-  );
-  const { sizes, gap } = tableColumnLayout(natural, width, longestWord);
-
-  const wrappedRows = cells.map((row) => row.map((cell, column) => wrap(cell, sizes[column] ?? 1)));
-  const heights = wrappedRows.map((row) => Math.max(...row.map((cell) => cell.length), 1));
-  const spaced = heights.slice(1).some((height) => height > 1);
-  const tableWidth = Math.min(
-    width,
-    sizes.reduce((sum, size) => sum + size, 0) + gap * Math.max(0, columns - 1),
-  );
-
-  const rendered: RenderRow[] = [];
-  for (let rowIndex = 0; rowIndex < wrappedRows.length; rowIndex += 1) {
-    const wrapped = wrappedRows[rowIndex];
-    if (wrapped === undefined) continue;
-    const fg = rowIndex === 0 ? THEME.secondary : THEME.selected;
-    for (let lineIndex = 0; lineIndex < (heights[rowIndex] ?? 1); lineIndex += 1) {
-      const segments: Segment[] = [];
-      wrapped.forEach((cell, column) => {
-        segments.push(...padTableCell(cell, sizes[column] ?? 1, fg, lineIndex));
-        if (column < columns - 1) segments.push({ text: " ".repeat(gap), fg });
-      });
-      rendered.push({
-        key: `${key}:table:${String(rowIndex)}:${String(lineIndex)}`,
-        gutter: gutterFor(),
-        content: fitTerminalSegments(segments, width),
-        contentWidth: width,
-        meta: [],
-      });
+  const layout = layoutTable(item.rows, item.align, width);
+  const linesInRow = new Map<number, number>();
+  return layout.lines.map((line) => {
+    let rowKey: string;
+    let content: readonly Segment[];
+    if (line.kind === "cells") {
+      const lineIndex = linesInRow.get(line.row) ?? 0;
+      linesInRow.set(line.row, lineIndex + 1);
+      rowKey = `${key}:table:${String(line.row)}:${String(lineIndex)}`;
+      content = fitTerminalSegments(segmentsOf(line.spans), width);
+    } else if (line.kind === "rule") {
+      rowKey = `${key}:table:rule`;
+      content = [{ text: glyphs.divider.repeat(layout.width), fg: THEME.border }];
+    } else {
+      rowKey = `${key}:table:${String(line.row)}:gap`;
+      content = [];
     }
-    if (rowIndex === 0 && wrappedRows.length > 1) {
-      rendered.push({
-        key: `${key}:table:rule`,
-        gutter: gutterFor(),
-        content: [{ text: glyphs.divider.repeat(tableWidth), fg: THEME.border }],
-        contentWidth: width,
-        meta: [],
-      });
-    } else if (spaced && rowIndex < wrappedRows.length - 1) {
-      rendered.push({
-        key: `${key}:table:${String(rowIndex)}:gap`,
-        gutter: gutterFor(),
-        content: [],
-        contentWidth: width,
-        meta: [],
-      });
-    }
-  }
-  return rendered;
+    return { key: rowKey, gutter: gutterFor(), content, contentWidth: width, meta: [] };
+  });
 }
 
 // ─── Blocks to rows ──────────────────────────────────────────────────────────
@@ -1231,7 +560,7 @@ function appendProseItems(
         break;
       case "heading": {
         breathe(key);
-        const lines = wrap(item.segments, geometry.prose);
+        const lines = wrap(segmentsOf(item.spans), geometry.prose);
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
           const line = lines[lineIndex];
           if (line === undefined) continue;
@@ -1264,24 +593,28 @@ function appendProseItems(
         break;
       case "table":
         breathe(key);
-        appendRows(rows, tableRows(item.rows, geometry.content, key, gutterFor, glyphs));
+        appendRows(rows, tableRows(item, geometry.content, key, gutterFor, glyphs));
         state.breatheBeforeNext = true;
         break;
       case "text": {
         const indent = item.indent;
         const markerWidth = item.marker === undefined ? 0 : terminalCellWidth(item.marker.text);
-        const lines = wrap(item.segments, Math.max(1, geometry.prose - indent - markerWidth));
+        const marker = item.marker === undefined ? undefined : segmentsOf([item.marker])[0];
+        const lines = wrap(
+          segmentsOf(item.spans),
+          Math.max(1, geometry.prose - indent - markerWidth),
+        );
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
           const line = lines[lineIndex];
           if (line === undefined) continue;
           const lead: Segment[] = [];
           if (indent > 0) lead.push({ text: " ".repeat(indent), fg: THEME.border });
-          if (item.marker !== undefined) {
+          if (marker !== undefined) {
             // Wrapped rows hang under the text rather than the marker, so the
             // marker column stays a clean edge the eye can run down.
             lead.push(
               lineIndex === 0 || item.repeatMarker === true
-                ? item.marker
+                ? marker
                 : { text: " ".repeat(markerWidth), fg: THEME.border },
             );
           }

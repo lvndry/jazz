@@ -12,8 +12,8 @@
 
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
-import { sourceLanguageFromPath } from "../fullscreen/syntax-spans";
 import type { PendingApproval } from "../store";
+import { sourceLanguageFromPath } from "../text/syntax-spans";
 import { terminalCellWidth } from "../text/terminal-cells";
 
 export type ActionClass =

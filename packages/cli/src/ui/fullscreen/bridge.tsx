@@ -65,7 +65,6 @@ import {
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
 import { subagentBlocks, subagentListItem } from "./subagent-view";
-import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
 import { themePickerTarget } from "./theme-picker-keys";
 import {
@@ -116,6 +115,7 @@ import {
 import type { SubagentRun } from "../subagent-runs";
 import { mergeSuggestions } from "../suggestion-menu";
 import { wrapIndex } from "../text/picker-window";
+import { pathFromFileArgsPreview, sourceLanguageFromPath } from "../text/syntax-spans";
 import { compactWorkingDirectory } from "../text/working-directory";
 import { previewTheme } from "../theme";
 import type { Choice, OutputEntry, PromptState } from "../types";

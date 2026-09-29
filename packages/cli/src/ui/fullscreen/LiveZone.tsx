@@ -35,7 +35,6 @@
 
 import { TextAttributes } from "@opentui/core";
 import { memo, useEffect, useState, type ReactNode } from "react";
-import { highlightCodeLine } from "./syntax-spans";
 import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
 import { useThemeRevision } from "./theme-revision";
@@ -50,6 +49,7 @@ import { RETRY_BAND_ROWS, type RetryBand } from "../models/retry";
 import { planProgress, planWindow, todoLine } from "../models/todo";
 import { formatElapsed } from "../text/format";
 import { roleStyle } from "../text/roles";
+import { highlightCodeLine } from "../text/syntax-spans";
 import { fitTerminalSegments, terminalSegmentsWidth } from "../text/terminal-cells";
 import { MOTION, THEME } from "../theme";
 
