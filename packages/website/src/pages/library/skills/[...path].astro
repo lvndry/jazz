@@ -1,4 +1,9 @@
 ---
+/**
+ * Render each marketplace skill's metadata and full instruction source with
+ * the CLI install command. Static paths use the catalog id so the displayed
+ * command selects the same entry that the reader is reviewing.
+ */
 import LibraryDefinition from "../../../components/LibraryDefinition.astro";
 import Library from "../../../layouts/Library.astro";
 import {
@@ -31,7 +36,7 @@ const source = await readSkillSource(entry);
     description={entry.description}
     meta={[`source: skills/${entry.id}/SKILL.md`, "instruction-only"]}
     tags={[]}
-    install={`copy SKILL.md to ~/.jazz/skills/${entry.id}/SKILL.md`}
+    install={`jazz skill add ${entry.id}`}
     raw={{ href: rawSkillPath(entry.id), label: "raw SKILL.md" }}
     heading="SKILL.md"
     warning="This is an instruction-only artifact. It does not grant tools or permissions, but its instructions can influence an agent. Read it for prompt injection or unsafe guidance before installing it."

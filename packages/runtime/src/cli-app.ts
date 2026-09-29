@@ -1257,7 +1257,7 @@ function registerPersonaCommands(program: Command): void {
     );
 
   personaCommand
-    .command("install <name>")
+    .command("add <name>")
     .description("Install a persona from the library into ~/.jazz/personas/")
     .option("--as <name>", "Install under a different local name")
     .option("-y, --yes", "Skip the confirmation prompt (required when non-interactive)")
@@ -1266,7 +1266,7 @@ function registerPersonaCommands(program: Command): void {
       run(
         () =>
           import("@jazz/cli/commands/persona-library").then((mod) =>
-            mod.installPersonaCommand(name, {
+            mod.addPersonaCommand(name, {
               ...(options.as !== undefined ? { as: options.as } : {}),
               yes: options.yes === true,
               refresh: options.refresh === true,
@@ -1345,7 +1345,7 @@ function registerSkillCommands(program: Command): void {
     );
 
   skillCommand
-    .command("install <name>")
+    .command("add <name>")
     .description("Install one reviewed SKILL.md into ~/.jazz/skills/")
     .option("-y, --yes", "Skip the confirmation prompt (required when non-interactive)")
     .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
@@ -1353,10 +1353,24 @@ function registerSkillCommands(program: Command): void {
       run(
         () =>
           import("@jazz/cli/commands/skill-library").then((mod) =>
-            mod.installSkillCommand(name, {
+            mod.addSkillCommand(name, {
               yes: options.yes === true,
               refresh: options.refresh === true,
             }),
+          ),
+        { session: true },
+      ),
+    );
+
+  skillCommand
+    .command("remove <name>")
+    .description("Remove a global skill and its files from ~/.jazz/skills/")
+    .option("-y, --yes", "Skip the confirmation prompt (required when non-interactive)")
+    .action((name: string, options: { yes?: boolean }) =>
+      run(
+        () =>
+          import("@jazz/cli/commands/skill-remove").then((mod) =>
+            mod.removeSkillCommand(name, { yes: options.yes === true }),
           ),
         { session: true },
       ),
@@ -3166,7 +3180,7 @@ function registerWorkflowCommands(program: Command): void {
     );
 
   workflowCommand
-    .command("install <name>")
+    .command("add <name>")
     .description("Install a workflow from the library into ~/.jazz/workflows/")
     .option("--as <name>", "Install under a different local name")
     .option("-y, --yes", "Skip the confirmation prompt (required when non-interactive)")
@@ -3175,7 +3189,7 @@ function registerWorkflowCommands(program: Command): void {
       runCliAction(
         () =>
           import("@jazz/cli/commands/workflow-library").then((mod) =>
-            mod.installWorkflowCommand(name, {
+            mod.addWorkflowCommand(name, {
               ...(options.as !== undefined ? { as: options.as } : {}),
               yes: options.yes === true,
               refresh: options.refresh === true,

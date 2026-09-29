@@ -1,4 +1,5 @@
 ---
+/** Render a library workflow with its source and the matching `jazz workflow add` command. */
 import LibraryDefinition from "../../../components/LibraryDefinition.astro";
 import Library from "../../../layouts/Library.astro";
 import {
@@ -42,7 +43,7 @@ const warning =
     description={description}
     meta={meta}
     tags={tags}
-    install={`jazz workflow install ${name}`}
+    install={`jazz workflow add ${name}`}
     raw={{ href: rawWorkflowPath(name), label: "raw WORKFLOW.md" }}
     heading="WORKFLOW.md"
     warning={warning}

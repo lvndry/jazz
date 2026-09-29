@@ -100,6 +100,7 @@ by hand or with `jazz persona create`. The library is the third source:
 jazz persona list              # built-in and custom
 jazz persona show coder        # read one, as the agent sees it
 jazz persona browse            # library, interactive install
+jazz persona add copy-editor   # install a library persona
 jazz persona search            # everything the library offers
 ```
 

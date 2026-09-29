@@ -4,6 +4,9 @@
  *
  * Community entries expose only repository-declared metadata and never imply
  * that Jazz reviewed, hosts, or endorses executable code.
+ * Every entry includes local install, trust, and enable commands; community
+ * installs use the observed commit rather than a reviewed catalog identifier.
+ * Capability declarations are listed by kind and name rather than only counted.
  */
 import type { PluginEntry } from "../lib/library";
 
@@ -16,12 +19,20 @@ interface Props {
 const { entry, manifest, manifestPath } = Astro.props;
 const hooks = [...entry.hooks, ...entry.policyHooks];
 const description = entry.sourceType === "community" ? entry.description : undefined;
-const capabilityCount =
-  entry.tools.length +
-  entry.commands.length +
-  entry.personas.length +
-  entry.skills.length +
-  entry.lifecycleHooks.length;
+const installSource =
+  entry.sourceType === "community" ? `${entry.repository}@${entry.sourceSha}` : entry.id;
+const setupCommands = [
+  `jazz plugin add ${installSource}`,
+  `jazz plugin trust ${entry.id}`,
+  `jazz plugin enable ${entry.id}`,
+].join("\n");
+const capabilities = [
+  ...entry.tools.map((tool) => `Tool: ${tool.name}`),
+  ...entry.commands.map((command) => `Command: /${command.name}`),
+  ...entry.personas.map((persona) => `Persona: ${persona.name}`),
+  ...entry.skills.map((skill) => `Skill: ${skill.name}`),
+  ...entry.lifecycleHooks.map((hook) => `Lifecycle hook: ${hook}`),
+];
 ---
 
 <a class="back mono" href={entry.sourceType === "reviewed" ? "/library#plugins" : "/library#community-plugins"}>
@@ -66,13 +77,18 @@ const capabilityCount =
   )}
 </section>
 
-{entry.sourceType === "community" && (
-  <section class="install-command">
-    <h2>Install from source</h2>
-    <code class="mono">jazz plugin add {entry.repository}@{entry.sourceSha}</code>
-    <p class="muted">Installation, trust, egress consent, and enablement remain separate local decisions.</p>
-  </section>
-)}
+<section class="install-command">
+  <h2>Install and enable</h2>
+  <pre><code>{setupCommands}</code></pre>
+  <p class="muted">
+    Run these commands in a local interactive terminal. Review the inspection shown by
+    <code>jazz plugin trust</code> before confirming trust and enablement.
+  </p>
+  <p class="muted">
+    Enable applies to all agents. Add <code>--agent &lt;id-or-name&gt;</code> to the enable command
+    to choose one agent.
+  </p>
+</section>
 
 <section>
   <h2>Declared surface</h2>
@@ -83,7 +99,13 @@ const capabilityCount =
     </div>
     <div>
       <span class="label mono">capabilities</span>
-      <span>{capabilityCount > 0 ? `${capabilityCount} declared` : "none declared"}</span>
+      {capabilities.length > 0 ? (
+        <ul>
+          {capabilities.map((capability) => <li>{capability}</li>)}
+        </ul>
+      ) : (
+        <span>none declared</span>
+      )}
     </div>
     <div>
       <span class="label mono">decision providers</span>

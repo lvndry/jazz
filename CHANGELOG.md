@@ -12,6 +12,10 @@ Releases before this file existed are described in their
 
 ### Breaking
 
+- **Library installation commands use `add`.** Replace `jazz skill install`,
+  `jazz persona install`, and `jazz workflow install` with `jazz skill add`,
+  `jazz persona add`, and `jazz workflow add`; existing flags still apply.
+
 - **Workflow `autoApprove` defaults to `false`.** A `WORKFLOW.md` with no `autoApprove`
   field no longer runs fully auto-approved under `--auto-approve` or on a schedule. Its gated
   tools are declined on an unattended run.
@@ -40,6 +44,9 @@ Releases before this file existed are described in their
 | webhook body `{ title, body, type, item }`     | read `event.item` (or `event.pause`, `event.reason`); no `spend`     |
 
 ### Added
+
+- `jazz skill remove <name>` removes a global skill and its files after confirmation
+  (or with `--yes` for non-interactive use).
 
 - **`ask_user_secret`: secrets the person types stay out of the model.** The agent asks for a
   password, token or passphrase; it is typed hidden (bullets in both terminal interfaces, a
