@@ -14,6 +14,7 @@ import type { UserSecretStore } from "@/core/secrets/user-secrets";
 import type { Agent } from "@/core/types/agent";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
+import type { TaintedEgressMode } from "@/core/types/config";
 import type { ChatMessage, MemoryExposure, MemorySource } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 
@@ -443,6 +444,8 @@ export interface ToolExecutionContext {
   readonly egressTaint?: EgressTaint;
   /** `network.trustedGetHosts` from the global config: GET/HEAD to these skip the taint gate. */
   readonly trustedGetHosts?: string[];
+  /** `network.taintedEgress`; unset behaves as `ask`, the strictest reading. */
+  readonly taintedEgress?: TaintedEgressMode;
   /**
    * Whether an unanswerable approval should park the run instead of declining it.
    *

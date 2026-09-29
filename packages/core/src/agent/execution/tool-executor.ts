@@ -362,9 +362,11 @@ export class ToolExecutor {
     PresentationService | LoggerService | AgentConfigService
   > {
     return Effect.gen(function* () {
+      const presentation = yield* PresentationServiceTag;
+      const canPromptNow = presentation.canPromptForApproval?.() === true;
       const taintGated = () =>
         context.egressTaint !== undefined &&
-        plainToolNeedsTaintApproval(name, args, toolMeta.egress, context);
+        plainToolNeedsTaintApproval(name, args, toolMeta.egress, context, canPromptNow);
       const privateGated = () =>
         privateDestinationNeedsApproval(
           privateAddresses,
@@ -684,6 +686,8 @@ export class ToolExecutor {
               taint: context.egressTaint,
               messages: context.conversationMessages,
               trustedHosts: context.trustedGetHosts,
+              mode: context.taintedEgress,
+              canPrompt,
             });
           const privateAddresses = yield* unlistedPrivateAddressesFor(
             egress,
@@ -1188,7 +1192,7 @@ export class ToolExecutor {
               }
               const taintGated =
                 context.egressTaint !== undefined &&
-                plainToolNeedsTaintApproval(name, args, toolMeta.egress, context);
+                plainToolNeedsTaintApproval(name, args, toolMeta.egress, context, false);
               const privateAddresses = yield* unlistedPrivateAddressesFor(
                 toolMeta.egress,
                 args,
@@ -1262,6 +1266,8 @@ export class ToolExecutor {
             taint: context.egressTaint,
             messages: context.conversationMessages,
             trustedHosts: context.trustedGetHosts,
+            mode: context.taintedEgress,
+            canPrompt: false,
           });
           const privateAddresses = yield* unlistedPrivateAddressesFor(
             toolMeta?.egress === true,
@@ -1615,6 +1621,7 @@ function plainToolNeedsTaintApproval(
   args: Record<string, unknown>,
   egress: boolean,
   context: ToolExecutionContext,
+  canPrompt: boolean,
 ): boolean {
   return (
     !isToolNameAutoApproved(name, context.autoApprovedTools) &&
@@ -1626,6 +1633,8 @@ function plainToolNeedsTaintApproval(
       taint: context.egressTaint,
       messages: context.conversationMessages,
       trustedHosts: context.trustedGetHosts,
+      mode: context.taintedEgress,
+      canPrompt,
     })
   );
 }

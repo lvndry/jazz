@@ -19,6 +19,7 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type {
   AppConfig,
+  TaintedEgressMode,
   DaemonConfig,
   LoggingConfig,
   SchedulerMode,
@@ -65,6 +66,7 @@ type ConfigMenuAction =
   | "spend-limits"
   | "private-hosts"
   | "trusted-hosts"
+  | "tainted-egress"
   | "back";
 
 /**
@@ -115,6 +117,10 @@ export function configWizardCommand() {
         }
         case "trusted-hosts": {
           yield* configureTrustedGetHosts();
+          break;
+        }
+        case "tainted-egress": {
+          yield* configureTaintedEgress();
           break;
         }
         case "back": {
@@ -185,6 +191,11 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
         (config.network?.trustedGetHosts?.length ?? 0) === 0
           ? "none trusted"
           : `${String(config.network?.trustedGetHosts?.length)} trusted`,
+    },
+    {
+      label: "Web request safety",
+      value: "tainted-egress",
+      hint: TAINTED_EGRESS_LABELS[config.network?.taintedEgress ?? "auto"].hint,
     },
     { label: "Back", value: "back" },
   ];
@@ -1035,6 +1046,46 @@ function configurePrivateHosts() {
       yield* terminal.success(`Removed ${host}. Reaching it asks for approval again.`);
       yield* terminal.log("");
     }
+  });
+}
+
+const TAINTED_EGRESS_LABELS: Readonly<
+  Record<TaintedEgressMode, { readonly name: string; readonly hint: string }>
+> = {
+  auto: {
+    name: "Auto: ask only when nobody is watching (recommended)",
+    hint: "auto",
+  },
+  ask: {
+    name: "Defensive: ask before any request to an untrusted host after reading untrusted content",
+    hint: "defensive",
+  },
+  allow: { name: "Allow all: never ask about web requests", hint: "allow all" },
+};
+
+function configureTaintedEgress() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const current = (yield* configService.appConfig).network?.taintedEgress ?? "auto";
+    const modes: readonly TaintedEgressMode[] = ["auto", "ask", "allow"];
+    const next = yield* terminal.select<TaintedEgressMode>(
+      "Web request safety: what happens when an agent that read untrusted content (a web page, an email) composes a request to a host you have not trusted. A hostile page could try to steer that request into leaking data.",
+      {
+        default: current,
+        choices: modes.map((mode) => ({
+          name: TAINTED_EGRESS_LABELS[mode].name,
+          value: mode,
+          ...currentTag(mode === current),
+        })),
+      },
+    );
+    if (next === undefined || next === current) {
+      return;
+    }
+    yield* configService.set("network.taintedEgress", next === "auto" ? undefined : next);
+    yield* terminal.success(`Web request safety: ${TAINTED_EGRESS_LABELS[next].hint}.`);
+    yield* terminal.log("");
   });
 }
 

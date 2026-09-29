@@ -51,6 +51,8 @@ function needsApproval(
     readonly egress?: boolean;
     readonly messages?: readonly ChatMessage[];
     readonly trustedHosts?: readonly string[];
+    readonly mode?: "auto" | "ask" | "allow";
+    readonly canPrompt?: boolean;
   } = {},
 ): boolean {
   return taintedEgressNeedsApproval({
@@ -61,6 +63,8 @@ function needsApproval(
     taint: options.tainted === false ? createEgressTaint() : taintedRun(),
     messages: options.messages ?? [],
     trustedHosts: options.trustedHosts,
+    mode: options.mode,
+    canPrompt: options.canPrompt,
   });
 }
 
@@ -226,6 +230,20 @@ describe("taintedEgressNeedsApproval", () => {
     expect(
       needsApproval("http_request", { method: "GET", url: link }, { messages: fromPage }),
     ).toBe(false);
+  });
+
+  describe("network.taintedEgress", () => {
+    it("allow never gates, ask always gates, unset asks", () => {
+      expect(needsApproval("web_fetch", novelUrl, { mode: "allow", canPrompt: false })).toBe(false);
+      expect(needsApproval("web_fetch", novelUrl, { mode: "ask", canPrompt: true })).toBe(true);
+      expect(needsApproval("web_fetch", novelUrl, { canPrompt: true })).toBe(true);
+    });
+
+    it("auto lets a person-watched run through and holds an unattended one", () => {
+      expect(needsApproval("web_fetch", novelUrl, { mode: "auto", canPrompt: true })).toBe(false);
+      expect(needsApproval("web_fetch", novelUrl, { mode: "auto", canPrompt: false })).toBe(true);
+      expect(needsApproval("web_fetch", novelUrl, { mode: "auto" })).toBe(true);
+    });
   });
 
   describe("network.trustedGetHosts", () => {

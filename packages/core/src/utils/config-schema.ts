@@ -46,6 +46,7 @@ import type {
   OtlpTelemetryConfig,
   SchedulerConfig,
   SchedulerMode,
+  TaintedEgressMode,
   StorageConfig,
   TelemetryConfig,
   UiCanvasMode,
@@ -362,6 +363,7 @@ const trustedGetHostEntry = described(
 const networkShape = {
   allowPrivateHosts: z.array(privateHostEntry).max(MAX_PRIVATE_HOST_ENTRIES).exactOptional(),
   trustedGetHosts: z.array(trustedGetHostEntry).max(MAX_TRUSTED_GET_HOST_ENTRIES).exactOptional(),
+  taintedEgress: exhaustiveEnum<TaintedEgressMode>()(["auto", "ask", "allow"]).exactOptional(),
 } satisfies SchemaShape<NetworkConfig>;
 
 const streamingShape = {

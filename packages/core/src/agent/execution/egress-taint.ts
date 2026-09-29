@@ -18,6 +18,10 @@
  *   any other call that needs a person. `high-risk` (and `true`) still approve it, and an explicit
  *   per-tool or per-command allowlist entry still counts.
  *
+ * `network.taintedEgress` relaxes this: `allow` never gates, and `auto` (the default) does not
+ * gate while a person can answer a prompt, so only unattended runs, where nobody would see the
+ * request, are held. `ask` gates every call as described above.
+ *
  * A GET or HEAD to a host the operator listed in `network.trustedGetHosts` also stays automatic,
  * even with a query: the operator decided that host may see whatever the run puts in its URL.
  *
@@ -32,6 +36,7 @@
  *   author nothing new; a URL the model composed is what needs a person.
  */
 
+import type { TaintedEgressMode } from "@/core/types/config";
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy, EgressTaint } from "@/core/types/tools";
 import { hostIsTrustedForGet, isIpLiteral, normalizeHostname } from "@/core/utils/private-network";
@@ -277,6 +282,10 @@ export interface EgressGateInput {
   readonly messages: readonly ChatMessage[] | undefined;
   /** `network.trustedGetHosts`: hosts whose plain GET/HEAD requests are never gated. */
   readonly trustedHosts?: readonly string[] | undefined;
+  /** `network.taintedEgress`; unset asks. */
+  readonly mode?: TaintedEgressMode | undefined;
+  /** Whether a person can answer a prompt right now (`auto` lets egress through only then). */
+  readonly canPrompt?: boolean | undefined;
 }
 
 /** Whether a policy tier still approves egress after untrusted content entered the run. */
@@ -293,6 +302,9 @@ export function taintedEgressNeedsApproval(input: EgressGateInput): boolean {
     return false;
   }
   if (policyApprovesTaintedEgress(input.policy)) {
+    return false;
+  }
+  if (input.mode === "allow" || (input.mode === "auto" && input.canPrompt === true)) {
     return false;
   }
   if (FIXED_ENDPOINT_EGRESS_TOOLS.has(input.toolName)) {
