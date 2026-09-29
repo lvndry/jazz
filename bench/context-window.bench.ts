@@ -39,6 +39,7 @@ function history(messageCount: number, salt = ""): ChatMessage[] {
 }
 
 const sampling = { iterations: 100, warmupIterations: 20 } as const;
+let uncachedHistorySequence = 0;
 
 const results = [
   bench(
@@ -62,16 +63,16 @@ const results = [
     },
     sampling,
   ),
-  // Every body unique and a fresh manager, so no cache applies: the whole
+  // Monotonic salts stay unique across warmup and measured calls: the whole
   // 2000-message history tokenized from scratch, which is the worst case a
   // resume can hit (and the number the BPE text cache cannot improve).
   bench(
     "calculateTotalTokens 2000 uncacheable, BPE (openai)",
-    (iteration) => {
+    () => {
       new ContextWindowManager({
         maxTokens: 100_000,
         modelHint: { provider: "openai", modelId: "gpt-4o" },
-      }).calculateTotalTokens(history(2_000, `${String(iteration)} `));
+      }).calculateTotalTokens(history(2_000, `${String(uncachedHistorySequence++)} `));
     },
     sampling,
   ),
