@@ -39,7 +39,7 @@ export function AgentResponseCard({
         marginTop={1}
         paddingLeft={PADDING.content}
       >
-        {/* Do NOT force a color here; allow ANSI styling (chalk/marked-terminal) to render. */}
+        {/* Do NOT force a color here; allow the pre-styled ANSI content to render. */}
         <TerminalText>{content}</TerminalText>
       </Box>
 
