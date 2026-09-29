@@ -537,13 +537,18 @@ export function App(): React.ReactElement {
   // Handle expand-diff shortcut
   useInputHandler({
     id: "expand-diff-handler",
-    priority: InputPriority.GLOBAL_SHORTCUT,
+    // Below TEXT_INPUT so ctrl+e is end-of-line while the composer holds text and
+    // expands the diff once it is empty and ignores the key.
+    priority: InputPriority.TEXT_INPUT + 1,
     onInput: (action) => {
-      if (action.type !== "expand-diff") {
+      if (action.type !== "expand-diff" && action.type !== "line-end") {
         return InputResults.ignored();
       }
 
       const payload = store.getExpandableDiff();
+      if (!payload && action.type === "line-end") {
+        return InputResults.ignored();
+      }
       if (!payload) {
         store.printOutput({
           type: "warn",

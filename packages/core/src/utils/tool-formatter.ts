@@ -17,6 +17,9 @@ const MAX_EXPANDABLE_CHARS = 100_000;
 /** On-screen budget for write_file / edit_file bodies. Ctrl+O expands the rest. */
 export const FILE_MUTATION_PREVIEW_CHARS = 150;
 
+/** Diff rows a settled write_file / edit_file receipt shows under its line. */
+export const FILE_MUTATION_PREVIEW_LINES = 10;
+
 const FILE_MUTATION_EXPAND_HINT = "… · ctrl+o to expand";
 const ESC = "\u001b";
 const SGR_PATTERN = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
@@ -83,36 +86,88 @@ function truncateFileMutationDisplay(text: string): string {
   return `${visible.slice(0, FILE_MUTATION_PREVIEW_CHARS).trimEnd()}${FILE_MUTATION_EXPAND_HINT}`;
 }
 
-/**
- * Full write/edit payload for Ctrl+O. Returns null when the on-screen preview
- * already shows everything.
- */
-export function expandableFileMutationPayload(result: string): string | null {
+export interface FileMutationDiffPreview {
+  readonly lines: readonly string[];
+  readonly hiddenLines: number;
+}
+
+function parseFileMutationResult(result: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(result);
-    if (!isRecord(parsed)) return null;
-    const record = parsed;
-    const fullDiff = record["fullDiff"];
-    const diff = record["diff"];
-    const wasTruncated = record["wasTruncated"] === true;
-    const payload =
-      typeof fullDiff === "string" && fullDiff.length > 0
-        ? fullDiff
-        : typeof diff === "string"
-          ? diff
-          : "";
-    if (payload.length === 0) return null;
-    const visible = stripSgr(payload);
-    if (!wasTruncated && visible.length <= FILE_MUTATION_PREVIEW_CHARS) return null;
-    if (payload.length > MAX_EXPANDABLE_CHARS) {
-      return (
-        payload.slice(0, MAX_EXPANDABLE_CHARS).trimEnd() + "\n… output capped at 100k characters"
-      );
-    }
-    return payload;
+    return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
+}
+
+function diffBodyLines(diff: string): string[] {
+  const lines = stripSgr(diff).replace(/\r\n/g, "\n").split("\n");
+  const body = lines.filter((line) => !line.startsWith("--- ") && !line.startsWith("+++ "));
+  while (body.length > 0 && body[body.length - 1]?.trim() === "") {
+    body.pop();
+  }
+  return body;
+}
+
+/** True when a diff has more rows than a receipt shows, so the rest sits behind the expand key. */
+export function diffExceedsPreview(diff: string): boolean {
+  return diffBodyLines(diff).length > FILE_MUTATION_PREVIEW_LINES;
+}
+
+/**
+ * The first rows of a write/edit result's diff for its receipt, without the `---`/`+++`
+ * headers (the path is already on the receipt). Null when the result holds no diff to show.
+ */
+export function fileMutationDiffPreview(
+  result: string,
+  maxLines: number = FILE_MUTATION_PREVIEW_LINES,
+): FileMutationDiffPreview | null {
+  const record = parseFileMutationResult(result);
+  if (record === null) return null;
+  const fullDiff = record["fullDiff"];
+  const diff = record["diff"];
+  const source =
+    typeof fullDiff === "string" && fullDiff.length > 0
+      ? fullDiff
+      : typeof diff === "string"
+        ? diff
+        : "";
+  const body = diffBodyLines(source);
+  if (body.length === 0) return null;
+  if (body.length === 1 && body[0]?.startsWith("+ Created file:") === true) return null;
+  const truncatedInResult =
+    record["wasTruncated"] === true && !(typeof fullDiff === "string" && fullDiff.length > 0);
+  const hidden = Math.max(0, body.length - maxLines);
+  return {
+    lines: body.slice(0, maxLines),
+    hiddenLines: truncatedInResult ? Math.max(hidden, 1) : hidden,
+  };
+}
+
+/**
+ * Full write/edit payload for the expand key. Returns null when the receipt's
+ * diff preview already shows everything.
+ */
+export function expandableFileMutationPayload(result: string): string | null {
+  const record = parseFileMutationResult(result);
+  if (record === null) return null;
+  const fullDiff = record["fullDiff"];
+  const diff = record["diff"];
+  const payload =
+    typeof fullDiff === "string" && fullDiff.length > 0
+      ? fullDiff
+      : typeof diff === "string"
+        ? diff
+        : "";
+  if (payload.length === 0) return null;
+  const wasTruncated = record["wasTruncated"] === true;
+  if (!wasTruncated && !diffExceedsPreview(payload)) return null;
+  if (payload.length > MAX_EXPANDABLE_CHARS) {
+    return (
+      payload.slice(0, MAX_EXPANDABLE_CHARS).trimEnd() + "\n… output capped at 100k characters"
+    );
+  }
+  return payload;
 }
 
 type FormatStyle = "plain" | "colored";

@@ -53,7 +53,7 @@ import { parseMarkdown, type MarkdownBlock } from "../markdown/parse";
 import { markdownRoleColor, type MarkdownSpan } from "../markdown/spans";
 import { layoutTable } from "../markdown/table";
 import { stoppedHeading } from "../models/interrupt";
-import { receiptParts } from "../models/receipt";
+import { receiptDiffRows, receiptParts } from "../models/receipt";
 import { reportLines, type ReportSegment } from "../report-layout";
 import { formatPreciseDuration } from "../text/format";
 import { PROSE_MEASURE } from "../text/measure";
@@ -1117,6 +1117,7 @@ function receiptRows(
     const needsOwnRows =
       block.status !== "ok" ||
       block.expanded === true ||
+      block.diffPreview !== undefined ||
       segments.some((segment) => segment.text.includes("\n")) ||
       terminalSegmentsWidth(segments) > geometry.prose;
 
@@ -1145,6 +1146,21 @@ function receiptRows(
             meta: lineIndex === 0 ? meta : [],
           });
         }
+      }
+      const diffRows = receiptDiffRows(block);
+      for (let index = 0; index < diffRows.length; index += 1) {
+        const diffRow = diffRows[index];
+        if (diffRow === undefined) continue;
+        rows.push({
+          key: `${block.id}:diff:${String(index)}`,
+          gutter: [rail, blankCell()],
+          content: fitTerminalSegments(
+            [{ text: `  ${diffRow.text}`, fg: roleStyle(diffRow.role).fg }],
+            geometry.content,
+          ),
+          contentWidth: geometry.content,
+          meta: [],
+        });
       }
       if (block.expanded === true && block.detail !== undefined) {
         const detailLines = block.detail.split("\n");

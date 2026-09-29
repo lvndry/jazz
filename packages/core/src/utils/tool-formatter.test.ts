@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   compactToolArguments,
   expandableFileMutationPayload,
+  fileMutationDiffPreview,
   FILE_MUTATION_PREVIEW_CHARS,
   formatToolArguments,
   formatToolResult,
@@ -282,5 +283,43 @@ describe("compactToolArguments", () => {
     expect(compactToolArguments("gmail_search", { query: "is:flagged" }, cwd)).toBe(
       "query: is:flagged",
     );
+  });
+});
+
+describe("fileMutationDiffPreview", () => {
+  const header = "--- a/a.ts\n+++ b/a.ts";
+
+  test("drops the file headers and keeps a short diff whole", () => {
+    const diff = `${header}\n@@ -1 +1 @@\n-old\n+new`;
+    expect(fileMutationDiffPreview(JSON.stringify({ diff }))).toEqual({
+      lines: ["@@ -1 +1 @@", "-old", "+new"],
+      hiddenLines: 0,
+    });
+  });
+
+  test("caps at ten rows and counts what is hidden from the full diff", () => {
+    const body = Array.from({ length: 25 }, (_, index) => `+line ${String(index)}`);
+    const preview = fileMutationDiffPreview(
+      JSON.stringify({ diff: "short", fullDiff: `${header}\n${body.join("\n")}` }),
+    );
+    expect(preview?.lines).toHaveLength(10);
+    expect(preview?.hiddenLines).toBe(15);
+  });
+
+  test("shows nothing for a new-file summary or an empty diff", () => {
+    expect(
+      fileMutationDiffPreview(JSON.stringify({ diff: "+ Created file: a.ts (3 lines)" })),
+    ).toBeNull();
+    expect(fileMutationDiffPreview(JSON.stringify({ diff: "" }))).toBeNull();
+    expect(fileMutationDiffPreview("not json")).toBeNull();
+  });
+});
+
+describe("expandableFileMutationPayload line budget", () => {
+  test("is null for a diff of ten rows and set for eleven", () => {
+    const rows = (count: number): string =>
+      Array.from({ length: count }, (_, index) => `+line ${String(index)}`).join("\n");
+    expect(expandableFileMutationPayload(JSON.stringify({ diff: rows(10) }))).toBeNull();
+    expect(expandableFileMutationPayload(JSON.stringify({ diff: rows(11) }))).toBe(rows(11));
   });
 });

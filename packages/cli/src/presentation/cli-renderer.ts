@@ -7,6 +7,8 @@ import {
   compactToolArguments as compactToolArgumentsShared,
   formatToolArguments as formatToolArgumentsShared,
   formatToolDisplayName as formatToolDisplayNameShared,
+  fileMutationDiffPreview,
+  isFileMutationTool,
 } from "@jazz/core/utils/tool-formatter";
 import { computeUsageCostUSD } from "@jazz/core/utils/usage-cost";
 import chalk from "chalk";
@@ -18,7 +20,7 @@ import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
 import { getGlyphs } from "../ui/glyphs";
 import { markdownToAnsi } from "../ui/markdown/ansi";
-import { receiptMark, receiptParts, toolReceipt } from "../ui/models/receipt";
+import { receiptDiffRows, receiptMark, receiptParts, toolReceipt } from "../ui/models/receipt";
 import { formatCost, formatPreciseDuration } from "../ui/text/format";
 import { paintRole, paintSegments } from "../ui/text/roles";
 import { CHALK_THEME } from "../ui/theme";
@@ -351,10 +353,17 @@ export class CLIRenderer {
       result: event.result,
       durationMs: event.durationMs,
       classifiedRisk: event.classifiedRisk,
+      diffPreview:
+        toolName !== undefined && isFileMutationTool(toolName)
+          ? fileMutationDiffPreview(event.result)
+          : undefined,
     });
     const glyphs = getGlyphs();
     const mark = receiptMark(receipt, glyphs);
-    return ` ${paintRole(mark.role, mark.text)} ${paintSegments(receiptParts(receipt, glyphs, { duration: true }))}\n\n`;
+    const diffRows = receiptDiffRows(receipt)
+      .map((row) => `\n   ${paintRole(row.role, row.text)}`)
+      .join("");
+    return ` ${paintRole(mark.role, mark.text)} ${paintSegments(receiptParts(receipt, glyphs, { duration: true }))}${diffRows}\n\n`;
   }
 
   private renderError(error: LLMError): string {

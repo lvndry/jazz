@@ -7,7 +7,13 @@ import { Box, Text } from "ink";
 import React from "react";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { getGlyphs } from "./glyphs";
-import { receiptFromMeta, receiptMark, receiptParts, type ToolReceipt } from "./models/receipt";
+import {
+  receiptDiffRows,
+  receiptFromMeta,
+  receiptMark,
+  receiptParts,
+  type ToolReceipt,
+} from "./models/receipt";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
 import { paintRole, paintSegments } from "./text/roles";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
@@ -67,12 +73,25 @@ function colorFor(type: OutputType): string {
 function ReceiptLine({ receipt }: { receipt: ToolReceipt }): React.ReactElement {
   const glyphs = getGlyphs();
   const mark = receiptMark(receipt, glyphs);
+  const diffRows = receiptDiffRows(receipt);
   return (
-    <Box paddingLeft={PADDING.content}>
+    <Box
+      paddingLeft={PADDING.content}
+      flexDirection="column"
+    >
       <Text wrap="wrap">
         {paintRole(mark.role, mark.text)}{" "}
         {paintSegments(receiptParts(receipt, glyphs, { duration: true }))}
       </Text>
+      {diffRows.map((row, index) => (
+        <Text
+          key={index}
+          wrap="truncate-end"
+        >
+          {"  "}
+          {paintRole(row.role, row.text)}
+        </Text>
+      ))}
     </Box>
   );
 }
