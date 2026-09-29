@@ -19,7 +19,7 @@ describe("settingsMenuOptions", () => {
       config({
         llm: { openai: { api_key: "sk-test" } } as NonNullable<AppConfig["llm"]>,
         notifications: { enabled: true },
-        spend: { dayUSD: 20 },
+        daemon: { goals: { dailyCostUSD: 20 } },
         ui: { theme: "jazz:light" },
         logging: { level: "warn", format: "plain" },
       }),
@@ -30,6 +30,7 @@ describe("settingsMenuOptions", () => {
     expect(hintOf(options, "output-display")).toBe("jazz:light");
     expect(hintOf(options, "logging")).toBe("warn");
     expect(options.at(-1)).toEqual({ label: "Back", value: "back" });
+    expect(hintOf(options, "private-hosts")).toBe("none allowed");
   });
 
   it("says plainly when nothing is set up yet", () => {

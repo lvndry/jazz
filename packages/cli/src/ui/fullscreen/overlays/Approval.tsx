@@ -605,7 +605,7 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
             paddingRight: LEGEND_INDENT,
           }}
         >
-          <text>
+          <text style={{ height: 1, flexShrink: 0 }}>
             {model.armed ? (
               <b style={{ fg: THEME.primary }}>enter</b>
             ) : (
@@ -616,7 +616,7 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
             <b style={{ fg: THEME.selected }}>esc</b>
             <span style={{ fg: THEME.secondary }}>{` ${rejectLabel}`}</span>
           </text>
-          <text style={{ fg: THEME.muted }}>
+          <text style={{ fg: THEME.muted, height: 1, flexShrink: 0 }}>
             {clip(`${bodyScrolls ? "up/down more · " : ""}a ${model.alwaysLabel}`, inner)}
           </text>
         </box>

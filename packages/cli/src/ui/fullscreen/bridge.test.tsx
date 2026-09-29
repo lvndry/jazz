@@ -2302,7 +2302,7 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
     const frame = rendered.captureCharFrame();
     expect(frame).toMatch(/method\s+GET/);
-    expect(frame).toContain("a always allow web_fetch this session");
+    expect(frame).toContain("a always allow web_fetch");
 
     rendered.renderer.destroy();
     store.setApprovalRequest(null);
