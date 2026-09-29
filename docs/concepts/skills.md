@@ -4,12 +4,26 @@ description: "What a Jazz skill is, how progressive loading keeps a large skill 
 
 # Skills
 
-A skill is a folder led by `SKILL.md`. It teaches the model a procedure: when this kind of work
-comes up, here are the steps, the conventions, and the traps. It may ship scripts, templates, and
-reference files alongside.
+A skill gives an agent instructions for a kind of work, such as researching a topic,
+writing meeting notes, or managing email. It is a folder with a `SKILL.md` file and optional
+scripts, templates, and reference material.
 
-**A skill grants nothing.** It can teach an agent to drive a CLI, but the agent still needs
-`execute_command`, the binary still has to be installed, and the approval policy still applies.
+Use skills to teach a repeatable procedure without putting the whole procedure in every prompt.
+
+## Use a skill
+
+Enter `/skills` in a conversation to browse available skills. Read one, then ask for a task
+it covers, such as:
+
+```text
+Use the deep-research skill to compare these three approaches. Cite the sources
+and recommend one for this project.
+```
+
+Jazz loads matching instructions when needed. For email, calendar, and other external
+systems, install and configure the underlying tools first; a skill supplies instructions,
+while the agent's tool permissions still control what it can do.
+See [Email and calendar](../configure/email-calendar.md) for a working setup.
 
 ## Progressive loading
 
@@ -23,7 +37,7 @@ Jazz loads skill instructions on demand:
 
 `find_skills` searches the index when the one-line descriptions are not enough to decide.
 
-## Where they come from, and who wins
+## Skill locations
 
 | Source   | Path                | Scope                                |
 | -------- | ------------------- | ------------------------------------ |
@@ -58,10 +72,8 @@ installer accepts only a single reviewed `SKILL.md` and never executes files fro
 Each marketplace skill page shows its `jazz skill add <name>` command alongside the full
 instruction source, so you can review and install it without manually copying files.
 
-The catalog is cached under `<jazz home>/cache/skill-registry.json`, works offline after its first
-successful fetch, and can be pointed at a self-hosted library with `JAZZ_LIBRARY_URL`. The website
-is curated through pull requests, so a listing is a review and provenance signal—not a claim that
-the instructions are harmless or universally correct.
+After the first fetch, you can browse the cached catalog offline. To use an internal
+library, set `JAZZ_LIBRARY_URL`.
 
 Remove a global skill with `jazz skill remove <name>`. Jazz confirms before deleting the
 whole `~/.jazz/skills/<name>/` directory, including its assets; non-interactive removal requires

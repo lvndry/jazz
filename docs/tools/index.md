@@ -4,7 +4,9 @@ description: "The complete Jazz tool registry: every tool name, its honest risk 
 
 # Jazz tool inventory
 
-This page helps you find the exact name, risk tier, and behavior of a tool.
+Find the tool names to use in agent restrictions and approval grants. In chat, `/tools`
+shows the tools available to the current agent. Use `jazz agent edit <name>` to change
+its selected capabilities; use `deniedTools` to remove a specific tool.
 
 Risk tiers determine what runs unattended. See [Approvals](../security/approvals.md)
 and the [security model](../security/index.md).
@@ -171,20 +173,19 @@ available through `jazz run` or remote chat surfaces.
 
 ### Memory
 
-Opt-in per agent (like File Management) rather than always-on. See [Memory](../concepts/conversations-and-memory.md).
+Memory tools are in the built-in bundle. Deny `manage_memory` to prevent writes. See [Memory](../concepts/conversations-and-memory.md).
 
 | Tool            | Risk        | Approval pair | What it does                                                                                                              |
 | --------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `view_memory`   | `read-only` | none          | Consult relevant memory when prior context could improve the answer.                                                      |
 | `manage_memory` | `low-risk`  | none          | Create with an explicit relevance topic, or amend, delete, or rename, using an exact quote from authenticated user input. |
 
-`update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations. See [Context management](../maintainers/context-lifecycle.md).
+`update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations. See [Context management](../concepts/context-management.md).
 
 ### Workspace
 
-Opt-in per agent (like Memory) rather than always-on. Deliberately separate from memory: memory
-is small, curated, one-file-per-topic notes; workspace is where large working drafts, research
-dumps, and intermediate artifacts live, referenced from memory rather than duplicated into it.
+Scratchpad tools are in the built-in bundle. Use them for working drafts, research material,
+and intermediate files that should persist across conversations.
 
 | Tool                | Risk        | Approval pair | What it does                                                                                          |
 | ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
@@ -216,7 +217,7 @@ saved as `proposed` and nothing runs until the user accepts the plan: chat asks 
 turn, and `jazz goal accept <id>` accepts it elsewhere. Subagents and goal cycles cannot propose
 goals. A goal's own cycles get `report_goal_cycle`, which says where the goal stands (Jazz checks
 the claim against the cycle's tool output), and a loop's own runs get `end_loop`, which stops the
-loop after the run; nothing else has either, and no tool can start a loop. See [Goal lifecycle](../maintainers/goal-lifecycle.md) and
+loop after the run; nothing else has either, and no tool can start a loop. See [Goals and loops](../concepts/goals-and-loops.md) and
 [`jazz loop`](../commands.md#jazz-loop).
 
 | Tool                | Risk       | Approval pair | What it does                                                                                                                                                |
@@ -247,29 +248,13 @@ succeeds and the ticker is the safety net.
 
 ### Background Jobs
 
-Opt-in per agent. Runs several independent shell commands in the background with a concurrency
-cap and per-job retry/backoff, without blocking the agent's turn. Completion (fan-in) resumes the
-conversation the same way a wake trigger fires, once every job in the batch reaches a final
-state, and the agent is told each job's status **and what it printed**: a batch exists to find
-something out, so an exit code on its own would tell it nothing.
+Background-job tools are in the built-in bundle. `enqueue_batch` starts independent shell
+commands in a detached worker, with bounded concurrency and retries. When all jobs finish,
+the agent resumes its conversation with their statuses and output.
 
-`enqueue_batch` does not depend on `jazz daemon` running. Enqueueing a batch starts a detached
-worker process (`jazz job run`) immediately, which claims and runs that agent's due jobs, waits out
-any retry backoff, and resumes the conversation when the batch finishes. Previously jobs ran only
-from the daemon's tick, so on a machine with no daemon the tool returned a batch id, the person
-approved commands to run unattended, and then nothing ran and nothing woke them.
-
-Unlike wake triggers and reminders, this is not a one-shot `launchd`/`at` job. Those schedule a
-future instant, which those schedulers do well; a batch starts now, and launchd's
-`StartCalendarInterval` has minute resolution and no year key, so "run this now" either misses the
-current minute or waits up to sixty seconds for it, and a two-second retry backoff cannot be
-expressed at all. The daemon's ticker still calls the same worker and remains the safety net for a
-batch whose worker was killed mid-flight. If no worker can be started at all, the tool says so in
-its result rather than leaving the agent waiting for a wake-up that will never come.
-
-If that resumed turn needs an approval nobody is there to give, the run parks instead of dying:
-you get a desktop notification naming it, and `jazz runs approve <id>` finishes it. See
-[tools and approval](../maintainers/tool-lifecycle.md).
+No daemon is required to start a batch. The daemon can recover a batch whose worker stopped.
+If the resumed turn needs approval, it parks and sends a notification; answer with
+`jazz runs approve <id>`. See [Deferred work](../concepts/deferred-work.md).
 
 | Tool            | Risk        | Approval pair           | What it does                                                                                               |
 | --------------- | ----------- | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -325,7 +310,7 @@ or static images. The bundled `composition` skill supplies design instructions.
 
 | Tool                 | Risk        | Approval pair | What it does                                                                                                                                                 |
 | -------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `create_composition` | `low-risk`  | (             | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
+| `create_composition` | `low-risk`  | none          | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
 | `create_pdf`         | `high-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
 
 ---
@@ -342,20 +327,11 @@ tools**: they are [skills](../concepts/skills.md) that shell out through
 | Calendar (list, create)     | `calendar` skill → [khal](https://github.com/pimutils/khal) via `execute_command`          | `unknown`               |
 | Obsidian vault writes       | `obsidian` skill → CLI via `execute_command`, or `write_file`                              | `unknown` / `high-risk` |
 
-So a scheduled workflow set to `autoApprove: low-risk` **cannot archive an email**: every
-himalaya invocation is declined. The fix is usually _not_ to raise the whole tier to
-`high-risk` (which also unlocks `rm` and `git push`), but to allowlist the specific binary:
-
-```json
-// ~/.jazz/config.json
-{ "autoApprovedCommands": ["himalaya", "khal"] }
-```
-
-That keeps the tier low while letting the one command through. Matching is on a key parsed the
-way the shell reads the command (binary, plus the next word when it is not a flag), never a raw
-prefix, and a compound, redirected, substituted or `NAME=value`-prefixed command never matches:
-see
-[Tools & approval](../maintainers/tool-lifecycle.md#two-sharper-controls).
+Jazz classifies each CLI command before applying the run's approval policy. Read-only
+commands may run at `read-only`; mailbox or calendar changes can require human approval.
+Grant specific commands only when you understand their scope. A grant for an entire binary
+such as `himalaya` also permits its mutation commands.
+See [email and calendar setup](../configure/email-calendar.md).
 
 ---
 

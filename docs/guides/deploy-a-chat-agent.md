@@ -20,7 +20,15 @@ Apple account on a Mac. WhatsApp links to your account the way WhatsApp Web does
 
 You need a model backend for any of them: an API key for a cloud provider (OpenAI by
 default), or a local [Ollama](https://ollama.com) with a tool-capable model pulled.
-Telegram and Discord additionally need Docker + Docker Compose.
+Telegram and Discord additionally need Git, Docker, and Docker Compose. Clone the
+repository before their setup steps:
+
+```bash
+git clone https://github.com/lvndry/jazz.git ~/jazz
+```
+
+Their `cd` commands below use this checkout. iMessage and WhatsApp use the installed
+Jazz CLI and do not need a clone.
 
 ---
 
@@ -43,7 +51,7 @@ what goes on the allowlist so the bot only answers you (and anyone else you add)
 ### 3. Configure
 
 ```bash
-cd packages/telegram-bot/src
+cd ~/jazz/packages/telegram-bot/src
 cp .env.example .env
 ```
 
@@ -59,8 +67,7 @@ Edit `.env` and set at least:
 
 ### 4. Run it
 
-The image builds Jazz from the repo source, so the compose build context is the repo root
-(already wired: no extra setup needed):
+Start the bridge from the directory containing your `.env`:
 
 ```bash
 docker compose up -d --build
@@ -128,7 +135,7 @@ and in any server the bot is in).
 ### 4. Configure
 
 ```bash
-cd packages/discord-bot/src
+cd ~/jazz/packages/discord-bot/src
 cp .env.example .env
 ```
 

@@ -12,7 +12,26 @@ Use deferred work for jobs that finish later or need a follow-up after the curre
 | **Background jobs** | now, detached      | when every job ends  | yes, the exact one       |
 | **Reminder**        | at a time you name | a person is told     | no                       |
 
-## Reminders are for people, triggers are for agents
+## Ask for a follow-up
+
+In a conversation, say what should happen and when:
+
+```text
+Remind me tomorrow at 09:00 to send the release notes.
+```
+
+To have Jazz do more work later:
+
+```text
+In 30 minutes, check whether this deployment finished and summarize the result
+in this conversation.
+```
+
+Jazz asks for approval when required, then confirms the scheduled time. The machine must
+be able to run Jazz when the follow-up is due; closing the chat does not prevent it.
+For recurring checks, use a [loop](./goals-and-loops.md#loops).
+
+## Reminders and wake triggers
 
 A **reminder** delivers a note. Nothing runs and nothing is decided. "Tell me at six that the
 lease expires" is a reminder.
@@ -24,16 +43,21 @@ trigger.
 
 If a person needs to read something, use a reminder. If a decision needs making, use a trigger.
 
-## Background jobs are for fan-out
+## Background jobs
 
 `enqueue_batch` runs several independent shell commands at once, with a concurrency cap and
 per-job retry, without holding the turn open.
 
 When every job reaches a final state, the conversation resumes with each job's status and output.
 
-Use it to check multiple repositories, run a test suite per package, or probe a list of hosts.
+Use it to check multiple repositories, run a test suite per package, or probe a list of hosts:
 
-## None of this needs the daemon
+```text
+Run the test suite for each package as independent background jobs.
+When all jobs finish, summarize the failures in this conversation.
+```
+
+## Scheduling requirements
 
 Wake triggers use a one-shot `launchd` job on macOS or `at` on Linux. Background jobs start
 a detached worker immediately. Both can run without an open chat or a running daemon.

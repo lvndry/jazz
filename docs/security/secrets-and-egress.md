@@ -4,8 +4,12 @@ description: "Where Jazz keeps credentials, what it strips from a shell environm
 
 # Secrets and egress
 
-Reading data, revealing data, and sending data are three different properties. This page is
-about the last two and about where credentials live.
+Save provider keys with `jazz config set <provider>` and enter them at the prompt.
+For example, `jazz config set openai` stores an OpenAI key without putting it in shell history.
+For CI or containers, supply the provider's environment variable. Keep credentials out
+of prompts, workflow files, and committed configuration.
+
+This page explains how Jazz stores credentials, redacts tool output, and controls network access.
 
 ## Where secrets live
 
@@ -121,7 +125,7 @@ longer recognized:
   attach a PDF whose text holds a secret; it points the model at `read_pdf`, whose output is
   redacted.
 
-Two passes replace secrets with `[redacted:<name>]`:
+Jazz replaces recognized secrets with `[redacted:<name>]`:
 
 - **Values Jazz knows**, replaced exactly wherever they appear: every secret setting (provider API
   keys, OTLP headers, the daemon and operator tokens, peer and webhook tokens, webhook signing
@@ -163,7 +167,7 @@ nobody to ask, the run parks for approval.
 
 Recognition by shape is best-effort. A secret with an unrecognized name and format, or one a shell
 pipeline transforms before it reaches a tool result (base64, splitting it across lines), is not
-caught. Shell children also lose credential-named environment variables (see below), and host
+caught. Shell children also lose credential-named environment variables (see [Shell environment](#the-shell-environment-is-scrubbed)), and host
 isolation remains the job of a dedicated OS user or container (see
 [unattended runs](./unattended-runs.md)).
 

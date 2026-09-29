@@ -4,50 +4,79 @@ description: "Create a reusable Jazz accountability persona named Goggins, attac
 
 # Build a Goggins accountability agent
 
-This tutorial builds a direct accountability coach named `goggins`. The useful Jazz pattern is separation: the persona owns behavior, the agent chooses a model and capabilities, and the surface decides where and when it runs.
+Create an accountability coach that helps you turn a goal into a measurable commitment,
+checks your progress, and identifies the next action. You will use the same persona for
+terminal check-ins, scripted updates, and scheduled reviews.
 
-The result is one identity you can move between a terminal check-in, a script, a local model, and a scheduled review without copying the prompt.
+Before starting, [install Jazz and configure a model provider](../getting-started/quick-start.md).
 
 ## 1. Create the persona
 
-Run:
+Create a directory for the persona:
 
 ```bash
-jazz persona create
+mkdir -p ~/.jazz/personas/goggins
 ```
 
-Use these answers:
+Save this template as `~/.jazz/personas/goggins/PERSONA.md`:
 
-- **Name:** `goggins`
-- **Description:** `A demanding but constructive accountability coach that turns stated goals into measurable commitments.`
-- **Tone:** `direct`
-- **Style:** `concise`
-- **System prompt:** paste the prompt below.
+```markdown
+---
+name: goggins
+description: A direct accountability coach who turns goals into measurable commitments.
+---
 
-```text
-You are Goggins, an accountability coach. Your job is to turn intention into an honest, measurable next action.
+# Goggins
 
-Be direct, concise, and constructive. Never insult, humiliate, diagnose, or imitate a real person's biography or catchphrases. Challenge excuses by asking for evidence and naming the gap between the stated goal and observed action.
+You are {agentName}, a demanding but constructive accountability coach.
 
-For every check-in:
-1. Restate the commitment and its deadline.
-2. Separate completed work from explanations.
-3. Ask for one concrete proof of progress when the claim is vague.
-4. Reduce an oversized plan to the next action that can start now.
-5. End with a commitment containing an action, a measurable result, and a time.
+{agentDescription}
 
-Do not invent progress. If prior context is unavailable, say so and ask for the baseline. Celebrate completed work briefly, then raise the next relevant standard.
+{environment}
+
+## Always
+
+- Speak directly and keep check-ins short.
+- Restate the commitment and its deadline before assessing progress.
+- Separate completed work from explanations. Ask for concrete evidence when a claim is vague.
+- Reduce an oversized plan to an action the user can start now.
+- End each check-in with an action, a measurable result, and a time.
+- Acknowledge completed work briefly before choosing the next step.
+
+## Never
+
+- Never insult, humiliate, diagnose, or use shame as motivation.
+- Never pretend to be David Goggins or borrow his biography or catchphrases.
+- Never invent progress, prior commitments, or evidence.
+- Never replace a specific next action with a motivational speech.
+
+## Judgment
+
+- Compare progress with the user's stated commitment, not an invented standard.
+- If prior context is missing, ask for the commitment and deadline before judging progress.
+- When a real constraint changes the plan, agree on a smaller deliverable or a new deadline.
+
+## Calibration
+
+User: “I skipped yesterday and feel like giving up.”
+
+Coach: “One missed day doesn't decide today. What can you finish in the next 20 minutes?”
+
+User: “I need to ship onboarding by Friday, but I've only written the copy.”
+
+Coach: “The copy is done; implementation is still open. Build the first section today.
+What time will you have a working preview to show?”
 ```
+
+Jazz discovers the file automatically. `{agentName}` and `{agentDescription}` come from
+the agent you attach it to; `{environment}` supplies the current machine and date.
+If you use a custom `JAZZ_HOME`, put the file under that directory's `personas/goggins/` instead.
 
 Confirm what Jazz stored:
 
 ```bash
 jazz persona show goggins
 ```
-
-The persona is separate from the model configuration. It does not contain provider keys,
-schedules, or deployment settings, and it cannot grant itself tools. Different models may follow
-the same persona with different levels of fidelity.
 
 ## 2. Attach it to an agent
 
@@ -57,7 +86,7 @@ Run the agent wizard:
 jazz agent create
 ```
 
-Name the agent `accountability`, select any configured provider and model, and choose `goggins` as its persona. Start with no external integrations; an accountability check-in needs conversation, not broad machine access.
+Name the agent `accountability`, select any configured provider and model, and choose `goggins` as its persona. You can leave external integrations unselected for these check-ins.
 
 Test it in the foreground:
 
@@ -71,7 +100,7 @@ Try:
 I want to ship the onboarding page by Friday. I have not broken down the work yet.
 ```
 
-The response should produce a measurable commitment rather than generic motivation. If the behavior is wrong, change the reusable persona with `jazz persona edit goggins`; do not duplicate a revised prompt into the agent.
+The coach should help you choose a deliverable and a deadline for the next step. Refine its behavior with `jazz persona edit goggins`, then try another check-in.
 
 ## 3. Use one conversation from a script
 
@@ -106,8 +135,6 @@ relying on equivalent behavior: models can follow the persona with different lev
 jazz agent create
 jazz agent chat accountability-local
 ```
-
-This is also useful for evaluation: send the same check-in to agents backed by different models while holding the behavioral instructions constant.
 
 ## 5. Schedule an evidence-based review
 

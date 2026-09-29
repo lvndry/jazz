@@ -4,7 +4,9 @@ description: "Configure Jazz agents, models, workflows, MCP servers, web search,
 
 # Configure Jazz
 
-Jazz separates application configuration from agent definitions and workflow files.
+Choose the setup you need below. Use `jazz config show` to inspect current settings and
+`jazz config validate` to check configuration and agent files. For interactive settings,
+run `jazz` and type `/settings`.
 
 - [Jazz configuration](./jazz.md) controls runtime defaults, limits, output, telemetry, schedulers, peers, and webhooks.
 - [Config file reference](./config-reference.md) lists every key `config.json` accepts, generated from the schema, and [environment variables](./environment-variables.md) lists every variable Jazz reads.

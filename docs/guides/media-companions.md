@@ -65,7 +65,8 @@ Configure credentials for every provider named in the companion map.
 jazz agent chat incident-media-analyst
 ```
 
-Then send:
+Replace the example paths with files you have: a dashboard screenshot, an audio note,
+and a reproduction video. Then send:
 
 ```text
 Correlate @/tmp/latency-dashboard.png, @/tmp/on-call-note.m4a, and
@@ -79,10 +80,14 @@ assigned files and task; the parent reconciles the returned evidence, then sends
 visual brief to the image-generation companion. This avoids putting the full conversation and
 every attachment into every model call.
 
+You should receive a timeline citing the supplied evidence and a generated briefing
+image. Check the timeline before sharing the image; model analysis can be wrong.
+
 ## 4. Run the same analyst in CI
 
-Copy its JSON into the runner's Jazz home, expose only the provider keys it needs, and bind the
-artifacts from your test job:
+Add the agent JSON to your repository at
+`.github/jazz/agents/incident-media-analyst.json`. In a job where Jazz is installed and
+your tests have written `artifacts/expected.png` and `artifacts/actual.png`, add this step:
 
 ```yaml
 - name: Explain visual regression failure

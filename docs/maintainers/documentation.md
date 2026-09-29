@@ -11,7 +11,21 @@ Keep implementation details in the maintainer section.
 
 A tutorial title names what the reader will accomplish: “Investigate an attack and approve a Cloudflare WAF rule,” not “Use parked runs.” Explain the user value before the Jazz mechanism.
 
-A concept page answers what something is, when to use it, and which boundary it owns. A configuration or command page optimizes for exact lookup. Maintainer documentation traces implementation and invariants. Do not force every page into the tutorial shape.
+A concept page uses the concept's actual name as its title and explains what it is,
+when to use it, and how a user can try it. A configuration or command page optimizes for exact lookup. Maintainer documentation traces implementation and invariants. Do not force every page into the tutorial shape.
+
+## Review the first experience
+
+Read public pages individually, including their linked prerequisites. Check that a new user can:
+
+- understand the capability and recognize a task it helps with;
+- complete the setup without assuming an agent, workflow, file, or credential already exists;
+- run the example and recognize its expected result;
+- find controls for inspecting, changing, or stopping the work;
+- reach the CLI and command reference from the navigation.
+
+Keep exhaustive syntax in the reference and implementation details in maintainer pages.
+Removing filler is only part of the review; repair missing steps and misleading examples too.
 
 ## Reality is a requirement
 

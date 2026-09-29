@@ -9,7 +9,7 @@ or arrange for a schedule or external event to start it later.
 
 ## Commands and workflows
 
-- **[Terminal chat](../surfaces/index.md#interactive):** `jazz agent chat <name>` opens a
+- **[CLI](../surfaces/cli.md):** `jazz agent chat <name>` opens a
   conversation. Each message starts a run for that agent.
 - **[Headless command](../surfaces/headless.md):** `jazz run` executes one prompt from an
   argument or stdin. Use it in scripts, CI, or for a one-off task.
@@ -31,10 +31,10 @@ or arrange for a schedule or external event to start it later.
   to your agent, subject to the permissions you granted that peer.
 - **[Wake trigger](./deferred-work.md):** the agent schedules a later run in the same
   conversation. Use it to follow up on work already in progress.
-- **[Background jobs](./deferred-work.md#background-jobs-are-for-fan-out):** the agent starts
+- **[Background jobs](./deferred-work.md#background-jobs):** the agent starts
   independent shell jobs, then resumes its conversation with their results when they finish.
 
-A [reminder](./deferred-work.md#reminders-are-for-people-triggers-are-for-agents) sends a note
+A [reminder](./deferred-work.md#reminders-and-wake-triggers) sends a note
 without starting an agent run.
 
 ## Permissions and results

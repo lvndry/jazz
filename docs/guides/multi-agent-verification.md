@@ -27,7 +27,7 @@ Add `workflows/change-council/WORKFLOW.md` to the repository:
 name: change-council
 description: "Independently verify a proposed code change before implementation"
 agent: change-council
-autoApprove: low-risk
+autoApprove: read-only
 maxIterations: 60
 maxCostUSD: 1.00
 maxDurationMs: 900000
@@ -43,7 +43,8 @@ Delegate these three questions to separate subagents so that each starts with fr
 2. **Security and operations:** identify changed trust boundaries, credentials, destructive actions, observability gaps, and rollback requirements.
 3. **Simplicity:** search for existing abstractions and propose the smallest implementation that satisfies the stated outcome.
 
-For every delegation, request a structured result named `review` with this JSON Schema:
+For each `spawn_subagent` call, set `resultName` to `review` and pass this object as
+`resultSchema`:
 
 {
 "type": "object",
@@ -66,7 +67,8 @@ After all three return:
 - list the minimum changes required before implementation.
 ```
 
-`low-risk` admits `spawn_subagent` and read-only inspection without authorizing file edits or arbitrary deployment actions. The workflow also bounds iterations, cost, and wall-clock time.
+`read-only` admits `spawn_subagent` and repository inspection. The workflow also
+bounds iterations, cost, and wall-clock time.
 
 ## 3. Write a real proposal
 
@@ -85,11 +87,11 @@ The event stream shows each child start and finish while the final answer remain
 
 ### What you should see
 
-Three subagent events on stderr while the run works, one pair per reviewer:
+A `subagent_start` and `subagent_complete` event on stderr for each reviewer:
 
 ```text
-{"type":"subagent_started","agentName":"Sub-Agent (coder)","task":"Correctness: trace the affected code paths…"}
-{"type":"subagent_finished","agentName":"Sub-Agent (coder)","costUSD":0.031,"iterations":9}
+{"type":"subagent_start","agentName":"Sub-Agent (coder)","task":"Correctness: trace the affected code paths…"}
+{"type":"subagent_complete","agentName":"Sub-Agent (coder)","durationMs":42000}
 ```
 
 Then one envelope on stdout. `answer` is the parent's reconciliation, not a concatenation of the three reviews:
@@ -104,7 +106,8 @@ Then one envelope on stdout. `answer` is the parent's reconciliation, not a conc
 }
 ```
 
-`costUSD` includes all three children. If a reviewer returns a `review` object that does not validate against the schema, the parent receives the validation error and re-delegates rather than treating prose as evidence, which shows up as a fourth subagent pair in the stream.
+`costUSD` includes the children. An invalid `review` object returns validation errors
+to the parent; check its final verdict explains how it handled any failed reviewer.
 
 ## 5. Use the verdict as a gate
 

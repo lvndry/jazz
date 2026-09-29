@@ -4,30 +4,48 @@ description: "A Jazz workflow is a Markdown file: the body is the prompt, the fr
 
 # Workflows
 
-A workflow is a Markdown file. The body is the prompt. The frontmatter says how it runs.
+A workflow saves a job you want to repeat: a prompt, an agent, permissions, and run limits.
+Use one for reviews, briefings, or checks you want to run by name or on a schedule.
+
+## Create a workflow
+
+First [create an agent](../getting-started/create-an-agent.md) named `assistant`. From the
+project directory, create `workflows/project-status/` and save this as `WORKFLOW.md`:
 
 ```markdown
 ---
-name: merged-pr-recap
-description: "Recap the pull requests merged since this schedule last ran."
+name: project-status
+description: "Report recent commits and current uncommitted changes."
+agent: assistant
 schedule: "0 17 * * 5"
 autoApprove: read-only
 maxIterations: 40
 maxCostUSD: 1.00
 ---
 
-# Merged pull requests recap
+# Project status
 
-List every pull request merged between {schedule.lastRunAt} and {run.startedAt}, grouped by
-theme. This is the {schedule.label} recap.
+Read the project files and inspect git status and git log without modifying anything.
+Summarize commits between {schedule.lastRunAt} and {run.startedAt}; if the last-run time
+is empty, use the last seven days. List uncommitted changes separately.
+This is the {schedule.label} report.
 ```
 
-Save that as `workflows/merged-pr-recap/WORKFLOW.md` and you can run it by name:
+Run it from the project directory:
 
 ```bash
-jazz workflow run merged-pr-recap        # now
-jazz workflow schedule merged-pr-recap   # every Friday at 5pm, as merged-pr-recap/default
+jazz workflow run project-status --auto-approve
 ```
+
+Jazz prints the report. `--auto-approve` uses the workflow's `read-only` policy, so you can
+check the behavior it will have unattended. When the result is useful, install its Friday
+17:00 schedule:
+
+```bash
+jazz workflow schedule project-status
+```
+
+See [Scheduled runs](../surfaces/scheduled.md) to set up delivery and inspect run history.
 
 ## What the frontmatter does
 
@@ -51,8 +69,7 @@ Closest wins. A repository can have its own `code-review` without touching yours
 
 ## Starting points
 
-Jazz ships no workflows of its own. The [library](#the-library) has a dozen you can install with
-one command and edit afterwards, from a morning weather briefing to a merged-pull-request recap.
+Jazz ships no workflows of its own. The [library](#the-library) offers workflows you can install and edit, from a morning weather briefing to a merged-pull-request recap.
 Installed copies live in `~/.jazz/workflows/<name>/` and can be edited locally.
 
 ## Several schedules, one workflow
@@ -62,10 +79,10 @@ workflow can have several. The id of a schedule is `<workflow>/<label>`; the fro
 frequency installs as `default`.
 
 ```bash
-jazz workflow schedule merged-pr-recap                                  # merged-pr-recap/default, Fridays
-jazz workflow schedule merged-pr-recap --cron "0 9 1 * *" --as monthly  # merged-pr-recap/monthly
-jazz workflow scheduled merged-pr-recap                                 # both, with their crons
-jazz workflow unschedule merged-pr-recap/monthly                        # just that one
+jazz workflow schedule project-status                                  # project-status/default, Fridays
+jazz workflow schedule project-status --cron "0 9 1 * *" --as monthly  # project-status/monthly
+jazz workflow scheduled project-status                                 # both, with their crons
+jazz workflow unschedule project-status/monthly                        # just that one
 ```
 
 The prompt can use these schedule placeholders:
@@ -105,15 +122,6 @@ own, and you cannot schedule it.
 An **[agent](./agents.md)** is who does the work.
 
 A workflow can list skills in its frontmatter to supply the procedures its agent should follow.
-
-## Try it in the terminal first
-
-```bash
-jazz workflow run merged-pr-recap --auto-approve
-```
-
-This uses the scheduler's approval policy. Test it before scheduling; manual approvals during
-an interactive run can hide actions that will be refused unattended.
 
 ## Related
 

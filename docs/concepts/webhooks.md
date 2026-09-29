@@ -11,7 +11,11 @@ Configure its agent and prompt template, then run the [daemon](./daemon.md) to r
 POST /webhooks/<name>  →  agent <agentId> runs <promptTemplate>, with the body quoted in
 ```
 
-The caller supplies the payload; your configuration selects the agent, prompt, and tools.
+Use a webhook to turn a deployment alert into an incident summary, triage a new issue,
+or process an event from your own application. The caller supplies the payload; your
+configuration selects the agent, prompt, and tools.
+
+Follow [Create a webhook endpoint](../guides/webhook-endpoint.md) for setup and a test request.
 
 ## Payload handling
 
@@ -69,8 +73,7 @@ log.
 
 ## One-shot or threaded
 
-`ephemeral`, the default, starts each fire from nothing. Right for isolated events, where
-remembering the last deploy buys nothing.
+`ephemeral`, the default, starts each fire from nothing. Use it for events that should be handled independently.
 
 `threaded` resumes instead. Fires carrying the same `X-Jazz-Thread` value continue one
 conversation, so an agent relaying an exchange is not re-told its own history every turn. Each

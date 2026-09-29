@@ -23,10 +23,9 @@ toolset already cut to that one thing.
 
 For specific commands, use `autoApprovedCommands`; see [approvals](./approvals.md).
 
-## 3. Bound the blast radius in time and money
+## 3. Limit time and spending
 
-Set `maxCostUSD`, `maxTokens`, `maxDurationMs`, and a sensible `maxIterations`. An unattended run
-with no cost cap is a run whose worst case is your credit limit. Cost and token caps are checked
+Set `maxCostUSD`, `maxTokens`, `maxDurationMs`, and `maxIterations`. Cost and token caps are checked
 between iterations, so pick numbers with headroom. `maxDurationMs` and `--timeout` are hard walls:
 they stop running commands and model calls where they are. See [budgets](../concepts/budgets.md).
 
@@ -35,9 +34,10 @@ they stop running commands and model calls where they are. See [budgets](../conc
 Default behaviour is to decline gated calls and report them, which is usually right: the run
 finishes and tells you what it could not do.
 
-`--park` is for the other case, where the job is pointless without the decision. It saves the
-run, exits `2`, and waits for `jazz runs approve`. Park only where somebody will actually look,
-because a parked run nobody answers is a job that silently did not happen.
+Use `--park` when the job needs your decision to continue. It saves the run and exits `2`.
+Inspect it with `jazz runs show <id>`, then approve with `jazz runs approve <id>` or reject
+with `jazz runs reject <id>`. Configure a [notify target](../configure/notifications.md)
+to receive its approval request.
 
 ## Egress after untrusted input
 
@@ -75,7 +75,7 @@ counts. If an unattended job needs to post somewhere after reading mail, name th
 A bridge or webhook that reuses one conversation key across senders mixes people's history
 together. Derive the key from the platform's own id, and make sure it cannot collide.
 
-## 6. Put it somewhere with less to lose
+## 6. Isolate the host account
 
 Jazz's controls bound what the model chooses to do. The operating system bounds what is reachable
 when that fails, and only the second one holds if a prompt injection succeeds.

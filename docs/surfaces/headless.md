@@ -2,11 +2,13 @@
 description: "Call Jazz from your own code with jazz run: pass a dynamic prompt, get structured JSON back, control autonomy and timeouts: the contract every integration builds on."
 ---
 
-# Headless runs
+# Headless
 
 How to call Jazz from your own code and get a parseable result back.
 
-`jazz run` takes a prompt, runs one agent turn, and prints the answer.
+Create an agent first with `jazz agent create` and name it `assistant`, or replace
+`assistant` below with an existing agent name. `jazz run` takes a prompt, runs one
+agent turn, and prints the answer.
 
 ```bash
 jazz run --agent assistant "summarize the last 5 commits"
@@ -210,7 +212,7 @@ jazz run --json --stream --events tools,subagent --agent dev "audit this repo" \
 | `text`      | `text_start`, `text_chunk`                                                       |
 | `usage`     | `stream_start`, `usage_update`, `complete`                                       |
 | `approval`  | `approval_required`, `approval_resolved`                                         |
-| `subagent`  | `subagent_start`, `subagent_complete`                                            |
+| `subagent`  | `subagent_start`, `subagent_complete`, `subagent_result`                         |
 | `spend`     | `run_spend`: the run's total spend so far, after each model call and tool batch  |
 | `all`       | every category above                                                             |
 
@@ -325,7 +327,7 @@ docker run --rm --read-only --tmpfs /tmp \
   '
 ```
 
-`my-image` must have Jazz and Bun installed. The seed directory must be readable by the
+`my-image` must have Jazz installed. The seed directory must be readable by the
 container user and contain `agents/reviewer.json`; this example assumes an OpenAI agent
 and `OPENAI_API_KEY` supplied through the host environment. Use the matching credential
 for another provider.
@@ -372,14 +374,26 @@ export function askJazz(chatId: string, message: string): Promise<JazzResult> {
     child.stdout.on("data", (chunk) => (stdout += chunk));
     child.stderr.on("data", (chunk) => console.error(chunk.toString()));
 
+    child.stdin.on("error", (error) => {
+      resolve({ ok: false, error: error.message, costUSD: 0, costKnown: false });
+    });
     child.stdin.write(message);
     child.stdin.end();
+
+    child.on("error", (error) => {
+      resolve({ ok: false, error: error.message, costUSD: 0, costKnown: false });
+    });
 
     child.on("close", () => {
       try {
         resolve(JSON.parse(stdout) as JazzResult);
       } catch {
-        resolve({ ok: false, error: "jazz produced no JSON envelope", costUSD: 0 });
+        resolve({
+          ok: false,
+          error: "jazz produced no JSON envelope",
+          costUSD: 0,
+          costKnown: false,
+        });
       }
     });
   });

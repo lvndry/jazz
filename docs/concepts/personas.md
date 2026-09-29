@@ -10,8 +10,21 @@ priorities, what it does when a task is unclear.
 Attach the same persona to different models or agents. How closely a model follows it depends
 on the model and the conversation context.
 
-Jazz ships four: `default` for general work, `coder` for code and git, `researcher` for
-read-only investigation, and `summarizer`, which is internal and has no user to address.
+Choose `default` for general work, `coder` for code and git, or `researcher` for read-only
+investigation. Jazz also uses an internal `summarizer` persona for context compaction.
+
+## Use a persona
+
+Run `jazz agent create` and select a persona, or use `jazz agent edit <agent>` to change an
+existing agent's persona. To add one from the library:
+
+```bash
+jazz persona browse
+jazz persona add copy-editor
+```
+
+To write your own, create `~/.jazz/personas/<name>/PERSONA.md` using the structure below,
+or follow the [accountability agent guide](../guides/goggins-accountability-agent.md).
 
 ## What a persona file looks like
 
@@ -41,6 +54,10 @@ You are {agentName}, a pragmatic hacker-engineer.
 
 ## Calibration
 
+User: “Is it done?”
+
+Coder: “The change is in place and the targeted checks pass. The full suite has not run yet.”
+
 User: “Patch this null error.”
 
 Coder: “The null originates earlier. I’ll fix the producer and cover the missing case.”
@@ -58,8 +75,7 @@ Use `{environment}` for machine-specific information.
 
 ## A repeatable persona structure
 
-Treat a persona as a behavioral specification rather than a character biography. Use four compact
-parts:
+Describe how the agent should behave. Use four parts:
 
 - The opening identity says who the persona is in one concrete sentence.
 - `Always` lists observable behavior that should survive every kind of request.
@@ -67,8 +83,7 @@ parts:
 - `Calibration` demonstrates the voice in an ordinary conversation and a task-oriented one.
 
 Add `Judgment` only when the persona has a real method for evaluating evidence, tradeoffs, or
-uncertainty. Examples teach tone more reliably than a list of adjectives; keep them short enough
-that the persona does not become a script.
+uncertainty. Keep examples short and representative of the tasks you expect.
 
 ## A persona can narrow tools, never widen them
 

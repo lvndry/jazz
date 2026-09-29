@@ -23,11 +23,11 @@ Jazz manages context automatically. By default:
 | 95%          | Trim older messages if the history still exceeds the limit                                       |
 
 These percentages use the model's effective context window, lowered by the agent's
-`maxContextTokens` when configured. The warning and compaction thresholds can be changed in
+`llm.maxContextTokens` when configured. The warning and compaction thresholds can be changed in
 [Jazz configuration](../configure/jazz.md#context-management).
 
 **Compaction** replaces older exchanges with a summary so the agent can continue the same task.
-Jazz shows when it happens. It uses an additional model call and can lose detail; `summarizerModel`
+Jazz shows when it happens. It uses an additional model call and can lose detail; `llm.summarizerModel`
 selects the model for that call. The agent can also request compaction with `summarize_context`.
 
 **Trimming** removes older messages without summarizing them. Jazz uses it when compaction
@@ -73,5 +73,15 @@ it may miss an agent repeating the same approach with slightly different argumen
 [Remote handoff](./detach.md) moves a conversation to your SSH server so it can continue
 after you close your laptop.
 
-For implementation details and recovery behavior, see [Context management](../maintainers/context-lifecycle.md)
-and [Run lifecycle](../maintainers/run-lifecycle.md).
+## Adjust the context limit
+
+For an agent that reads many large files, set `llm.maxContextTokens` in its `config` to compact
+earlier. For example:
+
+```json
+{ "llm": { "maxContextTokens": 64000 } }
+```
+
+Choose a limit no larger than the model's supported window. Earlier compaction reduces the
+history sent per request, but may require the agent to retrieve or reread more details.
+See [Agent configuration](../configure/agents.md) for the full file format.

@@ -96,7 +96,7 @@ Command-line and workflow values override application defaults for that run.
 }
 ```
 
-Both values are fractions of the effective model context window. Jazz requires `warnThresholdRatio < compactThresholdRatio < 0.95`; invalid values are reported and the defaults apply. See [Context management](../concepts/context-management.md).
+Both values are fractions of the effective model context window. Jazz requires `warnThresholdRatio < compactThresholdRatio < 0.95`; invalid values stop startup with a validation error. See [Context management](../concepts/context-management.md).
 
 ## Logs and history retention
 
@@ -182,8 +182,8 @@ through without asking. A `high-risk` or yolo run reaches it without asking and 
 as it is.
 
 `network.allowPrivateHosts` applies to every agent and is read from the global config file only;
-a project `./.jazz/config.json` cannot widen it. Edit it from `jazz` > **Settings** >
-**Private Network Hosts**, or in the file, at most 64 entries:
+a project `./.jazz/config.json` cannot widen it. Edit it from `jazz` → `/settings` →
+**Private network hosts**, or in the file, at most 64 entries:
 
 ```json
 {
@@ -214,8 +214,7 @@ including requests to private destinations and requests made after reading untru
 This is independent of the run's approval tier and applies to unattended runs too. These tools
 can send data in URLs, headers or bodies; enable a URL allowlist when you want to approve requests.
 
-Choose **HTTP request approvals → Use a URL allowlist** in `jazz config` to enable restricted
-requests. Add permanent grants in the global config file:
+Enable approval for requests outside a URL allowlist by adding grants to the global config file:
 
 ```json
 {

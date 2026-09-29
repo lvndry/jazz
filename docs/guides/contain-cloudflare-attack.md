@@ -11,7 +11,9 @@ A monitoring alert starts Jazz with request samples and deployment context. Inde
 ## What you need
 
 - A Cloudflare-managed zone and permission to edit its WAF configuration.
-- An agent named `edge-responder` with read access to relevant runbooks, code, and normalized alert evidence.
+- Jazz installed on the monitoring worker or control host, with a configured model provider.
+- Local runbooks, repository history, and normalized alert evidence.
+- `jq` installed and writable evidence and log directories for the examples below.
 - Persistent Jazz storage on the monitoring worker or control host.
 - A Cloudflare identity restricted to the account and zone this agent may defend.
 
@@ -32,11 +34,16 @@ This tutorial deliberately disables Cloudflare's code mode. The server then adve
 
 Cloudflare exposes roughly 2,500 endpoints this way. Tools begin as names and summaries; the agent retrieves a full schema only when needed.
 
-Leave the server untrusted. Jazz will treat every Cloudflare tool as high-risk regardless of its self-declared annotation. Add the Cloudflare MCP category to `edge-responder`:
+Leave the server untrusted. Jazz treats its tools as high-risk, regardless of their
+self-declared annotations. Create an agent:
 
 ```bash
-jazz agent edit edge-responder
+jazz agent create
 ```
+
+Name it `edge-responder`, choose a tool-capable model and the `coder` persona,
+and select the Cloudflare MCP category. Keep `spawn_subagent` and local repository
+inspection available. Run the investigation from the checkout containing your runbooks.
 
 The investigation should use local evidence. Cloudflare is attached only for the final containment action, so an untrusted server does not interrupt every read step.
 
@@ -91,7 +98,10 @@ fi
 exit "$status"
 ```
 
-`low-risk` lets the parent delegate to subagents and maintain work state. The untrusted Cloudflare MCP call remains gated. Jazz saves the investigation, competing hypotheses, selected endpoint, exact rule arguments, and rollback reasoning, then exits `2`. Production traffic is unchanged.
+When the agent proposes a Cloudflare call, Jazz parks it and exits `2`. The JSON
+result on stdout contains the run id for the next step. If the evidence does not
+justify containment, the agent may finish with a report instead. The untrusted
+Cloudflare call cannot execute under `low-risk` without your approval.
 
 ## 4. Review the containment action
 

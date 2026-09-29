@@ -1,3 +1,9 @@
+/**
+ * Defines Jazz's public Commander command tree and command-specific help text.
+ * createCLIApp builds the parser without starting services; action handlers load
+ * their implementations only when invoked. The runtime uses this tree to parse
+ * commands, and documentation checks inspect it to verify command and flag coverage.
+ */
 import * as path from "node:path";
 import type { RunAnswer } from "@jazz/adapters/runs/resume-owned-run";
 import { formatOneShotError } from "@jazz/cli/commands/run/envelope";
@@ -1963,7 +1969,7 @@ function registerGoalCommand(program: Command): void {
     .option("--json", "Emit a single JSON envelope")
     .option(
       "--approval-policy <policy>",
-      "What the goal may run without asking once accepted: read-only | low-risk | high-risk (high-risk runs everything). Above it, a cycle waits for approval. Default: read-only and low-risk tools.",
+      "What the goal may run without asking once accepted: read-only | low-risk | high-risk (high-risk runs everything). Above it, a cycle waits for approval. Default: read-only tools; gated actions wait for approval.",
     )
     .option(
       "--max-cycles <n>",
@@ -2037,7 +2043,7 @@ function registerGoalCommand(program: Command): void {
     if (decision === "accept") {
       command.option(
         "--approval-policy <policy>",
-        "What the goal may run without asking: read-only | low-risk | high-risk (high-risk runs everything). Above it, a cycle waits for approval. Default: read-only and low-risk tools.",
+        "What the goal may run without asking: read-only | low-risk | high-risk (high-risk runs everything). Above it, a cycle waits for approval. Default: read-only tools; gated actions wait for approval.",
       );
     }
     command.action((id: string, options: { json?: boolean; approvalPolicy?: string }) =>
@@ -2150,7 +2156,7 @@ function registerLoopCommand(program: Command): void {
     )
     .option(
       "--approval-policy <policy>",
-      "What a run may do without asking: read-only | low-risk | high-risk (high-risk runs everything). Above it, the run waits for approval. Default: read-only and low-risk tools.",
+      "What a run may do without asking: read-only | low-risk | high-risk (high-risk runs everything). Above it, the run waits for approval. Default: read-only tools; gated actions wait for approval.",
     )
     .option("--max-runs <n>", "Most runs before the loop completes", parsePositiveInt("--max-runs"))
     .option("--max-tokens <n>", "Token budget across all runs", parsePositiveInt("--max-tokens"))

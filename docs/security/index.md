@@ -7,6 +7,9 @@ description: "The Jazz authorization model: risk, disclosure, and egress as inde
 Jazz runs model-selected actions as your operating-system user. These controls reduce accidental
 and model-induced harm. They do not turn an untrusted model into an OS sandbox.
 
+Start with [Approvals](./approvals.md) for terminal use, [Unattended runs](./unattended-runs.md)
+for automation, or [Surface access](./surface-access.md) before exposing an agent remotely.
+
 ## Tool permissions
 
 Jazz controls tool execution, access to information, and network requests separately.
@@ -19,25 +22,22 @@ Jazz controls tool execution, access to information, and network requests separa
 
 For example:
 
-- `web_search` is read-only and mutates nothing, yet it hands a private query to a third party.
-  Risk says "safe", egress says "not without asking".
-- `write_file` changes your disk and touches no network. Egress says "safe", risk says "ask".
-- `read_file` neither acts nor transmits, but its answer can carry anything on your disk.
-  Disclosure is the only axis that sees it.
+- `web_search` is read-only but sends the query to your search provider.
+- `write_file` changes your disk without sending data over the network.
+- `read_file` does not change a file, but can reveal its contents.
 
 ## Who is asking
 
-Two doors on this machine answer somebody who is not you. A **peer** is another agent asking a
-question. A **webhook** is an external system firing a fixed prompt. They are the same authorization
-question in two wire formats, so they share one model.
+A **peer** is another agent asking a question. A **webhook** is an external system
+firing a fixed prompt. Configure each caller's disclosure tier, allowed tools, and budgets.
 
 **A webhook token holder is a counterparty, not the operator.** The secret authenticates that
 webhook, never a person, and it lives in a third party's settings screen: a GitHub repo's webhook
 config, an IFTTT applet, a proxy you do not administer.
 
-So a caller's run is a stranger's run in every respect, not only its tools. It gets none of your
-context (standing preferences, AGENTS.md, files named by a path in its text), a per-door budget
-and concurrency cap, and the same boundary again if it parks and you approve it later.
+Caller runs receive no standing preferences, AGENTS.md instructions, or file attachments
+from paths in their prompts. They retain their budgets and tool restrictions after approval
+and resume.
 [Surface access](./surface-access.md#webhooks-and-peers) has the details.
 
 ## How the ceiling is computed

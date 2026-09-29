@@ -10,9 +10,16 @@ Create an agent with its own model, persona, tools, and skills.
 jazz agent create
 ```
 
-That's an interactive wizard: name, provider and model, persona, toolset, skills. There are
-**no command-line flags** on `create`; if you want to script agent creation, write the JSON
-file directly (shape below) or copy an existing one.
+The wizard asks for a provider, model, reasoning level, persona, name, and tools.
+For a first agent, choose the `default` persona; for repository work, choose `coder`.
+
+After creating it, start a conversation:
+
+```bash
+jazz agent chat <agent-name>
+```
+
+To script agent creation, write the JSON file directly (shape below) or copy an existing one.
 
 ---
 
@@ -20,15 +27,15 @@ file directly (shape below) or copy an existing one.
 
 | Choice               | Guidance                                                                                                                                                                                                                               |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Name**             | How you'll refer to it: `jazz agent chat reviewer`                                                                                                                                                                                     |
 | **Provider + model** | See [Providers](../configure/providers.md). `openrouter` with a free model costs nothing; `ollama` keeps everything local unless you pick a `:cloud` model, which needs an [Ollama API key](../configure/providers.md#ollama)          |
+| **Reasoning**        | How much reasoning effort to request from a model that supports it. You can leave the default selected.                                                                                                                                |
 | **Persona**          | `default`, `coder`, `researcher`, or one of yours. See [Personas](../concepts/personas.md)                                                                                                                                             |
+| **Name**             | How you'll refer to it: `jazz agent chat reviewer`.                                                                                                                                                                                    |
 | **Toolset**          | Extra capabilities to add, including configured MCP servers. Built-in tools are supplied by the persona's tool profile; use `deniedTools` in the agent file for hard per-agent restrictions. Selecting an MCP server may connect to it |
-| **Skills**           | Maintained instructions it can load on demand. See [Skills](../concepts/skills.md)                                                                                                                                                     |
 
 ---
 
-## The file
+## Configure the agent file
 
 Agents are one JSON file each under `~/.jazz/agents/<id>.json`:
 
@@ -42,8 +49,7 @@ Agents are one JSON file each under `~/.jazz/agents/<id>.json`:
       "provider": "anthropic",
       "model": "claude-sonnet-4-5",
       "reasoning": "medium"
-    },
-    "tools": ["read_file", "grep", "find", "ls", "execute_command"]
+    }
   }
 }
 ```
@@ -62,7 +68,9 @@ Useful optional fields:
 
 `createdAt` and `updatedAt` are optional in a file you write by hand. Jazz stamps them when it creates or saves the agent, and falls back to the file's own created and modified times when they are absent.
 
-Full field reference: [Agent configuration](../configure/agents.md).
+The `tools` field adds capabilities; it does not restrict built-in tools. Use `deniedTools`
+for restrictions. See [Agent configuration](../configure/agents.md) for every field, including
+skill selection and memory scopes.
 
 ---
 
@@ -81,8 +89,8 @@ The `id` must be unique; `name` is what you type on the command line.
 
 ## Choosing a model
 
-- **A cheap fast model for scheduled digests and CI review.** These read and summarize; they don't need frontier reasoning, and they run often enough for cost to matter.
-- **A strong model for anything multi-step or ambiguous.** Long autonomous runs are where weak models lose the thread, and a failed 40-minute run costs more than the model would have.
+- **For digests and summaries:** try a fast, inexpensive model and check the output against the source material.
+- **For code changes, reviews, and other multi-step tasks:** choose a model that handles reasoning and tool use reliably. Test it on representative work before scheduling it unattended.
 - **A self-hosted model (`ollama`, `llamacpp`, `vllm`, `sglang`) when prompts must stay on your infrastructure.** No provider key unless the server requires one, and no provider per-token cost. Network-capable tools and exporters remain separate choices; see [Local and air-gapped models](./local-models.md).
 - **A cheaper `llm.summarizerModel` for supporting calls.** It handles both compaction and command-risk classification. Check that it can do both reliably.
 - **Primary model for orchestration, companions for media.** Keep the tool-capable model you trust and route image, audio, or video understanding and generation to specialists.
@@ -93,7 +101,7 @@ If a task turns out harder than expected, switch to an agent configured with a s
 
 ## Next steps
 
-- [Personas](../concepts/personas.md): change how it talks without touching what it knows
+- [Personas](../concepts/personas.md): define reusable behavior and voice
 - [Tools](../concepts/tools.md): what it can do, and what the risk tiers mean
 - [Workflows](../concepts/workflows.md): run it on a schedule
 - [Model companions](../concepts/media.md): tune one agent with several specialist models

@@ -2,13 +2,38 @@
 description: "Jazz command and flag reference for agents, conversations, providers, workflows, and unattended runs."
 ---
 
-# Jazz commands and flags
+# CLI reference
 
-This page helps you find the exact command and flag you need.
+Look up shell commands, their flags, and commands available inside chat.
 
-Run `jazz <command> --help` for help in the terminal.
+## Find a command
 
----
+| Task                  | Commands                                                                                                                                                        |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Start work            | [`jazz`](#jazz), [`jazz run`](#jazz-run-headless-one-shot), [`jazz agent`](#jazz-agent)                                                                         |
+| Save or schedule jobs | [`jazz workflow`](#jazz-workflow), [`jazz goal`](#jazz-goal), [`jazz loop`](#jazz-loop)                                                                         |
+| Check work and spend  | [`jazz runs`](#jazz-runs), [`jazz spend`](#jazz-spend), [reminders, triggers, jobs](#jazz-reminders-jazz-triggers-jazz-jobs)                                    |
+| Connect services      | [`jazz mcp`](#jazz-mcp), [`jazz peers`](#jazz-peers), [`jazz webhook`](#jazz-webhook)                                                                           |
+| Run elsewhere         | [`jazz daemon`](#jazz-daemon), [`jazz hosts`](#jazz-hosts), [`jazz detach`](#jazz-detach), [`jazz imessage`](#jazz-imessage), [`jazz whatsapp`](#jazz-whatsapp) |
+| Configure and extend  | [`jazz config`](#jazz-config), [`jazz persona`](#jazz-persona), [`jazz skill`](#jazz-skill), [`jazz plugin`](#jazz-plugin), [`jazz memory`](#jazz-memory)       |
+| Update                | [`jazz update`](#jazz-update)                                                                                                                                   |
+| Work inside chat      | [Slash commands](#in-chat-commands), [keyboard shortcuts](#keyboard-shortcuts), [file mentions](#mentioning-files-with-)                                        |
+
+## Help
+
+```bash
+jazz --help
+jazz help
+jazz help run
+jazz run --help
+jazz workflow --help
+jazz workflow run --help
+```
+
+`jazz --help` and `jazz help` show global options and top-level commands. `jazz help run`
+and `jazz run --help` show run arguments and flags. For a nested command, use its full
+path followed by `--help`. Inside chat, `/help` lists chat commands and `/help loop`
+shows the forms of one command.
 
 ## Global options
 
@@ -23,17 +48,18 @@ Available on every command.
 | `--no-tui`          | Disable the full-screen interface; use plain terminal output for CI, scripts, or small terminals. Same as `JAZZ_NO_TUI=1`                                                   |
 | `--output <mode>`   | `rendered` \| `hybrid` (default) \| `raw` (no formatting) \| `quiet` (suppress output). Same as `JAZZ_OUTPUT_MODE`                                                          |
 | `--version`         | Print the version                                                                                                                                                           |
-| `--help`            | Print help                                                                                                                                                                  |
+| `-h, --help`        | Print help                                                                                                                                                                  |
 
 ---
 
 ## `jazz`
 
-With no arguments, opens the home menu to start a conversation, manage agents, or update
-settings. The home screen shows your agents and the current machine environment.
+With no arguments, opens the home screen. Choose an agent and type a message to start work.
+Use `/new` to create an agent, `/agents` to manage agents, `/resume` to continue a conversation,
+and `/settings` to configure providers, display, and limits.
 
 Global options work here too: `jazz --debug` and `jazz --data-dir ~/work` open the same home. The
-home needs a terminal to ask its questions. Without one (stdin or stdout piped, cron, CI), or with
+home needs a terminal. Without one (stdin or stdout piped, cron, CI), or with
 `--no-tui`, it prints what to run instead and exits `2` without touching your configuration. On a
 terminal that is too limited for the full-screen interface (`TERM=dumb`, `CI` set, a screen reader
 via `JAZZ_A11Y=1` or `INK_SCREEN_READER=1`, or a window under 32 columns by 10 rows), Jazz uses the
@@ -168,6 +194,8 @@ The catalog is cached under `<jazz home>/cache/workflow-registry.json` and keeps
 | `--json`                 | One JSON envelope on stdout; all chatter suppressed                                         |
 | `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)                         |
 | `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors                       |
+| `--stream`               | Force streaming output                                                                      |
+| `--no-stream`            | Disable streaming output                                                                    |
 | `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)                    |
 | `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron)               |
 
@@ -312,9 +340,8 @@ the `notify.targets` list. See [Notifications](configure/notifications.md).
 
 ## `jazz daemon`
 
-Serves runs over HTTP: start one, poll it, approve or reject what a parked one is waiting for
-, from a different terminal, a different process, or a different machine than the one that
-began it. It backgrounds itself by default; use `--foreground` under your own supervisor.
+Runs background goals and loops and accepts HTTP requests to start work, inspect runs,
+and answer parked approvals from another machine. It backgrounds itself by default; use `--foreground` under your own supervisor.
 `jazz daemon install` creates the systemd/launchd service for you.
 
 | Flag                      | Purpose                                                                         |
@@ -324,7 +351,7 @@ began it. It backgrounds itself by default; use `--foreground` under your own su
 | `--serve-peers <agentId>` | Also answer questions from configured peers, using this agent. Off unless given |
 | `--foreground`            | Stay attached instead of spawning a background daemon                           |
 
-A bearer token authenticates operator routes (`/runs`, `/health`) on every bind, including
+A bearer token authenticates every route except `/health` on every bind, including
 loopback. On first start Jazz generates one, stores it in the OS keyring or its protected local
 fallback, and prints it once. A non-loopback daemon refuses to start if no token can be supplied or
 stored. When keyring storage is deliberately disabled, loopback alone may warn and continue without
@@ -704,6 +731,178 @@ Both exit 1 when the version check or the install fails, so a script can tell a 
 from "already up to date".
 
 ---
+
+## Command-specific flags
+
+The `jazz run` and `jazz workflow run` flag tables appear above. The following table lists
+the options for every other public command that accepts them. Commands without their own
+options still accept [global options](#global-options) and `-h, --help`.
+
+| Command                     | Flag                         | Effect                                                                                                                                                                                                      |
+| --------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz agent list`           | `--can <media>`              | Only agents whose model can generate this: image, audio, or video. Shows how to get one when none can.                                                                                                      |
+| `jazz agent list`           | `--json`                     | Print one JSON document, with unreadable or invalid agent files under problems                                                                                                                              |
+| `jazz agent delete`         | `-y, --yes`                  | Delete without asking for confirmation                                                                                                                                                                      |
+| `jazz agent delete`         | `-f, --force`                | Alias for --yes                                                                                                                                                                                             |
+| `jazz agent chat`           | `--stream`                   | Force streaming mode (real-time output)                                                                                                                                                                     |
+| `jazz agent chat`           | `--no-stream`                | Disable streaming mode                                                                                                                                                                                      |
+| `jazz agent chat`           | `--max-iterations <n>`       | Maximum agent reasoning iterations per turn (default 100)                                                                                                                                                   |
+| `jazz agent chat`           | `--ephemeral`                | Skip Jazz conversation/session persistence: no conversation history save, no session log, and long-term memory writes are withheld. File tools and local telemetry still follow their normal configuration. |
+| `jazz agent chat`           | `--continue`                 | Continue the agent's most recent saved conversation                                                                                                                                                         |
+| `jazz agent chat`           | `--conversation <id>`        | With --continue, the saved conversation to continue                                                                                                                                                         |
+| `jazz persona list`         | `--json`                     | Print one JSON document                                                                                                                                                                                     |
+| `jazz persona browse`       | `--refresh`                  | Re-fetch the catalog instead of using the cached snapshot                                                                                                                                                   |
+| `jazz persona search`       | `--refresh`                  | Re-fetch the catalog instead of using the cached snapshot                                                                                                                                                   |
+| `jazz persona add`          | `--as <name>`                | Install under a different local name                                                                                                                                                                        |
+| `jazz persona add`          | `-y, --yes`                  | Skip the confirmation prompt (required when non-interactive)                                                                                                                                                |
+| `jazz persona add`          | `--refresh`                  | Re-fetch the catalog instead of using the cached snapshot                                                                                                                                                   |
+| `jazz skill list`           | `--json`                     | Print one JSON document                                                                                                                                                                                     |
+| `jazz skill browse`         | `--refresh`                  | Re-fetch the catalog instead of using the cached snapshot                                                                                                                                                   |
+| `jazz skill search`         | `--refresh`                  | Re-fetch the catalog instead of using the cached snapshot                                                                                                                                                   |
+| `jazz skill add`            | `-y, --yes`                  | Skip the confirmation prompt (required when non-interactive)                                                                                                                                                |
+| `jazz skill add`            | `--refresh`                  | Re-fetch the catalog instead of using the cached snapshot                                                                                                                                                   |
+| `jazz skill remove`         | `-y, --yes`                  | Skip the confirmation prompt (required when non-interactive)                                                                                                                                                |
+| `jazz plugin init`          | `--id <pluginId>`            | Reverse-DNS plugin id                                                                                                                                                                                       |
+| `jazz plugin init`          | `--name <displayName>`       | Human-readable plugin name                                                                                                                                                                                  |
+| `jazz plugin dev`           | `--hook <hookId>`            | Invoke a hook after auditing registrations                                                                                                                                                                  |
+| `jazz plugin dev`           | `--input <jsonFile>`         | JSON input for --hook                                                                                                                                                                                       |
+| `jazz plugin add`           | `--json`                     | Emit JSON                                                                                                                                                                                                   |
+| `jazz plugin list`          | `--json`                     | Emit JSON                                                                                                                                                                                                   |
+| `jazz plugin inspect`       | `--json`                     | Emit JSON                                                                                                                                                                                                   |
+| `jazz plugin trust`         | `-y, --yes`                  | Skip confirmation prompt                                                                                                                                                                                    |
+| `jazz plugin enable`        | `--agent <agentId>`          | Agent id or name; omit to enable for all agents                                                                                                                                                             |
+| `jazz plugin enable`        | `-y, --yes`                  | Skip confirmation prompt                                                                                                                                                                                    |
+| `jazz plugin disable`       | `--agent <agentId>`          | Agent id; omit to disable everywhere                                                                                                                                                                        |
+| `jazz plugin remove`        | `--keep-secrets`             | Keep Jazz-owned plugin secrets                                                                                                                                                                              |
+| `jazz plugin doctor`        | `--json`                     | Emit JSON                                                                                                                                                                                                   |
+| `jazz plugin secret status` | `--json`                     | Emit JSON                                                                                                                                                                                                   |
+| `jazz config get`           | `--reveal`                   | Print secret values in full                                                                                                                                                                                 |
+| `jazz config show`          | `--reveal`                   | Print secret values in full                                                                                                                                                                                 |
+| `jazz hosts add`            | `--allow-file-secrets`       | Let a server without an OS keyring store handed-off API keys in ~/.jazz/secrets.json                                                                                                                        |
+| `jazz detach reclaim`       | `--overwrite`                | Let remote versions win where a file also changed locally                                                                                                                                                   |
+| `jazz memory recall`        | `--surface <name>`           | Only report one surface (cli, telegram, discord)                                                                                                                                                            |
+| `jazz mcp add`              | `-f, --file <path>`          | Read MCP server JSON from a file                                                                                                                                                                            |
+| `jazz mcp add`              | `-t, --transport <type>`     | Transport to use: stdio (default) or http                                                                                                                                                                   |
+| `jazz mcp add`              | `-e, --env <KEY=VALUE>`      | Environment variable for a stdio server                                                                                                                                                                     |
+| `jazz mcp add`              | `-H, --header <KEY=VALUE>`   | HTTP header for an http server                                                                                                                                                                              |
+| `jazz mcp add`              | `--trusted`                  | Let this server's read-only annotations skip approval prompts                                                                                                                                               |
+| `jazz mcp list`             | `--tools`                    | Connect to each server and show the tools it advertises                                                                                                                                                     |
+| `jazz mcp list`             | `--json`                     | Print one JSON document (no env values or headers)                                                                                                                                                          |
+| `jazz mcp remove`           | `-y, --yes`                  | Skip the confirmation prompt                                                                                                                                                                                |
+| `jazz update`               | `--check`                    | Check for updates without installing                                                                                                                                                                        |
+| `jazz daemon`               | `--port <n>`                 | Port to listen on                                                                                                                                                                                           |
+| `jazz daemon`               | `--host <address>`           | Interface to bind. Anything other than loopback requires a daemon token (env or keyring).                                                                                                                   |
+| `jazz daemon`               | `--serve-peers <agentId>`    | Also answer questions from configured peers, using this agent. Off unless given: a daemon for your own use should not quietly answer strangers.                                                             |
+| `jazz daemon`               | `--foreground`               | Stay attached to the terminal (default is background). Required for systemd/launchd.                                                                                                                        |
+| `jazz daemon pause`         | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz daemon resume`        | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz daemon status`        | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz daemon logs`          | `-f, --follow`               | Keep printing new output until interrupted                                                                                                                                                                  |
+| `jazz daemon logs`          | `-n, --lines <n>`            | How many recent lines to print                                                                                                                                                                              |
+| `jazz daemon install`       | `--yes`                      | Skip the confirmation prompt                                                                                                                                                                                |
+| `jazz daemon uninstall`     | `--yes`                      | Skip the confirmation prompt                                                                                                                                                                                |
+| `jazz goal draft`           | `--agent <agentId>`          | Agent ID or name that will work on the goal                                                                                                                                                                 |
+| `jazz goal draft`           | `--no-inspect`               | Draft without first reading the current directory (by default a read-only pass informs the plan)                                                                                                            |
+| `jazz goal draft`           | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal start`           | `--agent <agentId>`          | Agent ID or name that will work on the goal                                                                                                                                                                 |
+| `jazz goal start`           | `--no-inspect`               | Draft without first reading the current directory (by default a read-only pass informs the plan)                                                                                                            |
+| `jazz goal start`           | `--yes`                      | Accept the drafted plan without showing it for review first                                                                                                                                                 |
+| `jazz goal start`           | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal start`           | `--approval-policy <policy>` | What the goal may run without asking once accepted: read-only \| low-risk \| high-risk (high-risk runs everything). Above it, a cycle waits for approval.                                                   |
+| `jazz goal start`           | `--max-cycles <n>`           | Most cycles the goal may run (default: no limit; each cycle is held to the agent loop's own limits)                                                                                                         |
+| `jazz goal list`            | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal show`            | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal accept`          | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal accept`          | `--approval-policy <policy>` | What the goal may run without asking: read-only \| low-risk \| high-risk (high-risk runs everything). Above it, a cycle waits for approval.                                                                 |
+| `jazz goal decline`         | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal approve`         | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal reject`          | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal answer`          | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal pause`           | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal resume`          | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz goal cancel`          | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz loop start`           | `--agent <agentId>`          | Agent ID or name that runs the prompt                                                                                                                                                                       |
+| `jazz loop start`           | `--every <schedule>`         | How often: a duration like 10m or 1h30m (at least 1m), or a cron expression like `0 9 * * mon-fri`                                                                                                          |
+| `jazz loop start`           | `--name <name>`              | What to call the loop (default: the start of its prompt)                                                                                                                                                    |
+| `jazz loop start`           | `--tz <timezone>`            | IANA timezone a cron schedule and --until are read in (default: this machine's)                                                                                                                             |
+| `jazz loop start`           | `--until <when>`             | When the loop ends on its own: a duration like 8h, a clock time like 18:00, or 2026-10-01 09:00                                                                                                             |
+| `jazz loop start`           | `--approval-policy <policy>` | What a run may do without asking: read-only \| low-risk \| high-risk (high-risk runs everything). Above it, the run waits for approval.                                                                     |
+| `jazz loop start`           | `--max-runs <n>`             | Most runs before the loop completes                                                                                                                                                                         |
+| `jazz loop start`           | `--max-tokens <n>`           | Token budget across all runs                                                                                                                                                                                |
+| `jazz loop start`           | `--max-minutes <n>`          | Active-time budget across all runs, in minutes                                                                                                                                                              |
+| `jazz loop start`           | `--max-cost-usd <amount>`    | Dollar budget across all runs (enforced when pricing is known)                                                                                                                                              |
+| `jazz loop start`           | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz loop list`            | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz loop show`            | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz loop approve`         | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz loop reject`          | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz loop answer`          | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz loop pause`           | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz loop resume`          | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz loop cancel`          | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz imessage`             | `--agent <id-or-name>`       | Seed the bridge from one of your agents, copied into its own home                                                                                                                                           |
+| `jazz imessage`             | `--local`                    | Use your own Mac and Apple account instead of a hosted line. Messages avoid Photon, but model and tool traffic still follow the agent configuration; the agent answers as you and needs a trigger word      |
+| `jazz whatsapp`             | `--agent <id-or-name>`       | Seed the bridge from one of your agents, copied into its own home                                                                                                                                           |
+| `jazz reminders list`       | `--agent <id-or-name>`       | Only this agent's                                                                                                                                                                                           |
+| `jazz reminders list`       | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz reminders cancel`     | `--agent <id-or-name>`       | Only look in this agent's                                                                                                                                                                                   |
+| `jazz triggers list`        | `--agent <id-or-name>`       | Only this agent's                                                                                                                                                                                           |
+| `jazz triggers list`        | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz triggers cancel`      | `--agent <id-or-name>`       | Only look in this agent's                                                                                                                                                                                   |
+| `jazz jobs list`            | `--agent <id-or-name>`       | Only this agent's                                                                                                                                                                                           |
+| `jazz jobs list`            | `--json`                     | Emit a single JSON envelope                                                                                                                                                                                 |
+| `jazz jobs cancel`          | `--agent <id-or-name>`       | Only look in this agent's                                                                                                                                                                                   |
+| `jazz peers list`           | `--json`                     | Emit a single JSON envelope { ok, peers }                                                                                                                                                                   |
+| `jazz peers set-token`      | `--from-env <VAR>`           | Environment variable holding the token                                                                                                                                                                      |
+| `jazz peers log`            | `--peer <name>`              | Only entries for this peer                                                                                                                                                                                  |
+| `jazz peers log`            | `--limit <n>`                | How many entries to show                                                                                                                                                                                    |
+| `jazz peers log`            | `--json`                     | Emit a single JSON envelope { ok, entries }                                                                                                                                                                 |
+| `jazz peers log`            | `-f, --follow`               | Keep watching and print new entries as they land                                                                                                                                                            |
+| `jazz peers invite create`  | `--disclosure <tier>`        | What the invitee may learn once they accept: none, public, internal, private                                                                                                                                |
+| `jazz peers invite create`  | `--expires <duration>`       | How long the link stays redeemable, e.g. 30m, 24h, 7d                                                                                                                                                       |
+| `jazz peers invite create`  | `--host <address>`           | Interface your daemon answers on — must match how you're running (or will run) `jazz daemon`                                                                                                                |
+| `jazz peers invite create`  | `--port <n>`                 | Port your daemon answers on                                                                                                                                                                                 |
+| `jazz peers invite create`  | `--as <name>`                | What to call yourself to the invitee. Defaults to this machine's hostname.                                                                                                                                  |
+| `jazz peers invite create`  | `--persona <name>`           | Which persona answers this invitee once accepted. Defaults to your daemon's --serve-peers agent as-is.                                                                                                      |
+| `jazz peers invite create`  | `--public-url <base>`        | Overrides --host/--port for the printed link, such as `https://bob-agent.example.com`, for a daemon behind a reverse proxy.                                                                                 |
+| `jazz peers invite create`  | `--qr`                       | Also print the link as a terminal QR code                                                                                                                                                                   |
+| `jazz peers invite create`  | `--json`                     | Emit a single JSON envelope { ok, id, url, expiresAt }                                                                                                                                                      |
+| `jazz peers invite accept`  | `--as <name>`                | What to call them locally. Defaults to the name they invited you as.                                                                                                                                        |
+| `jazz peers invite accept`  | `--yes`                      | Skip the confirmation prompt                                                                                                                                                                                |
+| `jazz peers invite accept`  | `--json`                     | Emit a single JSON envelope { ok, name }                                                                                                                                                                    |
+| `jazz peers invite list`    | `--json`                     | Emit a single JSON envelope { ok, invites }                                                                                                                                                                 |
+| `jazz runs list`            | `--agent <agentId>`          | Only runs belonging to this agent                                                                                                                                                                           |
+| `jazz runs list`            | `--conversation <id>`        | Only runs from this conversation                                                                                                                                                                            |
+| `jazz runs list`            | `--all`                      | Include runs that already finished, with what they cost. Records are kept for 7 days.                                                                                                                       |
+| `jazz runs list`            | `--json`                     | Emit a single JSON envelope { ok, runs }                                                                                                                                                                    |
+| `jazz runs show`            | `--json`                     | Emit a single JSON envelope { ok, run }                                                                                                                                                                     |
+| `jazz runs approve`         | `--json`                     | Emit a single JSON envelope { ok, runId, answer }                                                                                                                                                           |
+| `jazz runs answer`          | `--response <text>`          | Your answer to the question. An empty string tells the run you declined to answer.                                                                                                                          |
+| `jazz runs answer`          | `--json`                     | Emit a single JSON envelope { ok, runId, answer }                                                                                                                                                           |
+| `jazz runs secret`          | `--json`                     | Emit a single JSON envelope { ok, runId, answer }                                                                                                                                                           |
+| `jazz runs reject`          | `--note <text>`              | Tell the agent why, so it can try something else                                                                                                                                                            |
+| `jazz runs reject`          | `--json`                     | Emit a single JSON envelope { ok, runId, answer }                                                                                                                                                           |
+| `jazz runs cancel`          | `--json`                     | Emit a single JSON envelope { ok, runId }                                                                                                                                                                   |
+| `jazz spend`                | `--json`                     | Emit a single JSON envelope { ok, today, thisMonth, caps }                                                                                                                                                  |
+| `jazz notify list`          | `--json`                     | Emit a single JSON envelope { ok, targets, implicit }                                                                                                                                                       |
+| `jazz notify add`           | `--kind <kind>`              | desktop, ntfy, webhook, telegram or discord                                                                                                                                                                 |
+| `jazz notify add`           | `--chat-id <id>`             | Telegram chat id to post in                                                                                                                                                                                 |
+| `jazz notify add`           | `--channel-id <id>`          | Discord channel id, when posting as a bot instead of a webhook                                                                                                                                              |
+| `jazz notify add`           | `--url <url>`                | ntfy topic URL, or the endpoint a webhook target posts JSON to                                                                                                                                              |
+| `jazz notify add`           | `--api-base-url <url>`       | Self-hosted Telegram Bot API or Discord API base URL                                                                                                                                                        |
+| `jazz notify add`           | `--events <list>`            | Comma-separated: waiting, paused, reminder, unattended-failed, spend-cap (default: all)                                                                                                                     |
+| `jazz notify add`           | `--approve-from-chat`        | A running Jazz bridge serves this chat, so approval requests offer /approve                                                                                                                                 |
+| `jazz notify test`          | `--json`                     | Emit a single JSON envelope { ok, target }                                                                                                                                                                  |
+| `jazz notify outbox`        | `--json`                     | Emit a single JSON envelope { ok, notifications }                                                                                                                                                           |
+| `jazz notify retry`         | `--json`                     | Emit a single JSON envelope { ok, rearmed, delivered, failed }                                                                                                                                              |
+| `jazz workflow list`        | `--json`                     | Print one JSON document                                                                                                                                                                                     |
+| `jazz workflow schedule`    | `--cron <expr>`              | Cron expression to run on, instead of the workflow's schedule: field                                                                                                                                        |
+| `jazz workflow schedule`    | `--as <label>`               | Label for this schedule, so one workflow can run at several frequencies                                                                                                                                     |
+| `jazz workflow browse`      | `--refresh`                  | Re-fetch the catalog instead of using the cached snapshot                                                                                                                                                   |
+| `jazz workflow search`      | `--refresh`                  | Re-fetch the catalog instead of using the cached snapshot                                                                                                                                                   |
+| `jazz workflow add`         | `--as <name>`                | Install under a different local name                                                                                                                                                                        |
+| `jazz workflow add`         | `-y, --yes`                  | Skip the confirmation prompt (required when non-interactive)                                                                                                                                                |
+| `jazz workflow add`         | `--refresh`                  | Re-fetch the catalog instead of using the cached snapshot                                                                                                                                                   |
 
 ## In-chat commands
 

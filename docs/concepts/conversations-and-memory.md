@@ -4,6 +4,21 @@ description: "The five kinds of state a Jazz agent carries, who writes each one,
 
 # Conversations, state, and memory
 
+A conversation keeps the context for one thread of work. Resume it to continue a task,
+or start a new one for a separate topic. Memory carries your preferences and facts into
+future conversations.
+
+For example, tell your agent:
+
+```text
+Remember that I prefer concise replies and use Europe/Paris as my timezone.
+```
+
+In a later conversation, those preferences can apply without repeating them. Ask it to
+forget a preference when it no longer applies, or [review saved memory from the CLI](#cli-access).
+
+## Types of state
+
 Jazz keeps five kinds of state:
 
 | Kind                     | Written by                     | Scope            | Survives                  |
@@ -16,10 +31,17 @@ Jazz keeps five kinds of state:
 
 ## Conversation history
 
-The transcript: user, assistant, and tool messages in order. Interactive chat keeps one active
-conversation. Headless callers opt in with a stable `--conversation` key, which is what gives a
-chat bridge per-chat memory without the bridge storing anything itself. Without a key, a one-shot
-run is stateless.
+Conversation history contains your messages, the agent's replies, and its tool results.
+In the terminal, use `/resume` to return to earlier work and `/start` for a new conversation.
+
+In scripts, pass the same `--conversation` value to continue a thread:
+
+```bash
+jazz run --agent assistant --conversation release-plan "Help me plan the next release"
+jazz run --agent assistant --conversation release-plan "Update the plan: the launch is Friday"
+```
+
+Without a conversation key, each `jazz run` starts a separate thread.
 
 As context fills, Jazz summarizes older messages. Use work state and todos to preserve
 important task details through compaction.
@@ -122,15 +144,12 @@ jazz memory forget assistant personal/always/concise-replies.md
 it was available to model requests; those records do not prove the model used it successfully.
 `forget` deletes the entry. Shared-scope changes affect every agent using that scope.
 
-## Choosing
+## Choosing what to keep
 
-Ask how long it has to be true.
-
-- True for this exchange only: **history** already has it.
-- True until this task is done, and must survive compaction: **work state** for intent, **todos**
-  for the list.
-- Too big to re-derive, useful later, not a fact about anyone: **scratchpad**.
-- Still true in three weeks, and would make a later answer better: **memory**.
+- Continue a discussion in the same **conversation**.
+- Use **work state** and **todos** for the current task's decisions and progress.
+- Save long drafts and research material in the **scratchpad** or a file.
+- Use **memory** for preferences and facts needed in future conversations.
 
 ## Related
 

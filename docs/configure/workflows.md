@@ -62,8 +62,7 @@ See [the note below](#the-low-risk-trap).
 Accepts exactly one of `false`, `read-only`, `low-risk`, `high-risk` or `true`, with `true` and
 `false` unquoted. Leaving it out means `false`.
 
-Any other value (`readonly`, `Read-Only`, `low_risk`, a quoted `"false"`, `yolo`) is an error,
-not a guess. `jazz workflow list` and `jazz workflow show` print the reason, and the workflow
+Any other value (`readonly`, `Read-Only`, `low_risk`, a quoted `"false"`, `yolo`) is invalid. `jazz workflow list` and `jazz workflow show` print the reason, and the workflow
 refuses to run, to be scheduled, or to be installed from the library until it is fixed.
 
 The same policy applies to every way a workflow runs: its schedule, catch-up after a restart,
@@ -88,7 +87,7 @@ To let a workflow run every tool without asking, write it out:
 autoApprove: high-risk # or true
 ```
 
-That is the whole opt-in; there is no default that grants it. Read
+Read
 [Running fully unattended](../security/approvals.md#running-fully-unattended-yolo) first, and
 prefer the narrower tier plus an `autoApprovedCommands` entry when one command is all the
 workflow needs.
@@ -97,10 +96,9 @@ workflow needs.
 
 ## The `low-risk` trap
 
-`low-risk` is narrower than it sounds. It covers memory, reminders, triggers, and commands the
-classifier judges low-risk (todos, work state, the scratchpad and subagents already run at
-`read-only`). It does **not** cover email, calendar, or
-file writes merely because those actions sound routine.
+`low-risk` covers memory writes, reminders, triggers, and commands classified low-risk.
+Todos, work state, the scratchpad, and subagents already run at `read-only`.
+Email, calendar, and file changes require approval when their risk exceeds the policy.
 
 To permit a specific command, keep the tier low and add a narrow global grant:
 

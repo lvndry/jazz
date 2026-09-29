@@ -19,7 +19,14 @@ himalaya account configure default
 himalaya envelope list --folder INBOX --page-size 5
 ```
 
-Then include the `email` skill in the agent or workflow. The skill covers listing, reading, searching, organizing, replying, and sending, subject to the installed Himalaya version and account permissions.
+Start your agent and ask it to use the built-in `email` skill:
+
+```text
+Use the email skill to summarize my five newest unread messages. Do not change mailbox state.
+```
+
+The agent needs `execute_command` access. A workflow can name `email` in its `skills` frontmatter.
+The skill covers listing, reading, searching, organizing, replying, and sending, subject to the installed Himalaya version and account permissions.
 
 Himalaya commands execute through `execute_command`. Jazz classifies the actual command before applying approval policy. A read-only run may list or read mail when the classifier can establish that the command is inspect-only; archive, move, reply, send, and delete operations should be treated as mutations.
 

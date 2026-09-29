@@ -2,32 +2,67 @@
 description: "Schedule unattended Jazz runs with launchd or cron: workflow prompts on a clock, output written to a log, and delivered to your phone or chat through a notify target."
 ---
 
-# Scheduled runs on a clock
+# Scheduled runs
 
-How to have Jazz do something every morning without you being there.
+Run a saved job every morning, on weekdays, or at another recurring time. Jazz
+installs the schedule through launchd on macOS or cron on Linux.
 
-For an always-on host without launchd or cron, switch to in-process mode and run `jazz daemon`.
-The daemon then checks due schedules once per minute and runs each latest due slot once. This
-mode is opt-in; launchd and cron remain the defaults on supported platforms.
+## Schedule your first job
 
-```bash
-jazz config set scheduler.mode in-process   # persists across restarts
-# or, for a single run without touching config:
-JAZZ_SCHEDULER=in-process jazz daemon
+From a repository you want to summarize, create an agent named `daily-helper` with
+`jazz agent create`. Choose a tool-capable model and the `coder` persona.
+
+Create `workflows/daily-standup-prep/WORKFLOW.md` in that repository:
+
+```markdown
+---
+name: daily-standup-prep
+description: "Summarize yesterday's repository activity"
+agent: daily-helper
+schedule: "0 9 * * 1-5"
+autoApprove: read-only
+maxIterations: 20
+maxDurationMs: 300000
+---
+
+Inspect git commits from the last day and the current working tree. Summarize
+completed work, uncommitted changes, and anything needing my attention.
+Do not modify files.
 ```
 
-You can also flip this from **Settings** → **Scheduler** in the `jazz` home menu. See
-[Configuration → `scheduler`](../configure/jazz.md#scheduling) for both settings.
-
-A scheduled run is a [workflow](../concepts/workflows.md) handed to your OS scheduler.
-Jazz writes the launchd plist or crontab entry for you; from then on the run happens with
-no terminal, no TUI, and nobody to answer an approval prompt.
+Test it from the same repository, then install the schedule:
 
 ```bash
-jazz workflow schedule daily-standup-prep    # installs daily-standup-prep/default
-jazz workflow scheduled                    # confirm it's installed
-jazz workflow history daily-standup-prep   # see what happened
+jazz workflow run daily-standup-prep --auto-approve
+jazz workflow schedule daily-standup-prep
+jazz workflow scheduled
+jazz workflow history daily-standup-prep
 ```
+
+The test should produce a summary grounded in your commits and working tree. The
+schedule runs at 09:00 on weekdays in the machine's timezone. The agent and its
+provider credentials must remain available on that machine.
+
+To send the result to your phone or chat, configure a
+[notification target](../configure/notifications.md) and add
+`deliver: <target-name>` to the frontmatter. To stop the schedule:
+
+```bash
+jazz workflow unschedule daily-standup-prep
+```
+
+## Use the daemon scheduler
+
+For an always-on host without launchd or cron, switch to in-process mode and run
+the daemon. It checks due schedules once per minute:
+
+```bash
+jazz config set scheduler.mode in-process
+jazz daemon
+```
+
+You can also select `/settings` → **Scheduler** in the `jazz` home screen. See
+[Scheduler configuration](../configure/jazz.md#scheduling).
 
 ---
 
@@ -43,12 +78,12 @@ jazz workflow history daily-standup-prep   # see what happened
 The workflow's `autoApprove:` tier decides what can run without asking. Calls above
 that tier are declined.
 
-| `autoApprove` | Auto-approves                                                        | Good for                                                 |
-| ------------- | -------------------------------------------------------------------- | -------------------------------------------------------- |
-| `false`       | Nothing                                                              | The agent receives a decline for every gated tool        |
-| `read-only`   | Reads, search, web, todos, work state, subagents, read-only commands | Digests, reports, watchdogs                              |
-| `low-risk`    | + memory writes, reminders, triggers, low-risk commands              | Digests that track state                                 |
-| `high-risk`   | + file writes, shell, git commit and push                            | Anything that writes files, or any skill that shells out |
+| `autoApprove` | Auto-approves                                                        | Good for                                          |
+| ------------- | -------------------------------------------------------------------- | ------------------------------------------------- |
+| `false`       | Nothing                                                              | The agent receives a decline for every gated tool |
+| `read-only`   | Reads, search, web, todos, work state, subagents, read-only commands | Digests, reports, watchdogs                       |
+| `low-risk`    | + memory writes, reminders, triggers, low-risk commands              | Digests that track state                          |
+| `high-risk`   | + file writes, shell, git commit and push                            | Jobs requiring unrestricted tool use              |
 
 Skills such as email, calendar, and Obsidian run commands through `execute_command`.
 Their mutations may require a higher tier. Prefer human approval or a narrowly scoped
@@ -85,8 +120,8 @@ daemon was stopped rather than because the machine was asleep.
 
 - **Pick a forgiving time.** Hourly, or 9 AM instead of 6 AM, gives the machine more chances to
   be awake.
-- **Keep the machine awake** while a daemon runs: `caffeinate -i jazz daemon` on macOS,
-  `systemd-inhibit --what=sleep jazz daemon` on Linux.
+- **Keep the machine awake** while a daemon runs: `caffeinate -i jazz daemon --foreground` on macOS,
+  `systemd-inhibit --what=sleep jazz daemon --foreground` on Linux.
 - **Wake it on purpose.** macOS can schedule a wake or power-on:
   `sudo pmset repeat wakeorpoweron MTWRFSU 05:55:00` for a 6 AM job.
 - **Run it somewhere always on**, such as a home server, a VPS, or a Raspberry Pi.

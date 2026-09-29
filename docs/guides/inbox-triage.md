@@ -100,6 +100,10 @@ jazz workflow schedule morning-inbox
 jazz workflow scheduled
 ```
 
-Jazz installs the workflow through launchd on macOS or cron on Linux. The machine must be awake at the scheduled time; [scheduled runs](../surfaces/scheduled.md) explains catch-up behavior and always-on hosts.
+Jazz installs the workflow through launchd on macOS or cron on Linux. The machine must
+be awake at the scheduled time; [scheduled runs](../surfaces/scheduled.md) explains
+catch-up behavior and always-on hosts. To receive the briefing remotely, configure a
+[notification target](../configure/notifications.md) and add `deliver: <target-name>`
+to the workflow frontmatter.
 
 Read [Email and calendar](../configure/email-calendar.md), [Scheduled runs](../surfaces/scheduled.md), and [Tools and approvals](../security/approvals.md).

@@ -4,13 +4,9 @@ description: "Configure the optional generic LSP plugin for semantic code naviga
 
 # Language Server Protocol plugin
 
-`plugins/lsp` is an optional TypeScript plugin. When enabled for an agent, it starts the configured
-language server for the active project at the beginning of a run. As Jazz reads and changes source
-files, the plugin keeps those documents current and adds relevant diagnostics to the agent's next
-model request. The agent does not need to call an LSP tool to receive that context. Targeted tools
-remain available for document and workspace symbols, definitions, references, hover, code actions,
-symbol rename, and document formatting. The plugin works with servers that speak LSP 3.17 over stdio
-and implement the requested methods. There is no language server bundled with Jazz.
+The LSP plugin gives coding agents compiler diagnostics, symbol definitions, references,
+and approved renames or formatting. Install the plugin and a language server separately;
+Jazz does not bundle a language server. Servers must support LSP 3.17 over stdio.
 
 Install the published plugin through the normal [plugin lifecycle](./plugins.md). No repository
 clone or local build is needed; the published artifact includes its diff renderer:
@@ -48,9 +44,8 @@ Install your language-server executable separately and configure its command in 
 }
 ```
 
-Install `typescript-language-server` and a compatible `typescript` version separately if you use
-this example. TypeScript 6 worked with the language server in our live test; the TypeScript 7
-package we tried did not include the `tsserver.js` that server expected. To configure another
+Install `typescript-language-server` and a compatible `typescript` package containing
+`tsserver.js` before using this example. To configure another
 language, add an entry with its executable, argument vector, extensions,
 language ID, and project-root markers. The first entry matching a file extension wins. The
 plugin walks upward from the current directory to identify configured project roots and starts

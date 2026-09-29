@@ -162,7 +162,7 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Age at which pending traces and logs are dropped, in milliseconds. Defaults to seven days.",
   "telemetry.otlp.metricExportIntervalMs":
     "Time between metric exports, in milliseconds. Defaults to 30000.",
-  maxRetries: "Retries for a transient model API failure. Defaults to 3.",
+  maxRetries: "Retries for a transient model API failure. Defaults to 10.",
   editor:
     "Editor for `jazz persona edit` and `jazz mcp add`, such as `code --wait`. Defaults to `$VISUAL`, then `$EDITOR`, then `vi`.",
   maxSubagentDepth:

@@ -7,15 +7,21 @@ description: "Find files a Jazz agent produced, understand their generation labe
 Artifacts are files an agent produces, such as PDFs, images, audio, and video. Jazz reports
 their paths in terminal and JSON output, and uploads them in supported chat platforms.
 
-```json
-{
-  "kind": "image",
-  "path": "/Users/you/.jazz/generated/k3Fh2p.png",
-  "mediaType": "image/png",
-  "tool": "gemini-3-pro-image",
-  "source": "model"
-}
+## Create a file
+
+Ask for the output format and where you want it saved:
+
+```text
+Turn the findings from this conversation into a two-page PDF briefing.
+Save it as ./briefing.pdf.
 ```
+
+The agent needs the relevant tool: `create_pdf` for PDFs, `create_composition` for visual
+pages, or a media-capable model for generated images, audio, and video. See
+[Compositions](./compositions.md) and [Model companions](./media.md) for setup.
+
+Open the path Jazz reports to review the result. If you want a revision, describe the
+change in the same conversation.
 
 ## Provenance
 
@@ -40,6 +46,22 @@ Jazz prints the saved path so you can open or reuse the file.
 - **Terminal**: one line per artifact, with the provenance note.
 - **`jazz run --json`**: an `artifacts` array beside `answer`, so a script can pick up the path.
 - **Chat bridges**: uploaded when the platform supports that medium, otherwise named.
+
+## Retrieve files from a script
+
+`jazz run --json` includes artifact objects like this in its `artifacts` array:
+
+```json
+{
+  "kind": "image",
+  "path": "/Users/you/.jazz/generated/k3Fh2p.png",
+  "mediaType": "image/png",
+  "tool": "gemini-3-pro-image",
+  "source": "model"
+}
+```
+
+Use their `path` fields to copy, publish, or pass the files to another step.
 
 ## Related
 

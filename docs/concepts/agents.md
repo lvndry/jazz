@@ -7,7 +7,24 @@ description: "Create and configure Jazz agents with their own models, personas, 
 An agent combines a model, persona, tools, skills, and memory settings in one configuration
 file. Create separate agents for tasks that need different models or permissions.
 
-Changes to the definition take effect on the next turn.
+For example, keep a coding agent for repository changes, a researcher for web investigation,
+and a reviewer with fewer permissions for unattended work.
+
+## Create and use an agent
+
+```bash
+jazz agent create
+jazz agent chat <agent-name>
+```
+
+The wizard lets you choose its model, persona, name, and tools. Ask it for a task, such as:
+
+```text
+Read the current changes, identify bugs, and suggest fixes. Do not modify files yet.
+```
+
+Use `jazz agent edit <agent-name>` to change its settings. Changes take effect on the next turn.
+See [Creating agents](../getting-started/create-an-agent.md) for the walkthrough.
 
 ## What an agent is made of
 
@@ -123,14 +140,25 @@ Edits take effect on the next turn. Nothing to restart.
 
 ## Agent configurations
 
-| Pattern         | Shape                                           | Good for                                       |
-| --------------- | ----------------------------------------------- | ---------------------------------------------- |
-| **Generalist**  | broad: files, git, web, shell                   | Daily driver in your terminal                  |
-| **Specialist**  | narrow: reads and greps, everything else denied | CI review, anything unattended                 |
-| **Delegator**   | adds `spawn_subagent`                           | Deep research, work that would blow one window |
-| **Mixed-model** | cheap main model plus `companions`              | Screenshots, recordings, generated assets      |
+| Pattern         | Shape                                           | Good for                                  |
+| --------------- | ----------------------------------------------- | ----------------------------------------- |
+| **Generalist**  | broad: files, git, web, shell                   | Daily driver in your terminal             |
+| **Specialist**  | narrow: reads and greps, everything else denied | CI review, anything unattended            |
+| **Delegator**   | adds `spawn_subagent`                           | Parallel research and independent checks  |
+| **Mixed-model** | cheap main model plus `companions`              | Screenshots, recordings, generated assets |
 
 ### Delegation
+
+Use subagents for independent work that can happen in parallel, such as reviewing separate
+packages or researching different approaches. Ask the parent agent to divide the work:
+
+```text
+Have subagents review the API, database, and frontend changes separately.
+Combine their findings, verify each issue, and report the fixes we need.
+```
+
+The parent needs `spawn_subagent` in its toolset. You see child activity while it works;
+the parent collects their results into one answer.
 
 `spawn_subagent` hands a task to a child run on
 this same installation, with a task, a persona (`coder`, `researcher`, or `default`), and its own
@@ -188,8 +216,7 @@ Conversations persist separately, per conversation id. In the terminal, `/resume
 ones, `/start` starts a fresh one, `/new` creates an agent, `/rename` names the current conversation, and `/fork` continues on a new conversation id while carrying the
 full history forward and preserving the original branch (resume it later with `/resume`); headless
 callers
-pass `--conversation <id>` and get the same thread back across invocations, which is what gives
-a chat bridge memory without storing anything itself. Transcripts are plaintext JSON: treat that
+pass `--conversation <id>` to continue the same thread across invocations. Transcripts are plaintext JSON: treat that
 directory as sensitive.
 
 ---

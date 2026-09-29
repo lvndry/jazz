@@ -28,8 +28,7 @@ If the quote is missing or does not match, Jazz continues the goal and tells the
 
 There is no turn limit. Each turn is held to the agent loop's own limits (iterations, and the
 token, cost, and time caps if you set them in config), like any turn. What goals and loops spend
-together is unlimited by default; set a daily or monthly cap in `jazz` > Settings >
-Spend Limits (`daemon.goals.dailyCostUSD`, `daemon.goals.monthlyCostUSD`). A reached cap holds the next cycle back until it clears,
+together is unlimited by default; set a daily or monthly cap in `jazz` > `/settings` > **Spend limits** (`daemon.goals.dailyCostUSD`, `daemon.goals.monthlyCostUSD`). A reached cap holds the next cycle back until it clears,
 without failing the goal: see [daily and monthly caps](./budgets.md#daily-and-monthly-caps). If the
 goal needs you (a question or a blocker it cannot get past), the chat asks right there and carries
 on with your answer.
@@ -52,8 +51,8 @@ in the same conversation. Anything above the authority you picked waits for you.
 
 When it needs you, the daemon tells you right away: a desktop notification, or a push to your
 phone through a [notify target](../configure/notifications.md) (ntfy, Telegram, Discord, a webhook). The next `jazz`
-lists the conversation first under **Resume conversation (N waiting for you)**, marked with what it
-is waiting on; open it and the chat shows the question or approval and carries on once you answer.
+shows it under **Waiting for you**, with the question or approval it needs. Open it and
+answer to continue. You can also use `/resume` to find the conversation.
 `jazz daemon status` shows everything waiting, and `jazz daemon pause` stops background work until
 you resume it. A daily dollar or token cap (`daemon.dailyCostUSD`, `daemon.dailyTokens`) pauses it
 on its own.

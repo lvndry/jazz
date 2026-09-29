@@ -4,8 +4,11 @@ description: "Authenticate every way into a Jazz agent: chat allowlists, webhook
 
 # Surface access
 
-Every remote surface has to answer three questions before a run starts: who may start work here,
-which conversation do they resume, and what may that run reveal or execute.
+Before exposing an agent to chat apps, webhooks, or peers, configure who can reach it
+and which tools they may use. Keep the daemon on loopback unless you have configured
+a private network or authenticated proxy.
+
+The credential and permission controls differ by surface:
 
 | Surface      | Who is authenticated   | Credential                                            | Bounded by                            |
 | ------------ | ---------------------- | ----------------------------------------------------- | ------------------------------------- |
@@ -23,8 +26,9 @@ grant than one that can ask a question.
 
 ## Chat bots
 
-Set the platform allowlist and nothing else answers. `TELEGRAM_ALLOWED_CHAT_IDS` and its Discord
-equivalent take comma-separated chat ids.
+Set `TELEGRAM_ALLOWED_CHAT_IDS` to comma-separated chat IDs. Discord uses
+`DISCORD_ALLOWED_USER_IDS`, `DISCORD_ALLOWED_CHANNEL_IDS`, or `DISCORD_ALLOWED_GUILD_IDS`.
+A guild grant admits everyone in that guild; prefer user or channel grants when appropriate.
 
 Messages from anyone else are ignored.
 
@@ -70,10 +74,11 @@ rather than resumed with the agent's whole toolset.
 
 ## The daemon
 
-Loopback is not a trust boundary. Every route except `GET /health` needs the bearer token, and
-two structural checks keep a browser out: a request carrying an `Origin` header is refused, and
-JSON routes require `content-type: application/json`. [The daemon page](../concepts/daemon.md)
-explains why both are necessary.
+By default, every route except `GET /health` needs the daemon bearer token. If secret
+storage is disabled and no token is supplied, a loopback daemon can run without one;
+non-loopback startup requires a token. Keep authentication enabled on shared machines.
+Requests with an `Origin` header are refused, and JSON routes require
+`content-type: application/json`. See [Daemon](../concepts/daemon.md).
 
 The bearer token cannot tell you from an agent. It sits in `$JAZZ_DAEMON_TOKEN` or, on a host
 with no OS keyring, in `$JAZZ_HOME/secrets.json`, and an agent that can read a file and send a

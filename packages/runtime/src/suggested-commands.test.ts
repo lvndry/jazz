@@ -6,6 +6,8 @@
  * worse than none: the user runs it, gets "unknown command", and loses trust in
  * every other hint. This test collects the suggestions and resolves each one
  * against the real Commander tree:
+ * The tree is built with a command operand so the no-argument home-screen action
+ * does not suppress Commander's implicit help command.
  *
  * - in source, from string and template literals only (comments are prose):
  *   a `` `jazz ...` ``, `'jazz ...'` or `"jazz ..."` span inside one, or a
@@ -85,6 +87,19 @@ export function resolvesInTree(program: Command, words: readonly string[]): bool
       current = next;
       continue;
     }
+    const implicitHelp = current
+      .createHelp()
+      .visibleCommands(current)
+      .find((candidate) => candidate.name() === word && !current.commands.includes(candidate));
+    if (implicitHelp !== undefined) {
+      const target = words[index + 1];
+      return (
+        target === undefined ||
+        current.commands.some(
+          (candidate) => candidate.name() === target || candidate.aliases().includes(target),
+        )
+      );
+    }
     if (index === 0) {
       return false;
     }
@@ -148,7 +163,7 @@ function docSuggestions(file: string): string[] {
 }
 
 describe("suggested jazz commands", () => {
-  const program = createCLIApp();
+  const program = createCLIApp(["bun", "jazz", "help"]);
 
   function unresolved(collect: (file: string) => string[], files: readonly string[]): string[] {
     return files.flatMap((file) =>
@@ -180,5 +195,13 @@ describe("suggested jazz commands", () => {
     expect(resolvesInTree(program, commandWords("jazz run --agent x"))).toBe(true);
     expect(resolvesInTree(program, commandWords("jazz agent get <id>"))).toBe(false);
     expect(resolvesInTree(program, commandWords("jazz wizard"))).toBe(false);
+  });
+
+  it("resolves Commander's implicit help command and validates its target", () => {
+    expect(resolvesInTree(program, commandWords("jazz help"))).toBe(true);
+    expect(resolvesInTree(program, commandWords("jazz help run"))).toBe(true);
+    expect(resolvesInTree(program, commandWords("jazz workflow help run"))).toBe(true);
+    expect(resolvesInTree(program, commandWords("jazz help wizard"))).toBe(false);
+    expect(resolvesInTree(program, commandWords("jazz workflow help wizard"))).toBe(false);
   });
 });

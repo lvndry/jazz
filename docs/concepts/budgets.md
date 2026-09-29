@@ -4,7 +4,20 @@ description: "Cap a Jazz run by iterations, cost, tokens, or wall-clock time, wa
 
 # Budgets
 
-Four caps bound a run, and every one of them is optional except the first.
+Budgets limit how much work an agent can do in one run. Use them for scripts, reviews,
+and scheduled jobs to control time and model spend.
+
+For example, give a review five minutes and a fifty-cent cost budget:
+
+```bash
+jazz run --agent reviewer --max-cost-usd 0.50 --max-duration-ms 300000 \
+  "Review the current changes and report concrete issues. Do not modify files."
+```
+
+Cost caps are checked between model calls, so the final call can take the total past the cap.
+The duration cap interrupts work at its deadline.
+
+## Per-run limits
 
 | Cap             | Default | Counts                                                           |
 | --------------- | ------: | ---------------------------------------------------------------- |
@@ -54,7 +67,7 @@ maxDurationMs: 900000
 
 ```bash
 # one run
-jazz run --agent analyst --max-cost-usd 0.50 --max-duration-ms 300000 "…"
+jazz run --agent analyst --max-cost-usd 0.50 --max-duration-ms 300000 "Summarize report.md"
 ```
 
 ## Watching from the terminal
@@ -149,8 +162,7 @@ while they ran) spent per local day and month. Your chat turns never count.
 Every cap is unset, meaning unlimited, until you set one. `goals` covers goal cycles and loop
 runs together; `agents.<agent>` covers one agent's unattended runs, keyed by its name (`inbox`
 above) or its id, as `jazz agent list` shows them. `jazz config set` and `jazz spend` warn about
-a key that names no agent. Set the goal caps and the machine-wide ones from `jazz` > Update
-configuration > Spend Limits, or with `jazz config set daemon.goals.dailyCostUSD 2`.
+a key that names no agent. Set the goal caps and the machine-wide ones from `jazz` > `/settings` > **Spend limits**, or with `jazz config set daemon.goals.dailyCostUSD 2`.
 
 When a cap is reached:
 

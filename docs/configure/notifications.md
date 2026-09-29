@@ -4,11 +4,39 @@ description: "Send approvals, daemon pauses, results, failures, reminders and sp
 
 # Notifications
 
-How to hear from Jazz when nobody is at the terminal.
+Configure a notification target to receive results, reminders, failures, and approval requests
+while you are away.
 
-The daemon, a scheduled workflow, a goal, a loop, or a `jazz run` in a script works while you are
-away. `notify.targets` in `config.json` is where all of them tell you what happened: one list,
-one outbox, used by every entry point.
+`notify.targets` in `config.json` applies to daemon work, schedules, goals, loops, and
+`jazz run`.
+
+## Add and test a target
+
+Add one with `jazz notify add`, which asks for the secret on a terminal and stores it in the
+keyring:
+
+```sh
+jazz notify add phone --kind telegram --chat-id 123456789 --approve-from-chat
+jazz notify test phone
+```
+
+| Kind       | Fields                                                             | Secret (keyring)                 |
+| ---------- | ------------------------------------------------------------------ | -------------------------------- |
+| `desktop`  | none                                                               | none                             |
+| `ntfy`     | `url` (a topic URL)                                                | none                             |
+| `webhook`  | `url`                                                              | `secret`, optional: signs bodies |
+| `telegram` | `chatId`, optional `apiBaseUrl`, `approveFromChat`                 | `botToken`                       |
+| `discord`  | optional `channelId` (with a bot), `apiBaseUrl`, `approveFromChat` | `webhookUrl`, or `botToken`      |
+
+Every target has a `name` (lowercase letters, digits, `-` and `_`) and an optional `events`
+list. Secrets never go in `config.json`: they are in the keyring under
+`notify.targets.<name>.<field>` (`jazz config set notify.targets.phone.botToken`), or, on a host
+with no keyring, in `JAZZ_NOTIFY_<NAME>_<FIELD>`, for example `JAZZ_NOTIFY_PHONE_BOT_TOKEN` or
+`JAZZ_NOTIFY_TEAM_WEBHOOK_URL`.
+
+Pick an ntfy topic name nobody can guess: anyone who knows it can read what you are sent. For
+Telegram, the bot must be able to post in the chat: send it a message first, then read the chat
+id from `https://api.telegram.org/bot<token>/getUpdates`.
 
 ## What you hear about
 
@@ -109,33 +137,7 @@ On a host that can show a desktop notification neither way, such as a server or 
 - `jazz notify test <name>` reports the same reason;
 - a reminder goes to the notify targets that take reminders instead.
 
-Add one with `jazz notify add`, which asks for the secret on a terminal and stores it in the
-keyring:
-
-```sh
-jazz notify add phone --kind telegram --chat-id 123456789 --approve-from-chat
-jazz notify test phone
-```
-
-| Kind       | Fields                                                             | Secret (keyring)                 |
-| ---------- | ------------------------------------------------------------------ | -------------------------------- |
-| `desktop`  | none                                                               | none                             |
-| `ntfy`     | `url` (a topic URL)                                                | none                             |
-| `webhook`  | `url`                                                              | `secret`, optional: signs bodies |
-| `telegram` | `chatId`, optional `apiBaseUrl`, `approveFromChat`                 | `botToken`                       |
-| `discord`  | optional `channelId` (with a bot), `apiBaseUrl`, `approveFromChat` | `webhookUrl`, or `botToken`      |
-
-Every target has a `name` (lowercase letters, digits, `-` and `_`) and an optional `events`
-list. Secrets never go in `config.json`: they are in the keyring under
-`notify.targets.<name>.<field>` (`jazz config set notify.targets.phone.botToken`), or, on a host
-with no keyring, in `JAZZ_NOTIFY_<NAME>_<FIELD>`, for example `JAZZ_NOTIFY_PHONE_BOT_TOKEN` or
-`JAZZ_NOTIFY_TEAM_WEBHOOK_URL`.
-
-Pick an ntfy topic name nobody can guess: anyone who knows it can read what you are sent. For
-Telegram, the bot must be able to post in the chat: send it a message first, then read the chat
-id from `https://api.telegram.org/bot<token>/getUpdates`.
-
-## Nothing is lost
+## Delivery and retries
 
 Every notification is written to an outbox under `$JAZZ_HOME/notify/outbox` before anything
 sends it. The daemon delivers it on its next tick; a `jazz run` or scheduled workflow delivers
@@ -150,10 +152,6 @@ desktop notification that cannot be shown is dropped (see
 An event sent once per key (a waiting item, a spend cap per window) counts as sent on a target
 only once it is in that target's outbox. A target whose outbox is full is tried again with the
 same event on the next tick; the targets that already have it do not get it twice.
-
-Upgrading keeps what is queued: items from an older outbox are read in the current shape
-(`approval-needed` becomes `waiting`, `spend-ceiling` becomes `spend-cap`), and an item that
-cannot be read at all is dropped with a warning while the rest of the queue is kept.
 
 ```sh
 jazz notify outbox   # what is waiting, the last error, the next retry

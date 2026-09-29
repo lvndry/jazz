@@ -19,7 +19,7 @@ Jazz supports six search backends:
 | Perplexity   | `perplexity` | `PERPLEXITY_API_KEY` |
 | Tavily       | `tavily`     | `TAVILY_API_KEY`     |
 
-Provider pricing, indexes, and supported filters change independently of Jazz. Choose based on your workload and verify it with representative queries rather than relying on a permanent quality ranking in documentation.
+Choose a provider you have an account with, then configure its key below.
 
 ## Configure globally
 
@@ -80,7 +80,7 @@ If no provider or key is configured, `web_search` returns an error to the agent.
 Start the intended agent and ask for a time-bounded search that requires current information:
 
 ```bash
-jazz agent chat research-radar
+jazz agent chat <agent-name>
 ```
 
 ```text

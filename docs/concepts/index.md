@@ -4,6 +4,12 @@ description: "Explore Jazz capabilities and how they work: agents, tools, skills
 
 # Jazz concepts
 
+Jazz can work on files, use your tools, create visuals, and keep jobs running after a turn
+ends. These concepts explain how to configure that work and choose the right controls.
+
+Start with [Agents](./agents.md). For ongoing work, read [Goals and loops](./goals-and-loops.md);
+for charts and interactive pages, read [Compositions](./compositions.md).
+
 ## Agents and capabilities
 
 - An [agent](./agents.md) selects a model, persona, capabilities, and restrictions.

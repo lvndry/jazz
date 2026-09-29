@@ -4,102 +4,72 @@ description: "Run a real tool-using AI agent inside Telegram, Discord, iMessage,
 
 # Chat platforms
 
-How to put a real tool-using agent into a chat thread.
+Reach an agent from your phone or team channel. It can inspect files, work with git,
+research questions, and ask for approval before taking actions on the machine hosting it.
 
-A Jazz agent in a chat window isn't a chatbot with your logo on it. It's the same agent
-that reads your filesystem, runs git, searches the web, and spawns sub-agents: reachable
-from your phone.
+| Platform                         | What you need                                      | Setup                                                                             |
+| -------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Telegram                         | Bot token, allowlisted chat id, Docker             | [Telegram guide](../guides/deploy-a-chat-agent.md#telegram)                       |
+| Discord                          | Bot token, allowed users/channels/server, Docker   | [Discord guide](../guides/deploy-a-chat-agent.md#discord)                         |
+| iMessage, hosted                 | Photon project and allowed handles; Linux or macOS | [Hosted-line guide](../guides/deploy-a-chat-agent.md#imessage-with-a-hosted-line) |
+| iMessage, local                  | Awake Mac on macOS 14+, signed into Messages       | [Local-Mac guide](../guides/deploy-a-chat-agent.md#imessage-through-your-own-mac) |
+| WhatsApp                         | Linked account, allowed numbers, running bridge    | [WhatsApp guide](../guides/deploy-a-chat-agent.md#whatsapp)                       |
+| Slack, Google Chat, your own app | A custom adapter                                   | [Custom integrations](#slack-google-chat)                                         |
 
-| Platform         | Status                          | Where                                                                                                             |
-| ---------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **Telegram**     | ✅ Shipped containerized bridge | [`packages/telegram-bot/`](../../packages/telegram-bot/)                                                          |
-| **Discord**      | ✅ Shipped containerized bridge | [`packages/discord-bot/`](../../packages/discord-bot/)                                                            |
-| **iMessage**     | ✅ Hosted or local-Mac bridge   | [`packages/photon-bot/`](../../packages/photon-bot/) and [`packages/imessage-bot/`](../../packages/imessage-bot/) |
-| **WhatsApp**     | ✅ Shipped, linked device       | [`packages/whatsapp-bot/`](../../packages/whatsapp-bot/), `jazz whatsapp`                                         |
-| **Slack**        | 🔧 Bring your own bridge        | pattern below                                                                                                     |
-| **Google Chat**  | 🔧 Bring your own bridge        | pattern below                                                                                                     |
-| **Your own app** | 🔧 Bring your own bridge        | pattern below                                                                                                     |
+Each supported bridge keeps conversation history and accepts `/model`, `/persona`,
+`/remind`, `/status`, and `/stop`. Configure a model provider before starting one.
 
-**Be clear on what ships.** Every bridge runs on one shared turn core
-(`packages/bot-shared/src/turn.ts`): one run at a time per conversation, the same commands
-(`/new`, `/model`, `/persona`, `/mode`, `/remind`, `/reminders`, `/tz`, `/status`), the same
-approval rules, and whatever the platform can show on top (buttons, an edited progress bubble).
-Telegram and Discord are containerized services with per-conversation model switching,
-reminders, and live progress. WhatsApp ships as a linked-device
-command. iMessage has two implementations: Photon provides a hosted line with no Mac required;
-`--local` uses your own Apple account on a Mac. Slack and Google Chat do not ship an adapter.
+## Try a useful request
 
----
+Once connected, send a request appropriate to the files and integrations available on
+its host:
 
-## The bridge pattern
+```text
+Review today's commits and tell me what needs attention.
+Summarize the PDF I attached and list the decisions I need to make.
+/remind 30m Check the deployment
+```
 
-For a custom chat integration, use [`jazz run`](./headless.md) to start runs and read
-results and progress events. Your adapter handles incoming messages, sender authorization,
-and replies in the platform's format.
+Email, calendar, and web search need their own [integration setup](../configure/index.md).
+A Docker bridge sees its container's files and mounts; it does not automatically see
+your laptop's checkout.
 
 ---
 
 ## Telegram (shipped)
 
-```bash
-cd packages/telegram-bot/src
-cp .env.example .env     # set TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_CHAT_IDS + a model key
-docker compose up -d --build
-```
+Follow the [Telegram setup](../guides/deploy-a-chat-agent.md#telegram) to create a bot,
+set its token and allowed chat ids, and start the container. Message the bot directly;
+it shows tool activity and reasoning while the run works.
 
-That's a working agent in your DMs. For the account-creation steps (bot token, chat id),
-see [Reaching your agent from a chat app](../guides/deploy-a-chat-agent.md); for the full
-configuration table and security notes, see
-[`packages/telegram-bot/README.md`](../../packages/telegram-bot/README.md).
+| You want to     | Send or choose                                                                    |
+| --------------- | --------------------------------------------------------------------------------- |
+| Change model    | `/model` for a picker, or `/model provider/model` after configuring that provider |
+| Change behavior | `/persona`                                                                        |
+| Stop a run      | `/stop` or the stop button                                                        |
+| Approve a tool  | Accept or reject its approval message; batch buttons answer several at once       |
+| Set a reminder  | `/remind 30m check the deploy`                                                    |
 
-What the Telegram bridge demonstrates: worth reading before you write your own:
-
-| Feature                   | How it works                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Per-user agents**       | Each chat gets `tg_<chat_id>.json`, cloned from a template on first contact. `/model` and `/persona` change only that user's experience.                                                                                                                                                                                                                                                                                                                                                          |
-| **Per-user isolation**    | Each chat's agent runs as its own Unix user, in its own Jazz home under `/data/chats/tg_<chat_id>/`. One allowlisted person's agent cannot read another's transcripts, memory, stored secrets or mail credentials: the kernel refuses, rather than a filename convention discouraging it. Every chat does share the provider API keys the bridge was given (they are in each run's environment), so every chat bills the operator's accounts. The bot token and bridge secrets never reach a run. |
-| **Any-provider `/model`** | Bare `/model` lists the current provider's models; `/model provider/model` (e.g. `/model openrouter/z-ai/glm-5.3-flash`) switches to any provider Jazz supports: set that provider's API key as an env var on the bot first (see `.env.example`).                                                                                                                                                                                                                                                 |
-| **Per-chat memory**       | `--conversation <chat_id>`. The bridge itself is stateless.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| **Live progress**         | `--events` NDJSON on stderr drives a status bubble that updates with thinking, tool calls, and sub-agents, then closes with a `✅ Done · 7 tools · 12k tokens · $0.03` summary.                                                                                                                                                                                                                                                                                                                   |
-| **Cancellation**          | A ⏹ button kills the child process mid-run.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| **Approvals**             | Each tool needing a human gets its own accept/reject message, answered only by the person whose message started the run. A parallel batch of tool calls grows **⚡ Approve all N** / **🚫 Reject all N** so the whole batch clears in one tap, and an operator's `/mode yolo` opts a conversation out of prompting altogether (yolo runs at `high-risk`). Both bridges do this.                                                                                                                   |
-| **Reminders**             | `/remind 30m …`, persisted to disk so they survive restarts and fire late if the bridge was down.                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Spend cap**             | `JAZZ_DAILY_COST_CAP_USD`: known `costUSD` is accumulated per day; after an unpriced run, further requests pause until the next local day. Runs are recorded in the spend ledger `jazz spend` reads.                                                                                                                                                                                                                                                                                              |
-| **Local inference**       | Point `JAZZ_TELEGRAM_PROVIDER=ollama` at a local model: no provider key or per-message model cost. Tools and telemetry keep their own network policy.                                                                                                                                                                                                                                                                                                                                             |
-| **Allowlist**             | Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is silently ignored.                                                                                                                                                                                                                                                                                                                                                                                                                 |
-
-### The message flow
+Each chat has its own agent settings and conversation. In the default Linux container
+setup, chat agents run under separate Unix users. Provider keys still bill the operator's
+accounts. See [per-chat isolation](../../packages/telegram-bot/README.md#per-chat-isolation).
 
 ---
 
 ## Discord (shipped)
 
-```bash
-cd packages/discord-bot/src
-cp .env.example .env     # set DISCORD_BOT_TOKEN + an allowlist + a model key
-docker compose up -d --build
-```
+Follow the [Discord setup](../guides/deploy-a-chat-agent.md#discord), including Message
+Content Intent and the allowlist. Mention the bot in an allowed channel to start a thread;
+follow-ups in that thread need no mention. DMs require your user id to be allowed.
 
-DM the bot, or `@mention` it in an allowlisted channel. For the account-creation steps
-(application, intents, invite URL), see
-[Reaching your agent from a chat app](../guides/deploy-a-chat-agent.md); for the full configuration
-table and mention-gating details, see
-[`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
+When it asks for an answer or approval, the person who started the run can reply in the
+same channel without another mention. Ordinary mention requirements resume afterward.
 
-When the agent is waiting for your answer or approval, you can reply in the same channel
-without mentioning it again, including with `DISCORD_CREATE_THREADS=0`. Only the person
-who started that run gets this exception; user, channel, and guild allowlists still apply.
-Once the pending prompts are answered, ordinary mention-gating resumes.
+Use `/model` for the current provider's model picker. To change providers, send
+`/model provider/model` as a normal message after adding that provider's credential.
 
-Same `jazz run` contract as Telegram. What Discord adds on top:
-
-| Feature                   | How it works                                                                                                                                                                                                                                                                                                                                      |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Mention-gating**        | In servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.                                                                                                                                                                                                                                    |
-| **Thread binding**        | An `@mention` in a channel starts a thread; `--conversation` is the thread id so the rest of the room is not the chat.                                                                                                                                                                                                                            |
-| **3-second ack**          | Slash commands and buttons are acknowledged before any lookup or run starts, so a slow channel lookup or model list never fails the interaction; anything the clicker needs to know arrives as an ephemeral follow-up.                                                                                                                            |
-| **Allowlists**            | Users, channels, and/or guilds. At least one is required.                                                                                                                                                                                                                                                                                         |
-| **Any-provider `/model`** | Bare `/model` shows a select menu of the current provider's models; send `/model provider/model` (e.g. `/model openrouter/z-ai/glm-5.3-flash`) as a normal message (not the slash-command menu, which can't take a free-form value) to switch provider outright. Set that provider's API key as an env var on the bot first (see `.env.example`). |
+The default Linux container isolates conversations under separate Unix users. See
+[per-conversation isolation](../../packages/discord-bot/README.md#per-conversation-isolation).
 
 ---
 
@@ -114,9 +84,6 @@ jazz whatsapp     # links as a device, the way WhatsApp Web does
 Setup walkthrough: [Reaching your agent from a chat app](../guides/deploy-a-chat-agent.md#imessage-with-a-hosted-line).
 Full tables: [`packages/imessage-bot/README.md`](../../packages/imessage-bot/README.md),
 [`packages/whatsapp-bot/README.md`](../../packages/whatsapp-bot/README.md).
-
-The local iMessage and WhatsApp bridges use the same `jazz run` contract as Telegram. Photon
-uses the same Jazz agent surface behind a hosted iMessage transport.
 
 | Concern              | What changes                                                                                                                                                                                                                     |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -171,8 +138,6 @@ Use a bridge's `notify.sh` script to send a message from a shell or scheduled jo
 
 ```sh
 ~/jazz/packages/telegram-bot/src/notify.sh "backup finished, 41 GB, no errors"
-~/jazz/packages/telegram-bot/src/notify.sh "$(df -h / | tail -1)"
-~/jazz/packages/telegram-bot/src/notify.sh "training run 7 done: val loss 0.312"
 ~/jazz/packages/discord-bot/src/notify.sh "nightly update rolled back, needs a look"
 ```
 
@@ -194,40 +159,6 @@ can note that without failing whatever it was doing:
 notify.sh "..." || echo "(notify failed)"
 ```
 
-### Doing it without the script
-
-You can also call the platform API directly:
-
-```sh
-ENV=~/jazz/packages/telegram-bot/src/.env
-token=$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' "$ENV" | tail -1)
-chat=$(sed -n 's/^TELEGRAM_ALLOWED_CHAT_IDS=//p' "$ENV" | tail -1 | cut -d, -f1)
-
-curl -sS -o /dev/null -X POST \
-  "https://api.telegram.org/bot${token}/sendMessage" \
-  --data-urlencode "chat_id=${chat}" \
-  --data-urlencode "text=multi-line messages
-work fine this way"
-```
-
-When sending directly:
-
-- **Read the token, don't print it.** Assign it to a variable; never `cat` the
-  `.env` or `echo` the token. Anything that reaches a terminal reaches shell
-  history, CI logs, and whatever is reading over your shoulder.
-- **Use `--data-urlencode`, not a JSON body.** It handles newlines and any `&`,
-  `#` or quote in the message without escaping, which matters when the text is
-  command output or an error string you did not write.
-- **Send no `parse_mode`.** Telegram rejects the whole request if the text does not
-  parse as the markup you claimed, and piped-in output is exactly where an
-  unbalanced `*` or `_` turns up. Plain text always sends.
-
-Telegram caps a message at 4096 characters and rejects anything longer, so pipe
-long output through `tail -c 4000` rather than sending it whole.
-
-Discord's equivalent needs a bot token in an `Authorization: Bot …` header and a
-JSON body, so escaping is on you, which is the main reason to prefer `notify.sh`.
-
 ## Security for chat surfaces
 
 Restrict who can reach the bot and what their runs may do.
@@ -241,7 +172,7 @@ Restrict who can reach the bot and what their runs may do.
 - **Treat the history volume as sensitive.** Transcripts are plaintext JSON under `~/.jazz/history/`.
 - **Allowlisting is not isolation.** Two people on the same allowlist share a host, and a Jazz agent has `read_file` and `execute_command`, so without an OS boundary either one's agent can read the other's transcripts, memory and stored credentials. Both bridges give each conversation its own uid and Jazz home for exactly this: [Telegram](../../packages/telegram-bot/README.md#per-chat-isolation), [Discord](../../packages/discord-bot/README.md#per-conversation-isolation). It matters most where the allowlist is a **guild**, since that admits everyone in it. Anything you build yourself needs the same, or a one-person allowlist.
 - **A container is not a boundary against the host.** Root, `sudo`, and the `docker` group all read a bridge's volume whatever its uids and file modes say: the daemon runs as root, and the docker group is root-equivalent. On a machine other people administer, treat everything the bot has stored as readable by every admin on it.
-- **Operations.** `/health` fails (503) when the transport stops working: no successful Telegram poll, no Discord heartbeat acknowledgement, a fatal Discord close code (4004, 4010-4014), or for iMessage, WhatsApp and Photon a dead watcher, socket or stream (set `JAZZ_BRIDGE_HEALTH_PORT`). On SIGTERM a bridge stops taking messages, tells anyone with a run in flight, cancels it and exits. Telegram keeps the messages sent while it restarted. Reconnects back off with jitter, and waiting for your approval does not count against the run's timeout.
+- **Check health.** Telegram and Discord expose `/health` for their container health checks. It returns `503` when the platform connection fails. For the other bridges, set `JAZZ_BRIDGE_HEALTH_PORT`. A restart stops active runs; waiting for your approval does not count against the run timeout.
 - **Cap concurrency.** `JAZZ_BOT_MAX_CONCURRENT_RUNS` (default 4) bounds how many agent runs one bridge has in flight across every chat, and `JAZZ_BOT_MAX_QUEUED_MESSAGES` (default 5) how many messages may wait behind one chat's run.
 - **Cap spend.** Use `costKnown` as well as `costUSD`. The bridges pause subsequent requests after an unpriced run; no dollar cap can guarantee the cost of that first unpriced request.
 
@@ -259,5 +190,4 @@ See the [security model](../security/index.md).
 - [`packages/whatsapp-bot/`](../../packages/whatsapp-bot/): WhatsApp, as a linked device
 - [Local and air-gapped models](../getting-started/local-models.md): keeping inference local and enforcing egress controls
 
-Reminder delivery claims each due item before sending and removes it only after success. Failed
-sends retain their delivery state and retry with backoff, including on Discord’s shared turn core.
+Failed reminder deliveries remain queued and are retried.

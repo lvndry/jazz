@@ -87,6 +87,8 @@ jazz workflow schedule agent-harness-radar
 jazz workflow scheduled
 ```
 
-The report remains available in workflow history and scheduler logs. If another system should deliver it, consume the headless JSON output from a controlled wrapper rather than granting the research agent a messaging credential.
+The report remains available in workflow history and scheduler logs. To receive it
+on your phone or in chat, configure a [notification target](../configure/notifications.md)
+and add `deliver: <target-name>` to the workflow frontmatter.
 
 Read [Starting runs](../concepts/starting-runs.md), [Scheduled runs](../surfaces/scheduled.md), and [Delegation](../concepts/agents.md#delegation).

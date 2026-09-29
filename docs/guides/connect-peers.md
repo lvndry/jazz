@@ -123,7 +123,8 @@ Select `ask_peer` in the toolset. It appears only after a peer is configured.
 JAZZ_HOME=$ALICE jazz run --agent alice "ask bob's agent what time it is on his machine"
 ```
 
-`internal` admits `get_time`, so this should come back with an answer, attributed and quoted.
+Approve Alice's outgoing `ask_peer` call when prompted. `internal` admits Bob's
+`get_time` tool, so the request should return his answer, attributed and quoted.
 Now try something the tier doesn't cover:
 
 ```bash

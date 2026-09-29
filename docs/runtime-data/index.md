@@ -2,10 +2,11 @@
 description: "What Jazz writes to disk, which paths and JSON shapes are stable contracts you may build on, and which are internal and free to change."
 ---
 
-# Runtime data and contracts
+# Runtime data
 
-Jazz keeps everything under one directory, `~/.jazz` by default, moved with `JAZZ_HOME` or
-`--data-dir`. This page says what is in it and, more usefully, which parts you may build on.
+Use this reference to find configuration, conversations, generated files, and logs,
+or to adjust how much history Jazz retains. Jazz stores its data under `~/.jazz` by default;
+`JAZZ_HOME` or `--data-dir` selects another directory.
 
 ## What is on disk
 
@@ -29,9 +30,8 @@ Jazz keeps everything under one directory, `~/.jazz` by default, moved with `JAZ
 | `telemetry/`                                                      | Local NDJSON events, pruned after `telemetry.retentionDays`        | yes                     |
 | `runtime/`, `cache/`, `misfires/`, `memory-recall/`, `schedules/` | Bookkeeping                                                        | internal                |
 
-"Stable" means the location and the format are a contract: Jazz will not move or reshape them
-without saying so. "Internal" means exactly the opposite, and a script that parses them will
-break.
+Stable paths and formats are supported for integration. Internal formats can change;
+use the CLI or HTTP API instead of parsing them.
 
 ## Permissions
 
@@ -88,8 +88,8 @@ See [observability](../configure/observability.md).
 
 ## Sizes and retention
 
-Everything Jazz writes on its own is bounded. What you write (memory, workflows, the
-workspace) is yours to manage.
+Jazz rotates logs, archives older conversations, and expires telemetry. Memory, workflows,
+and workspace content remain yours to manage.
 
 | Data                          | Bound                                                                                            | Setting                            |
 | ----------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------- |

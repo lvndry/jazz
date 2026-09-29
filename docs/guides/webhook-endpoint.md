@@ -86,8 +86,14 @@ a bearer token. Jazz generates it, stores it in the OS keyring, and prints it ex
 jazz webhook token issue-triage
 ```
 
-Copy the value now. If you lose it, run the command again to mint a new one, which overwrites
-the old. On a host with no keyring (a container), set
+For the `curl` example, read the printed token into a shell variable without echoing it.
+Run this command, paste the token, and press Enter:
+
+```bash
+read -rs JAZZ_WEBHOOK_TOKEN
+```
+
+If you lose the token, mint a new one; this replaces the old token. On a host with no keyring (a container), set
 `JAZZ_WEBHOOK_TOKEN_ISSUE_TRIAGE` in the daemon's environment instead.
 
 The token never goes in `config.json`. It authenticates _this webhook_, not you. See
@@ -152,6 +158,12 @@ Then mint the secret. Like the token, it goes to the OS keyring and is printed o
 jazz webhook secret issue-triage
 ```
 
+For the signed `curl` test below, save the printed secret in your current shell:
+
+```bash
+read -rs JAZZ_WEBHOOK_SECRET
+```
+
 In a container, set `JAZZ_WEBHOOK_SECRET_ISSUE_TRIAGE` in the daemon's environment instead.
 
 In the repository's **Settings → Webhooks → Add webhook**:
@@ -189,10 +201,10 @@ an event again, trigger a new one.
 
 ## Threaded doors, for an ongoing exchange
 
-`ephemeral` (the default) starts each fire from nothing: right for isolated events, where
-remembering the last deploy buys you nothing. When deliveries are turns in one conversation, a
-support thread or a chat relay, make the door `threaded` and tell it which thread each fire
-belongs to:
+Use `ephemeral` (the default) for independent events. For a support thread or chat
+relay, use `threaded` and identify the conversation with `X-Jazz-Thread`.
+Create an agent named `support` with `jazz agent create`, then add this separate
+webhook to your configuration:
 
 ```json
 {
@@ -204,8 +216,11 @@ belongs to:
 ```
 
 ```bash
+jazz webhook token support-relay
+read -rs SUPPORT_RELAY_TOKEN
+
 curl -X POST http://127.0.0.1:4747/webhooks/support-relay \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $SUPPORT_RELAY_TOKEN" \
   -H "X-Jazz-Thread: ticket-8812" \
   -d 'The refund still has not arrived.'
 ```
@@ -223,7 +238,7 @@ minutes of silence. A caller with somewhere to listen can say so:
 
 ```bash
 curl -X POST http://127.0.0.1:4747/webhooks/issue-triage \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $JAZZ_WEBHOOK_TOKEN" \
   -H "X-Jazz-Progress-Url: http://127.0.0.1:9099/progress" \
   -H "X-Jazz-Progress-Events: tool-started,tool-finished" \
   -d '{"action":"opened","issue":{"number":412}}'
@@ -237,10 +252,8 @@ The progress URL must be loopback.
 
 ## What the caller can and cannot do
 
-A webhook token lives in somebody else's settings screen: a GitHub repo's webhook config, an
-IFTTT applet, a proxy. You do not administer that place and cannot audit it. So Jazz treats
-the holder as an external counterparty, never as you, and bounds the run on two independent
-axes:
+Webhook credentials grant access only to that endpoint. Set these two controls for
+each webhook:
 
 - **`disclosure`** is a ceiling on what an answer may _reveal_. `internal` (the default) is
   read-only tools that describe the shape of the machine (what exists, what is installed, what
@@ -259,7 +272,9 @@ axes:
   }
   ```
 
-Tools outside the effective list are unavailable to the run.
+The `send_slack_message` example assumes you have configured a tool with that name
+through MCP or [custom tools](../configure/agents.md#custom-tools). Jazz does not ship
+a built-in Slack sender. Tools outside the effective list are unavailable to the run.
 
 If the run does reach something needing approval, the fire returns `202` with a run id rather
 than hanging:

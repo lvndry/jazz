@@ -4,7 +4,9 @@ description: "Connect Jazz agents to local and remote MCP servers with lazy star
 
 # Connect MCP servers to Jazz
 
-Model Context Protocol servers add tools, resources, and prompts supplied by another process or service. Use MCP when a maintained server already owns an integration; use a Jazz built-in tool for harness behavior and a skill for instructions around an existing CLI.
+Use a Model Context Protocol (MCP) server to connect an agent to services such as notes,
+issue trackers, or infrastructure APIs. Add the server, test its connection, then grant it
+to the agents that need it.
 
 Jazz connects only to MCP servers referenced by the active agent. Connections and full tool schemas are lazy, so an unavailable server does not delay unrelated agents and a large catalog does not occupy the model context before a tool is needed.
 

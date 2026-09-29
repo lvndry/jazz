@@ -4,8 +4,31 @@ description: "Compose one Jazz agent from specialist models for image, audio, an
 
 # Model companions
 
-A Jazz agent does not need one model to be good at everything. Keep the primary model that is
-best for reasoning and tool use, then bind specialist models to media roles:
+Model companions let your agent use a specialist model for images, audio, or video while
+its main model handles the conversation and tool use. For example, it can read a screenshot,
+transcribe a recording, or generate an image without switching agents.
+
+## Ask for media work
+
+Attach a file with `@path` and describe the result you need:
+
+```text
+Read @./dashboard.png and explain which service is failing.
+```
+
+For generation, give a brief:
+
+```text
+Generate a square illustration for a garden journal: herbs on a windowsill,
+soft morning light, watercolor style, no text.
+```
+
+In a local terminal, Jazz can ask you to select a capable model for an unconfigured role.
+For recurring or unattended work, configure the companion in advance.
+
+## Configure companions
+
+Add bindings to the agent's `config` in `~/.jazz/agents/<id>.json`:
 
 ```json
 {
@@ -24,14 +47,15 @@ best for reasoning and tool use, then bind specialist models to media roles:
 }
 ```
 
-Companions keep the agent's persona, conversation, memory, and tools. Each media role can
-use a different model and provider.
+The main agent keeps its persona, conversation, memory, and tools. Each companion receives
+only the media and task needed for its role, then returns its result to the main agent.
+Configure credentials for each selected provider; see [Model providers](../configure/providers.md).
 
 The six independent roles are `analyze:image`, `analyze:audio`, `analyze:video`,
 `generate:image`, `generate:audio`, and `generate:video`. Analysis and generation are separate
 because a model that understands a medium is not necessarily the model you want to create it.
 
-## How delegation works
+## What a companion receives
 
 When the main agent delegates media work, Jazz starts a bounded, ephemeral companion run:
 

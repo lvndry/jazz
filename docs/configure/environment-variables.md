@@ -27,7 +27,7 @@ Boolean switches marked `1` accept only `1`; anything else leaves them off.
 | `JAZZ_NO_TUI`                     | `1` turns off the terminal UI entirely and prints plain output. `--no-tui` sets it.                                                                                                                                            |
 | `JAZZ_FULLSCREEN`                 | `0` or `false` keeps the interactive UI but draws it inline instead of on the alternate screen.                                                                                                                                |
 | `JAZZ_A11Y`, `INK_SCREEN_READER`  | `1` turns off the fullscreen interface, for screen readers.                                                                                                                                                                    |
-| `JAZZ_THEME`                      | `light` or `dark`. When unset, Jazz reads `COLORFGBG` and otherwise assumes dark. `/theme` in a chat shows how to set it.                                                                                                      |
+| `JAZZ_THEME`                      | A theme name, optionally with `:dark` or `:light`, such as `catppuccin:light`. Wins over `ui.theme`. `/theme` lists available themes.                                                                                          |
 | `JAZZ_UI_GLYPHS`                  | `unicode` or `ascii` symbols. Detected from the terminal when unset.                                                                                                                                                           |
 | `JAZZ_TABLE_STYLE`                | `unicode`, `minimal` or `ascii` borders for Markdown tables. Follows `JAZZ_UI_GLYPHS` when unset.                                                                                                                              |
 | `JAZZ_TERMINAL`                   | Overrides terminal detection, such as `iterm2`, `terminal-app`, `warp` or `xterm`. Detected from `TERM_PROGRAM` and `TERM` when unset.                                                                                         |
@@ -66,7 +66,8 @@ a run twice. Leave it unset for standalone runs.
 
 ## Model provider keys and servers
 
-A provider key in the environment is used when no key is saved for that provider. See
+A provider key in the environment overrides a stored global key. An agent-specific
+`config.llm.apiKeys` override takes precedence over both. See
 [Model providers](./providers.md#store-credentials) for the order Jazz checks.
 
 | Provider     | Key variable                                        |
@@ -94,8 +95,8 @@ A provider key in the environment is used when no key is saved for that provider
 | `xai`        | `XAI_API_KEY`                                       |
 | `zhipuai`    | `ZHIPU_API_KEY`                                     |
 
-`chatgpt` has no key variable: sign in from **Settings** → **LLM Providers** in
-the `jazz` home menu.
+`chatgpt` has no key variable: sign in from `/settings` → **Model providers** in
+the `jazz` home screen.
 
 Self-hosted servers are found at these addresses. A saved `llm.<provider>.base_url` wins
 over the variable.
@@ -141,7 +142,7 @@ The standard OpenTelemetry variables configure OTLP export when `telemetry.otlp`
 
 ## Installer
 
-`install.sh` reads two variables. Put them after the pipe, where they reach `bash`:
+`install.sh` reads these variables:
 
 | Variable           | Effect                                                          |
 | ------------------ | --------------------------------------------------------------- |

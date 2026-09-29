@@ -10,28 +10,43 @@ webhooks or peer questions. For recurring workflows, it can also replace the OS 
 ## Start the daemon
 
 ```bash
-# Start it. It backgrounds itself
 jazz daemon
+jazz daemon status
+```
 
-# From another terminal, or another machine: start a run
+The daemon starts in the background. On first start it generates an authentication token
+and prints it once; keep that value if you want to call it over HTTP. You can use the CLI
+without copying it:
+
+```bash
+jazz runs list
+jazz runs show <run-id>
+jazz runs approve <run-id>
+jazz runs reject <run-id>
+```
+
+## Start a run over HTTP
+
+[Create an agent](../getting-started/create-an-agent.md) named `assistant` first. In the
+client's shell, set `JAZZ_DAEMON_TOKEN` to the token printed when you started the daemon:
+
+```bash
+export JAZZ_DAEMON_TOKEN='<your-daemon-token>'
 curl -X POST http://localhost:4747/runs \
   -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"agent":"default","prompt":"summarize today'\''s deploys"}'
-
-# Poll it
-curl http://localhost:4747/runs/<runId> -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN"
-
-# If it parked on an approval, approve it (a grant, so it needs the operator token too)
-curl -X POST http://localhost:4747/runs/<runId>/answer \
-  -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN" \
-  -H "X-Jazz-Operator-Token: $JAZZ_OPERATOR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"approved":true}'
+  -d '{"agent":"assistant","prompt":"Summarize the project files without changing them"}'
 ```
 
-Use `jazz runs list`, `show`, `approve`, and `reject` to manage saved runs locally, with
-or without a daemon.
+The response identifies the run. Replace `<run-id>` below with that ID to read its status:
+
+```bash
+curl http://localhost:4747/runs/<run-id> \
+  -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN"
+```
+
+If it waits for approval, use `jazz runs approve <run-id>` on the host. To approve over HTTP,
+configure an [operator token](#granting-authority-over-http) as well.
 
 ---
 
@@ -88,7 +103,7 @@ when it is answered (from anywhere: chat, `jazz runs`, another client), and `pau
 `resumed`. `GET /status` returns what `jazz daemon status` prints. These need the daemon token,
 like every route but `/health`.
 
-## Pausing it, and its daily cap
+## Pause background work and limit spend
 
 `jazz daemon pause` stops the daemon starting work of its own: goal cycles, loop runs, wake
 triggers, scheduled workflows, background jobs, and new `POST /runs`, webhook, and peer
@@ -137,7 +152,7 @@ Set `$JAZZ_DAEMON_TOKEN` yourself when the value has to be known in advance. Two
 config written before the daemon has ever run, and a container whose `$JAZZ_HOME` will not
 survive the next deploy.
 
-### It does not answer your browser
+### HTTP client requirements
 
 HTTP clients must send JSON bodies with `Content-Type: application/json` and omit `Origin`.
 Requests with an `Origin` header receive `403`; unsupported body types receive `415`.
@@ -185,19 +200,16 @@ Bind an interface other than loopback, and pass the token on every request:
 ```bash
 # On the host
 jazz daemon --host 0.0.0.0
-# → Generated a daemon token and stored it in <keyring>: <token>
 
-# From another machine
+# From another machine, using your saved daemon token
 curl http://<host>:4747/runs \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"agent":"default","prompt":"summarize today'\''s deploys"}'
+  -H "Authorization: Bearer <your-daemon-token>"
 ```
 
 `0.0.0.0` binds every interface. What that reaches is whatever your firewall or router allows, so
 bind one interface's address if you mean one network.
 
-Scope who can reach the port, not just who holds the token. See
+Restrict access to the port with your firewall or private network. See
 [Surface access](../security/surface-access.md).
 
 ---

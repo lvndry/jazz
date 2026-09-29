@@ -8,6 +8,12 @@ Jazz's own GitHub workflow is the maintained example. It reviews every eligible 
 
 The model never receives permission to post to GitHub. Jazz writes a structured review to stdout; a deterministic `actions/github-script` step validates paths and line numbers against the actual diff before using `GITHUB_TOKEN`.
 
+## Before you start
+
+You need a GitHub repository where you can enable Actions and add secrets, plus a
+configured model provider. [Install Jazz](../getting-started/quick-start.md) locally
+to test the agent. Start with a same-repository pull request; this workflow skips forks.
+
 ## What the bundle contains
 
 Copy these paths from the Jazz repository into the same paths in yours:
@@ -42,7 +48,7 @@ The supplied reviewer uses `chatgpt/gpt-6-luna`; the PR assistant uses
 2. Set up the GitHub App and secrets described in the [Actions setup](../../.github/jazz/README.md#quick-start)
    so the workflow can save rotated credentials.
 
-To use API billing, change `llmProvider` and `llmModel` in both agent files.
+To use API billing, change `llm.provider` and `llm.model` in both agent files.
 For example:
 
 ```json
