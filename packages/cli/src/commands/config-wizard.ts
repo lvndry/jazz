@@ -578,6 +578,28 @@ const COLOR_PROFILE_PREVIEWS: Readonly<
   ],
 };
 
+/** How the same log line reads under each format. */
+const LOG_FORMAT_PREVIEWS: Readonly<Record<LoggingConfig["format"], readonly ChoicePreviewLine[]>> =
+  {
+    plain: [
+      [
+        { text: "12:03:41 ", fg: THEME.muted },
+        { text: "INFO  ", fg: THEME.success },
+        { text: "agent started", fg: THEME.secondary },
+      ],
+      [{ text: "One line per entry, read at a glance.", fg: THEME.muted }],
+    ],
+    json: [
+      [{ text: '{"level":"info","msg":"agent started"}', fg: THEME.secondary }],
+      [{ text: "One JSON object per line, for log processors.", fg: THEME.muted }],
+    ],
+  };
+
+/** Marks a choice as the value already saved, so a picker never leaves you guessing which one. */
+function currentTag(isCurrent: boolean): { tag?: string; tagTone?: "accent" } {
+  return isCurrent ? { tag: "current", tagTone: "accent" } : {};
+}
+
 function configureOutputDisplay() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -631,22 +653,31 @@ function configureOutputDisplay() {
       switch (selection) {
         case "mode": {
           const mode = yield* terminal.select<OutputMode>("Select output mode:", {
+            default: displayConfig.mode,
             choices: [
               {
                 name: "Hybrid (styled, copy-paste friendly)",
                 value: "hybrid",
                 preview: OUTPUT_MODE_PREVIEWS.hybrid,
+                ...currentTag(displayConfig.mode === "hybrid"),
               },
-              { name: "Raw (plain text)", value: "raw", preview: OUTPUT_MODE_PREVIEWS.raw },
+              {
+                name: "Raw (plain text)",
+                value: "raw",
+                preview: OUTPUT_MODE_PREVIEWS.raw,
+                ...currentTag(displayConfig.mode === "raw"),
+              },
               {
                 name: "Rendered (styled)",
                 value: "rendered",
                 preview: OUTPUT_MODE_PREVIEWS.rendered,
+                ...currentTag(displayConfig.mode === "rendered"),
               },
               {
                 name: "Quiet (suppress output, for cron/background)",
                 value: "quiet",
                 preview: OUTPUT_MODE_PREVIEWS.quiet,
+                ...currentTag(displayConfig.mode === "quiet"),
               },
             ],
           });
@@ -658,11 +689,32 @@ function configureOutputDisplay() {
         }
         case "color-profile": {
           const profile = yield* terminal.select<"auto" | ColorProfile>("Select color profile:", {
+            default: colorProfileLabel,
             choices: [
-              { name: "Auto (default)", value: "auto", preview: COLOR_PROFILE_PREVIEWS.auto },
-              { name: "Full", value: "full", preview: COLOR_PROFILE_PREVIEWS.full },
-              { name: "Basic", value: "basic", preview: COLOR_PROFILE_PREVIEWS.basic },
-              { name: "None", value: "none", preview: COLOR_PROFILE_PREVIEWS.none },
+              {
+                name: "Auto (default)",
+                value: "auto",
+                preview: COLOR_PROFILE_PREVIEWS.auto,
+                ...currentTag(colorProfileLabel === "auto"),
+              },
+              {
+                name: "Full",
+                value: "full",
+                preview: COLOR_PROFILE_PREVIEWS.full,
+                ...currentTag(colorProfileLabel === "full"),
+              },
+              {
+                name: "Basic",
+                value: "basic",
+                preview: COLOR_PROFILE_PREVIEWS.basic,
+                ...currentTag(colorProfileLabel === "basic"),
+              },
+              {
+                name: "None",
+                value: "none",
+                preview: COLOR_PROFILE_PREVIEWS.none,
+                ...currentTag(colorProfileLabel === "none"),
+              },
             ],
           });
           if (profile) {
@@ -757,16 +809,19 @@ function configureScheduler() {
       const appConfig = yield* configService.appConfig;
       const currentMode = appConfig.scheduler?.mode ?? "auto";
 
-      const selection = yield* terminal.select<string>("Scheduler settings:", {
-        choices: [
-          { name: `Auto${currentMode === "auto" ? " (current)" : ""}`, value: "auto" },
-          {
-            name: `In-process${currentMode === "in-process" ? " (current)" : ""}`,
-            value: "in-process",
-          },
-          { name: "Back", value: "back" },
-        ],
-      });
+      const selection = yield* terminal.select<string>(
+        "Scheduler settings: what starts your unattended goals and loops on schedule — the platform's own scheduler, or Jazz's daemon.",
+        {
+          choices: [
+            { name: `Auto${currentMode === "auto" ? " (current)" : ""}`, value: "auto" },
+            {
+              name: `In-process${currentMode === "in-process" ? " (current)" : ""}`,
+              value: "in-process",
+            },
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
 
       if (!selection || selection === "back") {
         break;
@@ -976,12 +1031,15 @@ function configureLogging() {
       const appConfig = yield* configService.appConfig;
       const currentFormat = appConfig.logging?.format ?? "plain";
 
-      const selection = yield* terminal.select<string>("Logging settings:", {
-        choices: [
-          { name: `Log format (${currentFormat})`, value: "format" },
-          { name: "Back", value: "back" },
-        ],
-      });
+      const selection = yield* terminal.select<string>(
+        "Logging settings: how diagnostic logs are written to the logs directory on disk — not what jazz prints to you.",
+        {
+          choices: [
+            { name: `Log format (${currentFormat})`, value: "format" },
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
 
       if (!selection || selection === "back") {
         break;
@@ -989,9 +1047,20 @@ function configureLogging() {
 
       if (selection === "format") {
         const nextFormat = yield* terminal.select<LoggingConfig["format"]>("Select log format:", {
+          default: currentFormat,
           choices: [
-            { name: "Plain (human readable)", value: "plain" },
-            { name: "JSON (structured for log processors)", value: "json" },
+            {
+              name: "Plain (human readable)",
+              value: "plain",
+              preview: LOG_FORMAT_PREVIEWS.plain,
+              ...currentTag(currentFormat === "plain"),
+            },
+            {
+              name: "JSON (structured for log processors)",
+              value: "json",
+              preview: LOG_FORMAT_PREVIEWS.json,
+              ...currentTag(currentFormat === "json"),
+            },
           ],
         });
 

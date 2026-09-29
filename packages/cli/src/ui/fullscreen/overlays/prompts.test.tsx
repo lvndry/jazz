@@ -602,7 +602,9 @@ describe("question overlay", () => {
       WIDE,
     );
     const frame = captureCharFrame();
-    expect(frame).toContain("y / n");
+    // The buttons already show "Yes"/"No"; the keys legend below names the y/n shortcut once,
+    // so the row itself does not repeat it.
+    expect(frame).not.toContain("y / n");
     expect(frame).toContain("answer");
 
     const filled = spanWithText(captureSpans(), " Yes, book it ");

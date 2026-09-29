@@ -484,32 +484,44 @@ function PreviewPane({
 }): ReactNode {
   return (
     <>
-      {lines.map((line, lineIndex) => (
-        <text
-          key={String(lineIndex)}
-          style={{ height: 1, flexShrink: 0, wrapMode: "none", truncate: true }}
-        >
-          {line.map((span, spanIndex) => {
-            const content = clip(span.text, width);
-            const style = { fg: span.fg ?? THEME.secondary };
-            return span.bold === true ? (
-              <b
-                key={String(spanIndex)}
-                style={style}
-              >
-                {content}
-              </b>
-            ) : (
-              <span
-                key={String(spanIndex)}
-                style={style}
-              >
-                {content}
-              </span>
-            );
-          })}
-        </text>
-      ))}
+      {lines.flatMap((line, lineIndex) => {
+        // A caption is almost always one plain span; word-wrap it across rows rather than
+        // clipping it, so "no color; every line reads the same" is not "no color; every ...".
+        // A swatch or other multi-span line keeps its styling on one row instead — wrapping a
+        // run of separately-colored spans would need to split a span mid-run, which is not
+        // worth it for the short, single-row content every current preview actually uses.
+        const onlySpan = line.length === 1 ? line[0] : undefined;
+        const rows =
+          onlySpan === undefined
+            ? [line]
+            : wrapLines(onlySpan.text, width).map((piece) => [{ ...onlySpan, text: piece }]);
+        return rows.map((row, rowIndex) => (
+          <text
+            key={`${String(lineIndex)}-${String(rowIndex)}`}
+            style={{ height: 1, flexShrink: 0, wrapMode: "none", truncate: true }}
+          >
+            {row.map((span, spanIndex) => {
+              const content = clip(span.text, width);
+              const style = { fg: span.fg ?? THEME.secondary };
+              return span.bold === true ? (
+                <b
+                  key={String(spanIndex)}
+                  style={style}
+                >
+                  {content}
+                </b>
+              ) : (
+                <span
+                  key={String(spanIndex)}
+                  style={style}
+                >
+                  {content}
+                </span>
+              );
+            })}
+          </text>
+        ));
+      })}
     </>
   );
 }
@@ -716,8 +728,6 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                       ];
                     })}
                   </text>
-                  <box style={{ flexGrow: 1 }} />
-                  <text style={{ fg: THEME.muted, flexShrink: 0 }}>y / n</text>
                 </box>
                 {items.length > model.choices.length ? (
                   <>

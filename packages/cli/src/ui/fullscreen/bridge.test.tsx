@@ -1643,7 +1643,7 @@ describe("fullscreen bridge", () => {
       }),
     );
     await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("y / n");
+    expect(rendered.captureCharFrame()).toContain("y/n answer");
     await rendered.mockInput.pressKey("n");
     await settleKeypress(rendered.flush);
     expect(await answered).toEqual({ kind: "answered", response: "no" });
