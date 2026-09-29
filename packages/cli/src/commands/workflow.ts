@@ -387,7 +387,7 @@ export function runWorkflowCommand(
     if (agentResult._tag === "Right") {
       agent = agentResult.right;
       yield* say(() =>
-        terminal.info(`Using agent: ${agent.name} (${agentModelString(agent.config)})`),
+        terminal.info(`Using agent: ${agent.name} (${agentModelString(agent.config.llm)})`),
       );
     } else {
       // In non-interactive mode (--auto-approve or --json), fail immediately if agent not found
@@ -447,7 +447,7 @@ export function runWorkflowCommand(
       }
 
       agent = selectedAgent;
-      yield* terminal.info(`Using agent: ${agent.name} (${agentModelString(agent.config)})`);
+      yield* terminal.info(`Using agent: ${agent.name} (${agentModelString(agent.config.llm)})`);
     }
 
     yield* say(() => terminal.info(`Auto-approve policy: ${String(autoApprovePolicy)}`));
@@ -492,7 +492,7 @@ export function runWorkflowCommand(
       autoApprovePolicy,
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
       onRunSpend: (spend) => {
-        runSpend = runSpendAsCallSpend(spend, agent.config.llmProvider, agent.config.llmModel);
+        runSpend = runSpendAsCallSpend(spend, agent.config.llm.provider, agent.config.llm.model);
       },
       origin: {
         source: "workflow",
@@ -570,8 +570,8 @@ export function runWorkflowCommand(
               costUSD: runResult.costUSD ?? 0,
               costKnown: isRunCostKnown(
                 runResult.costUSD,
-                agent.config.llmProvider,
-                agent.config.llmModel,
+                agent.config.llm.provider,
+                agent.config.llm.model,
                 runResult.costIncomplete === true,
               ),
               ...(runResult.costCapped === true ? { costCapped: true } : {}),
@@ -1095,7 +1095,7 @@ export function selectAgentForWorkflow(
         agents: agents.map((agent) => ({
           id: agent.id,
           name: agent.name,
-          model: agent.config.llmModel,
+          model: agent.config.llm.model,
           persona: agent.config.persona,
           ...(agent.description !== undefined && agent.description !== agent.name
             ? { description: agent.description }

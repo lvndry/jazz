@@ -221,10 +221,12 @@ async function sourceProviderKey(
   if (typeof parsed !== "object" || parsed === null || !("config" in parsed)) {
     throw new Error("Cannot resolve the active agent configuration");
   }
-  const config = (
-    parsed as { config: { llmProvider?: unknown; llmApiKeys?: Record<string, unknown> } }
-  ).config;
-  const provider = config?.llmProvider;
+  const llm = (
+    parsed as {
+      config: { llm?: { provider?: unknown; apiKeys?: Record<string, unknown> } };
+    }
+  ).config?.llm;
+  const provider = llm?.provider;
   if (typeof provider !== "string" || !isProviderName(provider)) {
     throw new Error("Cannot resolve the agent's provider");
   }
@@ -234,7 +236,7 @@ async function sourceProviderKey(
     );
   }
   const secretPath = `llm.${provider}.api_key`;
-  const fromAgent = config.llmApiKeys?.[provider];
+  const fromAgent = llm?.apiKeys?.[provider];
   const backend = await Effect.runPromise(detectKeyringBackend());
   const value =
     typeof fromAgent === "string" && fromAgent.trim()

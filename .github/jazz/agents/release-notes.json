@@ -4,9 +4,11 @@
   "description": "Release notes generator agent",
   "config": {
     "persona": "coder",
-    "llmProvider": "openai",
-    "llmModel": "gpt-5.4-mini",
-    "reasoning": "medium",
+    "llm": {
+      "provider": "openai",
+      "model": "gpt-5.4-mini",
+      "reasoning": "medium"
+    },
     "tools": [
       "context_info",
       "find",

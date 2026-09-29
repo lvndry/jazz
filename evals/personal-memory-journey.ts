@@ -162,12 +162,13 @@ function seedJazzHome(jazzHome: string, workspace: string, model: string, provid
     model: `${provider}/${model}`,
     config: {
       persona: PERSONA_NAME,
-      llmProvider: provider,
-      llmModel: model,
-      reasoningEffort: "disable",
+      llm: {
+        provider,
+        model,
+        ...(provider === "ollama" ? { numCtx: OLLAMA_NUM_CTX } : {}),
+      },
       memoryScopes: AGENT_MEMORY_SCOPES,
       tools: AGENT_TOOLS,
-      ...(provider === "ollama" ? { numCtx: OLLAMA_NUM_CTX } : {}),
     },
   };
   mkdirSync(join(jazzHome, "agents"), { recursive: true });

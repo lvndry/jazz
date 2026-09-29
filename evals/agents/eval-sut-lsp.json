@@ -4,9 +4,11 @@
   "model": "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
   "config": {
     "persona": "default",
-    "llmProvider": "openrouter",
-    "llmModel": "qwen/qwen3-next-80b-a3b-instruct:free",
-    "reasoning": "medium",
+    "llm": {
+      "provider": "openrouter",
+      "model": "qwen/qwen3-next-80b-a3b-instruct:free",
+      "reasoning": "medium"
+    },
     "tools": [
       "ls",
       "cd",

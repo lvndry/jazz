@@ -68,7 +68,7 @@ events. A single fixture proves the ambient path works, but it is not enough by 
 a general coding-quality gain. Add diverse coding tasks before making that claim.
 
 For a local vLLM, SGLang, or llama.cpp evaluation, point an eval agent at the running server and
-set its `llmProvider` to `vllm`, `sglang`, or `llamacpp`. The eval cost guardrail accepts these
+set its `llm.provider` to `vllm`, `sglang`, or `llamacpp`. The eval cost guardrail accepts these
 user-run providers; the server must still be available throughout the run.
 
 ### Personal memory design comparison
@@ -128,7 +128,7 @@ jazz can resolve them by name:
 cp evals/agents/*.json ~/.jazz/agents/
 ```
 
-- `eval-sut` — OpenRouter free model (the weak target). Swap `llmModel` for a
+- `eval-sut` — OpenRouter free model (the weak target). Swap `llm.model` for a
   smaller free model to test the tiny-model extreme.
 - `eval-ceiling` — a strong model, the gap reference.
 - `eval-judge` — a strong model for rubric + comprehension scoring (never the SUT).

@@ -44,13 +44,13 @@ flowchart TB
     class CO pricey
 ```
 
-|             | Trimming                                                                                   | Compaction                                                                                                                    |
-| ----------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| Runs        | before each request and after each reply, once tokens exceed **95%** of the context budget | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
-| Costs       | nothing                                                                                    | one LLM call                                                                                                                  |
-| Budget      | 95% of the context budget                                                                  | the context window the provider will actually honour                                                                          |
-| What's lost | old messages, entirely                                                                     | detail: the gist survives as a summary                                                                                        |
-| Preserves   | system message, compaction summary, pinned messages + last N complete turns                | system message + a summary + recent messages                                                                                  |
+|             | Trimming                                                                                   | Compaction                                                                                                                        |
+| ----------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| Runs        | before each request and after each reply, once tokens exceed **95%** of the context budget | when tokens exceed 80% of the context budget (the model's window, or the agent's `llm.maxContextTokens` ceiling when it is lower) |
+| Costs       | nothing                                                                                    | one LLM call                                                                                                                      |
+| Budget      | 95% of the context budget                                                                  | the context window the provider will actually honour                                                                              |
+| What's lost | old messages, entirely                                                                     | detail: the gist survives as a summary                                                                                            |
+| Preserves   | system message, compaction summary, pinned messages + last N complete turns                | system message + a summary + recent messages                                                                                      |
 
 **Trimming sits above compaction, deliberately.** Its budget is 95% of the context budget,
 compaction's is 80%, so compaction always gets first refusal and trimming only fires when
@@ -273,7 +273,7 @@ the trivia and throws away the point. Summarizing keeps the point.
 below also runs), it adds latency mid-run, and a summary is lossy: a detail the agent needed
 might not survive. Mitigations:
 
-- **`summarizerModel` is configurable per agent.** Point compaction at a cheap fast model while the main agent runs an expensive one. Falls back to the agent's own model, with a warning if the configured value is unparseable.
+- **`llm.summarizerModel` is configurable per agent.** Point compaction at a cheap fast model while the main agent runs an expensive one. Falls back to the agent's own model, with a warning if the configured value is unparseable.
 - **It's visible.** You get a `Context window ~80% full: auto-compacting…` warning, then `Compacted 64 → 12 messages (saved ~48000 tokens)`. Never silent.
 - **You can force it.** `/compact` in chat, or the `summarize_context` tool, which the agent can call itself when it knows it's about to go deep. Both go through `Summarizer.compact`, the same path automatic compaction takes: recent messages kept, the earlier summary merged, a journal entry written. They differ from it only in when they run.
 - **It's skipped when pointless.** If there's nothing in the middle worth summarizing, the messages come back untouched, with no "auto-compacting" notice, and the loop trims instead.
@@ -339,10 +339,10 @@ served at 131072 or less. Accounting against the advertised number means Jazz co
 after the server has started dropping the middle of the conversation, and the agent keeps
 answering from a context it no longer has.
 
-For `ollama`, a pinned `numCtx` is sent as the request's `num_ctx` and sets the runtime
+For `ollama`, a pinned `llm.numCtx` is sent as the request's `num_ctx` and sets the runtime
 window. For `llamacpp`, the pin is an accounting override; otherwise Jazz uses the loaded
 server's `/props` value. For `vllm` and `sglang`, Jazz refreshes the served ID and uses `max_model_len` from their `/v1/models`
-card when available. A vLLM or SGLang `numCtx` pin limits Jazz's context accounting to the smaller
+card when available. A vLLM or SGLang `llm.numCtx` pin limits Jazz's context accounting to the smaller
 of the pin and the served limit; it does not change the server context setting.
 An unpinned Ollama agent gets a warning at run start rather than a silent assumption,
 because Ollama exposes a loaded model's window on `/api/ps` but has no endpoint for the
@@ -356,7 +356,7 @@ _genuinely known_ maximum caps a runtime window.
 
 ### The per-agent ceiling
 
-`config.maxContextTokens` caps the window for _any_ provider. It is the answer to "this
+`config.llm.maxContextTokens` caps the window for _any_ provider. It is the answer to "this
 agent should never carry more than 60k tokens of history, even though the model would hold
 200k": useful for keeping cost and latency predictable, for models whose quality sags long
 before their advertised limit, and for staying under a provider tier's real limit.

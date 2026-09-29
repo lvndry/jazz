@@ -11,7 +11,7 @@ import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
 const testAgent = {
   id: "a1",
   name: "agent1",
-  config: { llmProvider: "anthropic", llmModel: "claude-sonnet-5" },
+  config: { llm: { provider: "anthropic", model: "claude-sonnet-5" } },
 } as Agent;
 
 // Mock dependencies

@@ -79,9 +79,7 @@ export function ensureSeedAgent(dataDir: string, spec: SeedAgentSpec): boolean {
     description: spec.description,
     config: {
       agentType: "default",
-      llmProvider: spec.provider,
-      llmModel: spec.model,
-      reasoning: spec.reasoning,
+      llm: { provider: spec.provider, model: spec.model, reasoning: spec.reasoning },
       persona: spec.persona ?? "default",
       tools: [...(spec.tools ?? DEFAULT_BRIDGE_TOOLS)],
     },

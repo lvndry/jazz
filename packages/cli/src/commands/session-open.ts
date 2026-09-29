@@ -17,8 +17,8 @@ export function sessionOpenLine(
   const directory = abbreviateHomePath(workingDirectory, homeDirectory);
   return [
     agent.name,
-    agentModelString(agent.config),
-    `reasoning ${formatReasoningSelection(agent.config.reasoning)}`,
+    agentModelString(agent.config.llm),
+    `reasoning ${formatReasoningSelection(agent.config.llm.reasoning)}`,
     directory,
   ].join(" · ");
 }

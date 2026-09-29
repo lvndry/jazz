@@ -39,19 +39,19 @@ export function agentConfigProblems(
   builtinToolNames?: ReadonlySet<string>,
 ): readonly AgentConfigProblem[] {
   const problems: AgentConfigProblem[] = [];
-  const provider = agent.config.llmProvider;
+  const provider = agent.config.llm.provider;
   if (!AVAILABLE_PROVIDERS.includes(provider)) {
     problems.push({
-      field: "config.llmProvider",
+      field: "config.llm.provider",
       message: unknownProviderMessage(String(provider)),
       severity: "error",
     });
   }
 
-  const reasoning = agent.config.reasoning;
+  const reasoning = agent.config.llm.reasoning;
   if (reasoning !== undefined && !isReasoningSelection(reasoning)) {
     problems.push({
-      field: "config.reasoning",
+      field: "config.llm.reasoning",
       message: `"${String(reasoning)}" is not a reasoning level. Use disable, minimal, low, medium, high, xhigh, or max.`,
       severity: "error",
     });

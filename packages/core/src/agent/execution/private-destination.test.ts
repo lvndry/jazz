@@ -108,7 +108,7 @@ function harness(options: {
           agent: {
             id: "a",
             name: "a",
-            config: { persona: "default", llmProvider: "openai", llmModel: "m" },
+            config: { persona: "default", llm: { provider: "openai", model: "m" } },
           },
           conversationId: "c",
           provider: "openai",

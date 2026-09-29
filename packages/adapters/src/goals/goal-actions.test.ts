@@ -22,7 +22,7 @@ import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
 const LOCAL_AGENT = {
   id: "agent-1",
   name: "agent",
-  config: { persona: "default", llmProvider: "ollama", llmModel: "qwen3:8b" },
+  config: { persona: "default", llm: { provider: "ollama", model: "qwen3:8b" } },
 } as unknown as Agent;
 
 const DRAFT = JSON.stringify({

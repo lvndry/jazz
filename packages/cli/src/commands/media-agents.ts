@@ -58,7 +58,7 @@ export async function findAgentsThatGenerate(
   for (const agent of agents) {
     let metadata: ModelsDevMetadata | undefined;
     try {
-      metadata = await getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider);
+      metadata = await getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider);
     } catch {
       // An unreachable catalog should not make every agent look incapable, but there is nothing
       // better to say about its own model than "unknown", which reads the same as "no". A

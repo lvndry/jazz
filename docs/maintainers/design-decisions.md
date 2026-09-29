@@ -84,7 +84,7 @@ the task definition and the plan live. Forty minutes in you keep a tool result a
 of a PDF and lose the reason you were reading it.
 
 **Cost accepted.** An extra LLM call, added mid-run latency, and genuine information loss.
-Mitigated by a configurable `summarizerModel` (point it at something cheap), by making it
+Mitigated by a configurable `llm.summarizerModel` (point it at something cheap), by making it
 visible rather than silent, and by letting the agent trigger it deliberately via
 `summarize_context`.
 

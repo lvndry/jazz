@@ -247,8 +247,8 @@ export function createCommands(context: CommandContext): Commands {
       ...(incognito ? [plainLine("🕶️ Incognito — nothing being saved right now")] : []),
       line(
         text("Model: "),
-        code(`${agent.config.llmProvider}/${agent.config.llmModel}`),
-        text(` (reasoning: ${agent.config.reasoning})`),
+        code(`${agent.config.llm.provider}/${agent.config.llm.model}`),
+        text(` (reasoning: ${agent.config.llm.reasoning})`),
       ),
       plainLine(`Persona: ${agent.config.persona}`),
       plainLine(`Mode: ${APPROVAL_MODE_LABELS[mode]}`),
@@ -291,17 +291,17 @@ export function createCommands(context: CommandContext): Commands {
         return;
       }
       const metadata = await getModelsDevMetadata(parsed.model, parsed.provider);
-      agent.config.llmProvider = parsed.provider;
-      agent.config.llmModel = parsed.model;
+      agent.config.llm.provider = parsed.provider;
+      agent.config.llm.model = parsed.model;
       if (metadata !== undefined) {
-        agent.config.reasoning = reasoningFor(metadata.isReasoningModel === true);
+        agent.config.llm.reasoning = reasoningFor(metadata.isReasoningModel === true);
       }
       context.writeAgent(sandbox, agent);
       await context.send(chatId, [
         plainLine(`✅ Model → ${parsed.provider}/${parsed.model}`),
         plainLine(
           metadata !== undefined
-            ? `Reasoning: ${agent.config.reasoning}`
+            ? `Reasoning: ${agent.config.llm.reasoning}`
             : "⚠️ Unknown model in the catalog — reasoning setting left unchanged.",
         ),
       ]);
@@ -309,7 +309,7 @@ export function createCommands(context: CommandContext): Commands {
     }
 
     const current: RichText = [
-      line(text("Current model: "), code(`${agent.config.llmProvider}/${agent.config.llmModel}`)),
+      line(text("Current model: "), code(`${agent.config.llm.provider}/${agent.config.llm.model}`)),
     ];
     if (!buttons) {
       await context.send(chatId, [
@@ -324,12 +324,12 @@ export function createCommands(context: CommandContext): Commands {
       return;
     }
 
-    const models = await providerModels(agent.config.llmProvider);
+    const models = await providerModels(agent.config.llm.provider);
     if (models.length === 0) {
       await context.send(chatId, [
         ...current,
         plainLine(
-          `No models are listed for ${agent.config.llmProvider} right now — check its API key is set.`,
+          `No models are listed for ${agent.config.llm.provider} right now — check its API key is set.`,
         ),
         line(text("Switch provider directly with "), code("/model provider/model"), text(".")),
       ]);
@@ -341,7 +341,7 @@ export function createCommands(context: CommandContext): Commands {
       [
         ...current,
         plainLine(
-          `Pick a ${agent.config.llmProvider} model, or send /model provider/model to switch provider.` +
+          `Pick a ${agent.config.llm.provider} model, or send /model provider/model to switch provider.` +
             (models.length > shown.length
               ? ` (${models.length - shown.length} more not shown.)`
               : ""),
@@ -351,7 +351,7 @@ export function createCommands(context: CommandContext): Commands {
         promptId: MODEL_PROMPT_ID,
         choices: shown.map((model) => ({
           id: model.id,
-          label: `${model.id === agent.config.llmModel ? "✅ " : ""}${model.id}`,
+          label: `${model.id === agent.config.llm.model ? "✅ " : ""}${model.id}`,
         })),
       },
     );
@@ -615,17 +615,17 @@ export function createCommands(context: CommandContext): Commands {
         case MODEL_PROMPT_ID: {
           const sandbox = context.sandboxFor(chatId);
           const agent = context.ensureAgent(chatId, sandbox);
-          const chosen = (await providerModels(agent.config.llmProvider)).find(
+          const chosen = (await providerModels(agent.config.llm.provider)).find(
             (model) => model.id === choiceId,
           );
           if (chosen === undefined) return "expired";
-          agent.config.llmModel = chosen.id;
-          agent.config.reasoning = reasoningFor(chosen.isReasoningModel);
+          agent.config.llm.model = chosen.id;
+          agent.config.llm.reasoning = reasoningFor(chosen.isReasoningModel);
           context.writeAgent(sandbox, agent);
           await closePicker(tap);
           await context.send(chatId, [
-            plainLine(`✅ Model → ${agent.config.llmProvider}/${chosen.id}`),
-            plainLine(`Reasoning: ${agent.config.reasoning}`),
+            plainLine(`✅ Model → ${agent.config.llm.provider}/${chosen.id}`),
+            plainLine(`Reasoning: ${agent.config.llm.reasoning}`),
           ]);
           return "answered";
         }

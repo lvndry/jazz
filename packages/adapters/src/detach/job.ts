@@ -430,7 +430,7 @@ function newAssistantTurns(priorLength: number, messages: readonly ChatMessage[]
  */
 function hostProviderKeys(agent: Agent) {
   return Effect.gen(function* () {
-    const provider = agent.config.llmProvider;
+    const provider = agent.config.llm.provider;
     const backend = yield* detectKeyringBackend();
     const key = yield* keyringGet(backend, `llm.${provider}.api_key`);
     return key === undefined || key.length === 0 ? {} : { [provider]: key };
@@ -441,7 +441,10 @@ function withHostProviderKeys(agent: Agent) {
   return hostProviderKeys(agent).pipe(
     Effect.map((keys) => ({
       ...agent,
-      config: { ...agent.config, llmApiKeys: { ...agent.config.llmApiKeys, ...keys } },
+      config: {
+        ...agent.config,
+        llm: { ...agent.config.llm, apiKeys: { ...agent.config.llm.apiKeys, ...keys } },
+      },
     })),
   );
 }
@@ -469,7 +472,7 @@ function runTurn(record: DetachedJobRecord, userInput: string, limits: TurnLimit
       return yield* Effect.fail(new Error("Imported conversation is missing"));
     }
     const preamble = yield* buildWorkStatePreamble(input.agentId, input.conversationId, {
-      modelHint: { provider: agent.config.llmProvider, modelId: agent.config.llmModel },
+      modelHint: { provider: agent.config.llm.provider, modelId: agent.config.llm.model },
     });
     const response = yield* AgentRunner.run({
       agent,

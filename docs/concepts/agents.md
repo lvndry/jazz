@@ -27,7 +27,7 @@ flowchart TB
     A["<b>Agent</b><br/>~/.jazz/agents/&lt;id&gt;.json"]
 
     A --> ID["<b>Identity</b><br/>id · name · description"]
-    A --> M["<b>Model</b><br/>llmProvider + llmModel<br/><i>e.g. openai/gpt-5.4-mini</i>"]
+    A --> M["<b>Model</b><br/>llm.provider + llm.model<br/><i>e.g. openai/gpt-5.4-mini</i>"]
     A --> P["<b>Persona</b><br/>tone and style<br/><i>default · coder · researcher</i>"]
     A --> T["<b>Tools</b><br/>extra tools, and denied ones<br/><i>deniedTools is the ceiling</i>"]
     A --> S["<b>Skills</b><br/>playbooks it may load"]
@@ -46,8 +46,10 @@ The smallest agent that runs is three fields and a persona:
   "name": "Reviewer",
   "config": {
     "persona": "coder",
-    "llmProvider": "openai",
-    "llmModel": "gpt-5.4"
+    "llm": {
+      "provider": "openai",
+      "model": "gpt-5.4"
+    }
   }
 }
 ```
@@ -60,7 +62,7 @@ terminal, in CI, and on Telegram.
 
 Written `provider/model` with a **slash**: `openrouter/z-ai/glm-5.3-flash`,
 `mistral/mistral-large-latest`, `ollama/qwen3`. Stored split into
-`llmProvider` and `llmModel`. Eighteen providers are available, including local ones that need
+`llm.provider` and `llm.model`. Eighteen providers are available, including local ones that need
 no API key; see [Model providers](../configure/providers.md).
 
 ### Persona
@@ -85,7 +87,7 @@ omission, when you mean it. See [Tools](./tools.md).
 
 ### Context budget
 
-`maxContextTokens` caps how much conversation this agent may carry, in tokens, whatever the
+`llm.maxContextTokens` caps how much conversation this agent may carry, in tokens, whatever the
 model would allow. Unset, it uses the model's own window. Set it to keep cost and latency
 predictable, or to stop a model degrading long before its advertised limit: the agent warns at
 70% of the budget and auto-compacts at 80%, so a smaller ceiling means earlier, cheaper

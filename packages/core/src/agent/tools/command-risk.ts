@@ -345,7 +345,7 @@ export function classifyCommandRisk(
         temperature: 0,
         maxTokens: CLASSIFIER_MAX_TOKENS,
         reasoning: "disable",
-        ...(agent.config.llmApiKeys ? { providerApiKeys: agent.config.llmApiKeys } : {}),
+        ...(agent.config.llm.apiKeys ? { providerApiKeys: agent.config.llm.apiKeys } : {}),
       })
       .pipe(
         Effect.timeout(CLASSIFIER_TIMEOUT),

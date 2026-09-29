@@ -13,9 +13,11 @@ interface AgentDetailsItem {
   readonly updatedAt: Date;
   readonly config: {
     readonly persona?: string | undefined;
-    readonly llmProvider: string;
-    readonly llmModel: string;
-    readonly reasoning?: ReasoningSelection | undefined;
+    readonly llm: {
+      readonly provider: string;
+      readonly model: string;
+      readonly reasoning?: ReasoningSelection | undefined;
+    };
     readonly tools?: readonly string[] | undefined;
   };
 }
@@ -43,7 +45,7 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
   const inner = Math.max(40, width - 2);
 
   const agent = props.agent;
-  const model = agentModelString(agent.config);
+  const model = agentModelString(agent.config.llm);
   const tools = agent.config.tools ?? [];
 
   return (
@@ -124,17 +126,17 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
           />
           <KeyValue
             label="Provider"
-            value={formatProviderDisplayName(agent.config.llmProvider)}
+            value={formatProviderDisplayName(agent.config.llm.provider)}
             innerWidth={inner - 2}
           />
           <KeyValue
             label="Model"
-            value={agent.config.llmModel}
+            value={agent.config.llm.model}
             innerWidth={inner - 2}
           />
           <KeyValue
             label="Reasoning"
-            value={formatReasoningSelection(agent.config.reasoning)}
+            value={formatReasoningSelection(agent.config.llm.reasoning)}
             innerWidth={inner - 2}
           />
         </Box>

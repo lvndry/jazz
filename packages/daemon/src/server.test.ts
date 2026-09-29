@@ -91,10 +91,12 @@ function agentFixture(overrides: Partial<Agent> = {}): Agent {
     description: "everyday assistant",
     config: {
       persona: "default",
-      llmProvider: "anthropic",
-      llmModel: "claude-sonnet-4-6",
+      llm: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        apiKeys: { anthropic: "sk-must-not-leak" },
+      },
       tools: ["read_file", "http_request"],
-      llmApiKeys: { anthropic: "sk-must-not-leak" },
     },
     createdAt: new Date("2026-09-01T00:00:00Z"),
     updatedAt: new Date("2026-09-01T00:00:00Z"),
@@ -654,7 +656,7 @@ describe("listing the agents a daemon can run", () => {
 
   it("reports an agent with no tools as having none, not as missing a field", async () => {
     const bare = agentFixture({
-      config: { persona: "default", llmProvider: "openai", llmModel: "gpt-5.4-mini" },
+      config: { persona: "default", llm: { provider: "openai", model: "gpt-5.4-mini" } },
     } as Partial<Agent>);
     const handle = makeHandler(LOOPBACK, runnerForAgents([bare]));
 
@@ -846,19 +848,19 @@ describe("creating an agent over HTTP", () => {
       jsonRequest("POST", "/agents", {
         name: "negotiator",
         description: "rehearses a hard conversation",
-        config: { persona: "default", llmProvider: "anthropic", llmModel: "claude-sonnet-4-6" },
+        config: { persona: "default", llm: { provider: "anthropic", model: "claude-sonnet-4-6" } },
       }),
     );
 
     expect(response.status).toBe(201);
     const body = (await response.json()) as {
       ok: boolean;
-      agent: { name: string; provider: string; config: { llmModel: string } };
+      agent: { name: string; provider: string; config: { llm: { model: string } } };
     };
     expect(body.ok).toBe(true);
     expect(body.agent.name).toBe("negotiator");
     expect(body.agent.provider).toBe("anthropic");
-    expect(body.agent.config.llmModel).toBe("claude-sonnet-4-6");
+    expect(body.agent.config.llm.model).toBe("claude-sonnet-4-6");
     expect(agents.size).toBe(1);
   });
 
@@ -869,13 +871,13 @@ describe("creating an agent over HTTP", () => {
     const response = await handle(
       jsonRequest("POST", "/agents", {
         name: "broken",
-        config: { persona: "default", llmProvider: "gpt", llmModel: "gpt-4o" },
+        config: { persona: "default", llm: { provider: "gpt", model: "gpt-4o" } },
       }),
     );
 
     expect(response.status).toBe(400);
     const body = (await response.json()) as { field: string; suggestion?: string };
-    expect(body.field).toBe("config.llmProvider");
+    expect(body.field).toBe("config.llm.provider");
     expect(body.suggestion).toContain("anthropic");
   });
 
@@ -888,9 +890,11 @@ describe("creating an agent over HTTP", () => {
         name: "leaky",
         config: {
           persona: "default",
-          llmProvider: "anthropic",
-          llmModel: "claude-sonnet-4-6",
-          llmApiKeys: { anthropic: "sk-should-not-be-stored" },
+          llm: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            apiKeys: { anthropic: "sk-should-not-be-stored" },
+          },
         },
       }),
     );
@@ -909,7 +913,7 @@ describe("creating an agent over HTTP", () => {
     const response = await handle(
       jsonRequest("POST", "/agents", {
         name: "sonnet",
-        config: { persona: "default", llmProvider: "anthropic", llmModel: "claude-sonnet-4-6" },
+        config: { persona: "default", llm: { provider: "anthropic", model: "claude-sonnet-4-6" } },
       }),
     );
 
@@ -924,7 +928,7 @@ describe("creating an agent over HTTP", () => {
     const response = await handle(
       jsonRequest("POST", "/agents", {
         name: "not a valid name!",
-        config: { persona: "default", llmProvider: "anthropic", llmModel: "claude-sonnet-4-6" },
+        config: { persona: "default", llm: { provider: "anthropic", model: "claude-sonnet-4-6" } },
       }),
     );
 
@@ -982,7 +986,7 @@ describe("reading one agent over HTTP", () => {
       agent: { config: Record<string, unknown>; apiKeyProviders: string[] };
     };
     expect(body.agent.config["tools"]).toEqual(["read_file", "http_request"]);
-    expect(body.agent.config["llmProvider"]).toBe("anthropic");
+    expect((body.agent.config["llm"] as Record<string, unknown>)["provider"]).toBe("anthropic");
   });
 
   it("says which providers have a per-agent key without handing the key out", async () => {
@@ -1020,7 +1024,7 @@ describe("updating an agent over HTTP", () => {
 
     const response = await handle(
       jsonRequest("PATCH", "/agents/uGS8WAv4cGBiFH1wHB7r4E", {
-        config: { llmModel: "claude-opus-4-6" },
+        config: { llm: { model: "claude-opus-4-6" } },
       }),
     );
 
@@ -1040,15 +1044,15 @@ describe("updating an agent over HTTP", () => {
 
     const response = await handle(
       jsonRequest("PATCH", "/agents/uGS8WAv4cGBiFH1wHB7r4E", {
-        config: { temperature: 9 },
+        config: { llm: { temperature: 9 } },
       }),
     );
 
     expect(response.status).toBe(400);
     expect((await response.json()) as { field: string }).toMatchObject({
-      field: "config.temperature",
+      field: "config.llm.temperature",
     });
-    expect(agents.get("uGS8WAv4cGBiFH1wHB7r4E")?.config.temperature).toBeUndefined();
+    expect(agents.get("uGS8WAv4cGBiFH1wHB7r4E")?.config.llm.temperature).toBeUndefined();
   });
 
   it("refuses api keys on update too", async () => {
@@ -1057,7 +1061,7 @@ describe("updating an agent over HTTP", () => {
 
     const response = await handle(
       jsonRequest("PATCH", "/agents/uGS8WAv4cGBiFH1wHB7r4E", {
-        config: { llmApiKeys: { anthropic: "sk-nope" } },
+        config: { llm: { apiKeys: { anthropic: "sk-nope" } } },
       }),
     );
 

@@ -14,8 +14,7 @@ import { Summarizer, type AutoCompaction, type RecursiveRunner } from "./summari
 
 function createMockAgent(overrides: Partial<Agent> = {}): Agent {
   const config: AgentConfig = {
-    llmProvider: "openai",
-    llmModel: "gpt-4",
+    llm: { provider: "openai", model: "gpt-4" },
     persona: "default",
     tools: [],
   };
@@ -135,8 +134,7 @@ describe("extractMemories", () => {
 
     const agent = createMockAgent({
       config: {
-        llmProvider: "openai",
-        llmModel: "gpt-4",
+        llm: { provider: "openai", model: "gpt-4" },
         persona: "default",
         tools: [],
         memoryScopes: ["personal", "work"],

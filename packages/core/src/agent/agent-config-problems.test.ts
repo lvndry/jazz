@@ -6,7 +6,12 @@ function agent(config: Partial<Agent["config"]>): Agent {
   return {
     id: "a",
     name: "a",
-    config: { persona: "default", llmProvider: "openai", llmModel: "gpt-5", tools: [], ...config },
+    config: {
+      persona: "default",
+      llm: { provider: "openai", model: "gpt-5" },
+      tools: [],
+      ...config,
+    },
     createdAt: new Date(),
     updatedAt: new Date(),
   } as Agent;
@@ -16,7 +21,10 @@ describe("agentConfigProblems", () => {
   it("finds nothing wrong with a sound agent", () => {
     expect(
       agentConfigProblems(
-        agent({ reasoning: "high", tools: ["read_file"] }),
+        agent({
+          llm: { provider: "openai", model: "gpt-5.4", reasoning: "high" },
+          tools: ["read_file"],
+        }),
         new Set(["read_file"]),
       ),
     ).toEqual([]);
@@ -24,11 +32,13 @@ describe("agentConfigProblems", () => {
 
   it("flags a misspelled provider and an unknown reasoning level as errors", () => {
     const problems = agentConfigProblems(
-      agent({ llmProvider: "opneai" as never, reasoning: "extreme" as never }),
+      agent({
+        llm: { provider: "opneai" as never, model: "gpt-5.4", reasoning: "extreme" as never },
+      }),
     );
     expect(problems.map((problem) => [problem.field, problem.severity])).toEqual([
-      ["config.llmProvider", "error"],
-      ["config.reasoning", "error"],
+      ["config.llm.provider", "error"],
+      ["config.llm.reasoning", "error"],
     ]);
     expect(problems[0]?.message).toContain('"openai"');
   });

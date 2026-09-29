@@ -55,7 +55,7 @@ describe("portable detach snapshot", () => {
       path.join(agentsDirectory, "agent.json"),
       JSON.stringify({
         id: "agent",
-        config: { persona: "default", llmApiKeys: { openai: "secret-key" } },
+        config: { persona: "default", llm: { apiKeys: { openai: "secret-key" } } },
       }),
     );
     const workDirectory = path.join(process.env["JAZZ_HOME"]!, "work", "agent", "conversation");

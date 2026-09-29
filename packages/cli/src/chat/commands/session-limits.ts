@@ -38,7 +38,7 @@ export function estimateSessionCostUSD(
   agent: Agent,
 ): Effect.Effect<number, never, never> {
   return Effect.promise(() =>
-    getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+    getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
   ).pipe(
     Effect.map((meta) => {
       const inputPricePerMillion = meta?.inputPricePerMillion ?? 0;

@@ -68,13 +68,13 @@ export function formatProviderModel(provider: string, model: string): `${string}
 }
 
 /**
- * The canonical "provider/model" string for an agent, derived from its config.
+ * The canonical "provider/model" string for an agent, derived from its `config.llm`.
  */
-export function agentModelString(config: {
-  readonly llmProvider: string;
-  readonly llmModel: string;
+export function agentModelString(llm: {
+  readonly provider: string;
+  readonly model: string;
 }): `${string}/${string}` {
-  return formatProviderModel(config.llmProvider, config.llmModel);
+  return formatProviderModel(llm.provider, llm.model);
 }
 
 /**

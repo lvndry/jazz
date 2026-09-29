@@ -10,8 +10,7 @@ function agentWith(config: Partial<AgentConfig>): Agent {
     name: "scratch",
     config: {
       persona: "default",
-      llmProvider: "anthropic",
-      llmModel: "claude-sonnet-4-6",
+      llm: { provider: "anthropic", model: "claude-sonnet-4-6" },
       ...config,
     },
     createdAt: new Date("2026-09-01T00:00:00Z"),

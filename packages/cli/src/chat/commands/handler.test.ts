@@ -88,8 +88,7 @@ const testAgent: Agent = {
   description: "Test agent for resume command tests",
   config: {
     persona: "default",
-    llmProvider: "openai",
-    llmModel: "gpt-4",
+    llm: { provider: "openai", model: "gpt-4" },
     tools: [],
   },
   createdAt: new Date(),
@@ -727,7 +726,10 @@ describe("handleSpecialCommand shell escape", () => {
 
 describe("handleSpecialCommand /reasoning", () => {
   const baseContext: CommandContext = {
-    agent: { ...testAgent, config: { ...testAgent.config, reasoning: "disable" } },
+    agent: {
+      ...testAgent,
+      config: { ...testAgent.config, llm: { ...testAgent.config.llm, reasoning: "disable" } },
+    },
     conversationHistory: [],
     conversationId: "test-session",
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
@@ -780,9 +782,9 @@ describe("handleSpecialCommand /reasoning", () => {
 
     const result = await runReasoning(["high"], terminal);
 
-    expect(result.newAgent?.config.reasoning).toBe("high");
+    expect(result.newAgent?.config.llm.reasoning).toBe("high");
     // The change is session-scoped: the original agent object is untouched.
-    expect(baseContext.agent.config.reasoning).toBe("disable");
+    expect(baseContext.agent.config.llm.reasoning).toBe("disable");
     expect(terminal.success).toHaveBeenCalled();
   });
 
@@ -803,7 +805,7 @@ describe("handleSpecialCommand /reasoning", () => {
 
     const result = await runReasoning([], terminal);
 
-    expect(result.newAgent?.config.reasoning).toBe("medium");
+    expect(result.newAgent?.config.llm.reasoning).toBe("medium");
   });
 
   test("offers only the levels the model accepts", async () => {
@@ -832,7 +834,7 @@ describe("handleSpecialCommand /reasoning", () => {
 
     const result = await runReasoning(["max"], terminal, lowToHigh);
 
-    expect(result.newAgent?.config.reasoning).toBe("high");
+    expect(result.newAgent?.config.llm.reasoning).toBe("high");
     expect(terminal.warn).toHaveBeenCalledWith(
       expect.stringContaining("does not support max; it runs at high"),
     );
@@ -953,7 +955,7 @@ describe("handleSpecialCommand /compact", () => {
   test("accounts against the llama.cpp served window, not the advertised fallback", async () => {
     const llamaAgent: Agent = {
       ...testAgent,
-      config: { ...testAgent.config, llmProvider: "llamacpp", llmModel: "local-model" },
+      config: { ...testAgent.config, llm: { provider: "llamacpp", model: "local-model" } },
     };
     const llamaContext: CommandContext = { ...context, agent: llamaAgent };
 
@@ -1004,7 +1006,7 @@ describe("handleSpecialCommand /compact", () => {
   test("accounts against the currently served vLLM model's window during manual compaction", async () => {
     const vllmAgent: Agent = {
       ...testAgent,
-      config: { ...testAgent.config, llmProvider: "vllm", llmModel: "org/selected" },
+      config: { ...testAgent.config, llm: { provider: "vllm", model: "org/selected" } },
     };
     let receivedContextWindow: number | undefined;
     const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(

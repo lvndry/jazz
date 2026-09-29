@@ -28,7 +28,7 @@ writeFileSync(
     id: AGENT_ID,
     name: "nontty",
     model: "ollama/gemma4:12b",
-    config: { persona: "default", llmProvider: "ollama", llmModel: "gemma4:12b", tools: [] },
+    config: { persona: "default", llm: { provider: "ollama", model: "gemma4:12b" }, tools: [] },
     createdAt: "2026-09-27T00:00:00.000Z",
     updatedAt: "2026-09-27T00:00:00.000Z",
   }),

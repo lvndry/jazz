@@ -63,8 +63,10 @@ const agent = {
   name,
   config: {
     persona: "default",
-    llmProvider: process.env["JAZZ_DEMO_PROVIDER"] ?? "openrouter",
-    llmModel: process.env["JAZZ_DEMO_MODEL"] ?? "minimax/minimax-m2.7:free",
+    llm: {
+      provider: process.env["JAZZ_DEMO_PROVIDER"] ?? "openrouter",
+      model: process.env["JAZZ_DEMO_MODEL"] ?? "minimax/minimax-m2.7:free",
+    },
     ...(tools.length > 0 ? { tools } : {}),
   },
   createdAt: now,

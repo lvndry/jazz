@@ -31,11 +31,11 @@ function metadata(overrides: Partial<ModelsDevMetadata> = {}): ModelsDevMetadata
 }
 
 function agent(name: string, model: `${string}/${string}`): Agent {
-  const [llmProvider, llmModel] = model.split("/") as [Agent["config"]["llmProvider"], string];
+  const [provider, modelName] = model.split("/") as [Agent["config"]["llm"]["provider"], string];
   return {
     id: name,
     name,
-    config: { persona: "default", llmProvider, llmModel },
+    config: { persona: "default", llm: { provider, model: modelName } },
     createdAt: new Date(0),
     updatedAt: new Date(0),
   };

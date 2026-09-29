@@ -241,7 +241,7 @@ behind another can pick up a policy that changed while it waited.
 ### Command classifier
 
 `execute_command` is declared `unknown` because the command decides the blast radius. Jazz
-asks the cheap harness model (`summarizerModel`, else the agent's own) whether this
+asks the cheap harness model (`llm.summarizerModel`, else the agent's own) whether this
 particular command is `read-only`, `low-risk`, or `high-risk`, and the tier then applies to
 the verdict as it would to any declared level. So `--approval-policy read-only` runs
 `git log` unattended without also unlocking `rm`, and interactive safe mode (the `low-risk`

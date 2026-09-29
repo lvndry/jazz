@@ -1538,7 +1538,7 @@ function runIteration(
       model,
       messageCount: state.currentMessages.length,
       toolsAvailable: tools.length,
-      reasoningEffort: agent.config.reasoning,
+      reasoningEffort: agent.config.llm.reasoning,
       lastUserMessage: lastUserContent,
     });
 
@@ -1919,12 +1919,12 @@ export function executeAgentLoop(
         const effectiveContextWindow = resolveEffectiveContextWindow({
           provider,
           ...(modelMetadata && { modelMaxTokens: modelMetadata.contextWindow }),
-          ...(typeof agent.config.numCtx === "number" && {
-            pinnedContextWindow: agent.config.numCtx,
+          ...(typeof agent.config.llm.numCtx === "number" && {
+            pinnedContextWindow: agent.config.llm.numCtx,
           }),
           ...(typeof serverContextWindow === "number" && { serverContextWindow }),
-          ...(typeof agent.config.maxContextTokens === "number" && {
-            agentMaxTokens: agent.config.maxContextTokens,
+          ...(typeof agent.config.llm.maxContextTokens === "number" && {
+            agentMaxTokens: agent.config.llm.maxContextTokens,
           }),
         });
         const contextWindowMaxTokens = effectiveContextWindow.tokens;

@@ -67,7 +67,7 @@ Jazz warns "model returned an empty response" when the model sent no text, no re
 no tool call.
 
 - A local model with too small a context window often stops answering once the conversation
-  grows. Set `numCtx` on the agent to a value the server can hold, or start a new
+  grows. Set `llm.numCtx` on the agent to a value the server can hold, or start a new
   conversation.
 - A provider's safety filter can end an answer with nothing in it. The conversation log
   records how the request finished.

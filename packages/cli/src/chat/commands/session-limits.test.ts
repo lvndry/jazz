@@ -16,7 +16,7 @@ const { estimateSessionCostUSD, findExceededSessionLimits, formatSessionLimitMet
 const testAgent = {
   id: "a",
   name: "A",
-  config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4", tools: [] },
+  config: { persona: "default", llm: { provider: "openai", model: "gpt-4" }, tools: [] },
 } as unknown as Agent;
 
 describe("findExceededSessionLimits", () => {

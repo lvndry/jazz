@@ -119,7 +119,7 @@ describe("plugin command-risk policy", () => {
     const agent: Agent = {
       id: "agent-1",
       name: "test",
-      config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+      config: { persona: "default", llm: { provider: "openai", model: "gpt-4o-mini" } },
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -142,7 +142,7 @@ describe("plugin command-risk policy", () => {
     const agent: Agent = {
       id: "agent-1",
       name: "test",
-      config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+      config: { persona: "default", llm: { provider: "openai", model: "gpt-4o-mini" } },
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -170,7 +170,7 @@ describe("plugin command-risk policy", () => {
       const agent: Agent = {
         id: "agent-1",
         name: "test",
-        config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+        config: { persona: "default", llm: { provider: "openai", model: "gpt-4o-mini" } },
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -192,7 +192,7 @@ describe("plugin command-risk policy", () => {
     const agent: Agent = {
       id: "agent-1",
       name: "test",
-      config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+      config: { persona: "default", llm: { provider: "openai", model: "gpt-4o-mini" } },
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -278,7 +278,7 @@ describe("classifyCommandRisk", () => {
   const agent: Agent = {
     id: "agent-1",
     name: "test",
-    config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+    config: { persona: "default", llm: { provider: "openai", model: "gpt-4o-mini" } },
     createdAt: new Date(),
     updatedAt: new Date(),
   };

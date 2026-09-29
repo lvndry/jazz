@@ -44,9 +44,11 @@ export function formatAgentsListBlock(
     readonly createdAt: Date;
     readonly updatedAt: Date;
     readonly config: {
-      readonly llmProvider: string;
-      readonly llmModel: string;
-      readonly reasoning?: ReasoningSelection | undefined;
+      readonly llm: {
+        readonly provider: string;
+        readonly model: string;
+        readonly reasoning?: ReasoningSelection | undefined;
+      };
       readonly persona?: string | undefined;
       readonly tools?: readonly string[] | undefined;
     };
@@ -110,9 +112,9 @@ export function formatAgentsListBlock(
 
   for (const [index, agent] of agents.entries()) {
     const idx = String(index + 1);
-    const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
+    const model = `${agent.config.llm.provider}/${agent.config.llm.model}`;
     const persona = agent.config.persona ?? "default";
-    const reasoning = formatReasoningSelection(agent.config.reasoning);
+    const reasoning = formatReasoningSelection(agent.config.llm.reasoning);
 
     const row =
       padRight(idx, idxW) +
@@ -198,7 +200,7 @@ function listAgentsThatGenerate(
             : supportsTools
               ? ""
               : "  (this model has no tools — generation only)";
-        yield* terminal.log(`  ${agent.name}  ${agentModelString(agent.config)}${note}`);
+        yield* terminal.log(`  ${agent.name}  ${agentModelString(agent.config.llm)}${note}`);
       }
       yield* terminal.log(`\nStart one with: jazz agent chat <name>`);
       return;
@@ -206,7 +208,7 @@ function listAgentsThatGenerate(
 
     yield* terminal.log(`None of your agents can generate ${modality}.\n`);
 
-    const providers = [...new Set(agents.map((agent) => agent.config.llmProvider))].filter(
+    const providers = [...new Set(agents.map((agent) => agent.config.llm.provider))].filter(
       (provider) => provider.length > 0,
     );
     const suggestions = yield* Effect.tryPromise({
@@ -288,10 +290,12 @@ export function listAgentsCommand(
           id: agent.id,
           name: agent.name,
           ...(agent.description !== undefined ? { description: agent.description } : {}),
-          provider: agent.config.llmProvider,
-          model: agent.config.llmModel,
+          provider: agent.config.llm.provider,
+          model: agent.config.llm.model,
           persona: agent.config.persona ?? "default",
-          ...(agent.config.reasoning !== undefined ? { reasoning: agent.config.reasoning } : {}),
+          ...(agent.config.llm.reasoning !== undefined
+            ? { reasoning: agent.config.llm.reasoning }
+            : {}),
           tools: agent.config.tools ?? [],
           createdAt: agent.createdAt.toISOString(),
           updatedAt: agent.updatedAt.toISOString(),
@@ -381,7 +385,7 @@ export function deleteAgentCommand(
         );
       }
 
-      const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
+      const model = `${agent.config.llm.provider}/${agent.config.llm.model}`;
       const confirmed = yield* terminal.confirm(
         `Delete agent "${agent.name}" (${model})? This cannot be undone.`,
         false,
@@ -433,9 +437,11 @@ export function getAgentCommand(
               updatedAt: agent.updatedAt,
               config: {
                 persona: agent.config.persona,
-                llmProvider: agent.config.llmProvider,
-                llmModel: agent.config.llmModel,
-                reasoning: agent.config.reasoning,
+                llm: {
+                  provider: agent.config.llm.provider,
+                  model: agent.config.llm.model,
+                  reasoning: agent.config.llm.reasoning,
+                },
                 tools: agent.config.tools ?? [],
               },
             },
@@ -458,9 +464,11 @@ function formatAgentDetailsBlock(agent: {
   readonly updatedAt: Date;
   readonly config: {
     readonly persona?: string | undefined;
-    readonly llmProvider: string;
-    readonly llmModel: string;
-    readonly reasoning?: ReasoningSelection | undefined;
+    readonly llm: {
+      readonly provider: string;
+      readonly model: string;
+      readonly reasoning?: ReasoningSelection | undefined;
+    };
     readonly tools?: readonly string[] | undefined;
   };
 }): string {
@@ -473,7 +481,7 @@ function formatAgentDetailsBlock(agent: {
   const sep = `${g.boxML}${g.boxH.repeat(innerWidth)}${g.boxMR}`;
   const v = chalk.dim(g.boxV);
 
-  const model = agentModelString(agent.config);
+  const model = agentModelString(agent.config.llm);
   const tools = agent.config.tools ?? [];
 
   const lines: string[] = [];
@@ -491,9 +499,9 @@ function formatAgentDetailsBlock(agent: {
 
   lines.push(chalk.dim(sep));
   lines.push(kv("Persona:", agent.config.persona ?? "default"));
-  lines.push(kv("Provider:", formatProviderDisplayName(agent.config.llmProvider)));
-  lines.push(kv("LLM model:", agent.config.llmModel));
-  lines.push(kv("Reasoning:", formatReasoningSelection(agent.config.reasoning)));
+  lines.push(kv("Provider:", formatProviderDisplayName(agent.config.llm.provider)));
+  lines.push(kv("LLM model:", agent.config.llm.model));
+  lines.push(kv("Reasoning:", formatReasoningSelection(agent.config.llm.reasoning)));
 
   lines.push(chalk.dim(sep));
   lines.push(

@@ -32,6 +32,37 @@ export interface Agent {
 }
 
 /**
+ * The model an agent runs on and how that model is driven.
+ */
+export interface AgentLlmConfig {
+  readonly provider: ProviderName;
+  readonly model: string;
+  /**
+   * Model used for background context summarization, as "provider/model"
+   * (e.g. "anthropic/claude-3-5-haiku-latest"). Defaults to the agent's own
+   * provider/model when unset or unparseable.
+   */
+  readonly summarizerModel?: string;
+  /** Optional per-agent API key overrides by provider. Falls back to global config, then env vars. */
+  readonly apiKeys?: Partial<Record<ProviderName, string>>;
+  /**
+   * The model-neutral reasoning control requested for this agent. The selected
+   * provider/model capability profile validates and serializes it at request time.
+   */
+  readonly reasoning?: ReasoningSelection;
+  /** Ollama context window (`num_ctx`) in tokens, chosen at agent creation. */
+  readonly numCtx?: number;
+  /**
+   * Per-agent ceiling on the conversation context, in tokens. Applies to every
+   * provider and caps whatever window the model or local server would otherwise
+   * offer, so the agent warns and compacts against this budget instead of the
+   * full window. Unset means "use the model's window".
+   */
+  readonly maxContextTokens?: number;
+  readonly temperature?: number;
+}
+
+/**
  * Agent configuration specifying LLM provider, model, and runtime behavior
  *
  * The agent configuration defines how an agent operates, including which LLM provider
@@ -51,31 +82,8 @@ export interface AgentConfig {
    * Defaults to "default" when not specified.
    */
   readonly persona: string;
-  readonly llmProvider: ProviderName;
-  readonly llmModel: string;
-  /**
-   * Model used for background context summarization, as "provider/model"
-   * (e.g. "anthropic/claude-3-5-haiku-latest"). Defaults to the agent's own
-   * provider/model when unset or unparseable.
-   */
-  readonly summarizerModel?: string;
-  /** Optional per-agent API key overrides by provider. Falls back to global config, then env vars. */
-  readonly llmApiKeys?: Partial<Record<ProviderName, string>>;
-  /**
-   * The model-neutral reasoning control requested for this agent. The selected
-   * provider/model capability profile validates and serializes it at request time.
-   */
-  readonly reasoning?: ReasoningSelection;
-  /** Ollama context window (`num_ctx`) in tokens, chosen at agent creation. */
-  readonly numCtx?: number;
-  /**
-   * Per-agent ceiling on the conversation context, in tokens. Applies to every
-   * provider and caps whatever window the model or local server would otherwise
-   * offer, so the agent warns and compacts against this budget instead of the
-   * full window. Unset means "use the model's window".
-   */
-  readonly maxContextTokens?: number;
-  readonly temperature?: number;
+  /** Everything that selects and tunes the agent's model. */
+  readonly llm: AgentLlmConfig;
   /**
    * Extra tools this agent can call, **on top of** the built-in bundle.
    *

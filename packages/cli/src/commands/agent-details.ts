@@ -29,7 +29,7 @@ function safeHostUrl(value: string): string {
 
 /** Prices are per million tokens; unpriced cloud models stay explicitly unknown. */
 function priceFields(agent: Agent, metadata: ModelsDevMetadata | undefined): readonly Field[] {
-  const prices = isZeroCostLocalModel(agent.config.llmProvider, agent.config.llmModel)
+  const prices = isZeroCostLocalModel(agent.config.llm.provider, agent.config.llm.model)
     ? { inputPricePerMillion: 0, outputPricePerMillion: 0 }
     : (metadata ?? {});
   return [
@@ -67,14 +67,14 @@ export function agentDetailFields(
     { section: "Identity", label: "Description", value: agent.description?.trim() || "none" },
     { section: "Identity", label: "Created", value: agent.createdAt.toISOString() },
     { section: "Identity", label: "Updated", value: agent.updatedAt.toISOString() },
-    { section: "Model", label: "Provider", value: config.llmProvider },
-    { section: "Model", label: "Model", value: config.llmModel },
-    { section: "Model", label: "Reasoning", value: formatReasoningSelection(config.reasoning) },
+    { section: "Model", label: "Provider", value: config.llm.provider },
+    { section: "Model", label: "Model", value: config.llm.model },
+    { section: "Model", label: "Reasoning", value: formatReasoningSelection(config.llm.reasoning) },
     ...priceFields(agent, metadata),
   ];
   if (
-    isLocalServerProvider(config.llmProvider) &&
-    (config.llmProvider !== "ollama" || !isOllamaCloudModel(config.llmModel))
+    isLocalServerProvider(config.llm.provider) &&
+    (config.llm.provider !== "ollama" || !isOllamaCloudModel(config.llm.model))
   ) {
     fields.push({
       section: "Model",
@@ -83,24 +83,24 @@ export function agentDetailFields(
     });
   }
   fields.push(
-    { section: "Model", label: "Summarizer", value: config.summarizerModel ?? "primary model" },
+    { section: "Model", label: "Summarizer", value: config.llm.summarizerModel ?? "primary model" },
     { section: "Model", label: "Persona", value: config.persona },
     {
       section: "Model",
       label: "Temperature",
-      value: config.temperature?.toString() ?? "provider default",
+      value: config.llm.temperature?.toString() ?? "provider default",
     },
     {
       section: "Model",
       label: "Context limit",
-      value: config.maxContextTokens?.toLocaleString() ?? "model default",
+      value: config.llm.maxContextTokens?.toLocaleString() ?? "model default",
     },
   );
-  if (config.llmProvider === "ollama") {
+  if (config.llm.provider === "ollama") {
     fields.push({
       section: "Model",
       label: "Ollama num_ctx",
-      value: config.numCtx?.toLocaleString() ?? "server default",
+      value: config.llm.numCtx?.toLocaleString() ?? "server default",
     });
   }
   fields.push(
@@ -125,7 +125,7 @@ export function agentDetailFields(
   }
   if ((config.customTools?.length ?? 0) === 0)
     fields.push({ section: "Custom tools", label: "Tools", value: "none" });
-  if (config.llmApiKeys !== undefined && Object.keys(config.llmApiKeys).length > 0) {
+  if (config.llm.apiKeys !== undefined && Object.keys(config.llm.apiKeys).length > 0) {
     fields.push({ section: "Credentials", label: "Agent API keys", value: "configured (hidden)" });
   }
   return fields;

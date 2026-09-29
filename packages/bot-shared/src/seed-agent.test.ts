@@ -34,9 +34,7 @@ describe("ensureSeedAgent", () => {
       description: "Everyday assistant reachable from Telegram.",
       config: {
         agentType: "default",
-        llmProvider: "openai",
-        llmModel: "gpt-5.4",
-        reasoning: "medium",
+        llm: { provider: "openai", model: "gpt-5.4", reasoning: "medium" },
         persona: "default",
         tools: [...DEFAULT_BRIDGE_TOOLS],
       },
@@ -48,15 +46,15 @@ describe("ensureSeedAgent", () => {
     ensureSeedAgent(dataDir, SPEC);
 
     const edited = readAgent(dataDir, "telegram");
-    (edited["config"] as Record<string, unknown>)["llmModel"] = "claude-sonnet-5";
+    ((edited["config"] as Record<string, unknown>)["llm"] as Record<string, unknown>)["model"] =
+      "claude-sonnet-5";
     writeFileSync(agentPath(dataDir, "telegram"), JSON.stringify(edited));
 
     // The entrypoint's sed rewrote this file on every restart, so a redeploy
     // silently put the default model back. Seeding in-process does not.
     expect(ensureSeedAgent(dataDir, SPEC)).toBe(false);
-    expect((readAgent(dataDir, "telegram")["config"] as Record<string, unknown>)["llmModel"]).toBe(
-      "claude-sonnet-5",
-    );
+    const config = readAgent(dataDir, "telegram")["config"] as { llm: Record<string, unknown> };
+    expect(config.llm["model"]).toBe("claude-sonnet-5");
   });
 
   test("gives every bridge the same toolset, which is a product decision", () => {

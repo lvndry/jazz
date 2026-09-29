@@ -44,7 +44,7 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 
 Jazz resolves a provider key in this order:
 
-1. an agent-specific `config.llmApiKeys` override;
+1. an agent-specific `config.llm.apiKeys` override;
 2. the global provider configuration;
 3. the provider's environment variable.
 
@@ -56,7 +56,7 @@ To set a key by hand, run `jazz config set <provider>` (for example `jazz config
 
 In the interactive **Settings** → **LLM Providers** and **Web Search Providers** menus, a configured key stays masked. Press `e` to replace it or `c` to copy it to the system clipboard. Press `Esc` at the key prompt to keep the saved key and return to the provider list. Jazz never prints the key in the terminal. ChatGPT's OAuth credential can also be copied from its provider settings. It includes the refresh token. For hosted CI, set the copied JSON bundle as `JAZZ_CHATGPT_CREDENTIAL`; Jazz removes it from its child-process environment, stores it in its normal private credential store, and refreshes it automatically. A workflow must persist rotated bundles if its runners are ephemeral.
 
-For CI and containers, inject the environment variable from the platform's secret store. Do not commit provider keys in an agent JSON file merely because `llmApiKeys` exists.
+For CI and containers, inject the environment variable from the platform's secret store. Do not commit provider keys in an agent JSON file merely because `llm.apiKeys` exists.
 
 ## ChatGPT subscription
 
@@ -154,7 +154,7 @@ The default API base URL is `http://127.0.0.1:11434/api`. The first time `jazz a
 }
 ```
 
-During agent creation Jazz asks for `numCtx`, the context window sent to Ollama as `num_ctx`. Set it to a value the model and host can actually sustain. Without it, Jazz cannot know a server-level `OLLAMA_CONTEXT_LENGTH` override and may compact later than the server truncates.
+During agent creation Jazz asks for `llm.numCtx`, the context window sent to Ollama as `num_ctx`. Set it to a value the model and host can actually sustain. Without it, Jazz cannot know a server-level `OLLAMA_CONTEXT_LENGTH` override and may compact later than the server truncates.
 
 `keep_alive` controls how long Ollama keeps the model loaded. `-1` keeps it resident; an omitted value uses Ollama's default.
 
@@ -264,13 +264,13 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
   and follows the provider's `Retry-After`; a provider asking for more than two minutes fails the
   call instead of waiting.
 - "Prompt is too long": Jazz compacts the conversation (or trims it when it cannot compact) and
-  retries once. A second rejection fails the run; lower the agent's `maxContextTokens` to match
+  retries once. A second rejection fails the run; lower the agent's `llm.maxContextTokens` to match
   what the server really holds.
 - Unknown model: rerun agent editing after the provider catalog is reachable; do not copy a model name from an old documentation page.
 - Local connection errors: start the server and verify its base URL from the Jazz host, not from your laptop when Jazz runs elsewhere.
 - Tool-call failures on llama.cpp: confirm the model template supports tools and the server was started with `--jinja`.
 - Tool-call failures on vLLM: confirm the model's chat template, automatic tool choice, and matching parser are configured on the server.
 - Tool-call failures on SGLang: confirm the model's chat template and matching `--tool-call-parser` are configured on the server.
-- Unexpected context truncation on Ollama: pin `numCtx` on the agent and ensure the server can allocate it.
+- Unexpected context truncation on Ollama: pin `llm.numCtx` on the agent and ensure the server can allocate it.
 
 Read [Creating agents](../getting-started/create-an-agent.md), [Local models](../getting-started/local-models.md), and [Adding a provider](../maintainers/add-a-provider.md) next.

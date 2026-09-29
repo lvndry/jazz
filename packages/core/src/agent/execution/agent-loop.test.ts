@@ -196,8 +196,7 @@ function makeOptions(overrides?: Partial<AgentRunnerOptions>): AgentRunnerOption
       name: "test-agent",
       config: {
         persona: "default",
-        llmModel: "gpt-4",
-        llmProvider: "openai",
+        llm: { provider: "openai", model: "gpt-4" },
         reasoningEffort: "medium",
       },
     } as any,
@@ -243,8 +242,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
       name: "test-agent",
       config: {
         persona: "default",
-        llmModel: "gpt-4",
-        llmProvider: "openai",
+        llm: { provider: "openai", model: "gpt-4" },
         reasoningEffort: "medium",
       },
     } as any,
@@ -781,7 +779,7 @@ describe("executeAgentLoop", () => {
     const options = makeOptions();
     const agentWithCeiling = {
       ...options.agent,
-      config: { ...options.agent.config, maxContextTokens },
+      config: { ...options.agent.config, llm: { ...options.agent.config.llm, maxContextTokens } },
     } as any;
 
     await Effect.runPromise(
@@ -914,7 +912,10 @@ describe("executeAgentLoop", () => {
     const options = makeOptions();
     const agentWithCeiling = {
       ...options.agent,
-      config: { ...options.agent.config, maxContextTokens: Math.ceil(usedTokens / 0.9) },
+      config: {
+        ...options.agent.config,
+        llm: { ...options.agent.config.llm, maxContextTokens: Math.ceil(usedTokens / 0.9) },
+      },
     } as any;
     const { observer, calls } = recordingObserver();
 
@@ -1011,7 +1012,7 @@ describe("executeAgentLoop", () => {
     const options = makeOptions();
     const agentWithCeiling = {
       ...options.agent,
-      config: { ...options.agent.config, maxContextTokens },
+      config: { ...options.agent.config, llm: { ...options.agent.config.llm, maxContextTokens } },
     } as any;
 
     const result = await Effect.runPromise(
@@ -1134,7 +1135,10 @@ describe("executeAgentLoop", () => {
     expect(totalTokens).toBeLessThan(128_000 * 0.8);
 
     const options = makeOptions();
-    const agent = { ...options.agent, config: { ...options.agent.config, llmModel: model } } as any;
+    const agent = {
+      ...options.agent,
+      config: { ...options.agent.config, llm: { ...options.agent.config.llm, model } },
+    } as any;
 
     await Effect.runPromise(
       executeAgentLoop(
@@ -2228,10 +2232,12 @@ describe("executeAgentLoop context window accounting", () => {
       name: "local-agent",
       config: {
         persona: "default",
-        llmModel: "qwen3.6:27b",
-        llmProvider: "ollama",
-        reasoningEffort: "medium",
-        ...(numCtx !== undefined && { numCtx }),
+        llm: {
+          provider: "ollama",
+          model: "qwen3.6:27b",
+          reasoningEffort: "medium",
+          ...(numCtx !== undefined && { numCtx }),
+        },
       },
     };
   }

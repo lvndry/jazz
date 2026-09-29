@@ -192,9 +192,7 @@ async function assess(fixture: Fixture, model: string, provider: string) {
         model: `${provider}/${model}`,
         config: {
           persona: "default",
-          llmProvider: provider,
-          llmModel: model,
-          reasoningEffort: "disable",
+          llm: { provider, model },
           tools: [],
           memoryScopes: [],
         },

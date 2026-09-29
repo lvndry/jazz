@@ -213,7 +213,7 @@ describe("reclaiming a detached conversation", () => {
   test("the same agent and conversation can be handed to the same host again", async () => {
     const { workspaceRoot, initialDirectory, resultDirectory } = await handOffAndWorkRemotely();
     await applyDetachResult({ initialDirectory, resultDirectory, overwriteConflicts: false });
-    await writeAgent({ persona: "default", llmModel: "changed-locally" });
+    await writeAgent({ persona: "default", llm: { model: "changed-locally" } });
     const secondBundle = path.join(root, "second");
     await createDetachSnapshot({
       ...ids,

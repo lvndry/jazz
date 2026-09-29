@@ -65,7 +65,7 @@ Before writing any files, ask the user which model they want the agents to run o
 - **Model**: e.g. `gpt-5.4-mini` (OpenAI) or whatever the provider exposes
 - **Secret name**: the API key that goes with it (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, etc.)
 
-Record the chosen `llmProvider` + `llmModel` and the secret name — every later step uses them. Don't assume a provider; the user may prefer OpenRouter or another. If they have no preference, suggest OpenAI `gpt-5.4-mini` as a sensible default but still confirm. The agent configs in this repo (step 3) are **examples to adapt**, not a verbatim copy.
+Record the chosen `llm.provider` + `llm.model` and the secret name — every later step uses them. Don't assume a provider; the user may prefer OpenRouter or another. If they have no preference, suggest OpenAI `gpt-5.4-mini` as a sensible default but still confirm. The agent configs in this repo (step 3) are **examples to adapt**, not a verbatim copy.
 
 ### 2. Create the driver workflow
 
@@ -92,9 +92,11 @@ The key design:
   "description": "Adversarial CI review board lead — spawns specialist sub-agents and cross-examines their findings",
   "config": {
     "persona": "coder",
-    "llmProvider": "openai",
-    "llmModel": "gpt-5.4-mini",
-    "reasoning": "medium",
+    "llm": {
+      "provider": "openai",
+      "model": "gpt-5.4-mini",
+      "reasoning": "medium"
+    },
     "tools": [
       "context_info",
       "find",
@@ -118,9 +120,11 @@ The key design:
   "description": "Pull request assistant agent for /jazz PR comments",
   "config": {
     "persona": "coder",
-    "llmProvider": "openai",
-    "llmModel": "gpt-5.4-mini",
-    "reasoning": "medium",
+    "llm": {
+      "provider": "openai",
+      "model": "gpt-5.4-mini",
+      "reasoning": "medium"
+    },
     "tools": [
       "context_info",
       "find",
@@ -135,7 +139,7 @@ The key design:
 }
 ```
 
-The config has no top-level `model` field: the model is set entirely inside `config` via `llmProvider` and `llmModel`. Neither agent gets `write_file`, `edit_file` or `http_request`: both only read the checkout, and the posting steps own every write to GitHub.
+The config has no top-level `model` field: the model is set entirely inside `config` via `llm.provider` and `llm.model`. Neither agent gets `write_file`, `edit_file` or `http_request`: both only read the checkout, and the posting steps own every write to GitHub.
 
 ### 3. Create workflow instructions
 
@@ -174,9 +178,9 @@ You **must** add a model-provider API key as a GitHub Actions secret, or the wor
 1. In your repo: **Settings → Secrets and variables → Actions → New repository secret**.
 2. Add the key for the provider your agents actually use:
    - `<PROVIDER>_API_KEY` — the variable name for the provider your agents name:
-     `OPENAI_API_KEY` for the bundled configs (`config.llmProvider: openai`),
+     `OPENAI_API_KEY` for the bundled configs (`config.llm.provider: openai`),
      `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, and so on
-3. **Use any model/provider you like.** Edit `config.llmProvider` and `config.llmModel` in `.github/jazz/agents/*.json`, then add the corresponding key. The workflow reads whichever key is set; only one is required.
+3. **Use any model/provider you like.** Edit `config.llm.provider` and `config.llm.model` in `.github/jazz/agents/*.json`, then add the corresponding key. The workflow reads whichever key is set; only one is required.
 
 `GITHUB_TOKEN` is provided automatically — you don't create it.
 
@@ -251,7 +255,7 @@ When a run fails, the posting step comments the cause ("Review skipped: provider
 
 ## Common Customizations
 
-- **Different model**: Change `config.llmProvider` and `config.llmModel` in the agent JSON, and add the matching provider key as a secret
+- **Different model**: Change `config.llm.provider` and `config.llm.model` in the agent JSON, and add the matching provider key as a secret
 - **Stricter/looser review**: Edit the code-review WORKFLOW.md's board lenses and verdict bar
 - **Add a custom agent**: Create a new agent JSON + WORKFLOW.md + workflow job
 - **Fork PRs**: Remove the `head.repo.full_name == github.repository` guard if you trust fork PRs (not recommended — a fork's `GITHUB_TOKEN` can't reach your secrets)

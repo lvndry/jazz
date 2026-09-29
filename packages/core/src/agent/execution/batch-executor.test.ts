@@ -101,8 +101,7 @@ function makeOptions(): AgentRunnerOptions {
       name: "test-agent",
       config: {
         persona: "default",
-        llmModel: "qwen3-coder",
-        llmProvider: "ollama",
+        llm: { provider: "ollama", model: "qwen3-coder" },
         reasoningEffort: "disable",
       },
     } as any,
@@ -116,8 +115,7 @@ function makeRunContext(): AgentRunContext {
     name: "test-agent",
     config: {
       persona: "default",
-      llmModel: "qwen3-coder",
-      llmProvider: "ollama",
+      llm: { provider: "ollama", model: "qwen3-coder" },
       reasoningEffort: "disable",
     },
   } as any;

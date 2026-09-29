@@ -968,10 +968,10 @@ function resolveWebSearchProviderLabel(
 
     // 2. Check if the agent's LLM provider supports native web search
     const llmService = yield* LLMServiceTag;
-    const supportsNative = yield* llmService.supportsNativeWebSearch(agent.config.llmProvider);
+    const supportsNative = yield* llmService.supportsNativeWebSearch(agent.config.llm.provider);
     if (supportsNative) {
       const providerName =
-        agent.config.llmProvider.charAt(0).toUpperCase() + agent.config.llmProvider.slice(1);
+        agent.config.llm.provider.charAt(0).toUpperCase() + agent.config.llm.provider.slice(1);
       return `via ${providerName} (native)`;
     }
 
@@ -1017,10 +1017,10 @@ function handleAgentsCommand(
     const allAgents = sortAgents(allAgentsUnsorted, lastUsedAgentId);
     const rows: ReportRow[] = allAgents.map((listed) => {
       const reasoning =
-        listed.config.reasoning === undefined
+        listed.config.llm.reasoning === undefined
           ? ""
-          : ` · reasoning ${reasoningSelectionToCliValue(listed.config.reasoning)}`;
-      const detail = `${listed.config.llmProvider}/${listed.config.llmModel} · ${listed.config.persona}${reasoning}`;
+          : ` · reasoning ${reasoningSelectionToCliValue(listed.config.llm.reasoning)}`;
+      const detail = `${listed.config.llm.provider}/${listed.config.llm.model} · ${listed.config.persona}${reasoning}`;
       return listed.id === currentAgent.id
         ? { kind: "item", name: listed.name, detail, marker: "current" }
         : { kind: "item", name: listed.name, detail };
@@ -1127,12 +1127,12 @@ function handleSwitchCommand(
         const newAgent = switchResult.agent;
         yield* terminal.setTitle(`🎷 Jazz - ${newAgent.name}`);
         yield* terminal.success(
-          `Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`,
+          `Switched to ${newAgent.name} (${newAgent.config.llm.provider}/${newAgent.config.llm.model})`,
         );
 
         // Check if model supports tools and warn if not
         const modelMeta = yield* Effect.promise(() =>
-          getModelsDevMetadata(newAgent.config.llmModel, newAgent.config.llmProvider),
+          getModelsDevMetadata(newAgent.config.llm.model, newAgent.config.llm.provider),
         );
         if (
           modelMeta &&
@@ -1142,7 +1142,7 @@ function handleSwitchCommand(
         ) {
           yield* terminal.log("");
           yield* terminal.warn(
-            `${newAgent.config.llmModel} does not support tools, so this agent's tools are off for this model.`,
+            `${newAgent.config.llm.model} does not support tools, so this agent's tools are off for this model.`,
           );
         }
 
@@ -1176,7 +1176,7 @@ function handleSwitchCommand(
     // Show interactive prompt with history preservation note
     yield* terminal.info("History will be preserved after switching.");
     const choices = allAgents.map((ag) => ({
-      name: `${ag.name} - ${ag.config.llmProvider}/${ag.config.llmModel} · ${ag.config.persona}${ag.id === currentAgent.id ? " (current)" : ""}`,
+      name: `${ag.name} - ${ag.config.llm.provider}/${ag.config.llm.model} · ${ag.config.persona}${ag.id === currentAgent.id ? " (current)" : ""}`,
       value: ag.id,
     }));
 
@@ -1200,12 +1200,12 @@ function handleSwitchCommand(
     const newAgent = yield* agentService.getAgent(selectedAgentId);
 
     yield* terminal.success(
-      `Switched to ${newAgent.name} (${newAgent.config.llmProvider}/${newAgent.config.llmModel})`,
+      `Switched to ${newAgent.name} (${newAgent.config.llm.provider}/${newAgent.config.llm.model})`,
     );
 
     // Check if model supports tools and warn if not
     const modelMeta = yield* Effect.promise(() =>
-      getModelsDevMetadata(newAgent.config.llmModel, newAgent.config.llmProvider),
+      getModelsDevMetadata(newAgent.config.llm.model, newAgent.config.llm.provider),
     );
     if (
       modelMeta &&
@@ -1215,7 +1215,7 @@ function handleSwitchCommand(
     ) {
       yield* terminal.log("");
       yield* terminal.warn(
-        `${newAgent.config.llmModel} does not support tools, so this agent's tools are off for this model.`,
+        `${newAgent.config.llm.model} does not support tools, so this agent's tools are off for this model.`,
       );
     }
 
@@ -1295,21 +1295,21 @@ function handleCompactCommand(
 
     // The same window a run compacts against, so the recent messages kept verbatim are
     // the same share of it.
-    const provider = agent.config.llmProvider;
+    const provider = agent.config.llm.provider;
     const localConfig =
       provider === "llamacpp" || provider === "vllm" || provider === "sglang"
         ? (yield* (yield* AgentConfigServiceTag).appConfig).llm
         : undefined;
     const servedVllm =
       provider === "vllm"
-        ? yield* resolveVllmServerModel(agent.config.llmModel, localConfig)
+        ? yield* resolveVllmServerModel(agent.config.llm.model, localConfig)
         : undefined;
     const servedSglang =
       provider === "sglang"
-        ? yield* resolveSglangServerModel(agent.config.llmModel, localConfig)
+        ? yield* resolveSglangServerModel(agent.config.llm.model, localConfig)
         : undefined;
     const advertisedContextWindow = yield* getModelContextWindowEffect(
-      servedVllm?.modelId ?? servedSglang?.modelId ?? agent.config.llmModel,
+      servedVllm?.modelId ?? servedSglang?.modelId ?? agent.config.llm.model,
       provider,
     );
     const servedContextWindow =
@@ -1319,12 +1319,12 @@ function handleCompactCommand(
     const contextWindow = resolveEffectiveContextWindow({
       provider,
       ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
-      ...(typeof agent.config.numCtx === "number" && {
-        pinnedContextWindow: agent.config.numCtx,
+      ...(typeof agent.config.llm.numCtx === "number" && {
+        pinnedContextWindow: agent.config.llm.numCtx,
       }),
       ...(typeof servedContextWindow === "number" && { serverContextWindow: servedContextWindow }),
-      ...(typeof agent.config.maxContextTokens === "number" && {
-        agentMaxTokens: agent.config.maxContextTokens,
+      ...(typeof agent.config.llm.maxContextTokens === "number" && {
+        agentMaxTokens: agent.config.llm.maxContextTokens,
       }),
     }).tokens;
 
@@ -1516,7 +1516,10 @@ function handleReasoningCommand(
     // Session-only: override the in-memory agent config without persisting it.
     const newAgent = {
       ...agent,
-      config: { ...agent.config, reasoning: reasoningSelectionFromCliValue(value) },
+      config: {
+        ...agent.config,
+        llm: { ...agent.config.llm, reasoning: reasoningSelectionFromCliValue(value) },
+      },
     };
     return { shouldContinue: true, newAgent };
   };
@@ -1524,11 +1527,11 @@ function handleReasoningCommand(
   return Effect.gen(function* () {
     const llmService = yield* LLMServiceTag;
     const control = yield* llmService.resolveReasoningControl(
-      agent.config.llmProvider,
-      agent.config.llmModel,
+      agent.config.llm.provider,
+      agent.config.llm.model,
     );
-    const modelLabel = `${agent.config.llmProvider}/${agent.config.llmModel}`;
-    const supported = reasoningChoicesFor(control, agent.config.reasoning);
+    const modelLabel = `${agent.config.llm.provider}/${agent.config.llm.model}`;
+    const supported = reasoningChoicesFor(control, agent.config.llm.reasoning);
 
     if (args.length > 0) {
       const value = args[0] ?? "";
@@ -1557,7 +1560,7 @@ function handleReasoningCommand(
 
     if (terminal.isInteractive) {
       const selected = yield* Effect.promise(() =>
-        promptForReasoningSelection(terminal, agent.config.reasoning, {
+        promptForReasoningSelection(terminal, agent.config.llm.reasoning, {
           prompt: "Set reasoning effort for this session:",
           control,
         }),
@@ -1573,8 +1576,8 @@ function handleReasoningCommand(
       return applyValue(value);
     }
 
-    const adjustment = describeReasoningAdjustment(agent.config.reasoning, control);
-    const current = reasoningSelectionToCliValue(agent.config.reasoning);
+    const adjustment = describeReasoningAdjustment(agent.config.llm.reasoning, control);
+    const current = reasoningSelectionToCliValue(agent.config.llm.reasoning);
     yield* terminal.log(
       report(
         "reasoning",
@@ -1609,19 +1612,22 @@ function handleModelCommand(
 ): Effect.Effect<CommandResult, never, LLMService> {
   return Effect.gen(function* () {
     const llmService = yield* LLMServiceTag;
-    const provider = agent.config.llmProvider;
-    const current = `${provider}/${agent.config.llmModel}`;
+    const provider = agent.config.llm.provider;
+    const current = `${provider}/${agent.config.llm.model}`;
     const providerInfo = yield* llmService.getProvider(provider).pipe(Effect.either);
     const models = providerInfo._tag === "Right" ? providerInfo.right.supportedModels : [];
 
     const applyModel = (modelId: string) =>
       Effect.gen(function* () {
-        if (modelId === agent.config.llmModel) {
+        if (modelId === agent.config.llm.model) {
           yield* terminal.info(`Already using ${current}.`);
           yield* terminal.log("");
           return { shouldContinue: true } satisfies CommandResult;
         }
-        const newAgent = { ...agent, config: { ...agent.config, llmModel: modelId } };
+        const newAgent = {
+          ...agent,
+          config: { ...agent.config, llm: { ...agent.config.llm, model: modelId } },
+        };
         yield* terminal.log(
           report(
             "model",
@@ -1685,7 +1691,7 @@ function handleModelCommand(
     }
 
     const selected = yield* terminal.search<string>(
-      `Model for this session (now ${agent.config.llmModel}):`,
+      `Model for this session (now ${agent.config.llm.model}):`,
       {
         choices: buildModelChoices(provider, models),
         placeholder: "Type to filter models…",
@@ -1967,12 +1973,12 @@ function handleConfigCommand(
           {
             kind: "field",
             key: "model",
-            value: `${agent.config.llmProvider}/${agent.config.llmModel}`,
+            value: `${agent.config.llm.provider}/${agent.config.llm.model}`,
           },
           {
             kind: "field",
             key: "reasoning",
-            value: reasoningSelectionToCliValue(agent.config.reasoning),
+            value: reasoningSelectionToCliValue(agent.config.llm.reasoning),
           },
           { kind: "field", key: "tools", value: `${String(agentToolNames.length)} on` },
           ...(shownTools.length === 0
@@ -2452,7 +2458,7 @@ function handleInfoCommand(
     );
     const { promptTokens, completionTokens } = context.sessionUsage;
     const meta = yield* Effect.promise(() =>
-      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+      getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
     );
     const inputCost = (promptTokens / 1_000_000) * (meta?.inputPricePerMillion ?? 0);
     const outputCost = (completionTokens / 1_000_000) * (meta?.outputPricePerMillion ?? 0);
@@ -2480,12 +2486,12 @@ function handleInfoCommand(
         {
           kind: "field",
           key: "model",
-          value: `${agent.config.llmProvider}/${agent.config.llmModel}`,
+          value: `${agent.config.llm.provider}/${agent.config.llm.model}`,
         },
         {
           kind: "field",
           key: "reasoning",
-          value: reasoningSelectionToCliValue(agent.config.reasoning),
+          value: reasoningSelectionToCliValue(agent.config.llm.reasoning),
         },
         { kind: "field", key: "tools", value: `${String(totalTools)} on` },
         { kind: "field", key: "folder", value: abbreviateHomePath(workingDirectory) },
@@ -3360,27 +3366,27 @@ function handleContextCommand(
     const { compactThresholdRatio } = resolveContextThresholds(appConfig.context);
 
     // Get model information
-    const provider = agent.config.llmProvider;
+    const provider = agent.config.llm.provider;
     const servedVllm =
       provider === "vllm"
-        ? yield* resolveVllmServerModel(agent.config.llmModel, appConfig.llm)
+        ? yield* resolveVllmServerModel(agent.config.llm.model, appConfig.llm)
         : undefined;
     const servedSglang =
       provider === "sglang"
-        ? yield* resolveSglangServerModel(agent.config.llmModel, appConfig.llm)
+        ? yield* resolveSglangServerModel(agent.config.llm.model, appConfig.llm)
         : undefined;
-    const modelId = servedVllm?.modelId ?? servedSglang?.modelId ?? agent.config.llmModel;
+    const modelId = servedVllm?.modelId ?? servedSglang?.modelId ?? agent.config.llm.model;
     const advertisedContextWindow = yield* getModelContextWindowEffect(modelId, provider);
     const serverContextWindow = servedVllm?.contextWindow ?? servedSglang?.contextWindow;
     const effectiveContextWindow = resolveEffectiveContextWindow({
       provider,
       ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
       ...(serverContextWindow !== undefined && { serverContextWindow }),
-      ...(typeof agent.config.numCtx === "number" && {
-        pinnedContextWindow: agent.config.numCtx,
+      ...(typeof agent.config.llm.numCtx === "number" && {
+        pinnedContextWindow: agent.config.llm.numCtx,
       }),
-      ...(typeof agent.config.maxContextTokens === "number" && {
-        agentMaxTokens: agent.config.maxContextTokens,
+      ...(typeof agent.config.llm.maxContextTokens === "number" && {
+        agentMaxTokens: agent.config.llm.maxContextTokens,
       }),
     });
     const contextWindow = effectiveContextWindow.tokens;
@@ -3451,7 +3457,7 @@ function handleCostCommand(
   return Effect.gen(function* () {
     const { promptTokens, completionTokens } = sessionUsage;
     const totalTokens = promptTokens + completionTokens;
-    const model = `${agent.config.llmProvider}/${agent.config.llmModel}`;
+    const model = `${agent.config.llm.provider}/${agent.config.llm.model}`;
 
     if (totalTokens === 0) {
       yield* terminal.log(
@@ -3461,7 +3467,7 @@ function handleCostCommand(
     }
 
     const meta = yield* Effect.promise(() =>
-      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+      getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
     );
     const priced =
       meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined;

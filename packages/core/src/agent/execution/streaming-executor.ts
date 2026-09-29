@@ -67,7 +67,7 @@ export function executeWithStreaming(
     const { runMetrics, provider, model, actualConversationId } = runContext;
     const maxRetries = runContext.maxRetries ?? DEFAULT_MAX_LLM_RETRIES;
 
-    const reasoning = agent.config.reasoning;
+    const reasoning = agent.config.llm.reasoning;
     const reasoningLabel = describeReasoningSelection(reasoning);
     const shouldShowReasoning = displayConfig.showReasoning && reasoningIsEnabled(reasoning);
 
@@ -129,11 +129,13 @@ export function executeWithStreaming(
             tools: runContext.tools,
             toolChoice: toolsAllowed ? ("auto" as const) : ("none" as const),
             ...(reasoning !== undefined ? { reasoning } : {}),
-            ...(typeof agent.config.temperature === "number"
-              ? { temperature: agent.config.temperature }
+            ...(typeof agent.config.llm.temperature === "number"
+              ? { temperature: agent.config.llm.temperature }
               : {}),
-            ...(typeof agent.config.numCtx === "number" ? { num_ctx: agent.config.numCtx } : {}),
-            ...(agent.config.llmApiKeys ? { providerApiKeys: agent.config.llmApiKeys } : {}),
+            ...(typeof agent.config.llm.numCtx === "number"
+              ? { num_ctx: agent.config.llm.numCtx }
+              : {}),
+            ...(agent.config.llm.apiKeys ? { providerApiKeys: agent.config.llm.apiKeys } : {}),
           };
 
           const showAgentStatus = (
@@ -177,7 +179,7 @@ export function executeWithStreaming(
                       LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
                     yield* logger.error("Stream event error", {
                       provider,
-                      model: agent.config.llmModel,
+                      model: agent.config.llm.model,
                       errorType: error._tag,
                       message: error.message,
                       recoverable: event.recoverable,
@@ -233,7 +235,7 @@ export function executeWithStreaming(
                 ) {
                   yield* logger.error("LLM request error", {
                     provider,
-                    model: agent.config.llmModel,
+                    model: agent.config.llm.model,
                     errorType: error._tag,
                     message: error.message,
                     agentId: agent.id,
@@ -275,7 +277,7 @@ export function executeWithStreaming(
                         count === STREAMING_FAILURES_BEFORE_FALLBACK
                           ? logger.warn("Streaming failed, falling back to non-streaming mode", {
                               provider,
-                              model: agent.config.llmModel,
+                              model: agent.config.llm.model,
                               errorType: error._tag,
                               message: error.message,
                               agentId: agent.id,

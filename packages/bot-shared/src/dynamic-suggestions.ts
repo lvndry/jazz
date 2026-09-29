@@ -153,7 +153,7 @@ function ensureSuggestAgent(options: SuggestionRunOptions): void {
   template.id = options.suggestAgentId;
   template.name = options.suggestAgentId;
   template.config["tools"] = [];
-  template.config.reasoning = "disable";
+  template.config.llm.reasoning = "disable";
   writeAgentFile(options.sandbox.home, template, sandboxOwnership(options.sandbox));
 }
 

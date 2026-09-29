@@ -229,10 +229,10 @@ export class ChatServiceImpl implements ChatService {
       const configService = yield* AgentConfigServiceTag;
       const appConfig = yield* configService.appConfig;
       const llmService = yield* LLMServiceTag;
-      const reasoning = reasoningEffortLabel(agent.config.reasoning);
+      const reasoning = reasoningEffortLabel(agent.config.llm.reasoning);
       store.resetRunStats({
-        provider: agent.config.llmProvider,
-        model: agent.config.llmModel,
+        provider: agent.config.llm.provider,
+        model: agent.config.llm.model,
         ...(reasoning === undefined ? {} : { reasoning }),
         localModelHosts: resolveLocalModelHosts(llmService, appConfig.llm),
       });
@@ -631,9 +631,9 @@ export class ChatServiceImpl implements ChatService {
             if (commandResult.newAgent !== undefined) {
               agent = commandResult.newAgent;
               store.updateRunStats({
-                provider: agent.config.llmProvider,
-                model: agent.config.llmModel,
-                reasoning: reasoningEffortLabel(agent.config.reasoning),
+                provider: agent.config.llm.provider,
+                model: agent.config.llm.model,
+                reasoning: reasoningEffortLabel(agent.config.llm.reasoning),
               });
               // Update working directory in store after agent switch
               const fileSystemContext = yield* FileSystemContextServiceTag;

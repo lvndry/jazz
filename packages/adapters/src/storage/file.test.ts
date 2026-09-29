@@ -42,7 +42,7 @@ const mockFS = {
 const AGENT: Agent = {
   id: "a1",
   name: "Agent 1",
-  config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
+  config: { persona: "default", llm: { provider: "openai", model: "gpt-4" } },
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -79,7 +79,7 @@ describe("FileStorageService", () => {
         JSON.stringify({
           id: "a1",
           name: "Agent 1",
-          config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
+          config: { persona: "default", llm: { provider: "openai", model: "gpt-4" } },
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }),
@@ -93,6 +93,27 @@ describe("FileStorageService", () => {
     expect(result[0]!.id).toBe("a1");
   });
 
+  it("reports an agent file with the flat model fields as unreadable", async () => {
+    // @ts-expect-error - mocking
+    mockFS.readDirectory.mockReturnValueOnce(Effect.succeed(["old.json"]));
+    // @ts-expect-error - mocking
+    mockFS.readFileString.mockReturnValueOnce(
+      Effect.succeed(
+        JSON.stringify({
+          id: "old",
+          name: "Old",
+          config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
+        }),
+      ),
+    );
+
+    const inspection = await Effect.runPromise(service.inspectAgentFiles());
+
+    expect(inspection.agents).toEqual([]);
+    expect(inspection.unreadable).toHaveLength(1);
+    expect(inspection.unreadable[0]?.reason).toContain("Missing config.llm");
+  });
+
   it("should list agents when createdAt and updatedAt are omitted from JSON", async () => {
     // @ts-expect-error - mocking
     mockFS.readDirectory.mockReturnValueOnce(Effect.succeed(["a1.json"]));
@@ -102,7 +123,7 @@ describe("FileStorageService", () => {
         JSON.stringify({
           id: "a1",
           name: "Agent 1",
-          config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
+          config: { persona: "default", llm: { provider: "openai", model: "gpt-4" } },
         }),
       ),
     );

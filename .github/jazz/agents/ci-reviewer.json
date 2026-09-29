@@ -4,9 +4,11 @@
   "description": "Adversarial CI review board lead: spawns specialist sub-agents and cross-examines their findings",
   "config": {
     "persona": "coder",
-    "llmProvider": "chatgpt",
-    "llmModel": "gpt-6-luna",
-    "reasoning": "medium",
+    "llm": {
+      "provider": "chatgpt",
+      "model": "gpt-6-luna",
+      "reasoning": "medium"
+    },
     "tools": [
       "context_info",
       "find",

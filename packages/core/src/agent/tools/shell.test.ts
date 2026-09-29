@@ -307,8 +307,7 @@ describe("Shell Tools", () => {
         name: "test-agent",
         config: {
           persona: "default",
-          llmProvider: "openai",
-          llmModel: "gpt-4o",
+          llm: { provider: "openai", model: "gpt-4o" },
           envAllowlist: ["MY_ALLOWED_TOKEN"],
         } as Agent["config"],
         createdAt: new Date(),

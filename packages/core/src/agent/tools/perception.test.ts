@@ -57,8 +57,7 @@ const parentAgent: Agent = {
   description: "",
   config: {
     persona: "default",
-    llmProvider: "mistral",
-    llmModel: "mistral-small",
+    llm: { provider: "mistral", model: "mistral-small" },
   },
   createdAt: new Date(),
   updatedAt: new Date(),
