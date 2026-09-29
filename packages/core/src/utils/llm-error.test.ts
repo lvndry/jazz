@@ -247,9 +247,9 @@ describe("locally-rejected requests are not retried", () => {
     });
     const converted = convertToLLMError(signInError, "chatgpt");
 
-    expect(converted).toMatchObject({ permanent: true, message: "Not signed in to ChatGPT" });
+    expect(converted).toBeInstanceOf(LLMAuthenticationError);
+    expect((converted as LLMAuthenticationError).message).toContain("jazz config");
     expect(isRetryableLLMError(converted)).toBe(false);
-    expect(describeRetryableLLMError(converted)).toBe("rejected request");
   });
 });
 

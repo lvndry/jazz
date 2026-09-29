@@ -224,11 +224,13 @@ export function isConnectionError(error: unknown): boolean {
  * images, raises UnsupportedFunctionalityError and was retried eleven times.
  *
  * Deliberately excluded: `AI_LoadAPIKeyError`, so the friendlier API-key guidance below still
- * wins; and response-side failures (`AI_JSONParseError`, `AI_EmptyResponseBodyError`,
- * `AI_NoContentGeneratedError`), where a retry can legitimately succeed against a flaky server.
+ * wins; response-side failures (`AI_JSONParseError`, `AI_EmptyResponseBodyError`,
+ * `AI_NoContentGeneratedError`), where a retry can legitimately succeed against a flaky server;
+ * and `ChatGPTSignInRequiredError`, which `isCredentialFailure` below classifies as an
+ * authentication error (its name matches `AUTH_ERROR_NAME`), keeping the sign-in remedy instead
+ * of the generic "provider rejected this request" message.
  */
 const PERMANENT_REQUEST_ERROR_NAMES = new Set([
-  "ChatGPTSignInRequiredError",
   "AI_UnsupportedFunctionalityError",
   "AI_UnsupportedModelVersionError",
   "AI_InvalidArgumentError",
