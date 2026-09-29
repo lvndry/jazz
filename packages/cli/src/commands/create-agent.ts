@@ -57,13 +57,13 @@ import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
-import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
-import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import { promptForReasoningSelection } from "@/cli/helpers/reasoning";
-import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
+import { ensureLocalProviderBaseUrl } from "@/cli/setup/local-provider-url";
+import { ensureProviderApiKey } from "@/cli/setup/provider-api-key";
+import { configureWebSearch } from "@/cli/setup/web-search";
 import { configuredProviderNames } from "@/cli/ui/models/configured-providers";
 import { THEME } from "@/cli/ui/theme";
-import { ollamaOrigin, probeOllamaModels } from "./home-detection";
+import { ollamaOrigin, probeOllamaModels } from "../helpers/provider-detection";
 
 /**
  * CLI commands for creating AI agents
@@ -1073,7 +1073,7 @@ export async function promptForAgentInfo(
 
           if (selectedTools.includes(WEB_SEARCH_CATEGORY.displayName)) {
             const webSearchProvider = await Effect.runPromise(
-              handleWebSearchConfiguration(
+              configureWebSearch(
                 terminal,
                 configService,
                 llmService,

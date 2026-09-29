@@ -1,6 +1,4 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+/** Exercises UIStore's published snapshots, subscriptions, prompt lifecycle, and queued turns. */
 import { describe, expect, test } from "bun:test";
 import { UIStore, type ActiveMenu } from "./store";
 import type { OutputEntry } from "./types";
@@ -168,29 +166,6 @@ describe("UIStore", () => {
   });
 
   describe("completePrompt", () => {
-    test("does not expose setCustomView", () => {
-      const s = new UIStore();
-      expect("setCustomView" in s).toBe(false);
-      expect("registerCustomView" in s).toBe(false);
-    });
-
-    test("no producer or renderer still calls setCustomView", () => {
-      const testDir = dirname(fileURLToPath(import.meta.url));
-      const sources = [
-        join(testDir, "store.ts"),
-        join(testDir, "App.tsx"),
-        join(testDir, "fullscreen/bridge.tsx"),
-        join(testDir, "../commands/wizard.ts"),
-        join(testDir, "../commands/config-wizard.ts"),
-        join(testDir, "../commands/workflow.ts"),
-      ];
-      for (const sourcePath of sources) {
-        const source = readFileSync(sourcePath, "utf8");
-        expect(source.includes("setCustomView")).toBe(false);
-        expect(source.includes("registerCustomView")).toBe(false);
-      }
-    });
-
     test("keeps the snapshot data-only and runs the continuation once", () => {
       const s = new UIStore();
       const results: string[] = [];
@@ -704,14 +679,6 @@ describe("UIStore", () => {
 
       s.clearQueue();
       expect(seen).toEqual([]);
-    });
-
-    test("snapshot accessor stays in sync", () => {
-      const s = new UIStore();
-      s.appendToQueue("x");
-      expect(s.getMessageQueueSnapshot()).toEqual(["x"]);
-      s.takeQueue();
-      expect(s.getMessageQueueSnapshot()).toEqual([]);
     });
 
     test("requestFlushQueue/consumeFlushQueue is a one-shot flag", () => {

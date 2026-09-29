@@ -73,23 +73,27 @@ text; a local file edit mutates without egress. Webhook and peer runs first enfo
 ceiling and remove egress tools, then add only tools explicitly named in that caller's `allow` list.
 The receiving installation chooses its agent and policy; a peer cannot import the caller's authority.
 
-URLs the model chooses (`http_request`, `web_fetch`, `read_pdf`, and the pages `create_pdf` and
-`create_composition` render) reach public hosts only. One guarded fetch resolves each hostname,
-refuses loopback, private, link-local (including cloud metadata), CGNAT, IPv4-mapped and
-unspecified addresses in every spelling, re-checks every redirect hop, drops credential and custom
-headers on cross-origin redirects, and streams bodies against a byte cap. An agent reaches your
-own network only through hosts in the global `network.allowPrivateHosts`, or after you approve the
-address, which then joins that list. A project config cannot widen it.
+`http_request` and `web_fetch` are automatically authorized by default, including private
+addresses and calls after untrusted content. The operator can set global `network.httpApproval`
+to a URL array; unmatched calls ask or park, even at high-risk/yolo tiers. One-call approval
+never changes configuration. Each redirect URL must independently match the list or that call's
+exact approved URL. All modes strip credential/custom headers across origins, refuse forwarding
+bodies across origins, reject embedded URL credentials, and stream response bodies against caps.
+
+Other model-selected URL tools (`read_pdf` and rendered pages) reach public hosts by default.
+The guarded fetch checks private addresses and every redirect hop; reaching a private address
+requires the global `network.allowPrivateHosts` grant or call approval. A project configuration
+cannot widen either global network setting.
 
 Tool results that carry someone else's words (web pages, API responses, search results, MCP output,
 peer answers, the output of every shell and custom command, files outside the working directory)
 reach the model inside a labelled `<untrusted-content>` envelope, and a standing system-prompt rule
-tells it to read them as data. Once a run has read external content, egress tools stop
+tells it to read them as data. Once a run has read external content, other egress tools stop
 auto-approving below `high-risk` for the rest of that run and its sub-agents: they prompt, park, or
 are declined. A plain GET of a URL that already appears in the user's messages or in content the run
 read, and `web_search` (which only reaches the configured provider), stay automatic. Jazz cannot
 tell what a command read, so any `execute_command` run counts as external content: after one,
-egress below `high-risk` needs approval.
+other egress below `high-risk` needs approval.
 
 A network-backed command-risk plugin is a separate egress boundary. Jazz projects only the bounded
 command string into `classify.command-risk`; it does not include conversation history, tool results,

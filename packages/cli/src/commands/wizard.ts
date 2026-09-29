@@ -29,12 +29,16 @@ import { Effect } from "effect";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import { agentDetailFields } from "./agent-details";
 import { deleteAgentCommand } from "./agent-management";
-import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
-import { environmentKeyDetections, ollamaOrigin, probeOllamaModels } from "./home-detection";
 import { buildHome } from "./home-surface";
 import { sessionOpenLine } from "./session-open";
+import { settingsWizardCommand } from "./settings-wizard";
+import {
+  environmentKeyDetections,
+  ollamaOrigin,
+  probeOllamaModels,
+} from "../helpers/provider-detection";
 import { configuredProviderNames } from "../ui/models/configured-providers";
 import {
   PICK_AGENT,
@@ -238,7 +242,7 @@ function wizardSession() {
         }
 
         case "settings": {
-          yield* configWizardCommand();
+          yield* settingsWizardCommand();
           yield* terminal.clear();
           break;
         }

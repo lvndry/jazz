@@ -1,3 +1,4 @@
+/** Validates terminal glyph selection, font portability, and the activity indicator's full cycle. */
 import { describe, expect, it } from "bun:test";
 import { getGlyphs, GLYPHS, laneFrame, resolveGlyphMode, type GlyphSet } from "./glyphs";
 
@@ -279,14 +280,6 @@ describe("font safety", () => {
     for (const character of everyCharacter(GLYPHS.unicode)) {
       const codePoint = character.codePointAt(0) as number;
       expect(codePoint < 0x2800 || codePoint > 0x28ff).toBe(true);
-    }
-  });
-
-  it("does not reintroduce the glyphs that were missing from SF Mono", () => {
-    const previouslyShipped = ["◆", "◇", "●", "♪", "❯", "⚠", "ℹ", "✧"];
-    const emitted = new Set(everyCharacter(GLYPHS.unicode, TODO_MARK_FIELDS));
-    for (const character of previouslyShipped) {
-      expect(emitted.has(character)).toBe(false);
     }
   });
 

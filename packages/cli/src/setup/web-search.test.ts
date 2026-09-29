@@ -1,9 +1,10 @@
+/** Regression coverage for cancellation and credential persistence in web-search setup. */
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { LLMService } from "@jazz/core/interfaces/llm";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { handleWebSearchConfiguration } from "./web-search";
+import { configureWebSearch } from "./web-search";
 
 function stubTerminal(overrides: {
   readonly select: TerminalService["select"];
@@ -48,12 +49,10 @@ function stubLlm(supportsNative: boolean): LLMService {
 }
 
 function runWebSearch(terminal: TerminalService, configService: AgentConfigService) {
-  return Effect.runPromise(
-    handleWebSearchConfiguration(terminal, configService, stubLlm(false), "openai"),
-  );
+  return Effect.runPromise(configureWebSearch(terminal, configService, stubLlm(false), "openai"));
 }
 
-describe("handleWebSearchConfiguration", () => {
+describe("configureWebSearch", () => {
   it("returns to the provider picker when Esc is pressed on the API key prompt", async () => {
     let selectCalls = 0;
     let savedKey: string | undefined;

@@ -96,6 +96,32 @@ describe("persistConversationIfNeeded", () => {
     ]);
   });
 
+  test("keeps an unrestricted explicit title when an empty named conversation later receives messages", async () => {
+    const title = `研究  ${"User title 🪷 ".repeat(1000).trim()}`;
+    const input = makeInput({ title, conversationHistory: [] });
+    await runEffect(persistConversationIfNeeded(input, tmpDir));
+    expect(
+      (await runEffect(loadConversation(input.agentId, input.conversationId, tmpDir)))?.title,
+    ).toBe(title);
+    await runEffect(
+      persistConversationIfNeeded(
+        {
+          ...input,
+          conversationHistory: [
+            { role: "user", content: "A different automatically derived title" },
+          ],
+        },
+        tmpDir,
+      ),
+    );
+    const resumed = await runEffect(loadConversation(input.agentId, input.conversationId, tmpDir));
+    expect(resumed?.title).toBe(title);
+    expect(resumed?.messages).toHaveLength(1);
+    expect((await runEffect(loadHistory(input.agentId, tmpDir))).conversations[0]?.title).toBe(
+      title,
+    );
+  });
+
   test("does not write history for ephemeral sessions", async () => {
     const input = makeInput({ ephemeral: true });
     await runEffect(persistConversationIfNeeded(input, tmpDir));

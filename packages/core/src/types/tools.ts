@@ -14,7 +14,7 @@ import type { UserSecretStore } from "@/core/secrets/user-secrets";
 import type { Agent } from "@/core/types/agent";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
-import type { TaintedEgressMode } from "@/core/types/config";
+import type { HttpApprovalPolicy } from "@/core/types/config";
 import type { ChatMessage, MemoryExposure, MemorySource } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 
@@ -322,8 +322,6 @@ export type ApprovalOutcome =
       readonly approved: true;
       readonly alwaysApproveCommand?: string;
       readonly alwaysApproveTool?: string;
-      /** A hostname to add to `network.trustedGetHosts`, so plain GETs to it never ask again. */
-      readonly alwaysTrustGetHost?: string;
       /**
        * For picker-style requests (`ApprovalRequest.options`): which row the human
        * chose. The executor merges this into the execution tool's args under
@@ -442,10 +440,10 @@ export interface ToolExecutionContext {
    * below `high-risk` once it is marked. Shared with sub-agents by reference.
    */
   readonly egressTaint?: EgressTaint;
-  /** `network.trustedGetHosts` from the global config: GET/HEAD to these skip the taint gate. */
-  readonly trustedGetHosts?: string[];
-  /** `network.taintedEgress`; unset behaves as `ask`, the strictest reading. */
-  readonly taintedEgress?: TaintedEgressMode;
+  /** Global policy for http_request and web_fetch; inherited by subagents. */
+  readonly httpApproval?: HttpApprovalPolicy;
+  /** Exact effective HTTP URL approved for this call, also enforced on redirects. */
+  readonly approvedHttpUrl?: string | undefined;
   /**
    * Whether an unanswerable approval should park the run instead of declining it.
    *

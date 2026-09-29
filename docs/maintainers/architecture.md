@@ -91,13 +91,16 @@ flowchart LR
 ```text
 packages/
 ├── cli/src/                      # @jazz/cli: user-facing CLI
-│   ├── commands/                 # Command implementations (chat, agent, config)
+│   ├── commands/                 # Command entry points and orchestration
+│   ├── setup/                    # Shared interactive provider/search configuration flows
+│   ├── helpers/                  # Narrow detection, parsing and formatting operations
 │   ├── presentation/             # Output formatting (markdown, CLI renderer)
 │   ├── chat-service.ts           # Chat orchestrator (UI-touching; lives here, not adapters)
 │   ├── chat/                     # Chat service modules
 │   │   ├── commands/             # Slash command handling
 │   │   │   ├── parser.ts         # Parse /help, /new, etc.
-│   │   │   └── handler.ts        # Execute commands
+│   │   │   ├── handler.ts        # Route commands and apply shared command behavior
+│   │   │   └── conversation.ts   # Start, fork, resume and rename conversations
 │   │   └── session/              # Session management
 │   │       ├── manager.ts        # ID generation, logging
 │   │       └── agent-setup.ts    # MCP connection setup
@@ -183,14 +186,15 @@ the tool description rather than any shared layer.
 
 The chat service is split into focused modules:
 
-| Module                   | Purpose                                 |
-| ------------------------ | --------------------------------------- |
-| `chat-service.ts`        | Session orchestrator                    |
-| `commands/parser.ts`     | Parse slash commands from user input    |
-| `commands/handler.ts`    | Execute individual commands             |
-| `commands/types.ts`      | `SpecialCommand`, `CommandResult` types |
-| `session/manager.ts`     | Session ID generation, logging          |
-| `session/agent-setup.ts` | MCP server connections before chat      |
+| Module                     | Purpose                                      |
+| -------------------------- | -------------------------------------------- |
+| `chat-service.ts`          | Session orchestrator                         |
+| `commands/parser.ts`       | Parse slash commands from user input         |
+| `commands/handler.ts`      | Route commands and shared command behavior   |
+| `commands/conversation.ts` | Start, fork, resume and rename conversations |
+| `commands/types.ts`        | `SpecialCommand`, `CommandResult` types      |
+| `session/manager.ts`       | Session ID generation, logging               |
+| `session/agent-setup.ts`   | MCP server connections before chat           |
 
 ---
 

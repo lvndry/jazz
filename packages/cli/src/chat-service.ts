@@ -14,14 +14,17 @@ import {
 } from "@jazz/adapters/command-approval-tracker";
 import { getOwnedGoal } from "@jazz/adapters/goals/goal-actions";
 import { claimChatGoalTurn, settleChatGoalTurn } from "@jazz/adapters/goals/goal-worker";
-import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
+import {
+  loadConversationOrNull,
+  type ConversationUiEntry,
+} from "@jazz/adapters/history/conversation-history-service";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { carryEgressTaint, detachedResultMessage } from "@jazz/core/agent/execution/egress-taint";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { apiKeyHint } from "@jazz/core/constants/provider-env-vars";
-import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import {
   ChatServiceTag,
@@ -154,7 +157,7 @@ export class ChatServiceImpl implements ChatService {
     | LoggerService
     | FileSystemContextService
     | FileSystem.FileSystem
-    | typeof AgentConfigServiceTag
+    | AgentConfigService
     | JazzStateService
     | ToolRegistry
     | AgentService
@@ -238,6 +241,9 @@ export class ChatServiceImpl implements ChatService {
 
       let chatActive = true;
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
+      let conversationTitle = ephemeral
+        ? undefined
+        : (yield* loadConversationOrNull(agent.id, conversationId))?.title;
 
       // Notify enabled plugins of chat lifecycle events (a Warp-style notifier rides these).
       // Fire-and-forget and fail-open so a plugin can never delay or break the loop.
@@ -512,7 +518,7 @@ export class ChatServiceImpl implements ChatService {
         if (
           goalTurn === undefined &&
           isCommandInput(trimmedMessage) &&
-          !trimmedMessage.includes("\n")
+          (!trimmedMessage.includes("\n") || parseSpecialCommand(trimmedMessage).type === "rename")
         ) {
           const specialCommand = parseSpecialCommand(userMessage);
 
@@ -534,6 +540,8 @@ export class ChatServiceImpl implements ChatService {
             const context: CommandContext = {
               agent,
               conversationId,
+              conversationTitle,
+              ephemeral,
               conversationHistory,
               queuedAfterCommand: store.peekQueue().length > 0,
               sessionUsage,
@@ -553,6 +561,10 @@ export class ChatServiceImpl implements ChatService {
               context,
             );
 
+            if (commandResult.newConversationTitle !== undefined) {
+              conversationTitle = commandResult.newConversationTitle;
+            }
+
             // Slash commands are UI interactions, not model turns. Snapshot the rendered
             // text separately so resume restores their invocation and result without
             // inserting operational output into the next LLM request.
@@ -564,6 +576,7 @@ export class ChatServiceImpl implements ChatService {
               conversationId,
               agentId: agent.id,
               startedAt,
+              title: conversationTitle,
               uiTranscript,
             });
 
@@ -574,6 +587,7 @@ export class ChatServiceImpl implements ChatService {
                 conversationId,
                 agentId: agent.id,
                 startedAt,
+                title: conversationTitle,
               });
             }
 
@@ -585,12 +599,13 @@ export class ChatServiceImpl implements ChatService {
                 goalContinues = false;
               }
               conversationId = commandResult.newConversationId;
+              conversationTitle = commandResult.newConversationTitle;
               if (!ephemeral) {
                 yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
                 yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
               }
               store.setCurrentConversation({ agentId: agent.id, conversationId });
-              // Logs follow the conversation, so /new starts a new file rather than
+              // Logs follow the conversation, so /start starts a new file rather than
               // appending the next conversation to the previous one's.
               yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
               startedAt = new Date().toISOString();
@@ -632,7 +647,7 @@ export class ChatServiceImpl implements ChatService {
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
               // The transcript is the user's picture of what the agent knows.
-              // Most commands that replace the history — /new, /fork, /resume — have to
+              // Most commands that replace the history — /start, /fork, /resume — have to
               // repaint it, or the screen keeps showing turns the agent can no longer see.
               // /compact opts out (skipTranscriptRepaint): it only shrinks the model's
               // context, and the user's scrollback stays as their record of the session.
@@ -645,7 +660,7 @@ export class ChatServiceImpl implements ChatService {
                 // entire pre-retry history as duplicate events).
                 loggedMessageCount = Math.min(loggedMessageCount, conversationHistory.length);
               } else {
-                // Reset logged message count when history is cleared (e.g., /new command)
+                // Reset logged message count when history is cleared (e.g., /start command)
                 loggedMessageCount = 0;
               }
             }
@@ -944,6 +959,7 @@ export class ChatServiceImpl implements ChatService {
               conversationId,
               agentId: agent.id,
               startedAt,
+              title: conversationTitle,
               uiTranscript: uiTranscriptFromStore(),
             });
           }
@@ -1020,6 +1036,7 @@ export class ChatServiceImpl implements ChatService {
         conversationId,
         agentId: agent.id,
         startedAt,
+        title: conversationTitle,
         uiTranscript: uiTranscriptFromStore(),
       });
       return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
@@ -1051,7 +1068,7 @@ export function createChatServiceLayer(): Layer.Layer<
   | LoggerService
   | FileSystemContextService
   | FileSystem.FileSystem
-  | typeof AgentConfigServiceTag
+  | AgentConfigService
   | JazzStateService
   | typeof ToolRegistryTag
   | typeof AgentServiceTag

@@ -274,7 +274,7 @@ describe("home screen", () => {
     const drawn = await drawHome(SETTLED, TALL);
     const button = drawn.rows.findIndex((row) => row.includes("+ New conversation"));
     const composer = drawn.rows.findIndex((row) =>
-      row.includes("Type / for commands, or type your first message"),
+      row.includes("Type / to get started, or type your first message"),
     );
     const agents = drawn.rows.findIndex((row) => row.includes("Start with another agent"));
     expect(button).toBeGreaterThan(-1);
@@ -354,7 +354,7 @@ describe("home screen", () => {
   it("draws the caret before the placeholder, never over its first letter", async () => {
     const drawn = await drawHome(SETTLED, TALL);
     const composer = drawn.rows.find((row) => row.includes("type your first message")) ?? "";
-    expect(composer).toContain(" Type / for commands, or type your first message");
+    expect(composer).toContain(" Type / to get started, or type your first message");
   });
 
   it("anchors the block near the top and keeps the chosen agent on a short terminal", () => {

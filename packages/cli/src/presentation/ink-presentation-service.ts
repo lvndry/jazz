@@ -6,7 +6,6 @@
  */
 
 import { resolveEffectiveContextWindow } from "@jazz/core/agent/context/effective-context-window";
-import { trustableGetHost } from "@jazz/core/agent/execution/egress-taint";
 import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
@@ -36,6 +35,7 @@ import type { DisplayConfig } from "@jazz/core/types/output";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalOutcome, ApprovalRequest } from "@jazz/core/types/tools";
 import { toError } from "@jazz/core/utils/errors";
+import { isHttpApprovalTool } from "@jazz/core/utils/http-approval";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@jazz/core/utils/models-dev";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { formatCompactCount } from "@jazz/core/utils/string";
@@ -58,7 +58,7 @@ import {
   type ReceiptFacts,
 } from "@/cli/ui/models/interrupt";
 import { retryLine } from "@/cli/ui/models/retry";
-import { clipTerminalCells } from "@/cli/ui/text/terminal-cells";
+import { clipTerminalCells, terminalCellWidth } from "@/cli/ui/text/terminal-cells";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
@@ -1459,7 +1459,7 @@ export class InkPresentationService implements PresentationService {
    * Process the next approval request in the queue.
    * Only one approval prompt is shown at a time to avoid overwriting.
    */
-  private processNextApproval(): void {
+  private processNextApproval(notify = true): void {
     // If already processing or queue is empty, do nothing
     if (this.isProcessingApproval || this.approvalQueue.length === 0) {
       return;
@@ -1479,7 +1479,7 @@ export class InkPresentationService implements PresentationService {
     }
 
     // Send system notification for approval request.
-    if (this.notificationService) {
+    if (notify && this.notificationService) {
       Effect.runFork(
         this.notificationService
           .notify(`Agent needs approval for ${request.toolName}`, {
@@ -1514,6 +1514,23 @@ export class InkPresentationService implements PresentationService {
       ...(request.editableArg === undefined ? {} : { editableArg: request.editableArg }),
     };
     const facts = approvalFacts(pendingApproval);
+    const needsDetails =
+      request.previewDiff !== undefined ||
+      [
+        approvalAccount(facts.account, facts.app),
+        ...facts.fields.map((field) => field.value),
+        ...(facts.intent.impact === undefined ? [] : [facts.intent.impact.value]),
+      ].some(
+        (value) => terminalCellWidth(value.replace(/\s+/g, " ")) > 120 || /[\r\n]/.test(value),
+      );
+    const details = [
+      request.message,
+      `Tool: ${request.toolName}`,
+      JSON.stringify(request.executeArgs, null, 2),
+      ...(request.impact === undefined ? [] : [`Impact: ${request.impact}`]),
+      ...(request.warning === undefined ? [] : [`Warning: ${request.warning}`]),
+      ...(request.previewDiff === undefined ? [] : [request.previewDiff]),
+    ].join("\n\n");
     const factRow = (label: string, value: string, key: string) =>
       React.createElement(
         Box,
@@ -1593,13 +1610,9 @@ export class InkPresentationService implements PresentationService {
       timestamp: new Date(),
     });
 
-    // Store preview diff for Ctrl+O expansion
-    if (request.previewDiff) {
-      store.setExpandableDiff(request.previewDiff);
-    }
+    store.clearExpandableDiff();
+    if (needsDetails) store.setExpandableDiff(details);
 
-    // Build approval choices — all tools get "always approve <tool>" option,
-    // execute_command also gets "always approve <command>" option
     const toolDisplayName = request.toolName;
     const rawCommand =
       request.toolName === "execute_command"
@@ -1657,6 +1670,7 @@ export class InkPresentationService implements PresentationService {
     const choices: Array<{ label: string; value: string }> = [
       { label: `Yes, ${facts.intent.accept}`, value: "yes" },
     ];
+    if (needsDetails) choices.push({ label: "View the full request", value: "view_details" });
     const editable = facts.editableArg;
     if (editable !== undefined && typeof request.executeArgs[editable] === "string") {
       choices.push({ label: `Edit the ${editable} first`, value: "edit" });
@@ -1670,16 +1684,11 @@ export class InkPresentationService implements PresentationService {
       });
     }
 
-    choices.push({
-      label: `Yes, and always approve ${toolDisplayName} for this session`,
-      value: "always_tool",
-    });
-
-    const trustableHost = trustableGetHost(request.executeToolName, request.executeArgs);
-    if (trustableHost !== undefined) {
+    const allowAlways = !isHttpApprovalTool(request.executeToolName);
+    if (allowAlways) {
       choices.push({
-        label: `Yes, and always allow GET requests to ${trustableHost}`,
-        value: "always_get_host",
+        label: `Yes, and always approve ${toolDisplayName} for this session`,
+        value: "always_tool",
       });
     }
 
@@ -1696,6 +1705,11 @@ export class InkPresentationService implements PresentationService {
       options: { choices },
       resolve: (val: unknown) => {
         const choice = val as string;
+        if (choice === "view_details") {
+          store.printOutput({ type: "log", message: details, timestamp: new Date() });
+          this.reopenApproval(request, resume);
+          return;
+        }
         store.printOutput({
           type: "log",
           message: `Approve this action? ${CHALK_THEME.success(choice === "no" ? "No" : "Yes")}`,
@@ -1718,14 +1732,7 @@ export class InkPresentationService implements PresentationService {
           return;
         }
 
-        if (choice === "always_get_host" && trustableHost !== undefined) {
-          store.setPrompt(null);
-          store.setApprovalRequest(null);
-          this.completeApproval(resume, { approved: true, alwaysTrustGetHost: trustableHost });
-          return;
-        }
-
-        if (choice === "always_tool") {
+        if (choice === "always_tool" && allowAlways) {
           store.setPrompt(null);
           store.setApprovalRequest(null);
           this.completeApproval(resume, { approved: true, alwaysApproveTool: toolDisplayName });
@@ -1749,6 +1756,18 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
+  /** Return to the same decision without resolving the tool's approval promise. */
+  private reopenApproval(
+    request: ApprovalRequest,
+    resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
+  ): void {
+    store.setPrompt(null);
+    store.setApprovalRequest(null);
+    this.approvalQueue.unshift({ request, resume });
+    this.isProcessingApproval = false;
+    this.processNextApproval(false);
+  }
+
   /**
    * Let a person rewrite the request's editable argument, then run the rewrite. An empty
    * submission or esc goes back to the same approval, so editing never approves by accident.
@@ -1759,13 +1778,7 @@ export class InkPresentationService implements PresentationService {
     editableArg: string,
     current: string,
   ): void {
-    const backToApproval = (): void => {
-      store.setPrompt(null);
-      store.setApprovalRequest(null);
-      this.approvalQueue.unshift({ request, resume });
-      this.isProcessingApproval = false;
-      this.processNextApproval();
-    };
+    const backToApproval = (): void => this.reopenApproval(request, resume);
     store.setPrompt({
       type: "text",
       message: `Edit the ${editableArg}, then press enter to run it`,

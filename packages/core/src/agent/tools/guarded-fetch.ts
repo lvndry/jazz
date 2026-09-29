@@ -6,7 +6,10 @@
  * module is the single place those requests go through, and it enforces four things plain
  * `fetch` does not:
  *
- * 1. **Public destinations only.** The hostname is resolved and every address it resolves to
+ * HTTP tools pass their scoped global policy: unrestricted by default, or URL grants checked
+ * on every hop. Those grants allow private destinations without widening other tools.
+ *
+ * 1. **Public destinations for other tools.** The hostname is resolved and every address it resolves to
  *    must be public (see `classifyAddress`), unless the global `network.allowPrivateHosts` or
  *    an approval for this call lists the hostname or the address. Loopback, RFC 1918,
  *    link-local (including the cloud metadata service at 169.254.169.254), CGNAT, IPv4-mapped
@@ -32,6 +35,8 @@ import { promises as dnsPromises } from "node:dns";
 import { Effect } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { ToolExecutionContext } from "@/core/types";
+import type { HttpApprovalPolicy } from "@/core/types/config";
+import { httpUrlIsApproved, isHttpApprovalTool } from "@/core/utils/http-approval";
 import {
   classifyAddress,
   isIpLiteral,
@@ -80,6 +85,10 @@ export class EgressRefusedError extends Error {
 
 /** Destination policy for one model-directed request. */
 export interface EgressPolicy {
+  /** Scoped to the two HTTP tools; grants both public and private destinations. */
+  readonly httpApproval?: HttpApprovalPolicy;
+  /** Exact URL the person approved for this call. */
+  readonly approvedHttpUrl?: string;
   /** `network.allowPrivateHosts` entries, plus any addresses approved for this call. */
   readonly allowPrivateHosts?: readonly string[];
   /** Replaces system DNS; tests pass a fixed table. */
@@ -92,6 +101,7 @@ export interface EgressPolicy {
  */
 export function egressPolicyForContext(
   context: ToolExecutionContext | undefined,
+  toolName?: string,
 ): Effect.Effect<EgressPolicy, never, AgentConfigService> {
   return Effect.gen(function* () {
     const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
@@ -99,7 +109,17 @@ export function egressPolicyForContext(
       ...(appConfig.network?.allowPrivateHosts ?? []),
       ...(context?.approvedPrivateAddresses ?? []),
     ];
-    return allowPrivateHosts.length > 0 ? { allowPrivateHosts } : {};
+    return {
+      ...(allowPrivateHosts.length > 0 ? { allowPrivateHosts } : {}),
+      ...(toolName !== undefined && isHttpApprovalTool(toolName)
+        ? {
+            httpApproval: context?.httpApproval ?? appConfig.network?.httpApproval ?? "allow",
+            ...(context?.approvedHttpUrl !== undefined
+              ? { approvedHttpUrl: context.approvedHttpUrl }
+              : {}),
+          }
+        : {}),
+    };
   });
 }
 
@@ -261,7 +281,21 @@ export async function guardedFetch(
   let body = request.body ?? null;
 
   for (let redirects = 0; ; redirects++) {
-    await assertDestinationAllowed(url, allowlist, resolveHost);
+    if (request.httpApproval !== undefined) {
+      if (!httpUrlIsApproved(url.toString(), request.httpApproval, request.approvedHttpUrl)) {
+        throw new EgressRefusedError(
+          "This URL needs approval under network.httpApproval. Request it directly to approve this call.",
+        );
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        throw new EgressRefusedError("Only http and https URLs are supported.");
+      }
+      if (url.username !== "" || url.password !== "") {
+        throw new EgressRefusedError("URLs with embedded credentials are not supported.");
+      }
+    } else {
+      await assertDestinationAllowed(url, allowlist, resolveHost);
+    }
 
     const response = await fetch(url.toString(), {
       method,

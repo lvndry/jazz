@@ -1,8 +1,20 @@
+/**
+ * Find setup shortcuts for the home screen and agent-creation wizard. This module
+ * reports which provider-key environment variables are present (names only, never
+ * their values) and whether the configured or default Ollama server lists models.
+ *
+ * environmentKeyDetections supplies the first-run screen's detection labels.
+ * ollamaOrigin normalizes the endpoint used by probeOllamaModels, whose bounded
+ * /api/tags request enables the local-model shortcut without delaying startup.
+ * Failed probes return undefined; callers keep the normal setup flow available.
+ * These helpers detect existing setup; they do not create agents or save settings.
+ */
+import { LOCAL_SERVER_PROVIDERS } from "@jazz/core/constants/local-providers";
 import { llmProviderEnvVars, LLM_PROVIDER_ENV_VARS } from "@jazz/core/constants/provider-env-vars";
 import type { ActiveHomeDetection } from "../ui/store";
 
 /** Ollama's default endpoint, used when no other base URL is known. */
-const OLLAMA_DEFAULT_ORIGIN = "http://127.0.0.1:11434";
+const OLLAMA_DEFAULT_ORIGIN = LOCAL_SERVER_PROVIDERS.ollama.defaultUrl;
 
 /**
  * How long the first-run screen waits for a local Ollama to answer. A server on this machine

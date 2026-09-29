@@ -20,7 +20,7 @@ export interface SdkToolCall {
 
 /** One schema problem as the validator reports it: where, and what was wrong there. */
 interface ValidationIssue {
-  readonly path: readonly (string | number)[];
+  readonly path: readonly PropertyKey[];
   readonly message: string;
 }
 
@@ -35,7 +35,14 @@ function isValidationIssue(value: unknown): value is ValidationIssue {
     return false;
   }
   const record = value as { path?: unknown; message?: unknown };
-  return Array.isArray(record.path) && typeof record.message === "string";
+  return (
+    Array.isArray(record.path) &&
+    record.path.every(
+      (part: unknown) =>
+        typeof part === "string" || typeof part === "number" || typeof part === "symbol",
+    ) &&
+    typeof record.message === "string"
+  );
 }
 
 /** The schema issues somewhere down an error's cause chain, or none when it has no such list. */
@@ -56,10 +63,14 @@ function validationIssues(error: unknown): readonly ValidationIssue[] {
 }
 
 /** `todos[0].content`: the field as a person would name it. */
-function issuePath(path: readonly (string | number)[]): string {
+function issuePath(path: readonly PropertyKey[]): string {
   return path
     .map((part, index) =>
-      typeof part === "number" ? `[${String(part)}]` : index === 0 ? part : `.${part}`,
+      typeof part === "number"
+        ? `[${String(part)}]`
+        : index === 0
+          ? String(part)
+          : `.${String(part)}`,
     )
     .join("");
 }

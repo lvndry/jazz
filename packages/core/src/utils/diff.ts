@@ -1,3 +1,7 @@
+/**
+ * Generate bounded colored unified patches for file approvals and receipts. Reuses the
+ * latest patch across preview/full renderings; DiffOptions controls context and truncation.
+ */
 import chalk from "chalk";
 import { createPatch } from "diff";
 
@@ -144,7 +148,7 @@ export function generateDiffWithMetadata(
     }
 
     // Check if we've exceeded the max lines
-    if (line.startsWith("+") && !line.startsWith("+++")) {
+    if (line.startsWith("+")) {
       changedLinesCount++;
       if (changedLinesCount > maxLines) {
         wasTruncated = true;
@@ -156,7 +160,7 @@ export function generateDiffWithMetadata(
         break;
       }
       output.push(chalk.green(line));
-    } else if (line.startsWith("-") && !line.startsWith("---")) {
+    } else if (line.startsWith("-")) {
       changedLinesCount++;
       if (changedLinesCount > maxLines) {
         wasTruncated = true;

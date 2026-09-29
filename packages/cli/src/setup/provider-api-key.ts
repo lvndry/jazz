@@ -2,6 +2,9 @@
  * Interactive provider credential setup. Prompt, trim and check keys before saving them,
  * retry invalid credentials, and explain permission-limited checks without blocking setup.
  * ChatGPT credentials use the subscription sign-in flow instead of an API key prompt.
+ * Call ensureProviderApiKey from a provider picker with its terminal/config services
+ * and provider metadata; it reports whether setup saved, reused, skipped or cancelled
+ * credentials. checkKey can replace the provider check in tests or specialized callers.
  */
 import { checkApiKey, type ApiKeyCheck } from "@jazz/adapters/llm/api-key-check";
 import { describeKeyringBackend, detectKeyringBackend } from "@jazz/adapters/secrets/keyring";
@@ -10,8 +13,8 @@ import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import type { AppConfig } from "@jazz/core/types/config";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { Effect } from "effect";
-import { signInToChatGPT } from "@/cli/helpers/chatgpt-sign-in";
 import { configuredProviderNames } from "@/cli/ui/models/configured-providers";
+import { signInToChatGPT } from "./chatgpt-sign-in";
 
 /** Whether the provider is pointed at its own endpoint, where the stock key check does not apply. */
 function hasCustomBaseUrl(config: AppConfig, provider: string): boolean {

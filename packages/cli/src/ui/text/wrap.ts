@@ -1,4 +1,8 @@
-import { sliceTerminalCells, terminalCellWidth, terminalGraphemes } from "./terminal-cells";
+/**
+ * Word wrapping for styled terminal text. Preserves styles and grapheme boundaries,
+ * with a single pass over oversized words so long URLs remain linear to wrap.
+ */
+import { terminalCellWidth, wrapTerminalCells } from "./terminal-cells";
 
 /** Anything that carries text and a style the wrapper must not split. */
 export interface StyledText {
@@ -61,22 +65,17 @@ export function wrapStyledSpans<Span extends StyledText>(
         if (used > 0 && used + size > width) {
           breakLine();
         }
-        let rest = word;
-        while (terminalCellWidth(rest) > width) {
-          let head = sliceTerminalCells(rest, width - used);
-          if (head.length === 0 && used > 0) {
-            breakLine();
-            continue;
-          }
-          if (head.length === 0) {
-            head = terminalGraphemes(rest)[0] ?? "";
-          }
-          push({ ...span, text: head });
-          breakLine();
-          rest = rest.slice(head.length);
+        if (size <= width) {
+          push({ ...span, text: word });
+          used += size;
+          continue;
         }
-        push({ ...span, text: rest });
-        used += terminalCellWidth(rest);
+        const pieces = wrapTerminalCells(word, width);
+        for (const [pieceIndex, text] of pieces.entries()) {
+          if (pieceIndex > 0) breakLine();
+          push({ ...span, text });
+          used += terminalCellWidth(text);
+        }
       }
     }
   }

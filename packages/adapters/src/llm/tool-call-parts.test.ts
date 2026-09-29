@@ -51,6 +51,24 @@ describe("toJazzToolCall", () => {
     expect(reason).not.toContain("\n");
   });
 
+  it("formats symbol paths from Zod and rejects malformed issue paths", () => {
+    const parsed = z
+      .unknown()
+      .superRefine((_value, context) => {
+        context.addIssue({
+          code: "custom",
+          path: [Symbol("field")],
+          message: "Invalid input: missing field",
+        });
+      })
+      .safeParse({});
+    expect(describeInvalidToolCall(parsed.error)).toContain("Symbol(field): missing field");
+    const malformed = Object.assign(new Error("validation failed"), {
+      issues: [{ path: [{}], message: "bad field" }],
+    });
+    expect(describeInvalidToolCall(malformed)).toBe("validation failed");
+  });
+
   it("keeps Gemini's thought signature", () => {
     const toolCall = toJazzToolCall({
       toolCallId: "call-3",

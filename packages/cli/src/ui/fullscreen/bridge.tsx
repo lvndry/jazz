@@ -17,6 +17,7 @@ import { search, type SearchHit } from "@jazz/adapters/history/conversation-sear
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
 import { isTerminalReport, type ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
+import { isHttpApprovalTool } from "@jazz/core/utils/http-approval";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1116,9 +1117,9 @@ function stepFrom(activity: ActivityState): StepLine | undefined {
  */
 /** The choices the card offers, in the order left and right walk them. */
 function approvalChoicesFor(pending: PendingApproval): readonly ApprovalChoice[] {
-  return approvalFacts(pending).trustHost === undefined
-    ? ["accept", "always", "reject"]
-    : ["accept", "always", "host", "reject"];
+  return isHttpApprovalTool(pending.executeToolName)
+    ? ["accept", "reject"]
+    : ["accept", "always", "reject"];
 }
 
 /** The always-allow answer a prompt offers: the command when it lists one, else the tool. */
@@ -1150,7 +1151,7 @@ function approvalFrom(
     fieldOffset,
     expanded,
     alwaysLabel: facts.alwaysLabel,
-    ...(facts.trustHost === undefined ? {} : { trustHost: facts.trustHost }),
+    allowAlways: approvalChoicesFor(pending).includes("always"),
     choice,
     armed,
     ...(intent.headline === undefined ? {} : { headline: intent.headline }),
@@ -2102,11 +2103,9 @@ export function FullscreenBridge(): React.ReactNode {
           active.resolve(
             chosen === "reject"
               ? "no"
-              : chosen === "always"
+              : chosen === "always" && approvalChoicesFor(approvalRef.current).includes("always")
                 ? alwaysApprovalValue(active)
-                : chosen === "host" && approvalFacts(approvalRef.current).trustHost !== undefined
-                  ? "always_get_host"
-                  : "yes",
+                : "yes",
           );
           return true;
         }
@@ -2123,22 +2122,17 @@ export function FullscreenBridge(): React.ReactNode {
           active.resolve("edit");
           return true;
         }
-        // Unmodified `h` trusts the request's host for plain GETs, only when the card offers it.
+        // Unmodified `a` only. Ctrl+A and Cmd+A are "go to start of line" in
+        // the composer, and the standing allowlist this writes outlives the
+        // turn — a caret keystroke must never be able to grant it.
         if (
-          name === "h" &&
+          name === "a" &&
           !ctrl &&
           !superKey &&
           !meta &&
           !option &&
-          approvalFacts(approvalRef.current).trustHost !== undefined
+          approvalChoicesFor(approvalRef.current).includes("always")
         ) {
-          active.resolve("always_get_host");
-          return true;
-        }
-        // Unmodified `a` only. Ctrl+A and Cmd+A are "go to start of line" in
-        // the composer, and the standing allowlist this writes outlives the
-        // turn — a caret keystroke must never be able to grant it.
-        if (name === "a" && !ctrl && !superKey && !meta && !option) {
           active.resolve(alwaysApprovalValue(active));
           return true;
         }

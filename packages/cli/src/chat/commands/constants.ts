@@ -199,9 +199,25 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
     description: "Change reasoning for this session only",
     usage: "[minimal|low|medium|high|xhigh|max|disable]",
   },
+  {
+    name: "rename",
+    type: "rename",
+    usage: "[title]",
+    description: "Rename the current conversation",
+    forms: [
+      { form: "/rename <title>", meaning: "Set the current conversation title" },
+      { form: "/rename", meaning: "Edit the current title" },
+    ],
+    note: "Titles keep their text without a length limit. This does not call the model.",
+  },
   { name: "resume", type: "resume", description: "Browse and resume a past conversation" },
   { name: "retry", type: "retry", description: "Re-send your last message" },
-  { name: "new", type: "new", description: "Start a new conversation (clear context)" },
+  { name: "new", type: "new", description: "Create a new agent" },
+  {
+    name: "start",
+    type: "start",
+    description: "Start a fresh conversation with the current agent",
+  },
   {
     name: "skills",
     type: "skills",

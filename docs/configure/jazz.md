@@ -172,7 +172,7 @@ The `daemon` caps bound what unattended runs (the daemon's work, `jazz run`, wor
 
 ## Private network hosts
 
-The URLs a model chooses (`http_request`, `web_fetch`, `read_pdf`, and pages rendered by
+Other URL tools (`read_pdf`, and pages rendered by
 `create_pdf` and `create_composition`) reach public internet hosts directly. A URL that reaches
 this machine or your local network (loopback, private, link-local including the cloud metadata
 address `169.254.169.254`, CGNAT and other non-public addresses) stops for your approval first,
@@ -198,6 +198,9 @@ a project `./.jazz/config.json` cannot widen it. Edit it from `jazz` > **Setting
 | `192.168.1.10`, `::1` | that address, reached by IP or by any hostname |
 | `192.168.1.0/24`      | every address in the block                     |
 
+These settings apply to other URL tools, such as `read_pdf` and rendered pages.
+HTTP requests and web fetches use the independent HTTP policy below.
+
 Use a hostname entry for a name you control, and an address or block entry for a device with a
 fixed address. Approvals add the address the request reached. A redirect or a page subresource
 that lands on an unlisted private address is refused rather than asked about; the model can
@@ -206,45 +209,33 @@ request that URL directly, which asks you. See
 
 ## Web request safety
 
-A page or email an agent reads can try to steer its next request into leaking data, because a
-composed URL carries data to whatever host it names. `network.taintedEgress` sets what Jazz does
-about that once a run has read untrusted content (a web page, an API response, a shell command's
-output):
+HTTP requests (`http_request`) and page fetches (`web_fetch`) run automatically by default,
+including requests to private destinations and requests made after reading untrusted content.
+This is independent of the run's approval tier and applies to unattended runs too. These tools
+can send data in URLs, headers or bodies; enable a URL allowlist when you want to approve requests.
 
-| Value             | While you are present                   | Unattended runs      |
-| ----------------- | --------------------------------------- | -------------------- |
-| `allow` (default) | requests go through                     | requests go through  |
-| `auto`            | requests go through                     | ask (park or refuse) |
-| `ask`             | ask for every host you have not trusted | ask                  |
-
-The default trusts the agent's requests, which keeps research and automation flowing. If you
-want hardened security, choose `ask` for the strictest posture, or `auto` to keep holding
-unattended runs, where a hostile input costs the most because nobody sees the request. Set it
-from `jazz` > **Settings** > **Web request safety**. Like the other `network` settings it is read
-from the global config file only.
-
-## Trusted GET hosts
-
-Under `ask` (and in unattended runs under `auto`), a GET the model composed asks for your
-approval after untrusted content was read, because the URL itself can carry data to any host.
-`network.trustedGetHosts` lists public hosts you accept that for: a plain `GET` or `HEAD` to them
-(no body, no custom headers, a query string is fine) goes through without asking. Other hosts and
-other methods still ask.
+Choose **HTTP request approvals → Use a URL allowlist** in `jazz config` to enable restricted
+requests. Add permanent grants in the global config file:
 
 ```json
 {
-  "network": { "trustedGetHosts": ["eutils.ncbi.nlm.nih.gov", "*.wikipedia.org"] }
+  "network": {
+    "httpApproval": ["https://api.example.com/status", "https://docs.example.com/reference/*"]
+  }
 }
 ```
 
-Add or remove hosts from `jazz` > **Settings** > **Trusted public sites (GET)**. When an approval
-is for a plain GET, the prompt also offers to always allow GET requests to that host (`h` on the
-fullscreen card), which adds it to this list. Entries are hostnames or `*.suffix` wildcards, at
-most 64. This is separate from `network.allowPrivateHosts`, which covers local addresses. Like `network.allowPrivateHosts` it is
-read from the global config file only, and private addresses stay gated by the private-network
-check whatever this lists. A trusted host sees every URL sent to it, so list only hosts you would
-be comfortable receiving anything the run knows. For everything else, the approval card's
-**always allow** choice (`a`, or left/right then enter) allows the whole tool for the session.
+Exact URLs include their query string. A trailing `/*` grants paths below that prefix on the
+same origin, including queries; host wildcards and other wildcard forms are unsupported. An
+empty array asks for every request. Requests outside the list ask for one-call approval, or park
+when the run is unattended. Approving a request never adds it to the list. Redirect destinations
+must also match a permanent grant or the exact URL approved for that call; otherwise the tool
+returns a refusal and can request that URL directly. Cross-origin redirects strip credentials
+and do not resend request bodies. Set `network.httpApproval` to `"allow"`, or remove it, to
+restore automatic requests. Project config cannot widen these grants.
+
+Other egress tools keep their own approval rules, including taint checks after untrusted content
+and private-destination guards. `network.allowPrivateHosts` controls their private-network reach.
 
 ## MCP overrides
 

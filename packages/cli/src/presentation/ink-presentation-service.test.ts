@@ -1699,6 +1699,35 @@ describe("InkPresentationService approval rejection", () => {
     await pending;
   });
 
+  test("shows the entire long request without approving when details are opened", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const body = "a".repeat(150) + " DO NOT SEND THIS TAIL";
+    let resolved = false;
+    const pending = Effect.runPromise(
+      service.requestApproval({
+        toolCallId: "call-long",
+        toolName: "gmail_send_email",
+        executeToolName: "gmail_send_email",
+        message: "Send this message",
+        executeArgs: { to: "a@example.com", body },
+      }),
+    ).then((outcome) => {
+      resolved = true;
+      return outcome;
+    });
+    const prompt = await waitForPromptType("select");
+    expect(prompt.options?.choices?.some((choice) => choice.value === "view_details")).toBe(true);
+    expect(store.getExpandableDiff()?.fullDiff).toContain(body);
+    prompt.resolve("view_details");
+    const again = await waitForPromptType("select");
+    expect(resolved).toBe(false);
+    expect(
+      printed.some((entry) => typeof entry.message === "string" && entry.message.includes(body)),
+    ).toBe(true);
+    again.resolve("yes");
+    expect(await pending).toEqual({ approved: true });
+  });
+
   test("runs the approver's rewrite of an editable argument, prefilled with the original", async () => {
     const pending = requestCommandApproval();
     const approvalPrompt = await waitForPromptType("select");

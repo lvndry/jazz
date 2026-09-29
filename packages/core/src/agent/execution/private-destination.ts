@@ -2,7 +2,8 @@
  * Private destinations need a person: the approval step for a model-chosen URL that reaches this
  * machine or the local network.
  *
- * `guardedFetch` refuses every private address the global `network.allowPrivateHosts` does not
+ * HTTP requests and web fetches use their scoped HTTP policy and skip this separate guard.
+ * For other tools, `guardedFetch` refuses every private address the global `network.allowPrivateHosts` does not
  * list. Before an egress tool with a `url` runs, the executor asks which private addresses that
  * URL would reach, and a call that reaches an unlisted one is put to a person like any gated call
  * (prompted, parked, or declined when nobody can answer). A person's approval adds those
@@ -20,18 +21,20 @@ import { egressPolicyForContext, unlistedPrivateAddresses } from "@/core/agent/t
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
+import { isHttpApprovalTool } from "@/core/utils/http-approval";
 import { MAX_PRIVATE_HOST_ENTRIES } from "@/core/utils/private-network";
 import { egressRequestMethod, policyApprovesTaintedEgress } from "./egress-taint";
 
 /** The private addresses an egress call's `url` reaches that nothing has allowed yet. */
 export function unlistedPrivateAddressesFor(
+  toolName: string,
   egress: boolean,
   args: Record<string, unknown>,
   context: ToolExecutionContext,
 ): Effect.Effect<readonly string[], never, AgentConfigService> {
   return Effect.gen(function* () {
     const url = args["url"];
-    if (!egress || typeof url !== "string") {
+    if (isHttpApprovalTool(toolName) || !egress || typeof url !== "string") {
       return [];
     }
     const policy = yield* egressPolicyForContext(context);

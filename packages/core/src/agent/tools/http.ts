@@ -1,6 +1,10 @@
 /**
  * `http_request`: a general-purpose HTTP client tool for calling arbitrary APIs,
- * as opposed to `web_fetch`'s read-a-webpage-for-content use case.
+ * as opposed to `web_fetch`'s page extraction. createHttpRequestTool validates API arguments,
+ * applies query overrides, fetches under scoped global HTTP authorization, and parses JSON,
+ * text or bytes under byte/time limits. Method risk metadata remains honest even when the
+ * operator auto-authorizes requests. Its private disclosure means peer callers must explicitly
+ * grant this tool: the model chooses method, address, headers and body.
  */
 
 import { Effect } from "effect";
@@ -340,12 +344,9 @@ export function createHttpRequestTool(): Tool<AgentConfigService> {
   return defineTool<AgentConfigService, HttpRequestArgs>({
     name: "http_request",
     disclosure: "private",
-    // The model picks the address, the method, the headers and the body. Nothing in this
-    // codebase constrains where those bytes go, which is why a peer never receives this
-    // tool from a disclosure tier alone.
     egress: true,
     description:
-      "Call an HTTP API. A host on this machine or the local network is reached after the user approves it. JSON responses are parsed, media comes back as base64, anything else as text. To read an article, use web_fetch.",
+      "Call an HTTP API. Requests run automatically unless the operator configured a URL approval list. JSON responses are parsed, media comes back as base64, anything else as text. To read an article, use web_fetch.",
     tags: ["http", "network", "api"],
     riskLevel: "high-risk",
     resolveRiskLevel: httpRequestRiskLevel,
@@ -422,7 +423,7 @@ export function createHttpRequestTool(): Tool<AgentConfigService> {
         }, timeoutMs);
         const start = Date.now();
 
-        const egressPolicy = yield* egressPolicyForContext(context);
+        const egressPolicy = yield* egressPolicyForContext(context, "http_request");
         const exchange = yield* Effect.tryPromise({
           try: async () => {
             const guarded = await guardedFetch(urlInstance.toString(), {

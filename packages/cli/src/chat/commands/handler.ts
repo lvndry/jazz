@@ -1,10 +1,14 @@
+/**
+ * Execute parsed chat commands through shared application services. handleSpecialCommand
+ * returns explicit session changes for the chat loop to apply; title edits persist before
+ * reporting success, agent creation leaves the active conversation in place, and /start
+ * requests a fresh conversation after saving the current one. Local command output stays in
+ * the UI transcript rather than being inserted into model context unless a command opts in.
+ */
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
-import {
-  loadConversationOrNull,
-  loadHistory,
-} from "@jazz/adapters/history/conversation-history-service";
+import { loadConversationOrNull } from "@jazz/adapters/history/conversation-history-service";
 import { getLogsDirectory } from "@jazz/adapters/logger";
 import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
 import {
@@ -75,7 +79,6 @@ import type { MCPPromptArgument, MCPPromptMessage } from "@jazz/core/types/mcp";
 import type { ChatMessage, ConversationMessages } from "@jazz/core/types/message";
 import { clampReasoningSelection } from "@jazz/core/types/model-capabilities";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
-import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
@@ -93,6 +96,7 @@ import {
   policyForChatMode,
   type ChatApprovalMode,
 } from "@/cli/chat/approval-mode";
+import { createAgentCommand } from "@/cli/commands/create-agent";
 import { describeTier } from "@/cli/commands/peers";
 import { sessionOpenLine } from "@/cli/commands/session-open";
 import {
@@ -129,6 +133,12 @@ import {
   suggestCommand,
   type ChatCommandInfo,
 } from "./constants";
+import {
+  handleRenameCommand,
+  handleStartCommand,
+  handleForkCommand,
+  handleResumeCommand,
+} from "./conversation";
 import { handleGoalCommand } from "./goal";
 import { handleLoopCommand } from "./loop";
 import {
@@ -174,8 +184,18 @@ export function handleSpecialCommand(
     const terminal = yield* TerminalServiceTag;
 
     switch (command.type) {
-      case "new":
-        return yield* handleNewCommand(terminal, agent);
+      case "rename":
+        return yield* handleRenameCommand(terminal, context, command.args);
+
+      case "new": {
+        const created = yield* Effect.either(createAgentCommand());
+        if (created._tag === "Left")
+          yield* terminal.error(`Failed to create agent: ${created.left.message}`);
+        return { shouldContinue: true, skipTranscriptRepaint: true };
+      }
+
+      case "start":
+        return yield* handleStartCommand(terminal, agent);
 
       case "fork":
         return yield* handleForkCommand(terminal, conversationHistory);
@@ -538,92 +558,6 @@ function handleShellCommand(
         "",
         "Use this command result as context for your response. Do not claim to have run the command yourself.",
       ].join("\n"),
-    };
-  });
-}
-
-/**
- * Handle /new command - Start a new conversation
- */
-function handleNewCommand(
-  terminal: TerminalService,
-  agent: CommandContext["agent"],
-): Effect.Effect<CommandResult, never, never> {
-  return Effect.gen(function* () {
-    yield* terminal.clear();
-    yield* terminal.log(
-      report("new", [
-        { kind: "text", text: "A fresh conversation. The agent starts with no history." },
-      ]),
-    );
-
-    // Check if model supports tools and warn if not
-    const modelMeta = yield* Effect.promise(() =>
-      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
-    );
-    if (
-      modelMeta &&
-      !modelMeta.supportsTools &&
-      agent.config.tools &&
-      agent.config.tools.length > 0
-    ) {
-      yield* terminal.warn(
-        `${agent.config.llmModel} does not support tools, so this agent's tools are off for this model.`,
-      );
-    }
-
-    yield* terminal.log(fmt.blank());
-    yield* terminal.log(fmt.blank());
-    return {
-      shouldContinue: true,
-      newConversationId: generateConversationId(),
-      newHistory: [],
-      saveCurrentHistory: true,
-    };
-  });
-}
-
-/**
- * Handle /fork command - Fork the conversation into a new branch
- *
- * Saves the current branch under its own conversation ID, then continues on a
- * new one carrying the full history forward. Future turns diverge from here
- * while the transcript stays on screen — forking branches the conversation
- * without discarding what came before.
- *
- * The transcript repaint is skipped: the same full history stays on screen, so
- * repainting would only clear the switch notice and redraw an identical view.
- */
-function handleForkCommand(
-  terminal: TerminalService,
-  conversationHistory: CommandContext["conversationHistory"],
-): Effect.Effect<CommandResult, never, never> {
-  return Effect.gen(function* () {
-    if (conversationHistory.length === 0) {
-      yield* terminal.warn("Cannot fork: no messages in history.");
-      yield* terminal.log(fmt.blank());
-      return { shouldContinue: true };
-    }
-
-    yield* terminal.log(
-      report(
-        "fork",
-        [
-          {
-            kind: "text",
-            text: "You're on a new branch with the full history. The original is unchanged.",
-          },
-        ],
-        "Return to the original with /resume.",
-      ),
-    );
-    yield* terminal.log(fmt.blank());
-    return {
-      shouldContinue: true,
-      newConversationId: generateConversationId(),
-      newHistory: [...conversationHistory],
-      saveCurrentHistory: true,
-      skipTranscriptRepaint: true,
     };
   });
 }
@@ -2396,73 +2330,6 @@ function handleUnknownCommand(
   });
 }
 
-function handleResumeCommand(
-  terminal: TerminalService,
-  agent: CommandContext["agent"],
-): Effect.Effect<CommandResult, Error, FileSystem.FileSystem> {
-  return Effect.gen(function* () {
-    const history = yield* loadHistory(agent.id).pipe(
-      Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
-    );
-
-    if (history.conversations.length === 0) {
-      yield* terminal.info("No past conversations found for this agent.");
-      yield* terminal.log("");
-      return { shouldContinue: true };
-    }
-
-    const choices = history.conversations.map((conv) => {
-      const date = new Date(conv.startedAt);
-      const dateStr = date.toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      return {
-        name: `${conv.title}  (${dateStr}, ${conv.messageCount} messages)`,
-        value: conv.conversationId,
-      };
-    });
-
-    const selectedId = yield* terminal.search<string>("Select a conversation to resume:", {
-      choices,
-      placeholder: "Type to filter conversations…",
-    });
-
-    if (!selectedId) {
-      yield* terminal.log("Resume cancelled");
-      yield* terminal.log("");
-      return { shouldContinue: true };
-    }
-
-    const selected = history.conversations.find((c) => c.conversationId === selectedId);
-    if (!selected) {
-      return { shouldContinue: true };
-    }
-
-    // The listing carries no transcript, so the chosen conversation is read now rather
-    // than every conversation being read to draw the picker.
-    const conversation = yield* loadConversationOrNull(agent.id, selected.conversationId);
-    if (!conversation) {
-      yield* terminal.info("That conversation could no longer be read.");
-      return { shouldContinue: true };
-    }
-
-    const resumeSystemMessage = {
-      role: "system" as const,
-      content: `Resuming conversation from ${new Date(selected.startedAt).toLocaleString()}: ${selected.title}`,
-    };
-
-    // Logs no longer hold system prompts; the live one is rebuilt for this run anyway.
-    const newHistory = [resumeSystemMessage, ...conversation.messages];
-
-    yield* terminal.success(`Resumed: ${selected.title}`);
-    yield* terminal.log("");
-    return { shouldContinue: true, newHistory, saveCurrentHistory: true, resetStartedAt: true };
-  });
-}
-
 /**
  * Handle /skills. Interactive terminals browse a bounded catalog; headless
  * callers retain the complete printable inventory.
@@ -2596,8 +2463,10 @@ function handleInfoCommand(
         {
           kind: "field",
           key: "title",
-          value: conversation?.title ?? "not saved yet",
-          ...(conversation?.title === undefined ? { tone: "muted" as const } : {}),
+          value: context.conversationTitle ?? conversation?.title ?? "not saved yet",
+          ...(context.conversationTitle === undefined && conversation?.title === undefined
+            ? { tone: "muted" as const }
+            : {}),
         },
         { kind: "field", key: "conversation", value: context.conversationId },
         { kind: "gap" },

@@ -14,6 +14,7 @@ export type CommandType =
   | "model"
   | "memory"
   | "new"
+  | "start"
   | "fork"
   | "detach"
   | "help"
@@ -35,6 +36,7 @@ export type CommandType =
   | "mcp"
   | "mode"
   | "resume"
+  | "rename"
   | "theme"
   | "export"
   | "retry"
@@ -74,6 +76,8 @@ export interface CommandResult {
   shouldContinue: boolean;
   /** New conversation ID if conversation was reset/changed */
   newConversationId?: string;
+  /** User-assigned title, kept for subsequent saves without a length limit. */
+  newConversationTitle?: string;
   /** New conversation history if history was modified */
   newHistory?: ChatMessage[];
   /**
@@ -131,14 +135,18 @@ export interface SessionLimits {
 export interface CommandContext {
   agent: Agent;
   conversationId: string;
+  /** Stored or explicitly assigned title for the current session. */
+  conversationTitle?: string | undefined;
+  /** Ephemeral conversations keep renamed titles in memory only. */
+  ephemeral?: boolean;
   conversationHistory: ChatMessage[];
   /** A queued command may have later messages that must not be abandoned on handoff. */
   queuedAfterCommand?: boolean;
-  /** Accumulated input/output tokens for this session (reset on /new). */
+  /** Accumulated input/output tokens for this session (reset on /start). */
   sessionUsage: SessionUsage;
-  /** Number of turns sent to the agent this conversation (reset on /new, for /limit). */
+  /** Number of turns sent to the agent this conversation (reset on /start, for /limit). */
   sessionTurnCount: number;
-  /** Session-wide turn/cost/token caps set by /limit (persists across /new). */
+  /** Session-wide turn/cost/token caps set by /limit (persists across /start). */
   sessionLimits: SessionLimits;
   /** Timestamp when the chat session started (for /info duration). */
   sessionStartedAt: Date;

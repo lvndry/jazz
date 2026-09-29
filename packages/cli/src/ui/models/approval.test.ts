@@ -1,4 +1,6 @@
+import { generateDiff } from "@jazz/core/utils/diff";
 import { describe, expect, it } from "bun:test";
+import chalk from "chalk";
 import { approvalIntent, parseApprovalDiff } from "./approval";
 
 describe("approvalIntent", () => {
@@ -79,5 +81,31 @@ describe("parseApprovalDiff", () => {
 
   it("is undefined when nothing changes", () => {
     expect(parseApprovalDiff("--- a\n+++ b\n")).toBeUndefined();
+  });
+});
+
+describe("colored approval previews", () => {
+  it("parses the colored patch produced by the file tools", () => {
+    const previous = chalk.level;
+    try {
+      chalk.level = 3;
+      const colored = generateDiff("old\n", "new\n", "notes.txt");
+      expect(colored).toContain("\u001b[");
+      const parsed = parseApprovalDiff(colored);
+      expect(parsed).toMatchObject({ added: 1, removed: 1 });
+      expect(parsed?.rows).toEqual([
+        { sign: "-", text: "old", line: 1 },
+        { sign: "+", text: "new", line: 1 },
+      ]);
+    } finally {
+      chalk.level = previous;
+    }
+  });
+
+  it("preserves changed content that resembles file headers inside a hunk", () => {
+    expect(parseApprovalDiff("--- a\n+++ b\n@@ -1 +1 @@\n---flag\n+++counter\n")?.rows).toEqual([
+      { sign: "-", text: "--flag", line: 1 },
+      { sign: "+", text: "++counter", line: 1 },
+    ]);
   });
 });

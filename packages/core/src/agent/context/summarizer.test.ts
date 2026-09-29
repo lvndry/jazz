@@ -822,7 +822,7 @@ describe("compact", () => {
       });
       const gate = (history: readonly ChatMessage[]) =>
         taintedEgressNeedsApproval({
-          toolName: "web_fetch",
+          toolName: "read_pdf",
           egress: true,
           args: { url: "https://collector.example/?private=report" },
           policy: "read-only",

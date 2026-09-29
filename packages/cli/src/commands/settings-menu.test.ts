@@ -1,6 +1,6 @@
 import type { AppConfig } from "@jazz/core/types/config";
 import { describe, expect, it } from "bun:test";
-import { settingsMenuOptions } from "./config-wizard";
+import { settingsMenuOptions } from "./settings-wizard";
 
 function config(overrides: Partial<AppConfig>): AppConfig {
   return { logging: { level: "info", format: "plain" }, ...overrides } as AppConfig;
@@ -31,8 +31,22 @@ describe("settingsMenuOptions", () => {
     expect(hintOf(options, "logging")).toBe("warn");
     expect(options.at(-1)).toEqual({ label: "Back", value: "back" });
     expect(hintOf(options, "private-hosts")).toBe("none allowed");
-    expect(hintOf(options, "trusted-hosts")).toBe("none trusted");
-    expect(hintOf(options, "tainted-egress")).toBe("allow all");
+    expect(hintOf(options, "http-approval")).toBe("allow all");
+  });
+
+  it("distinguishes unrestricted HTTP requests from an enabled URL list", () => {
+    expect(
+      hintOf(settingsMenuOptions(config({ network: { httpApproval: "allow" } })), "http-approval"),
+    ).toBe("allow all");
+    expect(
+      hintOf(settingsMenuOptions(config({ network: { httpApproval: [] } })), "http-approval"),
+    ).toBe("0 URL grants");
+    expect(
+      hintOf(
+        settingsMenuOptions(config({ network: { httpApproval: ["https://api.example.com/*"] } })),
+        "http-approval",
+      ),
+    ).toBe("1 URL grants");
   });
 
   it("says plainly when nothing is set up yet", () => {

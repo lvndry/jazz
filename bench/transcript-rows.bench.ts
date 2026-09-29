@@ -38,16 +38,19 @@ const results = [
     },
     { iterations: 60, warmupIterations: 4 },
   ),
+];
+
+setThemeVariant("dark");
+transcriptRows(settled, VIEWPORT);
+results.push(
   bench(`warm streaming tail (${String(TURNS * 3)} settled)`, (iteration) => {
-    setThemeVariant("dark");
     transcriptRows(streamingTails[iteration % streamingTails.length] ?? settled, VIEWPORT);
   }),
   // Fresh array of the same block objects: the whole-transcript memo misses,
   // so this measures the per-frame fingerprint walk that survives the cache.
   bench(`fingerprint tax, unchanged blocks (${String(TURNS * 3)})`, () => {
-    setThemeVariant("dark");
     transcriptRows([...settled], VIEWPORT);
   }),
-];
+);
 
 report("transcript-rows", results);

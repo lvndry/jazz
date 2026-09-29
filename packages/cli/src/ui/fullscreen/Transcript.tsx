@@ -324,6 +324,17 @@ let lastTranscriptBlocks: readonly Block[] | undefined;
 let lastTranscriptEpoch: string | undefined;
 let lastTranscriptRows: RenderRow[] | undefined;
 
+/** Release terminal rows and streamed prefixes when their owning view goes away. */
+function releaseTranscriptCaches(): void {
+  blockRowsCache = new WeakMap();
+  runRowsCache = new WeakMap();
+  lastTranscriptBlocks = undefined;
+  lastTranscriptRows = undefined;
+  lastTranscriptEpoch = undefined;
+  wrapCacheEpoch = undefined;
+  forgetStreamingRows();
+}
+
 function wrapEpoch(width: number, glyphs: GlyphSet): string {
   // Cached rows bake THEME colors at wrap time, so a theme switch must
   // invalidate them the same way a resize does.
@@ -1403,6 +1414,7 @@ export function pageWidth(viewport: Viewport): number {
 
 /** The whole transcript as physical rows. Pure: blocks and a width, nothing else. */
 export function transcriptRows(blocks: readonly Block[], viewport: Viewport): RenderRow[] {
+  if (blocks.length === 0) forgetStreamingRows();
   const width = pageWidth(viewport);
   const glyphs = getGlyphs();
   const epoch = wrapEpoch(width, glyphs);
@@ -1631,6 +1643,7 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
   // this the cost of a frame grows with the length of the whole conversation
   // rather than with what changed. The rows bake colours, so a theme switch
   // recomputes them.
+  useEffect(() => releaseTranscriptCaches, []);
   const themeRevision = useThemeRevision();
   const rows = useMemo(
     () => transcriptRows(blocks, viewport),

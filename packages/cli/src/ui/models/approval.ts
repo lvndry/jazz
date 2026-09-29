@@ -10,9 +10,10 @@
  * its two controls with the verb that will happen: `enter send`, `esc don't send`.
  */
 
-import { egressRequestMethod, trustableGetHost } from "@jazz/core/agent/execution/egress-taint";
+import { egressRequestMethod } from "@jazz/core/agent/execution/egress-taint";
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
+import { stripAnsiCodes } from "../../utils/string-utils";
 import type { PendingApproval } from "../store";
 import { sourceLanguageFromPath } from "../text/syntax-spans";
 import { terminalCellWidth } from "../text/terminal-cells";
@@ -114,10 +115,10 @@ export function parseApprovalDiff(diff: string): ApprovalDiff | undefined {
   let removed = 0;
   let oldLine = 0;
   let newLine = 0;
-  for (const raw of diff.split("\n")) {
+  let inHunk = false;
+  for (const raw of stripAnsiCodes(diff).split("\n")) {
     if (
-      raw.startsWith("+++") ||
-      raw.startsWith("---") ||
+      (!inHunk && (raw.startsWith("+++") || raw.startsWith("---"))) ||
       raw.startsWith("diff ") ||
       raw.startsWith("index ")
     ) {
@@ -125,6 +126,7 @@ export function parseApprovalDiff(diff: string): ApprovalDiff | undefined {
     }
     const hunk = HUNK_HEADER.exec(raw);
     if (hunk !== null) {
+      inHunk = true;
       oldLine = Number(hunk[1]);
       newLine = Number(hunk[2]);
       if (rows.length > 0) {
@@ -390,14 +392,11 @@ export interface ApprovalFacts {
   /** The consequence the card states: the headline when there is one, else the tool's prose without repeated values. */
   readonly consequence: string;
   readonly alwaysLabel: string;
-  /** The host a person may trust for plain GETs, when the call is one. */
-  readonly trustHost?: string;
   readonly warning?: string;
   readonly editableArg?: string;
 }
 
 export function approvalFacts(pending: PendingApproval): ApprovalFacts {
-  const trustHost = trustableGetHost(pending.executeToolName, pending.args);
   const entries = Object.entries(pending.args).filter(
     ([, value]) => value !== undefined && value !== null && value !== "",
   );
@@ -435,7 +434,6 @@ export function approvalFacts(pending: PendingApproval): ApprovalFacts {
     intent,
     consequence: intent.headline ?? approvalConsequence(pending.message, fields),
     alwaysLabel: `always allow ${commandKey ?? pending.toolName}`,
-    ...(trustHost === undefined ? {} : { trustHost }),
     ...(pending.warning === undefined ? {} : { warning: pending.warning }),
     ...(pending.editableArg === undefined ? {} : { editableArg: pending.editableArg }),
   };

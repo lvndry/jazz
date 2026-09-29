@@ -1585,6 +1585,7 @@ describe("plain tools are gated on their risk level", () => {
     args: Record<string, unknown>,
     policy: "read-only" | "low-risk" | "high-risk" | false | undefined,
     answer: boolean,
+    extraContext: Partial<ToolExecutionContext> = {},
   ) => {
     const executed: string[] = [];
     const requests: ApprovalRequest[] = [];
@@ -1605,6 +1606,7 @@ describe("plain tools are gated on their risk level", () => {
           conversationId: "s",
           unrestrictedTools: true,
           ...(policy !== undefined ? { getAutoApprovePolicy: () => policy } : {}),
+          ...extraContext,
         },
         displayConfig,
         null,
@@ -1657,16 +1659,40 @@ describe("plain tools are gated on their risk level", () => {
     }
   });
 
+  it("automatically authorizes mutating HTTP calls even when ordinary high-risk tools ask", async () => {
+    const { executed, requests } = await run(
+      { name: "http_request", riskLevel: "high-risk" },
+      { method: "DELETE", url: "http://127.0.0.1:4747/runs/x" },
+      false,
+      false,
+    );
+    expect(requests).toHaveLength(0);
+    expect(executed).toEqual(["http_request"]);
+  });
+
+  it("requires one-call HTTP approval outside the configured list even with high-risk and session grants", async () => {
+    const { executed, requests } = await run(
+      { name: "http_request", riskLevel: "high-risk" },
+      { method: "DELETE", url: "http://127.0.0.1:4747/runs/x" },
+      "high-risk",
+      false,
+      { httpApproval: [], autoApprovedTools: ["http_request"] },
+    );
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.message).toContain("network.httpApproval");
+    expect(executed).toEqual([]);
+  });
+
   it("judges a call by the tool's per-call level", async () => {
     const http = {
-      name: "http_request",
+      name: "custom_api",
       riskLevel: "high-risk",
       resolveRiskLevel: (args: Record<string, unknown>) =>
         args["method"] === "GET" ? "read-only" : "high-risk",
     };
     const read = await run(http, { method: "GET" }, "read-only", false);
     expect(read.requests).toHaveLength(0);
-    expect(read.executed).toEqual(["http_request"]);
+    expect(read.executed).toEqual(["custom_api"]);
 
     const write = await run(http, { method: "DELETE" }, "read-only", false);
     expect(write.requests).toHaveLength(1);

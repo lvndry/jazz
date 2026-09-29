@@ -50,14 +50,14 @@ import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
-import { ensureLocalProviderBaseUrl } from "@/cli/helpers/local-provider-url";
-import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import {
   describeReasoningAdjustment,
   formatReasoningSelection,
   promptForReasoningSelection,
 } from "@/cli/helpers/reasoning";
-import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
+import { ensureLocalProviderBaseUrl } from "@/cli/setup/local-provider-url";
+import { ensureProviderApiKey } from "@/cli/setup/provider-api-key";
+import { configureWebSearch } from "@/cli/setup/web-search";
 import { THEME } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 
@@ -970,7 +970,7 @@ async function promptForAgentUpdates(
         const providerName = currentAgent.config.llmProvider;
         if (providerName) {
           const webSearchProvider = await Effect.runPromise(
-            handleWebSearchConfiguration(terminal, configService, llmService, providerName),
+            configureWebSearch(terminal, configService, llmService, providerName),
           );
 
           if (webSearchProvider === false) {

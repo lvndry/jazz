@@ -527,19 +527,13 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const rejectLabel = model.rejectLabel ?? "reject";
   const legendWidth = Math.max(0, width - LEGEND_INDENT * 2);
   const choice = model.choice ?? "accept";
-  const keysHint = `left/right choose · a always${model.trustHost === undefined ? "" : " · h host"} · esc`;
+  const keysHint = `left/right choose${model.allowAlways === false ? "" : " · a always"} · esc`;
   const rightBudget = Math.max(0, legendWidth - displayWidth(keysHint) - TITLE_GAP);
   const alwaysRoom = legendWidth - displayWidth(acceptLabel) - displayWidth(rejectLabel) - 12;
   const alwaysText = displayWidth(model.alwaysLabel) <= alwaysRoom ? model.alwaysLabel : "always";
   const choiceLabels: readonly (readonly [ApprovalChoiceName, string])[] = [
     ["accept", acceptLabel],
-    ["always", alwaysText],
-    ...(model.trustHost === undefined
-      ? []
-      : ([["host", `GET ${model.trustHost}`]] as readonly (readonly [
-          ApprovalChoiceName,
-          string,
-        ])[])),
+    ...(model.allowAlways === false ? [] : ([["always", alwaysText]] as const)),
     ["reject", rejectLabel],
   ];
   const choiceRow = (

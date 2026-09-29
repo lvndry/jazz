@@ -408,28 +408,20 @@ describe("approval overlay", () => {
     chosen.renderer.destroy();
   });
 
-  it("offers a GET-host chip and its key only when the request is a plain GET", async () => {
-    const withHost = await draw(
+  it("shows only individual decisions when persistent approval is unavailable", async () => {
+    const individual = await draw(
       <Approval
-        model={{ ...APPROVAL, armed: true, trustHost: "eutils.example" }}
+        model={{ ...APPROVAL, armed: true, allowAlways: false }}
         viewport={WIDE}
       />,
       WIDE,
     );
-    const frame = withHost.captureCharFrame();
-    expect(frame).toMatch(/always allow send_email\s+GET eutils\.example\s+reject/);
-    expect(frame).toContain("h host");
-    withHost.renderer.destroy();
-
-    const without = await draw(
-      <Approval
-        model={{ ...APPROVAL, armed: true }}
-        viewport={WIDE}
-      />,
-      WIDE,
-    );
-    expect(without.captureCharFrame()).not.toContain("h host");
-    without.renderer.destroy();
+    const frame = individual.captureCharFrame();
+    expect(frame).toContain("accept");
+    expect(frame).toContain("reject");
+    expect(frame).not.toContain("always");
+    expect(frame).not.toContain("h host");
+    individual.renderer.destroy();
   });
 
   it("keeps always-allow on screen when navigation hints crowd the controls", async () => {

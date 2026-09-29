@@ -902,7 +902,7 @@ describe("fullscreen bridge", () => {
     renderer.destroy();
     store.setActiveMenu(null);
     expect(fresh).toContain("with sol");
-    expect(fresh).toContain("Type / for commands, or type your first message");
+    expect(fresh).toContain("Type / to get started, or type your first message");
   });
 
   it("runs a slash command from the home composer without starting a conversation", async () => {
@@ -2108,7 +2108,7 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
   });
 
-  async function armedApproval(): Promise<{
+  async function armedApproval(toolName = "http_request"): Promise<{
     rendered: Awaited<ReturnType<typeof renderForTest>>;
     outcome: Promise<unknown>;
   }> {
@@ -2117,10 +2117,13 @@ describe("fullscreen bridge", () => {
     const outcome = Effect.runPromise(
       presentationProducer().requestApproval({
         toolCallId: "call-http",
-        toolName: "http_request",
-        executeToolName: "http_request",
-        message: "http_request sends data off this machine.",
-        executeArgs: { method: "GET", url: "https://example.com/data" },
+        toolName,
+        executeToolName: toolName,
+        message: `${toolName} sends data off this machine.`,
+        executeArgs:
+          toolName === "http_request"
+            ? { method: "GET", url: "https://example.com/data" }
+            : { to: "other@example.com", body: "test message" },
       }),
     );
     await rendered.flush();
@@ -2129,12 +2132,12 @@ describe("fullscreen bridge", () => {
   }
 
   it("right then enter grants always allow for the tool", async () => {
-    const always = await armedApproval();
+    const always = await armedApproval("email_send");
     await always.rendered.mockInput.pressKey("ARROW_RIGHT");
     await settleKeypress(always.rendered.flush);
     await always.rendered.mockInput.pressKey("RETURN");
     await settleKeypress(always.rendered.flush);
-    expect(await always.outcome).toEqual({ approved: true, alwaysApproveTool: "http_request" });
+    expect(await always.outcome).toEqual({ approved: true, alwaysApproveTool: "email_send" });
     always.rendered.renderer.destroy();
   });
 
@@ -2150,23 +2153,29 @@ describe("fullscreen bridge", () => {
     reject.rendered.renderer.destroy();
   });
 
-  it("h trusts the host of a plain GET and approves it", async () => {
+  it("ignores the removed host and always keys on an HTTP approval", async () => {
     const trust = await armedApproval();
+    let resolved = false;
+    void trust.outcome.then(() => {
+      resolved = true;
+    });
     await trust.rendered.mockInput.pressKey("h");
+    await trust.rendered.mockInput.pressKey("a");
     await settleKeypress(trust.rendered.flush);
-    expect(await trust.outcome).toEqual({ approved: true, alwaysTrustGetHost: "example.com" });
+    expect(resolved).toBe(false);
+    await trust.rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(trust.rendered.flush);
+    expect(await trust.outcome).toEqual({ approved: true });
     trust.rendered.renderer.destroy();
   });
 
-  it("walks to the host chip with right and confirms it with enter", async () => {
+  it("navigates directly from HTTP accept to reject", async () => {
     const trust = await armedApproval();
-    for (const key of ["ARROW_RIGHT", "ARROW_RIGHT"]) {
-      await trust.rendered.mockInput.pressKey(key);
-      await settleKeypress(trust.rendered.flush);
-    }
+    await trust.rendered.mockInput.pressKey("ARROW_RIGHT");
+    await settleKeypress(trust.rendered.flush);
     await trust.rendered.mockInput.pressKey("RETURN");
     await settleKeypress(trust.rendered.flush);
-    expect(await trust.outcome).toEqual({ approved: true, alwaysTrustGetHost: "example.com" });
+    expect(trust.rendered.captureCharFrame().toLowerCase()).toContain("instead");
     trust.rendered.renderer.destroy();
   });
 
@@ -2349,7 +2358,8 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
   });
 
-  it("names the HTTP method a URL tool will send on its approval card", async () => {
+  it("names the HTTP method and permits only an individual URL-tool approval", async () => {
+    const decisions: string[] = [];
     const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 24 });
     await rendered.renderOnce();
     store.setPrompt({
@@ -2361,7 +2371,7 @@ describe("fullscreen bridge", () => {
           { label: "Always tool", value: "always_tool" },
         ],
       },
-      resolve: () => {},
+      resolve: (value) => decisions.push(String(value)),
     });
     store.setApprovalRequest({
       toolName: "web_fetch",
@@ -2372,7 +2382,17 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
     const frame = rendered.captureCharFrame();
     expect(frame).toMatch(/method\s+GET/);
-    expect(frame).toContain("always allow web_fetch");
+    expect(frame).not.toContain("always");
+    expect(frame).not.toContain("h host");
+    await afterArming(rendered.flush);
+    await rendered.mockInput.pressKey("a");
+    await rendered.mockInput.pressKey("h");
+    await settleKeypress(rendered.flush);
+    expect(decisions).toEqual([]);
+    expect(store.getApprovalRequestSnapshot()).not.toBeNull();
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    expect(decisions).toEqual(["yes"]);
 
     rendered.renderer.destroy();
     store.setApprovalRequest(null);

@@ -231,7 +231,7 @@ Agents are one JSON file each under the Jazz data directory (`~/.jazz/agents/<id
 default). Edit them with `jazz agent edit <id>`, or by hand.
 
 Conversations persist separately, per conversation id. In the terminal, `/resume` browses past
-ones, `/new` starts a fresh one, and `/fork` continues on a new conversation id while carrying the
+ones, `/start` starts a fresh one, `/new` creates an agent, `/rename` names the current conversation, and `/fork` continues on a new conversation id while carrying the
 full history forward and preserving the original branch (resume it later with `/resume`); headless
 callers
 pass `--conversation <id>` and get the same thread back across invocations, which is what gives

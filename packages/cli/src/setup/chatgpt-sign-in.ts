@@ -1,6 +1,10 @@
 /**
  * Interactive ChatGPT subscription sign-in and sign-out, shared by `jazz config` and the agent
- * wizards when an agent picks the ChatGPT provider.
+ * wizards when an agent picks the ChatGPT provider. Pass the terminal and config
+ * services to signInToChatGPT to choose browser/device authentication, save tokens
+ * through the credential adapter and persist the account summary; it returns false
+ * on cancellation or sign-in failure. signOutOfChatGPT clears both credentials and
+ * that summary and reports completion through the same terminal.
  */
 
 import {

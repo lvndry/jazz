@@ -17,6 +17,21 @@ function plain(markdown: string, options: Partial<AnsiMarkdownOptions> = {}): st
 }
 
 describe("markdownToAnsi", () => {
+  it("preserves wide graphemes in a fence at a one-cell width", () => {
+    const text = "界👩‍💻e\u0301";
+    const rendered = plain(`\`\`\`\n${text}\n\`\`\``, { width: 1, syntax: "hybrid" });
+    expect(rendered.split("\n").slice(1, -1).join("")).toBe(text);
+    expect(rendered.split("\n")).toHaveLength(5);
+  });
+
+  it("hard-wraps a long code line without losing indentation or content", () => {
+    const text = "    " + "a".repeat(50_000);
+    const rendered = plain(`\`\`\`txt\n${text}\n\`\`\``, { width: 80, syntax: "hybrid" });
+    const lines = rendered.split("\n").slice(1, -1);
+    expect(lines.join("")).toBe(text);
+    expect(lines.every((line) => line.length <= 80)).toBe(true);
+  });
+
   it("returns empty text unchanged", () => {
     expect(markdownToAnsi("", { width: WIDTH })).toBe("");
   });

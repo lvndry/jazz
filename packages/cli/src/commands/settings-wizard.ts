@@ -1,7 +1,9 @@
 /**
- * Interactive `jazz config` wizard: menu-driven editing of LLM providers, web
- * search providers, output display, logging, scheduler mode, notifications, and
- * spend limits.
+ * Interactive Settings wizard: menu-driven editing of LLM providers, web
+ * search providers, HTTP approval policy, output display, logging, scheduler
+ * mode, notifications, and spend limits. settingsWizardCommand opens the menu
+ * using the terminal and configuration services; provider setup delegates to
+ * the shared setup flows, and accepted changes persist in global configuration.
  */
 
 import { loadChatGPTCredential } from "@jazz/adapters/llm/chatgpt";
@@ -19,7 +21,6 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type {
   AppConfig,
-  TaintedEgressMode,
   DaemonConfig,
   LoggingConfig,
   SchedulerMode,
@@ -42,10 +43,9 @@ import {
   parseSpendLimitInput,
   SPEND_LIMIT_SETTINGS,
 } from "./spend-limits";
-import { addTrustedGetHost, applyTrustedGetHosts, removeTrustedGetHost } from "./trusted-get-hosts";
 import { commitTheme } from "../chat/commands/handler";
-import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
-import { isValidServerAddress } from "../helpers/local-provider-url";
+import { signInToChatGPT, signOutOfChatGPT } from "../setup/chatgpt-sign-in";
+import { isValidServerAddress } from "../setup/local-provider-url";
 import { writeClipboard } from "../ui/fullscreen/clipboard";
 import { activeKeymapMode } from "../ui/keymaps";
 import { configuredProviderNames } from "../ui/models/configured-providers";
@@ -54,9 +54,9 @@ import { THEME } from "../ui/theme";
 import { pickThemeInteractively } from "../ui/theme-picker-prompt";
 
 /**
- * Menu actions for the config wizard
+ * Menu actions for the settings wizard
  */
-type ConfigMenuAction =
+type SettingsMenuAction =
   | "llm-providers"
   | "web-search"
   | "output-display"
@@ -65,14 +65,13 @@ type ConfigMenuAction =
   | "notifications"
   | "spend-limits"
   | "private-hosts"
-  | "trusted-hosts"
-  | "tainted-egress"
+  | "http-approval"
   | "back";
 
 /**
  * Main entry point for the configuration wizard
  */
-export function configWizardCommand() {
+export function settingsWizardCommand() {
   return Effect.gen(function* () {
     let stayInMenu = true;
 
@@ -115,12 +114,8 @@ export function configWizardCommand() {
           yield* configurePrivateHosts();
           break;
         }
-        case "trusted-hosts": {
-          yield* configureTrustedGetHosts();
-          break;
-        }
-        case "tainted-egress": {
-          yield* configureTaintedEgress();
+        case "http-approval": {
+          yield* configureHttpApproval();
           break;
         }
         case "back": {
@@ -185,17 +180,12 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
           : `${String(config.network?.allowPrivateHosts?.length)} allowed`,
     },
     {
-      label: "Trusted public sites (GET)",
-      value: "trusted-hosts",
+      label: "HTTP request approvals",
+      value: "http-approval",
       hint:
-        (config.network?.trustedGetHosts?.length ?? 0) === 0
-          ? "none trusted"
-          : `${String(config.network?.trustedGetHosts?.length)} trusted`,
-    },
-    {
-      label: "Web request safety",
-      value: "tainted-egress",
-      hint: TAINTED_EGRESS_LABELS[config.network?.taintedEgress ?? "allow"].hint,
+        config.network?.httpApproval === undefined || config.network.httpApproval === "allow"
+          ? "allow all"
+          : `${String(config.network.httpApproval.length)} URL grants`,
     },
     { label: "Back", value: "back" },
   ];
@@ -203,8 +193,8 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
 
 function showConfigMenu(
   options: readonly ActiveMenuOption[],
-): Effect.Effect<ConfigMenuAction, never, never> {
-  return Effect.async<ConfigMenuAction>((resume) => {
+): Effect.Effect<SettingsMenuAction, never, never> {
+  return Effect.async<SettingsMenuAction>((resume) => {
     store.setActiveMenu(
       {
         kind: "menu",
@@ -213,7 +203,7 @@ function showConfigMenu(
       },
       (result) => {
         resume(
-          Effect.succeed(result.kind === "exit" ? "back" : (result.value as ConfigMenuAction)),
+          Effect.succeed(result.kind === "exit" ? "back" : (result.value as SettingsMenuAction)),
         );
       },
     );
@@ -1049,97 +1039,30 @@ function configurePrivateHosts() {
   });
 }
 
-const TAINTED_EGRESS_LABELS: Readonly<
-  Record<TaintedEgressMode, { readonly name: string; readonly hint: string }>
-> = {
-  auto: {
-    name: "Auto: allow while you are present, ask in unattended runs",
-    hint: "auto",
-  },
-  ask: {
-    name: "Defensive: ask before any request to an untrusted host after reading untrusted content",
-    hint: "defensive",
-  },
-  allow: { name: "Allow all: never ask about web requests (default)", hint: "allow all" },
-};
-
-function configureTaintedEgress() {
+/** Enable unrestricted requests or a URL list; permanent exceptions are edited in config. */
+function configureHttpApproval() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
-    const current = (yield* configService.appConfig).network?.taintedEgress ?? "allow";
-    const modes: readonly TaintedEgressMode[] = ["allow", "auto", "ask"];
-    const next = yield* terminal.select<TaintedEgressMode>(
-      "Web request safety: what happens when an agent that read untrusted content (a web page, an email) composes a request to a host you have not trusted. A hostile page could try to steer that request into leaking data.",
-      {
-        default: current,
-        choices: modes.map((mode) => ({
-          name: TAINTED_EGRESS_LABELS[mode].name,
-          value: mode,
-          ...currentTag(mode === current),
-        })),
-      },
-    );
-    if (next === undefined || next === current) {
-      return;
-    }
-    yield* configService.set("network.taintedEgress", next === "allow" ? undefined : next);
-    yield* terminal.success(`Web request safety: ${TAINTED_EGRESS_LABELS[next].hint}.`);
-    yield* terminal.log("");
-  });
-}
-
-function configureTrustedGetHosts() {
-  return Effect.gen(function* () {
-    const terminal = yield* TerminalServiceTag;
-    const configService = yield* AgentConfigServiceTag;
-
-    while (true) {
-      const hosts = (yield* configService.appConfig).network?.trustedGetHosts ?? [];
-      const selection = yield* terminal.select<string>(
-        "Trusted public sites: plain GET requests to these websites never ask, even after an agent read untrusted content (local addresses are under Private network hosts).",
-        {
-          choices: [
-            ...hosts.map((host) => ({ name: `${host} (remove)`, value: `remove:${host}` })),
-            { name: "Add a host", value: "add" },
-            { name: "Back", value: "back" },
-          ],
-        },
-      );
-      if (selection === undefined || selection === "back") {
-        break;
-      }
-
-      if (selection === "add") {
-        const raw = yield* terminal.ask("Host (eutils.ncbi.nlm.nih.gov or *.wikipedia.org):", {
-          simple: true,
-          cancellable: true,
-          validate: (input) => {
-            const result = addTrustedGetHost(hosts, input);
-            return result.kind === "invalid" ? result.message : true;
-          },
-        });
-        if (raw === undefined) {
-          continue;
-        }
-        const result = addTrustedGetHost(hosts, raw);
-        if (result.kind === "invalid") {
-          yield* terminal.warn(result.message);
-          continue;
-        }
-        yield* applyTrustedGetHosts(configService, result.hosts);
-        yield* terminal.success(`GET requests to ${raw.trim().toLowerCase()} no longer ask.`);
-        yield* terminal.log("");
-        continue;
-      }
-
-      const host = selection.slice("remove:".length);
-      yield* applyTrustedGetHosts(configService, removeTrustedGetHost(hosts, host));
+    const current = (yield* configService.appConfig).network?.httpApproval ?? "allow";
+    const selection = yield* terminal.select<"allow" | "list">("HTTP requests and web fetches", {
+      default: current === "allow" ? "allow" : "list",
+      choices: [
+        { name: "Allow all requests automatically (default)", value: "allow" },
+        { name: "Use a URL allowlist; approve other requests one by one", value: "list" },
+      ],
+    });
+    if (selection === undefined) return;
+    if (selection === "allow") {
+      yield* configService.set("network.httpApproval", undefined);
+      yield* terminal.success("HTTP requests and web fetches run automatically.");
+    } else {
+      if (current === "allow") yield* configService.set("network.httpApproval", []);
       yield* terminal.success(
-        `Removed ${host}. GET requests to it ask again after untrusted reads.`,
+        "Requests outside network.httpApproval require one-call approval. Edit URL entries in your config file.",
       );
-      yield* terminal.log("");
     }
+    yield* terminal.log("");
   });
 }
 

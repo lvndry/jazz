@@ -8,7 +8,7 @@ import type { SkillService } from "@/core/skills/skill-service";
 import type { Agent } from "@/core/types/index";
 import type { ChatMessage } from "@/core/types/message";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
-import { AgentConfigServiceTag } from "./agent-config";
+import type { AgentConfigService } from "./agent-config";
 import type { AgentService } from "./agent-service";
 import type { FileSystemContextService } from "./fs";
 import type { JazzStateService } from "./jazz-state";
@@ -72,7 +72,7 @@ export interface ChatService {
     | LoggerService
     | FileSystemContextService
     | FileSystem.FileSystem
-    | typeof AgentConfigServiceTag
+    | AgentConfigService
     | JazzStateService
     | ToolRegistry
     | AgentService

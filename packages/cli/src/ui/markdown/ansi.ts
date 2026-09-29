@@ -1,3 +1,8 @@
+/**
+ * Render the shared Markdown model as terminal ANSI for Ink and plain CLI output.
+ * AnsiMarkdownOptions controls width, syntax, links and prose wrapping; code wrapping
+ * preserves indentation and graphemes even when a terminal is narrower than one glyph.
+ */
 import chalk from "chalk";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { parseMarkdown, type MarkdownBlock } from "./parse";
@@ -13,6 +18,7 @@ import { highlightFenceLines, type SyntaxSpan } from "../text/syntax-spans";
 import {
   sliceTerminalCells,
   terminalCellWidth,
+  terminalGraphemes,
   terminalSegmentsWidth,
 } from "../text/terminal-cells";
 import { wrapStyledSpans } from "../text/wrap";
@@ -115,22 +121,26 @@ function spanLine(spans: readonly MarkdownSpan[], hyperlinks: boolean): string {
 
 /** Code keeps its indentation, so a long line is cut by cells rather than word-wrapped. */
 function codeLines(spans: readonly SyntaxSpan[], width: number): SyntaxSpan[][] {
+  const limit = Math.max(1, width);
   const lines: SyntaxSpan[][] = [[]];
   let used = 0;
   for (const span of spans) {
-    let rest = span.text;
-    while (rest.length > 0) {
-      const room = width - used;
-      const head = sliceTerminalCells(rest, room);
-      if (head.length === 0) {
+    let text = "";
+    const flush = (): void => {
+      if (text.length > 0) lines[lines.length - 1]?.push({ ...span, text });
+      text = "";
+    };
+    for (const grapheme of terminalGraphemes(span.text)) {
+      const size = terminalCellWidth(grapheme);
+      if (used > 0 && used + size > limit) {
+        flush();
         lines.push([]);
         used = 0;
-        continue;
       }
-      lines[lines.length - 1]?.push({ ...span, text: head });
-      used += terminalCellWidth(head);
-      rest = rest.slice(head.length);
+      text += grapheme;
+      used += size;
     }
+    flush();
   }
   return lines;
 }

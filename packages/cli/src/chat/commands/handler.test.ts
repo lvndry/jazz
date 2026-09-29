@@ -4,12 +4,28 @@ import * as path from "node:path";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
-import { saveConversation } from "@jazz/adapters/history/conversation-history-service";
+import {
+  loadConversation,
+  saveConversation,
+} from "@jazz/adapters/history/conversation-history-service";
+import { agentConversationsDirectory } from "@jazz/adapters/history/conversation-log";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
+import { silentLogger } from "@jazz/core/agent/test-logger";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
+import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
+import {
+  FileSystemContextServiceTag,
+  type FileSystemContextService,
+} from "@jazz/core/interfaces/fs";
+import { GoalStoreTag } from "@jazz/core/interfaces/goal-store";
 import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interfaces/jazz-state";
+import { JobQueueServiceTag } from "@jazz/core/interfaces/job-queue-service";
 import { type LLMService, LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
+import { MCPServerManagerTag } from "@jazz/core/interfaces/mcp-server";
+import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
+import { PeerLedgerServiceTag, PeerTokenServiceTag } from "@jazz/core/interfaces/peers";
+import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import {
   PluginRuntimeServiceTag,
   type PluginRuntimeService,
@@ -18,12 +34,15 @@ import {
   PresentationServiceTag,
   type PresentationService,
 } from "@jazz/core/interfaces/presentation";
+import { ReminderServiceTag } from "@jazz/core/interfaces/reminder-service";
 import {
   isTerminalReport,
   TerminalServiceTag,
   type TerminalService,
 } from "@jazz/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
+import { WakeTriggerServiceTag } from "@jazz/core/interfaces/wake-trigger-service";
+import { WorkspaceServiceTag } from "@jazz/core/interfaces/workspace-service";
 import {
   SkillServiceTag,
   type SkillService,
@@ -31,13 +50,20 @@ import {
 } from "@jazz/core/skills/skill-service";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
+import * as chatSession from "@/cli/chat/session";
+import { ChatServiceImpl } from "@/cli/chat-service";
+import * as agentCreation from "@/cli/commands/create-agent";
 import { reasoningChoicesFor } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { reportPlainText } from "@/cli/ui/report-layout";
 import { store } from "@/cli/ui/store";
+import * as chatGoal from "./goal";
+import * as commandHandlers from "./handler";
 import { handleSpecialCommand } from "./handler";
+import * as chatLoop from "./loop";
 import type { CommandContext, CommandResult } from "./types";
 
 let tmpDir = "";
@@ -103,6 +129,31 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
+
+/** Typed terminal fixture; unexpected interactive choices fail rather than silently succeeding. */
+function terminalFixture(overrides: Partial<TerminalService> = {}): TerminalService {
+  return {
+    isInteractive: false,
+    info: () => Effect.void,
+    success: () => Effect.void,
+    error: () => Effect.void,
+    warn: () => Effect.void,
+    log: () => Effect.succeed(undefined),
+    user: () => Effect.void,
+    debug: () => Effect.void,
+    heading: () => Effect.void,
+    list: () => Effect.void,
+    clear: () => Effect.void,
+    ask: () => Effect.die("Unexpected text prompt"),
+    password: () => Effect.die("Unexpected password prompt"),
+    select: () => Effect.die("Unexpected selection"),
+    confirm: () => Effect.die("Unexpected confirmation"),
+    search: () => Effect.die("Unexpected search"),
+    checkbox: () => Effect.die("Unexpected checkbox"),
+    setTitle: () => Effect.void,
+    ...overrides,
+  };
+}
 
 /** What a terminal would print for one logged message, a command report included. */
 function outputText(message: unknown): string {
@@ -183,6 +234,261 @@ describe("handleSpecialCommand /skills", () => {
   });
 });
 
+describe("agent creation and fresh conversations", () => {
+  const context: CommandContext = {
+    agent: testAgent,
+    conversationHistory: testRecord.messages,
+    conversationId: "current-session",
+    sessionUsage: { promptTokens: 0, completionTokens: 0 },
+    sessionTurnCount: 0,
+    sessionLimits: {},
+    sessionStartedAt: new Date(),
+  };
+  test("/new opens agent creation without changing the current agent or conversation", async () => {
+    const create = spyOn(agentCreation, "createAgentCommand").mockReturnValue(Effect.void);
+    try {
+      const result = await Effect.runPromise(
+        handleSpecialCommand({ type: "new", args: [] }, context).pipe(
+          Effect.provideService(TerminalServiceTag, terminalFixture()),
+        ) as Effect.Effect<CommandResult, unknown, never>,
+      );
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ shouldContinue: true, skipTranscriptRepaint: true });
+    } finally {
+      create.mockRestore();
+    }
+  });
+
+  test("/start saves the current history and begins a fresh conversation with the same agent", async () => {
+    const terminal = terminalFixture();
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "start", args: [] }, context).pipe(
+        Effect.provideService(TerminalServiceTag, terminal),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+    expect(result.newConversationId).toBeString();
+    expect(result.newConversationId).not.toBe(context.conversationId);
+    expect(result.newHistory).toEqual([]);
+    expect(result.saveCurrentHistory).toBe(true);
+    expect(result.newAgent).toBeUndefined();
+  });
+});
+
+describe("conversation titles through the chat loop", () => {
+  test("keeps a renamed title through agent changes, final saves, and a resumed session", async () => {
+    const title = `Long 研究 🪷\n${"User title ".repeat(1000).trim()}`;
+    const otherAgent = { ...testAgent, id: "another-agent", name: "Another agent" };
+    const setup = spyOn(chatSession, "setupAgent").mockReturnValue(Effect.void);
+    const initialize = spyOn(chatSession, "initializeSession").mockReturnValue(Effect.void);
+    const directory = spyOn(chatSession, "updateWorkingDirectoryInStore").mockImplementation(
+      () => {},
+    );
+    const handoff = spyOn(chatGoal, "offerGoalHandoffs").mockReturnValue(Effect.void);
+    const goals = spyOn(chatGoal, "announceWaitingGoals").mockReturnValue(Effect.void);
+    const loops = spyOn(chatLoop, "announceWaitingLoops").mockReturnValue(Effect.void);
+    const originalHandle = commandHandlers.handleSpecialCommand;
+    const handle = spyOn(commandHandlers, "handleSpecialCommand").mockImplementation(
+      (command, context) =>
+        command.type === "switch"
+          ? Effect.succeed({ shouldContinue: true, newAgent: otherAgent })
+          : originalHandle(command, context),
+    );
+    try {
+      const config = {
+        appConfig: Effect.succeed({
+          storage: { type: "file", path: tmpDir },
+          logging: { level: "info", format: "plain" },
+        }),
+      } as AgentConfigService;
+      const state: JazzStateService = {
+        get: () => Effect.succeed(undefined),
+        set: () => Effect.void,
+        load: () => Effect.succeed({}),
+      };
+      const fsContext: FileSystemContextService = {
+        getCwd: () => Effect.succeed(tmpDir),
+        setCwd: () => Effect.die("Unexpected cwd update"),
+        resolvePath: () => Effect.die("Unexpected path resolution"),
+        findDirectory: () => Effect.die("Unexpected directory search"),
+        resolvePathForMkdir: () => Effect.die("Unexpected mkdir"),
+        escapePath: (value) => value,
+      };
+      async function session(agent: Agent, messages: string[]) {
+        const terminal = terminalFixture({
+          ask: (message) =>
+            Effect.sync(() => (message === "Conversation title:" ? undefined : messages.shift())),
+        });
+        const layer = Layer.mergeAll(
+          NodeFileSystem.layer,
+          Layer.succeed(TerminalServiceTag, terminal),
+          Layer.succeed(LoggerServiceTag, silentLogger),
+          Layer.succeed(FileSystemContextServiceTag, fsContext),
+          Layer.succeed(AgentConfigServiceTag, config),
+          Layer.succeed(JazzStateServiceTag, state),
+          Layer.mock(SkillServiceTag, { listSkills: () => Effect.succeed([]) }),
+          Layer.mock(LLMServiceTag, {
+            resolveLocalProviderBaseUrl: () => {
+              throw new Error("Unexpected model discovery");
+            },
+          }),
+          Layer.mock(MCPServerManagerTag, { disconnectAllServers: () => Effect.void }),
+          Layer.mock(AgentServiceTag, {}),
+          Layer.mock(PersonaServiceTag, {}),
+          Layer.mock(GoalStoreTag, {}),
+          Layer.mock(WorkspaceServiceTag, {}),
+          Layer.mock(JobQueueServiceTag, {}),
+          Layer.mock(MemoryServiceTag, {}),
+          Layer.mock(PeerLedgerServiceTag, {}),
+          Layer.mock(PeerTokenServiceTag, {}),
+          Layer.mock(ReminderServiceTag, {}),
+          Layer.mock(WakeTriggerServiceTag, {}),
+          Layer.mock(WorkflowServiceTag, {}),
+          Layer.mock(PresentationServiceTag, {
+            formatToolArguments: () => {
+              throw new Error("Unexpected tool arguments");
+            },
+            formatToolResult: () => {
+              throw new Error("Unexpected tool result");
+            },
+          }),
+          Layer.mock(ToolRegistryTag, {
+            registerForCategory: () => () => Effect.die("Unexpected tool registration"),
+          }),
+        );
+        return Effect.runPromise(
+          new ChatServiceImpl()
+            .startChatSession(agent, { conversationId: "rename-loop" })
+            .pipe(Effect.provide(layer)),
+        );
+      }
+      expect(
+        (await session(testAgent, [`/rename ${title}`, "/switch another-agent", "/exit"]))
+          .messagesReceived,
+      ).toBe(2);
+      expect((await runEffect(loadConversation(testAgent.id, "rename-loop", tmpDir)))?.title).toBe(
+        title,
+      );
+      expect((await runEffect(loadConversation(otherAgent.id, "rename-loop", tmpDir)))?.title).toBe(
+        title,
+      );
+      expect((await session(otherAgent, ["/rename", "/exit"])).messagesReceived).toBe(1);
+      expect((await runEffect(loadConversation(otherAgent.id, "rename-loop", tmpDir)))?.title).toBe(
+        title,
+      );
+      await session(otherAgent, ["/start", "/rename Fresh branch", "/exit"]);
+      const freshId = store.getCurrentConversationSnapshot()?.conversationId;
+      expect(freshId).not.toBe("rename-loop");
+      expect((await runEffect(loadConversation(otherAgent.id, freshId ?? "", tmpDir)))?.title).toBe(
+        "Fresh branch",
+      );
+      expect((await runEffect(loadConversation(otherAgent.id, "rename-loop", tmpDir)))?.title).toBe(
+        title,
+      );
+    } finally {
+      handle.mockRestore();
+      setup.mockRestore();
+      initialize.mockRestore();
+      directory.mockRestore();
+      handoff.mockRestore();
+      goals.mockRestore();
+      loops.mockRestore();
+      store.registerModeSwitchHandler(null);
+    }
+  });
+});
+
+describe("handleSpecialCommand /rename", () => {
+  const context: CommandContext = {
+    agent: testAgent,
+    conversationHistory: [],
+    conversationId: "rename-session",
+    sessionUsage: { promptTokens: 0, completionTokens: 0 },
+    sessionTurnCount: 0,
+    sessionLimits: {},
+    sessionStartedAt: new Date("2026-09-29T12:00:00Z"),
+  };
+  function run(args: string[], overrides: Partial<CommandContext> = {}, answer?: string) {
+    const errors: string[] = [];
+    let promptOptions: Parameters<TerminalService["ask"]>[1];
+    const terminal = terminalFixture({
+      success: () => Effect.void,
+      error: (message: string) =>
+        Effect.sync(() => {
+          errors.push(message);
+        }),
+      ask: (_message: string, options: Parameters<TerminalService["ask"]>[1]) =>
+        Effect.sync(() => {
+          promptOptions = options;
+          return answer;
+        }),
+    });
+    return {
+      errors,
+      options: () => promptOptions,
+      outcome: runEffect(
+        handleSpecialCommand({ type: "rename", args }, { ...context, ...overrides }).pipe(
+          Effect.provideService(TerminalServiceTag, terminal),
+        ) as Effect.Effect<CommandResult, unknown, FileSystem.FileSystem>,
+      ),
+    };
+  }
+
+  test("names a previously unsaved conversation with the complete user title", async () => {
+    const title = `Unicode 🪷  ${"complete title ".repeat(1000).trim()}`;
+    const result = await run([title]).outcome;
+    expect(result.newConversationTitle).toBe(title);
+    const saved = await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir));
+    expect(saved?.title).toBe(title);
+    expect(saved?.messages).toEqual([]);
+    expect(saved?.startedAt).toBe(context.sessionStartedAt.toISOString());
+  });
+
+  test("bare rename edits the saved title and preserves its history and UI transcript", async () => {
+    await runEffect(
+      saveConversation(
+        {
+          ...testRecord,
+          conversationId: context.conversationId,
+          uiTranscript: [{ type: "log", message: "prior UI" }],
+        },
+        tmpDir,
+      ),
+    );
+    const rename = run([], { conversationHistory: testRecord.messages }, "New  title 🪷");
+    await rename.outcome;
+    expect(rename.options()?.defaultValue).toBe(testRecord.title);
+    expect(rename.options()?.cancellable).toBe(true);
+    const saved = await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir));
+    expect(saved?.title).toBe("New  title 🪷");
+    expect(saved?.messages).toEqual(testRecord.messages);
+    expect(saved?.uiTranscript).toEqual([{ type: "log", message: "prior UI" }]);
+  });
+
+  test("cancelling leaves the title untouched and ephemeral rename writes no conversation", async () => {
+    expect((await run([]).outcome).newConversationTitle).toBeUndefined();
+    expect(
+      await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir)),
+    ).toBeNull();
+    expect((await run(["memory only"], { ephemeral: true }).outcome).newConversationTitle).toBe(
+      "memory only",
+    );
+    expect(
+      await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir)),
+    ).toBeNull();
+  });
+
+  test("reports storage errors without claiming that the rename succeeded", async () => {
+    const blocked = agentConversationsDirectory(testAgent.id, tmpDir);
+    fs.mkdirSync(path.dirname(blocked), { recursive: true });
+    fs.writeFileSync(blocked, "do not overwrite");
+    const rename = run(["cannot save"]);
+    const result = await rename.outcome;
+    expect(result.newConversationTitle).toBeUndefined();
+    expect(rename.errors.join("\n")).toContain("Could not rename conversation");
+    expect(fs.readFileSync(blocked, "utf8")).toBe("do not overwrite");
+  });
+});
+
 describe("handleSpecialCommand resume", () => {
   test("sets resetStartedAt on the result when a conversation is successfully resumed", async () => {
     await runEffect(saveConversation(testRecord, tmpDir));
@@ -224,6 +530,7 @@ describe("handleSpecialCommand resume", () => {
     );
 
     expect(result.resetStartedAt).toBe(true);
+    expect(result.newConversationTitle).toBe(testRecord.title);
     expect(result.newHistory?.map((message) => message.content)).toEqual([
       expect.stringContaining("Resuming conversation from"),
       "Hello",

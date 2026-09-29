@@ -1,3 +1,10 @@
+/**
+ * Interactive web-search setup shared by agent creation and editing. configureWebSearch
+ * discovers native search support, presents supported external providers, and prompts
+ * for a missing provider key before persisting that credential in global configuration.
+ * It returns the selected provider for the caller to store on the agent; cancelling
+ * the key prompt returns to provider selection, and cancelling selection returns false.
+ */
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { type ProviderName } from "@jazz/core/constants/models";
 import { type AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -11,7 +18,7 @@ import type { WebSearchProviderName } from "@jazz/core/types/config";
 import { Effect } from "effect";
 
 /**
- * Handle configuration for Web Search tool during agent creation / editing.
+ * Configure the agent's search capability and shared external-provider credentials.
  *
  * Prompts the user to select a web search provider:
  * - Built-in (if the LLM provider supports native web search)
@@ -24,7 +31,7 @@ import { Effect } from "effect";
  *
  * Returns the selected provider (or "builtin"), or false if the user cancelled.
  */
-export function handleWebSearchConfiguration(
+export function configureWebSearch(
   terminal: TerminalService,
   configService: AgentConfigService,
   llmService: LLMService,

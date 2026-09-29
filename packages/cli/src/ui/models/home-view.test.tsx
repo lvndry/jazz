@@ -314,7 +314,7 @@ describe("Ink reading", () => {
       { columns: 100 },
     );
     expect(text).toContain("› New conversation with sol (gpt-5.6-sol)");
-    expect(text).toContain("Type / for commands, or type your first message:");
+    expect(text).toContain("Type / to get started, or type your first message:");
     expect(text).toContain("Your agents, 31");
     expect(text).toContain("Waiting for you, 1");
     expect(text).toContain("/ commands · ↓ waiting · tab all agents · esc quit");

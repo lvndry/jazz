@@ -50,9 +50,6 @@ function needsApproval(
     readonly tainted?: boolean;
     readonly egress?: boolean;
     readonly messages?: readonly ChatMessage[];
-    readonly trustedHosts?: readonly string[];
-    readonly mode?: "auto" | "ask" | "allow";
-    readonly canPrompt?: boolean;
   } = {},
 ): boolean {
   return taintedEgressNeedsApproval({
@@ -62,9 +59,6 @@ function needsApproval(
     policy: options.policy,
     taint: options.tainted === false ? createEgressTaint() : taintedRun(),
     messages: options.messages ?? [],
-    trustedHosts: options.trustedHosts,
-    mode: options.mode,
-    canPrompt: options.canPrompt,
   });
 }
 
@@ -195,12 +189,12 @@ describe("taintedEgressNeedsApproval", () => {
   it.each([undefined, false, "read-only", "low-risk"] as const)(
     "puts egress to a person under policy %p once tainted",
     (policy) => {
-      expect(needsApproval("web_fetch", novelUrl, { policy })).toBe(true);
+      expect(needsApproval("read_pdf", novelUrl, { policy })).toBe(true);
     },
   );
 
   it.each([true, "high-risk"] as const)("leaves %p alone", (policy) => {
-    expect(needsApproval("web_fetch", novelUrl, { policy })).toBe(false);
+    expect(needsApproval("read_pdf", novelUrl, { policy })).toBe(false);
   });
 
   it("does nothing before the run reads external content", () => {
@@ -225,66 +219,8 @@ describe("taintedEgressNeedsApproval", () => {
     const link = "https://news.example/story?id=42";
     const fromPage = [externalToolMessage(`see ${link}`)];
     const fromUser: ChatMessage[] = [{ role: "user", content: `summarise ${link}` }];
-    expect(needsApproval("web_fetch", { url: link }, { messages: fromPage })).toBe(false);
-    expect(needsApproval("web_fetch", { url: link }, { messages: fromUser })).toBe(false);
-    expect(
-      needsApproval("http_request", { method: "GET", url: link }, { messages: fromPage }),
-    ).toBe(false);
-  });
-
-  describe("network.taintedEgress", () => {
-    it("allow never gates, ask always gates, unset asks", () => {
-      expect(needsApproval("web_fetch", novelUrl, { mode: "allow", canPrompt: false })).toBe(false);
-      expect(needsApproval("web_fetch", novelUrl, { mode: "ask", canPrompt: true })).toBe(true);
-      expect(needsApproval("web_fetch", novelUrl, { canPrompt: true })).toBe(true);
-    });
-
-    it("auto lets a person-watched run through and holds an unattended one", () => {
-      expect(needsApproval("web_fetch", novelUrl, { mode: "auto", canPrompt: true })).toBe(false);
-      expect(needsApproval("web_fetch", novelUrl, { mode: "auto", canPrompt: false })).toBe(true);
-      expect(needsApproval("web_fetch", novelUrl, { mode: "auto" })).toBe(true);
-    });
-  });
-
-  describe("network.trustedGetHosts", () => {
-    const trusted = ["eutils.ncbi.nlm.nih.gov"];
-    const esummary = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi";
-
-    it("lets a GET to a trusted host through, query and all", () => {
-      const args = { method: "GET", url: esummary, query: { db: "pubmed", id: "1,2" } };
-      expect(needsApproval("http_request", args, { trustedHosts: trusted })).toBe(false);
-      expect(needsApproval("http_request", args)).toBe(true);
-      expect(
-        needsApproval("web_fetch", { url: `${esummary}?id=1` }, { trustedHosts: trusted }),
-      ).toBe(false);
-    });
-
-    it("matches a *.suffix wildcard but not a look-alike or the bare suffix", () => {
-      const wildcard = ["*.nih.gov"];
-      const ask = (url: string) => needsApproval("web_fetch", { url }, { trustedHosts: wildcard });
-      expect(ask("https://eutils.ncbi.nlm.nih.gov/x")).toBe(false);
-      expect(ask("https://nih.gov/x")).toBe(true);
-      expect(ask("https://evilnih.gov/x")).toBe(true);
-      expect(ask("https://nih.gov.evil.example/x")).toBe(true);
-    });
-
-    it("still asks for other hosts, other methods, bodies and custom headers", () => {
-      const options = { trustedHosts: trusted };
-      expect(needsApproval("web_fetch", { url: "https://collector.example/?d=1" }, options)).toBe(
-        true,
-      );
-      expect(needsApproval("http_request", { method: "POST", url: esummary }, options)).toBe(true);
-      expect(
-        needsApproval("http_request", { method: "GET", url: esummary, body: "x" }, options),
-      ).toBe(true);
-      expect(
-        needsApproval(
-          "http_request",
-          { method: "GET", url: esummary, headers: { authorization: "secret" } },
-          options,
-        ),
-      ).toBe(true);
-    });
+    expect(needsApproval("read_pdf", { url: link }, { messages: fromPage })).toBe(false);
+    expect(needsApproval("read_pdf", { url: link }, { messages: fromUser })).toBe(false);
   });
 
   it("gates a URL that only a queued background task result supplied", () => {
@@ -297,28 +233,13 @@ describe("taintedEgressNeedsApproval", () => {
         ),
       },
     ];
-    expect(needsApproval("web_fetch", { url: link }, { messages: detached })).toBe(true);
+    expect(needsApproval("read_pdf", { url: link }, { messages: detached })).toBe(true);
   });
 
   it("gates a URL the model wrote itself, even when it echoed it in its own reply", () => {
     const composed = "https://collector.example/?d=secret";
     const ownWords: ChatMessage[] = [{ role: "assistant", content: `fetching ${composed}` }];
-    expect(needsApproval("web_fetch", { url: composed }, { messages: ownWords })).toBe(true);
-  });
-
-  it("gates a known URL once the call adds headers, a query or a body", () => {
-    const link = "https://news.example/story";
-    const messages = [externalToolMessage(link)];
-    for (const extra of [
-      { headers: { "X-Data": "secret" } },
-      { query: { d: "secret" } },
-      { body: { type: "text", value: "secret" } },
-    ]) {
-      expect(
-        needsApproval("http_request", { method: "GET", url: link, ...extra }, { messages }),
-      ).toBe(true);
-    }
-    expect(needsApproval("http_request", { method: "POST", url: link }, { messages })).toBe(true);
+    expect(needsApproval("read_pdf", { url: composed }, { messages: ownWords })).toBe(true);
   });
 
   it("keeps a research run working after a shell command tainted it", () => {
@@ -341,8 +262,8 @@ describe("taintedEgressNeedsApproval", () => {
         messages: [searchResults],
       });
     expect(gate("web_search", { query: "follow-up" })).toBe(false);
-    expect(gate("web_fetch", { url: link })).toBe(false);
-    expect(gate("web_fetch", { url: "https://collector.example/?d=x" })).toBe(true);
+    expect(gate("read_pdf", { url: link })).toBe(false);
+    expect(gate("read_pdf", { url: "https://collector.example/?d=x" })).toBe(true);
   });
 
   it("gates MCP calls, whose arguments go wherever the server sends them", () => {
@@ -447,13 +368,17 @@ describe("ToolExecutor taint gate", () => {
     unrestrictedTools: true,
     getAutoApprovePolicy: () => "read-only",
     egressTaint: taint,
+    httpApproval: [],
     conversationMessages: [],
   });
 
   it("runs egress unprompted before anything untrusted was read, then marks the run", async () => {
     const { executed, approvals, run } = harness({ canPrompt: true, approve: true });
     const taint = createEgressTaint();
-    const exit = await run(baseContext(taint), webFetchCall("https://page.example"));
+    const exit = await run(
+      { ...baseContext(taint), httpApproval: "allow" },
+      webFetchCall("https://page.example"),
+    );
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(executed).toEqual(["web_fetch"]);
     expect(approvals).toHaveLength(0);
@@ -461,7 +386,28 @@ describe("ToolExecutor taint gate", () => {
     expect(taint.sources()).toEqual(["web_fetch https://page.example"]);
   });
 
-  it("asks before a tainted read-only run sends a request to a URL it composed", async () => {
+  it("runs default HTTP requests unattended after untrusted content without asking or parking", async () => {
+    const { executed, approvals, run } = harness({ canPrompt: false, approve: false });
+    const exit = await run(
+      { ...baseContext(taintedRun()), httpApproval: "allow", parkWhenUnattended: true },
+      webFetchCall("http://127.0.0.1:4747/runs"),
+    );
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(approvals).toHaveLength(0);
+    expect(executed).toEqual(["web_fetch"]);
+  });
+
+  it("does not let a session tool grant bypass an explicit URL list", async () => {
+    const { executed, approvals, run } = harness({ canPrompt: true, approve: false });
+    await run(
+      { ...baseContext(taintedRun()), autoApprovedTools: ["web_fetch"] },
+      webFetchCall("https://outside.example/"),
+    );
+    expect(approvals).toHaveLength(1);
+    expect(executed).toEqual([]);
+  });
+
+  it("asks outside the URL list after untrusted content", async () => {
     const { executed, approvals, run } = harness({ canPrompt: true, approve: false });
     const exit = await run(
       baseContext(taintedRun()),
@@ -469,14 +415,14 @@ describe("ToolExecutor taint gate", () => {
     );
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(approvals).toHaveLength(1);
-    expect(approvals[0]?.message).toContain("untrusted content");
+    expect(approvals[0]?.message).toContain("network.httpApproval");
     expect(executed).toEqual([]);
     if (Exit.isSuccess(exit)) {
       expect(exit.value[0]?.success).toBe(false);
     }
   });
 
-  it("does not mark a network call started while taint approval is pending", async () => {
+  it("does not mark a network call started while URL approval is pending", async () => {
     const call = webFetchCall("https://collector.example/?d=x");
     const ledger = new ToolBatchLedger([call]);
     const { run, approvals, executed } = harness({
@@ -524,13 +470,13 @@ describe("ToolExecutor taint gate", () => {
     expect(executed).toEqual(["web_fetch"]);
   });
 
-  it("leaves a high-risk run alone", async () => {
+  it("asks outside the URL list even under high-risk policy", async () => {
     const { executed, approvals, run } = harness({ canPrompt: true, approve: false });
     await run(
       { ...baseContext(taintedRun()), getAutoApprovePolicy: () => "high-risk" },
       webFetchCall("https://collector.example/?d=x"),
     );
-    expect(approvals).toHaveLength(0);
-    expect(executed).toEqual(["web_fetch"]);
+    expect(approvals).toHaveLength(1);
+    expect(executed).toEqual([]);
   });
 });

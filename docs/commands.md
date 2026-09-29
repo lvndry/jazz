@@ -737,9 +737,11 @@ shows every form of one command. The table below is generated from the same list
 | `/mode [allow\|disallow <cmd>]`                                                      | Switch between safe mode and yolo mode for tool approvals (also Shift+Tab).                                   |
 | `/model [model]`                                                                     | Change the agent's model for this session only. Also `/models`.                                               |
 | `/reasoning [minimal\|low\|medium\|high\|xhigh\|max\|disable]`                       | Change reasoning for this session only.                                                                       |
+| `/rename [title]`                                                                    | Rename the current conversation.                                                                              |
 | `/resume`                                                                            | Browse and resume a past conversation.                                                                        |
 | `/retry`                                                                             | Re-send your last message.                                                                                    |
-| `/new`                                                                               | Start a new conversation (clear context).                                                                     |
+| `/new`                                                                               | Create a new agent.                                                                                           |
+| `/start`                                                                             | Start a fresh conversation with the current agent.                                                            |
 | `/skills`                                                                            | Search installed skills by name, source, or description.                                                      |
 | `/info`                                                                              | Show conversation id, title, usage, and log file paths for this session. Also `/stats`.                       |
 | `/switch [agent]`                                                                    | Switch to a different agent in the same conversation.                                                         |
@@ -749,6 +751,16 @@ shows every form of one command. The table below is generated from the same list
 | `! <command>`                                                                        | Run a shell command and give its output to the agent. See [Shell escapes](#shell-escapes).                    |
 
 <!-- chat-commands:end -->
+
+`/new` creates an agent in both home and terminal chat. In chat it leaves your active agent and
+conversation in place; `/start` starts a fresh conversation with that agent. Chat bridges have
+independent command contracts described in their surface guides.
+
+`/rename <title>` sets the current conversation's title, preserving internal whitespace and
+Unicode without an artificial length limit. Bare `/rename` edits the current title; Escape
+cancels. Naming a conversation before its first message saves it too. Later turns and resumes
+preserve the title. Ephemeral sessions keep it only in memory. Renaming never calls the model,
+and a save failure is reported without changing the title.
 
 Only `/exit` (or `/quit`) ends the chat; `exit` or `quit` typed alone is sent to the agent as a
 message. A message that starts with a file path, which is what dragging a file into the terminal

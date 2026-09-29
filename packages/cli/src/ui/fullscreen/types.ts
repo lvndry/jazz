@@ -332,7 +332,7 @@ export interface ApprovalField {
  * exist afterwards, states irreversibility in prose, and holds perfectly still.
  */
 /** The three answers the approval card offers, in the order ← → walk them. */
-export type ApprovalChoice = "accept" | "always" | "host" | "reject";
+export type ApprovalChoice = "accept" | "always" | "reject";
 
 export interface ApprovalOverlay {
   readonly kind: "approval";
@@ -345,8 +345,8 @@ export interface ApprovalOverlay {
   /** True after Ctrl+O: long fields wrap in full instead of the 120-cell preview. */
   readonly expanded?: boolean;
   readonly alwaysLabel: string;
-  /** The host "always allow GET" would trust, when the request is a plain GET. */
-  readonly trustHost?: string;
+  /** Restricted HTTP calls can only be approved individually. */
+  readonly allowAlways?: boolean;
   /** Which of the three controls enter confirms; accept until ← → move it. */
   readonly choice?: ApprovalChoice;
   /** True once the arming delay has passed; before that only deny is accepted. */

@@ -392,6 +392,12 @@ while Escape remains immediate. Rejection removes the approval card before the
 optional guidance prompt appears. Long fields collapse to a 120-cell preview
 so a heredoc does not become the whole card; Ctrl+O expands them into a wrapping,
 scrolling record, so the tail is still inspectable before you commit.
+In Ink, long or multiline fields also offer **View the full request**. It prints
+all arguments and the preview patch, then returns to the same unanswered decision.
+Opening details never approves the action. Colored patches are parsed after stripping
+terminal escapes and rendered with the active theme, preserving line numbers and changes.
+When an optional HTTP URL list requires approval, HTTP and web-fetch cards offer only
+one-off approval or rejection; they cannot add a host or session exemption.
 
 ---
 
@@ -466,3 +472,7 @@ See [Surfaces](../surfaces/index.md) for where Jazz runs, and
 - [Delegation](../concepts/agents.md#delegation): what the lanes represent
 - [Personas](../concepts/personas.md): where the house voice is defined
 - [**website.html**](../design/website.html): the website's design direction ("the terminal, unboxed"): the moodboard with the equalizer hero, the motion language, and the OG/SEO strategy, all animated. Open in a browser; GitHub shows HTML as source
+
+Transcript wrapping caches reuse settled blocks during streaming. Clearing the
+transcript releases cached streaming prefixes; unmounting its view releases the
+last row snapshot as well, so a closed conversation cannot keep its text alive.

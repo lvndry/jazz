@@ -41,6 +41,12 @@ import {
 } from "@/core/types/tools";
 import { formatDuration } from "@/core/utils/duration";
 import { toError } from "@/core/utils/errors";
+import {
+  effectiveHttpUrl,
+  HTTP_APPROVAL_MESSAGE,
+  httpToolIsApproved,
+  isHttpApprovalTool,
+} from "@/core/utils/http-approval";
 import { isRecord } from "@/core/utils/is-record";
 import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
@@ -53,7 +59,6 @@ import {
   unlistedPrivateAddressesFor,
 } from "./private-destination";
 import type { ToolBatchLedger } from "./tool-batch-ledger";
-import { rememberTrustedGetHost } from "./trusted-get-hosts";
 import {
   emitToolInvocation,
   recordToolError,
@@ -362,23 +367,25 @@ export class ToolExecutor {
     PresentationService | LoggerService | AgentConfigService
   > {
     return Effect.gen(function* () {
-      const presentation = yield* PresentationServiceTag;
-      const canPromptNow = presentation.canPromptForApproval?.() === true;
+      const httpApproved = httpToolIsApproved(name, args, context.httpApproval);
+      if (httpApproved === true) return undefined;
+      const httpGated = httpApproved === false;
       const taintGated = () =>
         context.egressTaint !== undefined &&
-        plainToolNeedsTaintApproval(name, args, toolMeta.egress, context, canPromptNow);
+        plainToolNeedsTaintApproval(name, args, toolMeta.egress, context);
       const privateGated = () =>
         privateDestinationNeedsApproval(
           privateAddresses,
           context.getAutoApprovePolicy?.(),
           isToolNameAutoApproved(name, context.autoApprovedTools),
         );
-      if (!taintGated() && !privateGated()) {
+      if (!httpGated && !taintGated() && !privateGated()) {
         return undefined;
       }
       const presentationService = yield* PresentationServiceTag;
       const logger = yield* LoggerServiceTag;
       const message = [
+        ...(httpGated ? [HTTP_APPROVAL_MESSAGE] : []),
         ...(taintGated() && context.egressTaint !== undefined
           ? [taintedEgressApprovalMessage(name, args, context.egressTaint)]
           : []),
@@ -416,7 +423,7 @@ export class ToolExecutor {
           executeArgs: args,
           riskLevel: toolMeta.riskLevel,
           warning: message,
-          isAutoApproved: () => !taintGated() && !privateGated(),
+          isAutoApproved: () => !httpGated && !taintGated() && !privateGated(),
         }));
 
       if (renderer) {
@@ -428,11 +435,13 @@ export class ToolExecutor {
           auto: false,
         });
       }
-      if (outcome.approved && outcome.alwaysApproveTool && context.onAutoApproveTool) {
+      if (
+        outcome.approved &&
+        !isHttpApprovalTool(name) &&
+        outcome.alwaysApproveTool &&
+        context.onAutoApproveTool
+      ) {
         context.onAutoApproveTool(outcome.alwaysApproveTool);
-      }
-      if (outcome.approved && outcome.alwaysTrustGetHost) {
-        yield* rememberTrustedGetHost(outcome.alwaysTrustGetHost, context);
       }
       if (outcome.approved && privateGated()) {
         yield* rememberPrivateAddresses(privateAddresses);
@@ -567,7 +576,7 @@ export class ToolExecutor {
         } else {
           const privateAddresses =
             toolMeta !== undefined && toolMeta.approvalExecuteToolName === undefined
-              ? yield* unlistedPrivateAddressesFor(toolMeta.egress, args, context)
+              ? yield* unlistedPrivateAddressesFor(name, toolMeta.egress, args, context)
               : [];
           const taintVerdict =
             toolMeta !== undefined && toolMeta.approvalExecuteToolName === undefined
@@ -596,6 +605,9 @@ export class ToolExecutor {
                   {
                     ...context,
                     toolCallId: toolCall.id,
+                    ...(taintVerdict?.approved && isHttpApprovalTool(name)
+                      ? { approvedHttpUrl: effectiveHttpUrl(name, args) }
+                      : {}),
                     ...(privateAddresses.length > 0
                       ? { approvedPrivateAddresses: privateAddresses }
                       : {}),
@@ -685,11 +697,9 @@ export class ToolExecutor {
               policy: getCurrentPolicy(),
               taint: context.egressTaint,
               messages: context.conversationMessages,
-              trustedHosts: context.trustedGetHosts,
-              mode: context.taintedEgress,
-              canPrompt,
             });
           const privateAddresses = yield* unlistedPrivateAddressesFor(
+            name,
             egress,
             approvalResult.executeArgs,
             context,
@@ -700,16 +710,17 @@ export class ToolExecutor {
           // Check if auto-approve policy allows this tool, per-tool session allowlist,
           // or per-command prefix allowlist matches
           const checkAutoApproved = () =>
-            approvalResult.alwaysAsk !== true &&
-            ((shouldAutoApprove(riskLevel, getCurrentPolicy()) &&
-              !taintGated() &&
-              !privateGated()) ||
-              isToolNameAutoApproved(name, context.autoApprovedTools) ||
-              isCommandAutoApproved(
-                name,
-                approvalResult.executeArgs,
-                context.autoApprovedCommands,
-              ));
+            httpToolIsApproved(name, approvalResult.executeArgs, context.httpApproval) ??
+            (approvalResult.alwaysAsk !== true &&
+              ((shouldAutoApprove(riskLevel, getCurrentPolicy()) &&
+                !taintGated() &&
+                !privateGated()) ||
+                isToolNameAutoApproved(name, context.autoApprovedTools) ||
+                isCommandAutoApproved(
+                  name,
+                  approvalResult.executeArgs,
+                  context.autoApprovedCommands,
+                )));
 
           // A picker-style request is never auto-approved, under any policy including
           // yolo: there is nothing to approve until somebody picked a row. The
@@ -779,7 +790,17 @@ export class ToolExecutor {
                   privateAddresses,
                 )
               : undefined;
-          const approvalMessage = [approvalResult.message, taintWarning, privateWarning]
+          const httpWarning =
+            !isAutoApproved &&
+            httpToolIsApproved(name, approvalResult.executeArgs, context.httpApproval) === false
+              ? HTTP_APPROVAL_MESSAGE
+              : undefined;
+          const approvalMessage = [
+            approvalResult.message,
+            httpWarning,
+            taintWarning,
+            privateWarning,
+          ]
             .filter((part): part is string => part !== undefined)
             .join("\n\n");
           const approvalRequest = {
@@ -844,13 +865,13 @@ export class ToolExecutor {
             }
 
             // Handle "always approve this tool" choice (any approval tool)
-            if (outcome.alwaysApproveTool && context.onAutoApproveTool) {
+            if (
+              !isHttpApprovalTool(name) &&
+              outcome.alwaysApproveTool &&
+              context.onAutoApproveTool
+            ) {
               context.onAutoApproveTool(outcome.alwaysApproveTool);
               yield* logger.info("User chose to always approve tool");
-            }
-
-            if (outcome.alwaysTrustGetHost) {
-              yield* rememberTrustedGetHost(outcome.alwaysTrustGetHost, context);
             }
 
             if (!isAutoApproved) {
@@ -905,6 +926,9 @@ export class ToolExecutor {
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
               allowHiddenExecute: true,
+              ...(isHttpApprovalTool(name)
+                ? { approvedHttpUrl: effectiveHttpUrl(name, approvalResult.executeArgs) }
+                : {}),
               ...(privateAddresses.length > 0
                 ? { approvedPrivateAddresses: privateAddresses }
                 : {}),
@@ -1179,6 +1203,8 @@ export class ToolExecutor {
             continue;
           }
           const args = parsedArguments.args;
+          const httpApproved = httpToolIsApproved(name, args, context.httpApproval);
+          if (httpApproved === true) continue;
 
           const toolMeta = toolMetaByName.get(name);
           const plainGateRisk = plainToolGateRisk(toolMeta, args);
@@ -1192,8 +1218,9 @@ export class ToolExecutor {
               }
               const taintGated =
                 context.egressTaint !== undefined &&
-                plainToolNeedsTaintApproval(name, args, toolMeta.egress, context, false);
+                plainToolNeedsTaintApproval(name, args, toolMeta.egress, context);
               const privateAddresses = yield* unlistedPrivateAddressesFor(
+                name,
                 toolMeta.egress,
                 args,
                 context,
@@ -1203,7 +1230,7 @@ export class ToolExecutor {
                 context.getAutoApprovePolicy?.(),
                 isToolNameAutoApproved(name, context.autoApprovedTools),
               );
-              if (!taintGated && !privateGated) {
+              if (httpApproved !== false && !taintGated && !privateGated) {
                 continue;
               }
               needsAnswering.push(toolCall);
@@ -1212,6 +1239,7 @@ export class ToolExecutor {
                   toolCallId: toolCall.id,
                   toolName: name,
                   message: [
+                    ...(httpApproved === false ? [HTTP_APPROVAL_MESSAGE] : []),
                     ...(taintGated && context.egressTaint !== undefined
                       ? [taintedEgressApprovalMessage(name, args, context.egressTaint)]
                       : []),
@@ -1265,17 +1293,16 @@ export class ToolExecutor {
             policy,
             taint: context.egressTaint,
             messages: context.conversationMessages,
-            trustedHosts: context.trustedGetHosts,
-            mode: context.taintedEgress,
-            canPrompt: false,
           });
           const privateAddresses = yield* unlistedPrivateAddressesFor(
+            name,
             toolMeta?.egress === true,
             request.executeArgs,
             context,
           );
           const privateGated = privateDestinationNeedsApproval(privateAddresses, policy, false);
           if (
+            httpApproved !== false &&
             request.alwaysAsk !== true &&
             ((shouldAutoApprove(riskLevel, policy) && !taintGated && !privateGated) || allowlisted)
           ) {
@@ -1287,9 +1314,13 @@ export class ToolExecutor {
             firstRequest = {
               toolCallId: toolCall.id,
               toolName: name,
-              message: privateGated
-                ? `${request.message}\n\n${privateDestinationApprovalMessage(name, request.executeArgs, privateAddresses)}`
-                : request.message,
+              message: [
+                request.message,
+                ...(httpApproved === false ? [HTTP_APPROVAL_MESSAGE] : []),
+                ...(privateGated
+                  ? [privateDestinationApprovalMessage(name, request.executeArgs, privateAddresses)]
+                  : []),
+              ].join("\n\n"),
               executeToolName: request.executeToolName,
               executeArgs: request.executeArgs,
               isAutoApproved: () => false,
@@ -1621,7 +1652,6 @@ function plainToolNeedsTaintApproval(
   args: Record<string, unknown>,
   egress: boolean,
   context: ToolExecutionContext,
-  canPrompt: boolean,
 ): boolean {
   return (
     !isToolNameAutoApproved(name, context.autoApprovedTools) &&
@@ -1632,9 +1662,6 @@ function plainToolNeedsTaintApproval(
       policy: context.getAutoApprovePolicy?.(),
       taint: context.egressTaint,
       messages: context.conversationMessages,
-      trustedHosts: context.trustedGetHosts,
-      mode: context.taintedEgress,
-      canPrompt,
     })
   );
 }

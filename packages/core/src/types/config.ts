@@ -17,38 +17,14 @@ export interface SchedulerConfig {
   readonly mode?: SchedulerMode;
 }
 
-/**
- * Network reach for the URLs a model chooses (`http_request`, `web_fetch`, `read_pdf`, headless
- * renders), for every agent. Read from the global config file only: a project config cannot
- * widen it.
- *
- * Public internet hosts are always reachable. Loopback, private, link-local and other
- * non-public addresses are refused unless listed here.
- */
-/**
- * What happens when an agent that has read untrusted content composes a request to a host you
- * have not trusted: `allow` (the default) never asks, `auto` lets it through while a person is
- * present and asks when nobody is (unattended runs), `ask` always asks.
- */
-export type TaintedEgressMode = "auto" | "ask" | "allow";
+/** Global network permissions; project configuration cannot widen these grants. */
+export type HttpApprovalPolicy = "allow" | readonly string[];
 
 export interface NetworkConfig {
-  /**
-   * Private hosts agents may reach. Each entry is a hostname (`homeassistant.local`), a
-   * `*.suffix` wildcard (`*.lan`), an IP address (`192.168.1.10`, `::1`) or a CIDR block
-   * (`192.168.1.0/24`). A hostname entry allows whatever that name resolves to; an address or
-   * block entry allows those addresses behind any name. At most 64 entries.
-   */
+  /** Private destinations available to other URL tools: hostname, wildcard, IP or CIDR. */
   readonly allowPrivateHosts?: readonly string[];
-  /**
-   * Public hosts whose plain GET and HEAD requests (no body, no custom headers) skip the
-   * approval a run needs once it has read untrusted content. Each entry is a hostname
-   * (`eutils.ncbi.nlm.nih.gov`) or a `*.suffix` wildcard (`*.ncbi.nlm.nih.gov`). Everything
-   * else, and every other method, still asks. At most 64 entries.
-   */
-  readonly trustedGetHosts?: readonly string[];
-  /** See `TaintedEgressMode`. Defaults to `allow`. */
-  readonly taintedEgress?: TaintedEgressMode;
+  /** HTTP requests and web fetches run automatically by default. A URL list asks outside it. */
+  readonly httpApproval?: HttpApprovalPolicy;
 }
 
 export interface AppConfig {

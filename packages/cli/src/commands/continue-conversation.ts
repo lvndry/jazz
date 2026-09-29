@@ -23,7 +23,6 @@ export interface ContinueOptions {
 }
 
 export interface ContinuedSession {
-  /** Keep control state attached to this same conversation when the chat opens. */
   readonly conversationId?: string;
   readonly initialHistory?: ChatMessage[];
   readonly initialUiTranscript?: NonNullable<

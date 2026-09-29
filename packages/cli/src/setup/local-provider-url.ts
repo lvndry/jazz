@@ -2,8 +2,11 @@
  * First-use configuration for local model servers.
  *
  * Agent creation needs a reachable base URL before it asks the LLM service to discover models.
- * This helper keeps that prompt consistent for Ollama, llama.cpp, vLLM, and SGLang, persists the normalized URL,
+ * ensureLocalProviderBaseUrl keeps that prompt consistent for Ollama, llama.cpp, vLLM, and SGLang, persists the normalized URL,
  * and leaves already-configured or environment-configured servers alone.
+ * Call it before model discovery; its saved/already-set/cancelled result tells
+ * the picker whether to continue. isValidServerAddress also validates URL prompts
+ * in Settings, so both flows accept the same host:port and full-URL inputs.
  */
 
 import { normalizeLocalProviderBaseUrl } from "@jazz/adapters/llm/models";
