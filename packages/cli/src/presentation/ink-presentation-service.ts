@@ -6,6 +6,7 @@
  */
 
 import { resolveEffectiveContextWindow } from "@jazz/core/agent/context/effective-context-window";
+import { trustableGetHost } from "@jazz/core/agent/execution/egress-taint";
 import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
@@ -1669,6 +1670,14 @@ export class InkPresentationService implements PresentationService {
       value: "always_tool",
     });
 
+    const trustableHost = trustableGetHost(request.executeToolName, request.executeArgs);
+    if (trustableHost !== undefined) {
+      choices.push({
+        label: `Yes, and always allow GET requests to ${trustableHost}`,
+        value: "always_get_host",
+      });
+    }
+
     choices.push({ label: `No, ${facts.intent.reject}`, value: "no" });
 
     // Publish the request itself alongside the menu. The fullscreen approval
@@ -1701,6 +1710,13 @@ export class InkPresentationService implements PresentationService {
           store.setPrompt(null);
           store.setApprovalRequest(null);
           this.completeApproval(resume, { approved: true, alwaysApproveCommand: approvalKey });
+          return;
+        }
+
+        if (choice === "always_get_host" && trustableHost !== undefined) {
+          store.setPrompt(null);
+          store.setApprovalRequest(null);
+          this.completeApproval(resume, { approved: true, alwaysTrustGetHost: trustableHost });
           return;
         }
 

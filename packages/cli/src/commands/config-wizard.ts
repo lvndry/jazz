@@ -41,6 +41,7 @@ import {
   parseSpendLimitInput,
   SPEND_LIMIT_SETTINGS,
 } from "./spend-limits";
+import { addTrustedGetHost, applyTrustedGetHosts, removeTrustedGetHost } from "./trusted-get-hosts";
 import { commitTheme } from "../chat/commands/handler";
 import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
@@ -63,6 +64,7 @@ type ConfigMenuAction =
   | "notifications"
   | "spend-limits"
   | "private-hosts"
+  | "trusted-hosts"
   | "back";
 
 /**
@@ -109,6 +111,10 @@ export function configWizardCommand() {
         }
         case "private-hosts": {
           yield* configurePrivateHosts();
+          break;
+        }
+        case "trusted-hosts": {
+          yield* configureTrustedGetHosts();
           break;
         }
         case "back": {
@@ -171,6 +177,14 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
         (config.network?.allowPrivateHosts?.length ?? 0) === 0
           ? "none allowed"
           : `${String(config.network?.allowPrivateHosts?.length)} allowed`,
+    },
+    {
+      label: "Trusted public sites (GET)",
+      value: "trusted-hosts",
+      hint:
+        (config.network?.trustedGetHosts?.length ?? 0) === 0
+          ? "none trusted"
+          : `${String(config.network?.trustedGetHosts?.length)} trusted`,
     },
     { label: "Back", value: "back" },
   ];
@@ -1019,6 +1033,60 @@ function configurePrivateHosts() {
       const host = selection.slice("remove:".length);
       yield* applyPrivateHosts(configService, removePrivateHost(hosts, host));
       yield* terminal.success(`Removed ${host}. Reaching it asks for approval again.`);
+      yield* terminal.log("");
+    }
+  });
+}
+
+function configureTrustedGetHosts() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+
+    while (true) {
+      const hosts = (yield* configService.appConfig).network?.trustedGetHosts ?? [];
+      const selection = yield* terminal.select<string>(
+        "Trusted public sites: plain GET requests to these websites never ask, even after an agent read untrusted content (local addresses are under Private network hosts).",
+        {
+          choices: [
+            ...hosts.map((host) => ({ name: `${host} (remove)`, value: `remove:${host}` })),
+            { name: "Add a host", value: "add" },
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
+      if (selection === undefined || selection === "back") {
+        break;
+      }
+
+      if (selection === "add") {
+        const raw = yield* terminal.ask("Host (eutils.ncbi.nlm.nih.gov or *.wikipedia.org):", {
+          simple: true,
+          cancellable: true,
+          validate: (input) => {
+            const result = addTrustedGetHost(hosts, input);
+            return result.kind === "invalid" ? result.message : true;
+          },
+        });
+        if (raw === undefined) {
+          continue;
+        }
+        const result = addTrustedGetHost(hosts, raw);
+        if (result.kind === "invalid") {
+          yield* terminal.warn(result.message);
+          continue;
+        }
+        yield* applyTrustedGetHosts(configService, result.hosts);
+        yield* terminal.success(`GET requests to ${raw.trim().toLowerCase()} no longer ask.`);
+        yield* terminal.log("");
+        continue;
+      }
+
+      const host = selection.slice("remove:".length);
+      yield* applyTrustedGetHosts(configService, removeTrustedGetHost(hosts, host));
+      yield* terminal.success(
+        `Removed ${host}. GET requests to it ask again after untrusted reads.`,
+      );
       yield* terminal.log("");
     }
   });

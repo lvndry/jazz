@@ -321,6 +321,8 @@ export type ApprovalOutcome =
       readonly approved: true;
       readonly alwaysApproveCommand?: string;
       readonly alwaysApproveTool?: string;
+      /** A hostname to add to `network.trustedGetHosts`, so plain GETs to it never ask again. */
+      readonly alwaysTrustGetHost?: string;
       /**
        * For picker-style requests (`ApprovalRequest.options`): which row the human
        * chose. The executor merges this into the execution tool's args under
@@ -440,7 +442,7 @@ export interface ToolExecutionContext {
    */
   readonly egressTaint?: EgressTaint;
   /** `network.trustedGetHosts` from the global config: GET/HEAD to these skip the taint gate. */
-  readonly trustedGetHosts?: readonly string[];
+  readonly trustedGetHosts?: string[];
   /**
    * Whether an unanswerable approval should park the run instead of declining it.
    *

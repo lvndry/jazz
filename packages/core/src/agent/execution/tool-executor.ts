@@ -53,6 +53,7 @@ import {
   unlistedPrivateAddressesFor,
 } from "./private-destination";
 import type { ToolBatchLedger } from "./tool-batch-ledger";
+import { rememberTrustedGetHost } from "./trusted-get-hosts";
 import {
   emitToolInvocation,
   recordToolError,
@@ -427,6 +428,9 @@ export class ToolExecutor {
       }
       if (outcome.approved && outcome.alwaysApproveTool && context.onAutoApproveTool) {
         context.onAutoApproveTool(outcome.alwaysApproveTool);
+      }
+      if (outcome.approved && outcome.alwaysTrustGetHost) {
+        yield* rememberTrustedGetHost(outcome.alwaysTrustGetHost, context);
       }
       if (outcome.approved && privateGated()) {
         yield* rememberPrivateAddresses(privateAddresses);
@@ -839,6 +843,10 @@ export class ToolExecutor {
             if (outcome.alwaysApproveTool && context.onAutoApproveTool) {
               context.onAutoApproveTool(outcome.alwaysApproveTool);
               yield* logger.info("User chose to always approve tool");
+            }
+
+            if (outcome.alwaysTrustGetHost) {
+              yield* rememberTrustedGetHost(outcome.alwaysTrustGetHost, context);
             }
 
             if (!isAutoApproved) {

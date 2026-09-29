@@ -34,7 +34,7 @@
 
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy, EgressTaint } from "@/core/types/tools";
-import { hostIsTrustedForGet } from "@/core/utils/private-network";
+import { hostIsTrustedForGet, isIpLiteral, normalizeHostname } from "@/core/utils/private-network";
 import { hasExternalUntrustedFrame } from "@/core/utils/untrusted-content";
 
 /** Most sources an approval message lists; the rest are summarised as a count. */
@@ -195,6 +195,29 @@ function readOnlyRequestUrl(toolName: string, args: Record<string, unknown>): st
     return SAFE_HTTP_METHODS.has(method) && !sendsBody ? url : undefined;
   }
   return undefined;
+}
+
+/**
+ * The hostname a person could trust for plain GETs after approving this call: the host of a
+ * GET/HEAD with no body or custom headers over http(s), unless it is an IP address (only
+ * hostnames and wildcards can be listed). Undefined for any other call.
+ */
+export function trustableGetHost(
+  toolName: string,
+  args: Record<string, unknown>,
+): string | undefined {
+  const url = readOnlyRequestUrl(toolName, args);
+  if (url === undefined) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(url);
+    const hostname = normalizeHostname(parsed.hostname);
+    const webUrl = parsed.protocol === "https:" || parsed.protocol === "http:";
+    return webUrl && hostname !== "" && !isIpLiteral(hostname) ? hostname : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The URL of a call that sends nothing but that URL, or undefined for any other call. */

@@ -31,6 +31,7 @@ describe("settingsMenuOptions", () => {
     expect(hintOf(options, "logging")).toBe("warn");
     expect(options.at(-1)).toEqual({ label: "Back", value: "back" });
     expect(hintOf(options, "private-hosts")).toBe("none allowed");
+    expect(hintOf(options, "trusted-hosts")).toBe("none trusted");
   });
 
   it("says plainly when nothing is set up yet", () => {
