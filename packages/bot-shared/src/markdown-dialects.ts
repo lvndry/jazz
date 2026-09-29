@@ -7,18 +7,26 @@
  * are dropped and the words kept.
  *
  * Code is set aside before anything else is touched, so a `*` inside a snippet stays a `*`.
+ * Math is set aside the same way, after being rewritten as Unicode, since neither dialect has
+ * a way to show TeX: `$x_i^2$` becomes `xᵢ²` and no mark inside it is read as emphasis.
  */
+
+import { convertMathInMarkdown } from "@jazz/core/utils/math-markdown";
+
+/** For a dialect written elsewhere (Telegram's HTML) that needs the same math rewrite. */
+export { convertMathInMarkdown };
 
 interface Protected {
   readonly text: string;
   restore(rendered: string): string;
 }
 
-/** Swap fenced and inline code for placeholders, returning a function that puts them back. */
+/** Swap code and math for placeholders, returning a function that puts them back. */
 function protectCode(
   markdown: string,
   renderBlock: (code: string, language: string) => string,
   renderInline: (code: string) => string,
+  renderMath: (unicode: string, display: boolean) => string,
 ): Protected {
   const saved: string[] = [];
   const token = Math.random().toString(36).slice(2);
@@ -26,11 +34,14 @@ function protectCode(
     saved.push(value);
     return `\u0000${token}:${saved.length - 1}\u0000`;
   };
-  const text = markdown
+  const withoutCode = markdown
     .replace(/```[ \t]*([\w+-]*)\n?([\s\S]*?)```/g, (_match, language: string, code: string) =>
       hold(renderBlock(code.replace(/\n$/, ""), language)),
     )
     .replace(/`([^`\n]+)`/g, (_match, code: string) => hold(renderInline(code)));
+  const text = convertMathInMarkdown(withoutCode, (unicode, display) =>
+    hold(renderMath(unicode, display)),
+  );
   const pattern = new RegExp(`\u0000${token}:(\\d+)\u0000`, "g");
   return {
     text,
@@ -59,6 +70,7 @@ export function markdownToWhatsApp(markdown: string): string {
     markdown,
     (block) => `\`\`\`\n${block}\n\`\`\``,
     (inline) => `\`${inline}\``,
+    (unicode) => (unicode.includes("\n") ? `\`\`\`\n${unicode}\n\`\`\`` : unicode),
   );
   const styled = commonStructure(code.text)
     .replace(/(^|[^*])\*(?!\*)(\S|\S[^\n*]*?\S)\*(?!\*)/g, "$1_$2_")
@@ -74,6 +86,7 @@ export function markdownToPlainText(markdown: string): string {
     markdown,
     (block) => block,
     (inline) => inline,
+    (unicode) => unicode,
   );
   const plain = commonStructure(code.text)
     .replace(/\*\*([^\n*]+?)\*\*/g, "$1")
@@ -82,4 +95,19 @@ export function markdownToPlainText(markdown: string): string {
     .replace(/(^|[^_\w])_(\S|\S[^\n_]*?\S)_(?!\w)/g, "$1$2")
     .replace(/~~([^\n~]+?)~~/g, "$1");
   return code.restore(headings(plain, (title) => title));
+}
+
+/**
+ * Markdown with its math rewritten as Unicode and everything else left as written, for a surface
+ * that renders Markdown itself but has no TeX. A block that spans lines goes in a code fence so
+ * its alignment survives a proportional font.
+ */
+export function markdownWithUnicodeMath(markdown: string): string {
+  const code = protectCode(
+    markdown,
+    (block, language) => `\`\`\`${language}\n${block}\n\`\`\``,
+    (inline) => `\`${inline}\``,
+    (unicode) => (unicode.includes("\n") ? `\`\`\`\n${unicode}\n\`\`\`` : unicode),
+  );
+  return code.restore(code.text);
 }

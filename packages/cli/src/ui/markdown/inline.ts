@@ -1,6 +1,8 @@
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { latexToUnicode } from "@jazz/core/utils/latex-to-unicode";
+import { matchInlineMath } from "@jazz/core/utils/math-markdown";
 import { emojify } from "node-emoji";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import {
@@ -287,6 +289,18 @@ function parseInline(text: string, marks: InlineMarks, context: InlineContext): 
   };
 
   while (index < text.length) {
+    const math =
+      text[index] === "$" || text[index] === "\\" ? matchInlineMath(text, index) : undefined;
+    if (math !== undefined) {
+      flushPlain();
+      pushSyntax(spans, math.open, context);
+      const shown = latexToUnicode(math.source).replace(/\s*\n\s*/g, " ");
+      spans.push(markedSpan(shown.length > 0 ? shown : math.source, context.role, marks));
+      pushSyntax(spans, math.close, context);
+      index = math.end;
+      continue;
+    }
+
     if (text[index] === "\\" && index + 1 < text.length) {
       plain += context.syntax === "hybrid" ? text.slice(index, index + 2) : text[index + 1];
       index += 2;
@@ -413,7 +427,7 @@ function parseInline(text: string, marks: InlineMarks, context: InlineContext): 
   return spans;
 }
 
-/** Inline emphasis, code, links, paths, emoji shortcodes and citations, as styled spans. */
+/** Inline emphasis, code, math, links, paths, emoji shortcodes and citations, as styled spans. */
 export function parseInlineMarkdown(
   text: string,
   role: MarkdownRole,

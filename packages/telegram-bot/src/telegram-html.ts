@@ -6,6 +6,7 @@
  * messages under Telegram's per-message limit.
  */
 
+import { convertMathInMarkdown } from "@jazz/bot-shared/markdown-dialects";
 import { splitForSurface } from "@jazz/bot-shared/surface";
 
 // Telegram's hard limit is 4096; split lower so HTML tags/entities added by
@@ -23,8 +24,8 @@ export function escapeHtml(text: string): string {
 
 /**
  * Convert a subset of Markdown to Telegram's HTML flavor. Code spans/blocks are
- * extracted first so their contents aren't treated as markup, everything else
- * is HTML-escaped, then inline styles map to well-formed tags. The paired-tag
+ * extracted first so their contents aren't treated as markup, math is rewritten
+ * as Unicode and set aside the same way, everything else is HTML-escaped, then inline styles map to well-formed tags. The paired-tag
  * regexes only ever emit balanced HTML, so parsing can't fail; sendReply still
  * falls back to plain text on any Telegram error as a belt-and-braces guard.
  */
@@ -50,6 +51,15 @@ export function markdownToTelegramHtml(markdown: string): string {
 
   text = text.replace(/`([^`\n]+)`/g, (_match, code: string) => {
     inlineCodes.push(`<code>${escapeHtml(code)}</code>`);
+    return placeholder("IC", inlineCodes.length - 1);
+  });
+
+  text = convertMathInMarkdown(text, (unicode, display) => {
+    if (display && unicode.includes("\n")) {
+      codeBlocks.push(`<pre>${escapeHtml(unicode)}</pre>`);
+      return placeholder("CB", codeBlocks.length - 1);
+    }
+    inlineCodes.push(escapeHtml(unicode));
     return placeholder("IC", inlineCodes.length - 1);
   });
 

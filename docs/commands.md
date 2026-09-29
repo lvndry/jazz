@@ -908,6 +908,16 @@ suggest the next step. `!` is an interactive terminal feature and is not interpr
 | `raw`      | No formatting, no ANSI. **Use this in CI** |
 | `quiet`    | Suppress output                            |
 
+### Math
+
+LaTeX in a reply is shown as Unicode text in `rendered` and `hybrid` output: `$x^2$`, `\(x^2\)`,
+`$$…$$`, `\[…\]`, a `math` fence and bare `align` / `equation` blocks. Greek letters and operators
+become their glyphs, `^` and `_` become super- and subscripts where Unicode has them (`x²`, `aᵢ`,
+otherwise `x^(a+b)`), `\frac` becomes `a/b`, and matrices and `cases` become aligned rows. A command
+Jazz does not know is printed as typed. A lone `$` stays a dollar sign, so `costs $5 and $10` is
+untouched. In `hybrid` output, the default for plain terminal output, the delimiters (`$`, `$$`,
+`\\(`) stay visible, dimmed, around the rendered formula, as `**` does around bold text.
+
 Set `NO_COLOR` to any non-empty value (see [no-color.org](https://no-color.org)) to turn colour off
 everywhere: the classic interface and plain output print no colour codes at all, and the
 fullscreen interface paints in its neutral greys, keeping bold and dim for emphasis.

@@ -7,6 +7,7 @@
  * role-less pings that Discord still delivers even with that flag.
  */
 
+import { markdownWithUnicodeMath } from "@jazz/bot-shared/markdown-dialects";
 import { type RichText, type Span, splitForSurface } from "@jazz/bot-shared/surface";
 
 const DISCORD_SPLIT_LENGTH = 1900;
@@ -70,7 +71,7 @@ export function renderDiscordMarkdown(body: RichText): string {
         case "subtle":
           return `-# ${renderSpans(block.spans)}`;
         case "markdown":
-          return block.text;
+          return markdownWithUnicodeMath(block.text);
         case "codeBlock":
           return `\`\`\`${block.language ?? ""}\n${block.text}\n\`\`\``;
         case "quote":
