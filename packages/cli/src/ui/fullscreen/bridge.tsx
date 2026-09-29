@@ -1197,9 +1197,8 @@ export function FullscreenBridge(): React.ReactNode {
   const [approvalArmed, setApprovalArmed] = useState(false);
   const [approvalFieldOffset, setApprovalFieldOffset] = useState(0);
   const [approvalExpanded, setApprovalExpanded] = useState(false);
-  const [approvalChoice, setApprovalChoice] = useState<ApprovalChoice>("accept");
-  const approvalChoiceRef = useRef<ApprovalChoice>("accept");
-  approvalChoiceRef.current = approvalChoice;
+  const [approvalChoice, approvalChoiceRef, setApprovalChoice] =
+    useSynchronizedState<ApprovalChoice>("accept");
   /**
    * The composer's text and caret as one value, updated only through pure
    * updaters.

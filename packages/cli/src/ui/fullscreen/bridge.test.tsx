@@ -2138,6 +2138,17 @@ describe("fullscreen bridge", () => {
     always.rendered.renderer.destroy();
   });
 
+  it("uses the latest approval choice when Enter follows an arrow in one React batch", async () => {
+    const always = await armedApproval();
+    updateForTest(() => {
+      always.rendered.mockInput.pressKey("ARROW_RIGHT");
+      always.rendered.mockInput.pressKey("RETURN");
+    });
+    await settleKeypress(always.rendered.flush);
+    expect(await always.outcome).toEqual({ approved: true, alwaysApproveTool: "http_request" });
+    always.rendered.renderer.destroy();
+  });
+
   it("walking right to the end and pressing enter rejects, asking what to do instead", async () => {
     const reject = await armedApproval();
     for (const key of ["ARROW_RIGHT", "ARROW_RIGHT", "ARROW_RIGHT"]) {
