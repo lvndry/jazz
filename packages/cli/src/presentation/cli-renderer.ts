@@ -11,25 +11,17 @@ import {
 import { computeUsageCostUSD } from "@jazz/core/utils/usage-cost";
 import chalk from "chalk";
 import { Effect } from "effect";
-import { marked } from "marked";
-import TerminalRenderer from "marked-terminal";
 import { formatToolResult as formatToolResultShared } from "./format-utils";
-import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
 import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
 import { getGlyphs } from "../ui/glyphs";
+import { markdownToAnsi } from "../ui/markdown/ansi";
 import { receiptMark, receiptParts, toolReceipt } from "../ui/models/receipt";
 import { formatCost, formatPreciseDuration } from "../ui/text/format";
 import { paintRole, paintSegments } from "../ui/text/roles";
-import { codeColor, CHALK_THEME } from "../ui/theme";
-
-/**
- * Body text in the terminal's own foreground colour, so it reads on light and
- * dark backgrounds alike.
- */
-const terminalDefaultText = (text: string): string => text;
+import { CHALK_THEME } from "../ui/theme";
 
 /**
  * Get terminal width, with fallback to 80
@@ -102,7 +94,6 @@ export class CLIRenderer {
   private currentModel: string | null = null;
 
   // Markdown rendering state (previously static in MarkdownRenderer)
-  private markedInitialized: boolean = false;
   private streamingBuffer: string = "";
   private lastFlushTime: number = 0;
   private streamingRaw: string = "";
@@ -128,11 +119,6 @@ export class CLIRenderer {
 
     // Create thinking renderer
     this.thinkingRenderer = new ThinkingRenderer(this.theme);
-
-    // Initialize markdown if in styled mode
-    if (isStyledMode) {
-      Effect.runSync(this.initializeMarkdown());
-    }
   }
 
   /**
@@ -480,82 +466,21 @@ export class CLIRenderer {
     return output;
   }
 
-  // ==================== Markdown Initialization ====================
-
-  /**
-   * Initialize the markdown renderer with terminal-friendly options
-   */
-  private initializeMarkdown(): Effect.Effect<void, never> {
-    if (this.markedInitialized) {
-      return Effect.void;
-    }
-
-    return Effect.sync(() => {
-      try {
-        const terminalWidth = getTerminalWidth();
-        // Configure marked with our terminal renderer using setOptions
-        // @ts-expect-error marked-terminal types are incompatible with marked v16
-        // TerminalRenderer works at runtime but types don't match _Renderer interface
-        marked.setOptions({
-          renderer: new TerminalRenderer({
-            code: codeColor,
-            codespan: codeColor,
-            blockquote: CHALK_THEME.muted,
-            html: CHALK_THEME.muted,
-            heading: CHALK_THEME.agentBold,
-            firstHeading: CHALK_THEME.headingUnderline,
-            strong: chalk.bold,
-            em: chalk.italic,
-            del: chalk.strikethrough,
-            link: CHALK_THEME.link,
-            href: CHALK_THEME.muted,
-            listitem: terminalDefaultText,
-            // Custom styling for better terminal experience
-            paragraph: terminalDefaultText,
-            text: terminalDefaultText,
-            emoji: true,
-            // Disable some features that don't work well in terminal
-            showSectionPrefix: false,
-            // Better spacing
-            reflowText: true,
-            // Dynamic width based on terminal size
-            width: terminalWidth,
-          }) as unknown as Parameters<typeof marked.setOptions>[0]["renderer"],
-          gfm: true, // GitHub Flavored Markdown
-          breaks: true, // Convert line breaks to <br>
-        });
-
-        this.markedInitialized = true;
-      } catch {
-        // Log error but don't throw - allow fallback to plain text
-        // Silently fall back - markdown initialization failure is not critical
-      }
-    });
-  }
-
   // ==================== Markdown Rendering ====================
 
   /**
-   * Render markdown content to terminal-friendly text
-   * (or pass through raw markdown when markdown mode is disabled)
+   * Render markdown content to terminal-friendly text, through the shared parser fullscreen
+   * and Ink also use (or pass through raw markdown when markdown mode is disabled). Not
+   * pre-wrapped: this writes straight to the real terminal, which wraps a long line itself;
+   * tables and code fences still size themselves to the terminal's own width.
    */
   renderMarkdown(markdown: string): Effect.Effect<string, never> {
     if (this.mode !== "rendered") {
       return Effect.succeed(markdown);
     }
-
-    return Effect.gen(this, function* () {
-      yield* this.initializeMarkdown();
-
-      try {
-        // Use marked.parse for synchronous parsing
-        const result = marked.parse(markdown) as string;
-        return result;
-      } catch {
-        // Fallback to plain text if markdown parsing fails
-        return markdown;
-      }
-    });
+    return Effect.sync(() =>
+      markdownToAnsi(markdown, { width: getTerminalWidth(), syntax: "rendered", wrapProse: false }),
+    );
   }
 
   /**
@@ -663,26 +588,36 @@ export class CLIRenderer {
 
     if (this.streamingDirectAppend) {
       // Direct append: format only the new chunk independently
-      const formatted =
-        this.mode === "rendered"
-          ? formatMarkdown(text)
-          : this.mode === "hybrid"
-            ? formatMarkdownHybrid(text)
-            : text;
+      const formatted = this.formatMarkdownForMode(text);
       this.streamingFormatted += formatted;
       return formatted;
     }
 
     // Normal mode: re-format entire content and diff
-    const nextFormatted =
-      this.mode === "rendered"
-        ? formatMarkdown(this.streamingRaw)
-        : this.mode === "hybrid"
-          ? formatMarkdownHybrid(this.streamingRaw)
-          : this.streamingRaw;
+    const nextFormatted = this.formatMarkdownForMode(this.streamingRaw);
     const delta = this.getFormattedDelta(this.streamingFormatted, nextFormatted);
     this.streamingFormatted = nextFormatted;
     return delta;
+  }
+
+  /**
+   * Markdown as this mode shows it, through the shared parser — not pre-wrapped, since this
+   * writes straight to the real terminal, which wraps a long line itself.
+   */
+  private formatMarkdownForMode(text: string): string {
+    if (this.mode !== "rendered" && this.mode !== "hybrid") {
+      return text;
+    }
+    const formatted = markdownToAnsi(text, {
+      width: getTerminalWidth(),
+      syntax: this.mode,
+      wrapProse: false,
+    });
+    // markdownToAnsi trims trailing whitespace, which is right for a one-shot document but
+    // wrong here: `renderChunk` splits its input at a line boundary specifically so the next
+    // chunk can pick up on its own line, and a stripped trailing "\n" would glue that next
+    // chunk onto the end of this one on the real terminal.
+    return text.endsWith("\n") && !formatted.endsWith("\n") ? `${formatted}\n` : formatted;
   }
 
   // ==================== Public Formatting Methods ====================
