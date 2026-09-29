@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   neutralizeBroadcastMentions,
+  renderDiscordMarkdown,
   spoilerBlock,
   splitForDiscord,
   threadNameFromPrompt,
@@ -58,5 +59,21 @@ describe("spoilerBlock", () => {
     expect(wrapped.startsWith("||")).toBe(true);
     expect(wrapped.endsWith("||")).toBe(true);
     expect(wrapped.slice(2, -2)).not.toContain("||");
+  });
+});
+
+describe("renderDiscordMarkdown math", () => {
+  it("rewrites math as Unicode and leaves code as written", () => {
+    const text = "Let $x^2 + \\alpha$ hold. Run `echo $a_1 $b_2`.";
+    expect(renderDiscordMarkdown([{ kind: "markdown", text }])).toBe(
+      "Let x² + α hold. Run `echo $a_1 $b_2`.",
+    );
+  });
+
+  it("fences a block that spans lines", () => {
+    const text = "$$\n\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}\n$$";
+    expect(renderDiscordMarkdown([{ kind: "markdown", text }])).toBe(
+      "```\n⎡ a  b ⎤\n⎣ c  d ⎦\n```",
+    );
   });
 });

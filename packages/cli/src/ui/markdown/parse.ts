@@ -1,3 +1,5 @@
+import { latexToUnicode } from "@jazz/core/utils/latex-to-unicode";
+import { matchDisplayMath } from "@jazz/core/utils/math-markdown";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { parseInlineMarkdown } from "./inline";
 import type { MarkdownRole, MarkdownSpan, MarkdownSyntax } from "./spans";
@@ -56,10 +58,13 @@ const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 const TASK_BOX = /^\[([ xX])\]\s+(.*)$/;
 
 /** Lines that open a new block, and so end a paragraph or a list item's continuation. */
-const BLOCK_START = /^\s*(\||```|#{1,6}\s|>|[-*+]\s|\d+[.)]\s)/;
+const BLOCK_START = /^\s*(\||```|#{1,6}\s|>|[-*+]\s|\d+[.)]\s|(?:\$\$|\\\[)\s*$)/;
 
 /** A top-level list sits this far in from the prose edge, so its marker reads as structure. */
 const LIST_INDENT = 2;
+
+/** A display formula sits this far in from the prose edge, set off from the text around it. */
+const DISPLAY_MATH_INDENT = 4;
 
 const FENCE_OPEN = /^(\s*)```(.*)$/;
 const FENCE_CLOSE = /^\s*```/;
@@ -128,6 +133,40 @@ function listMarker(
 }
 
 /**
+ * A display formula as blocks: each line of the Unicode rendering is its own text block, with
+ * the padding that lines up a matrix or an aligned equation carried as indentation. The
+ * `hybrid` syntax keeps the delimiters on lines of their own, dimmed, so the math stays marked
+ * in copied text while the formula between them is still readable.
+ */
+function displayMathBlocks(
+  source: string,
+  open: string,
+  close: string,
+  syntax: MarkdownSyntax,
+): MarkdownBlock[] {
+  const rendered = latexToUnicode(source);
+  const blocks: MarkdownBlock[] = [{ kind: "blank" }];
+  const delimiter = (text: string): MarkdownBlock[] =>
+    syntax === "hybrid" && text.length > 0
+      ? [{ kind: "text", indent: 0, spans: [{ text, role: "muted" }] }]
+      : [];
+  blocks.push(...delimiter(open));
+  for (const line of (rendered.length > 0 ? rendered : source).split("\n")) {
+    const content = line.trimStart();
+    if (content.length === 0) {
+      continue;
+    }
+    blocks.push({
+      kind: "text",
+      indent: DISPLAY_MATH_INDENT + (line.length - content.length),
+      spans: [{ text: content, role: "text" }],
+    });
+  }
+  blocks.push(...delimiter(close), { kind: "blank" });
+  return blocks;
+}
+
+/**
  * Split markdown into blocks. CommonMark ordered markers (`1.` and `1)`) start
  * a new item even without a blank line, and a paragraph or list item runs on
  * (lazy continuation) until a blank line or the start of another block.
@@ -150,6 +189,13 @@ export function parseMarkdown(markdown: string, options: ParseOptions = {}): Mar
       continue;
     }
 
+    const display = matchDisplayMath(lines, index);
+    if (display !== undefined) {
+      blocks.push(...displayMathBlocks(display.source, display.open, display.close, syntax));
+      index = display.nextLine;
+      continue;
+    }
+
     const fence = FENCE_OPEN.exec(line);
     if (fence !== null) {
       // A fence opened inside a list item is indented with it; the body loses
@@ -166,6 +212,10 @@ export function parseMarkdown(markdown: string, options: ParseOptions = {}): Mar
       }
       const closed = index < lines.length;
       index += 1;
+      if (closed && (fence[2] ?? "").trim() === "math" && body.join("").trim().length > 0) {
+        blocks.push(...displayMathBlocks(body.join("\n"), line.trim(), "```", syntax));
+        continue;
+      }
       blocks.push({
         kind: "fence",
         language: (fence[2] ?? "").trim().split(/\s+/)[0] ?? "",

@@ -91,7 +91,7 @@ Full tables: [`packages/imessage-bot/README.md`](../../packages/imessage-bot/REA
 | **No buttons**       | Approvals arrive as numbered options answered by replying `1` or `2`. A reply matching nothing is treated as an ordinary message, so an ignored prompt never swallows the next question.                                         |
 | **No live progress** | iMessage cannot edit a sent message: `🤔 Working…`, a "still working" line at 45s and roughly once a minute after, then the answer. No status bubble to update.                                                                  |
 | **Stopping a run**   | Send `/stop`. It is answered at once, like `/status`, `/help` and `/new`, rather than waiting behind the run it would stop.                                                                                                      |
-| **Formatting**       | WhatsApp gets the model's Markdown in its own dialect (`*bold*`, `_italic_`, `~strike~`, code blocks); Messages gets plain text with the marks dropped.                                                                          |
+| **Formatting**       | WhatsApp gets the model's Markdown in its own dialect (`*bold*`, `_italic_`, `~strike~`, code blocks); Messages gets plain text with the marks dropped. Math becomes Unicode on both (see below).                                |
 | **Whose account**    | iMessage answers as _you_, so a chat with yourself needs a trigger word to tell questions from the bridge's own replies. Photon gives the agent a line of its own instead: [`packages/photon-bot/`](../../packages/photon-bot/). |
 | **Allow-list shape** | Handles (E.164 or Apple ID) and group rowids for iMessage; numbers and group JIDs for WhatsApp. Both deny-by-default; being allowed to DM never admits you to a group.                                                           |
 | **Isolation**        | Per-conversation uid sandboxing is a Linux mechanism the containerised bridges use. On a Mac or a linked device every chat shares one `JAZZ_HOME` and runs as your user.                                                         |
@@ -106,6 +106,13 @@ is told to take it to a private chat. See
 [Secrets the person types](../security/secrets-and-egress.md#secrets-the-person-types).
 
 ---
+
+### Math
+
+Chat apps cannot typeset LaTeX, so a formula in a reply is rewritten as Unicode text before it is
+sent: `$x_i^2 + \alpha$` reads `xᵢ² + α`. This applies to Telegram, Discord, WhatsApp and iMessage.
+A block that spans lines (a matrix, aligned equations) goes in a code block so its columns line up.
+Formulas inside code are left as written.
 
 ## Slack, Google Chat
 
