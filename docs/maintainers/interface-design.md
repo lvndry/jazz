@@ -55,8 +55,9 @@ Two consequences worth stating, because both were bugs before:
   Hierarchy comes from stroke weight (`▏▎▍▌`), rule weight (`─ ━`), shade
   density (`░▒▓█`), and indentation.
 - **There is one accent.** A full-width neutral band makes a user turn
-  findable, while its marker glyph identifies the speaker without giving either
-  party a separate colour. Previously brand, warning and inline code were all
+  findable. The background covers the timestamp and right margin too; the text
+  still wraps at the prose measure. Its marker glyph identifies the speaker
+  without giving either party a separate colour. Previously brand, warning and inline code were all
   the same amber, so a bulleted list with bold text and a code span rendered as
   a wall of orange.
 

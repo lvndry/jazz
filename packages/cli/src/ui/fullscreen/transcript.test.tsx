@@ -853,37 +853,45 @@ describe("colour is state, not speaker", () => {
     expect(continuation?.gutter[0]?.fg).toBe(THEME.border);
   });
 
-  it("sets a user message on a panel exactly one measure wide, padded above and below", async () => {
-    const message = Array.from({ length: 40 }, (_, index) => `request${String(index)}`).join(" ");
-    const blocks: readonly Block[] = [{ id: "u", seq: 1, kind: "user", text: message }];
-    const rows = transcriptRows(blocks, WIDE).filter((row) => row.key.startsWith("u:"));
+  it.each([NARROW, WIDE, { width: 180, height: 34 }])(
+    "fills the conversation width with a padded user panel at $width columns",
+    async (viewport) => {
+      const message = Array.from({ length: 40 }, (_, index) => `request${String(index)}`).join(" ");
+      const blocks: readonly Block[] = [
+        { id: "u", seq: 1, kind: "user", text: message, at: "14:32" },
+      ];
+      const rows = transcriptRows(blocks, viewport).filter((row) => row.key.startsWith("u:"));
 
-    expect(rows.length).toBeGreaterThan(3);
-    expect(rows[0]?.content).toEqual([]);
-    expect(rows[rows.length - 1]?.content).toEqual([]);
-    for (const row of rows) {
-      expect(row.backgroundColor).toBe(THEME.surface);
-      expect(row.gutter[0]).toEqual({ text: getGlyphs().bandBar, fg: THEME.primary });
-    }
-    expect(rows.some((row) => row.gutter[0]?.text === getGlyphs().promptCursor)).toBe(false);
+      expect(rows.length).toBeGreaterThan(3);
+      expect(rows[0]?.content).toEqual([]);
+      expect(rows[rows.length - 1]?.content).toEqual([]);
+      for (const row of rows) {
+        expect(row.backgroundColor).toBe(THEME.surface);
+        expect(row.gutter[0]).toEqual({ text: getGlyphs().bandBar, fg: THEME.primary });
+      }
+      expect(rows.some((row) => row.gutter[0]?.text === getGlyphs().promptCursor)).toBe(false);
 
-    const { renderer, renderOnce, captureSpans } = await renderForTest(transcript(blocks, WIDE), {
-      width: WIDE.width,
-      height: WIDE.height,
-    });
-    await renderOnce();
-    const panel = RGBA.fromHex(THEME.surface).toInts().slice(0, 3).join(",");
-    const bandWidths = captureSpans()
-      .lines.map((line) =>
-        line.spans
-          .filter((span) => span.bg.toInts().slice(0, 3).join(",") === panel)
-          .reduce((total, span) => total + span.width, 0),
-      )
-      .filter((width) => width > 0);
-    renderer.destroy();
-    expect(bandWidths.length).toBe(rows.length);
-    expect(new Set(bandWidths)).toEqual(new Set([2 + PROSE_MEASURE]));
-  });
+      const { renderer, renderOnce, captureSpans } = await renderForTest(
+        transcript(blocks, viewport),
+        {
+          width: viewport.width,
+          height: viewport.height,
+        },
+      );
+      await renderOnce();
+      const panel = RGBA.fromHex(THEME.surface).toInts().slice(0, 3).join(",");
+      const bandWidths = captureSpans()
+        .lines.map((line) =>
+          line.spans
+            .filter((span) => span.bg.toInts().slice(0, 3).join(",") === panel)
+            .reduce((total, span) => total + span.width, 0),
+        )
+        .filter((width) => width > 0);
+      renderer.destroy();
+      expect(bandWidths.length).toBe(rows.length);
+      expect(new Set(bandWidths)).toEqual(new Set([viewport.width]));
+    },
+  );
 
   it("puts the accent on a streaming rail and takes it away once settled", async () => {
     const streaming: readonly Block[] = [

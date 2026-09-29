@@ -18,30 +18,8 @@ jazz run --agent assistant "summarize the last 5 commits"
 
 ## The stream contract
 
-This is the design decision that makes everything else possible:
-
-> **stdout carries the payload. stderr carries everything else.**
-
-```mermaid
-flowchart LR
-    RUN["jazz run --json<br/>--agent dev<br/>--events tools"]
-
-    RUN -->|stdout| OUT["<b>Exactly one line</b><br/>the answer, or one JSON object"]
-    RUN -->|stderr| ERR["Status notices<br/>tool chatter<br/>the ◉ Agent header<br/>the ✔ completed footer<br/>NDJSON progress events"]
-    RUN -->|exit code| CODE["0 = ok<br/>1 = failure<br/>2 = parked<br/>130/143 = signal"]
-
-    OUT --> PARSE["Your code:<br/>JSON.parse(stdout)"]
-    ERR --> LOG["Your code:<br/>log it, or render<br/>a live progress bubble"]
-
-    classDef good fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-    classDef noise fill:#e8e8e8,stroke:#999999,color:#1a1a1a
-    class OUT,PARSE good
-    class ERR,LOG noise
-```
-
-No mode flags to remember, no log lines to filter out of your JSON, no Ink TUI writing
-escape codes into your pipe (`jazz run` forces `JAZZ_NO_TUI=1` internally). You parse
-stdout and you're done.
+stdout contains the answer: Markdown by default, or a single JSON object with `--json`.
+Status messages, warnings, tool output, and NDJSON progress events go to stderr.
 
 ---
 

@@ -19,6 +19,9 @@
  * to a dim receipt with no marker and no duration (and several receipts share a
  * row), and markers appear only at turn boundaries and state changes.
  *
+ * User message backgrounds span the full conversation width; their text
+ * keeps the same prose measure and metadata position as other turns.
+ *
  * Geometry, at every width:
  *
  *   col 0        rail, or the turn marker on a block's first row
@@ -147,12 +150,12 @@ export interface RenderRow {
   readonly contentWidth: number;
   readonly meta: readonly Segment[];
   /**
-   * A surface painted behind exactly `contentWidth` cells, so a band ends on
-   * the measure rather than at the window edge. `bandIncludesGutter` extends
-   * it left over the rail and lane cells.
+   * A surface behind the content cells. The band flags extend it over the
+   * gutter or the whole conversation row.
    */
   readonly backgroundColor?: string;
   readonly bandIncludesGutter?: boolean;
+  readonly bandFullWidth?: boolean;
 }
 
 function wrap(segments: readonly Segment[], measure: number): Segment[][] {
@@ -414,8 +417,7 @@ function rowsForBlock(
 const BAND_PADDING = 1;
 
 /**
- * Render a user turn as a neutral band exactly one measure wide, rail
- * included, so every wrapped row ends on the same column as the prose below.
+ * Render a user turn with a full-width neutral background and wrapped prose.
  */
 function userRows(
   block: Extract<Block, { kind: "user" }>,
@@ -440,7 +442,7 @@ function userRows(
     contentWidth: geometry.prose,
     meta: rowMeta,
     backgroundColor: THEME.surface,
-    bandIncludesGutter: true,
+    bandFullWidth: true,
   });
   // One row of panel above and below the text: the band reads as a surface
   // the message sits on, not a highlighter stroke through it.
@@ -1602,6 +1604,7 @@ function Row({ row, width }: { row: RenderRow; width: number }): ReactNode {
         height: 1,
         flexShrink: 0,
         flexDirection: "row",
+        ...(row.bandFullWidth === true ? band : {}),
       }}
     >
       <box
