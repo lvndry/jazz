@@ -359,6 +359,9 @@ environment variable and reports when one remains effective.
 
 ## Authoring
 
+The [Plugin SDK README](../../packages/plugin-sdk/README.md) has a complete minimal plugin,
+development setup, and an overview of the public TypeScript contracts and host API.
+
 ```bash
 jazz plugin init my-router
 cd my-router
