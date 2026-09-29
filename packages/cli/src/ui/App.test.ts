@@ -30,8 +30,8 @@ describe("renderPendingStream", () => {
   test("dims reasoning output but leaves a response tail plain", () => {
     try {
       chalk.level = 3;
-      const response = renderPendingStream(pendingStream("hello", "response"));
-      const reasoning = renderPendingStream(pendingStream("hello", "reasoning"));
+      const response = renderPendingStream(pendingStream("hello", "response"), 80);
+      const reasoning = renderPendingStream(pendingStream("hello", "reasoning"), 80);
       expect(reasoning).not.toBe(response);
     } finally {
       chalk.level = 0;
