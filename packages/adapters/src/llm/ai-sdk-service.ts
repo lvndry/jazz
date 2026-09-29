@@ -142,6 +142,7 @@ import {
 } from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
+import { orcaRouterResponseCostUSD, routerBilledCostUSD } from "./router-cost";
 import { resolveStreamIdleTimeoutMs, StreamProcessor } from "./stream-processor";
 import { SDK_STOP_CONDITIONS, toJazzToolCall } from "./tool-call-parts";
 
@@ -208,30 +209,6 @@ function suppressStreamTextUnhandledRejections(
       void Promise.resolve(value).catch(() => {});
     }
   }
-}
-
-/** Read a provider-reported router charge from AI SDK metadata, when the provider exposes one. */
-function routerBilledCostUSD(provider: string, metadata: unknown): number | undefined {
-  if (!isRecord(metadata)) return undefined;
-  if (provider === "ai_gateway") {
-    const gatewayMetadata = metadata["gateway"];
-    if (!isRecord(gatewayMetadata)) return undefined;
-    const cost = gatewayMetadata["cost"];
-    return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
-  }
-  if (provider === "openrouter") {
-    const providerMetadata = metadata["openrouter"];
-    if (!isRecord(providerMetadata)) return undefined;
-    const usage = providerMetadata["usage"];
-    if (!isRecord(usage)) return undefined;
-    const cost = usage["cost"];
-    return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
-  }
-  if (provider !== "orcarouter") return undefined;
-  const providerMetadata = metadata["orcarouter"];
-  if (!isRecord(providerMetadata)) return undefined;
-  const cost = providerMetadata["billedCostUSD"];
-  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : undefined;
 }
 
 interface AISDKConfig {
@@ -1143,25 +1120,17 @@ function selectModel(
         },
         metadataExtractor: {
           extractMetadata: ({ parsedBody }) => {
-            if (!isRecord(parsedBody) || !isRecord(parsedBody["usage"])) {
-              return Promise.resolve(undefined);
-            }
-            const cost = parsedBody["usage"]["cost_usd"];
+            const cost = orcaRouterResponseCostUSD(parsedBody);
             return Promise.resolve(
-              typeof cost === "number" && Number.isFinite(cost) && cost >= 0
-                ? { orcarouter: { billedCostUSD: cost } }
-                : undefined,
+              cost === undefined ? undefined : { orcarouter: { billedCostUSD: cost } },
             );
           },
           createStreamExtractor: () => {
             let billedCostUSD: number | undefined;
             return {
               processChunk: (parsedChunk: unknown) => {
-                if (!isRecord(parsedChunk) || !isRecord(parsedChunk["usage"])) return;
-                const cost = parsedChunk["usage"]["cost_usd"];
-                if (typeof cost === "number" && Number.isFinite(cost) && cost >= 0) {
-                  billedCostUSD = cost;
-                }
+                const cost = orcaRouterResponseCostUSD(parsedChunk);
+                if (cost !== undefined) billedCostUSD = cost;
               },
               buildMetadata: () =>
                 billedCostUSD === undefined ? undefined : { orcarouter: { billedCostUSD } },
