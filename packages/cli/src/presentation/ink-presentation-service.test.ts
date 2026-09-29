@@ -1930,3 +1930,73 @@ describe("stopping a turn in the Ink interface", () => {
     expect(text).toContain("done      mcp_calendar_create_event  hold placed");
   });
 });
+
+describe("Ink markdown, from the shared parser", () => {
+  const printed: OutputEntry[] = [];
+  let originalPrintOutput: (typeof store)["printOutput"];
+
+  beforeEach(() => {
+    printed.length = 0;
+    originalPrintOutput = store.printOutput;
+    store.printOutput = (entry: OutputEntry) => {
+      printed.push(entry);
+      return originalPrintOutput(entry);
+    };
+  });
+
+  afterEach(() => {
+    store.printOutput = originalPrintOutput;
+  });
+
+  test("styles a response the same way as fullscreen, through the shared parser", async () => {
+    try {
+      chalk.level = 3;
+      const service = new InkPresentationService(
+        { ...DEFAULT_DISPLAY_CONFIG, mode: "rendered" },
+        null,
+      );
+      const rendered = await Effect.runPromise(
+        service.renderMarkdown("**bold** and `code` and a [link](https://jazz.sh)."),
+      );
+      expect(rendered).toContain("\u001b]8;;https://jazz.sh\u0007");
+      // eslint-disable-next-line no-control-regex -- ANSI/OSC 8 escapes are the point of this strip.
+      const visible = rendered.replace(/\u001b(\[[0-9;]*m|\]8;;[^\u0007]*\u0007)/g, "");
+      expect(visible).not.toContain("**");
+    } finally {
+      chalk.level = 0;
+    }
+  });
+
+  test("never wraps a long paragraph, so Ink's own <Text wrap> can reflow it on resize", async () => {
+    const service = new InkPresentationService(
+      { ...DEFAULT_DISPLAY_CONFIG, mode: "rendered" },
+      null,
+    );
+    const long = Array.from({ length: 40 }, (_, index) => `word${String(index)}`).join(" ");
+    const rendered = await Effect.runPromise(service.renderMarkdown(long));
+    expect(rendered.split("\n")).toHaveLength(1);
+  });
+
+  test("hybrid mode keeps the markdown syntax visible", async () => {
+    const service = new InkPresentationService({ ...DEFAULT_DISPLAY_CONFIG, mode: "hybrid" }, null);
+    const rendered = await Effect.runPromise(service.renderMarkdown("**bold**"));
+    expect(rendered).toContain("**bold**");
+  });
+
+  test("raw mode passes text through untouched", async () => {
+    const service = new InkPresentationService({ ...DEFAULT_DISPLAY_CONFIG, mode: "raw" }, null);
+    const rendered = await Effect.runPromise(service.renderMarkdown("**bold**"));
+    expect(rendered).toBe("**bold**");
+  });
+
+  test("a settled agent response reads through the same pipeline", async () => {
+    const service = new InkPresentationService(
+      { ...DEFAULT_DISPLAY_CONFIG, mode: "rendered" },
+      null,
+    );
+    await Effect.runPromise(service.presentAgentResponse("sol", "**bold** answer"));
+    const logged = printed.find((entry) => entry.type === "log");
+    expect(entryText(logged as OutputEntry)).toContain("bold");
+    expect(entryText(logged as OutputEntry)).not.toContain("**");
+  });
+});

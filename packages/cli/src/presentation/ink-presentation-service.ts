@@ -66,12 +66,7 @@ import {
   formatToolsDetectedEffect,
   formatWarning,
 } from "./format-utils";
-import {
-  formatMarkdown,
-  formatMarkdownHybrid,
-  getTerminalWidth,
-  wrapToWidth,
-} from "./markdown-formatter";
+import { getTerminalWidth, wrapToWidth } from "./markdown-formatter";
 import { isInsideOpenStructure } from "./markdown-split";
 import {
   addStep,
@@ -82,10 +77,12 @@ import {
 } from "./turn-receipt";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { getGlyphs } from "../ui/glyphs";
+import { markdownToAnsi } from "../ui/markdown/ansi";
 import { receiptFromMeta } from "../ui/models/receipt";
 import { store } from "../ui/store";
 import type { SubagentChannel } from "../ui/subagent-runs";
 import { formatCost } from "../ui/text/format";
+import { PADDING_BUDGET } from "../ui/theme";
 import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
 import { separatorLine, stripAnsiCodes } from "../utils/string-utils";
 
@@ -146,6 +143,19 @@ function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionColla
  * **Completion**: The full authoritative response (`event.response.content`)
  * is printed to Static as a single entry so it becomes fully scrollable.
  */
+
+/**
+ * Markdown as Ink shows it: the same shared parser and colours as fullscreen, laid out
+ * unwrapped. Ink's own `<Text wrap>` re-flows a settled entry live, including on a terminal
+ * resize; pre-wrapping here would freeze it at whatever width it first drew at instead.
+ */
+function formatMarkdownForDisplay(text: string, mode: DisplayConfig["mode"]): string {
+  if (mode !== "rendered" && mode !== "hybrid") {
+    return text;
+  }
+  const width = Math.max(1, getTerminalWidth() - PADDING_BUDGET);
+  return markdownToAnsi(text, { width, syntax: mode, wrapProse: false });
+}
 
 /**
  * One buffered streaming delta. Either targets the global scrollback pending
@@ -1094,13 +1104,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   /** Apply markdown formatting based on display mode (no wrapping). */
   private formatMarkdownContent(text: string): string {
-    if (this.displayConfig.mode === "rendered") {
-      return formatMarkdown(text);
-    }
-    if (this.displayConfig.mode === "hybrid") {
-      return formatMarkdownHybrid(text);
-    }
-    return text;
+    return formatMarkdownForDisplay(text, this.displayConfig.mode);
   }
 }
 
@@ -1182,13 +1186,7 @@ export class InkPresentationService implements PresentationService {
 
   /** Format markdown using the display mode from config. No pre-wrapping. */
   private formatMarkdownText(text: string): string {
-    if (this.displayConfig.mode === "rendered") {
-      return formatMarkdown(text);
-    }
-    if (this.displayConfig.mode === "hybrid") {
-      return formatMarkdownHybrid(text);
-    }
-    return text;
+    return formatMarkdownForDisplay(text, this.displayConfig.mode);
   }
 
   presentThinking(agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {
