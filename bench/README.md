@@ -89,6 +89,10 @@ Numeric `metrics` carry suite-specific observations such as retained bytes.
 Context accounting and summarizer preparation use 100 measured iterations
 after 20 warmups: p95 over only ten samples was just the maximum sample and
 proved unstable in paired runs. Fixture sizes and gate thresholds stay fixed.
+Cold request hashing and store writes use 200 measured iterations after 40
+warmups. These allocation-heavy cases include garbage collection costs; longer
+samples give p95 more tail observations than a 40-iteration run without changing
+the workload or excluding slow samples.
 
 [budgets.json](./budgets.json) is the policy reviewed alongside code. Current
 latency gates require a regression larger than both 30% and 0.5ms in either p50

@@ -463,6 +463,15 @@ its content is specified as facts about what will happen rather than as a layout
 See [Surfaces](../surfaces/index.md) for where Jazz runs, and
 [Headless](../surfaces/headless.md) for the `jazz run` contract.
 
+Streaming without pacing delivers each provider delta directly, without keeping
+a second copy of the answer or updating reveal state. Switching pacing off
+flushes any backlog before discarding it; switching it on starts with the next
+delta, so text already delivered is never replayed.
+
+Transcript wrapping caches reuse settled blocks during streaming. Clearing the
+transcript releases cached streaming prefixes; unmounting its view releases the
+last row snapshot as well, so a closed conversation cannot keep its text alive.
+
 ---
 
 ## Related
@@ -472,7 +481,3 @@ See [Surfaces](../surfaces/index.md) for where Jazz runs, and
 - [Delegation](../concepts/agents.md#delegation): what the lanes represent
 - [Personas](../concepts/personas.md): where the house voice is defined
 - [**website.html**](../design/website.html): the website's design direction ("the terminal, unboxed"): the moodboard with the equalizer hero, the motion language, and the OG/SEO strategy, all animated. Open in a browser; GitHub shows HTML as source
-
-Transcript wrapping caches reuse settled blocks during streaming. Clearing the
-transcript releases cached streaming prefixes; unmounting its view releases the
-last row snapshot as well, so a closed conversation cannot keep its text alive.

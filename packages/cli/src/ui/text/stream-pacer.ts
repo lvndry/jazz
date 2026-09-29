@@ -1,3 +1,10 @@
+/**
+ * Deliver provider deltas to the scrollback in order, optionally pacing their
+ * reveal for a person watching the terminal. createStreamPacer owns the reveal
+ * clock and frame timer; unpaced streams pass through without retaining text.
+ * flush shows a backlog, end finishes a stream, and reset discards it. Changing
+ * pacing flushes already received text before the next delivery mode starts.
+ */
 import {
   extendReveal,
   flushReveal,
@@ -99,17 +106,16 @@ export function createStreamPacer<Kind>(
   return {
     receive(nextKind, delta) {
       if (delta.length === 0) return;
+      if (!paced) {
+        apply(nextKind, delta);
+        return;
+      }
       if (kind !== undefined && nextKind !== kind) {
         flush();
         forget();
       }
       kind = nextKind;
       received += delta;
-      if (!paced) {
-        applyUpTo(received.length);
-        reveal = flushReveal(extendReveal(reveal, received, timers.now()), timers.now());
-        return;
-      }
       reveal = extendReveal(reveal, received, timers.now());
       if (stopTimer === undefined && isRevealing(reveal)) {
         stopTimer = timers.every(REVEAL_FRAME_MS, tick);
@@ -122,8 +128,12 @@ export function createStreamPacer<Kind>(
     },
     reset: forget,
     setPaced(next) {
+      if (paced === next) return;
       paced = next;
-      if (!paced) flush();
+      if (!paced) {
+        flush();
+        forget();
+      }
     },
   };
 }

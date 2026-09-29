@@ -39,6 +39,31 @@ describe("stream pacer", () => {
     expect(applied.join("")).toBe("hello world");
   });
 
+  it("switches pacing and stream kinds without replaying or losing delivered text", () => {
+    const timers = manualTimers();
+    const applied: { kind: string; text: string }[] = [];
+    const pacer = createStreamPacer((kind: string, text: string) => {
+      applied.push({ kind, text });
+    }, timers);
+    pacer.receive("reasoning", "before ");
+    expect(timers.running()).toBe(false);
+    pacer.setPaced(true);
+    pacer.receive("response", BURST);
+    expect(timers.running()).toBe(true);
+    pacer.setPaced(false);
+    expect(timers.running()).toBe(false);
+    pacer.receive("reasoning", "between ");
+    pacer.setPaced(true);
+    pacer.receive("response", BURST);
+    timers.advance(1_000);
+    pacer.end();
+    expect(timers.running()).toBe(false);
+    expect(applied.map((event) => event.text).join("")).toBe(`before ${BURST}between ${BURST}`);
+    expect(
+      applied.filter((event) => event.kind === "reasoning").map((event) => event.text),
+    ).toEqual(["before ", "between "]);
+  });
+
   it("reveals a burst over several frames, in order, at word ends", () => {
     const timers = manualTimers();
     const { applied, apply } = recorder();
