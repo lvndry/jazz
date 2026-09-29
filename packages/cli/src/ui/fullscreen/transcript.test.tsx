@@ -19,12 +19,13 @@ import type { ReactNode } from "react";
 import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
 import { Transcript, transcriptRows, type RenderRow, type Segment } from "./Transcript";
+import { measureFor, type Block, type Viewport } from "./types";
 import { parseInlineMarkdown } from "../markdown/inline";
 import { parseMarkdown } from "../markdown/parse";
 import { markdownRoleColor, type MarkdownRole } from "../markdown/spans";
+import { PROSE_MEASURE } from "../text/measure";
 import { terminalCellWidth } from "../text/terminal-cells";
 import { setThemeVariant, THEME } from "../theme";
-import { measureFor, PROSE_MEASURE, type Block, type Viewport } from "./types";
 
 beforeAll(() => {
   process.env["JAZZ_UI_GLYPHS"] = "unicode";

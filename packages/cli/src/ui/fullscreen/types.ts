@@ -26,12 +26,7 @@ import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
 import type { RetryBand } from "../models/retry";
-
-/**
- * Once the content column is at least this wide, leftover columns become a
- * short flush-right metadata strip. Below it the frame *is* the measure.
- */
-export const PROSE_MEASURE = 88;
+import { PROSE_MEASURE } from "../text/measure";
 
 /** Timestamps and lane labels sit here; the rest of the surplus widens prose. */
 export const METADATA_RESERVE = 20;

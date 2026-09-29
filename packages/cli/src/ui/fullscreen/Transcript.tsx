@@ -47,7 +47,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { spaceReasoningSections } from "../../presentation/format-utils";
 import { getGlyphs, type GlyphSet } from "../glyphs";
+import { parseMarkdown, type MarkdownBlock } from "../markdown/parse";
+import { markdownRoleColor, type MarkdownSpan } from "../markdown/spans";
+import { stoppedHeading } from "../models/interrupt";
 import { reportLines, type ReportRole, type ReportSegment } from "../report-layout";
 import { getThemeRevision, THEME } from "../theme";
 import { linkAtColumn, openLink } from "./open-link";
@@ -62,18 +66,14 @@ import { useThemeRevision } from "./theme-revision";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
 import {
   measureFor,
-  PROSE_MEASURE,
   type Block,
   type Focus,
   type StoppedBlock,
   type ToolReceiptBlock,
   type Viewport,
 } from "./types";
-import { spaceReasoningSections } from "../../presentation/format-utils";
-import { parseMarkdown, type MarkdownBlock } from "../markdown/parse";
-import { markdownRoleColor, type MarkdownSpan } from "../markdown/spans";
 import { layoutTable } from "../markdown/table";
-import { stoppedHeading } from "../models/interrupt";
+import { PROSE_MEASURE } from "../text/measure";
 import {
   continueFenceHighlight,
   highlightCodeLine,
