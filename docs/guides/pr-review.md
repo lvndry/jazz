@@ -1,5 +1,5 @@
 ---
-description: "Install Jazz's maintained multi-agent GitHub pull-request reviewer, then run it with OpenRouter, OpenAI, or a self-hosted Ollama model."
+description: "Install Jazz's maintained multi-agent GitHub pull-request reviewer, then choose ChatGPT, an API provider, or a self-hosted model."
 ---
 
 # Review pull requests in CI with your choice of model
@@ -7,6 +7,12 @@ description: "Install Jazz's maintained multi-agent GitHub pull-request reviewer
 Jazz's own GitHub workflow is the maintained example. It reviews every eligible pull request with specialist subagents, verifies their findings against the diff, and posts a verdict plus line-level comments.
 
 The model never receives permission to post to GitHub. Jazz writes a structured review to stdout; a deterministic `actions/github-script` step validates paths and line numbers against the actual diff before using `GITHUB_TOKEN`.
+
+## Before you start
+
+You need a GitHub repository where you can enable Actions and add secrets, plus a
+configured model provider. [Install Jazz](../getting-started/quick-start.md) locally
+to test the agent. Start with a same-repository pull request; this workflow skips forks.
 
 ## What the bundle contains
 
@@ -31,11 +37,19 @@ Use the files themselves as the template rather than copying a shortened YAML bl
 - [PR assistant agent](../../.github/jazz/agents/pr-assistant.json)
 - [PR assistant workflow](../../.github/jazz/workflows/pr-assistant/WORKFLOW.md)
 
-Keeping the executable example in one place prevents the documentation and production workflow from drifting apart.
-
 ## Configure the provider
 
-The checked-in reviewer currently pins the provider and model in `.github/jazz/agents/ci-reviewer.json`. Change only these fields to use another model:
+The supplied reviewer uses `chatgpt/gpt-6-luna`; the PR assistant uses
+`chatgpt/gpt-5.6-luna`. To use them with your ChatGPT plan:
+
+1. In Jazz, open **Settings → LLM Providers → ChatGPT**, sign in, and press `c`
+   to copy the credential bundle. Save it as the `JAZZ_CHATGPT_CREDENTIAL`
+   repository Actions secret.
+2. Set up the GitHub App and secrets described in the [Actions setup](../../.github/jazz/README.md#quick-start)
+   so the workflow can save rotated credentials.
+
+To use API billing, change `llm.provider` and `llm.model` in both agent files.
+For example:
 
 ```json
 {
@@ -49,20 +63,17 @@ The checked-in reviewer currently pins the provider and model in `.github/jazz/a
 }
 ```
 
-Add the matching repository secret:
+Add the matching repository secret, such as `OPENROUTER_API_KEY`, and pass it
+through `env` in both workflow run steps. Remove the ChatGPT credential checks
+and rotation steps when switching to an API provider. Provider variable names
+are listed in [Model providers](../configure/providers.md).
 
-`<PROVIDER>_API_KEY`, for whichever provider the agent names. `OPENROUTER_API_KEY`
-here, `OPENAI_API_KEY` for the checked-in configs, `ANTHROPIC_API_KEY`,
-`MISTRAL_API_KEY`, and so on; the variable names are in
-[Model providers](../configure/providers.md). `jazz.yml` passes `OPENAI_API_KEY` as
-shipped, so a different provider also needs its `<PROVIDER>_API_KEY:` line added to the
-workflow's two `Run` steps.
-
-`openrouter/free` is useful for evaluating the workflow without selecting a paid model, but routing and availability vary. Pin a specific model for stable review quality and meaningful evals.
+`openrouter/free` is useful for evaluating the workflow without selecting a paid model, but routing and availability vary. Pin a specific model for consistent reviews.
 
 ## Use your own Ollama model
 
-Run the job on a self-hosted GitHub runner that can reach Ollama. A GitHub-hosted runner cannot reach the Ollama server bound to your laptop's `localhost`.
+Run the job on a self-hosted GitHub runner that can reach Ollama. Remove the
+ChatGPT credential checks and rotation steps from `jazz.yml`. A GitHub-hosted runner cannot reach the Ollama server bound to your laptop's `localhost`.
 
 Change the reviewer agent:
 
@@ -88,8 +99,6 @@ cp .github/jazz/agents/ci-reviewer.json "$HOME/.jazz/agents/"
 jazz run --agent ci-reviewer --max-iterations 5 \
   "Inspect this checkout and name its primary language. Do not modify files."
 ```
-
-The GitHub workflow, subagent protocol, output parser, and line validation do not depend on the model provider.
 
 ## Customize the reviewer for the repository
 
@@ -131,12 +140,4 @@ Open a same-repository pull request or run the workflow manually with a pull-req
 
 Comment `/jazz-review` to rerun the review. Comment `/jazz <question>` to invoke the separate PR assistant against the same resolved pull-request context.
 
-## Why this is a Jazz workflow
-
-- Large reviews fan out into isolated specialist contexts instead of one anchored conversation.
-- The parent cross-examines subagent results and owns the final verdict.
-- Provider choice is an agent setting, not part of the GitHub integration.
-- Headless stdout is a clean machine contract while progress stays on stderr.
-- GitHub mutation remains outside the model's capabilities.
-
-Read [CI as a Jazz surface](../surfaces/ci.md), [Headless runs](../surfaces/headless.md), and [Delegation](../concepts/agents.md#delegation) for the underlying contracts.
+Read [CI as a Jazz surface](../surfaces/ci.md), [Headless runs](../surfaces/headless.md), and [Delegation](../concepts/agents.md#delegation).

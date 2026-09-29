@@ -1,12 +1,25 @@
 ---
-description: "The five kinds of state a Jazz agent carries, who writes each one, how long it lasts, and why memory is the one that compounds."
+description: "The five kinds of state a Jazz agent carries, who writes each one, and how long it lasts."
 ---
 
 # Conversations, state, and memory
 
-Jazz keeps five kinds of state, and they are separate on purpose. Collapsing any two of them
-produces the same failure: something that mattered gets discarded, or something that stopped
-being true gets carried forever.
+A conversation keeps the context for one thread of work. Resume it to continue a task,
+or start a new one for a separate topic. Memory carries your preferences and facts into
+future conversations.
+
+For example, tell your agent:
+
+```text
+Remember that I prefer concise replies and use Europe/Paris as my timezone.
+```
+
+In a later conversation, those preferences can apply without repeating them. Ask it to
+forget a preference when it no longer applies, or [review saved memory from the CLI](#cli-access).
+
+## Types of state
+
+Jazz keeps five kinds of state:
 
 | Kind                     | Written by                     | Scope            | Survives                  |
 | ------------------------ | ------------------------------ | ---------------- | ------------------------- |
@@ -18,46 +31,44 @@ being true gets carried forever.
 
 ## Conversation history
 
-The transcript: user, assistant, and tool messages in order. Interactive chat keeps one active
-conversation. Headless callers opt in with a stable `--conversation` key, which is what gives a
-chat bridge per-chat memory without the bridge storing anything itself. Without a key, a one-shot
-run is stateless.
+Conversation history contains your messages, the agent's replies, and its tool results.
+In the terminal, use `/resume` to return to earlier work and `/start` for a new conversation.
 
-History is not permanent. When the context fills, older messages are summarized and the detail
-in them is gone. That is what the next two exist to survive.
+In scripts, pass the same `--conversation` value to continue a thread:
+
+```bash
+jazz run --agent assistant --conversation release-plan "Help me plan the next release"
+jazz run --agent assistant --conversation release-plan "Update the plan: the launch is Friday"
+```
+
+Without a conversation key, each `jazz run` starts a separate thread.
+
+As context fills, Jazz summarizes older messages. Use work state and todos to preserve
+important task details through compaction.
 
 ## Work state
 
 The agent's account of what it is doing: the goal, the constraints, what it has decided, what is
 still open, what it means to do next. One per conversation, discarded when the work ends.
 
-Its job is to survive compaction. History records what was said; work state records _intent_,
-which only the agent knows and only while it still holds it in context. Written as JSON rather
-than prose because it is edited repeatedly, and models patch structured documents far more
-reliably than they rewrite paragraphs.
+Work state is stored as JSON and survives compaction.
 
-**Work state is subjective; a run is objective.** Work state is the agent's diary and can be
-stale or wrong. A run's state is a fact about a process. The two can disagree without either
-being broken: a model can be planning its next step while the run it is planning inside has
-already parked, waiting for an approval.
+Work state is written by the model and may be stale. It does not report whether the run is
+active, parked, or complete.
 
 ## Todos
 
-The list of work, with status and priority, rendered in the interface. Work state deliberately
-holds no second list, because carrying one left the model guessing which to update.
+The list of work, with status and priority, rendered in the interface. Work state has no
+separate work list.
 
-One field is worth knowing about: a todo records `verifiedBy`, so a completed item with nothing
-in it says plainly that the work was written but never checked. Progress and evidence stay
-separate, because "unverified" is not a stage of work and a status enum is the wrong place for it.
+A todo records verification evidence in `verifiedBy`, separately from its status.
 
 ## Scratchpad
 
 Durable scratch space, per agent, across every conversation. Large working drafts, research
 dumps, intermediate artifacts: the things too big or too provisional for memory.
 
-The convention that keeps both useful is to reference a scratchpad path from a memory entry once
-the work is done, rather than copying the content into memory. Memory stays small and curated;
-the bulk lives where bulk belongs.
+For large material worth keeping, save it in the scratchpad and reference its path from memory.
 
 Bounded so a runaway agent cannot fill the disk: 5 MB per file, 2,000 files, and 1 GB per agent
 by default, which `workspaceMaxTotalBytesPerAgent` overrides.
@@ -66,70 +77,26 @@ by default, which `workspaceMaxTotalBytesPerAgent` overrides.
 
 ## Memory
 
-Memory is the part that compounds. Every other kind of state serves one conversation or one
-agent; memory serves the person across all of them. A preference stated once — "concise
-replies", "deploy to staging first", "I live in Paris" — should improve every future
-interaction, regardless of which agent handles it or which model powers that agent.
+Memory saves preferences and facts for future conversations, such as your timezone or
+preferred response length. Agents can share it through memory scopes.
 
-That is the self-improvement thesis: **the model stays frozen; the harness gets better at
-applying it to you.** No fine-tuning, no weight updates, no data leaving your machine. What
-improves is what Jazz knows about the person, and how reliably it brings that knowledge to
-bear.
-
-### Layout: the tree is the index
+### Memory files
 
 ```text
 ~/.jazz/memory/
-├── personal/                          ← scope: follows the user everywhere
-│   ├── always/                        ← in force on every turn
-│   │   ├── concise-replies.md
-│   │   ├── home-timezone.md
-│   │   └── deploy-staging-first.md
-│   └── when/                          ← in force when the agent looks
-│       ├── moodboard/
-│       │   └── artboard-scaling.md
-│       └── cooking/
-│           └── no-cilantro.md
-├── github-jazz/                       ← scope: this project only
-│   ├── always/
-│   │   └── run-evals-before-merge.md
-│   └── when/
-│       └── ci/
-│           └── diff-truncation.md
-└── finance/                           ← scope: personal finance work
-    └── always/
-        └── risk-tolerance.md
+  personal/always/concise-replies.md
+  personal/when/cooking/no-cilantro.md
+  github-jazz/always/run-evals-before-merge.md
 ```
 
-There is no database, no sidecar index, no cache. The filesystem _is_ the index. An entry is a
-Markdown file. The directory it sits in determines when it applies:
+Each entry is a Markdown file. Its directory determines when it applies:
 
 - **`<scope>/always/<slug>.md`** — in force on every turn, injected automatically.
 - **`<scope>/when/<topic>/<slug>.md`** — in force when the agent discovers it via `view_memory`.
 
-A file created or deleted by hand behaves exactly like one the tool wrote. There is nothing to
-drift, nothing to rebuild.
+You can edit or delete these files directly.
 
-### Scopes: memory follows the person, not the agent
-
-```mermaid
-flowchart LR
-    U["Person"] --> P["personal/"]
-    U --> GJ["github-jazz/"]
-    U --> F["finance/"]
-
-    P --> A1["Agent: terminal"]
-    P --> A2["Agent: telegram"]
-    P --> A3["Agent: CI reviewer"]
-    GJ --> A1
-    GJ --> A3
-    F --> A2
-
-    style U fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-    style P fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-    style GJ fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-    style F fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-```
+### Sharing memory between agents
 
 The default scope is `"personal"` — shared by every agent unless overridden with `memoryScopes`
 in the agent config. A preference like "concise replies" follows the person across their
@@ -139,152 +106,53 @@ scope.
 Scopes are an allowlist. An agent can only read and write the scopes it is configured for. Two
 agents that should share durable context share a scope; two agents that should not, don't.
 
-### Recall: what reaches the model
+### Recalling memory
 
-```mermaid
-flowchart TB
-    subgraph injection["Automatic (every turn)"]
-        AE["Read always/ in each scope"]
-        AE --> SP["Inject as system prompt context"]
-    end
+Entries in `always/` are included every turn. The agent uses `view_memory` to find and read
+relevant entries under `when/`. An entry there may go unused if the agent does not look it up.
 
-    subgraph discovery["Agent-driven (on demand)"]
-        VM["view_memory (no path)"]
-        VM --> LS["List scopes + files"]
-        LS --> VF["view_memory (path)"]
-        VF --> RC["Read specific entry"]
-    end
+### Saving, correcting, and forgetting
 
-    SP --> MODEL["Model sees:<br/>standing preferences +<br/>whatever it looked up"]
-    RC --> MODEL
+The agent can save what you explicitly tell it, using an exact quote from your message.
+Tool output, web pages, model summaries, and synthetic subagent prompts cannot establish
+facts about you. Secrets and sensitive claims are refused.
 
-    classDef auto fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-    classDef agent fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-    class AE,SP auto
-    class VM,LS,VF,RC agent
-```
-
-**Standing entries** (`always/`) are injected into the system prompt every turn. The agent never
-has to ask for them — a preference the user stated is not something they should have to restate.
-
-**Topic-scoped entries** (`when/<topic>/`) are the agent's responsibility to discover. The agent
-calls `view_memory` to browse what exists, reads what looks relevant, and ignores the rest.
-Automatic topic selection remains a measured research path: an extra model call must improve
-task results enough to justify its latency, cost, and potential irrelevant exposure.
-
-The cost of recall tracks how much is relevant, not how much has ever been remembered.
-
-### Trusted capture and correction
-
-Every `manage_memory` write quotes the user. A message typed in the terminal, or passed to
-`jazz run` as its positional argument or `--input-stdin` prompt, carries a `[memory source <id>]` tag; the model sets
-`source_ref` to that ID and `source_quote` to words copied exactly from the message. Earlier
-messages in the same conversation stay quotable. A prompt piped to `jazz run` on stdin, an
-`--input-stdin` frame's `history`, tool output, web pages, model summaries, replayed chat commands, and synthetic
-sub-agent prompts carry no tag and cannot become user facts. The saved entry contains the user's
-quoted words, and a rejected citation says whether the ID, the quote, or its length was wrong.
-
-`amend` replaces an existing entry only when the quote names what that entry is about. `delete`
-and `rename` need a quoted sentence that opens with the request ("Forget my favorite fruit") and
-names the entry, so "Don't forget I'm vegetarian" cannot be cut down to a forget request and
-"remove the old logs" cannot delete a food preference. A secret or sensitive claim is refused
-when it appears anywhere in the quoted sentence or in the subject or topic it would be filed under.
-
-Creating an entry also requires an explicit relevance topic. A favorite fruit can be filed under
-`food` for later shopping or meal tasks. The literal topic `always` is reserved for a preference
-that should affect nearly every task, such as concise replies. This choice is made by the agent
-and remains measurable; an incorrect topic can still cause missed or irrelevant recall.
-
-When a sourced fact is corrected or forgotten, a hidden source ledger revokes the sentences it
-was quoted from before the file changes. Later compaction cannot re-save the old claim from those
-sentences, even by quoting a different part of one, while other facts from the same message stay
-quotable: correcting "I like tea" in "I like tea. I'm vegetarian." leaves the second sentence
-usable. A fresh user statement can establish the fact again. The ledger spans memory scopes and
-stores hashed sentence keys and paths, never quotes. Forgetting never waits on it: with an
-unreadable ledger the delete still happens and cited writes stay paused, and a full ledger drops
-its oldest revocations. Memories created before source tracking have no sentences to revoke;
-their original conversation history may need manual review after a forget request.
-
-### Memory opportunity receipts
-
-Jazz records which memory entries each model request could have used. A receipt stays `pending`
-if the request does not complete. Once the provider accepts the request, the receipt records a
-standing entry only if its exact rendered line was in the system prompt, and a `view_memory` file
-only if the exact tool result survived into the request. A listed directory or a cleared or
-edited tool result does not count as an exposure. An eligible entry with no exposure is recorded
-too, so unshown candidates stay inspectable. Eligibility means the agent could access the scope.
-
-Receipts contain entry IDs, content hashes, paths, timestamps, and exposure kinds, never user
-quotes or transcript text. Each entry keeps its newest 128 receipts; `jazz memory explain` shows
-the latest five. Forgetting an entry starts a new epoch for its scope and erases every receipt in
-that scope, including records whose old entry IDs can no longer be recovered, so an in-flight run
-cannot write old receipts back. Receipts award no `helped`, `failed`, or `missed` credit and do
-not change recall or memory content.
-
-These gates check where the words came from. They do not prove a statement is durable or that it
-belongs in the selected entry; those decisions still need evaluation. Jazz does not infer a change
-in the person's preferences without something they said.
+To correct an entry, tell the agent what changed. To remove one, ask it to forget that
+specific fact. Jazz also revokes the quoted source so later compaction cannot save the
+same statement again. Older memories created before source tracking may require you to
+review their original conversation history.
 
 ### Automatic extraction at compaction
 
-When context fills and compaction runs, Jazz scans the about-to-be-compressed messages for facts
-worth remembering long term. A preference the user stated forty messages ago survives compaction
-only as summary gist, and vanishes entirely when the conversation ends — unless the extraction
-pass catches it first.
+Before compaction, Jazz checks the older messages for durable facts you stated and can
+save them to memory. It excludes inferred preferences, task progress, and small talk.
 
-The pass runs as a throwaway `memory-extractor` sub-agent using the real `view_memory` /
-`manage_memory` tools, so it inherits their discipline: find the right scope, read before
-writing, one file per subject, replace stale facts instead of appending duplicates. Only facts
-the user themselves stated or decided qualify — the model's own inferences, in-progress task
-state, and small talk do not. Writing nothing is the common, correct outcome.
-
-See [Context lifecycle → Durable facts reach memory](../maintainers/context-lifecycle.md) for
-the gating rules and the full mechanism.
-
-### The self-improvement loop
-
-```mermaid
-flowchart LR
-    C1["Conversation 1<br/>user states preference"]
-    C1 --> EX["Extraction pass<br/>at compaction"]
-    EX --> MEM["Memory<br/>always/concise-replies.md"]
-    MEM --> C2["Conversation 2<br/>preference is injected"]
-    C2 --> BET["Better response<br/>without re-asking"]
-    BET --> COR["User corrects<br/>a remaining gap"]
-    COR --> EX2["Extraction"]
-    EX2 --> MEM
-    MEM --> C3["Conversation 3<br/>two preferences active"]
-
-    style MEM fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-    style BET fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-```
-
-Each conversation leaves the agent knowing more about the person than the last one did. The
-model does not change; the context it operates in does. This is cheaper than fine-tuning, more
-private than cloud-side personalization, and more composable than either — swap the model,
-keep the memory.
-
-The goal is an agent that gets measurably better at serving you over time, not because it was
-retrained, but because it remembers what you care about and how you want things done.
+See [Context management](./context-management.md) for when compaction happens.
 
 ### CLI access
 
-Agents read and write permitted scopes themselves. You can inspect and prune with `jazz memory
-list`, `jazz memory show`, and `jazz memory forget`.
+Replace `assistant` with your agent's name:
 
-## Choosing
+```bash
+jazz memory list assistant
+jazz memory show assistant personal/always/concise-replies.md
+jazz memory explain assistant personal/always/concise-replies.md
+jazz memory forget assistant personal/always/concise-replies.md
+```
 
-Ask how long it has to be true.
+`show` prints the saved entry. `explain` shows its provenance and recent records of whether
+it was available to model requests; those records do not prove the model used it successfully.
+`forget` deletes the entry. Shared-scope changes affect every agent using that scope.
 
-- True for this exchange only: **history** already has it.
-- True until this task is done, and must survive compaction: **work state** for intent, **todos**
-  for the list.
-- Too big to re-derive, useful later, not a fact about anyone: **scratchpad**.
-- Still true in three weeks, and would make a later answer better: **memory**.
+## Choosing what to keep
+
+- Continue a discussion in the same **conversation**.
+- Use **work state** and **todos** for the current task's decisions and progress.
+- Save long drafts and research material in the **scratchpad** or a file.
+- Use **memory** for preferences and facts needed in future conversations.
 
 ## Related
 
-- [Context lifecycle](../maintainers/context-lifecycle.md): how the runner injects each one, and
-  what compaction does
+- [Context management](./context-management.md): how history is summarized and findings survive
 - [Lexicon](./lexicon.md): the precise word for each of these
 - [Agents](./agents.md): `memoryScopes` and the rest of the configuration

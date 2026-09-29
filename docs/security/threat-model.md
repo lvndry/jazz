@@ -4,6 +4,10 @@ description: "The Jazz threat model: the failures its approval, disclosure, egre
 
 # Jazz threat model
 
+Use this reference when assessing a deployment, giving an agent access to sensitive
+data, or exposing it to remote callers. For setup instructions, start with
+[Unattended runs](./unattended-runs.md) and [Surface access](./surface-access.md).
+
 Jazz runs model-selected actions as the operating-system user that started it. The harness is
 designed to constrain mistakes, prompt injection, over-broad integrations, and unauthenticated
 remote callers. It is not a sandbox against a hostile model, compromised dependency, or operator.
@@ -211,8 +215,9 @@ the bridge by replacing a published composition or another readable store with a
   it does not block inference, tools, MCP, or OTLP. Enforce egress outside Jazz.
 - **Encrypted local history:** transcripts, work state, logs, and local telemetry are files under
   the Jazz data directory.
-- **Exact budget preemption:** iteration, token, cost, and duration budgets are checked between
-  iterations, so one in-flight call may cross a limit.
+- **Exact cost and token caps:** iteration, token, and cost limits are checked between
+  iterations, so one in-flight call may cross a limit. `maxDurationMs` interrupts the active
+  iteration at its deadline, including model calls and running commands.
 
 ## Deployment checklist
 
@@ -226,6 +231,6 @@ Before exposing an unattended agent:
 6. Bound iterations, time, tokens, and cost, then test failure and provider-unavailable paths.
 7. Protect `$JAZZ_HOME` as sensitive data and configure OTLP only to an approved collector.
 
-Implementation paths and regression tests are linked from [Tools and approval](../maintainers/tool-lifecycle.md),
-[Surface access](./surface-access.md), [Secrets and egress](./secrets-and-egress.md), and
-[SECURITY.md](../../SECURITY.md).
+For configuration, see [Approvals](./approvals.md), [Surface access](./surface-access.md),
+and [Secrets and egress](./secrets-and-egress.md). Report vulnerabilities privately using
+the instructions in [SECURITY.md](../../SECURITY.md).

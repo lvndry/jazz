@@ -2,10 +2,33 @@
 description: "Compose one Jazz agent from specialist models for image, audio, and video understanding and generation without changing its identity, tools, or memory."
 ---
 
-# Model companions for images, audio, and video
+# Model companions
 
-A Jazz agent does not need one model to be good at everything. Keep the primary model that is
-best for reasoning and tool use, then bind specialist models to media roles:
+Model companions let your agent use a specialist model for images, audio, or video while
+its main model handles the conversation and tool use. For example, it can read a screenshot,
+transcribe a recording, or generate an image without switching agents.
+
+## Ask for media work
+
+Attach a file with `@path` and describe the result you need:
+
+```text
+Read @./dashboard.png and explain which service is failing.
+```
+
+For generation, give a brief:
+
+```text
+Generate a square illustration for a garden journal: herbs on a windowsill,
+soft morning light, watercolor style, no text.
+```
+
+In a local terminal, Jazz can ask you to select a capable model for an unconfigured role.
+For recurring or unattended work, configure the companion in advance.
+
+## Configure companions
+
+Add bindings to the agent's `config` in `~/.jazz/agents/<id>.json`:
 
 ```json
 {
@@ -24,16 +47,15 @@ best for reasoning and tool use, then bind specialist models to media roles:
 }
 ```
 
-The result is one stable agent, with the same persona, conversation, memory, tools, and
-surface, and different models doing the parts they are actually good at. A cheap text model can orchestrate a
-run, a vision model can inspect screenshots, and a different image model can render the final
-asset. Each role can use a different provider, price point, and privacy boundary.
+The main agent keeps its persona, conversation, memory, and tools. Each companion receives
+only the media and task needed for its role, then returns its result to the main agent.
+Configure credentials for each selected provider; see [Model providers](../configure/providers.md).
 
 The six independent roles are `analyze:image`, `analyze:audio`, `analyze:video`,
 `generate:image`, `generate:audio`, and `generate:video`. Analysis and generation are separate
 because a model that understands a medium is not necessarily the model you want to create it.
 
-## How delegation works
+## What a companion receives
 
 When the main agent delegates media work, Jazz starts a bounded, ephemeral companion run:
 
@@ -95,6 +117,6 @@ A companion receives its input through its provider and therefore creates egress
 parent uses a local model. A generation brief can be sensitive too. Bind only providers permitted
 to receive that material. The child
 cost contributes to the parent run's aggregate cost; if any child price is unknown, `costKnown` is
-false rather than pretending the run was free.
+false.
 
 Build a working version in [Turn incident evidence into a visual briefing](../guides/media-companions.md).

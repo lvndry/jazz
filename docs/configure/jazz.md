@@ -40,7 +40,7 @@ jazz config set 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash
 
 Jazz prints paths back the same way in validation messages, so a reported path can be pasted into `jazz config set`.
 
-`jazz config set` stores a value with the type the setting is read back as: `jazz config set maxRetries 5` stores the number `5`, and `jazz config set output.collapseReasoning false` stores the boolean `false`. Text settings such as API keys, paths, `logging.level`, and `llm.ollama.keep_alive` are stored as typed. A value that cannot be read as the setting's type is refused instead of written, because a string in a numeric or boolean field is ignored by everything that reads it:
+`jazz config set` stores a value with the type the setting is read back as: `jazz config set maxRetries 5` stores the number `5`, and `jazz config set output.collapseReasoning false` stores the boolean `false`. Text settings such as API keys, paths, `logging.level`, and `llm.ollama.keep_alive` are stored as typed. A value that cannot be read as the setting's type is refused instead of written:
 
 ```console
 $ jazz config set maxRetries never
@@ -54,7 +54,7 @@ It also refuses a key Jazz does not read, suggesting the one a typo most likely 
 
 Omit `<value>` to enter it at a prompt. For a per-entry secret such as `notify.targets.phone.botToken`, Jazz reports when the value could not be stored because no keyring is available, whether it came from the prompt or the command line. In that case, supply the named environment variable wherever the daemon runs instead; a success message means the secret was stored.
 
-A write changes only the key you set, and only in the global file. Values merged in from a project file, from `--debug`, from environment variables, or from the keyring are never copied into it. Jazz takes a cross-process lock, re-reads the latest file before applying the change, and atomically replaces it, so a concurrent edit is preserved. Unknown or invalid entries remain untouched, but Jazz refuses to overwrite malformed JSON.
+A write changes only the key you set, and only in the global file. Values merged in from a project file, from `--debug`, from environment variables, or from the keyring are never copied into it. Unknown or invalid entries remain untouched, but Jazz refuses to overwrite malformed JSON.
 
 ## Mistakes in a configuration file
 
@@ -66,7 +66,7 @@ jazz: invalid configuration in /home/you/.jazz/config.json (2 entries):
   maxRetrys: not a setting — did you mean maxRetries?
 ```
 
-Run `jazz config validate` for the same diagnostics and a non-zero exit status, without constructing the application layer; it runs on a broken file, and it also checks every agent file (see [`jazz config`](../commands.md#jazz-config)). A daemon that notices an invalid live edit keeps serving its last-known-good configuration and reports the problem; once the file is repaired, a later reload adopts it. A value found where a secret belongs is described by its type and never printed.
+Run `jazz config validate` for the same diagnostics and a non-zero exit status, even on a broken file. It also checks every agent file (see [`jazz config`](../commands.md#jazz-config)). A daemon that notices an invalid live edit keeps serving its last-known-good configuration and reports the problem; once the file is repaired, a later reload adopts it. A value found where a secret belongs is described by its type and never printed.
 
 ## Run budgets
 
@@ -96,7 +96,7 @@ Command-line and workflow values override application defaults for that run.
 }
 ```
 
-Both values are fractions of the effective model context window. Jazz requires `warnThresholdRatio < compactThresholdRatio < 0.95`; invalid values are reported and the defaults apply. See [Long-running work](../features/long-running-work.md).
+Both values are fractions of the effective model context window. Jazz requires `warnThresholdRatio < compactThresholdRatio < 0.95`; invalid values stop startup with a validation error. See [Context management](../concepts/context-management.md).
 
 ## Logs and history retention
 
@@ -182,8 +182,8 @@ through without asking. A `high-risk` or yolo run reaches it without asking and 
 as it is.
 
 `network.allowPrivateHosts` applies to every agent and is read from the global config file only;
-a project `./.jazz/config.json` cannot widen it. Edit it from `jazz` > **Settings** >
-**Private Network Hosts**, or in the file, at most 64 entries:
+a project `./.jazz/config.json` cannot widen it. Edit it from `jazz` → `/settings` →
+**Private network hosts**, or in the file, at most 64 entries:
 
 ```json
 {
@@ -214,8 +214,7 @@ including requests to private destinations and requests made after reading untru
 This is independent of the run's approval tier and applies to unattended runs too. These tools
 can send data in URLs, headers or bodies; enable a URL allowlist when you want to approve requests.
 
-Choose **HTTP request approvals → Use a URL allowlist** in `jazz config` to enable restricted
-requests. Add permanent grants in the global config file:
+Enable approval for requests outside a URL allowlist by adding grants to the global config file:
 
 ```json
 {

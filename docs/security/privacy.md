@@ -6,7 +6,9 @@ description: "Every network request Jazz makes on its own, apart from your model
 
 Jazz has no account, no analytics and no crash reporting. Apart from the requests your model
 provider needs and the tools an agent calls, it makes the requests below, and nothing else.
-None of them carries your prompts, conversations, files or memory.
+The catalog, update, and library requests do not carry your prompts, conversations, files,
+or memory. MCP integrations and model requests have their own data paths; review their
+configuration before using them.
 
 | Request                      | When                                                                                               | What is sent                                                                                                              | Turn it off                                                                     |
 | ---------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -31,7 +33,7 @@ session.
 
 `JAZZ_OFFLINE=1` stops the update check, the model catalog and the library. It does not stop
 model requests, provider model lists, plugin installs, `jazz update`, MCP servers, OTLP
-export, or anything an agent's tools do. [Local and air-gapped models](../getting-started/local-models.md#what-jazz_offline-does-and-does-not-do)
+export, or anything an agent's tools do. [Local and air-gapped models](../getting-started/local-models.md#offline-mode)
 covers running with no network.
 
 ## The daemon, peers and webhooks

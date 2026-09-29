@@ -1,33 +1,40 @@
 ---
-description: "Build distinctive Jazz agents: a self-hosted CI reviewer, reusable accountability persona, research automation, chat agent, and trusted peers."
+description: "Follow Jazz guides to build a personal agent, receive inbox and research briefings, review pull requests, analyze media, or connect chat apps and webhooks."
 ---
 
 # Jazz guides
 
-These are complete jobs, not prompt galleries. Each guide combines Jazz features into something useful and shows the security boundary before moving work unattended.
+Choose a job to set up. If you have not run Jazz yet, complete the
+[quick start](../getting-started/quick-start.md) first.
 
-## Start with what is distinctive about Jazz
+## Personal and scheduled work
 
-- [Review pull requests in CI with OpenRouter or your own model](./pr-review.md): run a multi-agent reviewer in GitHub Actions, validate its line comments, and keep posting credentials outside the model's toolset.
-- [Investigate an attack and approve a Cloudflare WAF rule](./contain-cloudflare-attack.md): let independent agents test competing explanations, then require a responder to approve the exact production containment action.
-- [Build a multi-agent verification council](./multi-agent-verification.md): give independent subagents bounded review questions, validate their result shapes, and make the parent reconcile the evidence.
-- [Build a reusable accountability persona named Goggins](./goggins-accountability-agent.md): define behavior once, attach it to an agent, then use the same identity interactively, from a script, or on a schedule.
-- [Turn incident evidence into a visual briefing](./media-companions.md): let specialist models inspect screenshots, recordings, and video, then use a generation companion for the final artifact.
-- [Connect two Jazz agents as peers](./connect-peers.md): let separately deployed, explicitly trusted agents ask each other for help.
-- [Wake an agent from another system with a webhook](./webhook-endpoint.md): bind one authenticated URL to one agent and one prompt, and bound what the caller can reach.
+- [Create an accountability agent](./goggins-accountability-agent.md): define a reusable
+  persona, keep a check-in conversation, and schedule a project review.
+- [Start each day with an inbox briefing](./inbox-triage.md): connect your mailbox and
+  receive a list of messages needing attention, with a read-only run policy.
+- [Build a weekly research radar](./research-digest.md): have independent investigators
+  find new work, check sources, and produce a cited briefing.
+- [Reach your agent from a chat app](./deploy-a-chat-agent.md): connect Telegram, Discord,
+  iMessage, or WhatsApp and answer approvals from your phone.
 
-## More complete examples
+## Code and media
 
-- [Deploy a chat agent](./deploy-a-chat-agent.md)
-- [Run inbox triage](./inbox-triage.md)
-- [Build a weekly multi-agent research radar](./research-digest.md)
+- [Review pull requests in CI](./pr-review.md): install a multi-agent GitHub reviewer
+  with validated line comments and your choice of model provider.
+- [Review a technical proposal](./multi-agent-verification.md): delegate correctness,
+  security, and simplicity checks, then reconcile their evidence.
+- [Turn incident evidence into a visual briefing](./media-companions.md): analyze
+  screenshots, recordings, and video with specialist models, then generate a briefing image.
 
-A guide belongs here only when its commands and configuration are maintained. Short prompt ideas belong on the [features](../features/index.md) page, not in separate documentation files.
+## Connect agents and applications
 
-## Tutorial pipeline
+- [Connect two Jazz agents as peers](./connect-peers.md): let separately deployed agents
+  ask each other for help while keeping their credentials and permissions separate.
+- [Start an agent from a webhook](./webhook-endpoint.md): test an authenticated HTTP
+  endpoint, then connect it to GitHub issue events.
+- [Investigate an attack and approve containment](./contain-cloudflare-attack.md):
+  compare competing explanations, inspect a proposed Cloudflare WAF action, and approve
+  the exact change before it runs.
 
-These combinations deserve the same end-to-end treatment next:
-
-- **Cross-boundary engineering team:** let a personal planning agent consult a company-hosted code agent without copying repository credentials or private files between them.
-- **Small-model escalation ladder:** run the routine path on a local model, delegate specialist checks, and ask a peer backed by a stronger model only when verification fails.
-- **Memory-scoped support agent:** share product memory across channels while keeping each customer's conversation and private facts isolated.
+For individual capabilities and shorter examples, see [Concepts](../concepts/index.md).

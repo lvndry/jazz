@@ -1,44 +1,42 @@
 ---
-description: "What a Jazz agent is made of: model, persona, tools, context budget, skills and companions, and how to configure one deliberately instead of by accident."
+description: "Create and configure Jazz agents with their own models, personas, tools, skills, memory, context limits, and media companions."
 ---
 
 # Agents
 
-An agent is the thing that does the work. Unlike a chatbot that answers one prompt and stops,
-an agent runs a loop: it reads the situation, calls tools, observes what came back, and keeps
-going until the task is done or its budget runs out.
+An agent combines a model, persona, tools, skills, and memory settings in one configuration
+file. Create separate agents for tasks that need different models or permissions.
 
-One distinction is worth being precise about: **Jazz itself is not an agent. It is the harness**,
-the runtime agents run inside. An _agent_ in Jazz is a configuration: a model, a persona, a
-toolset, skills, and memory, saved as a file. Jazz hosts any number of them, runs their loops,
-guards their budgets, and gates their tools. That is why `jazz agent create` makes another agent,
-not another Jazz.
+For example, keep a coding agent for repository changes, a researcher for web investigation,
+and a reviewer with fewer permissions for unattended work.
 
-An agent is also not a running process or a conversation. Each invocation resolves the current
-definition, builds the permitted toolset, then starts or resumes a conversation, so editing an
-agent changes the next turn with nothing to restart.
+## Create and use an agent
 
----
+```bash
+jazz agent create
+jazz agent chat <agent-name>
+```
+
+The wizard lets you choose its model, persona, name, and tools. Ask it for a task, such as:
+
+```text
+Read the current changes, identify bugs, and suggest fixes. Do not modify files yet.
+```
+
+Use `jazz agent edit <agent-name>` to change its settings. Changes take effect on the next turn.
+See [Creating agents](../getting-started/create-an-agent.md) for the walkthrough.
 
 ## What an agent is made of
 
-```mermaid
-flowchart TB
-    A["<b>Agent</b><br/>~/.jazz/agents/&lt;id&gt;.json"]
+- **Identity:** its name and description.
+- **Model:** the provider and model that handle reasoning and tool use.
+- **Persona:** reusable instructions for its behavior and voice.
+- **Tools:** the actions it can request, including explicit denials.
+- **Skills:** procedures it can load when needed.
+- **Companions:** optional specialist models for images, audio, and video.
+- **Memory and context settings:** what it remembers and how much history it carries.
 
-    A --> ID["<b>Identity</b><br/>id · name · description"]
-    A --> M["<b>Model</b><br/>llm.provider + llm.model<br/><i>e.g. openai/gpt-5.4-mini</i>"]
-    A --> P["<b>Persona</b><br/>tone and style<br/><i>default · coder · researcher</i>"]
-    A --> T["<b>Tools</b><br/>extra tools, and denied ones<br/><i>deniedTools is the ceiling</i>"]
-    A --> S["<b>Skills</b><br/>playbooks it may load"]
-    A --> C["<b>Companions</b><br/>specialist models for<br/>image · audio · video"]
-    A --> X["<b>Budgets</b><br/>maxContextTokens · reasoning<br/>temperature · memoryScopes"]
-
-    classDef key fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-    class T key
-```
-
-The smallest agent that runs is three fields and a persona:
+Example agent file:
 
 ```json
 {
@@ -62,8 +60,7 @@ terminal, in CI, and on Telegram.
 
 Written `provider/model` with a **slash**: `openrouter/z-ai/glm-5.3-flash`,
 `mistral/mistral-large-latest`, `ollama/qwen3`. Stored split into
-`llm.provider` and `llm.model`. Eighteen providers are available, including local ones that need
-no API key; see [Model providers](../configure/providers.md).
+`llm.provider` and `llm.model`. Local providers are also supported; see [Model providers](../configure/providers.md).
 
 ### Persona
 
@@ -73,8 +70,6 @@ Ships with `default`, `coder`, and `researcher`, and you can write your own. See
 
 ### Tools
 
-Two fields, pulling in opposite directions:
-
 - **`tools` is additive.** It grants capabilities _on top of_ the built-in bundle the persona
   already permits. Listing a built-in tool changes nothing, and leaving one out does **not**
   withhold it.
@@ -82,8 +77,7 @@ Two fields, pulling in opposite directions:
   reliable way to enforce a per-agent ceiling. An agent with `execute_command` denied cannot run
   shell commands, whatever the approval policy says.
 
-Give each agent the fewest capabilities its job needs, and reach for `deniedTools`, not an
-omission, when you mean it. See [Tools](./tools.md).
+Use `deniedTools` to remove capabilities the job does not need. See [Tools](./tools.md).
 
 ### Context budget
 
@@ -91,7 +85,7 @@ omission, when you mean it. See [Tools](./tools.md).
 model would allow. Unset, it uses the model's own window. Set it to keep cost and latency
 predictable, or to stop a model degrading long before its advertised limit: the agent warns at
 70% of the budget and auto-compacts at 80%, so a smaller ceiling means earlier, cheaper
-compaction rather than a hard failure. See [Context lifecycle](../maintainers/context-lifecycle.md).
+compaction rather than a hard failure. See [Context management](./context-management.md).
 
 ### Skills
 
@@ -117,15 +111,15 @@ Analysis and generation bind independently, per medium:
 A companion run is bounded, tool-free, and isolated: analysis returns evidence, generation
 returns a file, and neither creates a second identity or conversation. A cheap text model can
 orchestrate the work while a vision model does the looking. See
-[Model companions](../features/media.md).
+[Model companions](./media.md).
 
 ---
 
 ## Project instructions (AGENTS.md)
 
-Jazz reads [`AGENTS.md`](https://agents.md), the cross-tool convention for telling an agent how a
-project works: build and test commands, conventions, house rules. Drop one at the root of a
-repository and every Jazz agent working there picks it up, with no per-agent configuration.
+Jazz reads [`AGENTS.md`](https://agents.md), the standard file for project instructions.
+Add your build commands, test commands, and coding conventions at the repository root.
+Every Jazz agent working there reads it automatically.
 
 Discovery runs on each turn against the agent's current working directory:
 
@@ -144,49 +138,36 @@ Edits take effect on the next turn. Nothing to restart.
 
 ---
 
-## The execution loop
+## Agent configurations
 
-```mermaid
-flowchart LR
-    T["Task"] --> TH["<b>Think</b><br/>read history,<br/>decide next step"]
-    TH --> AC["<b>Act</b><br/>call one or more tools<br/>(gated ones ask first)"]
-    AC --> OB["<b>Observe</b><br/>results enter context"]
-    OB --> Q{"Done?"}
-    Q -->|no| TH
-    Q -->|yes| R["<b>Respond</b>"]
-
-    classDef act fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-    class AC act
-```
-
-Up to 100 iterations by default, with guards that keep a long run from spiralling: budget
-pressure warnings, loop detection, and automatic context compaction. The full mechanism is in
-[Run lifecycle](../maintainers/run-lifecycle.md).
-
----
-
-## Patterns worth copying
-
-| Pattern         | Shape                                           | Good for                                       |
-| --------------- | ----------------------------------------------- | ---------------------------------------------- |
-| **Generalist**  | broad: files, git, web, shell                   | Daily driver in your terminal                  |
-| **Specialist**  | narrow: reads and greps, everything else denied | CI review, anything unattended                 |
-| **Delegator**   | adds `spawn_subagent`                           | Deep research, work that would blow one window |
-| **Mixed-model** | cheap main model plus `companions`              | Screenshots, recordings, generated assets      |
+| Pattern         | Shape                                           | Good for                                  |
+| --------------- | ----------------------------------------------- | ----------------------------------------- |
+| **Generalist**  | broad: files, git, web, shell                   | Daily driver in your terminal             |
+| **Specialist**  | narrow: reads and greps, everything else denied | CI review, anything unattended            |
+| **Delegator**   | adds `spawn_subagent`                           | Parallel research and independent checks  |
+| **Mixed-model** | cheap main model plus `companions`              | Screenshots, recordings, generated assets |
 
 ### Delegation
 
-The delegator pattern is the one people underuse. `spawn_subagent` hands a task to a child run on
+Use subagents for independent work that can happen in parallel, such as reviewing separate
+packages or researching different approaches. Ask the parent agent to divide the work:
+
+```text
+Have subagents review the API, database, and frontend changes separately.
+Combine their findings, verify each issue, and report the fixes we need.
+```
+
+The parent needs `spawn_subagent` in its toolset. You see child activity while it works;
+the parent collects their results into one answer.
+
+`spawn_subagent` hands a task to a child run on
 this same installation, with a task, a persona (`coder`, `researcher`, or `default`), and its own
 context window. It returns an `agentId` at once and the child works while the parent keeps going;
 the parent collects the child's answer with `wait_subagents`, and gets back a summary and the
 cost, not the child's transcript.
 
-The point is context, not parallelism. Research that would fill the parent's window with raw
-sources runs in the child's window instead, and the parent receives a few hundred tokens of
-conclusion. Ask for a structured handoff with `resultSchema`, a JSON Schema with root type
-`object`, and Jazz validates the child's result before it reaches the parent, so a malformed
-answer fails loudly instead of being parsed by hope.
+Each child has its own context window. Use `resultSchema`, a JSON Schema with root type
+`object`, to require a validated structured result.
 
 While children work, the parent can manage them:
 
@@ -202,7 +183,7 @@ once, with the tools and processes it started. A child that finishes is announce
 on its next step, and guidance a child finished too early to read is reported back as
 `undeliveredMessages`.
 
-The bounds, none of them optional:
+Delegation limits:
 
 - **A child never holds more tools than its parent.** The parent's effective toolset becomes the
   child's allowlist, so delegation cannot widen reach.
@@ -211,12 +192,11 @@ The bounds, none of them optional:
 - **At most four at once,** each with **30 iterations** by default, against the parent's 100.
 - **Cost rolls up and is shared.** Each child's spend is added to the parent's as it happens, so
   children running together stop at the parent's `maxCostUSD` instead of each spending the whole
-  remainder. An unpriced child makes the parent report its own total as incomplete rather than
-  confidently wrong.
+  remainder. An unpriced child marks the total cost as unknown.
 - **Children never outlive the turn.** If the parent answers while children are still going,
   Jazz cancels the paused ones, waits for the rest, and gives the parent one more step to read
   their results. Work that should continue after the turn is a
-  [goal](../features/goals-and-loops.md). A run that parks or detaches stops its children; a
+  [goal](./goals-and-loops.md). A run that parks or detaches stops its children; a
   resumed run starts with none.
 - **Their approvals name them.** In chat, a child's approval prompt starts with its name. In an
   unattended run, a child's gated call is declined and the child reports that to the parent.
@@ -227,7 +207,7 @@ of it.
 
 ---
 
-## Where it all lives
+## Editing agents and managing conversations
 
 Agents are one JSON file each under the Jazz data directory (`~/.jazz/agents/<id>.json` by
 default). Edit them with `jazz agent edit <id>`, or by hand.
@@ -236,8 +216,7 @@ Conversations persist separately, per conversation id. In the terminal, `/resume
 ones, `/start` starts a fresh one, `/new` creates an agent, `/rename` names the current conversation, and `/fork` continues on a new conversation id while carrying the
 full history forward and preserving the original branch (resume it later with `/resume`); headless
 callers
-pass `--conversation <id>` and get the same thread back across invocations, which is what gives
-a chat bridge memory without storing anything itself. Transcripts are plaintext JSON: treat that
+pass `--conversation <id>` to continue the same thread across invocations. Transcripts are plaintext JSON: treat that
 directory as sensitive.
 
 ---
@@ -247,4 +226,4 @@ directory as sensitive.
 - [Create an agent](../getting-started/create-an-agent.md): the practical walkthrough
 - [Agent configuration](../configure/agents.md): every field
 - [Personas](./personas.md) · [Skills](./skills.md) · [Tools](./tools.md)
-- [Run lifecycle](../maintainers/run-lifecycle.md): what the harness does around a turn
+- [Starting runs](./starting-runs.md): terminal commands, workflows, schedules, and events

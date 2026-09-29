@@ -11,7 +11,37 @@ application, workflow, or individual run, not the agent.
 Agent files live under `$JAZZ_HOME/agents/`, normally `~/.jazz/agents/`. The easiest starting point
 is `jazz agent create`; edit the generated file for fields the wizard does not expose.
 
-## Complete shape
+## Start with an agent
+
+```bash
+jazz agent create
+jazz agent show reviewer
+jazz agent edit reviewer
+```
+
+Replace `reviewer` with the name you give the agent. Alternatively, skip the wizard and save this as
+`~/.jazz/agents/reviewer.json`, using a provider you configured and a model it offers:
+
+```json
+{
+  "id": "reviewer",
+  "name": "Reviewer",
+  "config": {
+    "persona": "coder",
+    "llm": {
+      "provider": "openai",
+      "model": "gpt-5.4-mini"
+    }
+  }
+}
+```
+
+```bash
+jazz config validate
+jazz agent chat reviewer
+```
+
+## Extended example
 
 ```json
 {
@@ -88,7 +118,7 @@ provider configuration, the system keyring, or narrowly allowlisted environment 
 - `llm.maxContextTokens` places a positive per-agent ceiling on the effective context window across
   providers. Jazz warns and compacts against that ceiling.
 - `companions` binds specialist models independently for `analyze` and `generate` across `image`,
-  `audio`, and `video`. See [Model companions](../features/media.md).
+  `audio`, and `video`. See [Model companions](../concepts/media.md).
 
 `llm.apiKeys` can override provider keys inside an agent file, but plaintext credentials make the
 file difficult to share safely. Prefer `jazz config set <provider>` (it prompts for the key), environment variables, or the keyring.
@@ -134,12 +164,12 @@ Conversation history remains separate.
 
 The memory tools (`view_memory`, `manage_memory`) are part of every agent's built-in bundle, like
 the scratchpad, so they cannot be unticked in `jazz agent create`. To keep an agent from writing
-memory, deny `manage_memory` in its persona, or run it with `jazz run --ephemeral`.
+memory, deny `manage_memory` with `deniedTools`, or run it with `jazz run --ephemeral`.
 
 Run `jazz agent show <name>` to inspect the resolved agent and `/tools` inside chat to see the tools
 available to that run.
 
-In the interactive `jazz` home menu, choose **List agents**, move to an agent, and press Enter to
+On the `jazz` home screen, type `/agents`, select an agent, and press Enter to
 inspect its configuration. The detail screen shows provider, model, reasoning, persona, input and
 output prices per million tokens, the effective host URL for a self-hosted model, model settings,
 tool access, companions, and timestamps. Use Up/Down to scroll and Escape to return to the list.

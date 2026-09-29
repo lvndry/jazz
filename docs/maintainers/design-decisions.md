@@ -6,10 +6,6 @@ description: "Why the Jazz harness is built the way it is: the reasoning behind 
 
 This page explains _why_ the harness is built this way, and what each choice gives up.
 
-Every decision below is a real trade-off, not a free win. This page states the alternative
-that was rejected and the cost that was accepted, because a harness is only trustworthy if
-you can see where its edges are.
-
 ---
 
 ## Map

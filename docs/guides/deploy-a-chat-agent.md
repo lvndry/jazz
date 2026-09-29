@@ -6,7 +6,7 @@ description: "Step-by-step: reach a Jazz agent from Telegram, Discord, iMessage 
 
 A hands-on walkthrough for going from nothing to a working Jazz agent in your Telegram DMs,
 a Discord server, Messages on a Mac, or WhatsApp. See
-[Chat platforms](../surfaces/chat.md) for what they demonstrate architecturally,
+[Chat platforms](../surfaces/chat.md) to compare their capabilities,
 and each bridge's own README for the full command/environment-variable reference:
 [Telegram](../../packages/telegram-bot/README.md),
 [Discord](../../packages/discord-bot/README.md),
@@ -20,7 +20,15 @@ Apple account on a Mac. WhatsApp links to your account the way WhatsApp Web does
 
 You need a model backend for any of them: an API key for a cloud provider (OpenAI by
 default), or a local [Ollama](https://ollama.com) with a tool-capable model pulled.
-Telegram and Discord additionally need Docker + Docker Compose.
+Telegram and Discord additionally need Git, Docker, and Docker Compose. Clone the
+repository before their setup steps:
+
+```bash
+git clone https://github.com/lvndry/jazz.git ~/jazz
+```
+
+Their `cd` commands below use this checkout. iMessage and WhatsApp use the installed
+Jazz CLI and do not need a clone.
 
 ---
 
@@ -43,7 +51,7 @@ what goes on the allowlist so the bot only answers you (and anyone else you add)
 ### 3. Configure
 
 ```bash
-cd packages/telegram-bot/src
+cd ~/jazz/packages/telegram-bot/src
 cp .env.example .env
 ```
 
@@ -59,8 +67,7 @@ Edit `.env` and set at least:
 
 ### 4. Run it
 
-The image builds Jazz from the repo source, so the compose build context is the repo root
-(already wired: no extra setup needed):
+Start the bridge from the directory containing your `.env`:
 
 ```bash
 docker compose up -d --build
@@ -84,7 +91,7 @@ trailing space is the usual culprit).
 1. Open the [Discord developer portal](https://discord.com/developers/applications) and
    sign in.
 2. **New Application** → name it (e.g. `Jazz`) → Create.
-3. Left sidebar → **Bot** → **Reset Token** → copy it. That's `DISCORD_BOT_TOKEN` ,
+3. Left sidebar → **Bot** → **Reset Token** → copy it. That's `DISCORD_BOT_TOKEN`,
    treat it like a password.
 4. Still on the Bot page, under **Privileged Gateway Intents**, turn on **Message Content
    Intent** and Save. Without this the bot cannot read what people type in a server.
@@ -128,7 +135,7 @@ and in any server the bot is in).
 ### 4. Configure
 
 ```bash
-cd packages/discord-bot/src
+cd ~/jazz/packages/discord-bot/src
 cp .env.example .env
 ```
 
@@ -191,10 +198,6 @@ Unlike Photon, it uses **your** Apple account: the same line your friends alread
 jazz imessage --local
 ```
 
-The first run of this command is where setup happens, and nowhere earlier ,
-installing Jazz never asks about iMessage, because a request for Full Disk
-Access from something you did not ask for is alarming rather than helpful.
-
 To answer as an agent you already have rather than a fresh assistant, name it. It is copied
 into the bridge's own home, so the original keeps its name and stays yours:
 
@@ -241,9 +244,8 @@ jazz imessage logs     # follow it ($JAZZ_HOME/bridge.log)
 jazz imessage stop     # stop it
 ```
 
-Granting Full Disk Access to the service rather than to your terminal is worth doing:
-macOS attributes the access to whatever started the process, so a terminal grant covers
-every command you run there while the service grant covers only this bridge.
+Grant Full Disk Access to the bridge service to limit the permission to that process.
+Granting it to your terminal also grants access to other commands started there.
 
 **Set the allow-list before you accept the install.** The plist is written from the
 environment at install time. `IMESSAGE_ALLOWED_HANDLES`, `JAZZ_HOME`, `JAZZ_IMESSAGE_MODEL`
@@ -270,8 +272,7 @@ terminal (which is what the background service is) and with nothing allowed, the
 refuses to start rather than answer a number anyone can text.
 
 Full variable table: [`packages/imessage-bot/README.md`](../../packages/imessage-bot/README.md).
-If you would rather the agent had a line of its own than share yours, there is a third
-option on this front. See [`packages/photon-bot/README.md`](../../packages/photon-bot/README.md).
+Use [Photon](#imessage-with-a-hosted-line) if the agent needs its own line.
 
 ---
 
@@ -342,10 +343,6 @@ Meta. A number that behaves unusually can be rate-limited or banned, so use a de
 number if the account matters. Unlinking the device from your phone ends the session and
 the bridge says so and exits. And it is a full device: everything that account receives, this
 process receives: the allow-list decides what it _answers_, not what it _sees_.
-
-The official alternative, the WhatsApp Cloud API, needs a Meta Business account and a
-separate business number, and only allows template messages outside a 24-hour reply window
-, which is why it is not what this uses.
 
 Full variable table: [`packages/whatsapp-bot/README.md`](../../packages/whatsapp-bot/README.md).
 

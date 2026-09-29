@@ -5,7 +5,7 @@ description: "Register and check an SSH host before detaching a Jazz conversatio
 # Detach hosts
 
 This page covers what a detach host can see and do. To set one up and use it, start with
-[Continue on your server](../features/detach.md).
+[Continue on your server](../concepts/detach.md).
 
 Register an SSH alias that already resolves through your SSH configuration and a workspace
 directory owned by the remote user:
@@ -56,13 +56,9 @@ name that differs on the server stops the handoff rather than being overwritten.
 custom tools travel with its definition and run their commands on the server, which must
 provide them; the confirmation card warns about this.
 
-After a host accepts a handoff, the remote daemon records a private job under
-`$JAZZ_HOME/detach/jobs/` and runs it on its next tick. A second start request with the same
-handoff ID returns the existing job; a conflicting request is refused. A run can complete,
-fail, or park for approval. An approval answer is recorded before the daemon resumes the run,
-so closing the SSH connection does not stop that continuation. If the daemon dies during a
-run, Jazz marks the job interrupted and asks for review instead of repeating tool actions
-that may already have happened.
+Remote work continues after you close SSH. If the daemon dies during a run, Jazz marks
+the job interrupted and asks for review instead of repeating actions that may already
+have happened.
 
 Each detached job has a cost, active time, and iteration cap. Jazz records usage before
 parking for approval and subtracts it from the caps when the daemon resumes the job.
@@ -74,16 +70,15 @@ independent limits.
 
 ## Watching, steering, and taking it back
 
-The remote daemon writes every detached turn to an append-only event log under
-`$JAZZ_HOME/detach/jobs/`: the messages you sent, streamed answer text, tool calls and
-results, and state changes. `jazz detach attach` reads that log over SSH from a byte offset,
-so disconnecting loses nothing. Replies and approvals travel as separate SSH commands and
-spend from the same cost, time, and iteration caps as the rest of the handoff. `jazz detach
-cancel` interrupts a running turn within about a second; the last tool call may already have
-acted.
+```sh
+jazz detach attach <handoff-id>
+jazz detach cancel <handoff-id>
+jazz detach reclaim <handoff-id>
+```
 
-`jazz detach reclaim` releases the job on the server first. A released job never runs again,
-even if a later command asks it to. Jazz then downloads the final snapshot, verifies it
-against the handoff that sent it, applies the file changes, imports the transcript while the
-local fence still stands, and only then lifts the fence. The server keeps its copy of the
-workspace and log until you remove them.
+Attach to watch progress, send replies, and answer approvals. Disconnecting leaves the
+server running. Cancel stops the current turn; its last tool call may already have acted.
+
+Reclaim stops further remote execution and downloads the conversation and file changes
+for local use. The server retains its workspace and log until you remove them. See
+[Remote handoff](../concepts/detach.md) for conflict handling and the full command sequence.

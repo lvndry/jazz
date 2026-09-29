@@ -6,7 +6,9 @@ description: "Build a read-only Jazz morning inbox briefing that finds messages 
 
 Use this workflow when you want an agent to reduce a busy inbox to a short action list, but you do not want unattended automation changing or sending mail.
 
-Jazz reads recent messages through the `email` skill, distinguishes obligations from noise, and writes the briefing to the workflow's normal output and history. It never replies, deletes, archives, marks messages read, or changes flags.
+The workflow uses the `email` skill to read recent messages and writes its
+briefing to workflow output and history. Its prompt forbids sending mail or
+changing mailbox state; the read-only policy gates commands.
 
 ## 1. Connect the mailbox
 
@@ -20,7 +22,11 @@ himalaya envelope list --folder INBOX --page-size 5
 
 Linux users can install Himalaya with their package manager or its documented Cargo installation. Use an account credential limited to the mailbox this agent needs.
 
-## 2. Create the workflow
+## 2. Create the agent and workflow
+
+Run `jazz agent create`, name the agent `inbox-assistant`, and select your provider
+and model. Keep `execute_command` available so it can call Himalaya, and select
+the `email` skill.
 
 Create `~/.jazz/workflows/morning-inbox/WORKFLOW.md`:
 
@@ -53,7 +59,8 @@ For every item in the first two sections, include sender, subject, requested act
 When uncertain, keep the message visible and label the uncertainty. Never send, reply, forward, delete, archive, move, mark read, or change flags. Do not write a separate summary file; return the briefing as the workflow result.
 ```
 
-This deliberately produces no mailbox mutation. `execute_command` still mediates Himalaya, and Jazz classifies each proposed command before applying the workflow's read-only policy. Any ambiguous or mutating command fails closed.
+Jazz classifies each Himalaya command before applying the workflow's read-only
+policy. Test the workflow against your mailbox before scheduling it.
 
 ## 3. Test with the unattended policy
 
@@ -93,15 +100,10 @@ jazz workflow schedule morning-inbox
 jazz workflow scheduled
 ```
 
-Jazz installs the workflow through launchd on macOS or cron on Linux. The machine must be awake at the scheduled time; [scheduled runs](../surfaces/scheduled.md) explains catch-up behavior and always-on hosts.
+Jazz installs the workflow through launchd on macOS or cron on Linux. The machine must
+be awake at the scheduled time; [scheduled runs](../surfaces/scheduled.md) explains
+catch-up behavior and always-on hosts. To receive the briefing remotely, configure a
+[notification target](../configure/notifications.md) and add `deliver: <target-name>`
+to the workflow frontmatter.
 
-## What this unlocks
-
-- The mailbox stays under human control while the model performs prioritization.
-- The output is useful to a person but also parseable by another surface or notification adapter.
-- Provider and model choice remain independent of the email integration and schedule.
-- The same agent can later be reached interactively to inspect one item in context.
-
-If you want automatic archiving or sending, treat that as a separate workflow with a narrower integration and an explicit approval design. Do not quietly widen this briefing's permissions.
-
-Read [Email and calendar](../configure/email-calendar.md), [Scheduled runs](../surfaces/scheduled.md), and [Tools and approvals](../security/approvals.md) for the underlying contracts.
+Read [Email and calendar](../configure/email-calendar.md), [Scheduled runs](../surfaces/scheduled.md), and [Tools and approvals](../security/approvals.md).

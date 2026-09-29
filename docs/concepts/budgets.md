@@ -2,9 +2,22 @@
 description: "Cap a Jazz run by iterations, cost, tokens, or wall-clock time, watch what it is spending with /cost and /limit, and know when a cap can be crossed."
 ---
 
-# Budgets: capping and watching a run
+# Budgets
 
-Four caps bound a run, and every one of them is optional except the first.
+Budgets limit how much work an agent can do in one run. Use them for scripts, reviews,
+and scheduled jobs to control time and model spend.
+
+For example, give a review five minutes and a fifty-cent cost budget:
+
+```bash
+jazz run --agent reviewer --max-cost-usd 0.50 --max-duration-ms 300000 \
+  "Review the current changes and report concrete issues. Do not modify files."
+```
+
+Cost caps are checked between model calls, so the final call can take the total past the cap.
+The duration cap interrupts work at its deadline.
+
+## Per-run limits
 
 | Cap             | Default | Counts                                                           |
 | --------------- | ------: | ---------------------------------------------------------------- |
@@ -13,8 +26,7 @@ Four caps bound a run, and every one of them is optional except the first.
 | `maxTokens`     |   unset | Prompt plus completion tokens, **own run only, not children**    |
 | `maxDurationMs` |   unset | Wall-clock time                                                  |
 
-Those two differ on purpose. Use a cost cap when an agent delegates, because children are where
-the money goes. Use a token cap on a model nobody has priced, because it needs no pricing data.
+Use a cost cap to bound delegation spend. Token caps work without pricing data.
 
 Two more shape delegation itself: `maxSubagentIterations` (30) and `maxSubagentDepth` (3), where
 `0` disables delegation outright.
@@ -55,7 +67,7 @@ maxDurationMs: 900000
 
 ```bash
 # one run
-jazz run --agent analyst --max-cost-usd 0.50 --max-duration-ms 300000 "…"
+jazz run --agent analyst --max-cost-usd 0.50 --max-duration-ms 300000 "Summarize report.md"
 ```
 
 ## Watching from the terminal
@@ -81,8 +93,7 @@ one, so you get asked to confirm rather than losing work in flight.
 }
 ```
 
-A failed envelope still carries `costUSD`, `costKnown` and `tokenUsage`, because a run that
-failed or timed out still spent money and an unattended deployment has to account for it. A run
+A failed envelope still carries `costUSD`, `costKnown` and `tokenUsage`. A run
 killed from outside leaves no envelope; `--events spend` streams `run_spend` events with the
 running total so the caller can use the last one. The chat bridges do exactly that: their daily
 spend cap counts failed, timed-out and cancelled runs, not only answered ones.
@@ -103,10 +114,8 @@ work never extends the deadline.
 `--timeout` is a harder wall around the whole run, including start-up. It ends the run as a
 failure, with the same cleanup: running commands are killed and the provider request is aborted.
 
-The agent is warned as a budget fills rather than only being cut off. Cost, token and duration
-budgets nudge it at 50, 80 and 90%; iterations nudge at 70 and 90%. The messages are ephemeral,
-so a run that survives its own warnings does not carry eight escalating reminders into the next
-summarization.
+Jazz warns the agent at 50%, 80%, and 90% of its cost, token, and duration limits, and at
+70% and 90% of its iteration limit. Warnings are not saved in conversation history.
 
 ## When the figure is unknown
 
@@ -117,18 +126,15 @@ which means a self-hosted Ollama, llama.cpp, vLLM, or SGLang model. Anything els
 { "ok": true, "costUSD": 0, "costKnown": false }
 ```
 
-`costUSD` stays `0` for compatibility with consumers that read it blindly. Check `costKnown`, not
-the number.
+When `costKnown` is false, `costUSD: 0` does not mean the run was free.
 
-One unknown child makes the parent's total unknown too. Reporting the sum of the parts it
-happened to know would be worse than admitting it cannot say.
+One unknown child makes the parent's total unknown too.
 
 The same goes for cache writes: when the pricing data has no cache-write rate for the model,
 they are priced at the plain input rate and the total is marked unknown, since providers such as
 Anthropic charge more for them.
 
-The edge case that proves the rule: an Ollama model with a cloud tag has a local provider name
-and remote billing, so it does not count as free.
+An Ollama model with a cloud tag uses remote billing and does not count as free.
 
 A cost cap cannot be enforced against a model nobody has priced. That is the case `maxTokens`
 exists for.
@@ -156,8 +162,7 @@ while they ran) spent per local day and month. Your chat turns never count.
 Every cap is unset, meaning unlimited, until you set one. `goals` covers goal cycles and loop
 runs together; `agents.<agent>` covers one agent's unattended runs, keyed by its name (`inbox`
 above) or its id, as `jazz agent list` shows them. `jazz config set` and `jazz spend` warn about
-a key that names no agent. Set the goal caps and the machine-wide ones from `jazz` > Update
-configuration > Spend Limits, or with `jazz config set daemon.goals.dailyCostUSD 2`.
+a key that names no agent. Set the goal caps and the machine-wide ones from `jazz` > `/settings` > **Spend limits**, or with `jazz config set daemon.goals.dailyCostUSD 2`.
 
 When a cap is reached:
 
@@ -188,11 +193,8 @@ caps one bridge's own runs.
 
 ## Related
 
-- [Long-running work](../features/long-running-work.md): what happens as the context fills
+- [Context management](./context-management.md): what happens as the context fills
 - [Workflow frontmatter](../configure/workflows.md): the caps as workflow fields
 - [Configuration](../configure/jazz.md#run-budgets): the defaults and the enforcement model
 - [Headless](../surfaces/headless.md): the full JSON envelope
 - [Notifications](../configure/notifications.md): hearing about a reached cap
-
-Chat bridges record failed and cancelled run spend in the shared machine ledger under their
-own origin (for example, `telegram`), so their daily cap and `jazz spend` read the same totals.

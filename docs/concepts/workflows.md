@@ -4,33 +4,48 @@ description: "A Jazz workflow is a Markdown file: the body is the prompt, the fr
 
 # Workflows
 
-A workflow is a Markdown file. The body is the prompt. The frontmatter says how it runs.
+A workflow saves a job you want to repeat: a prompt, an agent, permissions, and run limits.
+Use one for reviews, briefings, or checks you want to run by name or on a schedule.
+
+## Create a workflow
+
+First [create an agent](../getting-started/create-an-agent.md) named `assistant`. From the
+project directory, create `workflows/project-status/` and save this as `WORKFLOW.md`:
 
 ```markdown
 ---
-name: merged-pr-recap
-description: "Recap the pull requests merged since this schedule last ran."
+name: project-status
+description: "Report recent commits and current uncommitted changes."
+agent: assistant
 schedule: "0 17 * * 5"
 autoApprove: read-only
 maxIterations: 40
 maxCostUSD: 1.00
 ---
 
-# Merged pull requests recap
+# Project status
 
-List every pull request merged between {schedule.lastRunAt} and {run.startedAt}, grouped by
-theme. This is the {schedule.label} recap.
+Read the project files and inspect git status and git log without modifying anything.
+Summarize commits between {schedule.lastRunAt} and {run.startedAt}; if the last-run time
+is empty, use the last seven days. List uncommitted changes separately.
+This is the {schedule.label} report.
 ```
 
-Save that as `workflows/merged-pr-recap/WORKFLOW.md` and you can run it by name:
+Run it from the project directory:
 
 ```bash
-jazz workflow run merged-pr-recap        # now
-jazz workflow schedule merged-pr-recap   # every Friday at 5pm, as merged-pr-recap/default
+jazz workflow run project-status --auto-approve
 ```
 
-You could paste the same prompt into a chat instead. The file gives you three things a paste
-does not: a name, a schedule, and a diff when somebody changes it.
+Jazz prints the report. `--auto-approve` uses the workflow's `read-only` policy, so you can
+check the behavior it will have unattended. When the result is useful, install its Friday
+17:00 schedule:
+
+```bash
+jazz workflow schedule project-status
+```
+
+See [Scheduled runs](../surfaces/scheduled.md) to set up delivery and inspect run history.
 
 ## What the frontmatter does
 
@@ -40,10 +55,6 @@ does not: a name, a schedule, and a diff when somebody changes it.
 | `schedule`               | Its default frequency, as a cron    |
 | `autoApprove`            | What it may do with nobody watching |
 | `maxCostUSD` and friends | When to stop                        |
-
-Those live next to the prompt on purpose. If someone changes `autoApprove` from `read-only` to
-`high-risk`, that shows up in the pull request, right beside whatever prompt change they wanted
-it for.
 
 Every field is listed in [workflow frontmatter](../configure/workflows.md).
 
@@ -58,9 +69,8 @@ Closest wins. A repository can have its own `code-review` without touching yours
 
 ## Starting points
 
-Jazz ships no workflows of its own. The [library](#the-library) has a dozen you can install with
-one command and edit afterwards, from a morning weather briefing to a merged-pull-request recap.
-An installed copy is yours: it lives in `~/.jazz/workflows/<name>/` and nothing overwrites it.
+Jazz ships no workflows of its own. The [library](#the-library) offers workflows you can install and edit, from a morning weather briefing to a merged-pull-request recap.
+Installed copies live in `~/.jazz/workflows/<name>/` and can be edited locally.
 
 ## Several schedules, one workflow
 
@@ -69,13 +79,13 @@ workflow can have several. The id of a schedule is `<workflow>/<label>`; the fro
 frequency installs as `default`.
 
 ```bash
-jazz workflow schedule merged-pr-recap                                  # merged-pr-recap/default, Fridays
-jazz workflow schedule merged-pr-recap --cron "0 9 1 * *" --as monthly  # merged-pr-recap/monthly
-jazz workflow scheduled merged-pr-recap                                 # both, with their crons
-jazz workflow unschedule merged-pr-recap/monthly                        # just that one
+jazz workflow schedule project-status                                  # project-status/default, Fridays
+jazz workflow schedule project-status --cron "0 9 1 * *" --as monthly  # project-status/monthly
+jazz workflow scheduled project-status                                 # both, with their crons
+jazz workflow unschedule project-status/monthly                        # just that one
 ```
 
-The same file serves both because the prompt can read who fired it:
+The prompt can use these schedule placeholders:
 
 | Placeholder            | Value                                                     |
 | ---------------------- | --------------------------------------------------------- |
@@ -88,12 +98,9 @@ Each label keeps its own last-run marker, so the monthly recap covers the whole 
 the weekly one ran four times in between. Catch-up treats each schedule on its own for the same
 reason. Two schedules of one workflow may not share a cron.
 
-Schedules created before labels existed are re-installed as `<name>/default` the first time Jazz
-lists them.
-
 ## The library
 
-Other people's workflows are one command away:
+Browse and install workflows:
 
 ```bash
 jazz workflow browse             # pick one, read the whole file, install it
@@ -101,9 +108,8 @@ jazz workflow search             # list what the library offers
 jazz workflow add <name>     # straight to ~/.jazz/workflows/<name>/WORKFLOW.md
 ```
 
-Installing prints the full `WORKFLOW.md`, frontmatter first, and asks. That is deliberate: the
-frontmatter is where `autoApprove` lives, and a workflow you did not write gets to run unattended
-only with the tier you read and accepted. `--as <name>` installs under a different local name.
+Installing prints the full `WORKFLOW.md` and asks for confirmation. Review its prompt and
+`autoApprove` tier before accepting. `--as <name>` installs under a different local name.
 Contributing one is a pull request: [CONTRIBUTING.md](../../CONTRIBUTING.md#contributing-to-the-library).
 
 ## Workflow, skill, or agent?
@@ -115,22 +121,10 @@ own, and you cannot schedule it.
 
 An **[agent](./agents.md)** is who does the work.
 
-They combine. A workflow can list skills in its frontmatter: the workflow says what to do on
-Friday, the skill says how that kind of work is done.
-
-## Try it in the terminal first
-
-```bash
-jazz workflow run merged-pr-recap --auto-approve
-```
-
-This is the same code path the scheduler uses. If it works here, it works on Friday.
-
-Skip this and you get the usual surprise: the prompt worked when you tested it, because you
-approved things by hand without noticing, and at 5pm nobody is there to approve them.
+A workflow can list skills in its frontmatter to supply the procedures its agent should follow.
 
 ## Related
 
 - [Workflow frontmatter](../configure/workflows.md): every field and its default
-- [Scheduled runs](../surfaces/scheduled.md): what installing a schedule actually does
+- [Scheduled runs](../surfaces/scheduled.md): installing and managing schedules
 - [`jazz workflow`](../commands.md): list, run, schedule, history, catch-up

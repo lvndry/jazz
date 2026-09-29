@@ -4,16 +4,19 @@ description: "Where Jazz keeps credentials, what it strips from a shell environm
 
 # Secrets and egress
 
-Reading data, revealing data, and sending data are three different properties. This page is
-about the last two and about where credentials live.
+Save provider keys with `jazz config set <provider>` and enter them at the prompt.
+For example, `jazz config set openai` stores an OpenAI key without putting it in shell history.
+For CI or containers, supply the provider's environment variable. Keep credentials out
+of prompts, workflow files, and committed configuration.
+
+This page explains how Jazz stores credentials, redacts tool output, and controls network access.
 
 ## Where secrets live
 
 Config writes route through the OS keyring, or a `chmod 600` `$JAZZ_HOME/secrets.json` where
 there is no keyring.
 
-One file decides which config paths hold a secret: `packages/core/src/secrets/registry.ts`.
-That is why `jazz config set llm.openai.api_key` never lands in `config.json`.
+`jazz config set llm.openai.api_key` stores the key separately from `config.json`.
 
 The OS keyring is shared by every Jazz home on the account, so each home files its entries under
 its own service, `jazz.<hash of the home path>`. A `JAZZ_HOME` or `--data-dir` home cannot read the
@@ -22,12 +25,11 @@ and `~/.agents/mcp.json` (mode 0600) keeps only their names.
 
 Read-back is one-way. `jazz config show` and `jazz config get` redact every secret, including MCP
 env and header values and values merged in from the keyring or the environment; `--reveal` is the
-explicit exception. A token is printed once, when it is minted. Print it twice and it accumulates
-in scrollback and supervisor logs.
+explicit exception. A token is printed once, when it is minted.
 
 Provider keys can also come from the environment, which is the normal path in a container where
 no keyring exists. Never put a token in an agent prompt, a workflow file, or committed project
-config. Those are the three places people put them.
+config.
 
 ## The shell environment is scrubbed
 
@@ -39,8 +41,7 @@ command runs when a word of its name marks a secret (`SECRET`, `TOKEN`, `PASSWOR
 `env` or to shell out to something chatty cannot hand your provider keys or a Discord webhook URL
 to it. Words are matched whole, so `KEYBOARD_LAYOUT` and `TOKENIZER_PATH` pass through.
 
-When a command genuinely needs one, name it in the agent's `envAllowlist`. Per agent, explicit,
-and visible in the agent file. The exception is written down rather than implied.
+When a command needs a secret variable, name it in the agent's `envAllowlist`.
 
 ## Egress is its own axis
 
@@ -124,7 +125,7 @@ longer recognized:
   attach a PDF whose text holds a secret; it points the model at `read_pdf`, whose output is
   redacted.
 
-Two passes replace secrets with `[redacted:<name>]`:
+Jazz replaces recognized secrets with `[redacted:<name>]`:
 
 - **Values Jazz knows**, replaced exactly wherever they appear: every secret setting (provider API
   keys, OTLP headers, the daemon and operator tokens, peer and webhook tokens, webhook signing
@@ -166,7 +167,7 @@ nobody to ask, the run parks for approval.
 
 Recognition by shape is best-effort. A secret with an unrecognized name and format, or one a shell
 pipeline transforms before it reaches a tool result (base64, splitting it across lines), is not
-caught. Shell children also lose credential-named environment variables (see below), and host
+caught. Shell children also lose credential-named environment variables (see [Shell environment](#the-shell-environment-is-scrubbed)), and host
 isolation remains the job of a dedicated OS user or container (see
 [unattended runs](./unattended-runs.md)).
 

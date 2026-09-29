@@ -4,9 +4,9 @@ description: "Schedule a Jazz multi-agent research radar that finds genuinely ne
 
 # Build a weekly multi-agent research radar
 
-Use this workflow to track a technical field without receiving a keyword dump every week. Jazz gives separate subagents responsibility for discovery, source quality, and contrarian checking; the parent publishes only claims that survive reconciliation.
+Track a technical field with separate subagents for discovery, source quality, and skeptical review. The parent reconciles their findings into a weekly briefing.
 
-The scheduled workflow is read-only. Its report appears in Jazz workflow output and history, so it needs no invented “digest” integration and no permission to write arbitrary files.
+The report appears in workflow output and history. Keep mutation tools denied on the research agent.
 
 ## 1. Configure web search
 
@@ -76,26 +76,9 @@ jazz workflow history agent-harness-radar
 
 ### What you should see
 
-The four sections from the prompt, with a dated source on every claim:
-
-```text
-## What changed
-- vLLM 0.12 ships prefix-caching for multi-turn tool calls (2026-03-28, release notes).
-  Matters because our harness re-sends the same 12k system prefix on every iteration.
-
-## One claim worth testing
-- "Structured output removes the need for a validation pass" (vendor blog, 2026-03-31).
-  Testable: run 200 delegations with and without schema validation, count malformed results.
-
-## Disagreements and uncertainty
-- Two benchmarks disagree on tool-call accuracy for the same model; neither publishes its
-  harness. Treat both as unverified.
-
-## Quiet-week note
-Nothing new on context compaction this week.
-```
-
-That last section is the one to check. A week with no real news should produce the quiet-week note, not four items of filler. Verify every material claim has a direct source and date; a report that cannot establish recency should state that limitation rather than quietly including the item.
+Check that the report contains the requested sections and that each material
+claim links to a source published in the last seven days. When nothing relevant
+was published that week, it should say so.
 
 ## 4. Schedule it
 
@@ -104,17 +87,8 @@ jazz workflow schedule agent-harness-radar
 jazz workflow scheduled
 ```
 
-The report remains available in workflow history and scheduler logs. If another system should deliver it, consume the headless JSON output from a controlled wrapper rather than granting the research agent a messaging credential.
+The report remains available in workflow history and scheduler logs. To receive it
+on your phone or in chat, configure a [notification target](../configure/notifications.md)
+and add `deliver: <target-name>` to the workflow frontmatter.
 
-## Why this is a Jazz workflow
-
-- Subagents search from independent contexts instead of inheriting one early narrative.
-- The skeptic has an explicit falsification job, not a generic “review this” prompt.
-- The parent owns deduplication, contradiction resolution, and the final brief.
-- Cost, time, and iteration budgets bound an unattended research fan-out.
-- Search and provider choices can change without rewriting the schedule or research protocol.
-- A quiet week is a valid machine outcome rather than a reason to hallucinate content.
-
-Use a separate, human-approved workflow if the report should publish to a public channel or mutate a knowledge base. Research and publication do not need the same permissions.
-
-Read [Automation](../features/automation.md), [Scheduled runs](../surfaces/scheduled.md), and [Delegation](../concepts/agents.md#delegation) for the underlying contracts.
+Read [Starting runs](../concepts/starting-runs.md), [Scheduled runs](../surfaces/scheduled.md), and [Delegation](../concepts/agents.md#delegation).

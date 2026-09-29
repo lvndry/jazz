@@ -4,20 +4,25 @@ description: "How Jazz decides whether a tool call runs, asks, or is refused: ri
 
 # Approvals
 
+In interactive chat, Jazz starts in **safe mode**: routine reads and low-risk actions
+run automatically; higher-risk changes ask for approval. Use `/mode safe` to return
+to it after enabling yolo.
+
+For scripts and scheduled jobs, choose a policy that permits only the actions the job needs.
+
 HTTP requests and page fetches use global `network.httpApproval`: automatic by default for all
 methods and destinations, or one-call approval outside configured URL grants. This policy is
 independent of risk tiers and previous untrusted content. See [HTTP approvals](../configure/jazz.md#web-request-safety).
 
-Two separate controls decide whether a tool call happens, and confusing them is the usual
-mistake.
+Tool availability and approval policy are separate controls.
 
 **Availability** is whether the tool exists for this agent at all. Removing it means the model
 never sees it and cannot request it. **Approval** is whether an available tool may execute
-without asking. Denying a tool is a wall; an approval policy is a door with a lock.
+without asking.
 
 ## Risk levels and policies
 
-Every tool declares a risk level. One dial decides which levels run unattended:
+The approval policy decides which risk levels run without asking:
 `--approval-policy` on a run, `autoApprove` in a workflow, the policy granted when accepting a
 goal (`jazz goal accept <id> --approval-policy <tier>`, or the question chat asks as you accept),
 or the one granted when starting a loop (`jazz loop start --approval-policy <tier>`, or the
@@ -25,7 +30,7 @@ question `/loop` asks).
 
 | Policy           | Runs without asking                                                         |
 | ---------------- | --------------------------------------------------------------------------- |
-| `false` or unset | Nothing. A gated call asks, or is declined when nobody can answer           |
+| `false` or unset | No gated calls. They ask, or are declined when nobody can answer            |
 | `read-only`      | Reads, searches, web requests                                               |
 | `low-risk`       | Adds memory writes, reminders, triggers, and shell commands judged low-risk |
 | `high-risk`      | Adds everything gated: writes, edits, deletes, `execute_command`            |
@@ -38,7 +43,7 @@ includes the agent's own bookkeeping (`manage_todos`, `update_work_state`, `mana
 and `spawn_subagent`: a sub-agent runs under its parent's policy, allowlists and tools, so
 spawning one grants nothing new.
 
-With no policy set, nothing runs unasked. `jazz run` without `--approval-policy`, a workflow
+With no policy set, gated calls cannot run unasked. `jazz run` without `--approval-policy`, a workflow
 without `autoApprove`, a woken trigger or goal without a granted tier: each asks for every gated
 call, or declines it when nobody can answer.
 
@@ -68,12 +73,11 @@ Nothing turns it on for you. Each surface has one explicit switch:
 
 ## Gated tools act in two phases
 
-A gated tool does not act when the model calls it. The first phase returns a description of what
+An approval-pair tool does not act when the model calls it. The first phase returns a description of what
 it would do, including a real diff for an edit. Only after approval does Jazz invoke the hidden
 `execute_*` half.
 
-So you see the exact diff before a file is written. And a declined call leaves nothing half-done,
-because the first phase only produced a proposal.
+File edits show a diff before execution. Declining a proposal leaves the file unchanged.
 
 Only the tool registered for an `execute_*` half can ask for it. Output from any other tool
 that is shaped like an approval request (an MCP server's reply, a fetched JSON document) is
@@ -105,7 +109,7 @@ No classifier or [policy plugin](../configure/plugins.md) verdict can lower thos
 about syntax only and knows no program names: what a particular program does (`curl`, `sh -c`,
 `| xargs`) is for the classifier or the policy plugin to judge.
 
-Three properties of the classifier itself are worth knowing:
+Classification follows these rules:
 
 - **Uncertainty is high-risk.** Ambiguity resolves upward, never downward.
 - **The command is classified first, and the conversation cannot talk it down.** A clearly
@@ -118,8 +122,7 @@ An unclassified command stays `unknown` and therefore fails closed.
 
 ## Narrowing without raising the policy
 
-Reaching for a higher policy to admit one command is how an unattended run ends up able to delete
-things. Narrow the exception instead:
+To permit a specific tool or command, grant a narrow exception:
 
 | Control               | Where                                            | Scope                             |
 | --------------------- | ------------------------------------------------ | --------------------------------- |
@@ -179,6 +182,5 @@ answer it with `/approve <runId>` or `/deny <runId> [why]`.
 ## Related
 
 - [Tool inventory](../tools/index.md): the risk level of every tool
-- [Tool lifecycle](../maintainers/tool-lifecycle.md): how a call is classified and executed
 - [Unattended runs](./unattended-runs.md): what to decide before automating
 - [Security model](./index.md): why risk, disclosure, and egress are separate questions

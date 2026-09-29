@@ -8,12 +8,12 @@ Use this pattern when suspicious traffic needs investigation immediately, but bl
 
 A monitoring alert starts Jazz with request samples and deployment context. Independent subagents test competing explanations: abuse, application regression, or a legitimate traffic spike. The parent reconciles their evidence and, when containment is justified, proposes a narrowly scoped Cloudflare WAF action. Jazz persists the run before Cloudflare changes production traffic. An operator reviews the exact rule and resumes the same investigation after approving or rejecting it.
 
-This is a good Jazz workload because it combines unattended execution, isolated subagents, a huge external API, deferred tool loading, and asynchronous human control around a consequential action.
-
 ## What you need
 
 - A Cloudflare-managed zone and permission to edit its WAF configuration.
-- An agent named `edge-responder` with read access to relevant runbooks, code, and normalized alert evidence.
+- Jazz installed on the monitoring worker or control host, with a configured model provider.
+- Local runbooks, repository history, and normalized alert evidence.
+- `jq` installed and writable evidence and log directories for the examples below.
 - Persistent Jazz storage on the monitoring worker or control host.
 - A Cloudflare identity restricted to the account and zone this agent may defend.
 
@@ -32,13 +32,18 @@ jazz mcp test cloudflare
 
 This tutorial deliberately disables Cloudflare's code mode. The server then advertises individual API endpoints, allowing Jazz to gate the specific WAF mutation rather than approving a generic remote code executor.
 
-Cloudflare exposes roughly 2,500 endpoints this way. Jazz does not paste every full schema into the model context: tools begin as names and summaries, and the agent retrieves a relevant schema only when needed. This is exactly the kind of integration progressive tool disclosure is designed for.
+Cloudflare exposes roughly 2,500 endpoints this way. Tools begin as names and summaries; the agent retrieves a full schema only when needed.
 
-Leave the server untrusted. Jazz will treat every Cloudflare tool as high-risk regardless of its self-declared annotation. Add the Cloudflare MCP category to `edge-responder`:
+Leave the server untrusted. Jazz treats its tools as high-risk, regardless of their
+self-declared annotations. Create an agent:
 
 ```bash
-jazz agent edit edge-responder
+jazz agent create
 ```
+
+Name it `edge-responder`, choose a tool-capable model and the `coder` persona,
+and select the Cloudflare MCP category. Keep `spawn_subagent` and local repository
+inspection available. Run the investigation from the checkout containing your runbooks.
 
 The investigation should use local evidence. Cloudflare is attached only for the final containment action, so an untrusted server does not interrupt every read step.
 
@@ -93,7 +98,10 @@ fi
 exit "$status"
 ```
 
-`low-risk` lets the parent delegate to subagents and maintain work state. The untrusted Cloudflare MCP call remains gated. Jazz saves the investigation, competing hypotheses, selected endpoint, exact rule arguments, and rollback reasoning, then exits `2`. Production traffic is unchanged.
+When the agent proposes a Cloudflare call, Jazz parks it and exits `2`. The JSON
+result on stdout contains the run id for the next step. If the evidence does not
+justify containment, the agent may finish with a report instead. The untrusted
+Cloudflare call cannot execute under `low-risk` without your approval.
 
 ## 4. Review the containment action
 
@@ -103,20 +111,8 @@ jazz runs show <run-id>
 
 ### What you should see
 
-The run parked rather than finished, with the pending call spelled out in full:
-
-```text
-run_01JKX8  parked  agent: incident-responder  cost: $0.18
-
-Waiting on: mcp_cloudflare_waf_rule_create (high-risk)
-  zone_id:    8f21c0e3…
-  expression: (ip.src eq 203.0.113.44 and http.request.uri.path eq "/v1/login")
-  action:     managed_challenge
-  notes:      "Rollback: delete rule; review 2026-04-22"
-
-Reasoning: 4,112 requests from one address to /v1/login in 9 minutes, 98% 401.
-Rejected: zone-wide rate limit (would affect the /v1/search spike from a partner).
-```
+The parked run shows the pending tool call and its arguments. Check the requested
+Cloudflare action against the evidence before approving it.
 
 The exit code is `2`, and production traffic is unchanged until you answer.
 
@@ -151,15 +147,4 @@ The run can revise its proposal, but the replacement Cloudflare call requires an
 
 Follow [surface access security](../security/surface-access.md) before remote access. Cloudflare's scoped identity, Jazz's per-call approval, network isolation, and Cloudflare's audit log are complementary controls.
 
-## What this unlocks
-
-- Cheap or local models can perform routine evidence reduction while isolated subagents challenge the first explanation.
-- Thousands of Cloudflare endpoints remain discoverable without consuming the model's context up front.
-- Investigation proceeds unattended, but production traffic changes remain accountable.
-- Approval covers one exact API operation rather than the Cloudflare account or future actions.
-- Rejection becomes new evidence in the same reasoning process.
-- The responder receives the applied rule ID and rollback plan from the preserved run.
-
-The same architecture works for rotating a leaked credential, pausing a compromised integration, quarantining an object, or revoking a session: automate evidence gathering and proposal quality, then put the irreversible boundary in front of a person.
-
-Read [MCP configuration](../configure/mcp.md), [Approvals](../security/approvals.md), [Delegation](../concepts/agents.md#delegation), and [`jazz runs`](../commands.md#jazz-runs) for the underlying contracts.
+Read [MCP configuration](../configure/mcp.md), [Approvals](../security/approvals.md), [Delegation](../concepts/agents.md#delegation), and [`jazz runs`](../commands.md#jazz-runs).

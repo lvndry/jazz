@@ -162,7 +162,7 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Age at which pending traces and logs are dropped, in milliseconds. Defaults to seven days.",
   "telemetry.otlp.metricExportIntervalMs":
     "Time between metric exports, in milliseconds. Defaults to 30000.",
-  maxRetries: "Retries for a transient model API failure. Defaults to 3.",
+  maxRetries: "Retries for a transient model API failure. Defaults to 10.",
   editor:
     "Editor for `jazz persona edit` and `jazz mcp add`, such as `code --wait`. Defaults to `$VISUAL`, then `$EDITOR`, then `vi`.",
   maxSubagentDepth:
@@ -195,7 +195,7 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "peers[].maxConcurrentRuns":
     "Runs this peer may have in flight at once; a request past it is refused with `429`. Defaults to 4.",
   "hosts[].name":
-    "Name of a machine registered for detached conversations. See [Detached conversations](../features/detach.md).",
+    "Name of a machine registered for detached conversations. See [Detached conversations](../concepts/detach.md).",
   "hosts[].sshTarget": "SSH config alias for the machine.",
   "hosts[].workspacePath": "Absolute directory on the machine dedicated to Jazz transfers.",
   "hosts[].allowFileSecrets":

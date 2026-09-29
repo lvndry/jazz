@@ -90,7 +90,7 @@ The [guides](docs/guides/index.md) walk through complete setups.
 | Discord              | [`packages/discord-bot/`](packages/discord-bot/), `docker compose up`               |
 | iMessage             | `jazz imessage` (hosted Photon line) or `jazz imessage --local` (your Mac account)  |
 | WhatsApp             | [`packages/whatsapp-bot/`](packages/whatsapp-bot/), `jazz whatsapp`                 |
-| Your SSH server      | [`/detach <host>`](docs/features/detach.md) in chat, then `jazz detach attach <id>` |
+| Your SSH server      | [`/detach <host>`](docs/concepts/detach.md) in chat, then `jazz detach attach <id>` |
 
 Slack, Google Chat, or your own app work the same way. See
 [Chat platforms](docs/surfaces/chat.md).
@@ -100,9 +100,8 @@ Slack, Google Chat, or your own app work the same way. See
 Start at [`docs/index.md`](docs/index.md).
 
 - [Getting started](docs/getting-started/index.md): install, first run, and first custom agent
-- [Features](docs/features/index.md): what Jazz unlocks and why the harness matters
+- [Concepts](docs/concepts/index.md): agents, tools, memory, automation, companions, and remote work
 - [Surfaces](docs/surfaces/index.md): terminal, headless, schedules, CI, chat, webhooks, and peers
-- [Concepts](docs/concepts/index.md): agents, personas, tools, skills, workflows, and memory
 - [Guides](docs/guides/index.md): complete setups you can run
 - [Security](docs/security/index.md): permissions, approvals, secrets, egress, and remote access
 - [Configure](docs/configure/index.md): models, agents, workflows, MCP, search, and telemetry

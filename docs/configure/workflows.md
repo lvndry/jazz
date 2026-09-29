@@ -1,15 +1,12 @@
 ---
-description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve policies, model bindings, and delivery to notify targets: verified against the parser source."
+description: "Configure WORKFLOW.md schedules, approval policies, model bindings, budgets, and delivery to notification targets."
 ---
 
 # Workflow frontmatter
 
-How to get the `WORKFLOW.md` YAML fields exactly right.
-
-Verified against
-[`packages/core/src/workflows/workflow-service.ts`](../../packages/core/src/workflows/workflow-service.ts).
-For what a workflow _is_, see [Workflows](../concepts/workflows.md); for ready-made ones, the
-[Guides](../guides/index.md).
+Set schedules, approval policies, and run budgets in a workflow's YAML frontmatter.
+See [Workflows](../concepts/workflows.md) for the prompt body and [Guides](../guides/index.md)
+for examples.
 
 ---
 
@@ -65,8 +62,7 @@ See [the note below](#the-low-risk-trap).
 Accepts exactly one of `false`, `read-only`, `low-risk`, `high-risk` or `true`, with `true` and
 `false` unquoted. Leaving it out means `false`.
 
-Any other value (`readonly`, `Read-Only`, `low_risk`, a quoted `"false"`, `yolo`) is an error,
-not a guess. `jazz workflow list` and `jazz workflow show` print the reason, and the workflow
+Any other value (`readonly`, `Read-Only`, `low_risk`, a quoted `"false"`, `yolo`) is invalid. `jazz workflow list` and `jazz workflow show` print the reason, and the workflow
 refuses to run, to be scheduled, or to be installed from the library until it is fixed.
 
 The same policy applies to every way a workflow runs: its schedule, catch-up after a restart,
@@ -91,7 +87,7 @@ To let a workflow run every tool without asking, write it out:
 autoApprove: high-risk # or true
 ```
 
-That is the whole opt-in; there is no default that grants it. Read
+Read
 [Running fully unattended](../security/approvals.md#running-fully-unattended-yolo) first, and
 prefer the narrower tier plus an `autoApprovedCommands` entry when one command is all the
 workflow needs.
@@ -100,41 +96,23 @@ workflow needs.
 
 ## The `low-risk` trap
 
-`low-risk` is narrower than it sounds. It covers memory, reminders, triggers, and commands the
-classifier judges low-risk (todos, work state, the scratchpad and subagents already run at
-`read-only`). It does **not** cover email, calendar, or
-file writes merely because those actions sound routine.
+`low-risk` covers memory writes, reminders, triggers, and commands classified low-risk.
+Todos, work state, the scratchpad, and subagents already run at `read-only`.
+Email, calendar, and file changes require approval when their risk exceeds the policy.
 
-This matters because the capabilities people most want on a schedule are skills that shell
-out through `execute_command`, which is `unknown`:
-
-```mermaid
-flowchart LR
-    W["WORKFLOW.md<br/>autoApprove: low-risk"] --> S["email skill"]
-    S --> C["execute_command<br/>himalaya message move …"]
-    C --> G{"low-risk covers<br/>unknown?"}
-    G -->|"no"| D["<b>Declined.</b><br/>Nothing gets archived."]
-
-    classDef bad fill:#c1443c,stroke:#7d2b26,color:#ffffff
-    class D bad
-```
-
-Two ways out, and the second is usually right:
-
-**1. Raise the tier to `high-risk`**: also unlocks `rm`, `git push`, and arbitrary shell.
-Rarely what you want on a schedule.
-
-**2. Allowlist the specific binary** and keep the tier low:
+To permit a specific command, keep the tier low and add a narrow global grant:
 
 ```json
-// ~/.jazz/config.json
-{ "autoApprovedCommands": ["himalaya", "khal"] }
+{ "autoApprovedCommands": ["git status"] }
 ```
 
-Matching is on a key parsed the way the shell reads the command (the binary, plus the next
-word when it is not a flag), never a raw prefix, so `himalaya` is allowed while
-`himalaya && rm -rf /` is not. See
-[Tools & approval](../maintainers/tool-lifecycle.md#two-sharper-controls).
+Grants match the binary and its next word when that word is not a flag. They do not match
+compound, redirected, substituted, or environment-prefixed commands. Granting a whole
+binary such as `himalaya` permits its mutation commands too; see
+[email and calendar setup](./email-calendar.md).
+
+`high-risk` permits arbitrary shell commands and file mutations. Use it only when the
+workflow needs that authority.
 
 ---
 
@@ -145,8 +123,9 @@ integers and wildcards: no step values (`*/15`), ranges (`1-5`), or lists (`1,3,
 expands what it can into multiple entries and rejects what it can't with an explicit error
 rather than silently scheduling something else.
 
-Neither launchd nor cron fires a job whose slot passed while the machine was asleep: see
-[Scheduling](../features/automation.md) and [Surfaces → Scheduled](../surfaces/scheduled.md).
+launchd runs missed sleep slots once on wake; cron skips them. Powered-off machines
+miss their slots. See [Scheduled runs](../surfaces/scheduled.md#sleep-missed-runs-and-catch-up)
+for catch-up options.
 
 ---
 
@@ -154,16 +133,15 @@ Neither launchd nor cron fires a job whose slot passed while the machine was asl
 
 Discovered in this order; later overrides earlier on name collision:
 
-1. **Built-in**: shipped with the `jazz-ai` package
-2. **Global**: `~/.jazz/workflows/<name>/WORKFLOW.md`
-3. **Local**: `./workflows/<name>/WORKFLOW.md` in the current directory
+1. **Global**: `~/.jazz/workflows/<name>/WORKFLOW.md`
+2. **Local**: `./workflows/<name>/WORKFLOW.md` in the current directory
 
 ---
 
 ## Related
 
 - [Workflows](../concepts/workflows.md): the concept and the body of the file
-- [Guides](../guides/index.md): complete, code-backed recipes
+- [Guides](../guides/index.md): complete examples
 - [Surfaces → Scheduled](../surfaces/scheduled.md): running them unattended
 - [Workflow commands](../commands.md#jazz-workflow): invocation and scheduling flags
 

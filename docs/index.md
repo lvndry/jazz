@@ -4,7 +4,7 @@ description: "Install Jazz, run an AI agent from the terminal or unattended, con
 
 # Jazz documentation
 
-Jazz is an open-source agent harness that lets a model work on a real machine. The same agent can run interactively in a terminal, non-interactively in scripts and CI, on a schedule, or through a chat bot you own.
+Jazz is an open-source AI assistant that can read and edit files, run commands, research the web, and create documents and visuals. You choose its model and permissions, then use it in your terminal, scripts, CI, schedules, or chat apps.
 
 ## Start in two minutes
 
@@ -13,35 +13,30 @@ curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | 
 jazz
 ```
 
-The first run opens a home menu; choose **Create agent** to pick a model provider and name your agent. You can then ask it to inspect files, work with git, read the web, or create artifacts. See the [quick start](./getting-started/quick-start.md) for the complete first session.
+On first run, choose **Start setup** to pick a model provider and create your agent. You can then ask it to inspect files, work with git, read the web, or create artifacts. See the [quick start](./getting-started/quick-start.md) for the complete first session.
 
 ## Choose what you need
 
 - **New to Jazz:** [install it and complete your first useful run](./getting-started/index.md).
-- **Evaluating Jazz:** [browse its features](./features/index.md) and [compare where it runs](./surfaces/index.md).
-- **Building an agent:** understand the [core concepts](./concepts/index.md), then [configure Jazz](./configure/index.md).
-- **Solving a real job:** copy a maintained [guide](./guides/index.md).
+- **Evaluating Jazz:** [explore its capabilities](./concepts/index.md) and [compare where it runs](./surfaces/index.md).
+- **Creating an agent:** [configure its model, persona, and tools](./getting-started/create-an-agent.md).
+- **Setting up a job:** follow a [guide](./guides/index.md).
 - **Operating it safely:** read the [security model](./security/index.md), and [what Jazz sends over the network on its own](./security/privacy.md).
 - **Finding what Jazz keeps on disk:** the [runtime data](./runtime-data/index.md) reference lists every file and directory it writes.
 - **Fixing something that went wrong:** start with [troubleshooting](./troubleshooting.md). [Uninstalling](./getting-started/uninstall.md) removes everything Jazz put on the machine.
-- **Contributing:** trace the implementation in the [maintainer guide](./maintainers/index.md).
 
-## What makes Jazz different
+## What you can do
 
-Jazz is not a chat wrapper. It adds the machinery required for useful work: tool execution with approval boundaries, context management for long runs, durable work state, scheduling, per-conversation history, model-provider portability, and multiple user-facing surfaces.
+- **Work on a project:** ask an agent to explore a repository, make a change, and run the checks. [Agents](./concepts/agents.md) and [project instructions](./concepts/agents.md#project-instructions-agentsmd) let you tailor it to your work.
+- **Finish a larger task:** give Jazz a [goal](./concepts/goals-and-loops.md) and a way to verify completion. It continues across turns; [context management](./concepts/context-management.md) makes room as the conversation grows.
+- **Watch for changes:** use a [loop](./concepts/goals-and-loops.md#loops) to check a deployment, or schedule a [workflow](./concepts/workflows.md) for a recurring briefing or review.
+- **Create something you can use:** ask for a PDF, generated media, or an interactive [composition](./concepts/compositions.md) such as a dashboard or calculator. Results are saved as [artifacts](./concepts/artifacts.md).
+- **Use several models together:** keep your preferred main model and add [companions](./concepts/media.md) for images, audio, or video. Delegate independent research or checks to [subagents](./concepts/agents.md#delegation).
+- **Connect your tools:** add [MCP servers](./configure/mcp.md), [custom tools](./configure/agents.md#custom-tools), and [skills](./concepts/skills.md) for your own systems and procedures.
+- **Reach Jazz wherever you work:** use the same agent in [scripts and CI](./surfaces/headless.md), [chat apps](./surfaces/chat.md), or behind a [webhook](./concepts/webhooks.md). Use [/detach](./concepts/detach.md) to continue a conversation on your server.
 
-- **One agent, every surface:** define an agent once and use it from the terminal, CI, schedules, bots, webhooks, or another agent.
-- **Built for automation:** `jazz run` keeps stdout clean, streams structured events to stderr, returns explicit exit codes, and supports JSON envelopes and run budgets.
-- **More than one generic assistant:** create multiple agents with different models, personas, tools, memory scopes, and safety ceilings.
-- **Several models inside one identity:** bind separate companions for image, audio, and video understanding or generation while the primary model keeps the plan, tools, memory, and conversation.
-- **Approvals that survive unattended work:** decline safely, ask on an interactive surface, or park a run and resume it after remote approval.
-- **Provider choice without losing the harness:** use cloud providers, Ollama, llama.cpp, vLLM, or SGLang while keeping Jazz's tools, context controls, workflows, and surfaces.
-- **Harness quality you can measure:** the eval suite tests whether context, prompts, and tools improve task reliability instead of assuming a change helped.
-- **Optional advisory plugins:** install explicitly trusted, digest-pinned extensions without adding
-  their code, credentials, network calls, or latency to other users' runs.
-
-The [features overview](./features/index.md) explains those capabilities without requiring you to read the implementation.
+Choose cloud or [local models](./getting-started/local-models.md), set [budgets](./concepts/budgets.md), and control actions through [approvals](./security/approvals.md).
 
 ## Exact syntax
 
-Commands and flags are collected in the generated [command index](./commands.md). Before updating across a minor version, read [Upgrading](./upgrading.md) for the versioning policy and how breaking changes are announced. Configuration and tool details live under [Configure](./configure/index.md) and [Tools](./tools/index.md), where examples are checked against the code.
+The [CLI reference](./commands.md) lists `jazz` commands, subcommands, global options, and flags. For the terminal experience, read [CLI](./surfaces/cli.md). Before updating across a minor version, read [Upgrading](./upgrading.md) for the versioning policy and how breaking changes are announced. Configuration and tool details live under [Configure](./configure/index.md) and [Tools](./tools/index.md).

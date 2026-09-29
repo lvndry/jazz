@@ -33,7 +33,7 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
    }
    ```
 
-   Or set it interactively: run `jazz`, choose **Settings** → **LLM Providers**, pick Ollama, llama.cpp, vLLM, or SGLang, and enter the server address as `host:port` (or a full URL). Jazz adds the scheme and the provider's REST path for you, so `192.168.1.50:11434` is enough. This is the same `base_url` as above and takes precedence over the environment variable. In a conversation, the terminal header shows the resolved `host:port` beside a local model when there is room; it hides credentials and does not show a local endpoint for Ollama Cloud models.
+   Or set it interactively: run `jazz`, enter `/settings`, then choose **Model providers**, pick Ollama, llama.cpp, vLLM, or SGLang, and enter the server address as `host:port` (or a full URL). Jazz adds the scheme and the provider's REST path for you, so `192.168.1.50:11434` is enough. This is the same `base_url` as above and takes precedence over the environment variable.
 
 3. Create an agent and chat. Jazz lists models straight from Ollama's `/api/tags` endpoint, so no external catalog is needed:
 
@@ -48,9 +48,11 @@ For vLLM, choose the `vllm` provider. It defaults to `http://127.0.0.1:8000/v1`,
 
 For SGLang, choose `sglang`. It defaults to `http://127.0.0.1:30000/v1`, accepts `SGLANG_BASE_URL`, and uses the same live-model selection pattern. Its `/v1/models` cards report the served `max_model_len` for the base model; LoRA adapters inherit that window when their own card omits it. Configure the server's tool and reasoning parsers for the model you load. See [SGLang setup](../configure/providers.md#sglang).
 
-A bare `llama-server` serves whatever single model was loaded at launch and ignores the model name in each request, and that model can differ between runs. So the model chosen when the agent was created is only a hint: at the start of every run Jazz asks the server (`/v1/models`) which model it is actually serving and uses that name, along with the real context window the server was started with (`/props`, i.e. `-c`). vLLM and SGLang use the same refresh pattern and report their served context through `/v1/models` when available. Pinning `numCtx` on an agent limits Jazz's context accounting; it does not reconfigure either server.
+Jazz refreshes the served model and context window at the start of each run.
+For llama.cpp, the loaded model takes precedence over the saved agent model name.
+Setting `llm.numCtx` limits Jazz's context accounting; it does not reconfigure the server.
 
-## What `JAZZ_OFFLINE` does, and does not do
+## Offline mode
 
 With `JAZZ_OFFLINE=1` (or `true`), Jazz skips these product-service requests:
 
@@ -85,6 +87,6 @@ If you want catalog metadata (e.g. pricing display for cloud models) inside the 
 | `VLLM_BASE_URL`             | vLLM server URL (default `http://127.0.0.1:8000/v1`)                                    |
 | `SGLANG_BASE_URL`           | SGLang server URL (default `http://127.0.0.1:30000/v1`)                                 |
 | `JAZZ_MODELS_DEV_URL`       | Internal mirror for the models.dev catalog                                              |
-| `JAZZ_LIBRARY_URL`          | Base URL of the persona and workflow library (default the public Jazz site)             |
+| `JAZZ_LIBRARY_URL`          | Base URL of the persona, workflow, and skill library (default the public Jazz site)     |
 | `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the update check                                                         |
 | `JAZZ_HOME`                 | Data directory (default `~/.jazz`): holds the catalog snapshot, history, telemetry      |

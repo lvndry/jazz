@@ -1,35 +1,11 @@
 /** @jsxImportSource @opentui/react */
 
 /**
- * The transcript: the one region that is actually *read* rather than glanced at.
- *
- * Two decisions carry the whole design.
- *
- * The first is the measure. Running prose stops at `PROSE_MEASURE` however
- * wide the window is, with a short metadata strip directly beside it for
- * timestamps, so a sentence and its metadata never collide and the eye always
- * returns to the same left edge. Tool output, tables and code fences may take
- * the full content width — those are scanned, not read, and a table squeezed
- * to the prose measure is worse than a table that reaches the frame.
- *
- * The second is density. The first draft of this layout measured 32% ink and
- * read as "very busy"; the target is ≤22% ink with ≥40% breathing rows. That is
- * not a preference, it is the contract `transcript.test.tsx` enforces. Three
- * rules get there: a blank row opens every turn, a settled tool call collapses
- * to a dim receipt with no marker and no duration (and several receipts share a
- * row), and markers appear only at turn boundaries and state changes.
- *
- * Geometry, at every width:
- *
- *   col 0        rail, or the turn marker on a block's first row
- *   col 1        lane tag — a delegated lane gets a column, never an indent
- *   col 2..      content, `prose` wide for reading or `content` wide for scanning
- *   beside       metadata, right-aligned in the strip that follows the prose measure
- *
- * Rows are pre-wrapped here rather than left to the renderer, because the rail
- * has to appear on every row of a block and the wrap point is what guarantees
- * the measure. `transcriptRows` is therefore a pure function of the blocks and
- * the viewport, and is what the tests assert against.
+ * Render conversation blocks as terminal rows across the available viewport.
+ * Text and tool calls use the width between the two-cell gutter and right
+ * padding. Rows with timestamps or lane labels reserve only their label width.
+ * User backgrounds fill the viewport. transcriptRows handles wrapping and
+ * cached block layout; Transcript renders and scrolls the visible rows.
  */
 
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
@@ -56,7 +32,6 @@ import { stoppedHeading } from "../models/interrupt";
 import { receiptDiffRows, receiptParts } from "../models/receipt";
 import { reportLines, type ReportSegment } from "../report-layout";
 import { formatPreciseDuration } from "../text/format";
-import { PROSE_MEASURE } from "../text/measure";
 import { roleStyle, type RoleSegment, type TextRole } from "../text/roles";
 import {
   continueFenceHighlight,
@@ -94,9 +69,8 @@ const GUTTER = 2;
 /** Metadata stops here, so nothing ever touches the page's right edge. */
 const RIGHT_MARGIN = 2;
 
-/** Reasoning is subordinate by geometry: indented, and set to a narrower measure. */
+/** Indentation distinguishes reasoning from the answer. */
 const REASONING_INDENT = 2;
-const REASONING_MEASURE_RATIO = 0.72;
 
 /** Below this a receipt is not worth packing onto a shared row. */
 const RECEIPT_GAP = 2;
@@ -147,12 +121,12 @@ export interface RenderRow {
   readonly contentWidth: number;
   readonly meta: readonly Segment[];
   /**
-   * A surface painted behind exactly `contentWidth` cells, so a band ends on
-   * the measure rather than at the window edge. `bandIncludesGutter` extends
-   * it left over the rail and lane cells.
+   * A surface behind the content cells. The band flags extend it over the
+   * gutter or the whole conversation row.
    */
   readonly backgroundColor?: string;
   readonly bandIncludesGutter?: boolean;
+  readonly bandFullWidth?: boolean;
 }
 
 function wrap(segments: readonly Segment[], measure: number): Segment[][] {
@@ -274,31 +248,20 @@ function needsBreathingRow(block: Block, previous: Block | undefined): boolean {
 }
 
 interface Geometry {
-  /** Running text: never wider than `PROSE_MEASURE`, however wide the window. */
   readonly prose: number;
-  /** Scanned output — tables, fences, expanded tool bodies — may use all of this. */
   readonly content: number;
-  readonly metadata: number;
-  /** Where the metadata strip ends: the prose measure plus the strip beside it. */
   readonly page: number;
 }
 
-/**
- * Full width is a property of the window, not a licence for the paragraph.
- * Prose stops at the measure, the metadata strip sits directly beside it so a
- * timestamp stays in reach of the line it annotates, and any surplus beyond
- * that is right-hand margin.
- */
+/** All conversation content uses the available width, with two cells on each side. */
 function geometryFor(width: number): Geometry {
-  const measure = measureFor(width);
-  const prose = Math.min(PROSE_MEASURE, measure.prose);
-  const content = measure.prose + measure.metadata;
-  return {
-    prose,
-    content,
-    metadata: measure.metadata,
-    page: Math.min(content, prose + measure.metadata),
-  };
+  const { prose } = measureFor(width);
+  return { prose, content: prose, page: prose };
+}
+
+/** Reserve space only for metadata present on this row. */
+function widthWithMetadata(geometry: Geometry, meta: readonly Segment[]): number {
+  return Math.max(1, geometry.content - (meta.length > 0 ? terminalSegmentsWidth(meta) + 2 : 0));
 }
 
 interface RunCacheEntry {
@@ -414,8 +377,7 @@ function rowsForBlock(
 const BAND_PADDING = 1;
 
 /**
- * Render a user turn as a neutral band exactly one measure wide, rail
- * included, so every wrapped row ends on the same column as the prose below.
+ * Render a user turn with a full-width neutral background and wrapped prose.
  */
 function userRows(
   block: Extract<Block, { kind: "user" }>,
@@ -423,10 +385,11 @@ function userRows(
   glyphs: GlyphSet,
 ): RenderRow[] {
   const meta: readonly Segment[] =
-    block.at !== undefined && geometry.metadata > 0 ? [{ text: block.at, fg: THEME.muted }] : [];
+    block.at !== undefined ? [{ text: block.at, fg: THEME.muted }] : [];
+  const contentWidth = widthWithMetadata(geometry, meta);
   const lines = wrap(
     [{ text: block.text, fg: THEME.selected }],
-    Math.max(1, geometry.prose - BAND_PADDING),
+    Math.max(1, contentWidth - BAND_PADDING),
   );
   const bar: readonly Segment[] = [{ text: glyphs.bandBar, fg: THEME.primary }, blankCell()];
   const panel = (
@@ -437,10 +400,10 @@ function userRows(
     key,
     gutter: bar,
     content,
-    contentWidth: geometry.prose,
+    contentWidth,
     meta: rowMeta,
     backgroundColor: THEME.surface,
-    bandIncludesGutter: true,
+    bandFullWidth: true,
   });
   // One row of panel above and below the text: the band reads as a surface
   // the message sits on, not a highlighter stroke through it.
@@ -968,7 +931,7 @@ export const LIVE_REASONING_LINES = 3;
 
 /**
  * Reasoning is the model's scratchpad, never its answer: italic, muted, behind
- * a thin rule, and at a narrower measure. It has three states.
+ * a thin rule. It has three states.
  *
  * - Live: an italic "thinking" label with the elapsed time, and the newest
  *   lines only.
@@ -1009,8 +972,7 @@ function reasoningRows(
     ];
   }
 
-  // Subordinate by geometry, not by a new hue: narrower, indented, never bold.
-  const measure = Math.max(24, Math.floor(geometry.prose * REASONING_MEASURE_RATIO));
+  const measure = geometry.prose;
   const ruled: Segment = { text: `${glyphs.railDeep} `, fg: THEME.border };
   const text = spaceReasoningSections(block.text);
   const wrapped = wrap([{ text, fg: THEME.muted, italic: true }], measure - REASONING_INDENT - 2);
@@ -1113,13 +1075,18 @@ function receiptRows(
   };
 
   for (const block of blocks) {
-    const segments = receiptSegments(block, glyphs, geometry.prose);
+    const meta: readonly Segment[] =
+      block.expanded === true && block.durationMs !== undefined
+        ? [{ text: formatPreciseDuration(block.durationMs), fg: THEME.muted }]
+        : [];
+    const contentWidth = widthWithMetadata(geometry, meta);
+    const segments = receiptSegments(block, glyphs, contentWidth);
     const needsOwnRows =
       block.status !== "ok" ||
       block.expanded === true ||
       block.diffPreview !== undefined ||
       segments.some((segment) => segment.text.includes("\n")) ||
-      terminalSegmentsWidth(segments) > geometry.prose;
+      terminalSegmentsWidth(segments) > contentWidth;
 
     if (needsOwnRows) {
       flush();
@@ -1129,12 +1096,8 @@ function receiptRows(
           : block.status === "failed"
             ? { text: glyphs.error, fg: THEME.error }
             : { text: glyphs.pending, fg: THEME.muted };
-      const meta: readonly Segment[] =
-        block.expanded === true && block.durationMs !== undefined && geometry.metadata > 0
-          ? [{ text: formatPreciseDuration(block.durationMs), fg: THEME.muted }]
-          : [];
       if (segments.some((segment) => segment.text.trim().length > 0)) {
-        const lines = wrap(segments, geometry.prose);
+        const lines = wrap(segments, contentWidth);
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
           const line = lines[lineIndex];
           if (line === undefined) continue;
@@ -1142,7 +1105,7 @@ function receiptRows(
             key: `${block.id}:${String(lineIndex)}`,
             gutter: [lineIndex === 0 && block.status !== "ok" ? marker : rail, blankCell()],
             content: line,
-            contentWidth: geometry.prose,
+            contentWidth,
             meta: lineIndex === 0 ? meta : [],
           });
         }
@@ -1372,18 +1335,16 @@ function laneRows(
       ? { text: glyphs.error, fg: THEME.error }
       : { text: glyphs.success, fg: THEME.secondary };
 
-  const meta: readonly Segment[] =
-    geometry.metadata > 0
-      ? [
-          {
-            text:
-              block.steps === undefined
-                ? `lane ${String(block.lane)}`
-                : `lane ${String(block.lane)} ${glyphs.bullet} ${String(block.steps)} steps`,
-            fg: THEME.muted,
-          },
-        ]
-      : [];
+  const meta: readonly Segment[] = [
+    {
+      text:
+        block.steps === undefined
+          ? `lane ${String(block.lane)}`
+          : `lane ${String(block.lane)} ${glyphs.bullet} ${String(block.steps)} steps`,
+      fg: THEME.muted,
+    },
+  ];
+  const contentWidth = widthWithMetadata(geometry, meta);
 
   const rows: RenderRow[] = [
     {
@@ -1394,9 +1355,9 @@ function laneRows(
           { text: block.name, fg: THEME.secondary },
           { text: `  ${block.ask}`, fg: THEME.muted },
         ],
-        geometry.prose,
+        contentWidth,
       ),
-      contentWidth: geometry.prose,
+      contentWidth,
       meta,
     },
   ];
@@ -1420,9 +1381,7 @@ function laneRows(
 }
 
 /**
- * The width the transcript's rows span: the whole terminal. Prose and its
- * metadata strip stop at the measure (see `geometryFor`); scanned content may
- * run on to the right margin.
+ * Conversation rows span the terminal; content stays inside the two-cell margins.
  */
 export function pageWidth(viewport: Viewport): number {
   return viewport.width;
@@ -1602,6 +1561,7 @@ function Row({ row, width }: { row: RenderRow; width: number }): ReactNode {
         height: 1,
         flexShrink: 0,
         flexDirection: "row",
+        ...(row.bandFullWidth === true ? band : {}),
       }}
     >
       <box

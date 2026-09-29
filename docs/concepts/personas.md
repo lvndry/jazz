@@ -7,17 +7,24 @@ description: "What a Jazz persona is, how it shapes behaviour and can narrow an 
 A persona is a reusable system prompt with a name. It decides how an agent works: its voice, its
 priorities, what it does when a task is unclear.
 
-Jazz keeps the persona body intact, then adds one `Jazz harness` block for cross-tool runtime rules,
-capability indexes, and applicable project instructions. Tool-specific guidance stays with the tool
-so it does not crowd the agent's identity out of the system prompt. The harness treats the
-persona's identity, tone, style, priorities, and response patterns as a binding contract throughout
-the conversation.
+Attach the same persona to different models or agents. How closely a model follows it depends
+on the model and the conversation context.
 
-It says nothing about which model runs. You can attach the same persona to different models,
-but how closely they follow it depends on the model and the conversation context.
+Choose `default` for general work, `coder` for code and git, or `researcher` for read-only
+investigation. Jazz also uses an internal `summarizer` persona for context compaction.
 
-Jazz ships four: `default` for general work, `coder` for code and git, `researcher` for
-read-only investigation, and `summarizer`, which is internal and has no user to address.
+## Use a persona
+
+Run `jazz agent create` and select a persona, or use `jazz agent edit <agent>` to change an
+existing agent's persona. To add one from the library:
+
+```bash
+jazz persona browse
+jazz persona add copy-editor
+```
+
+To write your own, create `~/.jazz/personas/<name>/PERSONA.md` using the structure below,
+or follow the [accountability agent guide](../guides/goggins-accountability-agent.md).
 
 ## What a persona file looks like
 
@@ -47,6 +54,10 @@ You are {agentName}, a pragmatic hacker-engineer.
 
 ## Calibration
 
+User: “Is it done?”
+
+Coder: “The change is in place and the targeted checks pass. The full suite has not run yet.”
+
 User: “Patch this null error.”
 
 Coder: “The null originates earlier. I’ll fix the producer and cover the missing case.”
@@ -60,13 +71,11 @@ Three placeholders are filled in at run time. They are what let one file serve m
 | `{agentDescription}` | The agent's own description, so one persona hosts many jobs    |
 | `{environment}`      | Live machine facts: date, OS, shell, home, hostname, user, TTY |
 
-Use `{environment}` rather than writing "you are on macOS" into the prompt. Hardcode the machine
-and the persona is wrong the first time somebody else installs it.
+Use `{environment}` for machine-specific information.
 
 ## A repeatable persona structure
 
-Treat a persona as a behavioral specification rather than a character biography. Use four compact
-parts:
+Describe how the agent should behave. Use four parts:
 
 - The opening identity says who the persona is in one concrete sentence.
 - `Always` lists observable behavior that should survive every kind of request.
@@ -74,8 +83,7 @@ parts:
 - `Calibration` demonstrates the voice in an ordinary conversation and a task-oriented one.
 
 Add `Judgment` only when the persona has a real method for evaluating evidence, tradeoffs, or
-uncertainty. Examples teach tone more reliably than a list of adjectives; keep them short enough
-that the persona does not become a script.
+uncertainty. Keep examples short and representative of the tasks you expect.
 
 ## A persona can narrow tools, never widen them
 
@@ -87,9 +95,6 @@ An optional `tools` block in the frontmatter lets a persona restrict what agents
 
 This only ever subtracts. A persona cannot grant a tool, undo `deniedTools`, raise a disclosure
 ceiling, or change the approval policy.
-
-That separation is the point. Installing a persona from the library should never widen what
-your agent can do to your machine.
 
 ## Where they come from
 
@@ -106,10 +111,8 @@ jazz persona search            # everything the library offers
 
 ## Persona or agent config
 
-Ask whether you would want a second agent to inherit it.
-
-Yes, and it belongs in the persona. No, and it belongs in the agent, along with the provider,
-model, credentials, memory scopes, and tools.
+Put reusable behavior in the persona. Set the model, credentials, memory scopes, and tools
+in each [agent's configuration](../configure/agents.md).
 
 ## Related
 

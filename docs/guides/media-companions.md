@@ -6,8 +6,7 @@ description: "Build a mixed-model Jazz incident agent that understands screensho
 
 This tutorial builds an incident agent whose everyday reasoning stays on an inexpensive text model.
 Specialists inspect screenshots, recordings, and screen captures; an image-generation companion
-turns the verified timeline into a briefing card. The same agent works interactively and in CI
-because every companion choice is saved ahead of time.
+turns the verified timeline into a briefing card.
 
 ## 1. Configure the providers
 
@@ -52,30 +51,13 @@ from providers you configured:
 }
 ```
 
-These are open-weight models wherever one exists for the job, reached through OpenRouter so no
-single vendor's key is required. They show the shape of the decision rather than a single right
-answer:
+Choose models that support each assigned input or output. Run
+`jazz agent list --can image` to list models available through your configured
+providers. A binding uses Jazz's provider name followed by the model id: direct
+Google models use `gemini/...`, while Google models through OpenRouter use
+`openrouter/google/...`.
 
-| Role             | Model here                                 | Weights | In $/M | Why this one                                                |
-| ---------------- | ------------------------------------------ | ------- | ------ | ----------------------------------------------------------- |
-| primary          | `openrouter/z-ai/glm-5.3-flash`            | open    | 0.075  | Tool-capable, 1.3M context, cheap enough to orchestrate     |
-| `analyze:image`  | `openrouter/inclusionai/ling-3.0-flash-vl` | open    | 0.06   | Takes image and video, and is the cheapest that does        |
-| `analyze:audio`  | `alibaba/qwen3.6-27b`                      | open    | 0.6    | Audio input is rare in open weights; Qwen has it            |
-| `analyze:video`  | `openrouter/inclusionai/ling-3.0-flash-vl` | open    | 0.06   | Same model as image, bound separately so you can change one |
-| `generate:image` | `openrouter/google/gemini-3.1-flash-image` | closed  | 0.5    | No open-weight model in the catalog returns an image        |
-
-That last row is worth being honest about. Image generation is the one role here with no
-open-weight option: nothing in the catalog that Jazz can reach emits an image alongside text.
-Binding a closed model for that one role, and nothing else, is exactly what per-role bindings are
-for.
-
-Two notes that cost an afternoon otherwise. The provider segment is Jazz's provider name, so
-Gemini models are `gemini/...` when you hold a Google key directly and `openrouter/google/...`
-through OpenRouter. And prices move, so treat the numbers above as the reason for each choice
-rather than a quote; `jazz agent list --can image` shows what your own keys actually reach.
-
-Jazz validates the role names and the `provider/model` shape when it loads the agent, but it
-cannot know which providers you actually pay for.
+Configure credentials for every provider named in the companion map.
 
 ## 3. Give it an end-to-end cross-media job
 
@@ -83,7 +65,8 @@ cannot know which providers you actually pay for.
 jazz agent chat incident-media-analyst
 ```
 
-Then send:
+Replace the example paths with files you have: a dashboard screenshot, an audio note,
+and a reproduction video. Then send:
 
 ```text
 Correlate @/tmp/latency-dashboard.png, @/tmp/on-call-note.m4a, and
@@ -97,16 +80,20 @@ assigned files and task; the parent reconciles the returned evidence, then sends
 visual brief to the image-generation companion. This avoids putting the full conversation and
 every attachment into every model call.
 
+You should receive a timeline citing the supplied evidence and a generated briefing
+image. Check the timeline before sharing the image; model analysis can be wrong.
+
 ## 4. Run the same analyst in CI
 
-Copy its JSON into the runner's Jazz home, expose only the provider keys it needs, and bind the
-artifacts from your test job:
+Add the agent JSON to your repository at
+`.github/jazz/agents/incident-media-analyst.json`. In a job where Jazz is installed and
+your tests have written `artifacts/expected.png` and `artifacts/actual.png`, add this step:
 
 ```yaml
 - name: Explain visual regression failure
   env:
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    COMPANION_PROVIDER_API_KEY: ${{ secrets.COMPANION_PROVIDER_API_KEY }}
+    OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    ALIBABA_API_KEY: ${{ secrets.ALIBABA_API_KEY }}
   run: |
     mkdir -p ~/.jazz/agents
     cp .github/jazz/agents/incident-media-analyst.json ~/.jazz/agents/
@@ -115,14 +102,14 @@ artifacts from your test job:
       > media-review.json
 ```
 
-Replace `COMPANION_PROVIDER_API_KEY` with the real environment variable for the provider you chose.
+Adjust the keys if you chose different providers.
 No picker appears in CI: the saved `analyze:image` binding is the decision. Parse
 `media-review.json` only after checking `.ok` and `.costKnown`.
 
-## What this setup guarantees
+## Companion behavior
 
 - The primary model remains the agent's identity and orchestrator.
 - Companions have isolated context, no tools, and bounded execution.
 - Analysis and generation can use different providers and models for the same medium.
-- Unattended runs never guess which provider may receive private media.
+- Unattended runs require a saved companion binding.
 - Companion spend is included in the parent run's cost accounting.

@@ -4,7 +4,9 @@ description: "Fix common Jazz problems: rejected provider keys, a local model th
 
 # Troubleshooting
 
-Start with the three checks below, then find the symptom.
+Find your symptom in this page. For configuration or startup failures, run
+`jazz config validate` first. Use `jazz config show` to inspect resolved settings
+and `--debug` to collect details from a failing command.
 
 ```bash
 jazz config validate    # names every setting Jazz rejects, and suggests the one you meant
@@ -34,10 +36,11 @@ The message names the provider, for example "OpenAI API key is missing or invali
 1. Check the agent uses the provider you think it does: `jazz agent show <agent>`.
 2. Save the key again without putting it in your shell history. `jazz config set openai`
    prompts for it; replace `openai` with your provider.
-3. Or export the provider's variable instead, such as `OPENAI_API_KEY`. A saved key wins over
-   the variable, so remove a stale saved key if the variable seems ignored. The variables are
-   listed in [Environment variables](./configure/environment-variables.md#model-provider-keys-and-servers).
-4. A pasted key with a stray space or newline is rejected like a wrong one. Paste it again.
+3. Or supply the provider's environment variable, such as `OPENAI_API_KEY`. It takes
+   precedence over the saved key; update or unset a stale variable before saving a new key.
+   See [Environment variables](./configure/environment-variables.md#model-provider-keys-and-servers).
+4. Jazz trims surrounding whitespace when saving a key. If it is still rejected, check
+   that you copied the complete key for the correct provider.
 
 ## A local model never answers
 
@@ -93,8 +96,8 @@ Jazz stores secrets in macOS Keychain or, on Linux, the Secret Service (`secret-
 Linux machine without a desktop session usually has no Secret Service; Jazz then uses
 `~/.jazz/secrets.json`, readable only by you.
 
-- "`$JAZZ_DISABLE_KEYRING` is set, so Jazz won't store this token anywhere" means exactly
-  that: unset the variable, or supply the secret as an environment variable.
+- If `$JAZZ_DISABLE_KEYRING` prevents storage, unset it or supply the secret as an
+  environment variable.
 
 ## The daemon is not running
 
@@ -121,8 +124,8 @@ jazz workflow history <name>     # did it start?
 ```
 
 Then read `~/.jazz/logs/<workflow>.log` and `<workflow>.error.log`. A workflow scheduled
-with launchd or cron runs only while the machine is awake; the next interactive `jazz` offers
-to catch up on runs it missed. With `scheduler.mode` set to `in-process`, nothing runs unless
+with launchd runs missed sleep slots once on wake; cron skips them. The next interactive
+`jazz` offers to catch up on missed runs. With `scheduler.mode` set to `in-process`, nothing runs unless
 the daemon is up. See [Scheduled runs](./surfaces/scheduled.md).
 
 ## Reporting a bug

@@ -4,13 +4,28 @@ description: "Write Jazz documentation that is concise, code-backed, runnable, a
 
 # Documentation quality standard
 
-Jazz documentation should unlock real work. More content is welcome when each page has a distinct reader, question, and maintained source of truth. Length is not the enemy; low information density and false completeness are.
+Write for people using Jazz. Help them understand a capability, set it up, and use it.
+Keep implementation details in the maintainer section.
 
 ## Start with the reader's outcome
 
 A tutorial title names what the reader will accomplish: “Investigate an attack and approve a Cloudflare WAF rule,” not “Use parked runs.” Explain the user value before the Jazz mechanism.
 
-A concept page answers what something is, when to use it, and which boundary it owns. A configuration or command page optimizes for exact lookup. Maintainer documentation traces implementation and invariants. Do not force every page into the tutorial shape.
+A concept page uses the concept's actual name as its title and explains what it is,
+when to use it, and how a user can try it. A configuration or command page optimizes for exact lookup. Maintainer documentation traces implementation and invariants. Do not force every page into the tutorial shape.
+
+## Review the first experience
+
+Read public pages individually, including their linked prerequisites. Check that a new user can:
+
+- understand the capability and recognize a task it helps with;
+- complete the setup without assuming an agent, workflow, file, or credential already exists;
+- run the example and recognize its expected result;
+- find controls for inspecting, changing, or stopping the work;
+- reach the CLI and command reference from the navigation.
+
+Keep exhaustive syntax in the reference and implementation details in maintainer pages.
+Removing filler is only part of the review; repair missing steps and misleading examples too.
 
 ## Reality is a requirement
 
@@ -20,7 +35,8 @@ Before documenting behavior:
 2. Run or mechanically validate every command and configuration field possible.
 3. Name prerequisites, persistence requirements, credentials, and network assumptions.
 4. Explain what happens on refusal, timeout, invalid input, or unavailable infrastructure.
-5. Link to the code or authoritative upstream integration.
+5. Link to the relevant user reference or authoritative integration documentation.
+   Link to implementation files when writing for maintainers.
 
 Never invent an adapter, binary, API, flag, or happy-path response to make an example look complete. If an organization-specific seam is unavoidable, describe its input/output contract plainly instead of giving a fictional command a plausible name.
 
@@ -50,7 +66,15 @@ Descriptions should identify both the subject and outcome. Headings should stand
 
 Delete throat-clearing, repeated conclusions, fake quotations, obvious transitions, and generic claims such as “powerful,” “seamless,” or “revolutionary.” Keep details that change a decision or prevent a failure.
 
-Use one strong example instead of five shallow ones. Use diagrams only when relationships are harder to understand in prose. Put exhaustive inventories in lookup pages rather than repeating them across concepts and guides.
+Prefer a short list or table to a diagram. Use a diagram only when it explains a complex
+relationship more clearly than either. Check it at the width of the documentation page.
+
+Start with what the feature does and how to use it. Avoid failure-first introductions,
+repository anecdotes, and explanations of ordinary shell syntax. Write directly: “the
+standard file for project instructions,” rather than “the cross-tool convention.”
+
+Use one complete example rather than several partial ones. Keep exhaustive inventories
+in reference pages.
 
 ## Keep documentation from drifting
 

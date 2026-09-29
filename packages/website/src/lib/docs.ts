@@ -1,11 +1,17 @@
+/**
+ * Builds documentation routes, labels, sidebar order, and previous/next navigation
+ * from Astro's docs collection. Use buildSidebar for the shared navigation and
+ * routeFor to link to a collection entry; Concepts contains both capabilities and
+ * their underlying building blocks.
+ */
 import type { CollectionEntry } from "astro:content";
 
 /** Section order mirrors the section list in docs/index.md. */
 export const SECTIONS: ReadonlyArray<{ dir: string; label: string }> = [
   { dir: "getting-started", label: "Getting started" },
-  { dir: "features", label: "Features" },
-  { dir: "surfaces", label: "Where it runs" },
+  { dir: "commands", label: "Reference" },
   { dir: "concepts", label: "Concepts" },
+  { dir: "surfaces", label: "Where it runs" },
   { dir: "guides", label: "Guides" },
   { dir: "configure", label: "Configure" },
   { dir: "tools", label: "Tools" },
@@ -30,26 +36,32 @@ const PINNED_ORDER: Record<string, string[]> = {
     "getting-started/local-models",
     "getting-started/uninstall",
   ],
-  features: [
-    "features/goals-and-loops",
-    "features/long-running-work",
-    "features/automation",
-    "features/media",
+  surfaces: [
+    "surfaces/cli",
+    "surfaces/headless",
+    "surfaces/chat",
+    "surfaces/ci",
+    "surfaces/scheduled",
   ],
-  surfaces: ["surfaces/headless", "surfaces/chat", "surfaces/ci", "surfaces/scheduled"],
   concepts: [
     "concepts/agents",
     "concepts/personas",
     "concepts/skills",
     "concepts/tools",
-    "concepts/workflows",
+    "concepts/media",
     "concepts/conversations-and-memory",
-    "concepts/budgets",
+    "concepts/context-management",
     "concepts/artifacts",
+    "concepts/compositions",
+    "concepts/goals-and-loops",
+    "concepts/starting-runs",
+    "concepts/workflows",
     "concepts/deferred-work",
-    "concepts/webhooks",
     "concepts/agent-to-agent",
+    "concepts/webhooks",
+    "concepts/detach",
     "concepts/daemon",
+    "concepts/budgets",
     "concepts/lexicon",
   ],
   guides: [
@@ -171,8 +183,7 @@ export interface SidebarSection {
 export function buildSidebar(entries: DocsEntry[]): SidebarSection[] {
   const bySection = new Map<string, DocsEntry[]>();
   for (const entry of entries) {
-    // The exhaustive command index is linked contextually and searchable, not a navigation pillar.
-    if (entry.id === "index" || entry.id === "commands") continue;
+    if (entry.id === "index") continue;
     const section = sectionKeyFor(entry.id);
     const bucket = bySection.get(section) ?? [];
     bucket.push(entry);
@@ -187,7 +198,9 @@ export function buildSidebar(entries: DocsEntry[]): SidebarSection[] {
   for (const { dir, label } of ordered) {
     const bucket = bySection.get(dir);
     if (!bucket) continue;
-    const indexEntry = bucket.find((entry) => entry.id === dir || entry.id === `${dir}/index`);
+    const indexEntry = bucket.find(
+      (entry) => entry.id === `${dir}/index` || (entry.id === dir && dir !== "commands"),
+    );
     const pinned = PINNED_ORDER[dir] ?? [];
     const rank = (id: string): number => {
       const position = pinned.indexOf(id);

@@ -36,11 +36,12 @@ describe("markdownToAnsi", () => {
     expect(markdownToAnsi("", { width: WIDTH })).toBe("");
   });
 
-  it("wraps a paragraph at the prose measure, not the full width", () => {
+  it("wraps a paragraph at the available width", () => {
     const long = Array.from({ length: 20 }, (_, index) => `word${String(index)}`).join(" ");
     const lines = plain(long, { width: 120 }).split("\n");
     for (const line of lines) {
-      expect(line.length).toBeLessThanOrEqual(88);
+      expect(line.length).toBeLessThanOrEqual(120);
+      if (line === lines[0]) expect(line.length).toBeGreaterThan(88);
     }
     expect(lines.length).toBeGreaterThan(1);
   });

@@ -1,25 +1,22 @@
 ---
-description: "Compare Jazz in the terminal, scripts, CI, scheduled workflows, chat bots, webhooks, and agent-to-agent peer connections."
+description: "Choose where to run Jazz: interactive terminal, scripts, CI, scheduled jobs, chat apps, webhooks, or trusted agent peers."
 ---
 
 # Where Jazz runs
 
-A surface is a front door onto the same agent runner. The model, tools, memory, and core safety model remain the same; interaction, identity, persistence, and approval handling change.
+Choose how you want to reach your agent. Its model, persona, and tools come from the
+agent configuration; each surface provides its own conversation and approval controls.
 
-## Interactive
+| You want to                                               | Use                                       |
+| --------------------------------------------------------- | ----------------------------------------- |
+| Work alongside an agent and review actions as they happen | [CLI](./cli.md): `jazz`                   |
+| Call an agent from a script and parse the result          | [Headless](./headless.md): `jazz run`     |
+| Summarize a pull request or investigate build failures    | [CI](./ci.md)                             |
+| Receive a recurring briefing or run a routine job         | [Scheduled runs](./scheduled.md)          |
+| Reach an agent from your phone or a team channel          | [Chat platforms](./chat.md)               |
+| Start work when another application sends an event        | [Webhooks](../guides/webhook-endpoint.md) |
+| Ask another Jazz installation for help                    | [Peers](../guides/connect-peers.md)       |
 
-- **Terminal:** streams reasoning and tool activity, accepts attachments, and asks for approvals or missing input.
-- **Chat bots:** Telegram, Discord, iMessage, and WhatsApp bridge each external conversation to a stable Jazz conversation.
-
-## Unattended
-
-- **Headless:** `jazz run` provides a strict stdout, stderr, JSON, event, and exit-code contract for scripts and services.
-- **Scheduled:** workflows run through launchd, cron, or the daemon's in-process scheduler and apply catch-up rules after downtime.
-- **CI:** a headless run with explicit limits, a pinned agent, and a noninteractive approval policy.
-- **Webhooks:** authenticated HTTP endpoints invoke fixed prompt templates with per-door tool ceilings.
-
-## Agent-to-agent
-
-Peers are explicitly configured remote agents. Unlike webhooks, they accept an open-ended request, so identity, disclosure, and tool ceilings are central to the contract.
-
-Read the dedicated pages for [headless runs](./headless.md), [scheduled work](./scheduled.md), [CI](./ci.md), and [chat platforms](./chat.md). Webhooks have a [concept page](../concepts/webhooks.md) and a [build-one guide](../guides/webhook-endpoint.md).
+Start with the [quick start](../getting-started/quick-start.md) if you have not run Jazz
+before. For unattended work, choose the agent's permissions and budgets before enabling
+its schedule or external entry point. See [Unattended runs](../security/unattended-runs.md).

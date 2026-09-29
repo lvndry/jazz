@@ -45,35 +45,36 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 Jazz resolves a provider key in this order:
 
 1. an agent-specific `config.llm.apiKeys` override;
-2. the global provider configuration;
-3. the provider's environment variable.
+2. the provider's environment variable;
+3. the stored global provider key (keyring, then config-file value).
 
 The configuration wizard writes secrets to macOS Keychain or libsecret when available. On a host without a keyring it falls back to the protected Jazz secrets file. `jazz config show` and `jazz config get` redact resolved secrets, including those read from the keyring or the environment; add `--reveal` to print them.
 
-Keyring entries belong to one Jazz home: each home stores its secrets under the service `jazz.<hash of the home path>`, so a `JAZZ_HOME` or `--data-dir` home never reads the keys of another. Entries saved by earlier versions of Jazz sit under the bare `jazz` service; the default `~/.jazz` home moves them into its own service the first time it touches the keyring. Any other home starts empty, so set its keys again there (`jazz config`, `jazz config set llm.<provider>.api_key`, and `jazz mcp auth` for OAuth servers).
+Each Jazz home has separate credentials. After changing `JAZZ_HOME` or `--data-dir`,
+configure keys and MCP OAuth again for that home.
 
 To set a key by hand, run `jazz config set <provider>` (for example `jazz config set anthropic`) and paste the key when asked, so it never lands in your shell history. Jazz trims a pasted key and, for providers with a free endpoint to ask (OpenAI, Anthropic, Gemini, OpenRouter, xAI, Cerebras, DeepSeek, Fireworks, Groq, Mistral, Together AI), checks it before saving: a key rejected with `401` is asked for again. A `403` saves the key with a warning because a restricted key may allow inference without allowing model listing; the first model request determines whether it can run. A provider pointed at a custom `base_url` is not checked.
 
-In the interactive **Settings** → **LLM Providers** and **Web Search Providers** menus, a configured key stays masked. Press `e` to replace it or `c` to copy it to the system clipboard. Press `Esc` at the key prompt to keep the saved key and return to the provider list. Jazz never prints the key in the terminal. ChatGPT's OAuth credential can also be copied from its provider settings. It includes the refresh token. For hosted CI, set the copied JSON bundle as `JAZZ_CHATGPT_CREDENTIAL`; Jazz removes it from its child-process environment, stores it in its normal private credential store, and refreshes it automatically. A workflow must persist rotated bundles if its runners are ephemeral.
+In the interactive `/settings` → **Model providers** and **Web search** menus, a configured key stays masked. Press `e` to replace it or `c` to copy it to the system clipboard. Press `Esc` at the key prompt to keep the saved key and return to the provider list. Jazz never prints the key in the terminal. ChatGPT's OAuth credential can also be copied from its provider settings. It includes the refresh token. For hosted CI, set the copied JSON bundle as `JAZZ_CHATGPT_CREDENTIAL`; Jazz removes it from its child-process environment, stores it in its normal private credential store, and refreshes it automatically. A workflow must persist rotated bundles if its runners are ephemeral.
 
 For CI and containers, inject the environment variable from the platform's secret store. Do not commit provider keys in an agent JSON file merely because `llm.apiKeys` exists.
 
 ## ChatGPT subscription
 
-The `chatgpt` provider runs OpenAI models on a ChatGPT Plus or Pro plan instead of API credits, through the same sign-in the Codex CLI uses. OpenAI supports this for third-party agents. Usage counts against the plan's limits, so Jazz shows no per-token cost for these models.
+The `chatgpt` provider runs OpenAI models on a ChatGPT Plus or Pro plan instead of API credits, through the same sign-in the Codex CLI uses. Usage counts against the plan's limits, so Jazz shows no per-token cost for these models.
 
-Run `jazz`, choose **Settings**, then **LLM Providers**, then **ChatGPT**, and pick how to sign in:
+Run `jazz`, type `/settings`, then choose **Model providers**, then **ChatGPT**, and pick how to sign in:
 
 - **Open a browser on this machine** opens OpenAI's sign-in page and receives the result on `localhost:1455`. Finish or cancel any Codex CLI sign-in first, because it uses the same port.
 - **Enter a code on another device** shows a code to enter at `auth.openai.com/codex/device` from any phone or laptop. Use this over SSH and on servers without a browser.
 
 Choosing ChatGPT for an agent in `jazz agent create` starts the same sign-in when you are not signed in yet.
 
-The tokens are stored in the keyring (or the Jazz secrets file on hosts without one), and `config.json` records only the account ID and plan. Jazz refreshes the token on its own. Several Jazz processes on one machine share a sign-in safely, because only one of them refreshes at a time. The model list comes from your plan, so it only shows models the plan can use. Web search uses OpenAI's built-in search unless you have chosen an external search provider.
+The tokens are stored in the keyring (or the Jazz secrets file on hosts without one), and `config.json` records only the account ID and plan. Jazz refreshes the token on its own. The model list comes from your plan, so it only shows models the plan can use. Web search uses OpenAI's built-in search unless you have chosen an external search provider.
 
-For hosted CI, set `JAZZ_CHATGPT_CREDENTIAL` to the JSON bundle copied from **Settings** → **LLM Providers** → **ChatGPT** (`c`). Jazz reads it only when no stored ChatGPT credential exists and removes the variable before launching child processes. Refresh tokens rotate, so ephemeral workflows must persist a newly refreshed bundle before the next run; serialize all workflows that use the same credential. See the [GitHub Actions setup guide](../../.github/jazz/README.md) for the Jazz workflow's GitHub App updater.
+For hosted CI, set `JAZZ_CHATGPT_CREDENTIAL` to the JSON bundle copied from `/settings` → **Model providers** → **ChatGPT** (`c`). Jazz reads it only when no stored ChatGPT credential exists and removes the variable before launching child processes. Refresh tokens rotate, so ephemeral workflows must persist a newly refreshed bundle before the next run; serialize all workflows that use the same credential. See [CI runs](../surfaces/ci.md) for unattended setup and the [pull-request reviewer](../guides/pr-review.md) for a working workflow.
 
-To switch accounts or sign out, choose **ChatGPT** under **Settings** → **LLM Providers** again.
+To switch accounts or sign out, choose **ChatGPT** under `/settings` → **Model providers** again.
 
 ## OpenRouter for model portability
 
@@ -141,7 +142,7 @@ ollama serve
 jazz agent create
 ```
 
-The default API base URL is `http://127.0.0.1:11434/api`. The first time `jazz agent create` uses Ollama, it asks for the server URL and saves it; override it later with `llm.ollama.base_url`, `OLLAMA_BASE_URL`, or **Settings** → **LLM Providers** in the `jazz` home menu, which accepts a bare `host:port` and fills in the scheme and REST path; saved configuration wins over the environment.
+The default API base URL is `http://127.0.0.1:11434/api`. The first time `jazz agent create` uses Ollama, it asks for the server URL and saves it; override it later with `llm.ollama.base_url`, `OLLAMA_BASE_URL`, or `/settings` → **Model providers** in the `jazz` home screen, which accepts a bare `host:port` and fills in the scheme and REST path; saved configuration wins over the environment.
 
 ```json
 {
@@ -162,7 +163,7 @@ Models tagged `:cloud` or `-cloud` execute through Ollama Cloud and need `OLLAMA
 
 ## llama.cpp
 
-Jazz connects to `llama-server` through the `llamacpp` provider. The default base URL is `http://127.0.0.1:8080/v1`; the first time `jazz agent create` uses it, Jazz asks for the server URL and saves it. You can also set `llm.llamacpp.base_url`, `LLAMACPP_BASE_URL`, or use **Settings** → **LLM Providers** in the `jazz` home menu (a bare `host:port` is enough). llama.cpp needs no API key unless the server runs with `--api-key`; when it answers 401, `jazz agent create` asks for the key, and **Settings** → **LLM Providers** can set it.
+Jazz connects to `llama-server` through the `llamacpp` provider. The default base URL is `http://127.0.0.1:8080/v1`; the first time `jazz agent create` uses it, Jazz asks for the server URL and saves it. You can also set `llm.llamacpp.base_url`, `LLAMACPP_BASE_URL`, or use `/settings` → **Model providers** in the `jazz` home screen (a bare `host:port` is enough). llama.cpp needs no API key unless the server runs with `--api-key`; when it answers 401, `jazz agent create` asks for the key, and `/settings` → **Model providers** can set it.
 
 ```bash
 llama-server -m /models/model.gguf --jinja --port 8080
@@ -173,7 +174,7 @@ Use `--jinja` when the model should call tools. Jazz reads `/props` for context 
 
 ## vLLM
 
-Use the separate `vllm` provider for a vLLM server. Its default base URL is `http://127.0.0.1:8000/v1`. On first use, `jazz agent create` asks for the address and saves `llm.vllm.base_url`; you can also set `VLLM_BASE_URL` or use **Settings** → **LLM Providers** in the `jazz` home menu. Jazz reads `/v1/models`: it selects the sole served ID automatically, or asks you to choose when the server lists several. On each run, Jazz refreshes the model list and uses the saved ID while it is still listed; if it disappears, Jazz uses the first live ID and its context window. Configure `llm.vllm.api_key` or `VLLM_API_KEY` if the server uses `--api-key`; an authorization error during agent creation prompts for the key.
+Use the separate `vllm` provider for a vLLM server. Its default base URL is `http://127.0.0.1:8000/v1`. On first use, `jazz agent create` asks for the address and saves `llm.vllm.base_url`; you can also set `VLLM_BASE_URL` or use `/settings` → **Model providers** in the `jazz` home screen. Jazz reads `/v1/models`: it selects the sole served ID automatically, or asks you to choose when the server lists several. On each run, Jazz refreshes the model list and uses the saved ID while it is still listed; if it disappears, Jazz uses the first live ID and its context window. Configure `llm.vllm.api_key` or `VLLM_API_KEY` if the server uses `--api-key`; an authorization error during agent creation prompts for the key.
 
 ```bash
 vllm serve <model> --port 8000
@@ -184,14 +185,14 @@ Jazz uses vLLM's OpenAI-compatible chat API. Tool calls require a compatible mod
 
 ## SGLang
 
-Use the `sglang` provider for an SGLang server. The default base URL is `http://127.0.0.1:30000/v1`. On first use, `jazz agent create` asks for the address and saves `llm.sglang.base_url`; `SGLANG_BASE_URL` and **Settings** → **LLM Providers** in the `jazz` home menu also work. Jazz discovers current IDs from `/v1/models`, selecting the sole model automatically or offering a picker for multiple IDs such as loaded LoRA adapters. At the start of each run it keeps the saved ID if still served, otherwise uses the first current ID. It also reads the live `max_model_len` for context accounting; a LoRA card without a length inherits its listed base model's length.
+Use the `sglang` provider for an SGLang server. The default base URL is `http://127.0.0.1:30000/v1`. On first use, `jazz agent create` asks for the address and saves `llm.sglang.base_url`; `SGLANG_BASE_URL` and `/settings` → **Model providers** in the `jazz` home screen also work. Jazz discovers current IDs from `/v1/models`, selecting the sole model automatically or offering a picker for multiple IDs such as loaded LoRA adapters. At the start of each run it keeps the saved ID if still served, otherwise uses the first current ID. It also reads the live `max_model_len` for context accounting; a LoRA card without a length inherits its listed base model's length.
 
 ```bash
 python -m sglang.launch_server --model-path <model> --port 30000
 jazz agent create
 ```
 
-Set `llm.sglang.api_key` or `SGLANG_API_KEY` if the server requires bearer authentication. Jazz prompts for a key when model listing returns 401 or 403. SGLang uses the OpenAI-compatible chat API. Tool calls need a compatible model and the matching `--tool-call-parser`; reasoning output needs an appropriate `--reasoning-parser` for the model. `/v1/models` does not report parser configuration, so test those features against your server. See [SGLang's reasoning guide](https://docs.sglang.ai/advanced_features/separate_reasoning.html) and [server argument reference](https://docs.sglang.ai/advanced_features/server_arguments.html). `numCtx` limits Jazz's accounting; it does not change the server's context length.
+Set `llm.sglang.api_key` or `SGLANG_API_KEY` if the server requires bearer authentication. Jazz prompts for a key when model listing returns 401 or 403. SGLang uses the OpenAI-compatible chat API. Tool calls need a compatible model and the matching `--tool-call-parser`; reasoning output needs an appropriate `--reasoning-parser` for the model. `/v1/models` does not report parser configuration, so test those features against your server. See [SGLang's reasoning guide](https://docs.sglang.ai/advanced_features/separate_reasoning.html) and [server argument reference](https://docs.sglang.ai/advanced_features/server_arguments.html). `llm.numCtx` limits Jazz's accounting; it does not change the server's context length.
 
 ## Model capability overrides
 
@@ -230,7 +231,7 @@ Transports name the request field Jazz sends, not a vendor. OpenAI-compatible pr
 
 When a profile lists `efforts`, a requested level the model does not list is lowered to the nearest listed level below it, or raised to the lowest listed level when none is below it; Jazz never raises it further. `disable` on a profile with `"canDisableReasoning": false` becomes the lowest level, or keeps reasoning on for a toggle. The `/reasoning` picker and `jazz agent create`/`edit` offer only the levels the model's profile accepts; with no profile they offer every level. A typed `/reasoning <level>` or `jazz run --reasoning <level>` the model does not accept prints the level it runs at, and `jazz agent edit` shows it next to the saved level.
 
-A bare `llama-server` serves the one model loaded at launch and ignores the requested model name, and that model can change between runs. Jazz therefore treats the model chosen at agent creation as a hint: at the start of each run it reads the actually-served model from `/v1/models` and the real context window from `/props`, so the displayed model and context accounting match what the server is running. A pinned `numCtx` still overrides the server-reported window.
+A bare `llama-server` serves the one model loaded at launch and ignores the requested model name, and that model can change between runs. Jazz therefore treats the model chosen at agent creation as a hint: at the start of each run it reads the actually-served model from `/v1/models` and the real context window from `/props`, so the displayed model and context accounting match what the server is running. A pinned `llm.numCtx` still overrides the server-reported window.
 
 ## Slow first tokens from local models
 

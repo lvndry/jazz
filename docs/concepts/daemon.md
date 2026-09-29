@@ -1,62 +1,63 @@
 ---
-description: "The daemon is what lets Jazz act with no terminal open: serving runs over HTTP, owning the schedule ticker, answering peers, and serving webhooks."
+description: "Run the Jazz daemon for background goals and loops, HTTP requests, webhooks, and peers. Install it as a service and manage authentication and spend limits."
 ---
 
-# Daemon: Jazz with no terminal attached
+# Daemon
 
-A chat (`jazz`, or `jazz agent chat`) and `jazz run` are one process talking to one terminal. Some things have to happen
-when nobody is typing:
+Run `jazz daemon` to accept HTTP requests, continue background goals and loops, and receive
+webhooks or peer questions. For recurring workflows, it can also replace the OS scheduler.
 
-- a scheduled workflow firing at 6 AM,
-- a webhook from GitHub landing at 2 PM,
-- a parked run that only somebody at another machine can approve.
-
-`jazz daemon` is that something. Same agent runtime, reachable over HTTP instead of a REPL.
-
----
-
-## The short version
+## Start the daemon
 
 ```bash
-# Start it. It backgrounds itself
 jazz daemon
+jazz daemon status
+```
 
-# From another terminal, or another machine: start a run
+The daemon starts in the background. On first start it generates an authentication token
+and prints it once; keep that value if you want to call it over HTTP. You can use the CLI
+without copying it:
+
+```bash
+jazz runs list
+jazz runs show <run-id>
+jazz runs approve <run-id>
+jazz runs reject <run-id>
+```
+
+## Start a run over HTTP
+
+[Create an agent](../getting-started/create-an-agent.md) named `assistant` first. In the
+client's shell, set `JAZZ_DAEMON_TOKEN` to the token printed when you started the daemon:
+
+```bash
+export JAZZ_DAEMON_TOKEN='<your-daemon-token>'
 curl -X POST http://localhost:4747/runs \
   -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"agent":"default","prompt":"summarize today'\''s deploys"}'
-
-# Poll it
-curl http://localhost:4747/runs/<runId> -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN"
-
-# If it parked on an approval, approve it (a grant, so it needs the operator token too)
-curl -X POST http://localhost:4747/runs/<runId>/answer \
-  -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN" \
-  -H "X-Jazz-Operator-Token: $JAZZ_OPERATOR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"approved":true}'
+  -d '{"agent":"assistant","prompt":"Summarize the project files without changing them"}'
 ```
 
-`jazz runs` (list, show, approve, reject) is the same thing from the CLI, and works whether or
-not a daemon is involved. A daemon just means the run can be answered from somewhere other than
-the process that started it.
+The response identifies the run. Replace `<run-id>` below with that ID to read its status:
+
+```bash
+curl http://localhost:4747/runs/<run-id> \
+  -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN"
+```
+
+If it waits for approval, use `jazz runs approve <run-id>` on the host. To approve over HTTP,
+configure an [operator token](#granting-authority-over-http) as well.
 
 ---
 
-## What it actually does
-
-One process, several jobs, most of them opt-in:
+## Available services
 
 - **Serves runs over HTTP.** `POST /runs` starts one, `GET /runs/:id` polls it,
-  `POST /runs/:id/answer` approves or rejects what it is parked on, `GET /runs` lists what is in
-  flight. This is the only way to answer a parked run from a different process than the one that
-  started it.
+  `POST /runs/:id/answer` approves or rejects a parked action, and `GET /runs` lists active runs.
 - **Owns accepted goals.** `POST /goals` creates a proposed goal, and versioned `POST /goals/:id/{accept,pause,resume,cancel}` routes control its lifecycle. `GET /goals` and `GET /goals/:id` read state. The daemon claims and advances goal cycles; if it is stopped, goals remain saved and wait for it to return.
 - **Runs loops.** `POST /loops` starts one (`agentId`, `prompt`, `every`, absolute `workingDirectory`, optional `timezone`, `name`, `approvalPolicy`, `maxRuns`), and versioned `POST /loops/:loop/{pause,resume,cancel}` routes control it. `GET /loops` and `GET /loops/:loop` read state. Each tick starts the loops that are due; if the daemon is stopped, loops wait and their missed runs collapse into one.
 - **Serves the agent catalogue.** `GET`/`POST`/`DELETE` on `/agents`, `/personas`, plus
-  `/catalog`, `/models` and `/tools`. This is what an agent editor talks to, so a UI never has to
-  parse JSON files on disk or reimplement validation. Writes need the
+  `/catalog`, `/models` and `/tools`. Writes need the
   [operator token](#granting-authority-over-http).
 - **Owns the schedule ticker**, when `scheduler.mode` is `in-process`. Schedules normally ride the
   OS scheduler, which only fires while the machine is awake. The daemon's ticker is the
@@ -67,40 +68,17 @@ One process, several jobs, most of them opt-in:
 - **Serves webhooks.** `POST /webhooks/<name>` wakes the agent that webhook names. See
   [Webhooks](./webhooks.md).
 
-Webhook and peer runs are bounded per door: a budget, a concurrency cap (`429` past it), and a
-body cap. Each keyring credential they check is read once and trusted for 30 seconds, so a burst
-of requests does not spawn a keyring process each, and a rotated token takes effect without a
-restart.
+Webhook and peer requests have per-endpoint budgets, concurrency limits, and body-size limits.
+See their respective pages for configuration.
 
-It is also the fallback ticker for [wake triggers and reminders](./deferred-work.md): a trigger
-normally fires through a one-shot `launchd`/`at` job the host schedules directly, with no daemon
-required. The in-process ticker matters on a host with neither, which mostly means containers,
-and for retrying a delivery that failed.
-
-### How a tick works
-
-Every few seconds the daemon claims what is due (workflow slots, wake triggers, reminders, goal
-cycles, loop runs, job batches) and starts each piece of work on its own. The tick itself only
-reads files and takes short locks, so a thirty-minute workflow never delays a reminder, and a
-long job drain is not started twice.
-
-A workflow slot is decided and recorded in one step under the run-history lock, so a daemon and a
-CLI starting up cannot both run the same slot. Run history keeps the last 20 runs of each
-schedule, so a workflow that runs every few minutes cannot push another's record out and make it
-run again. A slot missed by more than its catch-up window is recorded as `skipped`, and a run
-whose process died is marked `interrupted` the next time a daemon or CLI starts, instead of
-staying `running` forever. Catch-up runs use the workflow's declared approval policy (unset
-means no automatic approval), and a run without a usable answer is recorded as failed.
+The daemon also retries failed deliveries and provides a fallback for [wake triggers, reminders,
+and background jobs](./deferred-work.md) when the host scheduler is unavailable.
 
 ### One daemon per home
 
 A daemon holds a lock on its `$JAZZ_HOME` for as long as it runs. A second `jazz daemon` against
 the same home, even on another port, refuses to start and says so. Give it its own `--data-dir`
 to run two. A daemon that crashed leaves nothing that blocks the next one.
-
-None of this needs all of it. A daemon started plain serves runs and the catalogue, and ticks
-workflows if `scheduler.mode` says so. Peers and webhooks activate on top of that, not instead
-of it.
 
 ---
 
@@ -125,7 +103,7 @@ when it is answered (from anywhere: chat, `jazz runs`, another client), and `pau
 `resumed`. `GET /status` returns what `jazz daemon status` prints. These need the daemon token,
 like every route but `/health`.
 
-## Pausing it, and its daily cap
+## Pause background work and limit spend
 
 `jazz daemon pause` stops the daemon starting work of its own: goal cycles, loop runs, wake
 triggers, scheduled workflows, background jobs, and new `POST /runs`, webhook, and peer
@@ -153,25 +131,18 @@ daemon serves (stored once in `$JAZZ_HOME/instance-id`), so a client can tell wh
 on the port is its own. It reveals nothing about the machine or its paths.
 
 Everything else needs a bearer token, **including on loopback**. That covers paths matching no
-route, so an unauthenticated caller cannot map the door by telling 404s from 401s.
+route.
 
 On its first start with no token set, Jazz generates one and prints it once, so you can copy it
 to a client. It goes to the OS keyring, or to a `chmod 600` `$JAZZ_HOME/secrets.json` where there
 is no keyring.
 
-It is never printed again. A supervisor's logs should not accumulate the secret.
+The saved token is not printed again.
 
 ```bash
 jazz daemon set-token      # generate (or store $JAZZ_DAEMON_TOKEN); prints a generated value
 jazz daemon forget-token   # remove it
 ```
-
-Loopback used to need no token. The reasoning was that reaching `127.0.0.1` means you are already
-on the machine.
-
-That ignores loopback's two real neighbours: every other user account on a shared host, and every
-page open in your browser. The browser half is handled structurally, below. For the other,
-nothing but a token stands between a local process and an agent with filesystem access.
 
 If nothing can store a token at all, a loopback daemon warns and serves unauthenticated rather
 than refusing to start. A non-loopback bind refuses outright. (That happens when
@@ -181,36 +152,19 @@ Set `$JAZZ_DAEMON_TOKEN` yourself when the value has to be known in advance. Two
 config written before the daemon has ever run, and a container whose `$JAZZ_HOME` will not
 survive the next deploy.
 
-### It does not answer your browser
+### HTTP client requirements
 
-A loopback port is inside the trust boundary of every page you have open, and a page can POST to
-`127.0.0.1` without you doing anything. Two checks close that, on every door:
-
-- **A request carrying an `Origin` header is refused with `403`.** Nothing that legitimately
-  drives this daemon sets one: not a CLI, not `curl`, not a supervisor's health probe, not
-  another Jazz. A browser sets it on every cross-origin request and cannot be talked out of it,
-  so its presence identifies the wrong kind of client.
-- **A request body must be `content-type: application/json`** (`415` otherwise). An HTML form can
-  only send urlencoded, multipart, or `text/plain`; anything else makes the browser ask
-  permission first, and these doors answer no such preflight. The webhook door is the one
-  exception, since its body is whatever the sending system sends, and it is gated by a per-webhook
-  token no page could hold.
-
-Writing a client? Send `application/json` and no `Origin`, which is what every ordinary HTTP
-client already does.
+HTTP clients must send JSON bodies with `Content-Type: application/json` and omit `Origin`.
+Requests with an `Origin` header receive `403`; unsupported body types receive `415`.
+Webhooks accept the body type supplied by their sender and use their own authentication.
 
 Peers and webhooks do not use this token. Each has its own. A credential that can start runs is
 a much bigger grant than one that can ask a question.
 
 ### Granting authority over HTTP
 
-The daemon token proves a request came from a client of the daemon. It cannot prove the client is
-you. It sits in `$JAZZ_DAEMON_TOKEN` or, on a host with no OS keyring, in
-`$JAZZ_HOME/secrets.json`, and an agent that can read a file and send an HTTP request could
-replay it to accept its own goal at `high-risk` or approve its own parked run.
-
-So the requests that grant authority need a second credential, the **operator token**, in
-`X-Jazz-Operator-Token`:
+Approving actions or changing agent permissions over HTTP requires a second credential:
+the **operator token**, sent in `X-Jazz-Operator-Token`.
 
 | Request                                                                       | Needs the operator token     |
 | ----------------------------------------------------------------------------- | ---------------------------- |
@@ -223,37 +177,21 @@ So the requests that grant authority need a second credential, the **operator to
 | `POST /runs`, `POST /goals` (a proposal), `POST /daemon/pause`, pause, cancel | no                           |
 | every read                                                                    | no                           |
 
-Every write to an agent or a persona counts, whichever field it touches. An agent's config
-decides what all of its runs may do (tools, MCP servers, model and provider, memory scopes,
-custom commands) and a persona's tool profile narrows or widens that, so there is no field an
-agent could safely rewrite for itself. The daemon has no routes that write the Jazz config,
-register a webhook or peer, or enable a plugin; those are CLI-only. Redeeming a peer invite is
-authenticated by the invite's one-time secret and grants only the tier the operator chose when
-creating it.
+The daemon has no routes to change Jazz configuration, register webhooks or peers, or enable
+plugins. Use the CLI on the host for those changes.
 
 ```bash
 jazz daemon operator-token          # generate, store in the OS keyring, print once
 jazz daemon forget-operator-token   # the daemon then grants nothing over HTTP
 ```
 
-Restart the daemon after either. The operator token is kept where an agent's read tools cannot
-reach it:
+Restart the daemon after changing its operator token. This token requires an OS keyring;
+there is no file or environment-variable fallback. The command refuses to run inside a
+process started by a Jazz agent. A daemon started by an agent cannot grant authority over HTTP.
 
-- **Only in the OS keyring,** the macOS keychain or the Linux Secret Service. Never in the
-  `secrets.json` fallback and never in an environment variable, since a process's environment is
-  readable at `/proc/<pid>/environ` by anything running as the same user. A host with no OS
-  keyring has no operator token.
-- **Minted only by you.** `jazz daemon operator-token` refuses to run inside a process a Jazz
-  agent started, and a daemon an agent started grants nothing over HTTP, whatever it is sent.
-- **Never loaded into config,** so nothing that prints config can show it.
-
-Without an operator token the daemon still serves everything else, and you grant from the CLI on
-the machine instead: `jazz runs approve <id>`, `jazz goal accept`, `jazz loop start`. Those act on
-the same stores directly and need no daemon.
-
-This does not stop an agent that has a shell: it can ask the keychain for the entry itself. Such
-an agent already holds more than any grant could add. What the operator token closes is the
-escalation from read-and-send tools to `high-risk`.
+Without an operator token, approve actions locally with `jazz runs approve <id>`,
+`jazz goal accept`, or `jazz loop start`. An agent with shell access may still access the
+keyring directly; this credential boundary protects against escalation through read and HTTP tools.
 
 ### Reaching it from another machine
 
@@ -262,19 +200,16 @@ Bind an interface other than loopback, and pass the token on every request:
 ```bash
 # On the host
 jazz daemon --host 0.0.0.0
-# → Generated a daemon token and stored it in <keyring>: <token>
 
-# From another machine
+# From another machine, using your saved daemon token
 curl http://<host>:4747/runs \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"agent":"default","prompt":"summarize today'\''s deploys"}'
+  -H "Authorization: Bearer <your-daemon-token>"
 ```
 
 `0.0.0.0` binds every interface. What that reaches is whatever your firewall or router allows, so
 bind one interface's address if you mean one network.
 
-Scope who can reach the port, not just who holds the token. See
+Restrict access to the port with your firewall or private network. See
 [Surface access](../security/surface-access.md).
 
 ---
@@ -300,7 +235,7 @@ sudo jazz daemon install --serve-peers my-agent   # the same, and answer peers w
 sudo jazz daemon uninstall
 ```
 
-Both need root, and `install` does not report success until `/health` actually answers. The
+Both need root. Installation checks `/health` before reporting success. The
 service runs as you, never as root, with `JAZZ_HOME` set to your `~/.jazz`. Its token lives in
 `/etc/jazz/daemon.env` (mode `0600`): root-owned under systemd, which reads it before switching
 to your account, and owned by you under launchd, whose wrapper shell reads it as you.

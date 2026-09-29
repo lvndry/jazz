@@ -27,11 +27,6 @@ import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
 import type { RetryBand } from "../models/retry";
-import { PROSE_MEASURE } from "../text/measure";
-
-/** Timestamps and lane labels sit here; the rest of the surplus widens prose. */
-export const METADATA_RESERVE = 20;
-
 /**
  * The live zone caps rather than grows, so the input never moves.
  *
@@ -440,12 +435,7 @@ export interface Viewport {
   readonly height: number;
 }
 
-/**
- * Running text takes the available content column; a short strip on the right
- * becomes metadata only when the terminal is wide enough to afford it.
- */
-export function measureFor(width: number): { prose: number; metadata: number } {
-  const content = Math.max(1, width - 4);
-  const metadata = Math.min(METADATA_RESERVE, Math.max(0, content - PROSE_MEASURE));
-  return { prose: content - metadata, metadata };
+/** Available conversation cells after the two-cell gutter and right padding. */
+export function measureFor(width: number): { prose: number } {
+  return { prose: Math.max(1, width - 4) };
 }

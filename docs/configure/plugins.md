@@ -23,30 +23,21 @@ Tools and commands run code and are gated accordingly; personas and skills are i
 Advisory hooks cannot authorize a tool, change approval policy, or act on the model's behalf; the
 policy hook shapes approval only.
 
-A plugin that declares `workspace: true` may register `api.workspace.register`. Jazz calls it before
-each model request, including the first request with no observed files, so it can activate a
-workspace service. Later calls include recent canonical paths from successful built-in file reads
-and writes. The returned text is bounded, labeled as untrusted workspace data, and sent only with
-that model request; it is not saved in conversation history. Failures or timeouts leave the run
-unchanged. The [LSP plugin](./lsp-plugin.md) uses this path to supply diagnostics without asking
-the model to call a tool. A workspace handler cannot authorize or execute a file edit through this
-path.
+## Install a plugin for one agent
 
-Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
-latency, prompt change, or credential requirement. Everything a plugin adds is declared in its
-manifest — the reviewed, consented contract — and the module can never exceed what it declared.
+Browse the [Marketplace](https://jazz-cli.vercel.app/library) for reviewed plugins. For example,
+the [LSP plugin](./lsp-plugin.md) adds code navigation and compiler diagnostics:
 
-The [Jazz Marketplace](https://jazz-cli.vercel.app/library) lists reviewed first-party plugins
-alongside skills, personas, and workflows. A listing is a discovery and review surface, not a
-trust grant: use `jazz plugin add`, `inspect`, `trust`, and `enable` as separate local decisions.
-The marketplace exposes the plugin's exact version, artifact digest, hooks, capabilities, network
-destinations, data classes, and secrets before installation.
-Each plugin page shows the local `add`, `trust`, and `enable` commands in order. Reviewed
-plugins install by catalog id; community plugins install from their repository pinned to the
-listed commit. The displayed enable command applies to all agents; add `--agent <id-or-name>`
-to enable the plugin for just one agent.
-The declared surface lists each capability by kind and name, including tools, slash commands,
-personas, skills, and lifecycle hooks.
+```bash
+jazz plugin add com.jazz.plugins.lsp
+jazz plugin inspect com.jazz.plugins.lsp
+jazz plugin trust com.jazz.plugins.lsp
+jazz plugin enable com.jazz.plugins.lsp --agent <agent-name>
+```
+
+Review the code, declared capabilities, network destinations, and secrets before trusting.
+Omit `--agent` only when you want the plugin enabled for every agent, including future agents.
+Plugins are disabled until you trust and enable them.
 
 ## Trust means code execution
 
@@ -122,11 +113,6 @@ The normal local lifecycle still applies: installation stores and hashes the sou
 operator must inspect, trust, grant egress consent, and enable it. Community entries are kept out
 of the reviewed artifact catalog and cannot be installed by reviewed catalog id.
 
-The website consumes a checked-in snapshot at
-`packages/website/src/data/community-plugin-catalog.json`. The scheduled
-`community plugin catalog` workflow refreshes that snapshot through a pull request, so website
-builds remain deterministic and do not depend on GitHub being available at deploy time.
-
 `add` stores the source or bytes but never imports them. Jazz imports a module lazily only for a run
 whose agent has enabled it — per agent, or for all agents — and whose exact code and consent digests
 are still granted. Before each run it repeats every install check on the installed copy (entry,
@@ -149,7 +135,7 @@ Below 50% nothing is touched. For each old, large tool result it decides keep / 
 Jazz applies the decision by replacing content (never removing a message, so assistant/tool pairing
 stays valid) and only ever sends the result preview, not the whole body. The policy is asymmetric —
 a result is dropped only on a confident signal, a large uncertain one is truncated to head and tail,
-and anything else is kept — because losing a still-needed result is worse than keeping a stale one.
+and anything else is kept.
 If the plugin abstains, times out, or is absent, Jazz falls back to its deterministic tool-result
 clearer. It never touches user or assistant text.
 

@@ -4,7 +4,9 @@ description: "Use Jazz's local audit trail and OTLP traces, logs, and metrics wi
 
 # Observability
 
-Jazz writes a local audit trail for every run. When you configure an OTLP endpoint, it also exports selected OpenTelemetry signals. The default is traces only. OTLP uses HTTP: traces and logs are JSON, and metrics are protobuf.
+Use local records to investigate failed runs, or connect an OpenTelemetry collector to
+track model usage, tool failures, and latency across runs. Local records are enabled by
+default; exporting requires an OTLP/HTTP endpoint. The default export is traces only.
 
 ## Local records and signals
 

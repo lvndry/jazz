@@ -4,14 +4,12 @@ description: "The complete Jazz tool registry: every tool name, its honest risk 
 
 # Jazz tool inventory
 
-This page helps you find the exact name, risk tier, and behavior of a tool.
+Find the tool names to use in agent restrictions and approval grants. In chat, `/tools`
+shows the tools available to the current agent. Use `jazz agent edit <name>` to change
+its selected capabilities; use `deniedTools` to remove a specific tool.
 
-Every tool an agent can call, generated from the registry. Risk tiers determine what runs
-unattended. See [Tools & approval](../maintainers/tool-lifecycle.md) for the mechanism
-and [Security](../../SECURITY.md) for the threat model.
-
-> This page is verified by a test (`bun test packages/core/src/agent/tools/register-tools.docs.test.ts`)
-> that fails if the registry and this table drift apart. If you add a tool, update this page.
+Risk tiers determine what runs unattended. See [Approvals](../security/approvals.md)
+and the [security model](../security/index.md).
 
 ---
 
@@ -41,8 +39,7 @@ Plus, registered per agent rather than globally:
 
 Every tool above `read-only` is **gated**: under a policy that does not clear its level it
 asks first, or is declined (or parked) when nobody can answer. With no policy, or
-`false`, nothing clears. Of the 51 agent-facing tools, 23 are gated: 11 approval pairs and 12
-plain tools (every `low-risk` tool, plus `create_pdf` and `http_request`).
+`false`, nothing clears. Gated tools include approval pairs and tools that ask before running directly.
 
 The 11 approval pairs split proposing from acting: calling one does not act. It returns a
 description of the intended action (including a preview diff for edits), and only after
@@ -54,19 +51,6 @@ Only the tool registered for an `execute_*` counterpart can ask for it. Any othe
 shaped like an approval request (an MCP server's reply, a fetched JSON document) is refused
 and nothing runs.
 
-```mermaid
-flowchart LR
-    M["Model calls<br/><code>write_file</code>"] --> P["Propose:<br/>resolve path, compute diff<br/><b>no mutation</b>"]
-    P --> G{"Approved?"}
-    G -->|yes| E["<code>execute_write_file</code><br/>actually writes"]
-    G -->|no| D["Refusal returned<br/>to the agent"]
-
-    classDef gate fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-    classDef act fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-    class G gate
-    class E act
-```
-
 You never call `execute_*` names yourself; they are hidden from the model's tool list.
 
 ---
@@ -77,9 +61,6 @@ Risk is not the same question as disclosure. Risk asks what a tool can do **to**
 machine; disclosure asks how freely its answer can be shared. The two do not correlate:
 `read_file` is read-only and can reveal anything, `get_time` is read-only and reveals
 nothing, `write_file` changes the machine and reveals nothing at all.
-
-Every tool declares both. The field is required, with no default anywhere, so a new tool
-cannot be added without someone deciding.
 
 | Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -95,9 +76,7 @@ Skill tools (`find_skills`, `load_skill`, `load_skill_section`) are `internal` t
 absent from the table for the same reason they are absent from the one below. They are
 registered per agent rather than globally.
 
-There is no `unknown` level. **MCP and custom tools are `private`**, because a tool defined
-outside this codebase returns something this codebase cannot classify, and the safe reading
-of "unknown" is the most restrictive one.
+**MCP and custom tools are `private`.**
 
 ---
 
@@ -157,12 +136,8 @@ bookkeeping or start child runs, so a peer reaches them only when its `allow` na
 | `execute_command` | `unknown` | `execute_execute_command` | Run a shell command when no dedicated tool exists. Each command is classified `read-only`, `low-risk`, or `high-risk`, and the active tier then applies to that verdict. Stdout/stderr capped at 256 KB each. |
 | `wait_for`        | `unknown` | `execute_wait_for`        | Block until a command exits 0, re-running it on an interval as tight as 250 ms. One tool call however many checks it takes, capped at 15 minutes.                                                             |
 
-`wait_for` exists so that watching something does not cost a model turn per look. The polling
-happens inside one tool call (the condition command runs, the fiber sleeps, it runs again) so a
-caller can check every quarter second without waking the model each time. It is bounded at the same
-15 minutes as any other command, because a longer block means a turn held open with nobody able to
-interject. Waits that outlast that belong to `register_trigger`, which suspends the run and resumes
-it later; the two compose, polling tightly inside the budget and re-arming across it.
+`wait_for` polls within one tool call, up to 15 minutes. For longer waits,
+`register_trigger` suspends the run and resumes it later.
 
 In the interactive terminal, an operator can also type `! <command>` (the space after `!` is
 required). That explicit shell escape
@@ -198,20 +173,19 @@ available through `jazz run` or remote chat surfaces.
 
 ### Memory
 
-Opt-in per agent (like File Management) rather than always-on. See [Memory](../concepts/conversations-and-memory.md).
+Memory tools are in the built-in bundle. Deny `manage_memory` to prevent writes. See [Memory](../concepts/conversations-and-memory.md).
 
 | Tool            | Risk        | Approval pair | What it does                                                                                                              |
 | --------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `view_memory`   | `read-only` | none          | Consult relevant memory when prior context could improve the answer.                                                      |
 | `manage_memory` | `low-risk`  | none          | Create with an explicit relevance topic, or amend, delete, or rename, using an exact quote from authenticated user input. |
 
-`update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations. See [Context management](../maintainers/context-lifecycle.md).
+`update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations. See [Context management](../concepts/context-management.md).
 
 ### Workspace
 
-Opt-in per agent (like Memory) rather than always-on. Deliberately separate from memory: memory
-is small, curated, one-file-per-topic notes; workspace is where large working drafts, research
-dumps, and intermediate artifacts live, referenced from memory rather than duplicated into it.
+Scratchpad tools are in the built-in bundle. Use them for working drafts, research material,
+and intermediate files that should persist across conversations.
 
 | Tool                | Risk        | Approval pair | What it does                                                                                          |
 | ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
@@ -220,7 +194,7 @@ dumps, and intermediate artifacts live, referenced from memory rather than dupli
 
 ### Reminders
 
-Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them. See [Reminders](../features/automation.md).
+Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them. See [Reminders](../concepts/starting-runs.md).
 
 For CLI-hosted agents, `add_reminder` installs the same real one-shot host-scheduler job
 (`launchd` on macOS, an `at` job on Linux) used for wake triggers, so a reminder fires even if
@@ -243,7 +217,7 @@ saved as `proposed` and nothing runs until the user accepts the plan: chat asks 
 turn, and `jazz goal accept <id>` accepts it elsewhere. Subagents and goal cycles cannot propose
 goals. A goal's own cycles get `report_goal_cycle`, which says where the goal stands (Jazz checks
 the claim against the cycle's tool output), and a loop's own runs get `end_loop`, which stops the
-loop after the run; nothing else has either, and no tool can start a loop. See [Goal lifecycle](../maintainers/goal-lifecycle.md) and
+loop after the run; nothing else has either, and no tool can start a loop. See [Goals and loops](../concepts/goals-and-loops.md) and
 [`jazz loop`](../commands.md#jazz-loop).
 
 | Tool                | Risk       | Approval pair | What it does                                                                                                                                                |
@@ -256,7 +230,7 @@ loop after the run; nothing else has either, and no tool can start a loop. See [
 
 Opt-in per agent. A trigger causes the agent to actually run again with a given prompt, resuming
 the exact conversation it was scheduled from: unlike a reminder, which just delivers a note to a
-person. See [Reminders](../features/automation.md) for how the two compare.
+person. See [Reminders](../concepts/starting-runs.md) for how the two compare.
 
 `register_trigger` does not depend on `jazz daemon` running to actually fire. Registering a
 trigger installs a real one-shot job with the host's own scheduler: a `launchd` job on macOS, an
@@ -274,29 +248,13 @@ succeeds and the ticker is the safety net.
 
 ### Background Jobs
 
-Opt-in per agent. Runs several independent shell commands in the background with a concurrency
-cap and per-job retry/backoff, without blocking the agent's turn. Completion (fan-in) resumes the
-conversation the same way a wake trigger fires, once every job in the batch reaches a final
-state, and the agent is told each job's status **and what it printed**: a batch exists to find
-something out, so an exit code on its own would tell it nothing.
+Background-job tools are in the built-in bundle. `enqueue_batch` starts independent shell
+commands in a detached worker, with bounded concurrency and retries. When all jobs finish,
+the agent resumes its conversation with their statuses and output.
 
-`enqueue_batch` does not depend on `jazz daemon` running. Enqueueing a batch starts a detached
-worker process (`jazz job run`) immediately, which claims and runs that agent's due jobs, waits out
-any retry backoff, and resumes the conversation when the batch finishes. Previously jobs ran only
-from the daemon's tick, so on a machine with no daemon the tool returned a batch id, the person
-approved commands to run unattended, and then nothing ran and nothing woke them.
-
-Unlike wake triggers and reminders, this is not a one-shot `launchd`/`at` job. Those schedule a
-future instant, which those schedulers do well; a batch starts now, and launchd's
-`StartCalendarInterval` has minute resolution and no year key, so "run this now" either misses the
-current minute or waits up to sixty seconds for it, and a two-second retry backoff cannot be
-expressed at all. The daemon's ticker still calls the same worker and remains the safety net for a
-batch whose worker was killed mid-flight. If no worker can be started at all, the tool says so in
-its result rather than leaving the agent waiting for a wake-up that will never come.
-
-If that resumed turn needs an approval nobody is there to give, the run parks instead of dying:
-you get a desktop notification naming it, and `jazz runs approve <id>` finishes it. See
-[tools and approval](../maintainers/tool-lifecycle.md).
+No daemon is required to start a batch. The daemon can recover a batch whose worker stopped.
+If the resumed turn needs approval, it parks and sends a notification; answer with
+`jazz runs approve <id>`. See [Deferred work](../concepts/deferred-work.md).
 
 | Tool            | Risk        | Approval pair           | What it does                                                                                               |
 | --------------- | ----------- | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -347,12 +305,12 @@ Always-on. Lets an agent borrow specialist perception or generation from another
 
 ### Compositions
 
-Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or a static image.
-The companion `composition` skill supplies the visual-design and HTML/CSS playbook.
+Enable [Compositions](../concepts/compositions.md) per agent to create interactive HTML pages
+or static images. The bundled `composition` skill supplies design instructions.
 
 | Tool                 | Risk        | Approval pair | What it does                                                                                                                                                 |
 | -------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `create_composition` | `low-risk`  | (             | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
+| `create_composition` | `low-risk`  | none          | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
 | `create_pdf`         | `high-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
 
 ---
@@ -369,46 +327,37 @@ tools**: they are [skills](../concepts/skills.md) that shell out through
 | Calendar (list, create)     | `calendar` skill → [khal](https://github.com/pimutils/khal) via `execute_command`          | `unknown`               |
 | Obsidian vault writes       | `obsidian` skill → CLI via `execute_command`, or `write_file`                              | `unknown` / `high-risk` |
 
-So a scheduled workflow set to `autoApprove: low-risk` **cannot archive an email**: every
-himalaya invocation is declined. The fix is usually _not_ to raise the whole tier to
-`high-risk` (which also unlocks `rm` and `git push`), but to allowlist the specific binary:
-
-```json
-// ~/.jazz/config.json
-{ "autoApprovedCommands": ["himalaya", "khal"] }
-```
-
-That keeps the tier low while letting the one command through. Matching is on a key parsed the
-way the shell reads the command (binary, plus the next word when it is not a flag), never a raw
-prefix, and a compound, redirected, substituted or `NAME=value`-prefixed command never matches:
-see
-[Tools & approval](../maintainers/tool-lifecycle.md#two-sharper-controls).
+Jazz classifies each CLI command before applying the run's approval policy. Read-only
+commands may run at `read-only`; mailbox or calendar changes can require human approval.
+Grant specific commands only when you understand their scope. A grant for an entire binary
+such as `himalaya` also permits its mutation commands.
+See [email and calendar setup](../configure/email-calendar.md).
 
 ---
 
 ## Notes
 
-- **Editing a file another agent may change**: An ordinary text `read_file` returns a `snapshot` computed from the canonical target path and the complete file contents, even when only a line range was returned. Pass it unchanged to `edit_file`. The approval proposal checks it before showing a diff, and the hidden execution half checks it again under a per-file lock shared by Jazz agents and processes. A mismatch returns `StaleFileError` without writing or asking for approval; read the file again, inspect the current lines, and retry with the new snapshot. `sinceByte` follow-reads and media attachments do not produce edit snapshots. The lock serializes Jazz `edit_file` calls; other programs need not honor it, so external concurrent writes remain outside that lock.
-- **Following a file that is still being written**: `read_file` with `sinceByte` returns only the bytes appended past that offset, along with the `nextByte` and `inode` to hand back on the next look. Both are needed to tell an append from a rollover: truncation in place keeps the inode and drops the size below the offset, while rotation by rename gives the path a different file whose replacement can be _longer_ than the stale offset, so a size comparison alone would read unrelated content out of the middle of a new file and report it as an append. When either happens the read restarts at 0 and says which, rather than returning an empty result that looks like a quiet file. `sinceByte` cannot be combined with `startLine`/`endLine`: except at `0`, which means "from the start of the file" and so narrows to the line range instead of being refused; models that fill every optional number in a schema with `0` send exactly that shape, and rejecting it cost a round trip to learn nothing.
-- **`find` vs `grep`**: `find` locates files by name, glob, or path pattern. `grep` searches _inside_ file contents. Non-overlapping on purpose.
-- **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, interactive safe mode (the `low-risk` tier) skips its prompt, it does not run with no policy or `false` (nothing would be approved either way), and yolo skips it too. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five _user_ requests (800 characters) on an interactive session and the command alone everywhere else: never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. Before the classifier runs, a syntax check marks malformed commands, command or process substitution, file redirections and a command name built from a variable `high-risk` outright. See [Tools & approval](../maintainers/tool-lifecycle.md#command-classifier).
+- **Editing a file another agent may change**: Pass the `snapshot` from a text `read_file` unchanged to `edit_file`, even if you read only a line range. A stale snapshot returns `StaleFileError` without writing or asking for approval; read again and retry. Append reads and media attachments do not produce snapshots. Jazz serializes its own edits; writes from other programs can still conflict.
+- **Following a file that is still being written**: `read_file` with `sinceByte` returns appended bytes, plus `nextByte` and `inode` for the next read. On truncation or rotation it restarts at byte 0 and reports the change. A nonzero `sinceByte` cannot be combined with `startLine` or `endLine`.
+- **`find` vs `grep`**: `find` locates files by name, glob, or path pattern. `grep` searches _inside_ file contents.
+- **Shell command approval**: Jazz classifies each command as `read-only`, `low-risk`, or `high-risk`, then applies the active approval policy. Interactive chat shows the classification while it runs and the result afterwards. Timeouts and ambiguous classifications remain `high-risk`. See [Approvals](../security/approvals.md).
 - **HTTP requests and page fetches run automatically by default.** `http_request` and `web_fetch` have the same global `network.httpApproval` policy, independent of method, risk tier, private destinations, prior untrusted content, or unattended execution. A configured URL array requires one-call approval outside its grants; approving never changes the list. Each redirect must match a grant too. Both tools strip credential/custom headers across origins, refuse forwarding bodies across origins, and cap response bytes and read time. `web_fetch` extracts page content as markdown; `http_request` preserves API response structure and supports methods, headers and bodies. See [HTTP approvals](../configure/jazz.md#web-request-safety).
 - **Other model-chosen URLs use private-destination guards.** `read_pdf` with a URL and rendered pages resolve each hostname, check every redirect, and require approval for unlisted private addresses. Approving adds those addresses to global `network.allowPrivateHosts`. The same credential and body limits apply. See [Secrets and egress](../security/secrets-and-egress.md#network-egress).
 - **Secret values never reach the model.** Files read normally, including `.env` and `secrets.json`. Every tool result is redacted before it is logged or shown: secrets Jazz holds (keyring-held peer, webhook and notify secrets included) and credential-named environment variables are replaced exactly; `.env` and YAML assignments, key formats, JWTs, webhook URLs and private keys by shape; and strings under secret-named keys in structured results, each as `[redacted:<name>]`. Tools redact before they cut or search: `read_file` line ranges, `sinceByte` offsets and caps, `execute_command` output caps, and `grep` and `replace_pattern` matching all work on the redacted text, so no slice splits a secret and no pattern can probe one. `write_file` and `edit_file` refuse a placeholder standing for a secret of the target file or one Jazz knows, and `write_file` refuses to drop a line holding a secret; change such files with `edit_file` around the placeholder lines. See [Secrets and egress](../security/secrets-and-egress.md#secret-values-in-tool-output).
 - **Secrets the person types stay out of the model.** `ask_user_secret` reads the value hidden and gives the model `[redacted:<name>]`. The value is held in memory for the rest of the run, redacted exactly from every tool result and log line, and put back only into the arguments a tool declares for it, just before that tool runs: `password` of `read_pdf` and `pdf_page_count`, and `command` of `execute_command`, which then always asks a person, whose approval shows the placeholder. Any other tool or argument carrying the placeholder is refused. See [Secrets the person types](../security/secrets-and-egress.md#secrets-the-person-types).
 - **Jazz's own config always asks.** `write_file`, `edit_file`, `mv`, `cp` and `rm` changing `config.json` or Jazz's state under `$JAZZ_HOME` ask for approval under every policy, `yolo` included. Authored content (`skills`, `workflows`, `personas`, `memory`, `workspace` and generated output) follows the ordinary policy.
 - **Outside content arrives labelled.** Results from `web_fetch`, `web_search`, `http_request`, `read_pdf` URLs, MCP tools, `ask_peer`, every `execute_command` and custom command, and `read_file` of a file outside the working directory come back inside an `<untrusted-content>` envelope that names the source, and the system prompt tells the model to read them as data. Once a run has read external content, other egress tools stop auto-approving below `high-risk`. Because Jazz cannot tell what a command read, that includes any shell command: after one, other egress at `read-only` or `low-risk` needs approval. See [Unattended runs](../security/unattended-runs.md#egress-after-untrusted-input).
-- **Timeouts**: 3 minutes by default per tool. `ask_user_question`, `ask_user_secret` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang. `execute_command` and `wait_for` are capped at 15 minutes, which is also the largest timeout either will accept: asking for more is refused rather than silently reduced, since the executor would kill the call at 15 minutes anyway and discard the output the command had already produced.
+- **Timeouts**: 3 minutes by default per tool. Questions, secret prompts, and file pickers wait without a timeout. `execute_command` and `wait_for` accept at most 15 minutes; larger timeouts are rejected.
 - **Stopping a command**: `execute_command` and custom command tools run in their own process group. Esc, a tool timeout, `--timeout`, SIGTERM, or a run's `maxDurationMs` deadline stops the command together with every process it started: SIGTERM first, and SIGKILL 3 seconds later if it is still running, so a command can finish writing and clean up. `write_file`, `edit_file`, `cp` and `mv` replace their target in one step, so a stopped call leaves the old version or the new one, never half a file. The tool results then say which calls completed, which were interrupted, and which never started. A command that leaves a job running in the background (`server &`) returns as soon as the shell exits, and the job keeps running.
 - **Concurrency**: up to 10 tools execute in parallel per iteration.
-- **`create_pdf` needs a browser too**: it uses the same `puppeteer-core` path as `create_composition`'s static mode, rendering through `page.pdf()`. It writes to the agent's working directory by default (an explicit `path` overrides), unlike compositions, which live under `~/.jazz/compositions/<session-id>/`.
-- **`create_composition` needs a browser for `mode: "static"`**: it screenshots the page through `puppeteer-core`, which deliberately ships no bundled Chrome so that installing Jazz never downloads one. It uses `PUPPETEER_EXECUTABLE_PATH` if set, otherwise an installed Google Chrome; with neither it fails and says so. `mode: "interactive"` needs no browser. On an interactive local terminal, Jazz opens a completed composition in the default browser; it never does so for a chat bridge, a non-TTY run, or CI.
+- **PDF rendering**: `create_pdf` requires Chrome. Output goes to the working directory unless an explicit `path` overrides it.
+- **Composition rendering**: `mode: "static"` requires Google Chrome or `PUPPETEER_EXECUTABLE_PATH`; `mode: "interactive"` needs no browser. Compositions live under `~/.jazz/compositions/<session-id>/`. Jazz opens a completed composition automatically only in an interactive local terminal.
 
 ---
 
 ## Related
 
-- [Tools & approval](../maintainers/tool-lifecycle.md): the execution and gating machinery
+- [Approvals](../security/approvals.md): what runs without asking
 - [Concepts: tools](../concepts/tools.md): what a tool is and how to add one
 - [Commands and flags](../commands.md): `--approval-policy` and friends
 - [Agent configuration](../configure/agents.md): `customTools`, `envAllowlist`, and per-agent denials

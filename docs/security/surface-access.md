@@ -4,10 +4,11 @@ description: "Authenticate every way into a Jazz agent: chat allowlists, webhook
 
 # Surface access
 
-Every remote surface has to answer three questions before a run starts: who may start work here,
-which conversation do they resume, and what may that run reveal or execute.
+Before exposing an agent to chat apps, webhooks, or peers, configure who can reach it
+and which tools they may use. Keep the daemon on loopback unless you have configured
+a private network or authenticated proxy.
 
-The four surfaces answer them differently, and the differences are not arbitrary.
+The credential and permission controls differ by surface:
 
 | Surface      | Who is authenticated   | Credential                                            | Bounded by                            |
 | ------------ | ---------------------- | ----------------------------------------------------- | ------------------------------------- |
@@ -16,7 +17,7 @@ The four surfaces answer them differently, and the differences are not arbitrary
 | **Daemon**   | a client of the daemon | one bearer token; grants also need the operator token | the agent's own toolset               |
 | **Peer**     | one agent identity     | a per-peer token, or an invite                        | `disclosure`, `allow`, and its budget |
 
-Read the daemon row twice. Its token can start runs. Granting authority (accepting or resuming a
+The daemon token can start runs. Granting authority (accepting or resuming a
 goal, starting or resuming a loop, approving or answering a parked run, and any write to an agent
 or persona) also needs the operator token, which lives only in the OS keyring.
 
@@ -25,16 +26,16 @@ grant than one that can ask a question.
 
 ## Chat bots
 
-Set the platform allowlist and nothing else answers. `TELEGRAM_ALLOWED_CHAT_IDS` and its Discord
-equivalent take comma-separated chat ids.
+Set `TELEGRAM_ALLOWED_CHAT_IDS` to comma-separated chat IDs. Discord uses
+`DISCORD_ALLOWED_USER_IDS`, `DISCORD_ALLOWED_CHANNEL_IDS`, or `DISCORD_ALLOWED_GUILD_IDS`.
+A guild grant admits everyone in that guild; prefer user or channel grants when appropriate.
 
-A message from anyone else is ignored, not refused. A refusal would confirm the bot exists.
+Messages from anyone else are ignored.
 
 Each allowlisted chat gets isolated conversation state. The Telegram bridge goes further: each
 chat's agent runs as its own Unix user, under its own Jazz home.
 
-So one person's agent cannot read another's transcripts, memory, or mail credentials. The kernel
-enforces that, not a filename convention.
+This prevents one person's agent from reading another's transcripts, memory, or mail credentials.
 
 See [chat surfaces](../surfaces/chat.md) for the per-platform setup.
 
@@ -73,10 +74,11 @@ rather than resumed with the agent's whole toolset.
 
 ## The daemon
 
-Loopback is not a trust boundary. Every route except `GET /health` needs the bearer token, and
-two structural checks keep a browser out: a request carrying an `Origin` header is refused, and
-JSON routes require `content-type: application/json`. [The daemon page](../concepts/daemon.md)
-explains why both are necessary.
+By default, every route except `GET /health` needs the daemon bearer token. If secret
+storage is disabled and no token is supplied, a loopback daemon can run without one;
+non-loopback startup requires a token. Keep authentication enabled on shared machines.
+Requests with an `Origin` header are refused, and JSON routes require
+`content-type: application/json`. See [Daemon](../concepts/daemon.md).
 
 The bearer token cannot tell you from an agent. It sits in `$JAZZ_DAEMON_TOKEN` or, on a host
 with no OS keyring, in `$JAZZ_HOME/secrets.json`, and an agent that can read a file and send a
@@ -89,10 +91,7 @@ the CLI on the machine. See
 
 ## Before you bind a public port
 
-In rough order of how much each one saves you:
-
-1. **Do not.** Bind loopback and reach it over a tailnet or an SSH tunnel. Most "remote access"
-   needs are this, and it removes the entire class of problem.
+1. **Prefer private access.** Bind loopback and reach it over a tailnet or an SSH tunnel.
 2. **Terminate TLS at a reverse proxy** you already run. Jazz speaks plain HTTP; a token over
    plain HTTP on a shared network is a token you have published.
 3. **Scope who can reach the port,** with a firewall rule or a private network. Otherwise the
