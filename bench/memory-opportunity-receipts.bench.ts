@@ -1,6 +1,10 @@
-// Every model request with memory in scope identifies itself by hashing the
-// transcript. That cost repeats per iteration and grows with the run, so it must
-// stay proportional to what changed, not to the transcript's total size.
+/**
+ * Measure request identity hashing for reused messages, one appended message,
+ * and entirely new message objects. Run with `bun bench/memory-opportunity-receipts.bench.ts`.
+ * The cold case includes object allocation, uncached SHA-256 work and cache
+ * insertion. Its 200 measured iterations after 40 warmups retain GC costs while
+ * giving p95 more tail observations than a short 40-iteration sample.
+ */
 import { bench, report } from "./harness";
 import { requestContentHash } from "../packages/core/src/agent/memory-opportunity-receipts";
 import type { ChatMessage } from "../packages/core/src/types/message";
@@ -27,7 +31,7 @@ const results = [
     () => {
       requestContentHash(transcript.map((message) => ({ ...message })));
     },
-    { iterations: 40 },
+    { iterations: 200, warmupIterations: 40 },
   ),
 ];
 

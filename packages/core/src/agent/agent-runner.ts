@@ -822,6 +822,7 @@ function initializeAgentRun(
       conversationId: actualConversationId,
       model,
       egressTaint: options.egressTaint ?? createEgressTaint(history),
+      httpApproval: appConfig.network?.httpApproval ?? "allow",
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
       ...(Option.isSome(pluginSession)
         ? {

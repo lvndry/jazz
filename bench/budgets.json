@@ -1,0 +1,54 @@
+{
+  "latencyRelativeAllowance": 0.3,
+  "latencyNoiseMs": 0.5,
+  "binaryRelativeAllowance": 0.05,
+  "binaryNoiseBytes": 1048576,
+  "binaryMaxBytes": 209715200,
+  "absolute": [
+    {
+      "suite": "filesystem-config-models",
+      "maxP95Ms": 1000
+    },
+    {
+      "suite": "conversation-memory",
+      "metrics": {
+        "peakRssBytes": 1073741824,
+        "postClearHeapBytes": 67108864
+      }
+    },
+    {
+      "suite": "startup",
+      "maxP95Ms": 2000
+    },
+    {
+      "suite": "ui-pipeline",
+      "maxP95Ms": 250,
+      "excludeNames": ["ink open fence buffer -> terminal", "opentui open fence buffer -> terminal"]
+    },
+    {
+      "suite": "startup",
+      "name": "compiled --version",
+      "maxP95Ms": 100
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink open fence buffer -> terminal",
+      "maxP95Ms": 2500
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui open fence buffer -> terminal",
+      "maxP95Ms": 2500
+    },
+    {
+      "suite": "markdown-prose",
+      "maxP95Ms": 1,
+      "excludeNames": ["parseMarkdown 50KB reply"]
+    },
+    {
+      "suite": "markdown-prose",
+      "name": "parseMarkdown 50KB reply",
+      "maxP95Ms": 10
+    }
+  ]
+}

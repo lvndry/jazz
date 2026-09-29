@@ -14,14 +14,17 @@ import {
 } from "@jazz/adapters/command-approval-tracker";
 import { getOwnedGoal } from "@jazz/adapters/goals/goal-actions";
 import { claimChatGoalTurn, settleChatGoalTurn } from "@jazz/adapters/goals/goal-worker";
-import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
+import {
+  loadConversationOrNull,
+  type ConversationUiEntry,
+} from "@jazz/adapters/history/conversation-history-service";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { carryEgressTaint, detachedResultMessage } from "@jazz/core/agent/execution/egress-taint";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { apiKeyHint } from "@jazz/core/constants/provider-env-vars";
-import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import {
   ChatServiceTag,
@@ -76,6 +79,7 @@ import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
 import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
+import { reasoningEffortLabel } from "@/cli/helpers/reasoning";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
@@ -139,8 +143,10 @@ export class ChatServiceImpl implements ChatService {
     agent: Agent,
     options?: {
       stream?: boolean;
+      conversationId?: string;
       initialHistory?: ChatMessage[];
       initialUiTranscript?: readonly ConversationUiEntry[];
+      initialMessage?: string;
       maxIterations?: number;
       ephemeral?: boolean;
     },
@@ -151,7 +157,7 @@ export class ChatServiceImpl implements ChatService {
     | LoggerService
     | FileSystemContextService
     | FileSystem.FileSystem
-    | typeof AgentConfigServiceTag
+    | AgentConfigService
     | JazzStateService
     | ToolRegistry
     | AgentService
@@ -167,7 +173,7 @@ export class ChatServiceImpl implements ChatService {
       const terminal = yield* TerminalServiceTag;
       const logger = yield* LoggerServiceTag;
 
-      let conversationId: string = generateConversationId();
+      let conversationId: string = options?.conversationId ?? generateConversationId();
 
       // Logs and todos are keyed by the conversation, so this is re-pointed whenever the
       // conversation changes rather than bound once for the whole sitting.
@@ -223,9 +229,11 @@ export class ChatServiceImpl implements ChatService {
       const configService = yield* AgentConfigServiceTag;
       const appConfig = yield* configService.appConfig;
       const llmService = yield* LLMServiceTag;
+      const reasoning = reasoningEffortLabel(agent.config.reasoning);
       store.resetRunStats({
         provider: agent.config.llmProvider,
         model: agent.config.llmModel,
+        ...(reasoning === undefined ? {} : { reasoning }),
         localModelHosts: resolveLocalModelHosts(llmService, appConfig.llm),
       });
 
@@ -233,6 +241,9 @@ export class ChatServiceImpl implements ChatService {
 
       let chatActive = true;
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
+      let conversationTitle = ephemeral
+        ? undefined
+        : (yield* loadConversationOrNull(agent.id, conversationId))?.title;
 
       // Notify enabled plugins of chat lifecycle events (a Warp-style notifier rides these).
       // Fire-and-forget and fail-open so a plugin can never delay or break the loop.
@@ -271,7 +282,10 @@ export class ChatServiceImpl implements ChatService {
       let sessionTurnCount = 0;
       /** Spend caps already warned about this session, by window, so each warns once. */
       const warnedSpendCaps = new Set<string>();
-      let sessionLimits: SessionLimits = {};
+      let sessionLimits: SessionLimits =
+        appConfig.chat?.defaultCostLimitUSD !== undefined
+          ? { maxCostUSD: appConfig.chat.defaultCostLimitUSD }
+          : {};
       let autoApprovePolicy: AutoApprovePolicy = SAFE_MODE_POLICY;
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
@@ -356,6 +370,12 @@ export class ChatServiceImpl implements ChatService {
       /** A mistyped command, put back in the composer at the next prompt. */
       let draftToRestore: string | undefined;
 
+      /** The message the session was opened with, sent as its first turn. */
+      let firstMessage =
+        options?.initialMessage !== undefined && options.initialMessage.trim().length > 0
+          ? options.initialMessage
+          : undefined;
+
       // The goal this chat is working toward, and whether its next turn is due. A goal turn is
       // an ordinary turn whose prompt comes from the goal instead of the user.
       let attendedGoalId: string | undefined;
@@ -374,7 +394,14 @@ export class ChatServiceImpl implements ChatService {
 
         // What the user typed meanwhile goes first; the goal picks up again after it.
         let goalTurn: Effect.Effect.Success<ReturnType<typeof claimChatGoalTurn>> = undefined;
-        if (queued.length === 0 && attendedGoalId !== undefined && goalContinues) {
+        if (firstMessage !== undefined) {
+          // Typed on home before the session existed: it goes exactly as a typed message would,
+          // echoed into the transcript and recallable with ↑.
+          userMessage = firstMessage;
+          firstMessage = undefined;
+          store.pushInputHistory(userMessage);
+          yield* terminal.user(userMessage);
+        } else if (queued.length === 0 && attendedGoalId !== undefined && goalContinues) {
           goalContinues = false;
           const goalId = attendedGoalId;
           goalTurn = yield* goalLayers(claimChatGoalTurn(goalId)).pipe(
@@ -491,7 +518,7 @@ export class ChatServiceImpl implements ChatService {
         if (
           goalTurn === undefined &&
           isCommandInput(trimmedMessage) &&
-          !trimmedMessage.includes("\n")
+          (!trimmedMessage.includes("\n") || parseSpecialCommand(trimmedMessage).type === "rename")
         ) {
           const specialCommand = parseSpecialCommand(userMessage);
 
@@ -513,6 +540,8 @@ export class ChatServiceImpl implements ChatService {
             const context: CommandContext = {
               agent,
               conversationId,
+              conversationTitle,
+              ephemeral,
               conversationHistory,
               queuedAfterCommand: store.peekQueue().length > 0,
               sessionUsage,
@@ -532,6 +561,10 @@ export class ChatServiceImpl implements ChatService {
               context,
             );
 
+            if (commandResult.newConversationTitle !== undefined) {
+              conversationTitle = commandResult.newConversationTitle;
+            }
+
             // Slash commands are UI interactions, not model turns. Snapshot the rendered
             // text separately so resume restores their invocation and result without
             // inserting operational output into the next LLM request.
@@ -543,6 +576,7 @@ export class ChatServiceImpl implements ChatService {
               conversationId,
               agentId: agent.id,
               startedAt,
+              title: conversationTitle,
               uiTranscript,
             });
 
@@ -553,6 +587,7 @@ export class ChatServiceImpl implements ChatService {
                 conversationId,
                 agentId: agent.id,
                 startedAt,
+                title: conversationTitle,
               });
             }
 
@@ -564,12 +599,13 @@ export class ChatServiceImpl implements ChatService {
                 goalContinues = false;
               }
               conversationId = commandResult.newConversationId;
+              conversationTitle = commandResult.newConversationTitle;
               if (!ephemeral) {
                 yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
                 yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
               }
               store.setCurrentConversation({ agentId: agent.id, conversationId });
-              // Logs follow the conversation, so /new starts a new file rather than
+              // Logs follow the conversation, so /start starts a new file rather than
               // appending the next conversation to the previous one's.
               yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
               startedAt = new Date().toISOString();
@@ -597,6 +633,7 @@ export class ChatServiceImpl implements ChatService {
               store.updateRunStats({
                 provider: agent.config.llmProvider,
                 model: agent.config.llmModel,
+                reasoning: reasoningEffortLabel(agent.config.reasoning),
               });
               // Update working directory in store after agent switch
               const fileSystemContext = yield* FileSystemContextServiceTag;
@@ -610,7 +647,7 @@ export class ChatServiceImpl implements ChatService {
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
               // The transcript is the user's picture of what the agent knows.
-              // Most commands that replace the history — /new, /fork, /resume — have to
+              // Most commands that replace the history — /start, /fork, /resume — have to
               // repaint it, or the screen keeps showing turns the agent can no longer see.
               // /compact opts out (skipTranscriptRepaint): it only shrinks the model's
               // context, and the user's scrollback stays as their record of the session.
@@ -623,7 +660,7 @@ export class ChatServiceImpl implements ChatService {
                 // entire pre-retry history as duplicate events).
                 loggedMessageCount = Math.min(loggedMessageCount, conversationHistory.length);
               } else {
-                // Reset logged message count when history is cleared (e.g., /new command)
+                // Reset logged message count when history is cleared (e.g., /start command)
                 loggedMessageCount = 0;
               }
             }
@@ -814,7 +851,8 @@ export class ChatServiceImpl implements ChatService {
                     yield* terminal.log(
                       `   Cloud models need a key from https://ollama.com/settings/keys. ${apiKeyHint("ollama")} Or run \`ollama signin\` to proxy through a local daemon.`,
                     );
-                  } else {
+                  } else if (!error.message.includes(apiKeyHint(error.provider))) {
+                    // The message already carries the hint when the key was reported missing.
                     yield* terminal.log(`   ${apiKeyHint(error.provider)}`);
                   }
                 } else if (error instanceof GenerationInterruptedError) {
@@ -921,6 +959,7 @@ export class ChatServiceImpl implements ChatService {
               conversationId,
               agentId: agent.id,
               startedAt,
+              title: conversationTitle,
               uiTranscript: uiTranscriptFromStore(),
             });
           }
@@ -997,6 +1036,7 @@ export class ChatServiceImpl implements ChatService {
         conversationId,
         agentId: agent.id,
         startedAt,
+        title: conversationTitle,
         uiTranscript: uiTranscriptFromStore(),
       });
       return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
@@ -1028,7 +1068,7 @@ export function createChatServiceLayer(): Layer.Layer<
   | LoggerService
   | FileSystemContextService
   | FileSystem.FileSystem
-  | typeof AgentConfigServiceTag
+  | AgentConfigService
   | JazzStateService
   | typeof ToolRegistryTag
   | typeof AgentServiceTag

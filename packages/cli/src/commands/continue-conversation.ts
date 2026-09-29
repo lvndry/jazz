@@ -23,6 +23,7 @@ export interface ContinueOptions {
 }
 
 export interface ContinuedSession {
+  readonly conversationId?: string;
   readonly initialHistory?: ChatMessage[];
   readonly initialUiTranscript?: NonNullable<
     Effect.Effect.Success<ReturnType<typeof loadConversationOrNull>>
@@ -81,6 +82,7 @@ export function continuedSessionOptions(
       );
     }
     return {
+      conversationId,
       initialHistory: [...conversation.messages],
       ...(conversation.uiTranscript !== undefined
         ? { initialUiTranscript: conversation.uiTranscript }

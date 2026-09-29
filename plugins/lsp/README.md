@@ -18,15 +18,22 @@ jazz plugin enable com.jazz.plugins.lsp --agent default
 ```
 
 Replace `default` with your agent name or ID, or omit `--agent` to enable it for every agent. The
-language-server executable is installed separately; Jazz does not bundle one.
+language-server executable is installed separately; Jazz does not bundle one. See "Add a language"
+below for TypeScript, Python, Rust, and Go.
 
-For example, to add TypeScript and JavaScript support, install their language server and configure it:
+## Add a language
+
+Create or edit `~/.jazz/lsp.json`. Add one object per language server to the `servers` array; keep
+any existing entries when adding another. Use the absolute path from `command -v <the-executable>`
+for `command` if Jazz cannot find it on its own `PATH`.
+
+### TypeScript and JavaScript
+
+Install [`typescript-language-server`](https://github.com/typescript-language-server/typescript-language-server):
 
 ```sh
 npm install --global typescript-language-server typescript@6
 ```
-
-Add this entry to `~/.jazz/lsp.json` (use the absolute path from `command -v typescript-language-server` if Jazz cannot find it on `PATH`):
 
 ```json
 {
@@ -51,11 +58,47 @@ Add this entry to `~/.jazz/lsp.json` (use the absolute path from `command -v typ
 }
 ```
 
-## Add a language
+### Python
 
-Create or edit `~/.jazz/lsp.json`. Add one object per language server to the `servers` array. For
-example, after [installing `rust-analyzer`](https://rust-analyzer.github.io/book/installation.html)
-and making its executable available to Jazz, this config adds Rust:
+Install [`pyright`](https://microsoft.github.io/pyright/#/installation), which ships a
+`pyright-langserver` binary:
+
+```sh
+npm install --global pyright
+```
+
+```json
+{
+  "servers": [
+    {
+      "id": "python",
+      "command": "pyright-langserver",
+      "args": ["--stdio"],
+      "extensions": [".py"],
+      "languageId": "python",
+      "rootMarkers": [
+        "pyrightconfig.json",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt"
+      ]
+    }
+  ]
+}
+```
+
+Two alternatives, same `extensions`, `languageId`, and `rootMarkers` as above:
+
+- [`python-lsp-server`](https://github.com/python-lsp/python-lsp-server) — `pip install
+python-lsp-server`, then `command: "pylsp"` with `args: []`.
+- [`ty`](https://github.com/astral-sh/ty), Astral's Rust-based type checker (pre-1.0, moving
+  fast) — `uv tool install ty`, then `command: "ty"` with `args: ["server"]`. If you run it through
+  `uvx` instead of installing it, use `command: "uvx"` with `args: ["ty", "server"]`.
+
+### Rust
+
+Install [`rust-analyzer`](https://rust-analyzer.github.io/book/installation.html):
 
 ```json
 {
@@ -72,7 +115,30 @@ and making its executable available to Jazz, this config adds Rust:
 }
 ```
 
-Keep any existing server objects when adding another language. The fields mean:
+### Go
+
+Install [`gopls`](https://pkg.go.dev/golang.org/x/tools/gopls):
+
+```sh
+go install golang.org/x/tools/gopls@latest
+```
+
+```json
+{
+  "servers": [
+    {
+      "id": "go",
+      "command": "gopls",
+      "args": [],
+      "extensions": [".go"],
+      "languageId": "go",
+      "rootMarkers": ["go.work", "go.mod"]
+    }
+  ]
+}
+```
+
+The fields mean:
 
 | Field         | Meaning                                                                                    |
 | ------------- | ------------------------------------------------------------------------------------------ |
@@ -90,6 +156,6 @@ starts its server then and supplies diagnostics on the next model request. A new
 read on the next request; changing the executable starts a new server, while an old idle server
 exits after two minutes. Use `JAZZ_LSP_CONFIG` to point to a different JSON file.
 
-The Rust entry above illustrates the configuration format; Jazz's live server verification has
-covered TypeScript, not Rust. For the tested TypeScript setup, approval behavior, and current
-limitations, see the [full LSP guide](../../docs/configure/lsp-plugin.md).
+The Python, Rust, and Go entries above illustrate the configuration format; Jazz's live server
+verification has covered TypeScript, not the other three. For the tested TypeScript setup,
+approval behavior, and current limitations, see the [full LSP guide](../../docs/configure/lsp-plugin.md).

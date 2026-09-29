@@ -13,9 +13,9 @@
 import { RGBA, TextAttributes } from "@opentui/core";
 import { describe, expect, it } from "bun:test";
 import React, { useState } from "react";
-import { renderForTest } from "./test-helpers";
+import { renderForTest, updateForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
-import { THEME } from "../theme";
+import { applyTheme, initializeTheme, setCanvasMode, THEME } from "../theme";
 import { App, reuseViewport } from "./App";
 import { isPrintableSequence } from "./keymap";
 import {
@@ -77,21 +77,80 @@ describe("fullscreen frame", () => {
     for (const row of frame.rows) expect([...row]).toHaveLength(WIDTH);
   });
 
-  it("paints the specified canvas as the window ground", async () => {
+  async function groundOfEmptyCells(): Promise<readonly string[]> {
     const { renderer, renderOnce, captureSpans } = await renderForTest(
       <App
-        view={sampleView()}
+        view={sampleIdleView()}
         onAction={() => undefined}
       />,
       { width: WIDTH, height: HEIGHT },
     );
     await renderOnce();
-    const canvas = RGBA.fromHex(THEME.canvas).toInts().slice(0, 3).join(",");
-    const painted = captureSpans()
+    const grounds = captureSpans()
       .lines.flatMap((line) => line.spans)
-      .some((span) => span.bg.toInts().slice(0, 3).join(",") === canvas);
+      .filter((span) => span.text.trim() === "")
+      .map((span) => span.bg.toInts().join(","));
     renderer.destroy();
-    expect(painted).toBe(true);
+    return grounds;
+  }
+
+  it("paints the theme's ground under every empty cell in painted mode", async () => {
+    setCanvasMode("painted");
+    try {
+      const ground = [...RGBA.fromHex(THEME.background).toInts()].join(",");
+      const grounds = await groundOfEmptyCells();
+      expect(grounds.length).toBeGreaterThan(0);
+      expect(grounds.filter((value) => value === ground).length / grounds.length).toBeGreaterThan(
+        0.9,
+      );
+    } finally {
+      setCanvasMode("inherit");
+    }
+  });
+
+  it("repaints the whole frame when the theme changes under an unchanged view", async () => {
+    // The bug this guards: a live /theme switch left memoised regions in the
+    // old palette, so light text sat on a light ground in the header.
+    initializeTheme({ configured: "jazz:dark", canvas: "painted" });
+    const view = sampleView();
+    const { renderer, renderOnce, captureSpans } = await renderForTest(
+      <App
+        view={view}
+        onAction={() => undefined}
+      />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    const paintedColours = (): Set<string> =>
+      new Set(
+        captureSpans()
+          .lines.flatMap((line) => line.spans)
+          .flatMap((span) => [span.fg.toInts().join(","), span.bg.toInts().join(",")]),
+      );
+    try {
+      await renderOnce();
+      const darkText = [...RGBA.fromHex(THEME.selected).toInts()].join(",");
+      expect(paintedColours().has(darkText)).toBe(true);
+
+      updateForTest(() => {
+        applyTheme("jazz:light");
+      });
+      await renderOnce();
+
+      const colours = paintedColours();
+      expect(colours.has(darkText)).toBe(false);
+      expect(colours.has([...RGBA.fromHex(THEME.selected).toInts()].join(","))).toBe(true);
+      expect(colours.has([...RGBA.fromHex(THEME.background).toInts()].join(","))).toBe(true);
+    } finally {
+      renderer.destroy();
+      initializeTheme({});
+    }
+  });
+
+  it("leaves the terminal's own ground showing in inherit mode", async () => {
+    setCanvasMode("inherit");
+    const canvas = [...RGBA.fromHex(THEME.canvas).toInts()].join(",");
+    const grounds = await groundOfEmptyCells();
+    expect(grounds.some((value) => value === canvas)).toBe(false);
   });
 
   it("is calm enough to read: the density target the first draft failed", async () => {
@@ -126,7 +185,8 @@ describe("fullscreen frame", () => {
     expect(idleInput).toBeGreaterThan(0);
     expect(busyInput).toBe(idleInput);
     // The composer never sits on the live band — one quiet row between them.
-    expect(busy.rows[busyInput - 1]?.trim()).toBe("");
+    // Above the band's top padding row, one quiet row.
+    expect(busy.rows[busyInput - 2]?.trim()).toBe("");
   });
 
   it("shows the whole approval card, naming the real account verbatim", async () => {
@@ -137,6 +197,14 @@ describe("fullscreen frame", () => {
     expect(frame.text).toContain("Work");
     // Irreversibility as a sentence, not an icon.
     expect(frame.text.toLowerCase()).toContain("not undoable");
+  });
+
+  it("hides the composer under a docked card so no fragment shows beside its controls", async () => {
+    const plain = await frameOf(sampleView());
+    expect(plain.text).toContain("Ask anything");
+    const overlaid = await frameOf(sampleApprovalView());
+    expect(overlaid.text).not.toContain("Ask anything");
+    expect(overlaid.rows).toHaveLength(HEIGHT);
   });
 
   it("does not disturb the transcript when an overlay opens", async () => {
@@ -660,21 +728,22 @@ describe("composer after a completed turn", () => {
     );
     await renderOnce();
     const idle = captureCharFrame();
-    expect(idle).toContain(getGlyphs().promptCursor);
+    // The caret takes its own cell before the placeholder, so the hint reads whole.
+    expect(idle).toContain(`${getGlyphs().bandBar}  Ask anything`);
     expect(idle).toContain("enter to send");
 
     await mockInput.pressKey("x");
     await settle(flush);
     const typed = captureCharFrame();
     renderer.destroy();
-    expect(typed).toContain(getGlyphs().promptCursor);
+    expect(typed).toContain(`${getGlyphs().bandBar} x`);
     expect(typed).toContain("x");
     expect(typed).toContain("enter to send");
   });
 });
 
 describe("transcript links under the pointer", () => {
-  it("underlines every row of a wrapped link and shows a pointer while hovered, and clears both when the pointer leaves", async () => {
+  it("keeps a link underlined, lifts every row of it to the accent while hovered, and shows a pointer until the pointer leaves", async () => {
     const label = Array.from({ length: 14 }, (_, index) => `word${String(index)}`).join(" ");
     const view: ViewModel = {
       ...sampleIdleView(),
@@ -708,6 +777,13 @@ describe("transcript links under the pointer", () => {
         .filter((span) => (span.attributes & TextAttributes.UNDERLINE) !== 0)
         .map((span) => span.text.trim())
         .filter((text) => text.length > 0);
+    const accent = RGBA.fromHex(THEME.primary).toInts().slice(0, 3).join(",");
+    const lifted = (): string[] =>
+      captureSpans()
+        .lines.flatMap((line) => line.spans)
+        .filter((span) => span.fg.toInts().slice(0, 3).join(",") === accent)
+        .map((span) => span.text.trim())
+        .filter((text) => text.startsWith("word"));
     const rows = captureCharFrame().split("\n");
     const firstRow = rows.findIndex((row) => row.includes("word0"));
     const pointAt = async (x: number, y: number): Promise<void> => {
@@ -716,16 +792,18 @@ describe("transcript links under the pointer", () => {
       await renderOnce();
     };
 
-    expect(underlined()).toEqual([]);
+    expect(underlined().join(" ")).toContain("word0");
+    expect(underlined().join(" ")).toContain("word13");
+    expect(lifted()).toEqual([]);
 
     await pointAt(rows[firstRow]!.indexOf("word0") + 1, firstRow);
-    const hovering = underlined();
+    const hovering = lifted();
     expect(hovering.join(" ")).toContain("word0");
     expect(hovering.join(" ")).toContain("word13");
     expect(pointerShapes).toEqual(["pointer"]);
 
     await pointAt(rows[firstRow]!.indexOf("see"), firstRow);
-    const offLabel = underlined();
+    const offLabel = lifted();
     renderer.destroy();
     expect(offLabel).toEqual([]);
     expect(pointerShapes).toEqual(["pointer", "default"]);

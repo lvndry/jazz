@@ -18,17 +18,16 @@ import type { StreamEvent } from "@jazz/core/types/streaming";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { Box, Text } from "ink";
 import React from "react";
-import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import {
   compactToolArguments,
   formatToolArguments,
   formatToolDisplayName,
   formatToolResult,
-  toolResultSnippet,
 } from "./format-utils";
 import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
-import { PADDING, THEME } from "../ui/theme";
+import { receiptPlainText, toolReceipt } from "../ui/models/receipt";
+import { THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
 
 /**
@@ -401,131 +400,38 @@ export function reduceEvent(
 
     case "tool_execution_complete": {
       const toolEntry = acc.activeTools.get(event.toolCallId);
-      const toolName = toolEntry?.toolName;
+      // A call refused before it started never sent a start event; the completion names it.
+      const toolName = toolEntry?.toolName ?? event.toolName;
       acc.activeTools.delete(event.toolCallId);
 
       const failed = event.success === false;
-
-      let summary = event.summary?.trim();
-      const failureReason = failed ? event.error?.trim() || "Tool execution failed" : undefined;
-      if (failed) {
-        // A failed tool's result payload is null — the error message is the
-        // only meaningful thing to show. The Ink line still prefixes the tool
-        // name; the structured receipt does not, because the app field already
-        // carries it and repeating the error there cropped the sentence.
-        const failedLabel = toolEntry?.displayName ?? toolName;
-        summary = failedLabel ? `${failedLabel}: ${failureReason}` : failureReason;
-      } else if (
-        toolName === "manage_todos" &&
-        toolEntry?.todoSnapshot &&
-        toolEntry.todoSnapshot.length > 0
-      ) {
-        summary = `Todo list\n${formatTodoSnapshotForOutput(toolEntry.todoSnapshot)}`;
-      }
-      if (!summary && toolName && event.result) {
-        summary = formatToolResult(toolName, event.result);
-      }
-
-      const glyph = failed ? getGlyphs().error : getGlyphs().success;
-      const glyphColor = failed ? THEME.error : THEME.success;
-
-      // The rendered string above is for the Ink tree. Carry the same result as
-      // structured data so a renderer that lays out its own rows does not have
-      // to parse ANSI back into meaning. `meta` keeps it in the output stream,
-      // which is what preserves ordering relative to the surrounding turns.
-      const plainBody = stripAnsiCodes(summary ?? "");
-      const snippet = toolResultSnippet(plainBody);
-      const argsPreview = toolEntry?.argsPreview?.trim();
-      const classifiedRisk = event.classifiedRisk ?? toolEntry?.classifiedRisk;
-      const receipt = {
-        app: toolName ?? "tool",
-        summary: failed ? "" : snippet.length > 0 ? snippet : (toolName ?? "tool"),
-        status: failed ? "failed" : "ok",
+      const todoSnapshot = toolEntry?.todoSnapshot;
+      const formattedResult = failed
+        ? undefined
+        : toolName === "manage_todos" && todoSnapshot !== undefined && todoSnapshot.length > 0
+          ? formatTodoSnapshotForOutput(todoSnapshot)
+          : toolName !== undefined && event.result.length > 0
+            ? formatToolResult(toolName, event.result)
+            : undefined;
+      const receipt = toolReceipt({
+        toolName,
+        argsPreview: toolEntry?.argsPreview,
+        success: event.success,
+        error: event.error,
+        summary: event.summary,
+        result: event.result,
+        formattedResult,
         durationMs: event.durationMs,
-        ...(argsPreview !== undefined && argsPreview.length > 0 ? { args: argsPreview } : {}),
-        ...(failureReason !== undefined ? { reason: failureReason } : {}),
-        ...(!failed && plainBody.length > 0 && plainBody !== snippet ? { detail: summary } : {}),
-        ...(classifiedRisk !== undefined ? { classifiedRisk } : {}),
-      };
+        classifiedRisk: event.classifiedRisk ?? toolEntry?.classifiedRisk,
+      });
 
-      const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
-      const hasMultiLine = displayText.includes("\n");
-
-      if (summary && summary.length > 0 && hasMultiLine) {
-        const lines = summary.split("\n");
-        const headerLine =
-          (lines[0] ?? "").trim().length > 0 ? (lines[0] ?? "").trim() : (toolName ?? "Tool");
-        const bodyLines = lines.slice(1);
-        outputs.push({
-          type: "log",
-          message: inkRender(
-            React.createElement(
-              Box,
-              {
-                paddingLeft: PADDING.content,
-                flexDirection: "column",
-                borderStyle: "round",
-                borderColor: THEME.toolBorder,
-                paddingX: 1,
-              },
-              React.createElement(
-                Box,
-                null,
-                React.createElement(Text, { color: glyphColor }, `${glyph} `),
-                React.createElement(
-                  Text,
-                  { color: failed ? THEME.error : THEME.agent },
-                  headerLine,
-                ),
-                React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
-              ),
-              ...bodyLines.map((line, index) =>
-                React.createElement(
-                  Box,
-                  { key: `tool-result-line-${index}` },
-                  // Lines that already carry ANSI styling (diff +/- coloring,
-                  // syntax highlighting) render as-is: layering dim over them
-                  // washes the colors out.
-                  React.createElement(
-                    Text,
-                    line.includes("\u001b[") ? {} : { dimColor: true },
-                    line,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          timestamp: new Date(),
-          meta: { toolReceipt: receipt },
-        });
-      } else {
-        const singleLineSummary = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
-
-        outputs.push({
-          type: "log",
-          message: inkRender(
-            React.createElement(
-              Box,
-              { paddingLeft: PADDING.content },
-              React.createElement(Text, { color: glyphColor }, `${glyph} `),
-              React.createElement(
-                Text,
-                { color: failed ? THEME.error : THEME.agent },
-                singleLineSummary,
-              ),
-              React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
-            ),
-          ),
-          timestamp: new Date(),
-          meta: { toolReceipt: receipt },
-        });
-      }
-
-      // Add spacing after tool completion
+      // The entry holds the receipt itself; every renderer lays it out from `meta`, and the
+      // message is its words as plain text for search, copy and anything that reads text.
       outputs.push({
         type: "log",
-        message: "",
+        message: receiptPlainText(receipt, getGlyphs(), { duration: true }),
         timestamp: new Date(),
+        meta: { toolReceipt: receipt },
       });
 
       const activity: ActivityState =
@@ -558,10 +464,18 @@ export function reduceEvent(
       return { activity: buildToolExecutionActivity(acc), outputs };
     }
 
+    case "approval_resolved": {
+      // A declined call never emits a start event, so remember its name here for
+      // the denied receipt its completion produces.
+      if (!event.approved && !acc.activeTools.has(event.toolCallId)) {
+        acc.activeTools.set(event.toolCallId, { toolName: event.toolName, startedAt: Date.now() });
+      }
+      return { activity: null, outputs };
+    }
+
     case "usage_update":
     case "run_spend":
     case "approval_required":
-    case "approval_resolved":
     case "subagent_start":
     case "subagent_complete":
     case "subagent_result":

@@ -12,6 +12,7 @@ import {
   NotificationServiceTag,
   type NotificationService,
 } from "@jazz/core/interfaces/notification";
+import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
 import type {
   EphemeralRegionCollapse,
   EphemeralRegionKind,
@@ -26,7 +27,7 @@ import type {
   UserInputOutcome,
   UserInputRequest,
 } from "@jazz/core/interfaces/presentation";
-import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
+import type { LlmRetryNotice } from "@jazz/core/interfaces/presentation";
 import { ink } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import { redactionPlaceholder } from "@jazz/core/secrets/secret-names";
@@ -34,6 +35,7 @@ import type { DisplayConfig } from "@jazz/core/types/output";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalOutcome, ApprovalRequest } from "@jazz/core/types/tools";
 import { toError } from "@jazz/core/utils/errors";
+import { isHttpApprovalTool } from "@jazz/core/utils/http-approval";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@jazz/core/utils/models-dev";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { formatCompactCount } from "@jazz/core/utils/string";
@@ -48,6 +50,15 @@ import { Effect, Layer, Option } from "effect";
 import { Box, Text } from "ink";
 import React from "react";
 import type { ActivityState } from "@/cli/ui/activity-state";
+import { approvalAccount, approvalFacts } from "@/cli/ui/models/approval";
+import {
+  interruptSummary,
+  interruptSummaryLines,
+  type InterruptSummary,
+  type ReceiptFacts,
+} from "@/cli/ui/models/interrupt";
+import { retryLine } from "@/cli/ui/models/retry";
+import { clipTerminalCells, terminalCellWidth } from "@/cli/ui/text/terminal-cells";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
@@ -59,17 +70,23 @@ import {
   formatToolsDetectedEffect,
   formatWarning,
 } from "./format-utils";
-import {
-  formatMarkdown,
-  formatMarkdownHybrid,
-  getTerminalWidth,
-  wrapToWidth,
-} from "./markdown-formatter";
+import { getTerminalWidth, wrapToWidth } from "./markdown-formatter";
 import { isInsideOpenStructure } from "./markdown-split";
+import {
+  addStep,
+  EMPTY_TURN,
+  formatStepBreakdown,
+  formatTurnReceipt,
+  type TurnTotals,
+} from "./turn-receipt";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
 import { getGlyphs } from "../ui/glyphs";
+import { markdownToAnsi } from "../ui/markdown/ansi";
+import { receiptFromMeta } from "../ui/models/receipt";
 import { store } from "../ui/store";
 import type { SubagentChannel } from "../ui/subagent-runs";
+import { formatCost } from "../ui/text/format";
+import { PADDING_BUDGET } from "../ui/theme";
 import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
 import { separatorLine, stripAnsiCodes } from "../utils/string-utils";
 
@@ -98,18 +115,11 @@ function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionColla
     const parts = [`${label} completed`, `${seconds}s`];
     if (outcome.totalTokens !== undefined)
       parts.push(`${formatCompactCount(outcome.totalTokens)} tok`);
-    if (outcome.costUSD !== undefined) parts.push(formatOutroCost(outcome.costUSD));
+    if (outcome.costUSD !== undefined) parts.push(formatCost(outcome.costUSD));
     return chalk.dim(chalk.italic(`${glyphs.success} ${parts.join(" · ")}`));
   }
   const verb = outcome.status === "failed" ? "failed" : "interrupted";
   return chalk.dim(chalk.italic(`${glyphs.error} ${label} ${verb}`));
-}
-
-function formatOutroCost(cost: number): string {
-  if (cost === 0) return "$0.00";
-  if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-  if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-  return `<$0.0001`;
 }
 
 /**
@@ -137,6 +147,19 @@ function formatOutroCost(cost: number): string {
  * **Completion**: The full authoritative response (`event.response.content`)
  * is printed to Static as a single entry so it becomes fully scrollable.
  */
+
+/**
+ * Markdown as Ink shows it: the same shared parser and colours as fullscreen, laid out
+ * unwrapped. Ink's own `<Text wrap>` re-flows a settled entry live, including on a terminal
+ * resize; pre-wrapping here would freeze it at whatever width it first drew at instead.
+ */
+function formatMarkdownForDisplay(text: string, mode: DisplayConfig["mode"]): string {
+  if (mode !== "rendered" && mode !== "hybrid") {
+    return text;
+  }
+  const width = Math.max(1, getTerminalWidth() - PADDING_BUDGET);
+  return markdownToAnsi(text, { width, syntax: mode, wrapProse: false });
+}
 
 /**
  * One buffered streaming delta. Either targets the global scrollback pending
@@ -177,6 +200,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private seenLength = 0;
   /** True if any text delta was emitted in the current round (for handleComplete fallback). */
   private hasStreamedText = false;
+  /** Steps of the turn so far; closed into one receipt when the model stops calling tools. */
+  private turn: TurnTotals = EMPTY_TURN;
 
   /**
    * Active reasoning ephemeral region id (null if none open). Reasoning is
@@ -443,6 +468,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.acc.activeTools.clear();
       this.acc.isThinking = false;
       this.acc.lastAgentHeaderWritten = false;
+      this.turn = EMPTY_TURN;
       this.acc.lastAppliedTextSequence = -1;
       this.seenLength = 0;
       this.hasStreamedText = false;
@@ -460,8 +486,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.collapseReasoningRegion();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
-      store.setInterruptHandler(null);
-      store.setBackgroundHandler(null);
     });
   }
 
@@ -480,19 +504,27 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.collapseReasoningRegion();
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
-      store.setInterruptHandler(null);
-      store.setBackgroundHandler(null);
     });
   }
 
+  /**
+   * The Esc/Ctrl+C handler belongs to the run, which installs it when it starts and removes
+   * it when it ends; reset() and flush() run many times inside one run (every retried model
+   * call resets the renderer) and leave it alone, or a run that had retried once could no
+   * longer be stopped. A sub-agent's renderer does not install one either: the store holds
+   * a single handler, the parent run's interrupt already cancels its children, and a child
+   * clearing the handler as it finished would leave the parent unstoppable.
+   */
   setInterruptHandler(handler: (() => void) | null): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (this.streamTarget.kind === "ephemeral") return;
       store.setInterruptHandler(handler);
     });
   }
 
   setBackgroundHandler(handler: (() => void) | null): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (this.streamTarget.kind === "ephemeral") return;
       store.setBackgroundHandler(handler);
     });
   }
@@ -543,10 +575,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const durationMs = Date.now() - this.reasoningStartedAt;
     const seconds = (durationMs / 1000).toFixed(1);
     const tokenSegment = tokens !== undefined ? ` · ${tokens} tokens` : "";
+    // A provider that reasons without returning the text leaves Ctrl+R nothing to expand.
+    const expandHint = this.reasoningFullText.trim().length > 0 ? " · ctrl+r to expand" : "";
     const line = chalk.dim(
-      chalk.italic(
-        `${getGlyphs().success} Reasoning · ${seconds}s${tokenSegment} · ctrl+r to expand`,
-      ),
+      chalk.italic(`${getGlyphs().success} Reasoning · ${seconds}s${tokenSegment}${expandHint}`),
     );
 
     store.collapseEphemeral(this.reasoningRegionId, {
@@ -578,6 +610,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
         InkStreamingRenderer.COLLAPSE_REASONING_BEFORE.has(event.type)
       ) {
         this.collapseReasoningRegion();
+      }
+
+      // Anything the model sends after a retry means the retry went through. A new
+      // attempt opening (stream_start) does not: it may fail and be retried again.
+      if (event.type !== "stream_start") {
+        store.setRetryNotice(null);
       }
 
       if (event.type === "stream_start") {
@@ -654,6 +692,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "error") {
         this.clearAllToolTimeouts();
         this.acc.activeTools.clear();
+        // The turn ends here, so what it thought settles above the error.
+        if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
       }
 
       const result = reduceEvent(this.acc, event, ink);
@@ -676,6 +716,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
 
       if (event.type === "text_start") {
+        // What the turn thought so far settles as one line just above the
+        // answer it led to. Printed here rather than updated later, because
+        // Ink's static scrollback never repaints a line it has written.
+        if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
         // Reasoning was finalized by thinking_complete (or there was none).
         // Reset stream-text bookkeeping for the new response stream.
         this.seenLength = 0;
@@ -751,9 +795,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
 
     if (this.showMetrics && event.metrics) {
-      if (this.streamTarget.kind === "scrollback") {
-        store.printOutput({ type: "log", message: "", timestamp: new Date() });
-      }
       this.printOutro(event);
     }
 
@@ -793,6 +834,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         type: "info",
         message: this.agentName,
         timestamp: new Date(),
+        meta: { agentHeader: true },
       });
       store.printOutput({
         type: "log",
@@ -806,37 +848,28 @@ export class InkStreamingRenderer implements StreamingRenderer {
         // opaque React element to anything else. `formattedFull` is the actual
         // text and travels alongside it in meta, so a non-Ink renderer has a
         // real answer to show instead of an unrenderable object.
-        meta: { plainText: formattedFull },
+        // `agentMarkdown` is the unrendered source, so a renderer that lays out
+        // markdown itself can show this answer exactly like a streamed one.
+        meta: { plainText: formattedFull, agentMarkdown: fullContent },
         timestamp: new Date(),
       });
     }
   }
 
   /**
-   * The turn outro: ONE quiet line closing the turn —
-   * `✓ 4.2s · 9.3k in → 28 out · 41.3 tok/s · $0.0019` — replacing the old trio of
-   * metrics line, cost line, and "completed successfully" banner.
+   * The turn outro: ONE quiet row closing the whole turn —
+   * `12.3s · 4 steps · 65k in → 416 out · $0.08`.
    *
-   * Cost joins the line when pricing is in the synchronous cache (the common
-   * case); on a cold cache the footer still gets the async update, but no
-   * late line is printed after the prompt has already returned.
+   * A turn that calls tools is several model requests, each ending in its own
+   * `complete` event. Every request still updates the footer and the session
+   * totals as it lands, but the row is printed only once the model answers
+   * without asking for more tools; until then the step is added to the turn.
+   * The per-step breakdown goes behind Ctrl+O when no truncated tool output
+   * is already waiting there.
    */
   private printOutro(event: Extract<StreamEvent, { type: "complete" }>): void {
-    const parts: string[] = [];
-    if (event.totalDurationMs > 0) {
-      parts.push(`${(event.totalDurationMs / 1000).toFixed(1)}s`);
-    }
-
     const usage = event.response.usage;
     if (usage) {
-      const cacheReadTokens = Math.min(usage.cacheReadTokens ?? 0, usage.promptTokens);
-      const cachedShare =
-        usage.promptTokens > 0 && cacheReadTokens > 0
-          ? ` (${Math.round((cacheReadTokens / usage.promptTokens) * 100)}% cached)`
-          : "";
-      parts.push(
-        `${formatCompactCount(usage.promptTokens)} in${cachedShare} → ${formatCompactCount(usage.completionTokens)} out`,
-      );
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
       this.acc.lastPromptTokens = usage.promptTokens;
@@ -845,72 +878,104 @@ export class InkStreamingRenderer implements StreamingRenderer {
         promptTokens: usage.promptTokens,
         completionTokens: usage.completionTokens,
       });
-    } else if (event.metrics?.totalTokens) {
-      parts.push(`${formatCompactCount(event.metrics.totalTokens)} tok`);
     }
 
     const tokensPerSecond = event.metrics?.tokensPerSecond;
-    if (tokensPerSecond !== undefined && Number.isFinite(tokensPerSecond)) {
-      parts.push(`${tokensPerSecond.toFixed(1)} tok/s`);
-    }
+    const costUSD = this.recordStepCost(usage);
+    this.turn = addStep(this.turn, {
+      durationMs: event.totalDurationMs,
+      ...(usage
+        ? {
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            cacheReadTokens: Math.min(usage.cacheReadTokens ?? 0, usage.promptTokens),
+          }
+        : event.metrics?.totalTokens !== undefined
+          ? { totalTokens: event.metrics.totalTokens }
+          : {}),
+      ...(costUSD !== undefined ? { costUSD } : {}),
+      ...(tokensPerSecond !== undefined && Number.isFinite(tokensPerSecond)
+        ? { tokensPerSecond }
+        : {}),
+    });
 
-    const provider = this.acc.currentProvider;
-    const model = this.acc.currentModel;
-    if (usage && provider && model) {
-      const computeCost = (meta: UsageCostPricing | undefined): number | null =>
-        computeUsageCostUSD(usage, meta);
-      const rollIntoFooter = (totalCost: number): void => {
-        this.acc.cumulativeCostUSD += totalCost;
-        // Accumulate into the shared session total so sub-agent renderers add
-        // to the footer rather than overwriting it with their own figure.
-        store.addSessionCostUSD(totalCost);
-        // Only the main-agent (scrollback) renderer owns the footer's model/
-        // provider label; sub-agent renderers contribute cost but must not
-        // relabel the footer with their (often different) model.
-        if (this.streamTarget.kind === "scrollback") {
-          store.updateRunStats({ model, provider });
-        }
-      };
+    if ((event.response.toolCalls?.length ?? 0) > 0) return;
 
-      const cachedMeta = getModelsDevMetadataSync(model, provider);
-      if (cachedMeta !== undefined) {
-        const totalCost = computeCost(cachedMeta);
-        if (totalCost !== null) {
-          rollIntoFooter(totalCost);
-          parts.push(formatOutroCost(totalCost));
-        }
-      } else {
-        // Cold cache: keep the footer accurate without printing a straggler
-        // line after the prompt has returned.
-        void getModelsDevMetadata(model, provider)
-          .then((meta) => {
-            const totalCost = computeCost(meta);
-            if (totalCost !== null) rollIntoFooter(totalCost);
-          })
-          .catch(() => {
-            /* pricing unavailable */
-          });
-      }
-    }
+    if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
+    const turn = this.turn;
+    this.turn = EMPTY_TURN;
+    const line = formatTurnReceipt(turn);
+    if (line === undefined) return;
 
-    if (parts.length === 0) return;
-
-    const line = `${getGlyphs().success} ${parts.join(" · ")}`;
     if (this.streamTarget.kind === "ephemeral") {
       this.bufferStreamDelta({
         target: "ephemeral",
         regionId: this.streamTarget.regionId,
-        delta: `\n${line}`,
+        delta: `\n${getGlyphs().success} ${line}`,
         channel: "note",
       });
       return;
     }
 
+    store.printOutput({ type: "log", message: "", timestamp: new Date() });
     store.printOutput({
       type: "debug",
-      message: line,
+      message: `${getGlyphs().success} ${line}`,
       timestamp: new Date(),
+      meta: { turnReceipt: true, plainText: line },
     });
+    if (turn.steps.length > 1 && store.getExpandableDiff() === null) {
+      store.setExpandableDiff(formatStepBreakdown(turn));
+    }
+  }
+
+  /**
+   * Price one model request and roll it into the footer and session totals.
+   * Returns the cost when pricing was available synchronously, so the turn
+   * receipt can include it; a cold pricing cache still reaches the footer.
+   */
+  private recordStepCost(
+    usage: Extract<StreamEvent, { type: "complete" }>["response"]["usage"],
+  ): number | undefined {
+    const provider = this.acc.currentProvider;
+    const model = this.acc.currentModel;
+    if (!usage || !provider || !model) return undefined;
+    const computeCost = (meta: UsageCostPricing | undefined): number | null =>
+      computeUsageCostUSD(usage, meta);
+    const rollIntoFooter = (totalCost: number): void => {
+      this.acc.cumulativeCostUSD += totalCost;
+      // Accumulate into the shared session total so sub-agent renderers add
+      // to the footer rather than overwriting it with their own figure.
+      store.addSessionCostUSD(totalCost);
+      // Only the main-agent (scrollback) renderer owns the footer's model/
+      // provider label; sub-agent renderers contribute cost but must not
+      // relabel the footer with their (often different) model.
+      if (this.streamTarget.kind === "scrollback") {
+        store.updateRunStats({ model, provider });
+      }
+    };
+
+    if (usage.billedCostUSD !== undefined) {
+      rollIntoFooter(usage.billedCostUSD);
+      return usage.billedCostUSD;
+    }
+
+    const cachedMeta = getModelsDevMetadataSync(model, provider);
+    if (cachedMeta !== undefined) {
+      const totalCost = computeCost(cachedMeta);
+      if (totalCost === null) return undefined;
+      rollIntoFooter(totalCost);
+      return totalCost;
+    }
+    void getModelsDevMetadata(model, provider)
+      .then((meta) => {
+        const totalCost = computeCost(meta);
+        if (totalCost !== null) rollIntoFooter(totalCost);
+      })
+      .catch(() => {
+        /* pricing unavailable */
+      });
+    return undefined;
   }
 
   /**
@@ -1048,13 +1113,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   /** Apply markdown formatting based on display mode (no wrapping). */
   private formatMarkdownContent(text: string): string {
-    if (this.displayConfig.mode === "rendered") {
-      return formatMarkdown(text);
-    }
-    if (this.displayConfig.mode === "hybrid") {
-      return formatMarkdownHybrid(text);
-    }
-    return text;
+    return formatMarkdownForDisplay(text, this.displayConfig.mode);
   }
 }
 
@@ -1080,9 +1139,44 @@ interface QueuedUserInput {
  * Critical: does NOT write to stdout directly (which would clobber Ink rendering).
  * Instead, it pushes output into the Ink store.
  */
+/** The stop summary from what the store holds for the current turn. */
+function inkStopSummary(): InterruptSummary {
+  // Receipts printed this tick are still batched; read the turn as it really stands.
+  store.flushOutputBatchNow();
+  const session = store.getSessionSnapshot();
+  const entries = store.getOutputSnapshot().entries;
+  let start = entries.length;
+  while (start > 0 && entries[start - 1]?.type !== "user") start -= 1;
+  const receipts = entries.slice(start).flatMap((entry): ReceiptFacts[] => {
+    const receipt = receiptFromMeta(entry.meta?.["toolReceipt"]);
+    return receipt === null ? [] : [receipt];
+  });
+  const activity = session.activity;
+  const running =
+    activity.phase === "tool-execution"
+      ? activity.tools.map((tool) => ({ app: tool.toolName, operation: tool.argsPreview ?? "" }))
+      : [];
+  const todos = activity.phase === "tool-execution" ? (activity.todoSnapshot ?? []) : [];
+  const approval = session.approvalRequest;
+  return interruptSummary({
+    elapsedMs: session.busySince === null ? 0 : Date.now() - session.busySince,
+    receipts,
+    runningTools: running,
+    ...(approval === null ? {} : { pendingApproval: approvalFacts(approval).title }),
+    todos,
+  });
+}
+
+/** Labels share a column so the approval's values line up and read as a record. */
+const APPROVAL_LABEL_COLUMN = 11;
+
 export class InkPresentationService implements PresentationService {
   // Approval queue to handle parallel tool calls
   private approvalQueue: QueuedApproval[] = [];
+  /** Questions answered in the current set, for the `1 of 2` position. */
+  private questionsAnswered = 0;
+  /** Questions still queued behind the one on screen when it opened. */
+  private questionsWaiting = 0;
   private isProcessingApproval: boolean = false;
 
   // User input queue to handle parallel requestUserInput calls
@@ -1101,13 +1195,7 @@ export class InkPresentationService implements PresentationService {
 
   /** Format markdown using the display mode from config. No pre-wrapping. */
   private formatMarkdownText(text: string): string {
-    if (this.displayConfig.mode === "rendered") {
-      return formatMarkdown(text);
-    }
-    if (this.displayConfig.mode === "hybrid") {
-      return formatMarkdownHybrid(text);
-    }
-    return text;
+    return formatMarkdownForDisplay(text, this.displayConfig.mode);
   }
 
   presentThinking(agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {
@@ -1124,6 +1212,21 @@ export class InkPresentationService implements PresentationService {
     // already marks completion — a second "completed successfully" banner
     // was pure noise.
     return Effect.void;
+  }
+
+  presentInterrupted(_agentName: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      // The fullscreen transcript settles the stop as its own block, snapshotted when the
+      // key was pressed. The Ink transcript prints the same summary here, from the turn's
+      // receipts and whatever was still pending, in the same words.
+      const summary = inkStopSummary();
+      store.printOutput({
+        type: "info",
+        message: interruptSummaryLines(summary).join("\n"),
+        timestamp: new Date(),
+        meta: { interruptNotice: true },
+      });
+    });
   }
 
   presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
@@ -1237,6 +1340,22 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
+  presentRetry(notice: LlmRetryNotice): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      const now = Date.now();
+      const scheduled = { ...notice, retryAt: now + notice.retryInMs };
+      store.setRetryNotice(scheduled);
+      // The Ink transcript has no live band, so it prints the band's words once. The
+      // fullscreen transcript skips this line and draws the band from the store instead.
+      store.printOutput({
+        type: "info",
+        message: `${chalk.cyan(getGlyphs().pending)} ${retryLine(scheduled, now)}`,
+        timestamp: new Date(),
+        meta: { retryNotice: true },
+      });
+    });
+  }
+
   presentStatus(
     message: string,
     level: "info" | "success" | "warning" | "error" | "progress",
@@ -1340,7 +1459,7 @@ export class InkPresentationService implements PresentationService {
    * Process the next approval request in the queue.
    * Only one approval prompt is shown at a time to avoid overwriting.
    */
-  private processNextApproval(): void {
+  private processNextApproval(notify = true): void {
     // If already processing or queue is empty, do nothing
     if (this.isProcessingApproval || this.approvalQueue.length === 0) {
       return;
@@ -1360,7 +1479,7 @@ export class InkPresentationService implements PresentationService {
     }
 
     // Send system notification for approval request.
-    if (this.notificationService) {
+    if (notify && this.notificationService) {
       Effect.runFork(
         this.notificationService
           .notify(`Agent needs approval for ${request.toolName}`, {
@@ -1381,6 +1500,45 @@ export class InkPresentationService implements PresentationService {
 
     const isPicker = (request.options?.length ?? 0) > 0;
 
+    // The card's facts and words come from the shared approval model, the same function the
+    // fullscreen card is built from: same account, same fields, same consequence, same verbs.
+    const pendingApproval = {
+      toolName: request.toolName,
+      executeToolName: request.executeToolName,
+      message: request.message,
+      args: request.executeArgs,
+      ...(request.previewDiff === undefined ? {} : { previewDiff: request.previewDiff }),
+      ...(request.impact === undefined ? {} : { impact: request.impact }),
+      ...(request.riskLevel === undefined ? {} : { riskLevel: request.riskLevel }),
+      ...(request.warning === undefined ? {} : { warning: request.warning }),
+      ...(request.editableArg === undefined ? {} : { editableArg: request.editableArg }),
+    };
+    const facts = approvalFacts(pendingApproval);
+    const needsDetails =
+      request.previewDiff !== undefined ||
+      [
+        approvalAccount(facts.account, facts.app),
+        ...facts.fields.map((field) => field.value),
+        ...(facts.intent.impact === undefined ? [] : [facts.intent.impact.value]),
+      ].some(
+        (value) => terminalCellWidth(value.replace(/\s+/g, " ")) > 120 || /[\r\n]/.test(value),
+      );
+    const details = [
+      request.message,
+      `Tool: ${request.toolName}`,
+      JSON.stringify(request.executeArgs, null, 2),
+      ...(request.impact === undefined ? [] : [`Impact: ${request.impact}`]),
+      ...(request.warning === undefined ? [] : [`Warning: ${request.warning}`]),
+      ...(request.previewDiff === undefined ? [] : [request.previewDiff]),
+    ].join("\n\n");
+    const factRow = (label: string, value: string, key: string) =>
+      React.createElement(
+        Box,
+        { key },
+        React.createElement(Text, { color: THEME.muted }, label.padEnd(APPROVAL_LABEL_COLUMN)),
+        React.createElement(Text, {}, clipTerminalCells(value.replace(/\s+/g, " "), 120)),
+      );
+    const diff = facts.intent.diff;
     const approvalCard = React.createElement(
       Box,
       {
@@ -1394,33 +1552,56 @@ export class InkPresentationService implements PresentationService {
       React.createElement(
         Box,
         {},
-        React.createElement(
-          Text,
-          { color: THEME.warning, bold: true },
-          isPicker ? "Pick a model" : "Approval Required",
-        ),
-        isPicker
-          ? React.createElement(Text, { dimColor: true }, `  ${request.toolName}`)
-          : React.createElement(Text, {}, " for "),
-        !isPicker &&
-          React.createElement(Text, { color: THEME.primary, bold: true }, request.toolName),
+        React.createElement(Text, { bold: true }, isPicker ? "Pick a model" : facts.title),
+        !isPicker && facts.consequence.length > 0
+          ? React.createElement(Text, { color: THEME.warning }, `  ${facts.consequence}`)
+          : null,
         pendingCount > 0
           ? React.createElement(Text, { dimColor: true }, ` (${pendingCount} more pending)`)
           : null,
       ),
-      React.createElement(
-        Box,
-        { marginTop: 1 },
-        React.createElement(Text, { bold: true }, request.message),
-      ),
-      // Never let users approve a file edit blind: point at the diff.
-      request.previewDiff
-        ? React.createElement(
+      isPicker
+        ? React.createElement(Box, { marginTop: 1 }, React.createElement(Text, {}, request.message))
+        : React.createElement(
             Box,
-            { marginTop: 1 },
-            React.createElement(Text, { dimColor: true }, "Press Ctrl+O to view the diff"),
-          )
-        : null,
+            { flexDirection: "column", marginTop: 1 },
+            factRow("Account", approvalAccount(facts.account, facts.app), "account"),
+            ...facts.fields.map((field, index) => factRow(field.label, field.value, `f${index}`)),
+            ...(facts.intent.impact === undefined
+              ? []
+              : [factRow(facts.intent.impact.label, facts.intent.impact.value, "impact")]),
+            ...(facts.intent.command === undefined
+              ? []
+              : [
+                  React.createElement(
+                    Box,
+                    { key: "command", marginTop: 1 },
+                    React.createElement(Text, { color: THEME.muted }, "$ "),
+                    React.createElement(Text, {}, facts.intent.command.text),
+                  ),
+                ]),
+            ...(diff === undefined
+              ? []
+              : [
+                  React.createElement(
+                    Box,
+                    { key: "diff", marginTop: 1 },
+                    React.createElement(Text, { color: THEME.success }, `+${diff.added}`),
+                    React.createElement(Text, { color: THEME.error }, ` −${diff.removed}`),
+                    // Never let users approve a file edit blind: point at the diff.
+                    React.createElement(Text, { dimColor: true }, "  Ctrl+O to view the diff"),
+                  ),
+                ]),
+            ...(facts.warning === undefined
+              ? []
+              : [
+                  React.createElement(
+                    Box,
+                    { key: "warning", marginTop: 1 },
+                    React.createElement(Text, { color: THEME.warning }, facts.warning),
+                  ),
+                ]),
+          ),
     );
 
     store.printOutput({
@@ -1429,13 +1610,9 @@ export class InkPresentationService implements PresentationService {
       timestamp: new Date(),
     });
 
-    // Store preview diff for Ctrl+O expansion
-    if (request.previewDiff) {
-      store.setExpandableDiff(request.previewDiff);
-    }
+    store.clearExpandableDiff();
+    if (needsDetails) store.setExpandableDiff(details);
 
-    // Build approval choices — all tools get "always approve <tool>" option,
-    // execute_command also gets "always approve <command>" option
     const toolDisplayName = request.toolName;
     const rawCommand =
       request.toolName === "execute_command"
@@ -1490,7 +1667,14 @@ export class InkPresentationService implements PresentationService {
       return;
     }
 
-    const choices: Array<{ label: string; value: string }> = [{ label: "Yes", value: "yes" }];
+    const choices: Array<{ label: string; value: string }> = [
+      { label: `Yes, ${facts.intent.accept}`, value: "yes" },
+    ];
+    if (needsDetails) choices.push({ label: "View the full request", value: "view_details" });
+    const editable = facts.editableArg;
+    if (editable !== undefined && typeof request.executeArgs[editable] === "string") {
+      choices.push({ label: `Edit the ${editable} first`, value: "edit" });
+    }
 
     if (approvalKey) {
       const truncatedKey = approvalKey.length > 60 ? approvalKey.slice(0, 57) + "..." : approvalKey;
@@ -1500,23 +1684,20 @@ export class InkPresentationService implements PresentationService {
       });
     }
 
-    choices.push({
-      label: `Yes, and always approve ${toolDisplayName} for this session`,
-      value: "always_tool",
-    });
+    const allowAlways = !isHttpApprovalTool(request.executeToolName);
+    if (allowAlways) {
+      choices.push({
+        label: `Yes, and always approve ${toolDisplayName} for this session`,
+        value: "always_tool",
+      });
+    }
 
-    choices.push({ label: "No", value: "no" });
+    choices.push({ label: `No, ${facts.intent.reject}`, value: "no" });
 
     // Publish the request itself alongside the menu. The fullscreen approval
     // card needs the account, the resulting fields and the consequence, none of
     // which survive being flattened into a list of choices.
-    store.setApprovalRequest({
-      toolName: request.toolName,
-      executeToolName: request.executeToolName,
-      message: request.message,
-      args: request.executeArgs,
-      ...(request.previewDiff === undefined ? {} : { previewDiff: request.previewDiff }),
-    });
+    store.setApprovalRequest(pendingApproval);
 
     store.setPrompt({
       type: "select",
@@ -1524,10 +1705,17 @@ export class InkPresentationService implements PresentationService {
       options: { choices },
       resolve: (val: unknown) => {
         const choice = val as string;
+        if (choice === "view_details") {
+          store.printOutput({ type: "log", message: details, timestamp: new Date() });
+          this.reopenApproval(request, resume);
+          return;
+        }
         store.printOutput({
           type: "log",
           message: `Approve this action? ${CHALK_THEME.success(choice === "no" ? "No" : "Yes")}`,
           timestamp: new Date(),
+          // The fullscreen transcript states the outcome on the tool's own receipt.
+          meta: { approvalEcho: true },
         });
 
         if (choice === "yes") {
@@ -1544,10 +1732,19 @@ export class InkPresentationService implements PresentationService {
           return;
         }
 
-        if (choice === "always_tool") {
+        if (choice === "always_tool" && allowAlways) {
           store.setPrompt(null);
           store.setApprovalRequest(null);
           this.completeApproval(resume, { approved: true, alwaysApproveTool: toolDisplayName });
+          return;
+        }
+
+        const editableArg = request.editableArg;
+        const editableValue =
+          editableArg === undefined ? undefined : request.executeArgs[editableArg];
+        if (choice === "edit" && editableArg !== undefined && typeof editableValue === "string") {
+          store.setPrompt(null);
+          this.promptApprovalEdit(request, resume, editableArg, editableValue);
           return;
         }
 
@@ -1556,6 +1753,47 @@ export class InkPresentationService implements PresentationService {
         store.setApprovalRequest(null);
         this.promptRejectionMessage(resume);
       },
+    });
+  }
+
+  /** Return to the same decision without resolving the tool's approval promise. */
+  private reopenApproval(
+    request: ApprovalRequest,
+    resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
+  ): void {
+    store.setPrompt(null);
+    store.setApprovalRequest(null);
+    this.approvalQueue.unshift({ request, resume });
+    this.isProcessingApproval = false;
+    this.processNextApproval(false);
+  }
+
+  /**
+   * Let a person rewrite the request's editable argument, then run the rewrite. An empty
+   * submission or esc goes back to the same approval, so editing never approves by accident.
+   */
+  private promptApprovalEdit(
+    request: ApprovalRequest,
+    resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
+    editableArg: string,
+    current: string,
+  ): void {
+    const backToApproval = (): void => this.reopenApproval(request, resume);
+    store.setPrompt({
+      type: "text",
+      message: `Edit the ${editableArg}, then press enter to run it`,
+      options: { defaultValue: current },
+      resolve: (input: unknown) => {
+        const edited = typeof input === "string" ? input.trim() : "";
+        if (edited.length === 0) {
+          backToApproval();
+          return;
+        }
+        store.setPrompt(null);
+        store.setApprovalRequest(null);
+        this.completeApproval(resume, { approved: true, editedArgs: { [editableArg]: edited } });
+      },
+      reject: backToApproval,
     });
   }
 
@@ -1630,6 +1868,14 @@ export class InkPresentationService implements PresentationService {
 
     this.isProcessingUserInput = true;
     const { request, resume } = this.userInputQueue.shift()!;
+    // Questions asked together are numbered as a set: `1 of 2`. The count restarts once
+    // every queued question has been answered.
+    this.questionsAnswered = this.questionsWaiting === 0 ? 0 : this.questionsAnswered;
+    const position = {
+      index: this.questionsAnswered + 1,
+      total: this.questionsAnswered + 1 + this.userInputQueue.length,
+    };
+    this.questionsWaiting = this.userInputQueue.length;
 
     // Send system notification for user input request.
     if (this.notificationService) {
@@ -1674,12 +1920,14 @@ export class InkPresentationService implements PresentationService {
         suggestions: request.suggestions,
         allowCustom: request.allowCustom,
         allowMultiple: request.allowMultiple,
+        position,
       },
       resolve: (value: unknown) => {
         const response = String(value).trim();
         echoUserTurn(response);
         store.setPrompt(null);
         store.setApprovalRequest(null);
+        this.questionsAnswered += 1;
         this.isProcessingUserInput = false;
         resume(
           Effect.succeed(
@@ -1691,6 +1939,7 @@ export class InkPresentationService implements PresentationService {
       reject: () => {
         store.setPrompt(null);
         store.setApprovalRequest(null);
+        this.questionsAnswered += 1;
         this.isProcessingUserInput = false;
         resume(Effect.succeed({ kind: "declined" })); // Dismissed the prompt.
         this.processNextUserInput();

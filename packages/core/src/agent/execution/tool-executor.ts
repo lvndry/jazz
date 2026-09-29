@@ -41,6 +41,12 @@ import {
 } from "@/core/types/tools";
 import { formatDuration } from "@/core/utils/duration";
 import { toError } from "@/core/utils/errors";
+import {
+  effectiveHttpUrl,
+  HTTP_APPROVAL_MESSAGE,
+  httpToolIsApproved,
+  isHttpApprovalTool,
+} from "@/core/utils/http-approval";
 import { isRecord } from "@/core/utils/is-record";
 import { isCommandCoveredByAllowlist } from "@/core/utils/shell";
 import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
@@ -91,6 +97,26 @@ type ParsedToolArguments =
  * JSON, and JSON that is not an object are all refused with the reason, so the model is told
  * its call was malformed instead of the tool running on defaults.
  */
+/**
+ * The call's arguments after a person's rewrite on the approval card. Only the argument
+ * the tool declared editable is taken, and only as a string replacing a string, so an
+ * approver can change what a command says but never add or retarget other arguments.
+ */
+export function applyApprovalEdit(
+  args: Record<string, unknown>,
+  editableArg: string | undefined,
+  editedArgs: Readonly<Record<string, string>> | undefined,
+): Record<string, unknown> {
+  if (editableArg === undefined || editedArgs === undefined) {
+    return args;
+  }
+  const edited = editedArgs[editableArg];
+  if (typeof edited !== "string" || typeof args[editableArg] !== "string") {
+    return args;
+  }
+  return { ...args, [editableArg]: edited };
+}
+
 export function parseToolCallArguments(toolCall: ToolCall): ParsedToolArguments {
   if (toolCall.invalidReason !== undefined) {
     return { ok: false, error: `Invalid tool call: ${toolCall.invalidReason}` };
@@ -341,6 +367,9 @@ export class ToolExecutor {
     PresentationService | LoggerService | AgentConfigService
   > {
     return Effect.gen(function* () {
+      const httpApproved = httpToolIsApproved(name, args, context.httpApproval);
+      if (httpApproved === true) return undefined;
+      const httpGated = httpApproved === false;
       const taintGated = () =>
         context.egressTaint !== undefined &&
         plainToolNeedsTaintApproval(name, args, toolMeta.egress, context);
@@ -350,12 +379,13 @@ export class ToolExecutor {
           context.getAutoApprovePolicy?.(),
           isToolNameAutoApproved(name, context.autoApprovedTools),
         );
-      if (!taintGated() && !privateGated()) {
+      if (!httpGated && !taintGated() && !privateGated()) {
         return undefined;
       }
       const presentationService = yield* PresentationServiceTag;
       const logger = yield* LoggerServiceTag;
       const message = [
+        ...(httpGated ? [HTTP_APPROVAL_MESSAGE] : []),
         ...(taintGated() && context.egressTaint !== undefined
           ? [taintedEgressApprovalMessage(name, args, context.egressTaint)]
           : []),
@@ -391,7 +421,9 @@ export class ToolExecutor {
           message: labelForSubagent(message, context),
           executeToolName: name,
           executeArgs: args,
-          isAutoApproved: () => !taintGated() && !privateGated(),
+          riskLevel: toolMeta.riskLevel,
+          warning: message,
+          isAutoApproved: () => !httpGated && !taintGated() && !privateGated(),
         }));
 
       if (renderer) {
@@ -403,7 +435,12 @@ export class ToolExecutor {
           auto: false,
         });
       }
-      if (outcome.approved && outcome.alwaysApproveTool && context.onAutoApproveTool) {
+      if (
+        outcome.approved &&
+        !isHttpApprovalTool(name) &&
+        outcome.alwaysApproveTool &&
+        context.onAutoApproveTool
+      ) {
         context.onAutoApproveTool(outcome.alwaysApproveTool);
       }
       if (outcome.approved && privateGated()) {
@@ -539,7 +576,7 @@ export class ToolExecutor {
         } else {
           const privateAddresses =
             toolMeta !== undefined && toolMeta.approvalExecuteToolName === undefined
-              ? yield* unlistedPrivateAddressesFor(toolMeta.egress, args, context)
+              ? yield* unlistedPrivateAddressesFor(name, toolMeta.egress, args, context)
               : [];
           const taintVerdict =
             toolMeta !== undefined && toolMeta.approvalExecuteToolName === undefined
@@ -568,6 +605,9 @@ export class ToolExecutor {
                   {
                     ...context,
                     toolCallId: toolCall.id,
+                    ...(taintVerdict?.approved && isHttpApprovalTool(name)
+                      ? { approvedHttpUrl: effectiveHttpUrl(name, args) }
+                      : {}),
                     ...(privateAddresses.length > 0
                       ? { approvedPrivateAddresses: privateAddresses }
                       : {}),
@@ -659,6 +699,7 @@ export class ToolExecutor {
               messages: context.conversationMessages,
             });
           const privateAddresses = yield* unlistedPrivateAddressesFor(
+            name,
             egress,
             approvalResult.executeArgs,
             context,
@@ -669,16 +710,17 @@ export class ToolExecutor {
           // Check if auto-approve policy allows this tool, per-tool session allowlist,
           // or per-command prefix allowlist matches
           const checkAutoApproved = () =>
-            approvalResult.alwaysAsk !== true &&
-            ((shouldAutoApprove(riskLevel, getCurrentPolicy()) &&
-              !taintGated() &&
-              !privateGated()) ||
-              isToolNameAutoApproved(name, context.autoApprovedTools) ||
-              isCommandAutoApproved(
-                name,
-                approvalResult.executeArgs,
-                context.autoApprovedCommands,
-              ));
+            httpToolIsApproved(name, approvalResult.executeArgs, context.httpApproval) ??
+            (approvalResult.alwaysAsk !== true &&
+              ((shouldAutoApprove(riskLevel, getCurrentPolicy()) &&
+                !taintGated() &&
+                !privateGated()) ||
+                isToolNameAutoApproved(name, context.autoApprovedTools) ||
+                isCommandAutoApproved(
+                  name,
+                  approvalResult.executeArgs,
+                  context.autoApprovedCommands,
+                )));
 
           // A picker-style request is never auto-approved, under any policy including
           // yolo: there is nothing to approve until somebody picked a row. The
@@ -736,27 +778,31 @@ export class ToolExecutor {
           // at dequeue time — a parallel tool's "always approve" may have
           // updated the shared allowlists while this request was queued.
           // Also re-checks current policy for real-time mode switches.
+          const taintWarning =
+            !isAutoApproved && context.egressTaint !== undefined && taintGated()
+              ? taintedEgressApprovalMessage(name, approvalResult.executeArgs, context.egressTaint)
+              : undefined;
+          const privateWarning =
+            !isAutoApproved && privateGated()
+              ? privateDestinationApprovalMessage(
+                  name,
+                  approvalResult.executeArgs,
+                  privateAddresses,
+                )
+              : undefined;
+          const httpWarning =
+            !isAutoApproved &&
+            httpToolIsApproved(name, approvalResult.executeArgs, context.httpApproval) === false
+              ? HTTP_APPROVAL_MESSAGE
+              : undefined;
           const approvalMessage = [
             approvalResult.message,
-            ...(!isAutoApproved && context.egressTaint !== undefined && taintGated()
-              ? [
-                  taintedEgressApprovalMessage(
-                    name,
-                    approvalResult.executeArgs,
-                    context.egressTaint,
-                  ),
-                ]
-              : []),
-            ...(!isAutoApproved && privateGated()
-              ? [
-                  privateDestinationApprovalMessage(
-                    name,
-                    approvalResult.executeArgs,
-                    privateAddresses,
-                  ),
-                ]
-              : []),
-          ].join("\n\n");
+            httpWarning,
+            taintWarning,
+            privateWarning,
+          ]
+            .filter((part): part is string => part !== undefined)
+            .join("\n\n");
           const approvalRequest = {
             toolCallId: toolCall.id,
             toolName: name,
@@ -764,7 +810,11 @@ export class ToolExecutor {
             executeToolName: approvalResult.executeToolName,
             executeArgs: approvalResult.executeArgs,
             ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
+            ...(approvalResult.impact ? { impact: approvalResult.impact } : {}),
+            ...(approvalResult.editableArg ? { editableArg: approvalResult.editableArg } : {}),
             ...(hasSelectionOptions ? { options: approvalResult.options } : {}),
+            riskLevel,
+            ...(taintWarning === undefined ? {} : { warning: taintWarning }),
             isAutoApproved: checkAutoApproved,
           };
 
@@ -815,7 +865,11 @@ export class ToolExecutor {
             }
 
             // Handle "always approve this tool" choice (any approval tool)
-            if (outcome.alwaysApproveTool && context.onAutoApproveTool) {
+            if (
+              !isHttpApprovalTool(name) &&
+              outcome.alwaysApproveTool &&
+              context.onAutoApproveTool
+            ) {
               context.onAutoApproveTool(outcome.alwaysApproveTool);
               yield* logger.info("User chose to always approve tool");
             }
@@ -830,10 +884,15 @@ export class ToolExecutor {
             // Execute the execution tool. A picker-style outcome carries the row the
             // human chose; it rides to the execution tool under a reserved key the
             // model never writes and cannot spoof.
-            const executeArgs =
+            const selectedArgs =
               "selectedOptionId" in outcome && typeof outcome.selectedOptionId === "string"
                 ? { ...approvalResult.executeArgs, _selectedOptionId: outcome.selectedOptionId }
                 : approvalResult.executeArgs;
+            const executeArgs = applyApprovalEdit(
+              selectedArgs,
+              approvalResult.editableArg,
+              "editedArgs" in outcome ? outcome.editedArgs : undefined,
+            );
             const executeStartTime = Date.now();
 
             // Emit execution start for the follow-up tool
@@ -867,6 +926,9 @@ export class ToolExecutor {
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
               allowHiddenExecute: true,
+              ...(isHttpApprovalTool(name)
+                ? { approvedHttpUrl: effectiveHttpUrl(name, approvalResult.executeArgs) }
+                : {}),
               ...(privateAddresses.length > 0
                 ? { approvedPrivateAddresses: privateAddresses }
                 : {}),
@@ -912,6 +974,7 @@ export class ToolExecutor {
             yield* renderer.handleEvent({
               type: "tool_execution_complete",
               toolCallId: toolCall.id,
+              toolName: finalToolName,
               result: resultString,
               durationMs: toolDuration,
               success: result.success,
@@ -977,6 +1040,7 @@ export class ToolExecutor {
             yield* renderer.handleEvent({
               type: "tool_execution_complete",
               toolCallId: toolCall.id,
+              toolName: name,
               result: `Error: ${errorMessage}`,
               durationMs: toolDuration,
               success: false,
@@ -1139,6 +1203,8 @@ export class ToolExecutor {
             continue;
           }
           const args = parsedArguments.args;
+          const httpApproved = httpToolIsApproved(name, args, context.httpApproval);
+          if (httpApproved === true) continue;
 
           const toolMeta = toolMetaByName.get(name);
           const plainGateRisk = plainToolGateRisk(toolMeta, args);
@@ -1154,6 +1220,7 @@ export class ToolExecutor {
                 context.egressTaint !== undefined &&
                 plainToolNeedsTaintApproval(name, args, toolMeta.egress, context);
               const privateAddresses = yield* unlistedPrivateAddressesFor(
+                name,
                 toolMeta.egress,
                 args,
                 context,
@@ -1163,7 +1230,7 @@ export class ToolExecutor {
                 context.getAutoApprovePolicy?.(),
                 isToolNameAutoApproved(name, context.autoApprovedTools),
               );
-              if (!taintGated && !privateGated) {
+              if (httpApproved !== false && !taintGated && !privateGated) {
                 continue;
               }
               needsAnswering.push(toolCall);
@@ -1172,6 +1239,7 @@ export class ToolExecutor {
                   toolCallId: toolCall.id,
                   toolName: name,
                   message: [
+                    ...(httpApproved === false ? [HTTP_APPROVAL_MESSAGE] : []),
                     ...(taintGated && context.egressTaint !== undefined
                       ? [taintedEgressApprovalMessage(name, args, context.egressTaint)]
                       : []),
@@ -1227,12 +1295,14 @@ export class ToolExecutor {
             messages: context.conversationMessages,
           });
           const privateAddresses = yield* unlistedPrivateAddressesFor(
+            name,
             toolMeta?.egress === true,
             request.executeArgs,
             context,
           );
           const privateGated = privateDestinationNeedsApproval(privateAddresses, policy, false);
           if (
+            httpApproved !== false &&
             request.alwaysAsk !== true &&
             ((shouldAutoApprove(riskLevel, policy) && !taintGated && !privateGated) || allowlisted)
           ) {
@@ -1244,9 +1314,13 @@ export class ToolExecutor {
             firstRequest = {
               toolCallId: toolCall.id,
               toolName: name,
-              message: privateGated
-                ? `${request.message}\n\n${privateDestinationApprovalMessage(name, request.executeArgs, privateAddresses)}`
-                : request.message,
+              message: [
+                request.message,
+                ...(httpApproved === false ? [HTTP_APPROVAL_MESSAGE] : []),
+                ...(privateGated
+                  ? [privateDestinationApprovalMessage(name, request.executeArgs, privateAddresses)]
+                  : []),
+              ].join("\n\n"),
               executeToolName: request.executeToolName,
               executeArgs: request.executeArgs,
               isAutoApproved: () => false,
@@ -1333,6 +1407,7 @@ export class ToolExecutor {
                   yield* renderer.handleEvent({
                     type: "tool_execution_complete",
                     toolCallId: toolCall.id,
+                    toolName: toolCall.function.name,
                     result: "Interrupted by user",
                     durationMs: 0,
                     success: false,
@@ -1489,6 +1564,7 @@ function detachInFlightToolCalls(
         yield* renderer.handleEvent({
           type: "tool_execution_complete",
           toolCallId: toolCall.id,
+          toolName: name,
           result: "Running in the background",
           durationMs: 0,
           success: true,

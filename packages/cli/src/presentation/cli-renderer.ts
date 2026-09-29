@@ -4,27 +4,24 @@ import type { StreamEvent, StreamingConfig } from "@jazz/core/types/streaming";
 import type { ToolCall } from "@jazz/core/types/tools";
 import { getModelsDevMetadataSync } from "@jazz/core/utils/models-dev";
 import {
+  compactToolArguments as compactToolArgumentsShared,
   formatToolArguments as formatToolArgumentsShared,
   formatToolDisplayName as formatToolDisplayNameShared,
 } from "@jazz/core/utils/tool-formatter";
 import { computeUsageCostUSD } from "@jazz/core/utils/usage-cost";
 import chalk from "chalk";
 import { Effect } from "effect";
-import { marked } from "marked";
-import TerminalRenderer from "marked-terminal";
 import { formatToolResult as formatToolResultShared } from "./format-utils";
-import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
 import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
-import { codeColor, CHALK_THEME } from "../ui/theme";
-
-/**
- * Body text in the terminal's own foreground colour, so it reads on light and
- * dark backgrounds alike.
- */
-const terminalDefaultText = (text: string): string => text;
+import { getGlyphs } from "../ui/glyphs";
+import { markdownToAnsi } from "../ui/markdown/ansi";
+import { receiptMark, receiptParts, toolReceipt } from "../ui/models/receipt";
+import { formatCost, formatPreciseDuration } from "../ui/text/format";
+import { paintRole, paintSegments } from "../ui/text/roles";
+import { CHALK_THEME } from "../ui/theme";
 
 /**
  * Get terminal width, with fallback to 80
@@ -84,7 +81,8 @@ export class CLIRenderer {
   private readonly writer: OutputWriter;
   private readonly theme: RenderTheme;
   private readonly thinkingRenderer: ThinkingRenderer;
-  private readonly toolNameMap: Map<string, string> = new Map();
+  /** Each running call's tool name and argument preview, for the receipt at completion. */
+  private readonly toolNameMap: Map<string, { name: string; argsPreview: string }> = new Map();
   private readonly mode: OutputMode;
   private accumulatedUsage: {
     promptTokens: number;
@@ -96,7 +94,6 @@ export class CLIRenderer {
   private currentModel: string | null = null;
 
   // Markdown rendering state (previously static in MarkdownRenderer)
-  private markedInitialized: boolean = false;
   private streamingBuffer: string = "";
   private lastFlushTime: number = 0;
   private streamingRaw: string = "";
@@ -122,11 +119,6 @@ export class CLIRenderer {
 
     // Create thinking renderer
     this.thinkingRenderer = new ThinkingRenderer(this.theme);
-
-    // Initialize markdown if in styled mode
-    if (isStyledMode) {
-      Effect.runSync(this.initializeMarkdown());
-    }
   }
 
   /**
@@ -318,7 +310,10 @@ export class CLIRenderer {
     metadata?: Record<string, unknown>;
   }): string {
     // Store tool name for later use in completion
-    this.toolNameMap.set(event.toolCallId, event.toolName);
+    this.toolNameMap.set(event.toolCallId, {
+      name: event.toolName,
+      argsPreview: compactToolArgumentsShared(event.toolName, event.arguments),
+    });
 
     const argsStr = formatToolArgumentsShared(event.toolName, event.arguments, {
       style: "colored",
@@ -336,51 +331,30 @@ export class CLIRenderer {
 
   private renderToolExecutionComplete(event: {
     toolCallId: string;
+    toolName?: string;
     result: string;
     durationMs: number;
     summary?: string;
     success?: boolean;
     error?: string;
+    classifiedRisk?: string;
   }): string {
-    // Get tool name from map
-    const toolName = this.toolNameMap.get(event.toolCallId) || "";
-    const { colors, icons } = this.theme;
-
-    // Clean up
+    const started = this.toolNameMap.get(event.toolCallId);
     this.toolNameMap.delete(event.toolCallId);
-
-    if (event.success === false) {
-      const reason = event.error?.trim() || "Tool execution failed";
-      return (
-        ` ${colors.error(icons.error)}` +
-        ` ${colors.error(toolName ? `${toolName}: ${reason}` : reason)}` +
-        ` ${colors.dim(`(${event.durationMs}ms)`)}` +
-        "\n\n"
-      );
-    }
-
-    const summary = event.summary || CLIRenderer.formatToolResult(toolName, event.result);
-
-    // Check if summary contains multi-line content (like a diff)
-    const hasMultiLine = summary && summary.includes("\n");
-
-    if (hasMultiLine) {
-      // For multi-line output, put on separate lines
-      return (
-        ` ${colors.success(icons.success)}` +
-        ` ${colors.dim(`(${event.durationMs}ms)`)}` +
-        `${summary}` +
-        "\n\n"
-      );
-    }
-
-    // Single-line output
-    return (
-      ` ${colors.success(icons.success)}` +
-      (summary ? ` ${summary}` : "") +
-      ` ${colors.dim(`(${event.durationMs}ms)`)}` +
-      "\n\n"
-    );
+    const toolName = started?.name ?? event.toolName;
+    const receipt = toolReceipt({
+      toolName,
+      argsPreview: started?.argsPreview,
+      success: event.success,
+      error: event.error,
+      summary: event.summary,
+      result: event.result,
+      durationMs: event.durationMs,
+      classifiedRisk: event.classifiedRisk,
+    });
+    const glyphs = getGlyphs();
+    const mark = receiptMark(receipt, glyphs);
+    return ` ${paintRole(mark.role, mark.text)} ${paintSegments(receiptParts(receipt, glyphs, { duration: true }))}\n\n`;
   }
 
   private renderError(error: LLMError): string {
@@ -475,15 +449,8 @@ export class CLIRenderer {
         const totalCost = computeUsageCostUSD(this.accumulatedUsage, meta) ?? 0;
         const inputCost = totalCost - outputCost;
 
-        const fmt = (cost: number): string => {
-          if (cost === 0) return "$0.00";
-          if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-          if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-          return `$${cost.toExponential(2)}`;
-        };
-
         output += this.theme.colors.dim(
-          `[Cost: ${fmt(inputCost)} input + ${fmt(outputCost)} output = ${fmt(totalCost)} total]\n`,
+          `[Cost: ${formatCost(inputCost)} input + ${formatCost(outputCost)} output = ${formatCost(totalCost)} total]\n`,
         );
       }
     }
@@ -499,82 +466,21 @@ export class CLIRenderer {
     return output;
   }
 
-  // ==================== Markdown Initialization ====================
-
-  /**
-   * Initialize the markdown renderer with terminal-friendly options
-   */
-  private initializeMarkdown(): Effect.Effect<void, never> {
-    if (this.markedInitialized) {
-      return Effect.void;
-    }
-
-    return Effect.sync(() => {
-      try {
-        const terminalWidth = getTerminalWidth();
-        // Configure marked with our terminal renderer using setOptions
-        // @ts-expect-error marked-terminal types are incompatible with marked v16
-        // TerminalRenderer works at runtime but types don't match _Renderer interface
-        marked.setOptions({
-          renderer: new TerminalRenderer({
-            code: codeColor,
-            codespan: codeColor,
-            blockquote: CHALK_THEME.muted,
-            html: CHALK_THEME.muted,
-            heading: CHALK_THEME.agentBold,
-            firstHeading: CHALK_THEME.headingUnderline,
-            strong: chalk.bold,
-            em: chalk.italic,
-            del: chalk.strikethrough,
-            link: CHALK_THEME.link,
-            href: CHALK_THEME.muted,
-            listitem: terminalDefaultText,
-            // Custom styling for better terminal experience
-            paragraph: terminalDefaultText,
-            text: terminalDefaultText,
-            emoji: true,
-            // Disable some features that don't work well in terminal
-            showSectionPrefix: false,
-            // Better spacing
-            reflowText: true,
-            // Dynamic width based on terminal size
-            width: terminalWidth,
-          }) as unknown as Parameters<typeof marked.setOptions>[0]["renderer"],
-          gfm: true, // GitHub Flavored Markdown
-          breaks: true, // Convert line breaks to <br>
-        });
-
-        this.markedInitialized = true;
-      } catch {
-        // Log error but don't throw - allow fallback to plain text
-        // Silently fall back - markdown initialization failure is not critical
-      }
-    });
-  }
-
   // ==================== Markdown Rendering ====================
 
   /**
-   * Render markdown content to terminal-friendly text
-   * (or pass through raw markdown when markdown mode is disabled)
+   * Render markdown content to terminal-friendly text, through the shared parser fullscreen
+   * and Ink also use (or pass through raw markdown when markdown mode is disabled). Not
+   * pre-wrapped: this writes straight to the real terminal, which wraps a long line itself;
+   * tables and code fences still size themselves to the terminal's own width.
    */
   renderMarkdown(markdown: string): Effect.Effect<string, never> {
     if (this.mode !== "rendered") {
       return Effect.succeed(markdown);
     }
-
-    return Effect.gen(this, function* () {
-      yield* this.initializeMarkdown();
-
-      try {
-        // Use marked.parse for synchronous parsing
-        const result = marked.parse(markdown) as string;
-        return result;
-      } catch {
-        // Fallback to plain text if markdown parsing fails
-        return markdown;
-      }
-    });
+    return Effect.sync(() =>
+      markdownToAnsi(markdown, { width: getTerminalWidth(), syntax: "rendered", wrapProse: false }),
+    );
   }
 
   /**
@@ -682,26 +588,36 @@ export class CLIRenderer {
 
     if (this.streamingDirectAppend) {
       // Direct append: format only the new chunk independently
-      const formatted =
-        this.mode === "rendered"
-          ? formatMarkdown(text)
-          : this.mode === "hybrid"
-            ? formatMarkdownHybrid(text)
-            : text;
+      const formatted = this.formatMarkdownForMode(text);
       this.streamingFormatted += formatted;
       return formatted;
     }
 
     // Normal mode: re-format entire content and diff
-    const nextFormatted =
-      this.mode === "rendered"
-        ? formatMarkdown(this.streamingRaw)
-        : this.mode === "hybrid"
-          ? formatMarkdownHybrid(this.streamingRaw)
-          : this.streamingRaw;
+    const nextFormatted = this.formatMarkdownForMode(this.streamingRaw);
     const delta = this.getFormattedDelta(this.streamingFormatted, nextFormatted);
     this.streamingFormatted = nextFormatted;
     return delta;
+  }
+
+  /**
+   * Markdown as this mode shows it, through the shared parser — not pre-wrapped, since this
+   * writes straight to the real terminal, which wraps a long line itself.
+   */
+  private formatMarkdownForMode(text: string): string {
+    if (this.mode !== "rendered" && this.mode !== "hybrid") {
+      return text;
+    }
+    const formatted = markdownToAnsi(text, {
+      width: getTerminalWidth(),
+      syntax: this.mode,
+      wrapProse: false,
+    });
+    // markdownToAnsi trims trailing whitespace, which is right for a one-shot document but
+    // wrong here: `renderChunk` splits its input at a line boundary specifically so the next
+    // chunk can pick up on its own line, and a stripped trailing "\n" would glue that next
+    // chunk onto the end of this one on the real terminal.
+    return text.endsWith("\n") && !formatted.endsWith("\n") ? `${formatted}\n` : formatted;
   }
 
   // ==================== Public Formatting Methods ====================
@@ -722,7 +638,7 @@ export class CLIRenderer {
    */
   formatToolExecutionStart(toolName: string, argsStr: string): Effect.Effect<string, never> {
     return Effect.sync(() => {
-      return `\n${CHALK_THEME.primary("▸")} Executing tool: ${CHALK_THEME.primary(toolName)}${argsStr}...`;
+      return `\n${CHALK_THEME.primary(getGlyphs().arrow)} ${CHALK_THEME.primary(toolName)}${argsStr}`;
     });
   }
 
@@ -734,7 +650,8 @@ export class CLIRenderer {
     durationMs: number,
   ): Effect.Effect<string, never> {
     return Effect.sync(() => {
-      return ` ${CHALK_THEME.success("✓")}${summary ? ` ${summary}` : ""} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+      const glyphs = getGlyphs();
+      return ` ${CHALK_THEME.success(glyphs.success)}${summary ? ` ${summary}` : ""}${chalk.dim(` ${glyphs.bullet} ${formatPreciseDuration(durationMs)}`)}\n`;
     });
   }
 
@@ -743,7 +660,8 @@ export class CLIRenderer {
    */
   formatToolExecutionError(errorMessage: string, durationMs: number): Effect.Effect<string, never> {
     return Effect.sync(() => {
-      return ` ${CHALK_THEME.error("✗")} ${CHALK_THEME.error(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+      const glyphs = getGlyphs();
+      return ` ${CHALK_THEME.error(glyphs.error)} ${CHALK_THEME.error(errorMessage)}${chalk.dim(` ${glyphs.bullet} ${formatPreciseDuration(durationMs)}`)}\n`;
     });
   }
 

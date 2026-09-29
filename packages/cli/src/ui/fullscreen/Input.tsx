@@ -40,11 +40,14 @@
  * region paints both without changing shape.
  */
 
+import { TextAttributes } from "@opentui/core";
 import { memo, type ReactNode } from "react";
 import { isShellEscape } from "@/cli/chat/commands/parser";
 import { getGlyphs, type GlyphSet } from "../glyphs";
-import { carouselWindow, wrapIndex } from "../picker-window";
-import { THEME } from "../theme";
+import { matchedSpan, plainDescription, suggestionOrigin } from "../suggestion-menu";
+import { useThemeRevision } from "./theme-revision";
+import { COMPACT_HEIGHT, type InputModel, type Viewport } from "./types";
+import { pickerWindow, wrapIndex } from "../text/picker-window";
 import {
   clipTerminalCells,
   fitTerminalSegments,
@@ -52,8 +55,8 @@ import {
   terminalGraphemes,
   terminalSegmentsWidth,
   wrapTerminalCells,
-} from "./terminal-cells";
-import type { InputModel, Viewport } from "./types";
+} from "../text/terminal-cells";
+import { THEME } from "../theme";
 
 /**
  * The composer grows to six rows and then scrolls inside itself. Past six rows
@@ -65,6 +68,15 @@ export const INPUT_MAX_ROWS = 6;
 /** Same cap as the Ink dropdown: a 20-row list is unscannable. */
 const MAX_VISIBLE_COMMANDS = 8;
 
+/** The selection rail and its space. */
+const COMMAND_MARKER_CELLS = 2;
+
+/** Name, tag and description columns sit this far apart. */
+const COMMAND_COLUMN_GAP = 2;
+
+/** Past this a name column stops widening and long names clip, so descriptions stay visible. */
+const MAX_COMMAND_LABEL_CELLS = 28;
+
 /**
  * Newest queued entries shown under the count. Older ones remain in the
  * count, so a long queue cannot push the composer off the screen.
@@ -75,18 +87,27 @@ export function wrapCommandIndex(index: number, length: number): number {
   return wrapIndex(index, length);
 }
 
-/** Frame rail, prompt marker, and the spaces that keep the text column still. */
-const GUTTER_CELLS = 4;
+/** The band's bar and its space on the left, one cell of padding on the right. */
+const GUTTER_CELLS = 3;
+
+/** Cells kept between the draft's first line and the model on the right. */
+const META_GAP = 2;
+
+/** Top and bottom padding rows of the composer's band. */
+const BAND_PADDING_ROWS = 2;
 
 export interface InputSegment {
   readonly text: string;
   readonly fg: string;
   readonly bg?: string;
+  readonly bold?: boolean;
 }
 
 export interface InputRow {
   readonly key: string;
   readonly segments: readonly InputSegment[];
+  /** The band ground the whole row is painted with, trailing cells included. */
+  readonly surface?: string;
 }
 
 // Per-paragraph wrap; see `wrapTerminalCells` for the wrap itself.
@@ -97,6 +118,21 @@ export function wrapCells(value: string, columns: number): string[] {
     lines.push(...wrapTerminalCells(paragraph, width));
   }
   return lines;
+}
+
+/**
+ * A row laid on a band: every cell takes the band's ground unless it already
+ * has its own (the caret, a selection), and the row is filled to the full width
+ * so the band reads as one surface rather than as highlighted text.
+ */
+function onBand(row: InputRow, surface: string, width: number): InputRow {
+  const fitted = fitTerminalSegments(row.segments, width);
+  const gap = Math.max(0, width - terminalSegmentsWidth(fitted));
+  const segments: InputSegment[] = fitted.map((segment) =>
+    segment.bg === undefined ? { ...segment, bg: surface } : segment,
+  );
+  if (gap > 0) segments.push({ text: " ".repeat(gap), fg: THEME.muted, bg: surface });
+  return { key: row.key, segments, surface };
 }
 
 function alignRow(
@@ -118,35 +154,66 @@ function alignRow(
  * The caret is a painted cell rather than the terminal's own cursor: the frame
  * is composited, so the one thing the reader looks for has to be part of it.
  */
-function commandSuggestRows(
+/** The rows of the slash and `@` menu, shared by the chat composer and home. */
+export function commandSuggestRows(
   commands: NonNullable<InputModel["commands"]>,
   width: number,
   glyphs: GlyphSet,
   size: number = MAX_VISIBLE_COMMANDS,
 ): InputRow[] {
   if (size <= 0) return [];
-  const visible = carouselWindow(commands.items, commands.selected, size);
+  const visible = pickerWindow(commands.items, commands.selected, size);
   const prefix = commands.prefix ?? "/";
+  const label = (command: (typeof visible)[number]): string =>
+    `${prefix}${command.name}${command.usage === undefined ? "" : ` ${command.usage}`}`;
+  // Columns are sized over the window rather than the whole list, so one long
+  // skill name far down the list does not push every visible description right.
+  const labelColumn = Math.min(
+    MAX_COMMAND_LABEL_CELLS,
+    Math.max(0, ...visible.map((command) => terminalCellWidth(label(command)))),
+  );
+  // A path list is all files, so a tag on every row would be noise; only the
+  // mixed command list says where an entry came from — and a file entry's
+  // `source` is always undefined, so the column falls out naturally.
+  const tagColumn = Math.max(
+    0,
+    ...visible.map((command) => terminalCellWidth(suggestionOrigin(command.source) ?? "")),
+  );
   const rows: InputRow[] = visible.map((command) => {
     const selected = command === commands.items[commands.selected];
-    const usage = command.usage === undefined ? "" : ` ${command.usage}`;
-    // A path list is all files, so a badge on every row would be noise; only
-    // the mixed command list needs to say where an entry came from — and a
-    // file entry's `source` is always undefined, so it falls out naturally.
-    const origin =
-      command.source === "skill"
-        ? " (skill)"
-        : command.source === "mcp-prompt"
-          ? " (mcp)"
-          : command.source === "plugin"
-            ? " (plugin)"
-            : "";
+    const name = clipTerminalCells(label(command), labelColumn);
+    const origin = suggestionOrigin(command.source) ?? "";
+    const lead = COMMAND_MARKER_CELLS + labelColumn + COMMAND_COLUMN_GAP;
+    const tagCells = tagColumn === 0 ? 0 : tagColumn + COMMAND_COLUMN_GAP;
+    const descriptionBudget = Math.max(0, width - lead - tagCells);
+    const description = clipTerminalCells(plainDescription(command.description), descriptionBudget);
+    const nameColor = selected ? THEME.selected : THEME.secondary;
+    // The query's letters are bold where the name contains them; the sigil shifts the span.
+    const span = matchedSpan(command.name, commands.query ?? "");
+    const at: readonly [number, number] | undefined =
+      span === undefined ? undefined : [span[0] + prefix.length, span[1] + prefix.length];
+    const padding = " ".repeat(Math.max(0, labelColumn - terminalCellWidth(name)));
+    const nameSegments: InputSegment[] =
+      at === undefined || at[1] > [...name].length
+        ? [{ text: name + padding, fg: nameColor }]
+        : [
+            { text: name.slice(0, at[0]), fg: nameColor },
+            { text: name.slice(at[0], at[1]), fg: THEME.selected, bold: true },
+            { text: name.slice(at[1]) + padding, fg: nameColor },
+          ];
     const segments: InputSegment[] = [
-      { text: selected ? `${glyphs.rail} ` : "  ", fg: THEME.primary },
-      { text: `${prefix}${command.name}`, fg: selected ? THEME.selected : THEME.secondary },
-      ...(usage.length > 0 ? [{ text: usage, fg: THEME.muted }] : []),
-      ...(origin.length > 0 ? [{ text: origin, fg: THEME.muted }] : []),
-      { text: `  ${command.description}`, fg: THEME.muted },
+      { text: selected ? `${glyphs.bandBar} ` : "  ", fg: THEME.primary },
+      ...nameSegments,
+      { text: " ".repeat(COMMAND_COLUMN_GAP), fg: THEME.muted },
+      ...(tagColumn === 0
+        ? []
+        : [
+            {
+              text: `${origin.padEnd(tagColumn)}${" ".repeat(COMMAND_COLUMN_GAP)}`,
+              fg: THEME.muted,
+            },
+          ]),
+      { text: description, fg: selected ? THEME.secondary : THEME.muted },
     ];
     return { key: `${prefix}${command.name}`, segments: fitTerminalSegments(segments, width) };
   });
@@ -157,13 +224,40 @@ function previewQueuedEntry(entry: string): string {
   return entry.replace(/\s+/g, " ").trim();
 }
 
+/** Cells before the queue rows, so the chip lines up with the composer's text. */
+const QUEUE_INDENT = "  ";
+
+/**
+ * What is waiting for the next turn, above the composer rather than inside it: a chip
+ * with the count, in the accent on the element plane, and the key that pulls it all
+ * back to edit. It sits on the canvas because it is not something being typed.
+ */
+function queueChipRow(count: number, width: number): InputRow {
+  return alignRow(
+    "queue:chip",
+    [
+      { text: QUEUE_INDENT, fg: THEME.muted },
+      {
+        text: ` ${String(count)} queued `,
+        fg: THEME.primary,
+        bg: THEME.surfaceStrong,
+        bold: true,
+      },
+    ],
+    [
+      { text: "up", fg: THEME.secondary, bold: true },
+      { text: " edit ", fg: THEME.muted },
+    ],
+    width,
+  );
+}
+
 function queuePreviewRows(entries: readonly string[], width: number, glyphs: GlyphSet): InputRow[] {
   return entries.map((entry, index) => {
     const oneLine = previewQueuedEntry(entry);
     const segments: InputSegment[] = [
-      { text: `${glyphs.rail} `, fg: THEME.border },
-      { text: `${glyphs.bullet} `, fg: THEME.muted },
-      { text: oneLine, fg: THEME.muted },
+      { text: `${QUEUE_INDENT} ${glyphs.bullet} `, fg: THEME.muted },
+      { text: oneLine, fg: THEME.secondary },
     ];
     return {
       key: `queue:${String(index)}:${oneLine}`,
@@ -177,7 +271,7 @@ function caret(character: string): InputSegment {
 }
 
 function selected(character: string, fg: string): InputSegment {
-  return { text: character, fg, bg: THEME.surfaceStrong };
+  return { text: character, fg, bg: THEME.muted };
 }
 
 function pushSegment(segments: InputSegment[], segment: InputSegment): void {
@@ -221,6 +315,12 @@ export interface InputProps {
   readonly focused?: boolean;
   /** Rows the shell can spare; see `inputRows`. */
   readonly maxRows?: number;
+  /**
+   * A docked card sits over the composer. The rows keep their height so nothing
+   * moves when the card closes, but draw nothing, so no fragment of the draft
+   * shows beside the card's own controls.
+   */
+  readonly concealed?: boolean;
 }
 
 /**
@@ -301,37 +401,38 @@ export function inputRows(
   // The text always keeps at least one row, and the list keeps at least one
   // whenever it is open — whichever of them has to shrink, neither vanishes.
   const textBudget = Math.max(1, Math.min(INPUT_MAX_ROWS, budget - commandReserve - previewCount));
-  // The chrome row and the text rows share one budget, so the marker that says
-  // "there is more above" can never itself push the composer past the cap.
-  const capWithChrome = Math.max(1, textBudget - 1);
-  const capWithoutChrome = queuedCount > 0 ? capWithChrome : textBudget;
+  // The queue's count row sits above the band, so it comes out of the text's
+  // budget too; the marker that says "there is more above" then shares what is left.
+  const textRows = Math.max(1, textBudget - queueChrome);
+  const capWithChrome = Math.max(1, textRows - 1);
   let visible = wrapped;
   let hidden = 0;
-  if (lines.length > capWithoutChrome) {
+  if (lines.length > textRows) {
     const cap = capWithChrome;
     hidden = Math.max(0, Math.min(caretLine - (cap - 1), lines.length - cap));
     visible = wrapped.slice(hidden, hidden + cap);
   }
 
+  const barFg = shellCommand ? THEME.warning : live ? THEME.primary : THEME.border;
+  const queueRows: InputRow[] =
+    queuedCount > 0
+      ? [queueChipRow(queuedCount, width), ...queuePreviewRows(visibleQueued, width, glyphs)]
+      : [];
   const rows: InputRow[] = [];
-  if (hidden > 0 || queuedCount > 0) {
-    const left: InputSegment[] = [
-      { text: `${glyphs.rail} `, fg: THEME.border },
-      ...(hidden > 0
-        ? [
-            {
-              text: `${glyphs.railDeep} ${hidden} more line${hidden === 1 ? "" : "s"}`,
-              fg: THEME.muted,
-            },
-          ]
-        : []),
-    ];
-    const right: InputSegment[] =
-      queuedCount > 0 ? [{ text: `${String(queuedCount)} queued`, fg: THEME.secondary }] : [];
-    rows.push(alignRow("chrome", left, right, width));
-  }
-  if (visibleQueued.length > 0) {
-    rows.push(...queuePreviewRows(visibleQueued, width, glyphs));
+  if (hidden > 0) {
+    rows.push({
+      key: "chrome",
+      segments: fitTerminalSegments(
+        [
+          { text: `${glyphs.bandBar} `, fg: THEME.border },
+          {
+            text: `${glyphs.railDeep} ${hidden} more line${hidden === 1 ? "" : "s"}`,
+            fg: THEME.muted,
+          },
+        ],
+        width,
+      ),
+    });
   }
 
   // The caret's own line may have scrolled out of `visible` — the window
@@ -341,28 +442,24 @@ export function inputRows(
   const visibleCaretLine = Math.max(0, caretLine - hidden);
 
   visible.forEach((line, index) => {
-    const rail: InputSegment = {
-      text: `${glyphs.rail} `,
-      fg: shellCommand ? THEME.warning : live ? THEME.primary : THEME.border,
+    // The bar is the composer's state: the accent while it takes keys, the
+    // warning hue while the line is a shell escape, the border tone otherwise.
+    const bar: InputSegment = {
+      text: `${glyphs.bandBar} `,
+      fg: barFg,
     };
-    const marker: InputSegment =
-      index === 0
-        ? {
-            text: `${glyphs.promptCursor} `,
-            fg: shellCommand ? THEME.warning : live ? THEME.prompt : THEME.muted,
-          }
-        : { text: "  ", fg: THEME.muted };
 
     const body: InputSegment[] = [];
     const onCaretLine = live && index === visibleCaretLine;
     const fg = model.disabled ? THEME.muted : THEME.selected;
     if (empty) {
-      const graphemes = terminalGraphemes(line.text);
-      const head = graphemes[0] ?? " ";
-      // The caret sits *on* the placeholder's first cell rather than beside it,
-      // so an empty composer is one column wide instead of two.
-      if (live) body.push(caret(head), { text: graphemes.slice(1).join(""), fg: THEME.muted });
-      else body.push({ text: line.text, fg: THEME.muted });
+      // The caret owns its cell and the placeholder starts one cell later, so the hint is read
+      // whole instead of losing its first letter under the caret.
+      if (live) {
+        body.push(caret(" "), { text: line.text, fg: THEME.muted });
+      } else {
+        body.push({ text: line.text, fg: THEME.muted });
+      }
     } else {
       const graphemes = terminalGraphemes(line.text);
       let caretIndex = graphemes.length;
@@ -390,17 +487,50 @@ export function inputRows(
       }
     }
 
-    rows.push({ key: `line:${String(index)}`, segments: [rail, marker, ...body] });
+    const meta = index === 0 && model.meta !== undefined ? model.meta : "";
+    const room = contentWidth - terminalSegmentsWidth(body) - META_GAP;
+    const right: InputSegment[] =
+      meta.length > 0 && terminalCellWidth(meta) <= room
+        ? [
+            { text: meta, fg: THEME.muted },
+            { text: " ", fg: THEME.muted },
+          ]
+        : [];
+    rows.push(
+      right.length === 0
+        ? { key: `line:${String(index)}`, segments: [bar, ...body] }
+        : alignRow(`line:${String(index)}`, [bar, ...body], right, width),
+    );
   });
+
+  // Padding rows are the first thing a short terminal gives back: they are
+  // drawn only when the text, the queue and one row of any open list all fit.
+  const padded =
+    viewport.height >= COMPACT_HEIGHT &&
+    queueRows.length + rows.length + BAND_PADDING_ROWS + commandReserve <= budget;
+  const padRow = (key: string): InputRow => ({
+    key,
+    segments: [{ text: `${glyphs.bandBar} `, fg: barFg }],
+  });
+  const composer = [
+    ...queueRows,
+    ...(padded ? [padRow("pad:top"), ...rows, padRow("pad:bottom")] : rows).map((row) =>
+      onBand(row, THEME.surfaceStrong, width),
+    ),
+  ];
 
   // The list is laid on top last so it can be sized against what the text
   // actually took, then it goes above the composer where it belongs.
-  if (!wantsCommands || model.commands === undefined) return rows;
-  const listSize = Math.min(MAX_VISIBLE_COMMANDS, Math.max(0, budget - rows.length));
-  return [...commandSuggestRows(model.commands, width, glyphs, listSize), ...rows];
+  if (!wantsCommands || model.commands === undefined) return composer;
+  const listSize = Math.min(MAX_VISIBLE_COMMANDS, Math.max(0, budget - composer.length));
+  const list = commandSuggestRows(model.commands, width, glyphs, listSize).map((row) =>
+    onBand(row, THEME.surface, width),
+  );
+  return [...list, ...composer];
 }
 
-function InputView({ model, viewport, focused, maxRows }: InputProps): ReactNode {
+function InputView({ model, viewport, focused, maxRows, concealed }: InputProps): ReactNode {
+  useThemeRevision();
   const rows = inputRows(model, viewport, focused ?? !model.disabled, undefined, maxRows);
 
   return (
@@ -415,15 +545,23 @@ function InputView({ model, viewport, focused, maxRows }: InputProps): ReactNode
       {rows.map((row) => (
         <box
           key={row.key}
-          style={{ width: viewport.width, height: 1, flexShrink: 0 }}
+          style={{
+            width: viewport.width,
+            height: 1,
+            flexShrink: 0,
+            ...(row.surface === undefined || concealed === true
+              ? {}
+              : { backgroundColor: row.surface }),
+          }}
         >
           <text style={{ wrapMode: "none" }}>
-            {row.segments.map((segment, index) => (
+            {(concealed === true ? [] : row.segments).map((segment, index) => (
               <span
                 key={`${String(index)}:${segment.text}`}
                 style={{
                   fg: segment.fg,
                   ...(segment.bg === undefined ? {} : { bg: segment.bg }),
+                  ...(segment.bold === true ? { attributes: TextAttributes.BOLD } : {}),
                 }}
               >
                 {segment.text}

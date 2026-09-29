@@ -1,7 +1,5 @@
 /**
- * Interactive home menu for the Ink CLI. WizardHome renders the available
- * actions and one randomly chosen tip from TIPS; the fullscreen home screen
- * uses the same tip pool through the wizard command.
+ * Interactive home menu for the Ink CLI: the available actions and one randomly chosen tip.
  */
 import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
@@ -9,8 +7,6 @@ import React, { useState, useEffect } from "react";
 import { getGlyphs } from "./glyphs";
 import { THEME } from "./theme";
 import packageJson from "../../../../package.json";
-
-const G = getGlyphs();
 
 /**
  * Menu option for the wizard
@@ -28,7 +24,7 @@ interface WizardHomeProps {
   initialIndex?: number;
 }
 
-export const TIPS = [
+const TIPS = [
   // CLI Shortcuts
   "Type '/help' in chat to see every command and keyboard shortcut",
   "Use Arrow Up in chat to recall your previous messages",
@@ -147,7 +143,7 @@ export function WizardHome({
           bold
           color={THEME.primary}
         >
-          {G.note} Jazz
+          {getGlyphs().note} Jazz
         </Text>
         <Text dimColor>v{packageJson.version} · your everyday agentic CLI</Text>
       </Box>
@@ -180,7 +176,7 @@ export function WizardHome({
 
       {/* Tip — below menu, subtle */}
       <Box marginTop={1}>
-        <Text color={THEME.primary}>{G.note} </Text>
+        <Text color={THEME.primary}>{getGlyphs().note} </Text>
         <Text
           dimColor
           italic
@@ -206,7 +202,7 @@ function IndicatorComponent({ isSelected = false }: { isSelected?: boolean }): R
           color={THEME.primary}
           bold
         >
-          {G.rail}
+          {getGlyphs().rail}
         </Text>
       ) : (
         <Text> </Text>

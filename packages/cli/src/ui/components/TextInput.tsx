@@ -109,8 +109,8 @@ export const TextInput = React.memo(function TextInput({
           color={THEME.muted}
           wrap="wrap"
         >
-          <Text inverse>{placeholder[0] || " "}</Text>
-          {placeholder.slice(1)}
+          <Text inverse> </Text>
+          {placeholder}
         </Text>
       );
     }

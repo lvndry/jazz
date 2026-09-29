@@ -1,6 +1,10 @@
-// Shared micro-benchmark harness. Benches run via `bun bench/<file>` (not
-// `bun test`), so the test preload does not apply; pin the production glyph
-// mode here so wrap widths match what users see.
+/**
+ * Shared timing and reporting for isolated benchmark suites. Use bench for sync
+ * work, benchAsync for asynchronous paths, and summarizeDurations for samples
+ * whose cleanup must stay outside timing. report emits a table and JSON rows that
+ * run.ts collects for budget checks. Run suites with `bun bench/<file>`; the test
+ * preload does not apply, so this module pins production Unicode glyph widths.
+ */
 process.env["JAZZ_UI_GLYPHS"] ??= "unicode";
 
 export interface BenchOptions {
@@ -15,6 +19,8 @@ export interface BenchResult {
   readonly meanMs: number;
   readonly p50Ms: number;
   readonly p95Ms: number;
+  /** Suite-specific numeric observations, such as retained heap bytes or output bytes. */
+  readonly metrics?: Readonly<Record<string, number>>;
 }
 
 const DEFAULT_ITERATIONS = Number(process.env["BENCH_ITERATIONS"] ?? 200);
@@ -37,6 +43,17 @@ export function bench(
     durations.push(performance.now() - start);
   }
   return summarize(name, iterations, durations);
+}
+
+/** Summarize exact observed durations when lifecycle cleanup must stay outside timing. */
+export function summarizeDurations(name: string, durations: readonly number[]): BenchResult {
+  if (
+    durations.length === 0 ||
+    durations.some((duration) => !Number.isFinite(duration) || duration < 0)
+  ) {
+    throw new Error("Benchmark durations must be nonempty, finite and nonnegative");
+  }
+  return summarize(name, durations.length, [...durations]);
 }
 
 function summarize(name: string, iterations: number, durations: number[]): BenchResult {
@@ -83,8 +100,7 @@ function round(value: number, digits: number): number {
   return Number(value.toFixed(digits));
 }
 
-// One aligned table for humans plus one JSON line per result for tooling
-// (diffable across runs; `bench/run.ts` forwards both untouched).
+/** Emit a readable timing table and one machine-readable JSON result per row. */
 export function report(suiteName: string, results: readonly BenchResult[]): void {
   const nameWidth = Math.max(...results.map((result) => result.name.length), 4);
   console.log(`\n== ${suiteName} ==`);

@@ -3,6 +3,7 @@ import type { ChatCompletionResponse } from "@jazz/core/types/chat";
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
+import { renderToString } from "ink";
 import React from "react";
 import { InkPresentationService, InkStreamingRenderer } from "./ink-presentation-service";
 import type { ActivityState } from "../ui/activity-state";
@@ -475,6 +476,26 @@ describe("InkStreamingRenderer", () => {
       }
     });
 
+    test("reasoning that returned no text does not offer Ctrl+R", () => {
+      const originalCollapse = store.collapseEphemeral;
+      const lines: string[] = [];
+      store.collapseEphemeral = (id, summary) => {
+        if (summary.line !== undefined) lines.push(summary.line);
+        originalCollapse(id, summary);
+      };
+      try {
+        const renderer = createRenderer();
+        emitStreamStart(renderer);
+        Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
+        Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toContain("Reasoning");
+        expect(lines[0]).not.toContain("ctrl+r");
+      } finally {
+        store.collapseEphemeral = originalCollapse;
+      }
+    });
+
     test("when collapseReasoning is false, thinking settles as full text without Ctrl+R", async () => {
       const renderer = new InkStreamingRenderer(
         "TestAgent",
@@ -790,7 +811,51 @@ describe("InkStreamingRenderer", () => {
   });
 
   describe("metrics outro", () => {
-    test("shows decode speed as tok/s when the stream reports it", async () => {
+    test("closes a multi-step turn with one receipt, not one per model request", () => {
+      const renderer = new InkStreamingRenderer(
+        "TestAgent",
+        true,
+        { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+        { textBufferMs: 0 },
+      );
+      try {
+        emitStreamStart(renderer);
+        const baseline = printOutputCalls.length;
+        const toolStep: ChatCompletionResponse = {
+          ...completeResponse(""),
+          toolCalls: [
+            { id: "call-1", type: "function", function: { name: "ls", arguments: "{}" } },
+          ],
+          usage: { promptTokens: 13_000, completionTokens: 46, totalTokens: 13_046 },
+        };
+        const finalStep: ChatCompletionResponse = {
+          ...completeResponse("done"),
+          usage: { promptTokens: 17_000, completionTokens: 56, totalTokens: 17_056 },
+        };
+        for (const [response, durationMs] of [
+          [toolStep, 5_900],
+          [finalStep, 3_800],
+        ] as const) {
+          Effect.runSync(
+            renderer.handleEvent({
+              type: "complete",
+              response,
+              totalDurationMs: durationMs,
+              metrics: { firstTokenLatencyMs: 10 },
+            }),
+          );
+        }
+        const receipts = printOutputCalls
+          .slice(baseline)
+          .filter((entry) => entry.meta?.["turnReceipt"] === true);
+        expect(receipts).toHaveLength(1);
+        expect(receipts[0]?.meta?.["plainText"]).toBe("9.7s · 2 steps · 30k in → 102 out");
+      } finally {
+        Effect.runSync(renderer.reset());
+      }
+    });
+
+    test("keeps decode speed out of the turn receipt", async () => {
       const ephemeralAppends: Array<{ id: string; text: string }> = [];
       const originalAppend = store.appendEphemeral;
       store.appendEphemeral = (id, text) => {
@@ -823,7 +888,8 @@ describe("InkStreamingRenderer", () => {
           .filter((entry) => entry.id === "eph-tps")
           .map((entry) => entry.text)
           .join("");
-        expect(combined).toContain("41.3 tok/s");
+        expect(combined).toContain("42 tok");
+        expect(combined).not.toContain("tok/s");
       } finally {
         store.appendEphemeral = originalAppend;
         Effect.runSync(renderer.reset());
@@ -1588,6 +1654,107 @@ describe("InkPresentationService approval rejection", () => {
     );
   }
 
+  function requestCommandApproval() {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    return Effect.runPromise(
+      service.requestApproval({
+        toolCallId: "call-2",
+        toolName: "execute_command",
+        message: "Command: rm -rf ./build",
+        executeToolName: "execute_execute_command",
+        executeArgs: { command: "rm -rf ./build" },
+        editableArg: "command",
+      }),
+    );
+  }
+
+  test("the Ink card states the same facts and verbs as the fullscreen card", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const pending = Effect.runPromise(
+      service.requestApproval({
+        toolCallId: "call-rm",
+        toolName: "rm",
+        message: "About to delete: /tmp/old-exports",
+        executeToolName: "execute_rm",
+        executeArgs: { path: "/tmp/old-exports", recursive: true },
+        impact: "214 files, 1.3 GB",
+      }),
+    );
+    const prompt = await waitForPromptType("select");
+    const card = printed.find(
+      (entry) => typeof entry.message === "object" && entry.message !== null,
+    );
+    const text = renderToString((card?.message as unknown as { node: React.ReactElement }).node, {
+      columns: 100,
+    });
+    expect(text).toContain("Delete");
+    expect(text).toContain("can't be undone");
+    expect(text).toContain("removes");
+    expect(text).toContain("214 files, 1.3 GB");
+    const labels = (prompt.options?.choices ?? []).map((choice) => choice.label);
+    expect(labels[0]).toBe("Yes, delete");
+    expect(labels.at(-1)).toBe("No, don't delete");
+    prompt.resolve("no");
+    (await waitForPromptType("text")).resolve("");
+    await pending;
+  });
+
+  test("shows the entire long request without approving when details are opened", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const body = "a".repeat(150) + " DO NOT SEND THIS TAIL";
+    let resolved = false;
+    const pending = Effect.runPromise(
+      service.requestApproval({
+        toolCallId: "call-long",
+        toolName: "gmail_send_email",
+        executeToolName: "gmail_send_email",
+        message: "Send this message",
+        executeArgs: { to: "a@example.com", body },
+      }),
+    ).then((outcome) => {
+      resolved = true;
+      return outcome;
+    });
+    const prompt = await waitForPromptType("select");
+    expect(prompt.options?.choices?.some((choice) => choice.value === "view_details")).toBe(true);
+    expect(store.getExpandableDiff()?.fullDiff).toContain(body);
+    prompt.resolve("view_details");
+    const again = await waitForPromptType("select");
+    expect(resolved).toBe(false);
+    expect(
+      printed.some((entry) => typeof entry.message === "string" && entry.message.includes(body)),
+    ).toBe(true);
+    again.resolve("yes");
+    expect(await pending).toEqual({ approved: true });
+  });
+
+  test("runs the approver's rewrite of an editable argument, prefilled with the original", async () => {
+    const pending = requestCommandApproval();
+    const approvalPrompt = await waitForPromptType("select");
+    approvalPrompt.resolve("edit");
+
+    const editor = await waitForPromptType("text");
+    expect(editor.options?.["defaultValue"]).toBe("rm -rf ./build");
+    editor.resolve("rm -rf ./build/cache");
+
+    expect(await pending).toEqual({
+      approved: true,
+      editedArgs: { command: "rm -rf ./build/cache" },
+    });
+  });
+
+  test("goes back to the same approval when the rewrite is abandoned", async () => {
+    const pending = requestCommandApproval();
+    (await waitForPromptType("select")).resolve("edit");
+    const editor = await waitForPromptType("text");
+    editor.reject?.();
+
+    const again = await waitForPromptType("select");
+    expect(store.getApprovalRequestSnapshot()?.args["command"]).toBe("rm -rf ./build");
+    again.resolve("yes");
+    expect(await pending).toEqual({ approved: true });
+  });
+
   test("echoes what the user would rather do as a user turn", async () => {
     const pending = requestEditApproval();
     const approvalPrompt = await waitForPromptType("select");
@@ -1689,5 +1856,176 @@ describe("InkPresentationService sub-agent collapse line", () => {
     expect(summary).toBeDefined();
     expect(entryText(summary!)).not.toContain("tok");
     expect(entryText(summary!)).not.toContain("$");
+  });
+});
+
+describe("model retries", () => {
+  afterEach(() => {
+    store.setRetryNotice(null);
+  });
+
+  test("a scheduled retry is state with a real deadline, and the model's next words clear it", () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const before = Date.now();
+    Effect.runSync(
+      service.presentRetry({
+        agentName: "sol",
+        provider: "openai",
+        reason: "rate limit",
+        detail: "Too Many Requests",
+        statusCode: 429,
+        attempt: 1,
+        maxAttempts: 5,
+        retryInMs: 8_000,
+      }),
+    );
+    const notice = store.getSessionSnapshot().retryNotice;
+    expect(notice?.attempt).toBe(1);
+    expect(notice?.retryAt).toBeGreaterThanOrEqual(before + 8_000);
+
+    const renderer = new InkStreamingRenderer(
+      "sol",
+      false,
+      { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+      { textBufferMs: 0 },
+      0,
+    );
+    // A new attempt opening is not an answer: it may fail and be retried again.
+    Effect.runSync(
+      renderer.handleEvent({ type: "stream_start", provider: "openai", model: "m", timestamp: 0 }),
+    );
+    expect(store.getSessionSnapshot().retryNotice).not.toBeNull();
+
+    Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+    expect(store.getSessionSnapshot().retryNotice).toBeNull();
+  });
+});
+
+describe("the run's interrupt handler", () => {
+  const displayConfig = {
+    showReasoning: true,
+    showToolExecution: true,
+    mode: "rendered" as const,
+    colorProfile: "full" as const,
+  };
+
+  afterEach(() => {
+    store.setInterruptHandler(null);
+  });
+
+  test("survives a reset and a flush, so a run that retried can still be stopped", () => {
+    const renderer = new InkStreamingRenderer("sol", false, displayConfig, { textBufferMs: 0 }, 0);
+    const handler = (): void => undefined;
+    Effect.runSync(renderer.setInterruptHandler(handler));
+    Effect.runSync(renderer.reset());
+    Effect.runSync(renderer.flush());
+    expect(store.getSessionSnapshot().interruptHandler).toBe(handler);
+  });
+
+  test("is never replaced or cleared by a sub-agent's renderer", () => {
+    const parent = (): void => undefined;
+    store.setInterruptHandler(parent);
+    const child = new InkStreamingRenderer("scout", false, displayConfig, { textBufferMs: 0 }, 0, {
+      kind: "ephemeral",
+      regionId: "eph-child",
+    });
+    Effect.runSync(child.setInterruptHandler(() => undefined));
+    Effect.runSync(child.setInterruptHandler(null));
+    expect(store.getSessionSnapshot().interruptHandler).toBe(parent);
+  });
+});
+
+describe("stopping a turn in the Ink interface", () => {
+  test("prints the same done / not done summary the fullscreen block shows", () => {
+    store.setChatBusy(true);
+    store.printOutput({ type: "user", message: "Get Saturday sorted", timestamp: new Date() });
+    store.printOutput({
+      type: "log",
+      message: "",
+      timestamp: new Date(),
+      meta: {
+        toolReceipt: { app: "mcp_calendar_create_event", summary: "hold placed", status: "ok" },
+      },
+    });
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    Effect.runSync(service.presentInterrupted("sol"));
+    store.flushOutputBatchNow();
+    const last = store.getOutputSnapshot().entries.at(-1);
+    store.setChatBusy(false);
+
+    expect(last?.meta?.["interruptNotice"]).toBe(true);
+    const text = String(last?.message);
+    expect(text).toMatch(/^stopped by you after \d+\.\ds/);
+    expect(text).toContain("done      mcp_calendar_create_event  hold placed");
+  });
+});
+
+describe("Ink markdown, from the shared parser", () => {
+  const printed: OutputEntry[] = [];
+  let originalPrintOutput: (typeof store)["printOutput"];
+
+  beforeEach(() => {
+    printed.length = 0;
+    originalPrintOutput = store.printOutput;
+    store.printOutput = (entry: OutputEntry) => {
+      printed.push(entry);
+      return originalPrintOutput(entry);
+    };
+  });
+
+  afterEach(() => {
+    store.printOutput = originalPrintOutput;
+  });
+
+  test("styles a response the same way as fullscreen, through the shared parser", async () => {
+    try {
+      chalk.level = 3;
+      const service = new InkPresentationService(
+        { ...DEFAULT_DISPLAY_CONFIG, mode: "rendered" },
+        null,
+      );
+      const rendered = await Effect.runPromise(
+        service.renderMarkdown("**bold** and `code` and a [link](https://jazz.sh)."),
+      );
+      expect(rendered).toContain("\u001b]8;;https://jazz.sh\u0007");
+      // eslint-disable-next-line no-control-regex -- ANSI/OSC 8 escapes are the point of this strip.
+      const visible = rendered.replace(/\u001b(\[[0-9;]*m|\]8;;[^\u0007]*\u0007)/g, "");
+      expect(visible).not.toContain("**");
+    } finally {
+      chalk.level = 0;
+    }
+  });
+
+  test("never wraps a long paragraph, so Ink's own <Text wrap> can reflow it on resize", async () => {
+    const service = new InkPresentationService(
+      { ...DEFAULT_DISPLAY_CONFIG, mode: "rendered" },
+      null,
+    );
+    const long = Array.from({ length: 40 }, (_, index) => `word${String(index)}`).join(" ");
+    const rendered = await Effect.runPromise(service.renderMarkdown(long));
+    expect(rendered.split("\n")).toHaveLength(1);
+  });
+
+  test("hybrid mode keeps the markdown syntax visible", async () => {
+    const service = new InkPresentationService({ ...DEFAULT_DISPLAY_CONFIG, mode: "hybrid" }, null);
+    const rendered = await Effect.runPromise(service.renderMarkdown("**bold**"));
+    expect(rendered).toContain("**bold**");
+  });
+
+  test("raw mode passes text through untouched", async () => {
+    const service = new InkPresentationService({ ...DEFAULT_DISPLAY_CONFIG, mode: "raw" }, null);
+    const rendered = await Effect.runPromise(service.renderMarkdown("**bold**"));
+    expect(rendered).toBe("**bold**");
+  });
+
+  test("a settled agent response reads through the same pipeline", async () => {
+    const service = new InkPresentationService(
+      { ...DEFAULT_DISPLAY_CONFIG, mode: "rendered" },
+      null,
+    );
+    await Effect.runPromise(service.presentAgentResponse("sol", "**bold** answer"));
+    const logged = printed.find((entry) => entry.type === "log");
+    expect(entryText(logged as OutputEntry)).toContain("bold");
+    expect(entryText(logged as OutputEntry)).not.toContain("**");
   });
 });

@@ -9,82 +9,18 @@
  * try/catch that destroys the renderer if setup throws partway. So this module
  * deliberately does not reimplement any of it; it configures it, and adds the
  * three things OpenTUI leaves to the caller: job control, restoring the terminal
- * when the process exits without a signal, and the decision about whether to
- * take over the screen at all.
+ * when the process exits without a signal, and the capability decision lives in
+ * `ui/terminal-capabilities.ts`, so the Ink and plain paths can make it without loading
+ * OpenTUI.
  */
 
+import { writeSync } from "node:fs";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
-import { MIN_HEIGHT, MIN_WIDTH } from "./types";
 import { store } from "../store";
+import { REVEAL_FRAME_MS } from "../text/stream-pacer";
+import { applyTerminalPalette, groundIsPainted, onThemeChange, THEME } from "../theme";
 import type { OutputEntry } from "../types";
-
-/** Why the fullscreen interface declined to start, when it does. */
-export type PlainReason =
-  "not-a-tty" | "ci" | "dumb-terminal" | "screen-reader" | "too-small" | "requested";
-
-export interface CapabilityDecision {
-  readonly fullscreen: boolean;
-  readonly reason?: PlainReason;
-  readonly width: number;
-  readonly height: number;
-}
-
-export interface FullscreenEnvironment {
-  readonly CI?: string;
-  readonly TERM?: string;
-  readonly INK_SCREEN_READER?: string;
-  readonly JAZZ_A11Y?: string;
-}
-
-export interface TerminalOutputCapabilities {
-  readonly isTTY?: boolean;
-  readonly columns?: number;
-  readonly rows?: number;
-}
-
-export interface TerminalInputCapabilities {
-  readonly isTTY?: boolean;
-}
-
-/**
- * Fullscreen is opt-out, not opt-in, but it turns itself off wherever it would
- * be actively worse than plain output. None of these are flags a user has to
- * discover.
- *
- * The screen-reader case is not negotiable: an alternate screen with live
- * repaint re-announces the same region endlessly, which is hostile rather than
- * merely imperfect.
- */
-export function decideFullscreen(
-  options: { requestPlain?: boolean } = {},
-  environment: FullscreenEnvironment = process.env as FullscreenEnvironment,
-  stdout: TerminalOutputCapabilities = process.stdout,
-  stdin: TerminalInputCapabilities = process.stdin,
-): CapabilityDecision {
-  const width = stdout.columns ?? 0;
-  const height = stdout.rows ?? 0;
-  const base = { width, height };
-
-  if (options.requestPlain === true) return { ...base, fullscreen: false, reason: "requested" };
-  if (stdout.isTTY !== true || stdin.isTTY !== true) {
-    return { ...base, fullscreen: false, reason: "not-a-tty" };
-  }
-  if (environment.CI !== undefined && environment.CI !== "") {
-    return { ...base, fullscreen: false, reason: "ci" };
-  }
-  const term = (environment.TERM ?? "").toLowerCase();
-  if (term === "" || term === "dumb") {
-    return { ...base, fullscreen: false, reason: "dumb-terminal" };
-  }
-  if (environment.INK_SCREEN_READER === "1" || environment.JAZZ_A11Y === "1") {
-    return { ...base, fullscreen: false, reason: "screen-reader" };
-  }
-  if (width < MIN_WIDTH || height < MIN_HEIGHT) {
-    return { ...base, fullscreen: false, reason: "too-small" };
-  }
-  return { ...base, fullscreen: true };
-}
 
 export interface MountedRenderer {
   readonly renderer: CliRenderer;
@@ -93,15 +29,17 @@ export interface MountedRenderer {
 }
 
 /**
- * Frame budget. Deliberately not 60.
+ * Frame cap. Deliberately not 60.
  *
- * The fastest host TUIs are invalidation-driven on a ~250ms heartbeat and run no
- * animation loop at all, and at least one popular terminal allocates a buffer
- * per synchronized frame — so a high frame rate costs the host real work to
- * produce motion nobody asked for. 12fps is enough for the indicator and
- * cheap everywhere.
+ * The renderer paints only when something changed, so this is a ceiling, not a
+ * loop: an idle screen paints nothing, and the activity indicator keeps its own
+ * slow interval (`MOTION.indicator`). The one thing that asks for more is
+ * streamed prose, which the reveal pacer advances once per `REVEAL_FRAME_MS`;
+ * at 12fps each frame would add half a line and read as steps. At least one
+ * popular terminal allocates a buffer per synchronized frame, so the cap stays
+ * at the reveal rate rather than going higher.
  */
-const MAX_FPS = 12;
+const MAX_FPS = Math.round(1000 / REVEAL_FRAME_MS);
 
 /** The renderer surface the lifecycle drives, narrowed so tests can pass a stand-in. */
 export type LifecycleRenderer = Pick<
@@ -153,6 +91,7 @@ export interface LifecycleProcess {
 export function installTerminalLifecycle(
   renderer: LifecycleRenderer,
   runtime: LifecycleProcess = process,
+  afterResume: () => void = () => undefined,
 ): () => void {
   let released = false;
 
@@ -165,6 +104,7 @@ export function installTerminalLifecycle(
   const onContinue = (): void => {
     if (released || renderer.isDestroyed) return;
     renderer.resume();
+    afterResume();
     renderer.requestRender();
   };
   const onExit = (): void => {
@@ -309,16 +249,120 @@ export interface RepaintableRenderer {
  */
 export function repaintAfterResize(renderer: RepaintableRenderer): () => void {
   const onResize = (): void => {
-    const internals = renderer as unknown as { forceFullRepaintRequested?: boolean };
-    if (typeof internals.forceFullRepaintRequested !== "boolean") return;
-    internals.forceFullRepaintRequested = true;
-    renderer.requestRender();
+    forceFullRepaint(renderer);
   };
 
   renderer.on("resize", onResize);
   return () => {
     renderer.off("resize", onResize);
   };
+}
+
+function forceFullRepaint(renderer: Pick<CliRenderer, "requestRender">): void {
+  const internals = renderer as unknown as { forceFullRepaintRequested?: boolean };
+  if (typeof internals.forceFullRepaintRequested !== "boolean") return;
+  internals.forceFullRepaintRequested = true;
+  renderer.requestRender();
+}
+
+/** OSC 111: reset the terminal's default background to the one its user configured. */
+const RESET_TERMINAL_BACKGROUND = "\x1b]111\x07";
+
+/** OSC 11: set the terminal's default background. */
+export function setTerminalBackgroundSequence(hex: string): string {
+  return `\x1b]11;${hex}\x07`;
+}
+
+/** The renderer surface the ground sync drives, narrowed so tests can pass a stand-in. */
+export type GroundRenderer = Pick<
+  CliRenderer,
+  "setBackgroundColor" | "resetTerminalBgColor" | "requestRender" | "isDestroyed"
+>;
+
+export interface GroundSync {
+  /** Paint the current mode's ground now, as after a resume. */
+  readonly apply: () => void;
+  readonly stop: () => void;
+}
+
+/**
+ * Keep the renderer's clear colour and the terminal's own background in step with the theme.
+ *
+ * While the ground is painted, every cell the tree leaves empty is cleared to the theme's
+ * background and the terminal's default background is set to match, so the padding a terminal
+ * draws around its grid and any row the renderer has not reached yet agree with the frame. While
+ * it is inherited, the clear colour is transparent and the terminal's background is reset to
+ * whatever the user configured. A resume calls `apply` to set it again.
+ *
+ * Once a background has been set, process exit — a quit, a crash, a signal — resets it with a
+ * synchronous write: the reset OpenTUI's `destroy()` sends does not reach the terminal on a
+ * quit, which then keeps jazz's background at the shell prompt.
+ *
+ * Either way a change forces a full repaint: every cell's background may have changed, and the
+ * renderer's diff would otherwise skip cells whose glyph did not.
+ */
+export function syncTerminalGround(
+  renderer: GroundRenderer,
+  write: (data: string) => void = (data) => {
+    writeSync(process.stdout.fd, data);
+  },
+  runtime: Pick<LifecycleProcess, "on" | "off"> = process,
+): GroundSync {
+  let terminalBackgroundSet = false;
+  const apply = (): void => {
+    if (renderer.isDestroyed) return;
+    if (groundIsPainted()) {
+      renderer.setBackgroundColor(THEME.background);
+      write(setTerminalBackgroundSequence(THEME.background));
+      terminalBackgroundSet = true;
+    } else {
+      renderer.setBackgroundColor("transparent");
+      renderer.resetTerminalBgColor();
+    }
+    forceFullRepaint(renderer);
+  };
+  const onExit = (): void => {
+    if (terminalBackgroundSet) {
+      write(RESET_TERMINAL_BACKGROUND);
+    }
+  };
+  const stopListening = onThemeChange(apply);
+  runtime.on("exit", onExit);
+  apply();
+  return {
+    apply,
+    stop: () => {
+      stopListening();
+      runtime.off("exit", onExit);
+      onExit();
+    },
+  };
+}
+
+/** How long the first frame waits for the terminal to report its colours. */
+const PALETTE_QUERY_TIMEOUT_MS = 100;
+
+/** The ANSI slots the `system` theme reads from. */
+const PALETTE_QUERY_SIZE = 16;
+
+export type PaletteSource = Pick<CliRenderer, "getPalette">;
+
+/**
+ * Ask the terminal for its background, foreground and ANSI colours (OSC 10, 11 and 4), and hand
+ * the answer to the theme: it picks the variant, derives the tiers in `inherit` mode, and builds
+ * the `system` theme. A terminal that does not answer within the timeout keeps the variant
+ * `COLORFGBG` suggested and the house palette.
+ */
+export async function detectTerminalColors(renderer: PaletteSource): Promise<void> {
+  try {
+    const colors = await renderer.getPalette({
+      timeout: PALETTE_QUERY_TIMEOUT_MS,
+      size: PALETTE_QUERY_SIZE,
+    });
+    applyTerminalPalette(colors);
+  } catch {
+    // No answer, or a renderer that cannot query: the environment's guess stands.
+  }
 }
 
 export async function mountFullscreen(): Promise<MountedRenderer> {
@@ -340,7 +384,9 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
     clearOnShutdown: false,
   });
 
-  const release = installTerminalLifecycle(renderer);
+  await detectTerminalColors(renderer);
+  const ground = syncTerminalGround(renderer);
+  const release = installTerminalLifecycle(renderer, process, ground.apply);
   const stopGuard = guardOutput(renderer);
   const stopRepaint = repaintAfterResize(renderer);
 
@@ -348,6 +394,7 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
   return {
     renderer,
     release: () => {
+      ground.stop();
       stopRepaint();
       stopGuard();
       release();

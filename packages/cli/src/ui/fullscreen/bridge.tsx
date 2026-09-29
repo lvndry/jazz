@@ -14,10 +14,10 @@
  */
 
 import { search, type SearchHit } from "@jazz/adapters/history/conversation-search";
-import { egressRequestMethod } from "@jazz/core/agent/execution/egress-taint";
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
+import { isTerminalReport, type ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
-import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
+import { isHttpApprovalTool } from "@jazz/core/utils/http-approval";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,23 +31,7 @@ import {
   resolveFilePickerPath,
   scanFilePickerEntries,
 } from "../file-picker-files";
-import { wrapIndex } from "../picker-window";
-import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
-import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
-import {
-  store,
-  useEphemeralSlice,
-  useOutputSlice,
-  usePromptSlice,
-  useSessionSlice,
-  useSubagentsSlice,
-  type EphemeralRegion,
-  type PendingApproval,
-} from "../store";
-import type { SubagentRun } from "../subagent-runs";
-import { mergeSuggestions } from "../suggestion-menu";
-import type { Choice, OutputEntry, PromptState } from "../types";
-import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
+import { hostForModel } from "../local-model-hosts";
 import { App, type KeyChord } from "./App";
 import { flattenPaste, normalizePaste, readClipboard } from "./clipboard";
 import {
@@ -81,20 +65,12 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
-import { hostForModel } from "../local-model-hosts";
-import { filterSkills, skillDetailRows } from "../skill-browser";
-import type { FilePickerModel } from "./overlays/FilePicker";
-import type { QuestionChoice, QuestionModel } from "./overlays/Question";
-import type { TextPromptModel } from "./overlays/TextPrompt";
-import { AgentDetails, agentDetailsBodyHeight, agentDetailsRows } from "./screens/AgentDetails";
-import { AgentPicker } from "./screens/AgentPicker";
-import { Home } from "./screens/Home";
-import { SkillBrowser, skillDetailBodyRows, skillListRows } from "./screens/SkillBrowser";
 import { subagentBlocks, subagentListItem } from "./subagent-view";
-import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
+import { themePickerTarget } from "./theme-picker-keys";
 import {
   LIVE_ZONE_MAX_ROWS,
+  type ApprovalChoice,
   type ApprovalOverlay,
   type Block,
   type FooterModel,
@@ -105,14 +81,73 @@ import {
   type Overlay,
   type StepLine,
   type SubagentListModel,
+  type ThemePickerModel,
+  type ThemePickerRow,
   type ViewModel,
 } from "./types";
+import { agentDetailsBodyHeight, agentDetailsRows } from "../models/agent-details";
+import { approvalFacts, diffLanguage } from "../models/approval";
+import { approvalTitle } from "../models/approval";
+import { homeIntent } from "../models/home-view";
+import {
+  interruptSummary,
+  type InterruptSnapshot,
+  type InterruptSummary,
+  type ReceiptFacts,
+} from "../models/interrupt";
+import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
+import { receiptFromMeta } from "../models/receipt";
+import { RETRY_BAND_ROWS, retryBand } from "../models/retry";
+import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
+import { initialChoiceIndex } from "../prompt-core/picker-adapter";
+import { readPromptStep } from "../prompt-core/stepper";
+import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
+import { filterSkills, skillDetailRows } from "../skill-browser";
+import { skillDetailBodyRows, skillListRows } from "../skill-browser";
+import {
+  store,
+  useEphemeralSlice,
+  useOutputSlice,
+  usePromptSlice,
+  useSessionSlice,
+  useSubagentsSlice,
+  type EphemeralRegion,
+  type PendingApproval,
+} from "../store";
+import type { SubagentRun } from "../subagent-runs";
+import { mergeSuggestions } from "../suggestion-menu";
+import { wrapIndex } from "../text/picker-window";
+import { pathFromFileArgsPreview, sourceLanguageFromPath } from "../text/syntax-spans";
+import { compactWorkingDirectory } from "../text/working-directory";
+import { previewTheme } from "../theme";
+import type { Choice, OutputEntry, PromptState } from "../types";
+import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
+import type { FilePickerModel } from "./overlays/FilePicker";
+import type { QuestionChoice, QuestionModel, QuestionTagTone } from "./overlays/Question";
+import type { QuestionStep } from "./overlays/stepper";
+import type { TextPromptModel } from "./overlays/TextPrompt";
+import { AgentDetails } from "./screens/AgentDetails";
+import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
+import { Home } from "./screens/Home";
+import { MenuScreen } from "./screens/Menu";
+import { SkillBrowser } from "./screens/SkillBrowser";
+import { foldTurn } from "./turn-fold";
 
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
 const SUBAGENT_NOTICE_MS = 2500;
 
 /** Waiting copy, house voice: idiomatic, never jokey. */
 const WAITING = ["comping behind you", "turning it over", "two horns out", "digging the crates"];
+
+/**
+ * What the waiting row says. Before the first event arrives nothing is known
+ * about what the model is doing, so the house copy fills the silence. Once it
+ * is reasoning, the row says so plainly.
+ */
+export function waitingLabel(phase: string, elapsedMs: number | undefined): string {
+  if (phase === "thinking") return "thinking";
+  return WAITING[Math.floor((elapsedMs ?? 0) / WAITING_ROTATE_MS) % WAITING.length] as string;
+}
 
 /** Footer and live elapsed digits update once a second, not on the indicator. */
 const FOOTER_ELAPSED_MS = 1000;
@@ -278,11 +313,38 @@ function choicesForQuestion(
   return promptChoices(prompt);
 }
 
-function allowsCustomAnswer(prompt: PromptState, suggestions: readonly Suggestion[]): boolean {
-  return (
-    prompt.type === "questionnaire" &&
-    (prompt.options?.["allowCustom"] !== false || suggestions.length === 0)
+/**
+ * Whether a question offers a row for an answer in the person's own words. Every
+ * question the agent asks does: its suggestions are the agent's framing, and a person
+ * must always be able to step outside it.
+ */
+function allowsCustomAnswer(prompt: PromptState): boolean {
+  return prompt.type === "questionnaire";
+}
+
+/**
+ * The two answers of a yes/no question. A confirm prompt always is one; an agent's
+ * question is one when the shared model says its choices are a Yes and a No.
+ */
+export function binaryAnswers(
+  prompt: PromptState,
+  choices: readonly { readonly label: string }[],
+): { readonly yes: number; readonly no: number } | undefined {
+  if (prompt.type === "confirm") return { yes: 0, no: 1 };
+  if (prompt.type !== "questionnaire") return undefined;
+  return binaryAnswerIndices(
+    choices.map((choice) => choice.label),
+    allowsMultipleAnswers(prompt),
   );
+}
+
+function questionPosition(
+  prompt: PromptState,
+): { readonly index: number; readonly total: number } | undefined {
+  const position = prompt.options?.["position"];
+  if (position === null || typeof position !== "object") return undefined;
+  const { index, total } = position as Record<string, unknown>;
+  return typeof index === "number" && typeof total === "number" ? { index, total } : undefined;
 }
 
 function allowsMultipleAnswers(prompt: PromptState): boolean {
@@ -335,17 +397,24 @@ function initialPromptControls(prompt: PromptState | null): PromptControlsState 
     };
   }
 
-  const choices = promptChoices(prompt);
-  let selected = firstEnabledChoice(choices);
-  if (prompt.type === "confirm") {
-    selected = prompt.options?.["defaultValue"] === true ? 0 : 1;
-  } else if (prompt.type === "select" && prompt.options?.defaultSelected !== undefined) {
-    const defaultIndex = choices.findIndex(
-      (choice) =>
-        Object.is(choice.value, prompt.options?.defaultSelected) && choice.disabled !== true,
-    );
-    if (defaultIndex >= 0) selected = defaultIndex;
+  if (prompt.type === "theme") {
+    const current = themePickerRows(prompt).findIndex((row) => row.current);
+    return {
+      ...EMPTY_PROMPT_CONTROLS,
+      question: { ...EMPTY_QUESTION, selected: Math.max(0, current) },
+    };
   }
+
+  const choices = promptChoices(prompt);
+  const selected =
+    prompt.type === "confirm"
+      ? prompt.options?.["defaultValue"] === true
+        ? 0
+        : 1
+      : initialChoiceIndex(
+          choices,
+          prompt.type === "select" ? prompt.options?.defaultSelected : undefined,
+        );
 
   const defaults = Array.isArray(prompt.options?.defaultSelected)
     ? prompt.options.defaultSelected
@@ -390,6 +459,9 @@ function choiceModel(
     readonly label: string;
     readonly description?: string;
     readonly disabled?: boolean;
+    readonly tag?: string;
+    readonly tagTone?: QuestionTagTone;
+    readonly preview?: readonly ChoicePreviewLine[];
   }[],
   originalIndices?: readonly number[],
 ): QuestionChoice[] {
@@ -398,7 +470,21 @@ function choiceModel(
     value: `choice-${String(originalIndices?.[index] ?? index)}`,
     ...(choice.description === undefined ? {} : { description: choice.description }),
     ...(choice.disabled === true ? { disabled: true } : {}),
+    ...(choice.tag === undefined ? {} : { tag: choice.tag }),
+    ...(choice.tagTone === undefined ? {} : { tagTone: choice.tagTone }),
+    ...(choice.preview === undefined ? {} : { preview: choice.preview }),
   }));
+}
+
+/** `{ step }` when the prompt was opened as part of a multi-step flow, else nothing. */
+function stepField(prompt: PromptState): { readonly step?: QuestionStep } {
+  const step = promptStep(prompt);
+  return step === undefined ? {} : { step };
+}
+
+/** The multi-step position a prompt was opened with, when it is well-formed. */
+function promptStep(prompt: PromptState): QuestionStep | undefined {
+  return readPromptStep(prompt.options?.["step"]);
 }
 
 function validatePrompt(prompt: PromptState, value: string): string | null {
@@ -415,10 +501,16 @@ function hiddenPromptKeys(prompt: PromptState | null): readonly string[] | undef
   return Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : undefined;
 }
 
+/** The picker's rows: the listings the `/theme` command opened it with. */
+function themePickerRows(prompt: PromptState): readonly ThemePickerRow[] {
+  const listings = prompt.options?.["themes"];
+  return Array.isArray(listings) ? (listings as ThemePickerRow[]) : [];
+}
+
 function overlayFromPrompt(
   prompt: PromptState | null,
   controls: PromptControlsState,
-): QuestionModel | TextPromptModel | FilePickerModel | undefined {
+): QuestionModel | TextPromptModel | FilePickerModel | ThemePickerModel | undefined {
   if (prompt === null || prompt.type === "chat" || hiddenPromptKeys(prompt) !== undefined) {
     return undefined;
   }
@@ -432,6 +524,7 @@ function overlayFromPrompt(
         message: prompt.message,
         value: editor.value,
         caret: editor.caret,
+        ...stepField(prompt),
         ...(prompt.type === "password" || prompt.options?.["secret"] === true
           ? { masked: true }
           : {}),
@@ -465,6 +558,8 @@ function overlayFromPrompt(
         ...(file.error === undefined ? {} : { error: file.error }),
       };
     }
+    case "theme":
+      return { kind: "theme", rows: themePickerRows(prompt), selected: controls.question.selected };
     case "confirm":
       return {
         kind: "question",
@@ -475,6 +570,7 @@ function overlayFromPrompt(
           { label: "No", value: "choice-1" },
         ],
         selected: question.selected,
+        buttons: true,
       };
     case "select":
     case "search":
@@ -511,18 +607,24 @@ function overlayFromPrompt(
         ...(prompt.type === "checkbox"
           ? { checked: question.checked.map((index) => `choice-${String(index)}`) }
           : {}),
+        ...stepField(prompt),
       };
     }
     case "questionnaire": {
       const suggestions = promptSuggestions(prompt);
       const allowMultiple = allowsMultipleAnswers(prompt);
-      const allowCustom = allowsCustomAnswer(prompt, suggestions);
+      const allowCustom = allowsCustomAnswer(prompt);
+      const choices = choicesForQuestion(prompt, suggestions);
+      const position = questionPosition(prompt);
       return {
         kind: "question",
         mode: allowMultiple ? "checkbox" : "select",
         message: prompt.message,
-        choices: choiceModel(choicesForQuestion(prompt, suggestions)),
+        choices: choiceModel(choices),
         selected: question.selected,
+        skippable: true,
+        ...(binaryAnswers(prompt, choices) === undefined ? {} : { buttons: true }),
+        ...(position === undefined ? {} : { position }),
         ...(allowMultiple
           ? { checked: question.checked.map((index) => `choice-${String(index)}`) }
           : {}),
@@ -570,42 +672,35 @@ function lineEndAfter(characters: readonly string[], at: number): number {
   return index;
 }
 
-/**
- * A completed tool call, as the activity reducer recorded it.
- *
- * The reducer also pushes a rendered ANSI string for the Ink tree. Reading the
- * structured form instead is what turns a tool call into a receipt — the app and
- * what came back, dim, with the invocation and timing behind a key — rather than
- * a generic notice carrying somebody else's layout.
- */
-interface ToolReceiptMeta {
-  readonly app: string;
-  readonly summary: string;
-  readonly status: "ok" | "failed";
-  readonly args?: string;
-  readonly durationMs?: number;
-  readonly reason?: string;
-  readonly detail?: string;
-  readonly classifiedRisk?: string;
+/** The settled tool calls after the last user message: the turn a stop summarises. */
+function currentTurnReceipts(blocks: readonly Block[]): ReceiptFacts[] {
+  let start = blocks.length;
+  while (start > 0 && blocks[start - 1]?.kind !== "user") start -= 1;
+  return blocks.slice(start).flatMap((block) =>
+    block.kind === "tool"
+      ? [
+          {
+            app: block.app,
+            summary: block.summary,
+            status: block.status,
+            ...(block.args === undefined ? {} : { args: block.args }),
+          },
+        ]
+      : [],
+  );
 }
 
-function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
-  const candidate = entry.meta?.["toolReceipt"];
+function stoppedOf(entry: OutputEntry): InterruptSummary | null {
+  const candidate = entry.meta?.["stoppedSummary"];
   if (candidate === null || typeof candidate !== "object") return null;
   const record = candidate as Record<string, unknown>;
-  if (typeof record["app"] !== "string" || typeof record["summary"] !== "string") return null;
-  const status = record["status"] === "failed" ? "failed" : "ok";
+  const strings = (value: unknown): readonly string[] =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  if (typeof record["elapsedMs"] !== "number") return null;
   return {
-    app: record["app"],
-    summary: record["summary"],
-    status,
-    ...(typeof record["args"] === "string" ? { args: record["args"] } : {}),
-    ...(typeof record["durationMs"] === "number" ? { durationMs: record["durationMs"] } : {}),
-    ...(typeof record["reason"] === "string" ? { reason: record["reason"] } : {}),
-    ...(typeof record["detail"] === "string" ? { detail: record["detail"] } : {}),
-    ...(typeof record["classifiedRisk"] === "string"
-      ? { classifiedRisk: record["classifiedRisk"] }
-      : {}),
+    elapsedMs: record["elapsedMs"],
+    done: strings(record["done"]),
+    notDone: strings(record["notDone"]),
   };
 }
 
@@ -689,25 +784,38 @@ export function blocksFrom(
     // other renderer. Behind the empty-text guard below, every settled tool
     // call was therefore skipped in silence, and the transcript showed nothing
     // at all between the question and the answer.
-    const receipt = receiptOf(entry);
-    if (receipt !== null) {
-      blocks.push({
-        id,
-        seq: seq++,
-        kind: "tool",
-        app: receipt.app,
-        summary: receipt.summary,
-        status: receipt.status,
-        ...(receipt.args === undefined ? {} : { args: receipt.args }),
-        ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
-        ...(receipt.durationMs === undefined ? {} : { durationMs: receipt.durationMs }),
-        ...(receipt.detail === undefined ? {} : { detail: receipt.detail }),
-        ...(receipt.classifiedRisk === undefined ? {} : { classifiedRisk: receipt.classifiedRisk }),
-      });
+    const stopped = stoppedOf(entry);
+    if (stopped !== null) {
+      blocks.push({ id, seq: seq++, kind: "stopped", ...stopped });
       continue;
     }
 
-    if (entry.meta?.["toolStart"] === true) continue;
+    const receipt = receiptFromMeta(entry.meta?.["toolReceipt"]);
+    if (receipt !== null) {
+      blocks.push({ id, seq: seq++, kind: "tool", ...receipt });
+      continue;
+    }
+
+    if (
+      entry.meta?.["toolStart"] === true ||
+      entry.meta?.["agentHeader"] === true ||
+      entry.meta?.["approvalEcho"] === true ||
+      // The live zone draws a scheduled retry as a band with a countdown; this line is
+      // the same notice for the classic interface.
+      entry.meta?.["retryNotice"] === true ||
+      entry.meta?.["interruptNotice"] === true ||
+      // Reasoning that returned no text collapses to a bare duration line; there
+      // is no thought to show, and the turn receipt already carries the time.
+      entry.meta?.["collapsedRegion"] === "reasoning"
+    ) {
+      continue;
+    }
+
+    const agentMarkdown = entry.meta?.["agentMarkdown"];
+    if (typeof agentMarkdown === "string" && agentMarkdown.trim().length > 0) {
+      blocks.push({ id, seq: seq++, kind: "agent", markdown: agentMarkdownOf(agentMarkdown) });
+      continue;
+    }
 
     if (entry.meta?.["expandedOutput"] === true) {
       const expanded = stripAnsiCodes(
@@ -730,6 +838,12 @@ export function blocksFrom(
       continue;
     }
 
+    const commandReport = entry.meta?.["report"];
+    if (isTerminalReport(commandReport)) {
+      blocks.push({ id, seq: seq++, kind: "report", report: commandReport });
+      continue;
+    }
+
     const plainText = entry.meta?.["plainText"];
     const source = typeof plainText === "string" ? plainText : textOf(entry.message);
     const text = stripAnsiCodes(source);
@@ -749,17 +863,17 @@ export function blocksFrom(
       const collapsed = entry.meta["collapsed"] === true;
       const fullText = entry.meta["fullText"];
       const durationMs = entry.meta["durationMs"];
+      const steps = entry.meta["steps"];
+      const readable = typeof fullText === "string" && fullText.trim().length > 0;
       blocks.push({
         id,
         seq: seq++,
         kind: "reasoning",
-        text: collapsed
-          ? ""
-          : typeof fullText === "string" && fullText.length > 0
-            ? fullText
-            : text,
+        text: collapsed ? "" : readable ? fullText : text,
         collapsed,
+        ...(collapsed && !readable ? { readable: false } : {}),
         ...(typeof durationMs === "number" ? { durationMs } : {}),
+        ...(typeof steps === "number" ? { steps } : {}),
       });
       continue;
     }
@@ -774,7 +888,14 @@ export function blocksFrom(
       continue;
     }
 
-    const tone = entry.type === "error" ? "error" : entry.type === "warn" ? "warn" : "info";
+    const tone =
+      entry.meta?.["turnReceipt"] === true
+        ? "receipt"
+        : entry.type === "error"
+          ? "error"
+          : entry.type === "warn"
+            ? "warn"
+            : "info";
     blocks.push({ id, seq: seq++, kind: "notice", text: text.replace(/^\n+|\n+$/g, ""), tone });
   }
 
@@ -806,6 +927,7 @@ export function blocksFrom(
         kind: "reasoning",
         text: region.tail.join("\n"),
         collapsed: false,
+        live: true,
       });
       continue;
     }
@@ -823,7 +945,7 @@ export function blocksFrom(
       state: "running",
     });
   }
-  return blocks;
+  return foldTurn(blocks);
 }
 
 // `previous` is undefined on the first block or a missing cache slot; still
@@ -849,7 +971,9 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
         previous.collapsed === current.collapsed &&
         previous.steps === current.steps &&
         previous.durationMs === current.durationMs &&
-        previous.tokens === current.tokens
+        previous.tokens === current.tokens &&
+        previous.live === current.live &&
+        previous.readable === current.readable
       );
     case "tool":
       return (
@@ -860,6 +984,7 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
         previous.status === current.status &&
         previous.reason === current.reason &&
         previous.remedyKey === current.remedyKey &&
+        previous.notDone === current.notDone &&
         previous.durationMs === current.durationMs &&
         previous.detail === current.detail &&
         previous.expanded === current.expanded &&
@@ -871,8 +996,17 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
         previous.text === current.text &&
         previous.tone === current.tone
       );
+    case "report":
+      return current.kind === "report" && previous.report === current.report;
     case "divider":
       return current.kind === "divider" && previous.label === current.label;
+    case "stopped":
+      return (
+        current.kind === "stopped" &&
+        previous.elapsedMs === current.elapsedMs &&
+        previous.done.join("\n") === current.done.join("\n") &&
+        previous.notDone.join("\n") === current.notDone.join("\n")
+      );
     case "lane":
       return (
         current.kind === "lane" &&
@@ -972,15 +1106,6 @@ function stepFrom(activity: ActivityState): StepLine | undefined {
   return { index: index + 1, total: todos.length, label: todo.content };
 }
 
-function compactWorkingDirectory(workingDirectory: string | null): string {
-  const cwd = workingDirectory ?? process.cwd();
-  const home = process.env["HOME"];
-  if (home !== undefined && (cwd === home || cwd.startsWith(`${home}/`))) {
-    return `~${cwd.slice(home.length)}`;
-  }
-  return cwd;
-}
-
 /**
  * A pending approval becomes the card.
  *
@@ -990,43 +1115,55 @@ function compactWorkingDirectory(workingDirectory: string | null): string {
  * single most important string on the screen, so it is looked for explicitly
  * rather than left to land somewhere in a list.
  */
-const ACCOUNT_KEYS = ["account", "calendar", "calendarId", "from", "sender", "mailbox", "channel"];
+/** The choices the card offers, in the order left and right walk them. */
+function approvalChoicesFor(pending: PendingApproval): readonly ApprovalChoice[] {
+  return isHttpApprovalTool(pending.executeToolName)
+    ? ["accept", "reject"]
+    : ["accept", "always", "reject"];
+}
+
+/** The always-allow answer a prompt offers: the command when it lists one, else the tool. */
+function alwaysApprovalValue(prompt: {
+  readonly options?: { readonly choices?: readonly { readonly value: unknown }[] };
+}): string {
+  const alwaysCommand = prompt.options?.choices?.some(
+    (choice) => choice.value === "always_command",
+  );
+  return alwaysCommand ? "always_command" : "always_tool";
+}
 
 function approvalFrom(
   pending: PendingApproval,
   armed: boolean,
   fieldOffset: number,
   expanded: boolean,
+  choice: ApprovalChoice,
 ): ApprovalOverlay {
-  const entries = Object.entries(pending.args).filter(
-    ([, value]) => value !== undefined && value !== null && value !== "",
-  );
-  const accountEntry = entries.find(([key]) => ACCOUNT_KEYS.includes(key));
-  const app = pending.toolName.split(/[_.]/)[0] ?? pending.toolName;
-  const command = pending.toolName === "execute_command" ? pending.args["command"] : undefined;
-  const commandKey = typeof command === "string" ? extractCommandApprovalKey(command) : undefined;
-  const alwaysLabel = `always allow ${commandKey ?? pending.toolName} this session`;
-  const method = egressRequestMethod(pending.executeToolName, pending.args);
-
+  const facts = approvalFacts(pending);
+  const { intent } = facts;
   return {
     kind: "approval",
-    app,
-    action: pending.executeToolName.replace(/[_.]/g, " "),
-    account: accountEntry === undefined ? "this machine" : String(accountEntry[1]),
-    fields: [
-      ...(method === undefined ? [] : [{ label: "method", value: method }]),
-      ...entries
-        .filter(([key]) => key !== accountEntry?.[0] && !(method !== undefined && key === "method"))
-        .map(([label, value]) => ({
-          label,
-          value: typeof value === "string" ? value : JSON.stringify(value),
-        })),
-    ],
+    app: facts.app,
+    action: facts.title,
+    account: facts.account,
+    fields: facts.fields,
     consequence: pending.message,
     fieldOffset,
     expanded,
-    alwaysLabel,
+    alwaysLabel: facts.alwaysLabel,
+    allowAlways: approvalChoicesFor(pending).includes("always"),
+    choice,
     armed,
+    ...(intent.headline === undefined ? {} : { headline: intent.headline }),
+    acceptLabel: intent.accept,
+    rejectLabel: intent.reject,
+    ...(intent.impact === undefined ? {} : { impact: intent.impact }),
+    ...(intent.command === undefined ? {} : { command: intent.command }),
+    ...(intent.diff === undefined
+      ? {}
+      : { diff: intent.diff, diffLanguage: diffLanguage(pending.args) }),
+    ...(facts.warning === undefined ? {} : { warning: facts.warning }),
+    ...(facts.editableArg === undefined ? {} : { editableArg: facts.editableArg }),
   };
 }
 
@@ -1067,6 +1204,9 @@ export function FullscreenBridge(): React.ReactNode {
   const [approvalArmed, setApprovalArmed] = useState(false);
   const [approvalFieldOffset, setApprovalFieldOffset] = useState(0);
   const [approvalExpanded, setApprovalExpanded] = useState(false);
+  const [approvalChoice, setApprovalChoice] = useState<ApprovalChoice>("accept");
+  const approvalChoiceRef = useRef<ApprovalChoice>("accept");
+  approvalChoiceRef.current = approvalChoice;
   /**
    * The composer's text and caret as one value, updated only through pure
    * updaters.
@@ -1118,7 +1258,15 @@ export function FullscreenBridge(): React.ReactNode {
   const menuRef = useRef(menu);
   menuRef.current = menu;
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
-  const [skillField, skillFieldRef, setSkillField] = useSynchronizedState({ value: "", caret: 0 });
+  const [menuFilter, menuFilterRef, setMenuFilter] = useSynchronizedState({ value: "", caret: 0 });
+  /** The agent home's button and composer go to; ↑↓ and the agent picker move it. */
+  const [homeAgentId, homeAgentIdRef, setHomeAgentId] = useSynchronizedState<string | undefined>(
+    undefined,
+  );
+  /** The waiting conversation ↓ selected on home; enter then opens it. */
+  const [homeWaitingValue, homeWaitingValueRef, setHomeWaitingValue] = useSynchronizedState<
+    string | undefined
+  >(undefined);
   const [skillDetail, skillDetailRef, setSkillDetail] = useSynchronizedState<SkillMetadata | null>(
     null,
   );
@@ -1176,6 +1324,20 @@ export function FullscreenBridge(): React.ReactNode {
 
   const interrupt = useRef(session.interruptHandler);
   interrupt.current = session.interruptHandler;
+  // What the turn looks like right now, kept current every render so a stop can be
+  // summarised from the moment the key was pressed rather than after the run unwinds.
+  const stopContextRef = useRef<Omit<InterruptSnapshot, "elapsedMs"> | null>(null);
+  const announceStop = useCallback((): void => {
+    const context = stopContextRef.current;
+    const startedAt = runStartedAt.current;
+    if (context === null || startedAt === null) return;
+    store.printOutput({
+      type: "log",
+      message: "",
+      timestamp: new Date(),
+      meta: { stoppedSummary: interruptSummary({ ...context, elapsedMs: Date.now() - startedAt }) },
+    });
+  }, []);
   const background = useRef(session.backgroundHandler);
   background.current = session.backgroundHandler;
   const quitArmed = useRef(false);
@@ -1197,14 +1359,32 @@ export function FullscreenBridge(): React.ReactNode {
     setApprovalArmedState(false);
     setApprovalFieldOffset(0);
     setApprovalExpanded(false);
+    setApprovalChoice("accept");
   }, [approval, setApprovalArmedState]);
 
+  // Home is refreshed in place once its history loads; only a new showing of it (a new
+  // `shownAt`) resets the chosen agent and the composer, so a refresh never eats typing.
+  const menuIdentity: unknown = menu?.kind === "home" ? `home:${String(menu.shownAt)}` : menu;
   useEffect(() => {
-    setMenuIndex(menu?.kind === "agents" ? (menu.initialIndex ?? 0) : 0);
-    setSkillField({ value: "", caret: 0 });
+    const opened = menuRef.current;
+    setMenuIndex(opened?.kind === "agents" ? (opened.initialIndex ?? 0) : 0);
+    const draft = opened?.kind === "home" ? (opened.draft ?? "") : "";
+    setMenuFilter({ value: draft, caret: [...draft].length });
+    setHomeAgentId(
+      opened?.kind === "home" ? (opened.targetAgentId ?? opened.agents[0]?.id) : undefined,
+    );
+    setHomeWaitingValue(undefined);
     setSkillDetail(null);
     setSkillDetailOffset(0);
-  }, [menu, setMenuIndex, setSkillField, setSkillDetail, setSkillDetailOffset]);
+  }, [
+    menuIdentity,
+    setMenuIndex,
+    setMenuFilter,
+    setHomeAgentId,
+    setHomeWaitingValue,
+    setSkillDetail,
+    setSkillDetailOffset,
+  ]);
 
   // A new turn prunes the finished runs, and with them whatever was open or highlighted.
   useEffect(() => {
@@ -1311,9 +1491,11 @@ export function FullscreenBridge(): React.ReactNode {
   }
   const todoList = freshTodoList ?? lastTodoListRef.current;
   const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
+  const retryNotice = runActive ? session.retryNotice : null;
   const neededRows = Math.min(
     LIVE_ZONE_MAX_ROWS,
     tools.length +
+      (retryNotice === null ? 0 : RETRY_BAND_ROWS) +
       (waitingNow ? 1 : 0) +
       (step === undefined ? 0 : 1) +
       (todoList.length > 0 ? 1 + Math.min(todoList.length, TODO_WINDOW_ROWS) : 0),
@@ -1481,8 +1663,14 @@ export function FullscreenBridge(): React.ReactNode {
       if (pasted.length === 0) return true;
       if (menuRef.current?.kind === "skills" && skillDetailRef.current === null) {
         const flat = flattenPaste(pasted);
-        setSkillField((field) => insertTextAt(field.value, field.caret, flat));
+        setMenuFilter((field) => insertTextAt(field.value, field.caret, flat));
         setMenuIndex(0);
+        return true;
+      }
+      if (menuRef.current?.kind === "home" && menuRef.current.firstRun === undefined) {
+        // A pasted first message stays one line, since enter sends it.
+        const flat = flattenPaste(pasted);
+        setMenuFilter((field) => insertTextAt(field.value, field.caret, flat));
         return true;
       }
       if (menuRef.current !== null || approvalRef.current !== null) return true;
@@ -1539,10 +1727,7 @@ export function FullscreenBridge(): React.ReactNode {
           sourceChoices.map((_choice, index) => index),
         );
         const questionState = promptControlsRef.current.question;
-        if (
-          allowsCustomAnswer(active, suggestions) &&
-          questionState.selected === visibleChoices.length
-        ) {
+        if (allowsCustomAnswer(active) && questionState.selected === visibleChoices.length) {
           updatePromptQuestion((state) => ({
             ...state,
             custom: insertTextAt(state.custom.value, state.custom.caret, flattenPaste(pasted)),
@@ -1560,7 +1745,7 @@ export function FullscreenBridge(): React.ReactNode {
       updatePromptEditor,
       updatePromptFile,
       updatePromptQuestion,
-      setSkillField,
+      setMenuFilter,
       setMenuIndex,
     ],
   );
@@ -1585,8 +1770,16 @@ export function FullscreenBridge(): React.ReactNode {
       // rather than killing the whole process, since /exit already returns
       // cleanly to the wizard's main menu.
       if (isInterruptChord({ name, ctrl, shift, super: superKey, sequence })) {
+        // Home has nothing to interrupt and no transcript to show a "press again" warning in,
+        // so ctrl+c quits it at once, as esc on an empty composer does.
+        if (menuRef.current?.kind === "home" && interrupt.current === null) {
+          disarmQuit();
+          store.completePrompt({ kind: "exit" });
+          return true;
+        }
         if (interrupt.current !== null && quitArmed.current === false) {
           quitArmed.current = true;
+          announceStop();
           interrupt.current();
           return true;
         }
@@ -1684,7 +1877,7 @@ export function FullscreenBridge(): React.ReactNode {
             store.completePrompt({ kind: "exit" });
             return true;
           }
-          const field = skillFieldRef.current;
+          const field = menuFilterRef.current;
           const matches = filterSkills(openMenu.skills, field.value);
           const selected = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
           if (name === "up" || name === "down" || name === "pageup" || name === "pagedown") {
@@ -1713,7 +1906,7 @@ export function FullscreenBridge(): React.ReactNode {
             super: superKey,
           });
           if (nextField !== null) {
-            setSkillField(nextField);
+            setMenuFilter(nextField);
             if (nextField.value !== field.value) {
               menuIndexForRef.current = openMenu;
               setMenuIndex(0);
@@ -1744,14 +1937,117 @@ export function FullscreenBridge(): React.ReactNode {
           }
           return true;
         }
-        const itemCount =
-          openMenu.kind === "agents" ? openMenu.agents.length : openMenu.options.length;
-        const menuSelection =
-          menuIndexForRef.current === openMenu
-            ? menuIndexRef.current
-            : openMenu.kind === "agents"
-              ? (openMenu.initialIndex ?? 0)
-              : 0;
+        if (openMenu.kind === "agents") {
+          // Typing filters, so letters are query text here and only the arrows,
+          // enter and esc navigate. The index is into the filtered list.
+          const field = menuFilterRef.current;
+          const matches = filterAgents(openMenu.agents, field.value);
+          const selected =
+            menuIndexForRef.current === openMenu
+              ? menuIndexRef.current
+              : field.value === ""
+                ? (openMenu.initialIndex ?? 0)
+                : 0;
+          if (name === "up" || name === "down" || name === "pageup" || name === "pagedown") {
+            const step = name === "pageup" || name === "pagedown" ? listRowsFor(viewport) : 1;
+            const direction = name === "up" || name === "pageup" ? -1 : 1;
+            menuIndexForRef.current = openMenu;
+            setMenuIndex(
+              Math.max(0, Math.min(Math.max(0, matches.length - 1), selected + direction * step)),
+            );
+            return true;
+          }
+          if (name === "return" || name === "enter") {
+            const choice = matches[selected]?.agent;
+            if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
+            return true;
+          }
+          if (name === "escape") {
+            if (field.value !== "") {
+              setMenuFilter({ value: "", caret: 0 });
+              menuIndexForRef.current = openMenu;
+              setMenuIndex(openMenu.initialIndex ?? 0);
+              return true;
+            }
+            store.completePrompt({ kind: "exit" });
+            return true;
+          }
+          const nextField = applyTextFieldKey(field, {
+            name,
+            sequence,
+            ctrl,
+            meta,
+            option,
+            super: superKey,
+          });
+          if (nextField !== null) {
+            setMenuFilter(nextField);
+            if (nextField.value !== field.value) {
+              menuIndexForRef.current = openMenu;
+              setMenuIndex(0);
+            }
+          }
+          return true;
+        }
+        if (openMenu.kind === "home") {
+          const draft = menuFilterRef.current;
+          const intent = homeIntent(
+            { ...openMenu, version: packageJson.version },
+            {
+              agentId: homeAgentIdRef.current,
+              waitingValue: homeWaitingValueRef.current,
+              draft: draft.value,
+              commandIndex: menuIndexRef.current,
+            },
+            { name, sequence, ctrl, meta },
+          );
+          if (intent.kind === "quit") {
+            store.completePrompt({ kind: "exit" });
+            return true;
+          }
+          if (intent.kind === "answer") {
+            store.completePrompt({
+              kind: "select",
+              value: intent.value,
+              ...(intent.text === undefined ? {} : { text: intent.text }),
+            });
+            return true;
+          }
+          const { patch } = intent;
+          if (patch.agentId !== undefined) {
+            setHomeAgentId(patch.agentId);
+          }
+          if ("waitingValue" in patch) {
+            setHomeWaitingValue(patch.waitingValue);
+          }
+          if (patch.commandIndex !== undefined) {
+            menuIndexForRef.current = openMenu;
+            setMenuIndex(patch.commandIndex);
+          }
+          const field =
+            patch.draft === undefined
+              ? draft
+              : { value: patch.draft, caret: [...patch.draft].length };
+          if (patch.draft !== undefined) {
+            setMenuFilter(field);
+          }
+          if (intent.edit && openMenu.firstRun === undefined) {
+            const next = applyTextFieldKey(field, {
+              name,
+              sequence,
+              ctrl,
+              meta,
+              option,
+              super: superKey,
+            });
+            if (next !== null) {
+              setMenuFilter(next);
+            }
+          }
+          return true;
+        }
+        const itemCount = openMenu.options.length;
+        const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
         if (name === "up" || name === "k") {
           menuIndexForRef.current = openMenu;
           setMenuIndex(Math.max(0, menuSelection - 1));
@@ -1763,14 +2059,9 @@ export function FullscreenBridge(): React.ReactNode {
           return true;
         }
         if (name === "return" || name === "enter") {
-          if (openMenu.kind === "agents") {
-            const choice = openMenu.agents[menuSelection];
-            if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
-          } else {
-            const choice = openMenu.options[menuSelection];
-            if (choice !== undefined) {
-              store.completePrompt({ kind: "select", value: choice.value });
-            }
+          const choice = openMenu.options[menuSelection];
+          if (choice !== undefined) {
+            store.completePrompt({ kind: "select", value: choice.value });
           }
           return true;
         }
@@ -1799,18 +2090,50 @@ export function FullscreenBridge(): React.ReactNode {
         }
         if (approvalArmedForRef.current !== approvalRef.current) return true;
         if (active === null) return true;
+        if (name === "left" || name === "right") {
+          const choices = approvalChoicesFor(approvalRef.current);
+          setApprovalChoice((current) => {
+            const index = choices.indexOf(current) + (name === "left" ? -1 : 1);
+            return choices[Math.max(0, Math.min(choices.length - 1, index))] ?? current;
+          });
+          return true;
+        }
         if (name === "return" || name === "enter") {
-          active.resolve("yes");
+          const chosen = approvalChoiceRef.current;
+          active.resolve(
+            chosen === "reject"
+              ? "no"
+              : chosen === "always" && approvalChoicesFor(approvalRef.current).includes("always")
+                ? alwaysApprovalValue(active)
+                : "yes",
+          );
+          return true;
+        }
+        // `e` rewrites the tool's editable argument first. Like accept, it waits for the
+        // card to arm, so a keystroke typed before the card appeared cannot open it.
+        if (
+          name === "e" &&
+          !ctrl &&
+          !superKey &&
+          !meta &&
+          !option &&
+          approvalRef.current.editableArg !== undefined
+        ) {
+          active.resolve("edit");
           return true;
         }
         // Unmodified `a` only. Ctrl+A and Cmd+A are "go to start of line" in
         // the composer, and the standing allowlist this writes outlives the
         // turn — a caret keystroke must never be able to grant it.
-        if (name === "a" && !ctrl && !superKey && !meta && !option) {
-          const alwaysCommand = active.options?.choices?.some(
-            (choice) => choice.value === "always_command",
-          );
-          active.resolve(alwaysCommand ? "always_command" : "always_tool");
+        if (
+          name === "a" &&
+          !ctrl &&
+          !superKey &&
+          !meta &&
+          !option &&
+          approvalChoicesFor(approvalRef.current).includes("always")
+        ) {
+          active.resolve(alwaysApprovalValue(active));
           return true;
         }
         return true;
@@ -1979,6 +2302,23 @@ export function FullscreenBridge(): React.ReactNode {
           return true;
         }
 
+        if (active.type === "theme") {
+          const rows = themePickerRows(active);
+          const current = promptControlsRef.current.question.selected;
+          const target = themePickerTarget(rows, current, { name, sequence });
+          if (target !== null) {
+            updatePromptQuestion((state) => ({ ...state, selected: target }));
+            const row = rows[target];
+            if (row !== undefined) previewTheme(row.id);
+            return true;
+          }
+          if (name === "return" || name === "enter") {
+            const row = rows[current];
+            if (row !== undefined) active.resolve(row.id);
+          }
+          return true;
+        }
+
         if (active.type === "text" || active.type === "password") {
           if (name === "return" || name === "enter") {
             const value = promptControlsRef.current.editor.value;
@@ -2008,9 +2348,56 @@ export function FullscreenBridge(): React.ReactNode {
           ? matchingChoiceIndices(sourceChoices, questionState.filter)
           : sourceChoices.map((_choice, index) => index);
         const visibleChoices = choicesAtIndices(sourceChoices, filteredIndices);
-        const allowCustom = allowsCustomAnswer(active, suggestions);
+        const allowCustom = allowsCustomAnswer(active);
         const allowMultiple = allowsMultipleAnswers(active);
         const typedAnswer = typedAnswerFor(active, questionState.filter);
+
+        const binary = binaryAnswers(active, sourceChoices);
+        const typingCustom = allowCustom && questionState.selected === visibleChoices.length;
+        const plainKey = !ctrl && !meta && !option && !superKey;
+
+        if (binary !== undefined && !typingCustom && plainKey && (name === "y" || name === "n")) {
+          const answer = sourceChoices[name === "y" ? binary.yes : binary.no];
+          if (answer !== undefined) active.resolve(answer.value);
+          return true;
+        }
+        if (binary !== undefined && !typingCustom && (name === "left" || name === "right")) {
+          updatePromptQuestion((state) => ({
+            ...state,
+            selected: name === "left" ? 0 : 1,
+          }));
+          return true;
+        }
+
+        // Number keys pick a row at once. They stay text while a filter or the
+        // free-text row is taking input, where a digit is part of the answer.
+        const quickPick = /^[1-9]$/.test(sequence) ? Number(sequence) - 1 : undefined;
+        if (
+          quickPick !== undefined &&
+          plainKey &&
+          binary === undefined &&
+          !typingCustom &&
+          !promptIsFilterable(active) &&
+          quickPick < Math.min(visibleChoices.length, MAX_QUICK_PICK)
+        ) {
+          const originalIndex = filteredIndices[quickPick];
+          const picked = visibleChoices[quickPick];
+          if (originalIndex === undefined || picked === undefined || picked.disabled === true) {
+            return true;
+          }
+          if (allowMultiple) {
+            updatePromptQuestion((state) => ({
+              ...state,
+              selected: quickPick,
+              checked: state.checked.includes(originalIndex)
+                ? state.checked.filter((index) => index !== originalIndex)
+                : [...state.checked, originalIndex],
+            }));
+            return true;
+          }
+          active.resolve(sourceChoices[originalIndex]?.value);
+          return true;
+        }
 
         if (name === "up" || name === "down") {
           updatePromptQuestion((state) => ({
@@ -2446,7 +2833,7 @@ export function FullscreenBridge(): React.ReactNode {
       setAgentCursor,
       inspectSubagent,
       sendToInspectedSubagent,
-      setSkillField,
+      setMenuFilter,
       setSkillDetail,
       setSkillDetailOffset,
       setMenuIndex,
@@ -2456,11 +2843,7 @@ export function FullscreenBridge(): React.ReactNode {
   const onAction = useCallback(
     (action: KeyAction) => {
       if (action.type === "interrupt") {
-        store.printOutput({
-          type: "warn",
-          message: "Interrupting…",
-          timestamp: new Date(),
-        });
+        announceStop();
         store.collapseAllEphemeral();
         interrupt.current?.();
       }
@@ -2473,11 +2856,7 @@ export function FullscreenBridge(): React.ReactNode {
           commitComposer(EMPTY_COMPOSER);
         }
         store.requestFlushQueue();
-        store.printOutput({
-          type: "warn",
-          message: "Interrupting…",
-          timestamp: new Date(),
-        });
+        announceStop();
         store.collapseAllEphemeral();
         interrupt.current?.();
         return;
@@ -2502,6 +2881,13 @@ export function FullscreenBridge(): React.ReactNode {
     // elapsedMs ticks the open sub-agent's heading clock.
   }, [outputs, streaming, regions, inspectedRun, elapsedMs]);
 
+  stopContextRef.current = {
+    receipts: currentTurnReceipts(blocks),
+    runningTools: tools,
+    ...(approval === null ? {} : { pendingApproval: approvalTitle(approval.executeToolName) }),
+    todos: todoList,
+  };
+
   const subagentList = useMemo<SubagentListModel | undefined>(() => {
     if (subagentRuns.length === 0) return undefined;
     const now = Date.now();
@@ -2520,6 +2906,7 @@ export function FullscreenBridge(): React.ReactNode {
       cwd: compactWorkingDirectory(workingDirectory),
       model: stats.model ?? "no model",
       ...(localHost === undefined ? {} : { localHost }),
+      ...(stats.reasoning === undefined ? {} : { reasoning: stats.reasoning }),
       connectors: [...connectors].map(([name, status]) => ({ name, status })),
       contextUsed: stats.tokensInContext ?? 0,
       contextMax: stats.maxContextTokens ?? 0,
@@ -2528,6 +2915,7 @@ export function FullscreenBridge(): React.ReactNode {
     workingDirectory,
     stats.model,
     stats.provider,
+    stats.reasoning,
     stats.localModelHosts,
     stats.tokensInContext,
     stats.maxContextTokens,
@@ -2552,7 +2940,13 @@ export function FullscreenBridge(): React.ReactNode {
       };
     }
     if (approval !== null) {
-      next = approvalFrom(approval, approvalArmed, approvalFieldOffset, approvalExpanded);
+      next = approvalFrom(
+        approval,
+        approvalArmed,
+        approvalFieldOffset,
+        approvalExpanded,
+        approvalChoice,
+      );
     }
     return next;
   }, [
@@ -2567,6 +2961,7 @@ export function FullscreenBridge(): React.ReactNode {
     approvalArmed,
     approvalFieldOffset,
     approvalExpanded,
+    approvalChoice,
   ]);
 
   const inspectedRunning = inspectedRun?.status === "running";
@@ -2584,6 +2979,7 @@ export function FullscreenBridge(): React.ReactNode {
             items: menu.items,
             selected: wrapCommandIndex(commandIndex, menu.items.length),
             prefix: menu.prefix,
+            ...(menu.prefix === "/" && commandQuery !== null ? { query: commandQuery } : {}),
           };
     return {
       value: draft,
@@ -2665,18 +3061,24 @@ export function FullscreenBridge(): React.ReactNode {
       hiddenTools: [],
       ...(step === undefined ? {} : { step }),
       ...(todoList.length === 0 ? {} : { todoList }),
-      ...(waitingNow
-        ? {
-            waiting: WAITING[
-              Math.floor((elapsedMs ?? 0) / WAITING_ROTATE_MS) % WAITING.length
-            ] as string,
-          }
-        : {}),
+      ...(waitingNow ? { waiting: waitingLabel(activity.phase, elapsedMs) } : {}),
       ...(elapsedMs === undefined ? {} : { elapsedMs }),
       reservedRows,
       ...(reasoningElapsedMs === undefined ? {} : { reasoningElapsedMs }),
+      // Recomputed on the once-a-second clock below, which is what moves the countdown.
+      ...(retryNotice === null ? {} : { retry: retryBand(retryNotice, Date.now()) }),
     };
-  }, [tools, step, todoList, waitingNow, elapsedMs, reservedRows, regions]);
+  }, [
+    tools,
+    step,
+    todoList,
+    waitingNow,
+    activity.phase,
+    elapsedMs,
+    reservedRows,
+    regions,
+    retryNotice,
+  ]);
 
   const view = useMemo<ViewModel>(
     () => ({
@@ -2704,8 +3106,8 @@ export function FullscreenBridge(): React.ReactNode {
     menu?.kind === "skills" ? (
       <SkillBrowser
         skills={menu.skills}
-        query={skillField.value}
-        caret={skillField.caret}
+        query={menuFilter.value}
+        caret={menuFilter.caret}
         selected={menuIndex}
         detail={skillDetail}
         detailOffset={skillDetailOffset}
@@ -2724,18 +3126,26 @@ export function FullscreenBridge(): React.ReactNode {
         viewport={viewport}
         title={menu.title}
         action={menu.action}
+        query={menuFilter.value}
+        caret={menuFilter.caret}
+      />
+    ) : menu?.kind === "home" ? (
+      <Home
+        model={{ ...menu, version: packageJson.version }}
+        viewport={viewport}
+        state={{
+          agentId: homeAgentId,
+          waitingValue: homeWaitingValue,
+          draft: menuFilter.value,
+          commandIndex: menuIndex,
+        }}
+        caret={menuFilter.caret}
       />
     ) : menu?.kind === "menu" ? (
-      <Home
-        model={{
-          version: packageJson.version,
-          tagline: "One agent. Every surface. Your rules.",
-          requirements: menu.requirements ?? [],
-          ...(menu.environment === undefined ? {} : { environment: menu.environment }),
-          choices: menu.options.map((option) => ({ label: option.label, value: option.value })),
-          selected: menuIndex,
-          ...(menu.tip === undefined ? {} : { tip: menu.tip }),
-        }}
+      <MenuScreen
+        title={menu.title ?? "menu"}
+        choices={menu.options}
+        selected={menuIndex}
         viewport={viewport}
       />
     ) : undefined;
@@ -2747,6 +3157,7 @@ export function FullscreenBridge(): React.ReactNode {
       onAction={onAction}
       onKey={onKey}
       onPaste={applyPaste}
+      onWatchingLiveEdgeChange={store.setReaderFollowing}
       {...(overrideContent === undefined ? {} : { overrideContent })}
     />
   );

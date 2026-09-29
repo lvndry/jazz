@@ -11,6 +11,8 @@
  * files too large to inline, uploaded to the provider instead.
  */
 
+import { formatByteSize } from "@/core/utils/string";
+
 /**
  * Input modality of an attachment.
  *
@@ -246,6 +248,6 @@ export function describeAttachment(attachment: MessageAttachment): string {
   if (attachment.pageCount !== undefined) {
     parts.push(`${attachment.pageCount} pages`);
   }
-  parts.push(`${(attachment.byteSize / 1024).toFixed(0)} KB`);
+  parts.push(formatByteSize(attachment.byteSize));
   return `[${parts.join(" · ")}]`;
 }

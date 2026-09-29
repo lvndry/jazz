@@ -87,6 +87,7 @@ import { compactToolJsonSchema } from "@jazz/core/utils/tool-json-schema";
 import {
   createOpenRouter,
   openrouter as openrouterDefaultInstance,
+  type OpenRouterChatSettings,
   type OpenRouterProviderOptions,
   type OpenRouterProviderSettings,
 } from "@openrouter/ai-sdk-provider";
@@ -141,6 +142,7 @@ import {
 } from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
+import { orcaRouterResponseCostUSD, routerBilledCostUSD } from "./router-cost";
 import { resolveStreamIdleTimeoutMs, StreamProcessor } from "./stream-processor";
 import { SDK_STOP_CONDITIONS, toJazzToolCall } from "./tool-call-parts";
 
@@ -1101,9 +1103,9 @@ function selectModel(
       const openrouter = (
         createOpenRouter as (
           config: OpenRouterProviderSettings,
-        ) => (modelId: ModelName) => LanguageModel
+        ) => (modelId: ModelName, settings: OpenRouterChatSettings) => LanguageModel
       )(config);
-      model = openrouter(modelId);
+      model = openrouter(modelId, { usage: { include: true } });
       break;
     }
     case "orcarouter": {
@@ -1112,7 +1114,29 @@ function selectModel(
         name: "orcarouter",
         baseURL: "https://api.orcarouter.ai/v1",
         includeUsage: true,
-        ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+        headers: {
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          "X-OrcaRouter-Include-Cost": "true",
+        },
+        metadataExtractor: {
+          extractMetadata: ({ parsedBody }) => {
+            const cost = orcaRouterResponseCostUSD(parsedBody);
+            return Promise.resolve(
+              cost === undefined ? undefined : { orcarouter: { billedCostUSD: cost } },
+            );
+          },
+          createStreamExtractor: () => {
+            let billedCostUSD: number | undefined;
+            return {
+              processChunk: (parsedChunk: unknown) => {
+                const cost = orcaRouterResponseCostUSD(parsedChunk);
+                if (cost !== undefined) billedCostUSD = cost;
+              },
+              buildMetadata: () =>
+                billedCostUSD === undefined ? undefined : { orcarouter: { billedCostUSD } },
+            };
+          },
+        },
         fetch: llmFetch,
       });
       model = orcarouter(modelId);
@@ -2091,6 +2115,8 @@ class AISDKService implements LLMService {
         // Extract usage information
         if (result.usage) {
           const usageData = result.usage;
+          const providerMetadata = result.providerMetadata;
+          const billedCostUSD = routerBilledCostUSD(providerName, providerMetadata);
           usage = {
             promptTokens: usageData.inputTokens ?? 0,
             completionTokens: usageData.outputTokens ?? 0,
@@ -2104,6 +2130,7 @@ class AISDKService implements LLMService {
             ...(usageData.inputTokenDetails?.cacheWriteTokens != null && {
               cacheWriteTokens: usageData.inputTokenDetails.cacheWriteTokens,
             }),
+            ...(billedCostUSD !== undefined ? { billedCostUSD } : {}),
           };
         }
 

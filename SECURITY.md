@@ -160,6 +160,9 @@ on the gate.
 | `low-risk`      | + memory writes, reminders, triggers, compositions, shell classified low-risk                                      |
 | `high-risk`     | + writes, deletes, shell, unresolved `unknown` tools                                                               |
 
+These tiers govern ordinary tool risk gates. HTTP requests and web fetches use their independent
+global HTTP approval policy below.
+
 Leaving the tier unset is the safe default for unattended work because it grants nothing: a
 workflow without `autoApprove` and `jazz run` without `--approval-policy` decline every gated
 call. Interactive chat, where you are there to answer, starts in safe mode, which is the
@@ -167,8 +170,12 @@ call. Interactive chat, where you are there to answer, starts in safe mode, whic
 never a tier. Opting into `high-risk` is always explicit: see
 [Running fully unattended](docs/security/approvals.md#running-fully-unattended-yolo).
 
-Every tool above `read-only` is gated, including plain tools without a proposal half
-(`create_pdf`, custom command tools, a non-`GET` `http_request`). An approval request is honored
+Other tools above `read-only` are gated, including plain tools without a proposal half
+(`create_pdf`, custom command tools). HTTP requests and web fetches instead run automatically
+by default, including private destinations and calls after untrusted content. A global
+`network.httpApproval` URL array requires one-call approval outside its grants regardless of
+risk tier; each redirect must match too. Cross-origin credential stripping and response limits
+remain active. Tool access restrictions still apply. An approval request is honored
 only from the tool registered to make it, so a tool (or an MCP server) cannot forge one to run
 another tool's execute half.
 
@@ -196,11 +203,11 @@ not you. At `high-risk`, a message, or a prompt injection inside a web page the 
 trim the toolset. See
 [Chat platforms → security](docs/surfaces/chat.md#security-for-chat-surfaces).
 
-Below `high-risk`, Jazz narrows what injected content can do on its own: a model-chosen URL on
+Below `high-risk`, Jazz narrows what injected content can do through other tools: a model-chosen URL on
 this machine or your network asks for approval unless it is in the global
 `network.allowPrivateHosts`, secret values in every tool result are redacted before the model sees
 them, outside content reaches the model labelled as untrusted, and once a run has read it, egress
-tools need approval.
+tools other than HTTP requests and web fetches need approval.
 See [Secrets and egress](docs/security/secrets-and-egress.md).
 
 ### Before approving, ask

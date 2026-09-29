@@ -4,7 +4,10 @@
  * ephemeral, subagents) so a change in one slice doesn't re-render unrelated islands.
  */
 
+import type { LlmRetryNotice } from "@jazz/core/interfaces/presentation";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
+import type { ToolRiskLevel } from "@jazz/core/types/tools";
+import chalk from "chalk";
 import { useSyncExternalStore } from "react";
 import { isCommandInput } from "@/cli/chat/commands/parser";
 import { isActivityEqual, type ActivityState } from "./activity-state";
@@ -15,6 +18,7 @@ import {
   type ScrollbackState,
   type StreamKind,
 } from "./adapters/terminal-output-adapter";
+import { getGlyphs } from "./glyphs";
 import type { LocalModelHosts } from "./local-model-hosts";
 import {
   appendToSubagentRun,
@@ -28,6 +32,14 @@ import {
   type SubagentRun,
   type SubagentStatus,
 } from "./subagent-runs";
+import { createStreamPacer, type StreamPacer } from "./text/stream-pacer";
+import {
+  addThoughtStep,
+  foldedThoughtLine,
+  NO_THOUGHT,
+  thoughtText,
+  type TurnThought,
+} from "./turn-thought";
 import type { OutputEntry, OutputEntryWithId, PromptState } from "./types";
 
 type ModeSwitchHandler = (mode: "safe" | "yolo") => void;
@@ -67,6 +79,8 @@ export interface ExpandableReasoning {
   readonly fullText: string;
   readonly label: string;
   readonly durationMs: number;
+  /** How many reasoning steps of a turn this stands for. */
+  readonly steps?: number;
   readonly tokens?: number;
   readonly entryId?: string;
 }
@@ -97,18 +111,80 @@ export type ConnectorStatus = "live" | "renew" | "offline";
 export interface ActiveMenuOption {
   readonly label: string;
   readonly value: string;
+  /** A few words shown beside the label, such as a setting's current value. */
+  readonly hint?: string;
 }
 
-export interface ActiveMenuRequirement {
-  readonly label: string;
-  readonly ready: boolean;
-  readonly detail: string;
-  readonly remedy?: string;
+/** A slash command home's composer runs, such as `/resume`. */
+export interface ActiveHomeCommand {
+  /** Without the slash. */
+  readonly name: string;
+  readonly description: string;
+  readonly value: string;
 }
 
-export interface ActiveMenuFact {
+/** One row of the first-run list: an action and the value home answers with. */
+export interface ActiveHomeAction {
+  readonly label: string;
+  readonly value: string;
+}
+
+/** An agent home offers to start a conversation with. */
+export interface ActiveHomeAgent {
+  readonly id: string;
+  readonly name: string;
+  readonly model: string;
+  readonly persona: string;
+  /** When it was last in a conversation, already worded: "2h ago". Absent when never. */
+  readonly lastUsed?: string;
+}
+
+/** A conversation whose goal or loop is blocked on you. */
+export interface ActiveHomeWaiting {
+  readonly key: string;
+  readonly value: string;
+  /** What it is about, in words. */
+  readonly title: string;
+  readonly agent: string;
+  readonly reason: "question" | "approval" | "review" | "stopped";
+  /** Relative age, already worded: "1d ago". */
+  readonly age: string;
+  /** The question, or the decision it needs. */
+  readonly detail?: string;
+}
+
+/** Something the first-run screen found already set up on this machine. */
+export interface ActiveHomeDetection {
   readonly label: string;
   readonly detail: string;
+}
+
+/**
+ * The home screen as data. The renderer owns which agent is chosen and what is typed, and
+ * answers with the chosen agent and the text; the actions are addressed by key.
+ */
+export interface ActiveHome {
+  readonly kind: "home";
+  /** Identifies one showing of home. A refresh keeps it, so the choice and the typing survive. */
+  readonly shownAt: number;
+  /** The recent agents, most recent first. */
+  readonly agents: readonly ActiveHomeAgent[];
+  /** Every agent, for the "all N" hint. */
+  readonly agentCount: number;
+  /** The agent chosen when home opens; the first offered when absent. */
+  readonly targetAgentId?: string;
+  /** Text to put back in the composer, after the agent picker. */
+  readonly draft?: string;
+  readonly waiting: readonly ActiveHomeWaiting[];
+  /** What `/` offers in the composer. */
+  readonly commands: readonly ActiveHomeCommand[];
+  /** A readiness problem, shown on the right of the footer with the command that fixes it. */
+  readonly warning?: { readonly text: string; readonly fix: string };
+  /** Present when there is no agent yet: what setup found, and what to do about it. */
+  readonly firstRun?: {
+    readonly detected: readonly ActiveHomeDetection[];
+    readonly actions: readonly ActiveHomeAction[];
+  };
 }
 
 export interface ActiveAgentChoice {
@@ -124,9 +200,6 @@ export interface ActiveWizardMenu {
   readonly kind: "menu";
   readonly title?: string;
   readonly options: readonly ActiveMenuOption[];
-  readonly requirements?: readonly ActiveMenuRequirement[];
-  readonly environment?: readonly ActiveMenuFact[];
-  readonly tip?: string;
 }
 
 export interface ActiveAgentMenu {
@@ -154,14 +227,17 @@ export interface ActiveSkillMenu {
   readonly skills: readonly SkillMetadata[];
 }
 
-export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu | ActiveAgentDetails | ActiveSkillMenu;
+export type ActiveMenu =
+  ActiveHome | ActiveWizardMenu | ActiveAgentMenu | ActiveAgentDetails | ActiveSkillMenu;
 
 /** Discriminated surface a renderer paints in place of the chat transcript. */
 export type SurfaceIntent = ActiveMenu;
 
 /** How a renderer answers the surface currently published on the store. */
 export type PromptResult =
-  { readonly kind: "select"; readonly value: string } | { readonly kind: "exit" };
+  /** `text` carries what was typed with the choice, such as home's first message. */
+  | { readonly kind: "select"; readonly value: string; readonly text?: string }
+  | { readonly kind: "exit" };
 
 export interface CurrentConversation {
   readonly agentId: string;
@@ -174,11 +250,20 @@ export interface PendingApproval {
   readonly message: string;
   readonly args: Record<string, unknown>;
   readonly previewDiff?: string;
+  /** What approving concretely does, with real numbers (`214 files, 1.3 GB`). */
+  readonly impact?: string;
+  readonly riskLevel?: ToolRiskLevel;
+  /** A caution the card shows even when it replaces the tool's prose (untrusted content read this run). */
+  readonly warning?: string;
+  /** The argument `e` lets a person rewrite before accepting. */
+  readonly editableArg?: string;
 }
 
 export interface RunStats {
   readonly model?: string;
   readonly provider?: string;
+  /** Reasoning effort the conversation runs at, e.g. `medium`; unset when reasoning is off. */
+  readonly reasoning?: string | undefined;
   /** Resolved endpoint hosts for the conversation's local model providers. */
   readonly localModelHosts?: LocalModelHosts;
   readonly tokensInContext?: number;
@@ -211,6 +296,15 @@ export interface SessionSnapshot {
   readonly approvalRequest: PendingApproval | null;
   readonly activeMenu: ActiveMenu | null;
   readonly modeToast: string | null;
+  /** A model call that failed and is scheduled to be tried again. Cleared once the model answers. */
+  readonly retryNotice: RetryNotice | null;
+  /** When the current turn started, for "stopped by you after 6.2s"; null between turns. */
+  readonly busySince: number | null;
+}
+
+/** A scheduled retry, with the wall-clock time it will be sent so a countdown stays true. */
+export interface RetryNotice extends LlmRetryNotice {
+  readonly retryAt: number;
 }
 
 export interface PromptSnapshot {
@@ -248,6 +342,8 @@ const INITIAL_SESSION: SessionSnapshot = {
   approvalRequest: null,
   activeMenu: null,
   modeToast: null,
+  retryNotice: null,
+  busySince: null,
 };
 
 const INITIAL_PROMPT: PromptSnapshot = {
@@ -343,6 +439,21 @@ export class UIStore {
   private backgroundHandlerStack: Array<() => void> = [];
   private promptContinuation: ((result: PromptResult) => void) | null = null;
   private rendererFallbackHandler: (() => void) | null = null;
+  /**
+   * Streamed text passes through here on its way into the scrollback, so both
+   * renderers show it at the same reading pace. Off until a renderer that
+   * someone watches turns it on; a screen reader, a pipe and the tests get
+   * every delta the moment it arrives.
+   */
+  private readonly streamPacer: StreamPacer<StreamKind> = createStreamPacer((kind, delta) => {
+    this.applyStreamDelta(kind, delta);
+  });
+  private streamPacingEnabled = false;
+  /** Folded reasoning of the turn in progress, printed as one line when it settles. */
+  private turnThought: TurnThought = NO_THOUGHT;
+  private turnThoughtLabel = "Reasoning";
+  private turnThoughtCounter = 0;
+  private readerFollowing = true;
 
   subscribeOutput = (listener: () => void): (() => void) => this.output.subscribe(listener);
   getOutputSnapshot = (): OutputSnapshot => this.output.getSnapshot();
@@ -372,6 +483,9 @@ export class UIStore {
 
   private doFlushBatch(): void {
     if (this.outputBatch.length === 0) return;
+    // A printed entry comes after everything streamed before it, so paced
+    // text still held back lands first.
+    this.streamPacer.flush();
     const batch = this.outputBatch;
     this.outputBatch = [];
     this.publishScrollback(
@@ -444,7 +558,7 @@ export class UIStore {
   };
 
   addSessionCostUSD = (deltaUSD: number): void => {
-    if (!deltaUSD) return;
+    if (!Number.isFinite(deltaUSD) || deltaUSD < 0) return;
     this.sessionCostUSD += deltaUSD;
     this.updateRunStats({ costUSD: this.sessionCostUSD });
   };
@@ -578,7 +692,11 @@ export class UIStore {
     // A new turn starts the list over. Finished sub-agents stay readable between
     // turns, but the list is "this run's sub-agents", not the session's.
     if (busy && !this.session.getSnapshot().chatBusy) this.pruneFinishedSubagentRuns();
-    patchSlice(this.session, { chatBusy: busy });
+    const snapshot = this.session.getSnapshot();
+    patchSlice(this.session, {
+      chatBusy: busy,
+      busySince: busy ? (snapshot.busySince ?? Date.now()) : null,
+    });
   };
 
   setExpandableDiff = (fullDiff: string): void => {
@@ -706,34 +824,24 @@ export class UIStore {
     const pinned = this.pinnedReasoningIds.delete(id);
     const keepExpanded = pinned || !this.collapseReasoning;
 
-    if (region.kind === "reasoning" && capturedText.length > 0) {
-      const entryId = `reasoning-${id}`;
-      const seconds = (summary.durationMs / 1000).toFixed(1);
-      this.printOutput({
-        id: entryId,
-        type: "streamContent",
-        message: keepExpanded
-          ? `*${region.label} · ${seconds}s*\n\n${capturedText}`
-          : (summary.line ?? `${region.label} · ${seconds}s · ctrl+r to expand`),
-        meta: {
-          kind: "reasoning",
-          collapsed: !keepExpanded,
-          fullText: capturedText,
-          durationMs: summary.durationMs,
-          label: region.label,
-        },
-        timestamp: new Date(),
-      });
-      this.flushOutputBatchNow();
-      if (this.collapseReasoning) {
-        this.pushExpandableReasoning({
-          fullText: capturedText,
-          label: region.label,
-          durationMs: summary.durationMs,
-          entryId,
-          ...(summary.tokens !== undefined && { tokens: summary.tokens }),
-        });
+    if (region.kind === "reasoning") {
+      if (keepExpanded && capturedText.length > 0) {
+        this.printExpandedReasoning(
+          `reasoning-${id}`,
+          region.label,
+          summary.durationMs,
+          capturedText,
+        );
+        return;
       }
+      // Folded reasoning waits for the turn to settle, so the turn gets one
+      // line however many times it thought (settleTurnThought).
+      this.turnThought = addThoughtStep(this.turnThought, {
+        durationMs: summary.durationMs,
+        text: capturedText,
+        ...(summary.tokens !== undefined && { tokens: summary.tokens }),
+      });
+      this.turnThoughtLabel = region.label;
       return;
     }
 
@@ -742,8 +850,67 @@ export class UIStore {
         type: "log",
         message: summary.line,
         timestamp: new Date(),
+        meta: { collapsedRegion: region.kind },
       });
       this.flushOutputBatchNow();
+    }
+  };
+
+  private printExpandedReasoning(
+    entryId: string,
+    label: string,
+    durationMs: number,
+    fullText: string,
+  ): void {
+    const seconds = (durationMs / 1000).toFixed(1);
+    this.printOutput({
+      id: entryId,
+      type: "streamContent",
+      message: `*${label} · ${seconds}s*\n\n${fullText}`,
+      meta: { kind: "reasoning", collapsed: false, fullText, durationMs, label },
+      timestamp: new Date(),
+    });
+    this.flushOutputBatchNow();
+  }
+
+  /**
+   * Print the turn's folded reasoning as one line, and make it the block ctrl+r
+   * opens. Called when a turn ends however it ends: an answer, an error, or an
+   * interrupt. A turn that did not think prints nothing.
+   */
+  settleTurnThought = (): void => {
+    const thought = this.turnThought;
+    this.turnThought = NO_THOUGHT;
+    if (thought.steps === 0) return;
+    const fullText = thoughtText(thought);
+    const glyphs = getGlyphs();
+    const entryId = `reasoning-turn-${String(++this.turnThoughtCounter)}`;
+    this.printOutput({
+      id: entryId,
+      type: "streamContent",
+      message: chalk.dim(
+        foldedThoughtLine(thought, fullText.length > 0, glyphs.folded, ` ${glyphs.bullet} `),
+      ),
+      meta: {
+        kind: "reasoning",
+        collapsed: true,
+        fullText,
+        durationMs: thought.durationMs,
+        steps: thought.steps,
+        label: this.turnThoughtLabel,
+      },
+      timestamp: new Date(),
+    });
+    this.flushOutputBatchNow();
+    if (fullText.length > 0) {
+      this.pushExpandableReasoning({
+        fullText,
+        label: this.turnThoughtLabel,
+        durationMs: thought.durationMs,
+        steps: thought.steps,
+        entryId,
+        ...(thought.tokens !== undefined && { tokens: thought.tokens }),
+      });
     }
   };
 
@@ -767,40 +934,27 @@ export class UIStore {
     this.setExpandableReasoning(value);
   }
 
+  /** The run was interrupted: every open region closes, and the turn's thinking settles. */
   collapseAllEphemeral = (): void => {
-    if (this.ephemeralRegions.size === 0) return;
     for (const id of this.ephemeralRegions.keys()) this.finishSubagentRunWith(id, "interrupted");
     for (const region of this.ephemeralRegions.values()) {
       if (region.kind !== "reasoning") continue;
       const fullText = region.tail.join("\n").trim();
+      // Cut off before it said anything: there is no thought to account for.
       if (fullText.length === 0) continue;
       const durationMs = Date.now() - region.startedAt;
       if (!this.collapseReasoning) {
-        const seconds = (durationMs / 1000).toFixed(1);
-        this.printOutput({
-          id: `reasoning-${region.id}`,
-          type: "streamContent",
-          message: `*${region.label} · ${seconds}s*\n\n${fullText}`,
-          meta: {
-            kind: "reasoning",
-            collapsed: false,
-            fullText,
-            durationMs,
-            label: region.label,
-          },
-          timestamp: new Date(),
-        });
-        this.flushOutputBatchNow();
+        this.printExpandedReasoning(`reasoning-${region.id}`, region.label, durationMs, fullText);
         continue;
       }
-      this.pushExpandableReasoning({
-        fullText,
-        label: region.label,
-        durationMs,
-      });
+      this.turnThought = addThoughtStep(this.turnThought, { durationMs, text: fullText });
+      this.turnThoughtLabel = region.label;
     }
-    this.ephemeralRegions.clear();
-    this.publishEphemeralRegions();
+    if (this.ephemeralRegions.size > 0) {
+      this.ephemeralRegions.clear();
+      this.publishEphemeralRegions();
+    }
+    this.settleTurnThought();
   };
 
   private publishSubagentRuns(): void {
@@ -913,6 +1067,7 @@ export class UIStore {
         fullText: value.fullText,
         durationMs: value.durationMs,
         label: value.label,
+        ...(value.steps === undefined ? {} : { steps: value.steps }),
       },
       timestamp: new Date(),
       ...(target === "in-place" && value.entryId !== undefined ? { id: value.entryId } : {}),
@@ -931,6 +1086,30 @@ export class UIStore {
   appendStream = (kind: StreamKind, delta: string): void => {
     if (delta.length === 0) return;
     this.flushOutputBatchNow();
+    this.streamPacer.receive(kind, delta);
+  };
+
+  /**
+   * Pace streamed text for someone reading it as it arrives. Turned on by the
+   * renderer that is mounted, and left off for a screen reader, where text
+   * that keeps growing is announced over and over.
+   */
+  setStreamPacing = (enabled: boolean): void => {
+    this.streamPacingEnabled = enabled;
+    this.streamPacer.setPaced(this.streamPacingEnabled && this.readerFollowing);
+  };
+
+  /**
+   * Whether the reader can see the live edge. While they can't (scrolled up,
+   * or an overlay covers the transcript) there is nobody to pace for, so the
+   * answer is shown whole and what they come back to is complete.
+   */
+  setReaderFollowing = (following: boolean): void => {
+    this.readerFollowing = following;
+    this.streamPacer.setPaced(this.streamPacingEnabled && this.readerFollowing);
+  };
+
+  private applyStreamDelta(kind: StreamKind, delta: string): void {
     this.publishScrollback(
       reduceScrollback(this.scrollback, {
         type: "appendStream",
@@ -940,10 +1119,11 @@ export class UIStore {
         finalizeId: `queued-output-${++this.pendingOutputIdCounter}`,
       }),
     );
-  };
+  }
 
   finalizeStream = (): void => {
     this.flushOutputBatchNow();
+    this.streamPacer.end();
     this.publishScrollback(
       reduceScrollback(this.scrollback, {
         type: "finalizeStream",
@@ -953,6 +1133,8 @@ export class UIStore {
   };
 
   clearOutputs = (): void => {
+    this.streamPacer.reset();
+    this.turnThought = NO_THOUGHT;
     this.outputBatch = [];
     this.batchFlushScheduled = false;
     this.expandableReasoningStack = [];
@@ -964,6 +1146,18 @@ export class UIStore {
   /** Publish a data-only menu. Pass the continuation here, not on the snapshot. */
   setActiveMenu = (menu: ActiveMenu | null, onComplete?: (result: PromptResult) => void): void => {
     this.promptContinuation = menu === null ? null : (onComplete ?? null);
+    patchSlice(this.session, { activeMenu: menu });
+  };
+
+  /**
+   * Replace the published menu's data while keeping its continuation, for a surface that fills
+   * in after it was first shown. A no-op when nothing is published, so a late refresh cannot
+   * resurrect a menu that was already answered.
+   */
+  refreshActiveMenu = (menu: ActiveMenu): void => {
+    if (this.session.getSnapshot().activeMenu === null) {
+      return;
+    }
     patchSlice(this.session, { activeMenu: menu });
   };
 
@@ -997,6 +1191,13 @@ export class UIStore {
 
   setApprovalRequest = (request: PendingApproval | null): void => {
     patchSlice(this.session, { approvalRequest: request });
+  };
+
+  setRetryNotice = (notice: RetryNotice | null): void => {
+    if (notice === null && this.session.getSnapshot().retryNotice === null) {
+      return;
+    }
+    patchSlice(this.session, { retryNotice: notice });
   };
 
   getApprovalRequestSnapshot(): PendingApproval | null {

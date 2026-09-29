@@ -92,6 +92,23 @@ export interface FilePickerRequest {
  * allowing different presentation implementations (CLI, web, API, etc.)
  * while keeping core logic independent of presentation details.
  */
+/** One scheduled retry of a model call, as {@link PresentationService.presentRetry} receives it. */
+export interface LlmRetryNotice {
+  readonly agentName: string;
+  /** The provider that failed, when the error names it. */
+  readonly provider?: string;
+  /** What kind of failure: `rate limit`, `network issue`, `server error (503)`. */
+  readonly reason: string;
+  /** The provider's own message, first line only. */
+  readonly detail: string;
+  readonly statusCode?: number;
+  /** This retry's number, from 1. */
+  readonly attempt: number;
+  readonly maxAttempts: number;
+  /** How long until the retry is sent, after jitter and any `Retry-After`. */
+  readonly retryInMs: number;
+}
+
 export interface PresentationService {
   /**
    * Present a thinking/processing status to the user
@@ -110,6 +127,12 @@ export interface PresentationService {
    * Present a warning to the user
    */
   readonly presentWarning: (agentName: string, message: string) => Effect.Effect<void, never>;
+
+  /**
+   * The person stopped the turn. Optional: a surface that already shows its own account of
+   * the stop implements it; the rest get "generation stopped by user" as a warning.
+   */
+  readonly presentInterrupted?: (agentName: string) => Effect.Effect<void, never>;
 
   /** Present an agent response, optionally inside its delegated run's detail log. */
   readonly presentAgentResponse: (
@@ -232,6 +255,14 @@ export interface PresentationService {
     level: "info" | "success" | "warning" | "error" | "progress",
     agentName?: string,
   ) => Effect.Effect<void, never>;
+
+  /**
+   * A model call failed transiently and will be tried again after `retryInMs`.
+   *
+   * Optional: a surface that shows retries as structured state (a countdown) implements
+   * it; any other surface gets the same facts as one {@link presentStatus} line.
+   */
+  readonly presentRetry?: (notice: LlmRetryNotice) => Effect.Effect<void, never>;
 
   /**
    * Open a bounded live region for in-flight work (sub-agent panel, later

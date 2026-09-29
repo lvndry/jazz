@@ -1,8 +1,9 @@
+import type { ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useMemo } from "react";
+import { ChoiceMeta } from "./PromptParts";
 import { getGlyphs } from "../glyphs";
 import { useTextInput } from "../hooks/use-input-service";
-import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../picker-window";
 import {
   originalValueFromPicker,
   toPickerChoices,
@@ -10,10 +11,9 @@ import {
   usePicker,
   type PickerView,
 } from "../prompt-core";
+import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../text/picker-window";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
-
-const G = getGlyphs();
 
 interface SearchSelectProps<T = unknown> {
   readonly options: readonly Choice<T>[];
@@ -23,6 +23,8 @@ interface SearchSelectProps<T = unknown> {
   /** When set, the typed filter is offered as its own answer and submitting it calls this. */
   readonly onTypedAnswer?: ((text: string) => void) | undefined;
   readonly onCancel?: () => void;
+  /** Where the cursor starts, as an index into `options`. */
+  readonly initialIndex?: number;
 }
 
 /**
@@ -37,11 +39,13 @@ export function SearchSelect<T = unknown>({
   onSelect,
   onTypedAnswer,
   onCancel,
+  initialIndex = 0,
 }: SearchSelectProps<T>): React.ReactElement {
   const choices = useMemo(() => toPickerChoices(options), [options]);
   const picker = usePicker({
     type: "search",
     choices,
+    initialCursor: initialIndex,
     allowCustom: onTypedAnswer !== undefined,
     onResolve: (resolution) => {
       if (resolution.kind === "single") {
@@ -113,8 +117,8 @@ export function SearchSelect<T = unknown>({
             color={THEME.muted}
             dimColor
           >
-            <Text inverse>{placeholder[0] || " "}</Text>
-            {placeholder.slice(1)}
+            <Text inverse> </Text>
+            {placeholder}
           </Text>
         ) : (
           <Text color={THEME.primary}>
@@ -154,7 +158,7 @@ export function SearchSelect<T = unknown>({
             color={THEME.primary}
             bold
           >
-            {typedAnswer.active ? `${G.rail} ` : "  "}
+            {typedAnswer.active ? `${getGlyphs().rail} ` : "  "}
           </Text>
           <Text
             color={typedAnswer.active ? THEME.selected : THEME.secondary}
@@ -184,36 +188,74 @@ function PickerRowLine({
   const labelColor = row.active ? THEME.selected : THEME.secondary;
 
   return (
-    <Box flexDirection="row">
-      <Text
-        color={THEME.primary}
-        bold
-      >
-        {row.active ? `${G.rail} ` : "  "}
-      </Text>
-      {row.matchIndex >= 0 && queryLength > 0 ? (
+    <Box flexDirection="column">
+      <Box flexDirection="row">
         <Text
-          color={labelColor}
-          bold={row.active}
+          color={THEME.primary}
+          bold
         >
-          {row.label.slice(0, row.matchIndex)}
+          {row.active ? `${getGlyphs().rail} ` : "  "}
+        </Text>
+        {row.matchIndex >= 0 && queryLength > 0 ? (
           <Text
-            color={THEME.primary}
-            bold
+            color={labelColor}
+            bold={row.active}
           >
-            {row.label.slice(row.matchIndex, row.matchIndex + queryLength)}
+            {row.label.slice(0, row.matchIndex)}
+            <Text
+              color={THEME.primary}
+              bold
+            >
+              {row.label.slice(row.matchIndex, row.matchIndex + queryLength)}
+            </Text>
+            {row.label.slice(row.matchIndex + queryLength)}
           </Text>
-          {row.label.slice(row.matchIndex + queryLength)}
-        </Text>
-      ) : (
-        <Text
-          color={labelColor}
-          bold={row.active}
+        ) : (
+          <Text
+            color={labelColor}
+            bold={row.active}
+          >
+            {row.label}
+          </Text>
+        )}
+        <ChoiceMeta
+          description={row.description}
+          tag={row.tag}
+          tagTone={row.tagTone}
+        />
+      </Box>
+      {row.active && row.preview !== undefined ? <PickerRowPreview lines={row.preview} /> : null}
+    </Box>
+  );
+}
+
+/** The active row's preview, indented beneath its label so it reads as belonging to it. */
+function PickerRowPreview({
+  lines,
+}: {
+  readonly lines: readonly ChoicePreviewLine[];
+}): React.ReactElement {
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, lineIndex) => (
+        <Box
+          key={String(lineIndex)}
+          flexDirection="row"
         >
-          {row.label}
-        </Text>
-      )}
-      {row.description ? <Text color={THEME.muted}>{`  ${row.description}`}</Text> : null}
+          <Text>{"    "}</Text>
+          <Text>
+            {line.map((span, spanIndex) => (
+              <Text
+                key={String(spanIndex)}
+                color={span.fg ?? THEME.muted}
+                bold={span.bold === true}
+              >
+                {span.text}
+              </Text>
+            ))}
+          </Text>
+        </Box>
+      ))}
     </Box>
   );
 }

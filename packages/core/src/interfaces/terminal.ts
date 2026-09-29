@@ -9,13 +9,81 @@ export interface TerminalInkNode {
   readonly node: unknown;
 }
 
+/** How a report value reads: plain text, or one of the semantic status tones. */
+export type ReportTone = "text" | "muted" | "accent" | "success" | "warning" | "error";
+
+/**
+ * A mark in front of a listed item: the current one, an active one, an idle one,
+ * one that needs attention, or one turned off.
+ */
+export type ReportMarker = "current" | "active" | "inactive" | "attention" | "disabled";
+
+/**
+ * One row of a command report.
+ *
+ * - `field`: a key and its value, e.g. `model  openai/gpt-5.6`. Numeric values in one run right-align.
+ * - `item`: a listed thing with an optional marker and a muted detail column.
+ * - `meter`: a used-of-total bar with its caption.
+ * - `text`: a line of prose.
+ * - `group`: the heading of the rows that follow, with an optional count.
+ * - `gap`: one blank row between groups.
+ */
+export type ReportRow =
+  | {
+      readonly kind: "field";
+      readonly key: string;
+      readonly value: string;
+      readonly tone?: ReportTone;
+      readonly detail?: string;
+    }
+  | {
+      readonly kind: "item";
+      readonly name: string;
+      readonly detail?: string;
+      readonly marker?: ReportMarker;
+      readonly tone?: ReportTone;
+    }
+  | {
+      readonly kind: "meter";
+      readonly used: number;
+      readonly total: number;
+      readonly caption: string;
+    }
+  | { readonly kind: "text"; readonly text: string; readonly tone?: ReportTone }
+  | { readonly kind: "group"; readonly label: string; readonly count?: string }
+  | { readonly kind: "gap" };
+
+/**
+ * What a slash command says back, as data rather than pre-styled text: a short
+ * label naming the command, its rows, and at most one line of explanation.
+ * Each terminal lays it out in jazz's own voice, distinct from the agent's.
+ */
+export interface TerminalReport {
+  readonly _tag: "report";
+  readonly label: string;
+  readonly rows: readonly ReportRow[];
+  readonly note?: string;
+}
+
+/** Build a command report for `terminal.log`. */
+export function report(label: string, rows: readonly ReportRow[], note?: string): TerminalReport {
+  return { _tag: "report", label, rows, ...(note === undefined ? {} : { note }) };
+}
+
+export function isTerminalReport(value: unknown): value is TerminalReport {
+  return (
+    typeof value === "object" && value !== null && (value as { _tag?: unknown })._tag === "report"
+  );
+}
+
 /**
  * Terminal output that can be written to the UI.
  *
  * - `string`: standard terminal text
  * - `TerminalInkNode`: an Ink React node (rendered only by Ink-based terminal implementations)
+ * - `TerminalReport`: a command's structured answer, laid out by each terminal
  */
-export type TerminalOutput = string | TerminalInkNode;
+export type TerminalOutput = string | TerminalInkNode | TerminalReport;
 
 /** Stable presentation categories shared by live and persisted terminal output. */
 export const TERMINAL_OUTPUT_KINDS = [
@@ -40,6 +108,37 @@ export function isTerminalOutputKind(value: unknown): value is TerminalOutputKin
  */
 export function ink(node: unknown): TerminalInkNode {
   return { _tag: "ink", node };
+}
+
+/** Where a prompt sits in a multi-step flow: every step's label, and which one this is. */
+export interface PromptStep {
+  readonly labels: readonly string[];
+  readonly index: number;
+}
+
+/** How a choice's tag reads: its readiness, a consequence, or plain information. */
+export type PromptTagTone = "success" | "warning" | "accent" | "muted";
+
+/** One styled run of text inside a choice preview. `fg` is a theme-independent hex color. */
+export interface ChoicePreviewSpan {
+  readonly text: string;
+  readonly fg?: string;
+  readonly bold?: boolean;
+}
+
+/** One line of a choice preview, as a sequence of styled runs. */
+export type ChoicePreviewLine = readonly ChoicePreviewSpan[];
+
+/** A choice in a list prompt. `tag` is a short state shown flush right, such as "key saved". */
+export interface PromptChoice<T> {
+  readonly name: string;
+  readonly value: T;
+  readonly description?: string;
+  readonly disabled?: boolean;
+  readonly tag?: string;
+  readonly tagTone?: PromptTagTone;
+  /** Rendered live beside (fullscreen) or beneath (Ink) the choice while it is highlighted. */
+  readonly preview?: readonly ChoicePreviewLine[];
 }
 
 /**
@@ -138,6 +237,8 @@ export interface TerminalService {
       placeholder?: string;
       /** When true, mask the live input and the echoed value (e.g. for API keys). Secret prompts are always Esc-cancellable. */
       secret?: boolean;
+      /** Where this prompt sits in a multi-step flow. */
+      step?: PromptStep;
     },
   ) => Effect.Effect<string | undefined, never>;
 
@@ -162,11 +263,11 @@ export interface TerminalService {
   readonly select: <T = string>(
     message: string,
     options: {
-      choices: readonly (
-        string | { name: string; value: T; description?: string; disabled?: boolean }
-      )[];
+      choices: readonly (string | PromptChoice<T>)[];
       default?: T;
       customAnswer?: (text: string) => T;
+      /** Where this prompt sits in a multi-step flow. */
+      step?: PromptStep;
     },
   ) => Effect.Effect<T | undefined, never>;
 
@@ -186,9 +287,11 @@ export interface TerminalService {
   readonly search: <T = string>(
     message: string,
     options: {
-      choices: readonly (string | { name: string; value: T; description?: string })[];
+      choices: readonly (string | PromptChoice<T>)[];
       /** Optional placeholder text to show when search query is empty. */
       placeholder?: string;
+      /** Where this prompt sits in a multi-step flow. */
+      step?: PromptStep;
     },
   ) => Effect.Effect<T | undefined, never>;
 
@@ -199,8 +302,10 @@ export interface TerminalService {
   readonly checkbox: <T = string>(
     message: string,
     options: {
-      choices: readonly (string | { name: string; value: T; description?: string })[];
+      choices: readonly (string | PromptChoice<T>)[];
       default?: readonly T[];
+      /** Where this prompt sits in a multi-step flow. */
+      step?: PromptStep;
     },
   ) => Effect.Effect<readonly T[] | undefined, never>;
 

@@ -5,7 +5,6 @@ import {
   FILE_MUTATION_PREVIEW_CHARS,
   formatToolArguments,
   formatToolResult,
-  toolResultSnippet,
 } from "./tool-formatter";
 
 describe("formatToolArguments http_request", () => {
@@ -149,22 +148,6 @@ describe("formatToolResult generic objects", () => {
   });
 });
 
-describe("toolResultSnippet", () => {
-  test("skips brace-only JSON lines", () => {
-    expect(toolResultSnippet('{\n  "ok": true\n}')).toBe('"ok": true');
-  });
-
-  test("joins the first three content lines", () => {
-    expect(toolResultSnippet("Here're the files\n/notes.txt\n/people")).toBe(
-      "Here're the files · /notes.txt · /people",
-    );
-  });
-
-  test("returns empty for braces only", () => {
-    expect(toolResultSnippet("{\n}")).toBe("");
-  });
-});
-
 describe("formatToolArguments write_file / edit_file", () => {
   test("includes a collapsed content preview", () => {
     const formatted = formatToolArguments(
@@ -241,5 +224,63 @@ describe("expandableFileMutationPayload", () => {
         JSON.stringify({ diff: "preview", wasTruncated: true, fullDiff }),
       ),
     ).toBe(fullDiff);
+  });
+});
+
+describe("compactToolArguments", () => {
+  const cwd = "/work/jazz";
+
+  test("reads a file range as the path and a span", () => {
+    expect(
+      compactToolArguments(
+        "read_file",
+        { path: "/work/jazz/README.md", startLine: 1, endLine: 300 },
+        cwd,
+      ),
+    ).toBe("README.md 1–300");
+  });
+
+  test("shows paths relative to the working directory, and as given outside it", () => {
+    expect(compactToolArguments("ls", { path: "/work/jazz/packages" }, cwd)).toBe("packages");
+    expect(compactToolArguments("ls", { path: "/work/jazz" }, cwd)).toBe(".");
+    expect(compactToolArguments("ls", { path: "/elsewhere/notes" }, cwd)).toBe("/elsewhere/notes");
+  });
+
+  test("phrases a search as the pattern in its place", () => {
+    expect(compactToolArguments("grep", { pattern: "TODO", path: "/work/jazz/src" }, cwd)).toBe(
+      '"TODO" in src',
+    );
+    expect(compactToolArguments("grep", { pattern: "TODO" }, cwd)).toBe('"TODO"');
+  });
+
+  test("shows a command, a request and a query as themselves", () => {
+    expect(compactToolArguments("execute_command", { command: "git status" }, cwd)).toBe(
+      "git status",
+    );
+    expect(compactToolArguments("http_request", { url: "https://example.com/a" }, cwd)).toBe(
+      "GET https://example.com/a",
+    );
+    expect(compactToolArguments("web_search", { query: "lisbon venues" }, cwd)).toBe(
+      '"lisbon venues"',
+    );
+  });
+
+  test("puts the path first for a file mutation, then its preview", () => {
+    const preview = compactToolArguments(
+      "write_file",
+      { path: "/work/jazz/src/app.py", content: "import os\n" },
+      cwd,
+    );
+    expect(preview.startsWith("src/app.py  ")).toBe(true);
+  });
+
+  test("says nothing beside a plan update", () => {
+    expect(compactToolArguments("manage_todos", { todos: [{ content: "a" }] }, cwd)).toBe("");
+  });
+
+  test("keeps key names for tools it knows nothing about", () => {
+    expect(compactToolArguments("gmail_search", { query: "is:flagged" }, cwd)).toBe(
+      "query: is:flagged",
+    );
   });
 });

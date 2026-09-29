@@ -9,7 +9,7 @@ import { inputRows } from "./Input";
 import { reservedHeight } from "./LiveZone";
 import type { InputModel, LiveModel, Viewport } from "./types";
 
-/** Header plus the rule under it. */
+/** Header plus the blank row under it. */
 export const TRANSCRIPT_CHROME_ABOVE = 2;
 
 /** Quiet gap above the composer, plus the footer. */

@@ -1,7 +1,8 @@
 import { UnsupportedFunctionalityError } from "@ai-sdk/provider";
 import { APICallError, RetryError } from "ai";
 import { describe, expect, it } from "bun:test";
-import { LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
+import { apiKeyHint } from "@/core/constants/provider-env-vars";
+import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
 import {
   convertToLLMError,
   describeRetryableLLMError,
@@ -246,9 +247,9 @@ describe("locally-rejected requests are not retried", () => {
     });
     const converted = convertToLLMError(signInError, "chatgpt");
 
-    expect(converted).toMatchObject({ permanent: true, message: "Not signed in to ChatGPT" });
+    expect(converted).toBeInstanceOf(LLMAuthenticationError);
+    expect((converted as LLMAuthenticationError).message).toContain("jazz config");
     expect(isRetryableLLMError(converted)).toBe(false);
-    expect(describeRetryableLLMError(converted)).toBe("rejected request");
   });
 });
 
@@ -408,5 +409,51 @@ describe("context overflow", () => {
   it("leaves other rejections alone", () => {
     expect(rejected("invalid tool schema").contextOverflow).toBeUndefined();
     expect(isRetryableLLMError(rejected("prompt is too long"))).toBe(false);
+  });
+});
+
+describe("convertToLLMError - credential failures never retry", () => {
+  class ChatGPTSignInRequiredError extends Error {
+    constructor() {
+      super("Not signed in to ChatGPT. Run `jazz config`, choose LLM providers, then ChatGPT.");
+      this.name = "ChatGPTSignInRequiredError";
+    }
+  }
+
+  it("reads a sign-in error with no status as an authentication failure, keeping its remedy", () => {
+    const converted = convertToLLMError(new ChatGPTSignInRequiredError(), "chatgpt");
+    expect(converted).toBeInstanceOf(LLMAuthenticationError);
+    expect(converted.message).toContain("Run `jazz config`");
+    expect(isRetryableLLMError(converted)).toBe(false);
+  });
+
+  it.each([
+    "Not signed in to ChatGPT.",
+    "Your access token has expired, please re-authenticate",
+    "You didn't provide an API key.",
+    "Unauthorized",
+  ])("classifies %p without a status as a credential failure", (message) => {
+    const converted = convertToLLMError(new Error(message), "openai");
+    expect(converted).toBeInstanceOf(LLMAuthenticationError);
+    expect(isRetryableLLMError(converted)).toBe(false);
+  });
+
+  it("reads a 400 about a bad key as a credential failure, not a bad request", () => {
+    const error = Object.assign(new Error("Incorrect API key provided: sk-...abcd"), {
+      status: 400,
+    });
+    expect(convertToLLMError(error, "openai")).toBeInstanceOf(LLMAuthenticationError);
+  });
+
+  it("restates a missing key with the way to set it exactly once", () => {
+    const converted = convertToLLMError(new Error("API key is missing"), "openai");
+    const hint = apiKeyHint("openai");
+    expect(converted.message.split(hint)).toHaveLength(2);
+  });
+
+  it("still retries a plain connection failure", () => {
+    const converted = convertToLLMError(new Error("fetch failed"), "openai");
+    expect(converted).toBeInstanceOf(LLMRequestError);
+    expect(isRetryableLLMError(converted)).toBe(true);
   });
 });

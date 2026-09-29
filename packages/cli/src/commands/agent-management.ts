@@ -396,9 +396,7 @@ export function deleteAgentCommand(
     // Delete the agent
     yield* agentService.deleteAgent(agent.id);
 
-    yield* terminal.success("Agent deleted successfully!");
-    yield* terminal.log(`   Name: ${agent.name}`);
-    yield* terminal.log(`   ID: ${agent.id}`);
+    yield* terminal.success(`Deleted ${agent.name} (${agent.id}).`);
   });
 }
 

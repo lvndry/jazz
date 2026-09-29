@@ -5,17 +5,13 @@ import { getGlyphs } from "./glyphs";
 import type { EphemeralRegion } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
-import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
+import { wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
-
-const G = getGlyphs();
+import { markdownToAnsi } from "./markdown/ansi";
+import { formatPreciseDuration } from "./text/format";
 
 function elapsed(startedAt: number): string {
-  const seconds = Math.max(0, (Date.now() - startedAt) / 1000);
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}m ${s}s`;
+  return formatPreciseDuration(Date.now() - startedAt);
 }
 
 /**
@@ -45,9 +41,12 @@ export function EphemeralPanel({ region }: { region: EphemeralRegion }): React.R
   // Reasoning renders markdown but dimmed/italic — the live panel should read
   // as quiet planning text, matching the settled scrollback styling, instead
   // of competing with the response for attention.
-  const formattedTail =
-    region.kind === "reasoning" ? dimReasoningMarkdownOutput(formatMarkdown(rawTail)) : rawTail;
-  const wrappedTail = wrapToWidth(formattedTail, availableWidth);
+  const wrappedTail =
+    region.kind === "reasoning"
+      ? dimReasoningMarkdownOutput(
+          markdownToAnsi(rawTail, { width: availableWidth, syntax: "rendered" }),
+        )
+      : wrapToWidth(rawTail, availableWidth);
 
   return (
     <Box
@@ -56,7 +55,7 @@ export function EphemeralPanel({ region }: { region: EphemeralRegion }): React.R
       paddingLeft={PADDING.content}
     >
       <Box>
-        <Text color={headerColor}>{G.arrow} </Text>
+        <Text color={headerColor}>{getGlyphs().arrow} </Text>
         <Text
           color={headerColor}
           italic

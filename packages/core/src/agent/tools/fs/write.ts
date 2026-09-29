@@ -35,6 +35,18 @@ export type WriteFileArgs = z.infer<typeof writeFileParameters>;
 
 type WriteFileDeps = FileSystem.FileSystem | FileSystemContextService;
 
+function lineCount(content: string): number {
+  if (content.length === 0) {
+    return 0;
+  }
+  const lines = content.split("\n").length;
+  return content.endsWith("\n") ? lines - 1 : lines;
+}
+
+function pluralLines(count: number): string {
+  return `${count.toLocaleString("en-US")} ${count === 1 ? "line" : "lines"}`;
+}
+
 /** Most secret line numbers listed in a refusal before it summarizes the rest. */
 const LISTED_SECRET_LINES = 10;
 
@@ -150,9 +162,14 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           maxLines: Number.POSITIVE_INFINITY,
         });
 
+        const newLines = lineCount(args.content);
+        const impact = isNewFile
+          ? `new file, ${pluralLines(newLines)}`
+          : `replaces ${pluralLines(lineCount(originalContent))} with ${pluralLines(newLines)}`;
         return {
           message,
           previewDiff: diff,
+          impact,
           ...(stateReason !== undefined ? { alwaysAsk: true as const } : {}),
         };
       }),

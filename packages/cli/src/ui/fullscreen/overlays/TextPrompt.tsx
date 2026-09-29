@@ -22,23 +22,22 @@
  *     a failed validation does not resize the card.
  */
 
-import { TextAttributes, type BorderCharacters } from "@opentui/core";
+import { TextAttributes } from "@opentui/core";
 import type { ReactNode } from "react";
 import { OVERLAY_Z_INDEX } from "./centered";
-import { overlayWidth, placeOverlay } from "./overlay-frame";
-import { getGlyphs, type GlyphSet } from "../../glyphs";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { stepperSegments, type QuestionStep } from "./stepper";
+import { getGlyphs } from "../../glyphs";
 import { concealValue, maskSecret, maskSecretCaret } from "../../mask-secret";
-import { THEME } from "../../theme";
 import {
   clipTerminalCells,
   clipTerminalCellsFromStart,
   sliceTerminalCells,
   terminalCellWidth,
   terminalGraphemes,
-} from "../terminal-cells";
+} from "../../text/terminal-cells";
+import { THEME } from "../../theme";
 import type { Viewport } from "../types";
-
-const CARD_PAD = 1;
 
 /** Border, blank, input, blank, error. */
 const FIXED_CARD_ROWS = 6;
@@ -65,6 +64,8 @@ export interface TextPromptModel {
   readonly placeholder?: string;
   /** The last validation failure, in prose. */
   readonly error?: string;
+  /** Shown as a stepper row above the question. */
+  readonly step?: QuestionStep;
 }
 
 function displayWidth(text: string): number {
@@ -101,22 +102,6 @@ function wrapProse(text: string, width: number, maxRows: number): string[] {
   const last = kept[maxRows - 1] ?? "";
   kept[maxRows - 1] = clip(`${last} ${lines.slice(maxRows).join(" ")}`, width);
   return kept;
-}
-
-function frameChars(glyphs: GlyphSet): BorderCharacters {
-  return {
-    topLeft: glyphs.boxTL,
-    topRight: glyphs.boxTR,
-    bottomLeft: glyphs.boxBL,
-    bottomRight: glyphs.boxBR,
-    horizontal: glyphs.boxH,
-    vertical: glyphs.boxV,
-    topT: glyphs.boxTJ,
-    bottomT: glyphs.boxBJ,
-    leftT: glyphs.boxML,
-    rightT: glyphs.boxMR,
-    cross: glyphs.boxMJ,
-  };
 }
 
 interface CaretCells {
@@ -185,14 +170,13 @@ export function CaretValue({
   placeholder,
 }: CaretValueProps): ReactNode {
   if (value.length === 0 && (placeholder ?? "").length > 0) {
-    const hint = clip(oneLine(placeholder ?? ""), width);
-    const chars = terminalGraphemes(hint);
+    // The caret owns its cell and the placeholder starts one cell later, so the hint is read
+    // whole instead of losing its first letter under the caret.
+    const hint = clip(oneLine(placeholder ?? ""), Math.max(0, width - 1));
     return (
       <text style={{ flexShrink: 0 }}>
-        <span style={{ fg: THEME.muted, attributes: TextAttributes.INVERSE }}>
-          {chars[0] ?? " "}
-        </span>
-        <span style={{ fg: THEME.muted }}>{chars.slice(1).join("")}</span>
+        <span style={{ fg: THEME.primary, attributes: TextAttributes.INVERSE }}> </span>
+        <span style={{ fg: THEME.muted }}>{hint}</span>
       </text>
     );
   }
@@ -334,10 +318,16 @@ export interface TextPromptProps {
 /** The card's size and placement; `height` is what the layout reserves. */
 export function textPromptLayout(model: TextPromptModel, viewport: Viewport) {
   const frame = overlayWidth(viewport);
-  const inner = Math.max(8, frame.width - 2 - CARD_PAD * 2);
+  const inner = Math.max(8, frame.width - BAND_CHROME_COLUMNS);
   const valueWidth = Math.max(4, inner - MARKER_COLUMN);
   const message = wrapProse(model.message, inner, MESSAGE_MAX_ROWS);
-  const placement = placeOverlay(viewport, frame, FIXED_CARD_ROWS + message.length + HINT_ROWS);
+  // The stepper row and the blank that separates it from the question.
+  const stepRows = model.step === undefined ? 0 : 2;
+  const placement = placeOverlay(
+    viewport,
+    frame,
+    FIXED_CARD_ROWS + stepRows + message.length + HINT_ROWS,
+  );
   return {
     ...placement,
     inner,
@@ -355,6 +345,8 @@ export function TextPrompt({ model, viewport }: TextPromptProps): ReactNode {
   );
 
   const error = oneLine(model.error ?? "");
+  const stepper =
+    model.step === undefined ? null : stepperSegments(model.step, inner, glyphs.success);
 
   return (
     <box
@@ -373,14 +365,37 @@ export function TextPrompt({ model, viewport }: TextPromptProps): ReactNode {
           height: cardHeight,
           flexShrink: 0,
           flexDirection: "column",
-          backgroundColor: THEME.surface,
-          border: true,
-          customBorderChars: frameChars(glyphs),
-          borderColor: THEME.border,
-          paddingLeft: CARD_PAD,
-          paddingRight: CARD_PAD,
+          // The band's padding rows stand where the old frame's top and bottom
+          // edges were, so every row count below is unchanged.
+          ...bandStyle(glyphs, THEME.surface, THEME.border),
+          paddingTop: 1,
+          paddingBottom: 1,
         }}
       >
+        {stepper === null ? null : (
+          <>
+            <text style={{ height: 1, flexShrink: 0, wrapMode: "none", truncate: true }}>
+              {stepper.map((part, index) =>
+                part.bold === true ? (
+                  <b
+                    key={`step-${String(index)}`}
+                    style={{ fg: part.fg }}
+                  >
+                    {part.text}
+                  </b>
+                ) : (
+                  <span
+                    key={`step-${String(index)}`}
+                    style={{ fg: part.fg }}
+                  >
+                    {part.text}
+                  </span>
+                ),
+              )}
+            </text>
+            <box style={{ height: 1, flexShrink: 0 }} />
+          </>
+        )}
         {message.map((line, index) => (
           <text
             key={`message-${String(index)}`}

@@ -7,8 +7,6 @@ import { formatToolsLine, getTerminalWidth, padRight } from "@/cli/utils/string-
 import { getGlyphs } from "./glyphs";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 
-const G = getGlyphs();
-
 interface AgentListItem {
   readonly id: string;
   readonly name: string;
@@ -83,7 +81,7 @@ export function AgentsList(props: {
             bold
             color={THEME.primary}
           >
-            {G.note} Agents
+            {getGlyphs().note} Agents
           </Text>
           <Text dimColor> ({props.agents.length})</Text>
         </Text>
@@ -106,7 +104,7 @@ export function AgentsList(props: {
         {padRight("reasoning", reasoningW)}
         {showDescription ? sp + "description" : ""}
       </Text>
-      <Text dimColor>{G.divider.repeat(inner)}</Text>
+      <Text dimColor>{getGlyphs().divider.repeat(inner)}</Text>
 
       {/* Rows */}
       <Box

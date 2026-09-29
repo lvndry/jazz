@@ -3,8 +3,17 @@ import {
   defaultReasoningChoice,
   describeReasoningAdjustment,
   reasoningChoicesFor,
+  reasoningEffortLabel,
   type ResolvedReasoningControl,
 } from "./reasoning";
+
+describe("reasoningEffortLabel", () => {
+  it("names an effort and says nothing when reasoning is off", () => {
+    expect(reasoningEffortLabel("medium")).toBe("medium");
+    expect(reasoningEffortLabel("disable")).toBeUndefined();
+    expect(reasoningEffortLabel(undefined)).toBeUndefined();
+  });
+});
 
 const lowToHigh: ResolvedReasoningControl = {
   kind: "effort",

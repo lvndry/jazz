@@ -1,4 +1,9 @@
-import type { TerminalOutput, TerminalOutputKind } from "@jazz/core/interfaces/terminal";
+import type {
+  ChoicePreviewLine,
+  PromptTagTone,
+  TerminalOutput,
+  TerminalOutputKind,
+} from "@jazz/core/interfaces/terminal";
 
 export type OutputType = TerminalOutputKind;
 
@@ -27,13 +32,19 @@ export type PromptType =
   | "search"
   | "hidden"
   | "questionnaire"
-  | "filepicker";
+  | "filepicker"
+  | "theme";
 
 export interface Choice<T = unknown> {
   label: string;
   value: T;
   description?: string;
   disabled?: boolean;
+  /** A short state flush right on the row, such as "key saved". */
+  tag?: string;
+  tagTone?: PromptTagTone;
+  /** Rendered live beside (fullscreen) or beneath (Ink) the choice while it is highlighted. */
+  preview?: readonly ChoicePreviewLine[];
 }
 
 export interface PromptOptions<T = unknown> {

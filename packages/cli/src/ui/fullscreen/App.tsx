@@ -21,7 +21,7 @@ import {
 import { Effect } from "effect";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getGlyphs } from "../glyphs";
-import { THEME } from "../theme";
+import { groundPaint, THEME } from "../theme";
 import { useAutoScrollOnDrag } from "./auto-scroll-selection";
 import {
   copyText,
@@ -53,9 +53,10 @@ import { overlayReservedRows } from "./overlays/overlay-frame";
 import { Question, questionLayout } from "./overlays/Question";
 import { Search, searchLayout } from "./overlays/Search";
 import { TextPrompt, textPromptLayout } from "./overlays/TextPrompt";
+import { ThemePicker, themePickerLayout } from "./overlays/ThemePicker";
 import { computePeerNotice } from "./peer-notice";
 import { SubagentList, subagentListRows } from "./SubagentList";
-import { clipTerminalCells } from "./terminal-cells";
+import { useThemeRevision } from "./theme-revision";
 import { Transcript, type TranscriptHandle } from "./Transcript";
 import { allocateRegions, wheelScrollDelta } from "./transcript-window";
 import {
@@ -66,6 +67,7 @@ import {
   type ViewModel,
   type Viewport,
 } from "./types";
+import { clipTerminalCells } from "../text/terminal-cells";
 
 /**
  * The shell: five stacked regions and a floating overlay layer.
@@ -135,6 +137,12 @@ export interface AppProps {
    */
   readonly onPaste?: (text: string) => boolean;
   /**
+   * Whether the reader can see the live edge: the transcript is at its bottom
+   * and nothing covers it. Called when that changes, so work that only matters
+   * to someone watching (pacing a streaming answer) can stop while they can't.
+   */
+  readonly onWatchingLiveEdgeChange?: (watching: boolean) => void;
+  /**
    * Replaces the five-region layout with arbitrary content — the wizard menu,
    * the screen-unavailable notice — while this component's own `useKeyboard`
    * call stays mounted.
@@ -169,7 +177,7 @@ function TooSmall({ width, height }: { width: number; height: number }): React.R
       : ["resize"];
 
   return (
-    <box style={{ width, height, flexDirection: "column", backgroundColor: THEME.canvas }}>
+    <box style={{ width, height, flexDirection: "column", backgroundColor: groundPaint() }}>
       {lines.slice(0, Math.max(0, height)).map((line, index) => (
         <text
           key={`${String(index)}:${line}`}
@@ -199,6 +207,8 @@ function overlayRows(overlay: Overlay, viewport: Viewport): number {
       return overlayReservedRows(textPromptLayout(overlay, viewport));
     case "filepicker":
       return overlayReservedRows(filePickerLayout(overlay, viewport));
+    case "theme":
+      return overlayReservedRows(themePickerLayout(overlay, viewport));
   }
 }
 
@@ -242,6 +252,13 @@ function renderOverlay(
           viewport={viewport}
         />
       );
+    case "theme":
+      return (
+        <ThemePicker
+          model={overlay}
+          viewport={viewport}
+        />
+      );
   }
 }
 
@@ -256,8 +273,10 @@ function AppView({
   onAction,
   onKey,
   onPaste,
+  onWatchingLiveEdgeChange,
   overrideContent,
 }: AppProps): React.ReactNode {
+  useThemeRevision();
   const { width, height } = useTerminalDimensions();
   const renderer = useRenderer();
   const rendererRef = useRef(renderer);
@@ -274,7 +293,6 @@ function AppView({
   const copyNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [peerNotice, setPeerNotice] = useState<string | undefined>(undefined);
   const peerNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const glyphs = getGlyphs();
 
   // `useKeyboard` registers its callback once, so it captures the props and
   // state setters from the render that happened to be first. Those setters can
@@ -292,6 +310,10 @@ function AppView({
   viewRef.current = view;
 
   const overlayOpen = view.overlay !== undefined;
+  const watchingLiveEdge = followLive && !overlayOpen;
+  useEffect(() => {
+    onWatchingLiveEdgeChange?.(watchingLiveEdge);
+  }, [watchingLiveEdge, onWatchingLiveEdgeChange]);
 
   const dispatch = useCallback((action: KeyAction) => {
     switch (action.type) {
@@ -576,12 +598,19 @@ function AppView({
   const viewportRef = useRef<Viewport>({ width, height });
   viewportRef.current = reuseViewport(width, height, viewportRef.current);
   const viewport = viewportRef.current;
+  const composerMeta =
+    view.header.reasoning === undefined
+      ? view.header.model
+      : `${view.header.model} ${getGlyphs().bullet} ${view.header.reasoning}`;
   const inputModel = useMemo(
-    () => ({ ...view.input, disabled: view.input.disabled || overlayOpen }),
-    [view.input, overlayOpen],
+    () => ({
+      ...view.input,
+      disabled: view.input.disabled || overlayOpen,
+      ...(view.input.meta === undefined ? { meta: composerMeta } : {}),
+    }),
+    [view.input, overlayOpen, composerMeta],
   );
   const overlayKind = view.overlay?.kind;
-  const overlayArmed = view.overlay?.kind === "approval" ? view.overlay.armed : true;
   const footerHints = useMemo(
     () =>
       hintsFor(
@@ -590,7 +619,6 @@ function AppView({
         view.input.queueing === true,
         overlayKind,
         view.input.commands !== undefined,
-        overlayArmed,
         view.input.queued.length > 0,
       ),
     [
@@ -599,7 +627,6 @@ function AppView({
       view.input.queueing,
       overlayKind,
       view.input.commands,
-      overlayArmed,
       view.input.queued.length,
     ],
   );
@@ -656,7 +683,7 @@ function AppView({
 
   return (
     <box
-      style={{ width, height, flexDirection: "column", backgroundColor: THEME.canvas }}
+      style={{ width, height, flexDirection: "column", backgroundColor: groundPaint() }}
       onMouseScroll={(event) => {
         const scroll = event.scroll;
         if (scroll === undefined) return;
@@ -676,11 +703,7 @@ function AppView({
         viewport={viewport}
       />
 
-      <box style={{ height: 1, flexShrink: 0 }}>
-        <text style={{ fg: THEME.border }}>
-          {`${glyphs.rail}${glyphs.divider.repeat(Math.max(0, width - 1))}`}
-        </text>
-      </box>
+      <box style={{ height: 1, flexShrink: 0 }} />
 
       <box
         style={{
@@ -717,6 +740,7 @@ function AppView({
         viewport={viewport}
         focused={inputFocused}
         maxRows={regions.input}
+        concealed={overlayOpen}
       />
       {regions.subagents > 0 ? (
         <SubagentList

@@ -1,3 +1,4 @@
+/** Validates terminal glyph selection, font portability, and the activity indicator's full cycle. */
 import { describe, expect, it } from "bun:test";
 import { getGlyphs, GLYPHS, laneFrame, resolveGlyphMode, type GlyphSet } from "./glyphs";
 
@@ -282,14 +283,6 @@ describe("font safety", () => {
     }
   });
 
-  it("does not reintroduce the glyphs that were missing from SF Mono", () => {
-    const previouslyShipped = ["◆", "◇", "●", "♪", "❯", "⚠", "ℹ", "✧"];
-    const emitted = new Set(everyCharacter(GLYPHS.unicode, TODO_MARK_FIELDS));
-    for (const character of previouslyShipped) {
-      expect(emitted.has(character)).toBe(false);
-    }
-  });
-
   it("avoids box-drawing corners terminals do not draw procedurally", () => {
     // Rounded, double and dashed forms are excluded from the procedural sets
     // terminals ship, so they fall through to the font and are the most
@@ -362,6 +355,16 @@ describe("activity indicator", () => {
           if (new Set([...laneFrame(tick, set)]).size === 1) aligned++;
         }
         expect(aligned / composite).toBeLessThan(0.005);
+      });
+
+      it("plays one lane per unit of work in flight and leaves the rest dark", () => {
+        for (let active = 1; active <= set.lanePeriods.length; active++) {
+          for (let tick = 0; tick < composite; tick += 7) {
+            const cells = [...laneFrame(tick, set, active)];
+            expect(cells.slice(active).every((cell) => cell === set.laneRest)).toBe(true);
+            expect(cells.every((cell) => cell === set.laneRest)).toBe(false);
+          }
+        }
       });
 
       it("shows a healthy variety of frames", () => {

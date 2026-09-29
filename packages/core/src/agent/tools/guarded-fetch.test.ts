@@ -48,11 +48,6 @@ let server: Server<undefined>;
 let origin: string;
 let secondServer: Server<undefined>;
 
-/** A call whose private destinations were approved, as the executor passes them to the tool. */
-function contextAllowing(approvedPrivateAddresses: readonly string[]): ToolExecutionContext {
-  return { agentId: "agent", approvedPrivateAddresses };
-}
-
 function runHttp(
   args: Record<string, unknown>,
   context: ToolExecutionContext = { agentId: "agent" },
@@ -133,70 +128,101 @@ afterAll(() => {
   secondServer.stop(true);
 });
 
-describe("http_request destination checks (audit repro ssrf.ts)", () => {
-  it.each([
-    ["GET", "http://127.0.0.1:PORT/a"],
-    ["GET", "http://localhost:PORT/b"],
-    ["GET", "http://[::ffff:127.0.0.1]:PORT/c"],
-    ["GET", "http://2130706433:PORT/d"],
-    ["GET", "http://0x7f000001:PORT/e"],
-    ["GET", "http://0177.0.0.1:PORT/f"],
-    ["GET", "http://0.0.0.0:PORT/g"],
-    ["GET", "http://169.254.169.254/latest/meta-data/"],
-    ["GET", "http://192.168.1.1/"],
-    ["GET", "http://100.64.0.1/"],
-  ])("refuses %s %s before connecting", async (method, template) => {
+describe("HTTP request URL authorization", () => {
+  it("refuses an unlisted URL before connecting", async () => {
     const before = hits.length;
-    const result = await runHttp({ method, url: template.replace("PORT", String(server.port)) });
+    const result = await runHttp(
+      { method: "GET", url: `${origin}/unlisted` },
+      { agentId: "agent", httpApproval: [] },
+    );
     expect(result.success).toBe(false);
-    expect(result.error).toContain("Refused to connect");
+    expect(result.error).toContain("network.httpApproval");
     expect(hits.length).toBe(before);
   });
 
-  it("refuses a mutating call to the loopback daemon, credentials and all", async () => {
+  it("allows private GET and mutating requests by default without private-host grants", async () => {
+    for (const method of ["GET", "POST", "DELETE"]) {
+      const result = await runHttp({ method, url: `${origin}/default` }, { agentId: "agent" });
+      expect(result.success).toBe(true);
+      expect(hits.at(-1)?.method).toBe(method);
+    }
+  });
+
+  it("applies query overrides before matching exact grants", async () => {
+    const context = { agentId: "agent", httpApproval: [`${origin}/query?q=approved`] };
+    const allowed = await runHttp(
+      { method: "GET", url: `${origin}/query`, query: { q: "approved" } },
+      context,
+    );
+    expect(allowed.success).toBe(true);
+    const denied = await runHttp(
+      { method: "GET", url: `${origin}/query?q=approved`, query: { q: "other" } },
+      context,
+    );
+    expect(denied.success).toBe(false);
+    expect(denied.error).toContain("network.httpApproval");
+  });
+
+  it("limits a one-call grant to its exact URL and refuses an unlisted redirect", async () => {
+    const result = await runHttp(
+      { method: "GET", url: `${origin}/redirect-localhost` },
+      {
+        agentId: "agent",
+        httpApproval: [],
+        approvedHttpUrl: `${origin}/redirect-localhost`,
+      },
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("network.httpApproval");
+  });
+
+  it("refuses mutating requests outside the URL list, credentials and all", async () => {
     const before = hits.length;
-    const deleted = await runHttp({
-      method: "DELETE",
-      url: `${origin}/runs/x`,
-      headers: { Authorization: "Bearer stolen" },
-    });
-    const posted = await runHttp({
-      method: "POST",
-      url: `${origin}/runs`,
-      body: { type: "json", value: { agent: "x", prompt: "p" } },
-    });
+    const deleted = await runHttp(
+      {
+        method: "DELETE",
+        url: `${origin}/runs/x`,
+        headers: { Authorization: "Bearer stolen" },
+      },
+      { agentId: "agent", httpApproval: [] },
+    );
+    const posted = await runHttp(
+      {
+        method: "POST",
+        url: `${origin}/runs`,
+        body: { type: "json", value: { agent: "x", prompt: "p" } },
+      },
+      { agentId: "agent", httpApproval: [] },
+    );
     expect(deleted.success).toBe(false);
     expect(posted.success).toBe(false);
     expect(hits.length).toBe(before);
   });
 
-  it("reaches a private host the agent lists, and marks the answer as external content", async () => {
-    const result = await runHttp(
-      { method: "GET", url: `${origin}/ok` },
-      contextAllowing(["127.0.0.1"]),
-    );
+  it("labels an automatically authorized HTTP response as external content", async () => {
+    const result = await runHttp({ method: "GET", url: `${origin}/ok` }, { agentId: "agent" });
     expect(result.success).toBe(true);
     expect(result.untrusted?.kind).toBe("external");
     const response = (result.result as { response: { status: number } }).response;
     expect(response.status).toBe(200);
   });
 
-  it("re-checks every redirect hop, so an allowed host cannot bounce to metadata", async () => {
+  it("refuses redirect URLs outside the configured grants", async () => {
     const result = await runHttp(
       { method: "GET", url: `${origin}/redirect-metadata` },
-      contextAllowing(["127.0.0.1"]),
+      { agentId: "agent", httpApproval: [`${origin}/*`] },
     );
     expect(result.success).toBe(false);
-    expect(result.error).toContain("169.254.169.254");
+    expect(result.error).toContain("network.httpApproval");
   });
 
-  it("checks what a redirect's hostname resolves to, not only the literal", async () => {
+  it("does not treat different hostnames as the same grant", async () => {
     const result = await runHttp(
       { method: "GET", url: `${origin}/redirect-localhost` },
-      contextAllowing(["127.0.0.1"]),
+      { agentId: "agent", httpApproval: [`${origin}/*`] },
     );
     expect(result.success).toBe(false);
-    expect(result.error).toContain("localhost");
+    expect(result.error).toContain("network.httpApproval");
   });
 
   it("follows a same-origin redirect with the caller's credentials intact", async () => {
@@ -207,7 +233,7 @@ describe("http_request destination checks (audit repro ssrf.ts)", () => {
         url: `${origin}/redirect-same-origin`,
         headers: { Authorization: "Bearer T" },
       },
-      contextAllowing(["127.0.0.1"]),
+      { agentId: "agent" },
     );
     expect(result.success).toBe(true);
     expect(hits.map((hit) => hit.path)).toEqual(["/redirect-same-origin", "/landing"]);
@@ -221,24 +247,21 @@ describe("http_request destination checks (audit repro ssrf.ts)", () => {
     hits.length = 0;
     const result = await runHttp(
       { method: "POST", url: `${origin}/see-other`, body: { type: "text", value: "payload" } },
-      contextAllowing(["127.0.0.1"]),
+      { agentId: "agent" },
     );
     expect(result.success).toBe(true);
     expect(hits[1]).toMatchObject({ method: "GET", path: "/landing", body: "" });
   });
 
   it(`stops after ${String(MAX_REDIRECT_HOPS)} redirects`, async () => {
-    const result = await runHttp(
-      { method: "GET", url: `${origin}/loop` },
-      contextAllowing(["127.0.0.1"]),
-    );
+    const result = await runHttp({ method: "GET", url: `${origin}/loop` }, { agentId: "agent" });
     expect(result.success).toBe(false);
     expect(result.error).toContain(`${String(MAX_REDIRECT_HOPS)} redirects`);
   });
 });
 
 describe("cross-origin redirects (audit repro redir.ts)", () => {
-  const allowBoth = contextAllowing(["127.0.0.1", "localhost"]);
+  const allowBoth = { agentId: "agent" };
 
   it("drops Authorization, Cookie and custom credential headers on a cross-origin hop", async () => {
     const result = await runHttp(
@@ -284,7 +307,7 @@ describe("byte budgets and timers", () => {
     const maxResponseBytes = 100_000;
     const result = await runHttp(
       { method: "GET", url: `${origin}/endless`, maxResponseBytes },
-      contextAllowing(["127.0.0.1"]),
+      { agentId: "agent" },
     );
     expect(result.success).toBe(true);
     const response = (result.result as { response: { size: number; truncated: boolean } }).response;
@@ -296,7 +319,7 @@ describe("byte budgets and timers", () => {
     const started = Date.now();
     const result = await runHttp(
       { method: "GET", url: `${origin}/trickle`, timeoutMs: 600 },
-      contextAllowing(["127.0.0.1"]),
+      { agentId: "agent" },
     );
     expect(result.success).toBe(false);
     expect(result.error).toContain("timed out");
@@ -322,18 +345,28 @@ describe("web_fetch (audit repro webfetch.ts)", () => {
     );
   }
 
-  it("refuses an IPv4-mapped loopback URL", async () => {
+  it("automatically fetches private destinations by default", async () => {
+    const result = await runWebFetch(`${origin}/web-default`);
+    expect(result.success).toBe(true);
+    expect((result.result as { content: string }).content).toContain("loopback-only");
+    expect(result.untrusted?.kind).toBe("external");
+  });
+
+  it("refuses a URL outside the web-fetch grant before connecting", async () => {
     const before = hits.length;
-    const result = await runWebFetch(`http://[::ffff:7f00:1]:${String(server.port)}/r`);
+    const result = await runWebFetch(`${origin}/r`, { agentId: "agent", httpApproval: [] });
     expect(result.success).toBe(false);
-    expect(result.error).toContain("ipv4-mapped");
+    expect(result.error).toContain("network.httpApproval");
     expect(hits.length).toBe(before);
   });
 
   it("refuses a redirect from an allowed host to metadata", async () => {
-    const result = await runWebFetch(`${origin}/redirect-metadata`, contextAllowing(["127.0.0.1"]));
+    const result = await runWebFetch(`${origin}/redirect-metadata`, {
+      agentId: "agent",
+      httpApproval: [`${origin}/*`],
+    });
     expect(result.success).toBe(false);
-    expect(result.error).toContain("169.254.169.254");
+    expect(result.error).toContain("network.httpApproval");
   });
 });
 

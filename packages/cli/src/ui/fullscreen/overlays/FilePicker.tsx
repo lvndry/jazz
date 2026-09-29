@@ -21,24 +21,21 @@
  *   - Selection is the rail and the name's weight, never a wash.
  */
 
-import type { BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
-import { getGlyphs, type GlyphSet } from "../../glyphs";
-import { THEME } from "../../theme";
+import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
+import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
+import { CaretValue, HintRow, type Hint } from "./TextPrompt";
+import { getGlyphs } from "../../glyphs";
 import {
   clipTerminalCells,
   clipTerminalCellsFromStart,
   terminalCellWidth,
-} from "../terminal-cells";
+} from "../../text/terminal-cells";
+import { THEME } from "../../theme";
 import { COMPACT_HEIGHT, type Viewport } from "../types";
-import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
-import { overlayWidth, placeOverlay } from "./overlay-frame";
-import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 
 /** Fixed windowed height: the card does not resize as the filter narrows. */
 const WINDOWED_HEIGHT = 19;
-
-const CARD_PAD = 1;
 
 /** Border, filter, base, rule, blank, count. */
 const FIXED_CARD_ROWS = 8;
@@ -123,22 +120,6 @@ function wrapProse(text: string, width: number, maxRows: number): string[] {
   return kept;
 }
 
-function frameChars(glyphs: GlyphSet): BorderCharacters {
-  return {
-    topLeft: glyphs.boxTL,
-    topRight: glyphs.boxTR,
-    bottomLeft: glyphs.boxBL,
-    bottomRight: glyphs.boxBR,
-    horizontal: glyphs.boxH,
-    vertical: glyphs.boxV,
-    topT: glyphs.boxTJ,
-    bottomT: glyphs.boxBJ,
-    leftT: glyphs.boxML,
-    rightT: glyphs.boxMR,
-    cross: glyphs.boxMJ,
-  };
-}
-
 /** Derived, not remembered: see the same note on the question overlay. */
 function windowStartFor(selected: number, total: number, rows: number): number {
   if (total <= rows) return 0;
@@ -170,7 +151,7 @@ export interface FilePickerProps {
 export function filePickerLayout(model: FilePickerModel, viewport: Viewport) {
   const compact = viewport.height < COMPACT_HEIGHT;
   const frame = overlayWidth(viewport);
-  const inner = Math.max(8, frame.width - 2 - CARD_PAD * 2);
+  const inner = Math.max(8, frame.width - BAND_CHROME_COLUMNS);
   const message = wrapProse(model.message, inner, MESSAGE_MAX_ROWS);
   const fixedCardRows = compact ? FIXED_CARD_ROWS - 2 : FIXED_CARD_ROWS;
   const placement = placeOverlay(viewport, frame, WINDOWED_HEIGHT + message.length);
@@ -223,12 +204,11 @@ export function FilePicker({ model, viewport }: FilePickerProps): ReactNode {
           height: cardHeight,
           flexShrink: 0,
           flexDirection: "column",
-          backgroundColor: THEME.surface,
-          border: true,
-          customBorderChars: frameChars(glyphs),
-          borderColor: THEME.border,
-          paddingLeft: CARD_PAD,
-          paddingRight: CARD_PAD,
+          // The band's padding rows stand where the old frame's top and bottom
+          // edges were, so every row count below is unchanged.
+          ...bandStyle(glyphs, THEME.surface, THEME.border),
+          paddingTop: 1,
+          paddingBottom: 1,
         }}
       >
         {message.map((line, index) => (

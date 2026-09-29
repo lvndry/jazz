@@ -1,9 +1,9 @@
-import os from "node:os";
-import { listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
+import { controlGoal, listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
 import {
   loadConversationOrNull,
   loadHistory,
 } from "@jazz/adapters/history/conversation-history-service";
+import { formatRelativeWhen } from "@jazz/adapters/history/conversation-search";
 import { loopsWaitingOnUser, pendingLoopInput } from "@jazz/adapters/loops/loop-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
@@ -19,37 +19,39 @@ import { ChatServiceTag } from "@jazz/core/interfaces/chat-service";
 import { JazzStateServiceTag } from "@jazz/core/interfaces/jazz-state";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
-import type { Agent } from "@jazz/core/types/index";
+import type { Agent, AppConfig } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
+import { isRecord } from "@jazz/core/utils/is-record";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
-import { goalHandle, goalStatus } from "@/cli/goals/describe-goal";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
-import { formatReasoningSelection } from "@/cli/helpers/reasoning";
-import { loopStatus } from "@/cli/loops/describe-loop";
 import { agentDetailFields } from "./agent-details";
 import { deleteAgentCommand } from "./agent-management";
-import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
-import { homeEnvironmentFacts, homeRequirements } from "../ui/fullscreen/home-readiness";
-import { store, type ActiveAgentChoice } from "../ui/store";
-import { TIPS, type WizardMenuOption } from "../ui/WizardHome";
-
-/**
- * Wizard menu option identifiers
- */
-type MenuAction =
-  | "resume-conversation"
-  | "new-conversation"
-  | "create-agent"
-  | "edit-agent"
-  | "list-agents"
-  | "settings"
-  | "delete-agent"
-  | "exit";
+import { buildHome } from "./home-surface";
+import { sessionOpenLine } from "./session-open";
+import { settingsWizardCommand } from "./settings-wizard";
+import {
+  environmentKeyDetections,
+  ollamaOrigin,
+  probeOllamaModels,
+} from "../helpers/provider-detection";
+import { configuredProviderNames } from "../ui/models/configured-providers";
+import {
+  PICK_AGENT,
+  START_COMMAND,
+  briefDetail,
+  parseOpenConversationValue,
+  readableTitle,
+  waitingTag,
+  startedAgentId,
+  type AgentUsage,
+  type WaitingSource,
+} from "../ui/models/home-view";
+import { store, type ActiveAgentChoice, type ActiveHomeDetection } from "../ui/store";
 
 /**
  * Interactive wizard command - the main entry point when `jazz` is run with no arguments
@@ -73,75 +75,33 @@ function wizardSession() {
 
     yield* promptNotificationsOnFirstRun(configService, terminal);
 
-    // Main wizard loop - keeps running until user exits
     let shouldExit = false;
+    // The agent chosen in the full picker, and what was typed before opening it, so home comes
+    // back as it was left.
+    let targetAgentId: string | undefined;
+    let draft: string | undefined;
 
     while (!shouldExit) {
-      // Get all agents for the menu
       const agents = yield* agentService.listAgents();
-
-      // Get last used agent ID from runtime state (used to pre-select agents in pickers)
       const jazzState = yield* JazzStateServiceTag;
       const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
         Effect.map((value) => (typeof value === "string" ? value : null)),
         Effect.catchAll(() => Effect.succeed(null)),
       );
+      const appConfig = yield* configService.appConfig;
+      const providerCount = configuredProviderNames(appConfig).length;
 
-      // Check if any agent has saved conversation history
-      let hasConversationHistory = false;
-      for (const agent of agents) {
-        const history = yield* loadHistory(agent.id).pipe(
-          Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
-        );
-        if (history.conversations.length > 0) {
-          hasConversationHistory = true;
-          break;
-        }
-      }
-
-      // Build menu options dynamically
-      const menuOptions: WizardMenuOption[] = [];
-
-      if (agents.length > 0) {
-        menuOptions.push({
-          label: "New conversation",
-          value: "new-conversation",
-        });
-      }
-
-      if (hasConversationHistory) {
-        const waiting = yield* waitingConversations();
-        menuOptions.push({
-          label:
-            waiting.size === 0
-              ? "Resume conversation"
-              : `Resume conversation (${String(waiting.size)} waiting for you)`,
-          value: "resume-conversation",
-        });
-      }
-
-      menuOptions.push({ label: "Create agent", value: "create-agent" });
-
-      if (agents.length > 0) {
-        menuOptions.push(
-          { label: "List agents", value: "list-agents" },
-          { label: "Edit agent", value: "edit-agent" },
-          { label: "Delete agent", value: "delete-agent" },
-          { label: "Settings", value: "settings" },
-        );
-      } else {
-        // Even if no agents, allow settings
-        menuOptions.push({ label: "Settings", value: "settings" });
-      }
-
-      menuOptions.push({ label: "Exit", value: "exit" });
-
-      const requirements = homeRequirements({
-        agentCount: agents.length,
+      const answer = yield* showHome({
+        agents,
+        lastUsedAgentId,
+        targetAgentId,
+        draft,
+        providerCount,
+        appConfig,
       });
-      const environment = homeEnvironmentFacts();
-
-      const selection = yield* showWizardMenu(menuOptions, requirements, environment);
+      const selection = answer.value;
+      targetAgentId = undefined;
+      draft = undefined;
 
       // Handle the selected action
       switch (selection) {
@@ -151,24 +111,36 @@ function wizardSession() {
           break;
         }
 
-        case "new-conversation": {
-          const selectedAgent =
-            agents.length === 1
-              ? agents[0]
-              : yield* selectAgent(agents, lastUsedAgentId, "pick an agent", "start");
-          if (selectedAgent) {
-            yield* startChatWithAgent(selectedAgent);
+        case START_COMMAND: {
+          const picked = yield* selectAgent(
+            agents,
+            lastUsedAgentId,
+            "start with which agent?",
+            "start",
+          );
+          if (picked !== null) {
+            yield* startChatWithAgent(picked);
             yield* terminal.clear();
           }
           break;
         }
 
-        case "create-agent": {
+        case PICK_AGENT: {
+          const picked = yield* selectAgent(agents, lastUsedAgentId, "pick an agent", "choose");
+          targetAgentId = picked?.id ?? answer.targetAgentId;
+          draft = answer.text;
+          break;
+        }
+
+        case "create-agent":
+        case "create-agent:ollama": {
           // Track agent count before creation to detect if agent was actually created
           const agentCountBefore = agents.length;
 
           // Run create agent flow and start chat with newly created agent
-          const creationResult = yield* createAgentCommand().pipe(Effect.either);
+          const creationResult = yield* createAgentCommand(
+            selection === "create-agent:ollama" ? { initialProvider: "ollama" } : {},
+          ).pipe(Effect.either);
 
           if (creationResult._tag === "Left") {
             // Creation failed
@@ -210,37 +182,18 @@ function wizardSession() {
           break;
         }
 
-        case "edit-agent": {
-          const selectedAgent = yield* selectAgent(
-            agents,
-            lastUsedAgentId,
-            "edit an agent",
-            "edit",
-          );
-          if (selectedAgent) {
-            yield* editAgentCommand(selectedAgent.id).pipe(
-              Effect.catchAll((error) =>
-                Effect.gen(function* () {
-                  yield* terminal.error(`Failed to edit agent: ${String(error)}`);
-                }),
-              ),
-            );
-            yield* terminal.clear();
-          }
-          break;
-        }
-
         case "list-agents": {
-          const listedAgents = yield* agentService.listAgents().pipe(
+          let listedAgents = yield* agentService.listAgents().pipe(
             Effect.catchAll((error) =>
               Effect.gen(function* () {
-                yield* terminal.error(`Failed to list agents: ${String(error)}`);
+                yield* terminal.error(`Could not read your agents: ${String(error)}`);
                 return [] as Agent[];
               }),
             ),
           );
           let previouslyOpenedId: string | undefined;
-          while (true) {
+          let started = false;
+          while (!started && listedAgents.length > 0) {
             const selectedAgent = yield* showAgentList(
               listedAgents,
               lastUsedAgentId,
@@ -248,75 +201,83 @@ function wizardSession() {
             );
             if (selectedAgent === null) break;
             previouslyOpenedId = selectedAgent.id;
-            const metadata = isZeroCostLocalModel(
-              selectedAgent.config.llmProvider,
-              selectedAgent.config.llmModel,
-            )
-              ? undefined
-              : yield* Effect.tryPromise({
-                  try: () =>
-                    getModelsDevMetadata(
-                      selectedAgent.config.llmModel,
-                      selectedAgent.config.llmProvider,
-                    ),
-                  catch: (error) => error,
-                }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-            const llmService = yield* LLMServiceTag;
-            const appConfig = yield* configService.appConfig;
-            const hostUrl =
-              isLocalServerProvider(selectedAgent.config.llmProvider) &&
-              (selectedAgent.config.llmProvider !== "ollama" ||
-                !isOllamaCloudModel(selectedAgent.config.llmModel))
-                ? llmService.resolveLocalProviderBaseUrl(
-                    selectedAgent.config.llmProvider,
-                    appConfig.llm,
-                  )
-                : undefined;
-            yield* showAgentDetails(selectedAgent, metadata, hostUrl);
-          }
-          break;
-        }
-
-        case "delete-agent": {
-          const selectedAgent = yield* selectAgent(
-            agents,
-            lastUsedAgentId,
-            "delete an agent",
-            "delete",
-          );
-          if (selectedAgent) {
-            // Deletion is irreversible — always confirm, defaulting to No.
-            const confirmed = yield* terminal.confirm(
-              `Delete agent "${selectedAgent.name}" (${selectedAgent.config.llmProvider}/${selectedAgent.config.llmModel})? This cannot be undone.`,
-              false,
-            );
-            if (!confirmed) {
-              yield* terminal.info("Deletion cancelled.");
-              yield* terminal.clear();
-              break;
+            const action = yield* showAgentActions(selectedAgent);
+            switch (action) {
+              case "start":
+                yield* startChatWithAgent(selectedAgent);
+                yield* terminal.clear();
+                started = true;
+                break;
+              case "details":
+                yield* showAgentDetails(
+                  selectedAgent,
+                  yield* modelMetadataFor(selectedAgent),
+                  yield* localHostUrlFor(selectedAgent),
+                );
+                break;
+              case "edit":
+                yield* editAgentCommand(selectedAgent.id).pipe(
+                  Effect.catchAll((error) =>
+                    terminal.error(`${selectedAgent.name} was not changed: ${String(error)}`),
+                  ),
+                );
+                yield* terminal.clear();
+                listedAgents = yield* agentService
+                  .listAgents()
+                  .pipe(Effect.catchAll(() => Effect.succeed(listedAgents)));
+                break;
+              case "delete": {
+                const deleted = yield* confirmAndDeleteAgent(selectedAgent);
+                if (deleted) {
+                  listedAgents = listedAgents.filter((agent) => agent.id !== selectedAgent.id);
+                  previouslyOpenedId = undefined;
+                }
+                break;
+              }
+              case "back":
+                break;
             }
-            yield* deleteAgentCommand(selectedAgent.id, { skipConfirmation: true }).pipe(
-              Effect.catchAll((error) =>
-                Effect.gen(function* () {
-                  yield* terminal.error(`Failed to delete agent: ${String(error)}`);
-                }),
-              ),
-            );
-            yield* terminal.clear();
           }
           break;
         }
 
         case "settings": {
-          yield* configWizardCommand();
+          yield* settingsWizardCommand();
           yield* terminal.clear();
           break;
         }
 
         case "exit":
-        default:
           shouldExit = true;
           break;
+
+        default: {
+          const startedId = startedAgentId(selection);
+          if (startedId !== undefined) {
+            const agent = agents.find((candidate) => candidate.id === startedId);
+            if (agent !== undefined) {
+              const message = answer.text?.trim() ?? "";
+              yield* startChatWithAgent(
+                agent,
+                message.length > 0 ? { initialMessage: message } : {},
+              );
+              yield* terminal.clear();
+            }
+            break;
+          }
+          const opened = parseOpenConversationValue(selection);
+          const agent =
+            opened === null
+              ? undefined
+              : agents.find((candidate) => candidate.id === opened.agentId);
+          if (opened === null || agent === undefined) {
+            shouldExit = true;
+            break;
+          }
+          yield* openConversation(agent, opened.conversationId);
+          yield* terminal.clear();
+          break;
+        }
       }
     }
 
@@ -325,28 +286,242 @@ function wizardSession() {
   }).pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
 }
 
+/** Everything home needs before it goes up. */
+interface HomeContext {
+  readonly agents: readonly Agent[];
+  readonly lastUsedAgentId: string | null;
+  readonly targetAgentId: string | undefined;
+  readonly draft: string | undefined;
+  readonly providerCount: number;
+  readonly appConfig: AppConfig;
+}
+
+/** What home answered: the value, what was typed, and the agent chosen when it was answered. */
+interface HomeAnswer {
+  readonly value: string;
+  readonly text?: string;
+  readonly targetAgentId?: string;
+}
+
+/** A key exported in the environment, and a local Ollama if one answers quickly. */
+function firstRunDetections(appConfig: AppConfig) {
+  return Effect.promise(async () => {
+    const ollamaConfig: unknown = (appConfig.llm as Record<string, unknown> | undefined)?.[
+      "ollama"
+    ];
+    const baseUrl =
+      isRecord(ollamaConfig) && typeof ollamaConfig["base_url"] === "string"
+        ? ollamaConfig["base_url"]
+        : undefined;
+    const ollamaModels = await probeOllamaModels(ollamaOrigin(baseUrl));
+    const detected: ActiveHomeDetection[] = environmentKeyDetections();
+    if (ollamaModels !== undefined && ollamaModels > 0) {
+      detected.push({
+        label: "Ollama",
+        detail: `running on this machine with ${String(ollamaModels)} ${ollamaModels === 1 ? "model" : "models"}`,
+      });
+    }
+    return { detected, ollamaModels };
+  });
+}
+
+/** When each agent was last in a conversation, and each conversation's saved title. */
+function conversationActivity(agents: readonly Agent[]) {
+  return Effect.gen(function* () {
+    const lastUsedMs = new Map<string, number>();
+    const titles = new Map<string, string>();
+    for (const agent of agents) {
+      const history = yield* loadHistory(agent.id).pipe(
+        Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+      );
+      for (const conversation of history.conversations) {
+        titles.set(conversation.conversationId, conversation.title);
+        const at = new Date(conversation.endedAt ?? conversation.startedAt).getTime();
+        if (Number.isFinite(at) && at > (lastUsedMs.get(agent.id) ?? -1)) {
+          lastUsedMs.set(agent.id, at);
+        }
+      }
+    }
+    return { lastUsedMs, titles };
+  });
+}
+
+function agentUsage(
+  agents: readonly Agent[],
+  lastUsedMs: ReadonlyMap<string, number>,
+): AgentUsage[] {
+  return agents.map((agent) => {
+    const used = lastUsedMs.get(agent.id);
+    return {
+      id: agent.id,
+      name: agent.name,
+      model: agentModelString(agent.config),
+      persona: agent.config.persona,
+      ...(used === undefined ? {} : { lastUsedMs: used }),
+    };
+  });
+}
+
 /**
- * Show the wizard menu and return the selected action
+ * Goals and loops blocked on the user, as home's waiting section. Each is titled from its name,
+ * what it was asked to do, or its conversation's first message, and says what it needs.
  */
-function showWizardMenu(
-  options: WizardMenuOption[],
-  requirements: ReturnType<typeof homeRequirements>,
-  environment: ReturnType<typeof homeEnvironmentFacts>,
-): Effect.Effect<MenuAction, never, never> {
-  return Effect.async<MenuAction>((resume) => {
-    const tip = TIPS[Math.floor(Math.random() * TIPS.length)] ?? TIPS[0] ?? "";
+function waitingWork(agents: readonly Agent[], titles: ReadonlyMap<string, string>, nowMs: number) {
+  return Effect.gen(function* () {
+    const agentName = (id: string): string =>
+      agents.find((agent) => agent.id === id)?.name ?? "an agent";
+    const age = (iso: string): string => formatRelativeWhen(new Date(iso).getTime(), nowMs);
+    const work: WaitingSource[] = [];
+    const seen = new Set<string>();
+    for (const goal of yield* listOwnedGoals({ states: WAITING_ON_USER_GOAL_STATES })) {
+      const conversationId = goal.sourceConversationId;
+      if (conversationId === undefined || seen.has(conversationId)) {
+        continue;
+      }
+      seen.add(conversationId);
+      const pending = yield* pendingGoalInput(goal);
+      const state = goal.state;
+      const reason =
+        state.kind === "review-required"
+          ? state.question === undefined
+            ? "review"
+            : "question"
+          : pending?.kind === "question" ||
+              (state.kind === "awaiting-input" && state.reason === "question")
+            ? "question"
+            : state.kind === "proposed"
+              ? "review"
+              : "approval";
+      const detail =
+        pending?.described ??
+        (state.kind === "review-required" ? (state.question ?? state.reason) : undefined) ??
+        (state.kind === "proposed" ? "Accept the plan to start it." : undefined);
+      const conversationTitle = titles.get(conversationId);
+      work.push({
+        agentId: goal.agentId,
+        agentName: agentName(goal.agentId),
+        conversationId,
+        goalId: goal.goalId,
+        reason,
+        age: age(goal.updatedAt),
+        objective: goal.plan.objective,
+        ...(goal.name === undefined ? {} : { workName: goal.name }),
+        ...(conversationTitle === undefined ? {} : { conversationTitle }),
+        ...(detail === undefined ? {} : { detail }),
+      });
+    }
+    for (const loop of yield* loopsWaitingOnUser()) {
+      const conversationId = loop.sourceConversationId;
+      if (conversationId === undefined || seen.has(conversationId)) {
+        continue;
+      }
+      seen.add(conversationId);
+      const pending = yield* pendingLoopInput(loop);
+      const conversationTitle = titles.get(conversationId);
+      work.push({
+        agentId: loop.agentId,
+        agentName: agentName(loop.agentId),
+        conversationId,
+        reason:
+          pending === undefined ? "stopped" : pending.kind === "question" ? "question" : "approval",
+        age: age(loop.updatedAt),
+        workName: loop.name,
+        objective: loop.prompt,
+        ...(conversationTitle === undefined ? {} : { conversationTitle }),
+        ...(pending !== undefined
+          ? { detail: pending.described }
+          : loop.state.kind === "failed"
+            ? { detail: loop.state.reason }
+            : {}),
+      });
+    }
+    return work;
+  }).pipe(
+    Effect.provide(makeFileGoalStoreLayer()),
+    Effect.provide(makeFileLoopStoreLayer()),
+    Effect.provide(makeFileRunStoreLayer()),
+    Effect.catchAll(() => Effect.succeed([] as WaitingSource[])),
+  );
+}
+
+/**
+ * Show home and return what was picked.
+ *
+ * The screen goes up as soon as the agent list is known and fills in when the history has
+ * loaded: when each agent was last used, and what is waiting. The target agent is fixed before
+ * the first frame (the one picked in the full picker, else the last used), so the button never
+ * changes under a key already pressed.
+ */
+function showHome(context: HomeContext) {
+  return Effect.gen(function* () {
+    const nowMs = Date.now();
+    const firstRun = context.agents.length === 0;
+    const target =
+      context.targetAgentId ??
+      (context.lastUsedAgentId !== null &&
+      context.agents.some((agent) => agent.id === context.lastUsedAgentId)
+        ? context.lastUsedAgentId
+        : undefined);
+    const base = {
+      shownAt: nowMs,
+      lastUsedAgentId: context.lastUsedAgentId,
+      targetAgentId: target,
+      draft: context.draft,
+      providerCount: context.providerCount,
+    };
+
+    let answer: ((value: HomeAnswer) => void) | undefined;
+    const answered = new Promise<HomeAnswer>((resolve) => {
+      answer = resolve;
+    });
     store.setActiveMenu(
-      {
-        kind: "menu",
-        options,
-        requirements,
-        environment,
-        tip,
-      },
-      (result) => {
-        resume(Effect.succeed(result.kind === "exit" ? "exit" : (result.value as MenuAction)));
-      },
+      buildHome({
+        ...base,
+        agents: agentUsage(context.agents, new Map()),
+        lastUsedWords: new Map(),
+        waiting: [],
+      }),
+      (result) =>
+        answer?.(
+          result.kind === "exit"
+            ? { value: "exit" }
+            : {
+                value: result.value,
+                ...(result.text === undefined ? {} : { text: result.text }),
+                ...(target === undefined ? {} : { targetAgentId: target }),
+              },
+        ),
     );
+
+    if (firstRun) {
+      const detections = yield* firstRunDetections(context.appConfig);
+      store.refreshActiveMenu(
+        buildHome({
+          ...base,
+          agents: [],
+          lastUsedWords: new Map(),
+          waiting: [],
+          ollamaModels: detections.ollamaModels,
+          detected: detections.detected,
+        }),
+      );
+    } else {
+      const activity = yield* conversationActivity(context.agents);
+      const waiting = yield* waitingWork(context.agents, activity.titles, nowMs);
+      const lastUsedWords = new Map(
+        [...activity.lastUsedMs].map(([id, at]) => [id, formatRelativeWhen(at, nowMs)]),
+      );
+      store.refreshActiveMenu(
+        buildHome({
+          ...base,
+          agents: agentUsage(context.agents, activity.lastUsedMs),
+          lastUsedWords,
+          waiting,
+        }),
+      );
+    }
+
+    return yield* Effect.promise(() => answered);
   });
 }
 
@@ -419,6 +594,96 @@ function showAgentDetails(
   });
 }
 
+type AgentAction = "start" | "details" | "edit" | "delete" | "back";
+
+/** What to do with one agent picked from the list. */
+function showAgentActions(agent: Agent): Effect.Effect<AgentAction, never, never> {
+  return Effect.async<AgentAction>((resume) => {
+    store.setActiveMenu(
+      {
+        kind: "menu",
+        title: agent.name,
+        options: [
+          { label: "Start a conversation", value: "start", hint: agentModelString(agent.config) },
+          { label: "Details", value: "details", hint: "model, tools, access" },
+          { label: "Edit", value: "edit", hint: "change its model, persona or tools" },
+          { label: "Delete", value: "delete", hint: "asks first" },
+          { label: "Back to agents", value: "back" },
+        ],
+      },
+      (result) =>
+        resume(Effect.succeed(result.kind === "exit" ? "back" : (result.value as AgentAction))),
+    );
+  });
+}
+
+/**
+ * Ask before deleting, with keeping the agent as the default, and say what goes and what stays:
+ * the agent's file goes, its saved conversations stay on disk but no longer appear in resume.
+ */
+function confirmAndDeleteAgent(agent: Agent) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const history = yield* loadHistory(agent.id).pipe(
+      Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+    );
+    const saved = history.conversations.length;
+    const keeps =
+      saved === 0
+        ? "It has no saved conversations."
+        : `Its ${String(saved)} saved ${saved === 1 ? "conversation stays" : "conversations stay"} on disk, but resume stops listing ${saved === 1 ? "it" : "them"}.`;
+    const answer = yield* terminal.select<"keep" | "delete">(
+      `Delete ${agent.name}? This removes its settings, persona choice and tool access. ${keeps}`,
+      {
+        choices: [
+          { name: `Keep ${agent.name}`, value: "keep" },
+          {
+            name: `Delete ${agent.name}`,
+            value: "delete",
+            tag: "can't be undone",
+            tagTone: "warning",
+          },
+        ],
+        default: "keep",
+      },
+    );
+    if (answer !== "delete") {
+      return false;
+    }
+    const outcome = yield* deleteAgentCommand(agent.id, { skipConfirmation: true }).pipe(
+      Effect.either,
+    );
+    if (outcome._tag === "Left") {
+      yield* terminal.error(`${agent.name} was not deleted: ${String(outcome.left)}`);
+      return false;
+    }
+    return true;
+  });
+}
+
+/** models.dev pricing for an agent's model, skipped for local models that cost nothing. */
+function modelMetadataFor(agent: Agent) {
+  return isZeroCostLocalModel(agent.config.llmProvider, agent.config.llmModel)
+    ? Effect.succeed(undefined)
+    : Effect.tryPromise({
+        try: () => getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+        catch: (error) => error,
+      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+}
+
+/** The server a local-model agent talks to, for the details screen. */
+function localHostUrlFor(agent: Agent) {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    return isLocalServerProvider(agent.config.llmProvider) &&
+      (agent.config.llmProvider !== "ollama" || !isOllamaCloudModel(agent.config.llmModel))
+      ? llmService.resolveLocalProviderBaseUrl(agent.config.llmProvider, appConfig.llm)
+      : undefined;
+  });
+}
+
 /**
  * Show agent selection menu
  */
@@ -456,6 +721,8 @@ function selectAgent(
 function startChatWithAgent(
   agent: Agent,
   options?: {
+    conversationId?: string;
+    initialMessage?: string;
     initialHistory?: ChatMessage[];
     initialUiTranscript?: readonly import("@jazz/adapters/history/conversation-history-service").ConversationUiEntry[];
   },
@@ -475,18 +742,7 @@ function startChatWithAgent(
       );
 
     yield* terminal.clear();
-    yield* terminal.heading(`Starting chat with: ${agent.name}`);
-    yield* terminal.log(`Working directory: ${process.cwd().replace(os.homedir(), "~")}`);
-    yield* terminal.log(
-      `${agentModelString(agent.config)} - Reasoning: ${formatReasoningSelection(agent.config.reasoning)}`,
-    );
-    if (agent.description) {
-      yield* terminal.log(`Description: ${agent.description}`);
-    }
-    yield* terminal.log("");
-    yield* terminal.info("Type '/help' to see available special commands.");
-    yield* terminal.info("Type '/exit' to end the conversation.");
-    yield* terminal.log("");
+    yield* terminal.log(sessionOpenLine(agent));
 
     // Start the chat session
     const chatService = yield* ChatServiceTag;
@@ -503,73 +759,46 @@ function startChatWithAgent(
 const MAX_RESUME_CHOICES = 50;
 
 /**
- * Load all saved conversations across agents, show a selector, and resume the chosen one
+ * Every saved conversation across agents, titled by what it is about, with the ones waiting on
+ * you first and what each needs. A waiting goal can be ended here while keeping its history.
  */
-/**
- * Conversations with a goal or loop that can go no further until the user acts, each with what
- * it waits on in words, so the resume list can say which conversation needs them and why.
- */
-function waitingConversations() {
-  return Effect.gen(function* () {
-    const waiting = new Map<string, string>();
-    const goals = yield* listOwnedGoals({ states: WAITING_ON_USER_GOAL_STATES });
-    for (const goal of goals) {
-      if (goal.sourceConversationId !== undefined) {
-        const pending = yield* pendingGoalInput(goal);
-        waiting.set(
-          goal.sourceConversationId,
-          `goal ${goalHandle(goal)} ${goalStatus(goal, pending)}`,
-        );
-      }
-    }
-    for (const loop of yield* loopsWaitingOnUser()) {
-      if (loop.sourceConversationId !== undefined && !waiting.has(loop.sourceConversationId)) {
-        const pending = yield* pendingLoopInput(loop);
-        waiting.set(loop.sourceConversationId, `loop ${loop.name} ${loopStatus(loop, pending)}`);
-      }
-    }
-    return waiting;
-  }).pipe(
-    Effect.provide(makeFileGoalStoreLayer()),
-    Effect.provide(makeFileLoopStoreLayer()),
-    Effect.provide(makeFileRunStoreLayer()),
-    Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
-  );
-}
-
 function resumeConversation(agents: readonly Agent[], terminal: TerminalService) {
   return Effect.gen(function* () {
-    const waiting = yield* waitingConversations();
     type ConversationEntry = {
       agent: Agent;
       conversationId: string;
       title: string;
       startedAt: string;
-      messageCount: number;
     };
     const entries: ConversationEntry[] = [];
+    const titles = new Map<string, string>();
 
     for (const agent of agents) {
       const history = yield* loadHistory(agent.id).pipe(
         Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
       );
-      for (const conv of history.conversations) {
+      for (const conversation of history.conversations) {
+        titles.set(conversation.conversationId, conversation.title);
         entries.push({
           agent,
-          conversationId: conv.conversationId,
-          title: conv.title,
-          startedAt: conv.startedAt,
-          messageCount: conv.messageCount,
+          conversationId: conversation.conversationId,
+          title: conversation.title,
+          startedAt: conversation.startedAt,
         });
       }
     }
 
     if (entries.length === 0) {
-      yield* terminal.warn("No saved conversations found.");
+      yield* terminal.info("There are no saved conversations yet. Start one with enter on home.");
       return;
     }
 
-    // Waiting conversations first, so the one the menu counted is the one on top.
+    const nowMs = Date.now();
+    const waiting = new Map(
+      (yield* waitingWork(agents, titles, nowMs)).map((source) => [source.conversationId, source]),
+    );
+
+    // Waiting conversations first, so the ones home counted are the ones on top.
     entries.sort(
       (a, b) =>
         Number(waiting.has(b.conversationId)) - Number(waiting.has(a.conversationId)) ||
@@ -577,29 +806,94 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     );
     entries.splice(MAX_RESUME_CHOICES);
 
-    const choices = entries.map((entry, idx) => {
-      const waitingOn = waiting.get(entry.conversationId);
-      return {
-        name: `${waitingOn !== undefined ? "● " : ""}${entry.title} · ${agentModelString(entry.agent.config)}`,
-        ...(waitingOn !== undefined ? { description: `waiting for you: ${waitingOn}` } : {}),
-        value: String(idx),
+    const choices = entries.flatMap((entry, index) => {
+      const work = waiting.get(entry.conversationId);
+      const age = formatRelativeWhen(new Date(entry.startedAt).getTime(), nowMs);
+      const title =
+        work === undefined
+          ? readableTitle({ conversationTitle: entry.title, agentName: entry.agent.name })
+          : readableTitle(work);
+      const resume = {
+        name: title,
+        description:
+          work?.detail === undefined
+            ? entry.agent.name
+            : `${entry.agent.name} · ${briefDetail(work.detail)}`,
+        value: `resume:${String(index)}`,
+        ...(work === undefined
+          ? { tag: age, tagTone: "muted" as const }
+          : { tag: waitingTag(work.reason, work.age), tagTone: "accent" as const }),
       };
+      return work?.goalId === undefined
+        ? [resume]
+        : [
+            resume,
+            {
+              name: `End · ${title}`,
+              description: `${entry.agent.name} · stop goal and keep conversation history`,
+              value: `end:${String(index)}`,
+              tag: "end goal",
+              tagTone: "warning" as const,
+            },
+          ];
     });
 
-    const selectedIdx = yield* terminal.search<string>("Select a conversation to resume:", {
-      choices,
-      placeholder: "Type to filter conversations…",
-    });
-    if (selectedIdx === null || selectedIdx === undefined) return;
+    const selection = yield* terminal.search<string>(
+      waiting.size === 0
+        ? "Which conversation?"
+        : `Which conversation? ${String(waiting.size)} ${waiting.size === 1 ? "is" : "are"} waiting for you.`,
+      {
+        choices,
+        placeholder: "Type to filter by title",
+      },
+    );
+    if (selection === null || selection === undefined) {
+      return;
+    }
 
-    const selected = entries[Number(selectedIdx)];
-    if (!selected) return;
+    const [action, rawIndex] = selection.split(":");
+    const index = Number(rawIndex);
+    if (!Number.isInteger(index) || index < 0) {
+      return;
+    }
+    const selected = entries[index];
+    if (!selected) {
+      return;
+    }
 
-    // Read on demand: the picker above needs titles and dates, not transcripts, so the
-    // chosen conversation is the only one whose messages are ever loaded.
-    const conversation = yield* loadConversationOrNull(selected.agent.id, selected.conversationId);
+    if (action === "end") {
+      const work = waiting.get(selected.conversationId);
+      if (work?.goalId === undefined) {
+        return;
+      }
+      const outcome = yield* controlGoal(work.goalId, "cancel").pipe(
+        Effect.provide(makeFileGoalStoreLayer()),
+        Effect.provide(makeFileRunStoreLayer()),
+      );
+      if (outcome.kind === "refused") {
+        yield* terminal.warn(`Could not end ${readableTitle(work)}: ${outcome.reason}`);
+        return;
+      }
+      yield* terminal.info(`Ended ${readableTitle(work)}. Conversation history kept.`);
+      return;
+    }
+    if (action !== "resume") {
+      return;
+    }
 
-    yield* startChatWithAgent(selected.agent, {
+    yield* openConversation(selected.agent, selected.conversationId);
+  });
+}
+
+/**
+ * Continue one saved conversation. Its messages are read here, on demand: pickers need titles
+ * and dates, not transcripts, so the chosen conversation is the only one ever loaded.
+ */
+function openConversation(agent: Agent, conversationId: string) {
+  return Effect.gen(function* () {
+    const conversation = yield* loadConversationOrNull(agent.id, conversationId);
+    yield* startChatWithAgent(agent, {
+      conversationId,
       initialHistory: conversation?.messages ?? [],
       ...(conversation?.uiTranscript !== undefined
         ? { initialUiTranscript: conversation.uiTranscript }

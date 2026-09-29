@@ -11,9 +11,10 @@
  * enforced here or nowhere.
  */
 
-import { TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
+import { RGBA, TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/core";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { approvalConsequence, approvalTag, approvalTitle } from "../../models/approval";
 import { renderForTest } from "../test-helpers";
 import {
   approvalBodyRows,
@@ -22,7 +23,8 @@ import {
   COLLAPSED_FIELD_CELLS,
   wrapProse,
 } from "./Approval";
-import { Search } from "./Search";
+import { onAccent } from "./Question";
+import { Search, searchResultRows } from "./Search";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
 import {
@@ -130,6 +132,13 @@ function spanWithText(frame: CapturedFrame, text: string): CapturedSpan {
   return found;
 }
 
+function bgOf(span: CapturedSpan): string {
+  const [red, green, blue] = span.bg.toInts();
+  return [red, green, blue]
+    .reduce((hex, channel) => hex + channel.toString(16).padStart(2, "0"), "#")
+    .toUpperCase();
+}
+
 /** Rows on which at least one span carries the given foreground. */
 function rowsColored(frame: CapturedFrame, color: string): number[] {
   const wanted = themeHex(color);
@@ -141,18 +150,12 @@ function rowsColored(frame: CapturedFrame, color: string): number[] {
     .map(({ index }) => index);
 }
 
-/** Perceived brightness, for asserting that one affordance is dimmer than another. */
-function luminance(span: CapturedSpan): number {
-  const [red, green, blue] = span.fg.toInts();
-  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-}
-
-/** Indices of the rows a bordered frame occupies. */
+/** Indices of the rows a band occupies. */
 function framedRows(frame: string): number[] {
   const glyphs = getGlyphs();
   return rows(frame)
     .map((row, index) => ({ row, index }))
-    .filter(({ row }) => row.includes(glyphs.boxV) || row.includes(glyphs.boxTL))
+    .filter(({ row }) => row.startsWith(glyphs.bandBar))
     .map(({ index }) => index);
 }
 
@@ -162,7 +165,130 @@ async function draw(node: ReactNode, viewport: Viewport) {
   return setup;
 }
 
+describe("approval wording", () => {
+  it("titles a two-phase tool by its verb, sentence-cased", () => {
+    expect(approvalTitle("execute write file")).toBe("Write file");
+    expect(approvalTitle("execute_command")).toBe("Command");
+    expect(approvalTitle("calendar.create event")).toBe("Calendar create event");
+  });
+
+  it("drops the app tag only when the title already opens with it", () => {
+    expect(approvalTag("Write file", "write")).toBeUndefined();
+    expect(approvalTag("Send message", "slack")).toBe("slack");
+  });
+
+  it("states the consequence without repeating a value the fields show", () => {
+    const path = "/private/tmp/scratchpad/hello.txt";
+    expect(
+      approvalConsequence(`About to write 5 characters to file: ${path}`, [
+        { value: path },
+        { value: "hello" },
+      ]),
+    ).toBe("About to write 5 characters to file.");
+    // Short values are words in the sentence, not a repeated record entry.
+    expect(approvalConsequence("Sends to bob now", [{ value: "bob" }])).toBe("Sends to bob now.");
+  });
+});
+
 describe("approval overlay", () => {
+  it("states the consequence and the measured effect, and words the controls with the verb", async () => {
+    const { renderer, captureCharFrame, captureSpans } = await draw(
+      <Approval
+        model={{
+          ...APPROVAL,
+          headline: "can't be undone",
+          acceptLabel: "delete",
+          rejectLabel: "don't delete",
+          impact: { label: "removes", value: "214 files, 1.3 GB" },
+        }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = captureCharFrame();
+    expect(frame).toContain("can't be undone");
+    expect(frame).toContain("removes");
+    expect(frame).toContain("214 files, 1.3 GB");
+    expect(frame).toMatch(/delete\s+always allow send_email\s+don't delete/);
+    // The headline replaces the tool's own prose rather than sitting beside it.
+    expect(frame).not.toContain(APPROVAL.consequence);
+    const headline = spanWithText(captureSpans(), "can't be undone");
+    expect(headline.fg.toInts().slice(0, 3)).toEqual(
+      RGBA.fromHex(THEME.warning).toInts().slice(0, 3),
+    );
+    renderer.destroy();
+  });
+
+  it("shows a shell command as code on the element band", async () => {
+    const { renderer, captureCharFrame, captureSpans } = await draw(
+      <Approval
+        model={{ ...APPROVAL, fields: [], command: { text: "rm -rf ./build", language: "sh" } }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    expect(captureCharFrame()).toContain("$ rm -rf ./build");
+    const prompt = spanWithText(captureSpans(), "$ ");
+    expect(prompt.bg.toInts().slice(0, 3)).toEqual(
+      RGBA.fromHex(THEME.surfaceStrong).toInts().slice(0, 3),
+    );
+    renderer.destroy();
+  });
+
+  it("draws a file change as tinted rows with +N −M on the title row", async () => {
+    const { renderer, captureCharFrame, captureSpans } = await draw(
+      <Approval
+        model={{
+          ...APPROVAL,
+          fields: [],
+          diff: {
+            added: 1,
+            removed: 1,
+            rows: [
+              { sign: "-", text: "Venue: undecided", line: 12 },
+              { sign: "+", text: "Venue: Lisbon Loft", line: 12 },
+            ],
+          },
+        }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = captureCharFrame();
+    expect(frame).toContain("+1 −1");
+    expect(frame).toContain("Venue: Lisbon Loft");
+    const added = allSpans(captureSpans()).find((span) => span.text === "+ ");
+    const removed = allSpans(captureSpans()).find((span) => span.text === "- ");
+    expect(added?.fg.toInts().slice(0, 3)).toEqual(
+      RGBA.fromHex(THEME.success).toInts().slice(0, 3),
+    );
+    expect(removed?.fg.toInts().slice(0, 3)).toEqual(
+      RGBA.fromHex(THEME.error).toInts().slice(0, 3),
+    );
+    // Tinted grounds, distinct from each other and from the panel.
+    expect(added?.bg.toInts()).not.toEqual(removed?.bg.toInts());
+    expect(added?.bg.toInts().slice(0, 3)).not.toEqual(
+      RGBA.fromHex(THEME.surface).toInts().slice(0, 3),
+    );
+    renderer.destroy();
+  });
+
+  it("keeps a caution the executor added, even when a headline replaces the prose", async () => {
+    const { renderer, captureCharFrame } = await draw(
+      <Approval
+        model={{
+          ...APPROVAL,
+          headline: "can't be unsent",
+          warning: "This run read an untrusted web page before this call.",
+        }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    expect(captureCharFrame()).toContain("untrusted web page");
+    renderer.destroy();
+  });
+
   it("names the account and every field before anything is committed", async () => {
     const { renderer, captureCharFrame } = await draw(
       <Approval
@@ -186,7 +312,7 @@ describe("approval overlay", () => {
     renderer.destroy();
   });
 
-  it("never paints the card in error red, and spends the warning hue on one row", async () => {
+  it("never paints the card in error red, and spends the warning hue on the bar and the consequence", async () => {
     const { renderer, captureSpans } = await draw(
       <Approval
         model={APPROVAL}
@@ -201,8 +327,16 @@ describe("approval overlay", () => {
       expect(hexOf(span)).not.toBe(themeHex(THEME.error));
     }
 
-    // The marker and the verb, and nothing else.
-    expect(rowsColored(frame, THEME.warning)).toHaveLength(1);
+    // The bar and the consequence, and nothing else.
+    const warned = allSpans(frame)
+      .filter((span) => span.text.trim().length > 0 && hexOf(span) === themeHex(THEME.warning))
+      .map((span) => span.text.trim());
+    expect(warned.length).toBeGreaterThan(1);
+    for (const text of warned) {
+      expect([getGlyphs().bandBar, APPROVAL.consequence]).toContain(text);
+    }
+    // The consequence shares the title row.
+    expect(rowsColored(frame, THEME.warning).length).toBeGreaterThan(1);
 
     renderer.destroy();
   });
@@ -217,19 +351,18 @@ describe("approval overlay", () => {
     );
     const frame = captureSpans();
 
-    const accept = spanWithText(frame, "enter");
+    const accept = spanWithText(frame, " accept ");
     expect(accept.attributes & TextAttributes.BOLD).toBe(0);
     expect(accept.attributes & TextAttributes.DIM).not.toBe(0);
-    expect(hexOf(accept)).toBe(themeHex(THEME.secondary));
 
-    const reject = spanWithText(frame, "esc");
-    expect(reject.attributes & TextAttributes.BOLD).not.toBe(0);
-    expect(hexOf(reject)).toBe(themeHex(THEME.selected));
+    const reject = spanWithText(frame, " reject ");
+    expect(reject.attributes & TextAttributes.DIM).toBe(0);
+    expect(bgOf(reject)).toBe(themeHex(THEME.surfaceStrong));
 
     renderer.destroy();
   });
 
-  it("arms accept without changing reject", async () => {
+  it("arms accept as the focused choice, filled with the accent", async () => {
     const { renderer, captureSpans } = await draw(
       <Approval
         model={{ ...APPROVAL, armed: true }}
@@ -239,36 +372,56 @@ describe("approval overlay", () => {
     );
     const frame = captureSpans();
 
-    const accept = spanWithText(frame, "enter");
+    const accept = spanWithText(frame, " accept ");
     expect(accept.attributes & TextAttributes.BOLD).not.toBe(0);
-    expect(hexOf(accept)).toBe(themeHex(THEME.primary));
-
-    const reject = spanWithText(frame, "esc");
-    expect(reject.attributes & TextAttributes.BOLD).not.toBe(0);
-    expect(hexOf(reject)).toBe(themeHex(THEME.selected));
+    expect(bgOf(accept)).toBe(themeHex(THEME.primary));
+    expect(hexOf(accept)).toBe(themeHex(onAccent(THEME.primary)));
 
     renderer.destroy();
   });
 
-  it("keeps always-allow the least attractive thing on screen", async () => {
-    for (const armed of [false, true]) {
-      const { renderer, captureSpans } = await draw(
-        <Approval
-          model={{ ...APPROVAL, armed }}
-          viewport={WIDE}
-        />,
-        WIDE,
-      );
-      const frame = captureSpans();
+  it("starts on accept, so always-allow is never filled until it is chosen", async () => {
+    const start = await draw(
+      <Approval
+        model={{ ...APPROVAL, armed: true }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const idle = allSpans(start.captureSpans()).find((span) => span.text.includes("always allow"));
+    expect(idle).toBeDefined();
+    expect(idle!.attributes & TextAttributes.BOLD).toBe(0);
+    expect(bgOf(idle!)).toBe(themeHex(THEME.surfaceStrong));
+    start.renderer.destroy();
 
-      const always = allSpans(frame).find((span) => span.text.includes("always allow"));
-      expect(always).toBeDefined();
-      expect(always!.attributes & TextAttributes.BOLD).toBe(0);
-      expect(luminance(always!)).toBeLessThan(luminance(spanWithText(frame, "enter")));
-      expect(luminance(always!)).toBeLessThan(luminance(spanWithText(frame, "esc")));
+    const chosen = await draw(
+      <Approval
+        model={{ ...APPROVAL, armed: true, choice: "always" }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = chosen.captureSpans();
+    const always = allSpans(frame).find((span) => span.text.includes("always allow"));
+    expect(bgOf(always!)).toBe(themeHex(THEME.primary));
+    expect(bgOf(spanWithText(frame, " accept "))).toBe(themeHex(THEME.surfaceStrong));
+    chosen.renderer.destroy();
+  });
 
-      renderer.destroy();
-    }
+  it("shows only individual decisions when persistent approval is unavailable", async () => {
+    const individual = await draw(
+      <Approval
+        model={{ ...APPROVAL, armed: true, allowAlways: false }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = individual.captureCharFrame();
+    expect(frame).toContain("accept");
+    expect(frame).toContain("reject");
+    expect(frame).not.toContain("always");
+    expect(frame).not.toContain("h host");
+    individual.renderer.destroy();
   });
 
   it("keeps always-allow on screen when navigation hints crowd the controls", async () => {
@@ -285,7 +438,9 @@ describe("approval overlay", () => {
         />,
         viewport,
       );
-      expect(captureCharFrame()).toContain("a always allow send_email");
+      expect(captureCharFrame()).toContain(
+        viewport === WIDE ? "always allow send_email" : "always",
+      );
       renderer.destroy();
     }
   });
@@ -326,8 +481,8 @@ describe("approval overlay", () => {
     const wideRows = rows(wide.captureCharFrame());
     expect(wideRows).toHaveLength(WIDE.height);
     for (const row of wideRows) expect([...row]).toHaveLength(WIDE.width);
-    // Windowed: the panel is inset, so the first column is never painted.
-    expect(wideRows.every((row) => (row[0] ?? " ") === " ")).toBe(true);
+    // Windowed: the panel sits on the prose column and stops short of the right edge.
+    expect(wideRows.every((row) => ([...row].at(-1) ?? " ") === " ")).toBe(true);
     wide.renderer.destroy();
 
     const narrow = await draw(
@@ -340,11 +495,12 @@ describe("approval overlay", () => {
     const narrowRows = rows(narrow.captureCharFrame());
     expect(narrowRows).toHaveLength(NARROW.height);
     for (const row of narrowRows) expect([...row]).toHaveLength(NARROW.width);
-    // Fullscreen: the frame starts at column zero of row zero, and the two
+    // Fullscreen: the band starts at column zero of row zero, and the two
     // control rows are the last rows of the viewport.
-    expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().boxTL);
+    expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().bandBar);
     expect(narrowRows[NARROW.height - 2]).toContain("accept");
-    expect(narrowRows[NARROW.height - 1]).toContain("always allow");
+    expect(narrowRows[NARROW.height - 2]).toContain("always");
+    expect(narrowRows[NARROW.height - 1]).toContain("choose");
     narrow.renderer.destroy();
   });
 
@@ -363,9 +519,9 @@ describe("approval overlay", () => {
     expect(frame).toContain("averylongmailbox@");
     expect(frame).toContain("example.com");
     expect(frame).toContain("Account");
-    expect(frame).toContain("enter accept");
-    expect(frame).toContain("esc reject");
-    expect(frame).toContain("up/down more");
+    expect(frame).toContain("accept");
+    expect(frame).toContain("reject");
+    expect(frame).toContain("up/down");
     compact.renderer.destroy();
   });
 
@@ -482,7 +638,8 @@ describe("approval overlay", () => {
       // viewport the expand hint clips the phrase to "more bel…".
       expect(firstFrame).not.toContain(TAIL);
       expect(firstFrame).toMatch(/more bel/);
-      expect(firstFrame).not.toContain("executed on your system");
+      // A short consequence rides on the title row, so it is never below the fold.
+      expect(firstFrame).toContain("executed on your system");
       first.renderer.destroy();
 
       const scrolled = await draw(
@@ -598,7 +755,7 @@ describe("search overlay", () => {
     /** The recency marker sits past the frame edge, the pad and the rail column. */
     const markerOf = (title: string): string => {
       const row = lines.find((line) => line.includes(title)) ?? "";
-      return row.charAt(row.indexOf(glyphs.boxV) + 3);
+      return row.charAt(row.indexOf(glyphs.bandBar) + 3);
     };
 
     expect(markerOf("Shipping 0.14")).toBe(glyphs.active);
@@ -648,7 +805,7 @@ describe("search overlay", () => {
     const wideRows = rows(wide.captureCharFrame());
     expect(wideRows).toHaveLength(WIDE.height);
     for (const row of wideRows) expect([...row]).toHaveLength(WIDE.width);
-    expect(wideRows.every((row) => (row[0] ?? " ") === " ")).toBe(true);
+    expect(wideRows.every((row) => ([...row].at(-1) ?? " ") === " ")).toBe(true);
     wide.renderer.destroy();
 
     const narrow = await draw(
@@ -661,9 +818,56 @@ describe("search overlay", () => {
     const narrowRows = rows(narrow.captureCharFrame());
     expect(narrowRows).toHaveLength(NARROW.height);
     for (const row of narrowRows) expect([...row]).toHaveLength(NARROW.width);
-    expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().boxTL);
+    expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().bandBar);
     expect(narrowRows[NARROW.height - 1]).toContain("insert");
     narrow.renderer.destroy();
+  });
+
+  it("groups a run of hits under one conversation heading, in rank order", async () => {
+    const hit = (conversationId: string, title: string, line: string) => ({
+      agentId: "agent-1",
+      conversationId,
+      conversationTitle: title,
+      when: "today",
+      line,
+      matchStart: line.indexOf("venue"),
+      matchLength: 5,
+      current: false,
+    });
+    const hits = [
+      hit("wedding", "Wedding planning", "confirm the venue with Dana"),
+      hit("wedding", "Wedding planning", "the venue holds 80"),
+      hit("trip", "Lisbon trip", "the venue is walking distance"),
+    ];
+    const grouped = searchResultRows(hits, 1);
+    expect(grouped.map((row) => row.kind)).toEqual([
+      "conversation",
+      "line",
+      "line",
+      "conversation",
+      "line",
+    ]);
+    expect(grouped[0]).toMatchObject({ kind: "conversation", selected: true });
+    expect(grouped[3]).toMatchObject({ kind: "conversation", selected: false });
+
+    const { renderer, captureCharFrame, captureSpans } = await draw(
+      <Search
+        model={{ ...SEARCH, query: "venue", hits, selected: 1 }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = captureCharFrame();
+    expect(frame.split("Wedding planning")).toHaveLength(2);
+    expect(frame).toContain("3 matches in 2 conversations");
+    const matches = allSpans(captureSpans()).filter(
+      (span) => (span.attributes & TextAttributes.UNDERLINE) !== 0,
+    );
+    expect(matches).toHaveLength(3);
+    for (const span of matches) {
+      expect(span.attributes & TextAttributes.BOLD).not.toBe(0);
+    }
+    renderer.destroy();
   });
 
   it("keeps a long line's match on screen", async () => {
@@ -713,7 +917,7 @@ describe("overlays in unicode glyph mode", () => {
     else process.env["JAZZ_UI_GLYPHS"] = previous;
   });
 
-  it("frames both overlays in light box drawing, never rounded or double", async () => {
+  it("draws both overlays as bands with a heavy bar, never a box", async () => {
     const glyphs = getGlyphs();
 
     const approval = await draw(
@@ -724,10 +928,8 @@ describe("overlays in unicode glyph mode", () => {
       WIDE,
     );
     const approvalFrame = approval.captureCharFrame();
-    expect(approvalFrame).toContain(glyphs.boxTL);
-    expect(approvalFrame).toContain(glyphs.boxBR);
-    // The marker that means "the agent is asking for authority".
-    expect(approvalFrame).toContain(glyphs.proposed);
+    expect(approvalFrame).toContain(glyphs.bandBar);
+    expect(approvalFrame).not.toContain(glyphs.boxTL);
     expect(FORBIDDEN_BOX.test(approvalFrame)).toBe(false);
     approval.renderer.destroy();
 
@@ -739,7 +941,8 @@ describe("overlays in unicode glyph mode", () => {
       WIDE,
     );
     const searchFrame = search.captureCharFrame();
-    expect(searchFrame).toContain(glyphs.boxTL);
+    expect(searchFrame).toContain(glyphs.bandBar);
+    expect(searchFrame).not.toContain(glyphs.boxTL);
     expect(searchFrame).toContain(glyphs.rail);
     expect(FORBIDDEN_BOX.test(searchFrame)).toBe(false);
     search.renderer.destroy();

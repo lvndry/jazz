@@ -11,6 +11,7 @@ import { filterCommandsByPrefix, type ChatCommandInfo } from "@jazz/cli/chat/com
 import { applyAtMention } from "./at-mention";
 import { ChatInput } from "./components/ChatInput";
 import { FilePicker } from "./components/FilePicker";
+import { CommandSuggestionItem, StepperLine } from "./components/PromptParts";
 import { Questionnaire } from "./components/Questionnaire";
 import { ScrollableMultiSelect } from "./components/ScrollableMultiSelect";
 import { ScrollableSelect } from "./components/ScrollableSelect";
@@ -18,15 +19,15 @@ import { SearchSelect } from "./components/SearchSelect";
 import { TextInput } from "./components/TextInput";
 import { getGlyphs } from "./glyphs";
 import { InputResults, useInputHandler, useTextInput } from "./hooks/use-input-service";
-import { PICKER_WINDOW_SIZE } from "./picker-window";
+import { initialChoiceIndex } from "./prompt-core/picker-adapter";
+import { readPromptStep } from "./prompt-core/stepper";
 import { isCursorOnFirstLine, isCursorOnLastLine } from "./queue-recall";
 import { store } from "./store";
-import { mergeSuggestions, type SuggestionPrefix } from "./suggestion-menu";
+import { mergeSuggestions } from "./suggestion-menu";
+import { PICKER_WINDOW_SIZE } from "./text/picker-window";
 import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
 import { useFileMentions } from "./use-file-mentions";
-
-const G = getGlyphs();
 
 const COMMAND_SUGGESTIONS_PRIORITY = 50;
 
@@ -47,40 +48,6 @@ const CONFIRM_OPTIONS = [
  * shrinking-region erase bug, and a 20-row dropdown is unscannable anyway.
  */
 const MAX_VISIBLE_SUGGESTIONS = 8;
-
-interface CommandSuggestionItemProps {
-  command: ChatCommandInfo;
-  isSelected: boolean;
-  /** Sigil the row completes: "/" for a command, "@" for a file path. */
-  prefix?: SuggestionPrefix;
-}
-
-function CommandSuggestionItem({
-  command,
-  isSelected,
-  prefix = "/",
-}: CommandSuggestionItemProps): React.ReactElement {
-  return (
-    <Box marginLeft={1}>
-      <Text
-        {...(isSelected ? { color: THEME.selected } : {})}
-        bold={isSelected}
-      >
-        {isSelected ? "> " : "  "}
-        {prefix}
-        {command.name}
-      </Text>
-      {command.usage ? <Text color={THEME.muted}> {command.usage}</Text> : null}
-      {command.source ? (
-        <Text color={THEME.muted}>
-          {" "}
-          ({command.source === "skill" ? "skill" : command.source === "plugin" ? "plugin" : "mcp"})
-        </Text>
-      ) : null}
-      <Text dimColor> – {command.description}</Text>
-    </Box>
-  );
-}
 
 /**
  * Hidden input that waits for Enter key without showing any visible UI.
@@ -365,6 +332,8 @@ function PromptComponent({
     }
   });
 
+  const step = readPromptStep(prompt.options?.["step"]);
+
   return (
     <Box
       flexDirection="column"
@@ -376,6 +345,12 @@ function PromptComponent({
       {workingDirectory && (
         <Box marginBottom={0}>
           <Text dimColor>{workingDirectory}</Text>
+        </Box>
+      )}
+
+      {step !== undefined && (
+        <Box marginBottom={1}>
+          <StepperLine step={step} />
         </Box>
       )}
 
@@ -400,7 +375,7 @@ function PromptComponent({
                 color={THEME.prompt}
                 bold
               >
-                {G.rail}{" "}
+                {getGlyphs().rail}{" "}
               </Text>
               <Box
                 flexDirection="column"
@@ -431,6 +406,7 @@ function PromptComponent({
                     command={cmd}
                     isSelected={suggestionWindowStart + index === selectedSuggestionIndex}
                     prefix={menu?.prefix ?? "/"}
+                    query={menu?.prefix === "/" ? value.slice(1) : undefined}
                   />
                 ))}
                 {hiddenSuggestionsBelow > 0 && (
@@ -446,7 +422,7 @@ function PromptComponent({
                   color={THEME.error}
                   bold
                 >
-                  {G.error} {validationError}
+                  {getGlyphs().error} {validationError}
                 </Text>
               </Box>
             )}
@@ -464,6 +440,10 @@ function PromptComponent({
         {prompt.type === "select" && (
           <SearchSelect
             options={prompt.options?.choices ?? []}
+            initialIndex={initialChoiceIndex(
+              prompt.options?.choices ?? [],
+              prompt.options?.defaultSelected,
+            )}
             pageSize={PICKER_WINDOW_SIZE}
             onSelect={(value) => prompt.resolve(value)}
             onTypedAnswer={prompt.options?.resolveTypedAnswer}
@@ -523,8 +503,8 @@ function PromptComponent({
         {prompt.type === "questionnaire" && (
           <Questionnaire
             suggestions={(prompt.options?.["suggestions"] as readonly Suggestion[]) ?? []}
-            allowCustom={(prompt.options?.["allowCustom"] as boolean) !== false}
             allowMultiple={(prompt.options?.["allowMultiple"] as boolean) === true}
+            position={prompt.options?.["position"] as { index: number; total: number } | undefined}
             onSubmit={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
           />

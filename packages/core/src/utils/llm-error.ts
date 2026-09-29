@@ -224,11 +224,13 @@ export function isConnectionError(error: unknown): boolean {
  * images, raises UnsupportedFunctionalityError and was retried eleven times.
  *
  * Deliberately excluded: `AI_LoadAPIKeyError`, so the friendlier API-key guidance below still
- * wins; and response-side failures (`AI_JSONParseError`, `AI_EmptyResponseBodyError`,
- * `AI_NoContentGeneratedError`), where a retry can legitimately succeed against a flaky server.
+ * wins; response-side failures (`AI_JSONParseError`, `AI_EmptyResponseBodyError`,
+ * `AI_NoContentGeneratedError`), where a retry can legitimately succeed against a flaky server;
+ * and `ChatGPTSignInRequiredError`, which `isCredentialFailure` below classifies as an
+ * authentication error (its name matches `AUTH_ERROR_NAME`), keeping the sign-in remedy instead
+ * of the generic "provider rejected this request" message.
  */
 const PERMANENT_REQUEST_ERROR_NAMES = new Set([
-  "ChatGPTSignInRequiredError",
   "AI_UnsupportedFunctionalityError",
   "AI_UnsupportedModelVersionError",
   "AI_InvalidArgumentError",
@@ -302,6 +304,32 @@ function isProviderAuthFailure(statusCode: number | undefined, message: string):
   if (statusCode === 401) return true;
   if (statusCode !== 403) return false;
   return !isBillingOrPlanError(message);
+}
+
+/**
+ * Wordings a provider or a sign-in flow uses for "you are not signed in, or your credentials
+ * were refused" when there is no 401 to say so. Without a status every one of these used to
+ * read as a connection failure, so a missing ChatGPT sign-in was retried ten times as a
+ * "network issue" instead of failing at once with the command that fixes it.
+ */
+const AUTH_FAILURE_WORDING =
+  /\b(not signed in|sign(?:ed)?[- ]in (?:is )?required|unauthori[sz]ed|not authenticated|authentication|api[ _]?key|login required|(?:access )?token (?:has )?expired|expired (?:access )?token|re-?authenticate)\b/i;
+
+/** Error class names that only ever mean a credential problem. */
+const AUTH_ERROR_NAME = /(?:SignInRequired|Authentication|Unauthori[sz]ed)Error$/;
+
+/**
+ * Whether an error with no usable status is a credential failure rather than a connection
+ * failure. A 400 counts too: some providers answer a bad key with a plain 400.
+ */
+function isCredentialFailure(
+  error: unknown,
+  statusCode: number | undefined,
+  message: string,
+): boolean {
+  if (statusCode !== undefined && statusCode !== 400) return false;
+  if (error instanceof Error && AUTH_ERROR_NAME.test(error.name)) return true;
+  return AUTH_FAILURE_WORDING.test(message);
 }
 
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -418,6 +446,16 @@ export function retryAfterMsOf(error: unknown): number | undefined {
 }
 
 /**
+ * The message for a credential failure. A sign-in error already says what to run, so it is
+ * kept as it is; anything else about a key is restated plainly with the one way to set it.
+ */
+function authFailureMessage(providerName: ProviderName, cleanMessage: string): string {
+  if (/\brun\b|`jazz /i.test(cleanMessage)) return cleanMessage;
+  const providerDisplayName = formatProviderDisplayName(providerName);
+  return `${providerDisplayName} API key is missing or invalid. ${apiKeyHint(providerName)}`;
+}
+
+/**
  * Convert unknown error to appropriate LLMError type.
  * Handles API call errors, HTTP status codes, and error message parsing
  * to create the most appropriate LLM error type.
@@ -484,6 +522,11 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
   let llmError: LLMError;
   if (isProviderAuthFailure(httpStatus, cleanMessage)) {
     llmError = new LLMAuthenticationError({ provider: providerName, message: cleanMessage });
+  } else if (isCredentialFailure(error, httpStatus, cleanMessage)) {
+    llmError = new LLMAuthenticationError({
+      provider: providerName,
+      message: authFailureMessage(providerName, cleanMessage),
+    });
   } else if (httpStatus === 403 && isBillingOrPlanError(cleanMessage)) {
     llmError = new LLMRequestError({
       provider: providerName,
@@ -513,24 +556,10 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
       ...retryAfter,
     });
   } else {
-    if (
-      cleanMessage.toLowerCase().includes("authentication") ||
-      cleanMessage.toLowerCase().includes("api key")
-    ) {
-      // Create a more user-friendly message for API key issues
-      const providerDisplayName = formatProviderDisplayName(providerName);
-      const friendlyMessage = `${providerDisplayName} API key is missing or invalid. ${apiKeyHint(providerName)}`;
-
-      llmError = new LLMAuthenticationError({
-        provider: providerName,
-        message: friendlyMessage,
-      });
-    } else {
-      llmError = new LLMRequestError({
-        provider: providerName,
-        message: cleanMessage || "Unknown LLM request error",
-      });
-    }
+    llmError = new LLMRequestError({
+      provider: providerName,
+      message: cleanMessage || "Unknown LLM request error",
+    });
   }
 
   return llmError;

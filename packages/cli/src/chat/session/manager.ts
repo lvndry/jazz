@@ -6,9 +6,8 @@
 
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { FileSystem } from "@effect/platform";
+import type { FileSystem } from "@effect/platform";
 import { getLogsDirectory } from "@jazz/adapters/logger";
-import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
   FileSystemContextServiceTag,
   type FileSystemContextService,
@@ -26,11 +25,7 @@ import { Effect } from "effect";
 export function initializeSession(
   agent: Agent,
   conversationId: string,
-): Effect.Effect<
-  void,
-  never,
-  FileSystemContextService | LoggerService | FileSystem.FileSystem | typeof AgentConfigServiceTag
-> {
+): Effect.Effect<void, never, FileSystemContextService | LoggerService | FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const agentKey = { agentId: agent.id, conversationId };
     const fileSystemContext = yield* FileSystemContextServiceTag;

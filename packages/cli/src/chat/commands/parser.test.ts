@@ -3,6 +3,14 @@ import { CHAT_COMMANDS, setSkillCommands } from "./constants";
 import { isCommandInput, isShellEscape, parseSpecialCommand } from "./parser";
 
 describe("parseSpecialCommand", () => {
+  it("keeps a rename title intact without limiting its length", () => {
+    const title = `研究  Café 🪷\t${"long title ".repeat(1000).trim()}`;
+    expect(parseSpecialCommand(`/ReNaMe ${title}`)).toEqual({ type: "rename", args: [title] });
+    expect(parseSpecialCommand("/rename")).toEqual({ type: "rename", args: [] });
+    expect(parseSpecialCommand("/new")).toEqual({ type: "new", args: [] });
+    expect(parseSpecialCommand("/start")).toEqual({ type: "start", args: [] });
+  });
+
   describe("recognized commands", () => {
     it("should parse /new command", () => {
       const result = parseSpecialCommand("/new");

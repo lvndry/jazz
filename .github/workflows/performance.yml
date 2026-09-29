@@ -1,0 +1,77 @@
+name: Performance budgets
+
+on:
+  pull_request:
+    paths:
+      - "packages/**"
+      - "bench/**"
+      - "scripts/**"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/performance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          path: head
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+          path: base
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+      - name: Install both revisions
+        run: |
+          (cd base && bun install --frozen-lockfile)
+          (cd head && bun install --frozen-lockfile)
+      - name: Share current workloads for comparable suites
+        run: bun head/scripts/prepare-benchmark-baseline.ts base head
+      - name: Build complete release artifacts
+        run: |
+          (cd base && bun run build:binary)
+          (cd head && bun run build:binary)
+      - name: Measure baseline
+        working-directory: base
+        env:
+          NO_COLOR: ""
+          FORCE_COLOR: "3"
+          JAZZ_OFFLINE: "1"
+          BENCH_PROFILE: smoke
+          BENCH_STARTUP_BASELINE: "1"
+          JAZZ_BENCH_BINARY: ${{ github.workspace }}/base/deploy/binaries/jazz-linux-x64
+        run: bun run bench --samples 3 --output ../base-report.json
+      - name: Measure pull request
+        working-directory: head
+        env:
+          NO_COLOR: ""
+          FORCE_COLOR: "3"
+          JAZZ_OFFLINE: "1"
+          BENCH_PROFILE: smoke
+          JAZZ_BENCH_BINARY: ${{ github.workspace }}/head/deploy/binaries/jazz-linux-x64
+        run: bun run bench --samples 3 --output ../head-report.json
+      - name: Enforce latency and release size budgets
+        run: |
+          bun head/scripts/performance-check.ts --absolute head-report.json
+          bun head/scripts/performance-check.ts base-report.json head-report.json
+          bun head/scripts/performance-check.ts --binary base/deploy/binaries/jazz-linux-x64 head/deploy/binaries/jazz-linux-x64
+      - name: Keep reports for diagnosis
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: performance-reports-linux-x64
+          path: "*-report.json"
+          if-no-files-found: warn
+          retention-days: 14

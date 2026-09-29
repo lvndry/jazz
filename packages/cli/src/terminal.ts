@@ -4,7 +4,10 @@
  */
 
 import {
+  isTerminalReport,
   TerminalServiceTag,
+  type PromptChoice,
+  type PromptStep,
   type TerminalOutput,
   type TerminalService,
 } from "@jazz/core/interfaces/terminal";
@@ -17,11 +20,15 @@ import { createLineSource, type LineSource } from "@/cli/stdin-lines";
 import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { TerminalDimensionsProvider } from "@/cli/ui/contexts/TerminalDimensionsContext";
-import { mountFullscreenApp, type FullscreenHandle } from "@/cli/ui/fullscreen/attach";
+import type { FullscreenHandle, mountFullscreenApp } from "@/cli/ui/fullscreen/attach";
+import { getGlyphs } from "@/cli/ui/glyphs";
 import { setActiveKeymap } from "@/cli/ui/keymaps";
 import { maskSecret } from "@/cli/ui/mask-secret";
+import { reportAnsiText } from "@/cli/ui/report-ansi";
+import { reportPlainText } from "@/cli/ui/report-layout";
 import { store } from "@/cli/ui/store";
-import { CHALK_THEME } from "@/cli/ui/theme";
+import { screenReaderRequested } from "@/cli/ui/terminal-capabilities";
+import { CHALK_THEME, PADDING_BUDGET } from "@/cli/ui/theme";
 import type { Choice, OutputEntry } from "@/cli/ui/types";
 
 // Singleton guard to prevent accidental double instantiation
@@ -96,8 +103,7 @@ function closePromptCancelled(message: string): void {
   });
 }
 
-type PromptChoiceInput<T> =
-  string | { name: string; value: T; description?: string; disabled?: boolean };
+type PromptChoiceInput<T> = string | PromptChoice<T>;
 
 function normalizeChoices<T>(choices: readonly PromptChoiceInput<T>[]): Choice<T>[] {
   return choices.map((choice) =>
@@ -108,6 +114,9 @@ function normalizeChoices<T>(choices: readonly PromptChoiceInput<T>[]): Choice<T
           value: choice.value,
           ...(choice.description === undefined ? {} : { description: choice.description }),
           ...(choice.disabled === true ? { disabled: true } : {}),
+          ...(choice.tag === undefined ? {} : { tag: choice.tag }),
+          ...(choice.tagTone === undefined ? {} : { tagTone: choice.tagTone }),
+          ...(choice.preview === undefined ? {} : { preview: choice.preview }),
         },
   );
 }
@@ -127,7 +136,11 @@ export class InkTerminalService implements TerminalService {
   private disposed = false;
   private unregisterRendererFallback: (() => void) | null = null;
 
-  constructor(options: { fullscreen?: boolean } = {}) {
+  /**
+   * `mountFullscreen` is the fullscreen interface's mount function, passed in already loaded so
+   * the constructor owns the screen before it returns. Without it, Ink renders.
+   */
+  constructor(options: { mountFullscreen?: typeof mountFullscreenApp } = {}) {
     // Guard against multiple instantiation
     if (instanceExists) {
       throw new Error(
@@ -136,15 +149,18 @@ export class InkTerminalService implements TerminalService {
       );
     }
 
-    if (options.fullscreen === false) {
+    if (options.mountFullscreen === undefined) {
       this.mountInk();
     } else {
       setActiveKeymap("fullscreen");
-      this.fullscreen = mountFullscreenApp({
+      this.fullscreen = options.mountFullscreen({
         onFailure: this.fallbackToInk,
       });
       this.unregisterRendererFallback = store.registerRendererFallbackHandler(this.fallbackToInk);
     }
+    // Either renderer is being watched by a person, so streamed text is paced
+    // for reading; a screen reader gets each piece the moment it arrives.
+    store.setStreamPacing(!screenReaderRequested());
     instanceExists = true;
   }
 
@@ -180,6 +196,7 @@ export class InkTerminalService implements TerminalService {
   cleanup(): void {
     if (this.disposed) return;
     this.disposed = true;
+    store.setStreamPacing(false);
     this.unregisterRendererFallback?.();
     this.unregisterRendererFallback = null;
     if (this.fullscreen) {
@@ -224,11 +241,16 @@ export class InkTerminalService implements TerminalService {
 
   log(message: TerminalOutput): Effect.Effect<string | undefined, never> {
     return Effect.sync(() => {
-      const entry: OutputEntry = {
-        type: "log",
-        message,
-        timestamp: new Date(),
-      };
+      // A report travels as data so the fullscreen interface can set it in its own
+      // voice; the styled string is what the scrollback renderer prints.
+      const entry: OutputEntry = isTerminalReport(message)
+        ? {
+            type: "log",
+            message: reportAnsiText(message, getTerminalWidth() - PADDING_BUDGET),
+            timestamp: new Date(),
+            meta: { report: message, plainText: reportPlainText(message, getGlyphs()) },
+          }
+        : { type: "log", message, timestamp: new Date() };
       const logId = store.printOutput(entry);
       return logId;
     });
@@ -291,6 +313,7 @@ export class InkTerminalService implements TerminalService {
       keys?: readonly string[];
       placeholder?: string;
       secret?: boolean;
+      step?: PromptStep;
     },
   ): Effect.Effect<string | undefined, never> {
     return Effect.async<string | undefined>((resume) => {
@@ -312,6 +335,7 @@ export class InkTerminalService implements TerminalService {
           commandSuggestions?: boolean;
           placeholder?: string;
           secret?: boolean;
+          step?: PromptStep;
         };
         resolve: (val: unknown) => void;
         reject?: () => void;
@@ -329,6 +353,7 @@ export class InkTerminalService implements TerminalService {
                 ...(placeholder ? { placeholder } : {}),
                 ...(isSecret ? { secret: true } : {}),
                 ...(options.keys ? { keys: options.keys } : {}),
+                ...(options.step === undefined ? {} : { step: options.step }),
               },
             }
           : {}),
@@ -414,6 +439,7 @@ export class InkTerminalService implements TerminalService {
       choices: readonly PromptChoiceInput<T>[];
       default?: T;
       customAnswer?: (text: string) => T;
+      step?: PromptStep;
     },
   ): Effect.Effect<T | undefined, never> {
     return Effect.async<T | undefined>((resume) => {
@@ -425,6 +451,7 @@ export class InkTerminalService implements TerminalService {
         options: {
           choices,
           ...(options.default === undefined ? {} : { defaultSelected: options.default }),
+          ...(options.step === undefined ? {} : { step: options.step }),
           ...(customAnswer === undefined
             ? {}
             : {
@@ -473,6 +500,7 @@ export class InkTerminalService implements TerminalService {
     options: {
       choices: readonly PromptChoiceInput<T>[];
       placeholder?: string;
+      step?: PromptStep;
     },
   ): Effect.Effect<T | undefined, never> {
     return Effect.async<T | undefined>((resume) => {
@@ -480,7 +508,11 @@ export class InkTerminalService implements TerminalService {
       store.setPrompt({
         type: "search",
         message,
-        options: { choices, placeholder: options.placeholder },
+        options: {
+          choices,
+          placeholder: options.placeholder,
+          ...(options.step === undefined ? {} : { step: options.step }),
+        },
         resolve: (val: unknown) => {
           const choice = choices.find((c) => c.value === val);
           closePromptWithAnswer(message, choice?.label ?? "");
@@ -499,6 +531,7 @@ export class InkTerminalService implements TerminalService {
     options: {
       choices: readonly PromptChoiceInput<T>[];
       default?: readonly T[];
+      step?: PromptStep;
     },
   ): Effect.Effect<readonly T[] | undefined, never> {
     return Effect.async<readonly T[] | undefined>((resume) => {
@@ -506,7 +539,11 @@ export class InkTerminalService implements TerminalService {
       store.setPrompt({
         type: "checkbox",
         message,
-        options: { choices, defaultSelected: options.default },
+        options: {
+          choices,
+          defaultSelected: options.default,
+          ...(options.step === undefined ? {} : { step: options.step }),
+        },
         resolve: (val: unknown) => {
           const selectedValues = val as readonly T[];
           const selectedLabels = selectedValues
@@ -614,6 +651,8 @@ export class PlainTerminalService implements TerminalService {
     return Effect.sync(() => {
       if (typeof message === "string") {
         this.write(message);
+      } else if (isTerminalReport(message)) {
+        this.write(reportPlainText(message, getGlyphs()));
       }
       // Ink nodes are silently ignored in plain terminal mode
       return undefined;
@@ -701,9 +740,21 @@ export class PlainTerminalService implements TerminalService {
 export function createTerminalServiceLayer(
   options: { fullscreen?: boolean } = {},
 ): Layer.Layer<TerminalService, never, never> {
+  if (options.fullscreen === false) {
+    return Layer.effect(
+      TerminalServiceTag,
+      Effect.sync(() => new InkTerminalService()),
+    );
+  }
+  // Loaded here rather than imported at the top so Ink and plain sessions never evaluate
+  // OpenTUI. Its graph uses top-level await, so it can only be loaded asynchronously.
   return Layer.effect(
     TerminalServiceTag,
-    Effect.sync(() => new InkTerminalService(options)),
+    Effect.promise(() => import("@/cli/ui/fullscreen/attach")).pipe(
+      Effect.map(
+        (fullscreen) => new InkTerminalService({ mountFullscreen: fullscreen.mountFullscreenApp }),
+      ),
+    ),
   );
 }
 

@@ -1,3 +1,10 @@
+/**
+ * Build web_fetch, the bounded page-reading tool. createWebFetchTool validates HTTP(S) input,
+ * fetches under the global HTTP approval policy, and extracts HTML to markdown with Defuddle.
+ * Textual responses remain text; binary responses are refused. Pagination operates on the
+ * extracted content. Raw response bytes, connection time and body-read time are capped, and
+ * returned content is labeled external/untrusted for the agent context.
+ */
 import { Defuddle } from "defuddle/node";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -73,7 +80,7 @@ export function createWebFetchTool(): ReturnType<
     // the path or query string, and the reply comes back for it to read.
     egress: true,
     description:
-      "Fetch a known URL's main content as markdown. JavaScript does not run. A host on this machine or the local network is reached after the user approves it.",
+      "Fetch a known URL's main content as markdown. JavaScript does not run. Requests run automatically unless the operator configured a URL approval list.",
     tags: ["web", "fetch"],
     parameters: webFetchSchema,
     validate: makeZodValidator(webFetchSchema),
@@ -106,7 +113,7 @@ export function createWebFetchTool(): ReturnType<
 
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), WEB_FETCH_TIMEOUT_MS);
-        const egressPolicy = yield* egressPolicyForContext(context);
+        const egressPolicy = yield* egressPolicyForContext(context, "web_fetch");
         const fetched = yield* Effect.tryPromise({
           try: async () => {
             const { response, url } = await fetchWithUserAgentFallback(args.url, {

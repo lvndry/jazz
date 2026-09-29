@@ -11,6 +11,7 @@ import {
   type ApprovalToolPair,
 } from "../base-tool";
 import { buildKeyFromContext } from "../context-utils";
+import { describeFootprint, measureFootprint } from "./footprint";
 import { jazzStateApproval } from "./jazz-state-approval";
 
 /**
@@ -49,8 +50,16 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
         const recurse = args.recursive === true ? " recursively" : "";
+        const footprint = yield* measureFootprint(target);
+        const impact = footprint === undefined ? undefined : describeFootprint(footprint);
         const message = `About to delete${recurse}: ${target}\n\nThis action may be irreversible.`;
-        return jazzStateApproval(message, [target]);
+        const approval = jazzStateApproval(message, [target]);
+        if (impact === undefined) {
+          return approval;
+        }
+        return typeof approval === "string"
+          ? { message: approval, impact }
+          : { ...approval, impact };
       }),
 
     handler: (args: RmArgs, context: ToolExecutionContext) =>

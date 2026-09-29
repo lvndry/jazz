@@ -20,6 +20,7 @@ import {
   type LocalTransferRecord,
 } from "@/cli/detach/orchestrator";
 import { getGlyphs, type GlyphSet } from "@/cli/ui/glyphs";
+import { formatPreciseDuration } from "@/cli/ui/text/format";
 import { CHALK_THEME } from "@/cli/ui/theme";
 
 type DetachStatus = Awaited<ReturnType<typeof getDetachStatus>>;
@@ -196,7 +197,7 @@ export function formatDetachEvent(
       const marker = event.success
         ? CHALK_THEME.success(glyphs.success)
         : CHALK_THEME.error(glyphs.error);
-      const seconds = `${(event.durationMs / 1000).toFixed(1)}s`;
+      const seconds = formatPreciseDuration(event.durationMs);
       const summary = event.summary !== undefined ? ` ${event.summary}` : "";
       return `${lead}    ${marker}${chalk.dim(`${summary} ${seconds}`)}\n`;
     }

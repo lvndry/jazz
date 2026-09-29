@@ -155,3 +155,18 @@ that captures what you improved.
 - [Agent loop](./run-lifecycle.md) · [Context management](./context-lifecycle.md): the things most worth measuring
 - [Architecture](./architecture.md): the harness boundaries these evals measure
 - [`evals/README.md`](../../evals/README.md): flags, task authoring, agent configs
+
+## Performance and release size
+
+Run `bun run bench --samples 3 --output head-report.json` to collect isolated
+performance suites. [The benchmark guide](../../bench/README.md) maps workloads,
+measurement boundaries and resource ceilings. Benchmarks complement correctness
+checks and task evals; faster rendering does not establish improved agent quality.
+
+The Performance budgets workflow compares the base and pull request on the same
+Linux runner with the same Bun version, building the complete standalone release
+artifacts and enforcing raw/gzip size growth budgets. Existing suites compare
+p50 and p95 with proportional and absolute noise allowances. New suites use
+explicit absolute ceilings from `bench/budgets.json` until a baseline exists.
+Reports are retained as CI artifacts for investigation. Review budget changes as
+product trade-offs; do not raise a ceiling merely to make a regression pass.

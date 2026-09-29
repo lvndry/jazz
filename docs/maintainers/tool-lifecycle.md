@@ -4,6 +4,10 @@ description: "How a tool call becomes an action in Jazz: risk tiers, the approva
 
 # Tools & approval
 
+HTTP requests and page fetches use global `network.httpApproval`: automatic by default for all
+methods and destinations, or one-call approval outside configured URL grants. This policy is
+independent of risk tiers and previous untrusted content. See [HTTP approvals](../configure/jazz.md#web-request-safety).
+
 This page explains how a tool call becomes an action, and what stands between the
 two.
 
@@ -67,11 +71,10 @@ flowchart TD
 
 Three rules shape that gate:
 
-- **Every tool above `read-only` is gated.** An approval tool raises its request by returning
+- **Other tools above `read-only` are gated.** An approval tool raises its request by returning
   one. A plain tool (`manage_memory`, `create_pdf`, a custom command tool) never gets the chance
   to act first: `plainToolGateRisk` reads its level (or `resolveRiskLevel(args)` when the level
-  depends on the call, as `http_request`'s method does) and the executor raises the request on
-  its behalf. Approving it runs the tool itself.
+  depends on the call) and the executor raises the request on its behalf. Approving it runs the tool itself.
 - **No policy and `false` clear nothing.** `shouldAutoApprove` returns true only under
   `read-only`, `low-risk` and `high-risk`/`true`. The command classifier therefore runs only
   under `read-only` and `low-risk`, where its verdict can change the outcome.

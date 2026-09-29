@@ -85,10 +85,16 @@ export function requireValidAgentId<E extends Error>(
  * Paths outside the home directory are returned unchanged. This function only
  * formats a path; it does not resolve or validate it.
  */
-export function abbreviateHomePath(targetPath: string): string {
-  const homeDirectory = os.homedir();
-  if (homeDirectory.length === 0) return targetPath;
-  if (targetPath === homeDirectory) return "~";
+export function abbreviateHomePath(
+  targetPath: string,
+  homeDirectory: string | undefined = os.homedir(),
+): string {
+  if (homeDirectory === undefined || homeDirectory.length === 0) {
+    return targetPath;
+  }
+  if (targetPath === homeDirectory) {
+    return "~";
+  }
   if (targetPath.startsWith(homeDirectory + path.sep)) {
     return `~${targetPath.slice(homeDirectory.length)}`;
   }

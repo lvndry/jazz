@@ -15,14 +15,16 @@ import chalk from "chalk";
 import { Effect } from "effect";
 import { createAccumulator, reduceEvent } from "@/cli/presentation/activity-reducer";
 import { InkPresentationService } from "@/cli/presentation/ink-presentation-service";
-import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
 import { InkTerminalService } from "@jazz/cli/terminal";
 import packageJson from "../../../../../package.json";
 import { getGlyphs } from "../glyphs";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
-import { store } from "../store";
-import { THEME } from "../theme";
-import { flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
+import { markdownToAnsi } from "../markdown/ansi";
+import { HOME_COMMANDS } from "../models/home-view";
+import { store, type ActiveHome } from "../store";
+import { applyTheme, THEME } from "../theme";
+import { pickThemeInteractively } from "../theme-picker-prompt";
+import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
 import { frameWhen, renderForTest, updateForTest } from "./test-helpers";
 
 /**
@@ -100,6 +102,18 @@ function resetStoreSlices(): void {
   store.setInterruptHandler(null);
 }
 
+/** Margin past the arming delay, so the timer that arms the card has certainly fired. */
+const ARMING_MARGIN_MS = 50;
+
+/**
+ * Wait until an approval card accepts enter. The accept control is drawn from the start
+ * (dimmed while inert), so arming is waited for by time rather than by frame text.
+ */
+async function afterArming(flush: () => Promise<void>): Promise<void> {
+  await Bun.sleep(APPROVAL_ARM_MS + ARMING_MARGIN_MS);
+  await flush();
+}
+
 describe("fullscreen bridge", () => {
   const originalChalkLevel = chalk.level;
 
@@ -141,7 +155,22 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("claude-opus-5");
     // 82.1k of 200k is 41%.
     expect(text).toContain("41%");
-    expect(text).toContain("20k/40k $0.04");
+    expect(text).toContain(`20k in ${getGlyphs().bullet} 40k out ${getGlyphs().bullet} $0.04`);
+  });
+
+  it("names the reasoning effort beside the model in the composer", async () => {
+    const text = await frame(() => {
+      store.resetRunStats({ model: "gpt-6-sol", reasoning: "medium" });
+    });
+    expect(text).toContain(`gpt-6-sol ${getGlyphs().bullet} medium`);
+  });
+
+  it("shows the model alone when the conversation does not reason", async () => {
+    const text = await frame(() => {
+      store.resetRunStats({ model: "gpt-6-sol" });
+    });
+    expect(text).toContain("gpt-6-sol");
+    expect(text).not.toContain(`gpt-6-sol ${getGlyphs().bullet}`);
   });
 
   it("shows the resolved local endpoint beside a conversation model", async () => {
@@ -256,7 +285,7 @@ describe("fullscreen bridge", () => {
     });
     expect(text).toContain("gmail");
     expect(text).toContain("search");
-    expect(text).toContain("todo 1/3");
+    expect(text).toContain("1 of 3");
     expect(text).toContain("Rank urgent threads");
     expect(text).toContain("Draft replies");
   });
@@ -307,7 +336,7 @@ describe("fullscreen bridge", () => {
       todoSnapshot,
     });
     const blankRowsAboveTodoIn = (rows: readonly string[]): number => {
-      const todoIndex = rows.findIndex((row) => row.includes("todo"));
+      const todoIndex = rows.findIndex((row) => row.includes("plan"));
       let blankRows = 0;
       for (let index = todoIndex - 1; rows[index]?.trim() === ""; index -= 1) {
         blankRows += 1;
@@ -318,7 +347,7 @@ describe("fullscreen bridge", () => {
     const settledRows = (
       await frameWhen(rendered, (frame) => blankRowsAboveTodoIn(frame.split("\n")) === 1)
     ).split("\n");
-    const settledTodoIndex = settledRows.findIndex((row) => row.includes("todo"));
+    const settledTodoIndex = settledRows.findIndex((row) => row.includes("plan"));
     expect(settledTodoIndex).toBeGreaterThan(-1);
 
     // The row directly above the checklist header belongs to the transcript
@@ -354,15 +383,15 @@ describe("fullscreen bridge", () => {
       });
     });
     await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("todo 1/2");
+    expect(rendered.captureCharFrame()).toContain("1 of 2");
 
     store.setActivity({ phase: "idle" });
     await rendered.flush();
-    expect(rendered.captureCharFrame()).toContain("todo 1/2");
+    expect(rendered.captureCharFrame()).toContain("1 of 2");
 
     store.setChatBusy(true);
     await rendered.flush();
-    expect(rendered.captureCharFrame()).not.toContain("todo 1/2");
+    expect(rendered.captureCharFrame()).not.toContain("1 of 2");
 
     rendered.renderer.destroy();
   });
@@ -534,8 +563,10 @@ describe("fullscreen bridge", () => {
     await rendered.mockInput.pressKey("/");
     await settleKeypress(rendered.flush);
     const listed = rendered.captureCharFrame();
-    expect(listed).toContain("/agents");
-    expect(listed).toContain("/workflows");
+    // The list opens at its head, with the first entry highlighted, rather than
+    // wrapped so the tail of the list sits above the selection.
+    expect(listed).toContain(`${getGlyphs().bandBar} /agents`);
+    expect(listed).not.toContain("/workflows");
 
     await rendered.mockInput.pressKey("h");
     await settleKeypress(rendered.flush);
@@ -740,7 +771,10 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush);
 
     expect(interrupted).toBe(1);
-    expect(store.getOutputSnapshot().entries.at(-1)?.message).toBe("Interrupting…");
+    // The stop is settled as one summary, taken the moment the keys were pressed.
+    const stopped = store.getOutputSnapshot().entries.at(-1)?.meta?.["stoppedSummary"];
+    expect(stopped).toMatchObject({ done: ["nothing was changed"], notDone: [] });
+    expect(rendered.captureCharFrame()).toContain("stopped by you after");
     store.setInterruptHandler(null);
     store.setChatBusy(false);
     rendered.renderer.destroy();
@@ -764,43 +798,165 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu(null);
   });
 
-  it("draws live home readiness rows instead of an empty setup list", async () => {
+  const homeSurface = (overrides: Partial<ActiveHome> = {}): ActiveHome => ({
+    kind: "home",
+    shownAt: 1,
+    agents: [
+      { id: "sol", name: "sol", model: "gpt-5.6-sol", persona: "default", lastUsed: "now" },
+      { id: "luna", name: "luna", model: "gpt-5.6-luna", persona: "default" },
+    ],
+    agentCount: 2,
+    targetAgentId: "sol",
+    waiting: [],
+    commands: HOME_COMMANDS,
+    ...overrides,
+  });
+
+  it("draws the home surface the wizard publishes", async () => {
     const text = await frame(() => {
-      store.setActiveMenu({
-        kind: "menu",
-        requirements: [
-          {
-            label: "agents",
-            ready: false,
-            detail: "none yet",
-            remedy: "create your first one below",
-          },
-        ],
-        options: [{ label: "Create agent", value: "create-agent" }],
-      });
+      store.setActiveMenu(homeSurface());
     });
-    expect(text).toContain("agents");
-    expect(text).toContain("create your first one below");
-    expect(text).toContain("Press enter on");
+    expect(text).toContain("+ New conversation");
+    expect(text).toContain("with sol");
+    expect(text).toContain("Start with another agent");
     store.setActiveMenu(null);
   });
 
-  it("draws the environment report the wizard publishes", async () => {
-    const text = await frame(() => {
-      store.setActiveMenu({
-        kind: "menu",
-        options: [{ label: "Exit", value: "exit" }],
-        environment: [
-          { label: "date", detail: "Wednesday, August 26, 2026 (UTC+2, Europe/Paris)" },
-          { label: "os", detail: "darwin 24.6.0 (arm64) · /bin/zsh · lvndry" },
-          { label: "cwd", detail: "/Users/lvndry/github/jazz" },
-          { label: "hardware", detail: "Apple M4 Pro · 14 cores · 24 GB RAM" },
-        ],
+  it("sends the typed first message to the agent chosen with the arrows", async () => {
+    const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+    });
+    await renderOnce();
+    const answers: { value: string; text?: string }[] = [];
+    updateForTest(() => {
+      store.setActiveMenu(homeSurface(), (result) => {
+        if (result.kind === "select") {
+          answers.push({
+            value: result.value,
+            ...(result.text === undefined ? {} : { text: result.text }),
+          });
+        }
       });
     });
-    expect(text).toContain("environment");
-    expect(text).toContain("darwin 24.6.0 (arm64) · /bin/zsh · lvndry");
+    await flush();
+    await mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(flush);
+    for (const character of "hi there") {
+      await mockInput.pressKey(character === " " ? " " : character);
+    }
+    await settleKeypress(flush);
+    await mockInput.pressKey("RETURN");
+    await settleKeypress(flush);
+    renderer.destroy();
+    expect(answers).toEqual([{ value: "start:luna", text: "hi there" }]);
+  });
+
+  it("keeps the choice and the typing when home is refreshed, and resets on a new showing", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    const answers: string[] = [];
+    const record = (result: { kind: string; value?: string }): void => {
+      answers.push(result.value ?? result.kind);
+    };
+    updateForTest(() => {
+      store.setActiveMenu(homeSurface(), record);
+    });
+    await flush();
+    await mockInput.pressKey("ARROW_DOWN");
+    await mockInput.pressKey("k");
+    await settleKeypress(flush);
+    updateForTest(() => {
+      store.refreshActiveMenu(
+        homeSurface({
+          waiting: [
+            {
+              key: "1",
+              value: "open:sol:c1",
+              title: "Wedding venue",
+              agent: "sol",
+              reason: "question",
+              age: "1d ago",
+            },
+          ],
+        }),
+      );
+    });
+    await flush();
+    const refreshed = captureCharFrame();
+    expect(refreshed).toContain("with luna");
+    expect(refreshed).toContain("Wedding venue");
+    // Letters always type on home; none of them is a shortcut.
+    await mockInput.pressKey("r");
+    await settleKeypress(flush);
+    expect(answers).toEqual([]);
+    expect(captureCharFrame()).toContain("kr");
+    updateForTest(() => {
+      store.setActiveMenu(homeSurface({ shownAt: 2 }), record);
+    });
+    await flush();
+    const fresh = captureCharFrame();
+    renderer.destroy();
     store.setActiveMenu(null);
+    expect(fresh).toContain("with sol");
+    expect(fresh).toContain("Type / to get started, or type your first message");
+  });
+
+  it("runs a slash command from the home composer without starting a conversation", async () => {
+    const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+    });
+    await renderOnce();
+    const answers: string[] = [];
+    updateForTest(() => {
+      store.setActiveMenu(homeSurface(), (result) => {
+        answers.push(result.kind === "select" ? result.value : "exit");
+      });
+    });
+    await flush();
+    for (const character of "/res") {
+      await mockInput.pressKey(character);
+    }
+    await settleKeypress(flush);
+    await mockInput.pressKey("RETURN");
+    await settleKeypress(flush);
+    renderer.destroy();
+    expect(answers).toEqual(["resume-conversation"]);
+  });
+
+  it("quits home with esc on an empty composer and with ctrl+c", async () => {
+    for (const quit of ["escape", "ctrl-c"] as const) {
+      const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+        width: WIDTH,
+        height: HEIGHT,
+      });
+      await renderOnce();
+      const answers: string[] = [];
+      updateForTest(() => {
+        store.setActiveMenu(homeSurface(), (result) => {
+          answers.push(result.kind);
+        });
+      });
+      await flush();
+      if (quit === "escape") {
+        await mockInput.pressKey("ESCAPE");
+      } else {
+        await mockInput.pressKey("c", { ctrl: true });
+      }
+      await settleKeypress(flush);
+      renderer.destroy();
+      expect(answers).toEqual(["exit"]);
+    }
+  });
+
+  it("drops a refresh for a menu that was already answered", () => {
+    store.setActiveMenu(null);
+    store.refreshActiveMenu(homeSurface());
+    expect(store.getActiveMenuSnapshot()).toBeNull();
   });
 
   it("draws the agent picker with the title that says why the list is open", async () => {
@@ -841,6 +997,39 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
     store.setActiveMenu(null);
     expect(selected).toEqual(["EXIT"]);
+  });
+
+  it("filters the agent picker by typing and starts the match with enter", async () => {
+    const selected: string[] = [];
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
+    await rendered.renderOnce();
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "pick an agent",
+        action: "start",
+        initialIndex: 0,
+        agents: [
+          { id: "a1", name: "chatgpt-sol", model: "chatgpt/gpt-6-sol", persona: "default" },
+          { id: "a2", name: "luna", model: "openai/gpt-5.6-luna", persona: "default" },
+          { id: "a3", name: "nano", model: "openai/gpt-5.4-nano", persona: "default" },
+        ],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
+    await rendered.flush();
+    for (const key of ["n", "a", "n", "o"]) {
+      await rendered.mockInput.pressKey(key);
+      await settleKeypress(rendered.flush);
+    }
+    const filtered = rendered.captureCharFrame();
+    expect(filtered).toContain("nano");
+    expect(filtered).not.toContain("chatgpt-sol");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    rendered.renderer.destroy();
+    store.setActiveMenu(null);
+    expect(selected).toEqual(["a3"]);
   });
 
   it("starts the selected agent from the picker with enter", async () => {
@@ -1421,6 +1610,47 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
   });
 
+  it("answers a question with its number, and a yes/no question with y or n", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: 30 });
+    await rendered.renderOnce();
+    const presentation = presentationProducer();
+
+    const picked = Effect.runPromise(
+      presentation.requestUserInput({
+        question: "Which venue?",
+        suggestions: [
+          { label: "Lisbon Loft", value: "loft" },
+          { label: "Casa do Jazz", value: "casa" },
+          { label: "The Blue Room", value: "blue" },
+        ],
+        allowCustom: true,
+      }),
+    );
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("Something else");
+    await rendered.mockInput.pressKey("2");
+    await settleKeypress(rendered.flush);
+    expect(await picked).toEqual({ kind: "answered", response: "casa" });
+
+    const answered = Effect.runPromise(
+      presentation.requestUserInput({
+        question: "Move the Q3 review to Friday?",
+        suggestions: [
+          { label: "Yes, move it", value: "yes" },
+          { label: "No, keep Thursday", value: "no" },
+        ],
+        allowCustom: true,
+      }),
+    );
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("y/n answer");
+    await rendered.mockInput.pressKey("n");
+    await settleKeypress(rendered.flush);
+    expect(await answered).toEqual({ kind: "answered", response: "no" });
+
+    rendered.renderer.destroy();
+  });
+
   it("drives the filepicker producer through filesystem scan and selection", async () => {
     const basePath = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-filepicker-"));
     const selectedPath = path.join(basePath, "choice.txt");
@@ -1862,8 +2092,7 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
     expect(rendered.captureCharFrame()).toContain("field9");
-    expect(rendered.captureCharFrame()).toContain("esc to reject");
-    expect(rendered.captureCharFrame()).not.toContain("enter to accept");
+    expect(rendered.captureCharFrame()).toContain("cancel");
 
     await rendered.mockInput.pressKey("RETURN");
     await settleKeypress(rendered.flush);
@@ -1871,14 +2100,91 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush);
     expect(settled).toBeUndefined();
 
-    expect(await frameWhen(rendered, (frame) => frame.includes("enter to accept"))).toContain(
-      "enter to accept",
-    );
+    await afterArming(rendered.flush);
     await rendered.mockInput.pressKey("RETURN");
     await settleKeypress(rendered.flush);
     expect(await pending).toEqual({ approved: true });
 
     rendered.renderer.destroy();
+  });
+
+  async function armedApproval(toolName = "http_request"): Promise<{
+    rendered: Awaited<ReturnType<typeof renderForTest>>;
+    outcome: Promise<unknown>;
+  }> {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
+    await rendered.renderOnce();
+    const outcome = Effect.runPromise(
+      presentationProducer().requestApproval({
+        toolCallId: "call-http",
+        toolName,
+        executeToolName: toolName,
+        message: `${toolName} sends data off this machine.`,
+        executeArgs:
+          toolName === "http_request"
+            ? { method: "GET", url: "https://example.com/data" }
+            : { to: "other@example.com", body: "test message" },
+      }),
+    );
+    await rendered.flush();
+    await afterArming(rendered.flush);
+    return { rendered, outcome };
+  }
+
+  it("right then enter grants always allow for the tool", async () => {
+    const always = await armedApproval("email_send");
+    await always.rendered.mockInput.pressKey("ARROW_RIGHT");
+    await settleKeypress(always.rendered.flush);
+    await always.rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(always.rendered.flush);
+    expect(await always.outcome).toEqual({ approved: true, alwaysApproveTool: "email_send" });
+    always.rendered.renderer.destroy();
+  });
+
+  it("walking right to the end and pressing enter rejects, asking what to do instead", async () => {
+    const reject = await armedApproval();
+    for (const key of ["ARROW_RIGHT", "ARROW_RIGHT", "ARROW_RIGHT"]) {
+      await reject.rendered.mockInput.pressKey(key);
+      await settleKeypress(reject.rendered.flush);
+    }
+    await reject.rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(reject.rendered.flush);
+    expect(reject.rendered.captureCharFrame().toLowerCase()).toContain("instead");
+    reject.rendered.renderer.destroy();
+  });
+
+  it("ignores the removed host and always keys on an HTTP approval", async () => {
+    const trust = await armedApproval();
+    let resolved = false;
+    void trust.outcome.then(() => {
+      resolved = true;
+    });
+    await trust.rendered.mockInput.pressKey("h");
+    await trust.rendered.mockInput.pressKey("a");
+    await settleKeypress(trust.rendered.flush);
+    expect(resolved).toBe(false);
+    await trust.rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(trust.rendered.flush);
+    expect(await trust.outcome).toEqual({ approved: true });
+    trust.rendered.renderer.destroy();
+  });
+
+  it("navigates directly from HTTP accept to reject", async () => {
+    const trust = await armedApproval();
+    await trust.rendered.mockInput.pressKey("ARROW_RIGHT");
+    await settleKeypress(trust.rendered.flush);
+    await trust.rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(trust.rendered.flush);
+    expect(trust.rendered.captureCharFrame().toLowerCase()).toContain("instead");
+    trust.rendered.renderer.destroy();
+  });
+
+  it("still accepts on a bare enter, since focus starts on accept", async () => {
+    const accept = await armedApproval();
+    await accept.rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(accept.rendered.flush);
+    expect(await accept.outcome).toEqual({ approved: true });
+    accept.rendered.renderer.destroy();
   });
 
   it("keeps reject available from a producer while accept is still inert", async () => {
@@ -1913,13 +2219,10 @@ describe("fullscreen bridge", () => {
 
   it("accepts only denial until an approval has armed", async () => {
     const decisions: string[] = [];
-    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
-      <FullscreenBridge />,
-      {
-        width: 100,
-        height: 28,
-      },
-    );
+    const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+      width: 100,
+      height: 28,
+    });
     await renderOnce();
     store.setPrompt({
       type: "select",
@@ -1941,7 +2244,7 @@ describe("fullscreen bridge", () => {
     await settleKeypress(flush);
     expect(decisions).toEqual([]);
 
-    await frameWhen({ flush, captureCharFrame }, (frame) => frame.includes("enter to accept"));
+    await afterArming(flush);
     await mockInput.pressKey("RETURN");
     await settleKeypress(flush);
 
@@ -1993,7 +2296,7 @@ describe("fullscreen bridge", () => {
     expect(decisions).toEqual(["no"]);
   });
 
-  it("crops a long approval command and expands it with Ctrl+O", async () => {
+  it("shows a long shell command whole, as code, with its consequence on the title row", async () => {
     const TAIL = "AND-THEN-RM-RF-TMP-BUILD";
     const command = `${"a".repeat(160)} ${TAIL}`;
     const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 28 });
@@ -2012,16 +2315,12 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
 
-    const collapsed = rendered.captureCharFrame();
-    expect(collapsed).toContain("ctrl+o");
-    expect(collapsed).toContain("expand");
-    expect(collapsed).not.toContain(TAIL);
-
-    await rendered.mockInput.pressKey("\x0f");
-    await settleKeypress(rendered.flush);
-    const expanded = rendered.captureCharFrame();
-    expect(expanded).toContain(TAIL);
-    expect(expanded).toContain("collapse");
+    const frame = rendered.captureCharFrame();
+    // The tail of a command is the part an approval exists to show, so it is never cropped.
+    expect(frame).toContain(TAIL);
+    expect(frame).toContain("$ aaaa");
+    expect(frame).toContain("changes this machine");
+    expect(frame).not.toContain("This command will be executed");
 
     rendered.renderer.destroy();
     store.setApprovalRequest(null);
@@ -2059,7 +2358,8 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
   });
 
-  it("names the HTTP method a URL tool will send on its approval card", async () => {
+  it("names the HTTP method and permits only an individual URL-tool approval", async () => {
+    const decisions: string[] = [];
     const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 24 });
     await rendered.renderOnce();
     store.setPrompt({
@@ -2071,7 +2371,7 @@ describe("fullscreen bridge", () => {
           { label: "Always tool", value: "always_tool" },
         ],
       },
-      resolve: () => {},
+      resolve: (value) => decisions.push(String(value)),
     });
     store.setApprovalRequest({
       toolName: "web_fetch",
@@ -2082,7 +2382,17 @@ describe("fullscreen bridge", () => {
     await rendered.flush();
     const frame = rendered.captureCharFrame();
     expect(frame).toMatch(/method\s+GET/);
-    expect(frame).toContain("a always allow web_fetch this session");
+    expect(frame).not.toContain("always");
+    expect(frame).not.toContain("h host");
+    await afterArming(rendered.flush);
+    await rendered.mockInput.pressKey("a");
+    await rendered.mockInput.pressKey("h");
+    await settleKeypress(rendered.flush);
+    expect(decisions).toEqual([]);
+    expect(store.getApprovalRequestSnapshot()).not.toBeNull();
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    expect(decisions).toEqual(["yes"]);
 
     rendered.renderer.destroy();
     store.setApprovalRequest(null);
@@ -2113,7 +2423,7 @@ describe("fullscreen bridge", () => {
     });
     await rendered.flush();
     expect(rendered.captureCharFrame()).toContain("always allow git add");
-    await frameWhen(rendered, (frame) => frame.includes("enter to accept"));
+    await afterArming(rendered.flush);
     await rendered.mockInput.pressKey("a");
     await settleKeypress(rendered.flush);
 
@@ -2121,6 +2431,39 @@ describe("fullscreen bridge", () => {
     store.setApprovalRequest(null);
     store.setPrompt(null);
     expect(decisions).toEqual(["always_command"]);
+  });
+
+  it("opens the edit path with `e` only once armed, and only for a tool that allows it", async () => {
+    const decisions: string[] = [];
+    const rendered = await renderForTest(<FullscreenBridge />, { width: 100, height: 24 });
+    await rendered.renderOnce();
+    store.setPrompt({
+      type: "select",
+      message: "Approve this action?",
+      options: { choices: [{ label: "Yes", value: "yes" }] },
+      resolve: (value) => decisions.push(String(value)),
+    });
+    store.setApprovalRequest({
+      toolName: "execute_command",
+      executeToolName: "execute_command",
+      message: "This command will modify the working tree.",
+      args: { command: "rm -rf ./build" },
+      editableArg: "command",
+    });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("e edit command");
+    await rendered.mockInput.pressKey("e");
+    await settleKeypress(rendered.flush);
+    expect(decisions).toEqual([]);
+
+    await afterArming(rendered.flush);
+    await rendered.mockInput.pressKey("e");
+    await settleKeypress(rendered.flush);
+    expect(decisions).toEqual(["edit"]);
+
+    rendered.renderer.destroy();
+    store.setApprovalRequest(null);
+    store.setPrompt(null);
   });
 
   // Ctrl+A and Cmd+A are "go to start of line" in the composer. The allowlist
@@ -2157,7 +2500,7 @@ describe("fullscreen bridge", () => {
         args: { command: "git push --force" },
       });
       await rendered.flush();
-      await frameWhen(rendered, (frame) => frame.includes("enter to accept"));
+      await afterArming(rendered.flush);
       if (typeof key === "string") await rendered.mockInput.pressKey(key);
       else await rendered.mockInput.pressKey("a", key);
       await settleKeypress(rendered.flush);
@@ -2762,12 +3105,42 @@ describe("fullscreen bridge", () => {
   });
 
   it("keeps streamed deltas clean when the formatter has styled them", async () => {
-    const text = await frame(() => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    updateForTest(() => {
       store.appendStream("response", chalk.bold("bold start "));
       store.appendStream("response", chalk.dim("dim finish"));
     });
+    const text = await frameWhen(rendered, (candidate) => candidate.includes("dim finish"));
+    rendered.renderer.destroy();
     expect(text).not.toContain("\u001b");
     expect(text).toContain("bold start dim finish");
+  });
+
+  it("paces a streamed burst in over several frames, and shows a finished turn whole", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setStreamPacing(true);
+    try {
+      const burst = `${"the model sent this whole paragraph in a single chunk ".repeat(4)}END`;
+      updateForTest(() => {
+        store.appendStream("response", burst);
+      });
+      await rendered.flush();
+      expect(rendered.captureCharFrame()).not.toContain("END");
+      expect(await frameWhen(rendered, (candidate) => candidate.includes("END"))).toContain("END");
+
+      updateForTest(() => {
+        store.appendStream("response", " and then a tail FIN");
+        store.finalizeStream();
+        store.flushOutputBatchNow();
+      });
+      await rendered.flush();
+      expect(rendered.captureCharFrame()).toContain("FIN");
+    } finally {
+      store.setStreamPacing(false);
+      rendered.renderer.destroy();
+    }
   });
   it("keeps the indicator visible while the model is reasoning", async () => {
     // Reasoning is the model working with nothing yet to show, which is when an
@@ -2779,8 +3152,9 @@ describe("fullscreen bridge", () => {
     const rows = text.split("\n").filter((row) => row.length > 0);
     const composerIndex = rows.findIndex((row) => row.includes("Ask anything"));
     expect(composerIndex).toBeGreaterThan(1);
-    expect(rows[composerIndex - 1]?.trim()).toBe("");
-    const waitingRow = rows[composerIndex - 2] ?? "";
+    // Band padding, then the quiet row, then the live band's indicator.
+    expect(rows[composerIndex - 2]?.trim()).toBe("");
+    const waitingRow = rows[composerIndex - 3] ?? "";
     expect(waitingRow.trim().length).toBeGreaterThan(0);
   });
 
@@ -2793,6 +3167,7 @@ describe("fullscreen bridge", () => {
       fullText: "the full chain of thought",
       durationMs: 3_200,
     });
+    store.settleTurnThought();
     store.flushOutputBatchNow();
     await rendered.flush();
 
@@ -2815,6 +3190,8 @@ describe("fullscreen bridge", () => {
       fullText: "thought that belongs first",
       durationMs: 1_000,
     });
+    // The answer's first text settles what the turn thought, just above it.
+    store.settleTurnThought();
     store.printOutput({
       type: "streamContent",
       message: "the spoken answer",
@@ -2845,6 +3222,7 @@ describe("fullscreen bridge", () => {
       fullText: "the earlier thought",
       durationMs: 1_000,
     });
+    store.settleTurnThought();
     store.openEphemeral("reasoning", "Reasoning", 8);
     store.flushOutputBatchNow();
     await rendered.flush();
@@ -2920,7 +3298,7 @@ describe("fullscreen bridge", () => {
       expect(text).toContain("4 flagged of 26");
     });
 
-    it("shows the args used and a snippet of the tool output", async () => {
+    it("shows the args used and the outcome, never the output itself", async () => {
       const text = await frame(() => {
         const accumulator = createAccumulator("cassandra");
         const result = JSON.stringify({
@@ -2948,14 +3326,15 @@ describe("fullscreen bridge", () => {
         }
       });
       expect(text).toContain("view_memory");
-      expect(text).toContain("path: /");
-      expect(text).toContain("Here're the files");
-      expect(text).not.toMatch(/view_memory\s+\{/);
+      expect(text).toContain("view_memory  /  1 entry");
+      expect(text).toContain("1 entry");
+      expect(text).not.toContain("Here're the files");
     });
 
     it("leaves no escape sequence in a frame built from formatted markdown", async () => {
-      const markdown = formatMarkdown(
+      const markdown = markdownToAnsi(
         "Docs at https://example.com/deep/path and [the guide](https://example.com/guide).",
+        { width: 80, syntax: "rendered" },
       );
       // Proves the producer really does style its output, so a clean frame below
       // means the transcript stripped it rather than that there was nothing to
@@ -3128,5 +3507,65 @@ describe("fullscreen bridge sub-agents", () => {
     await settleKeypress(rendered.flush);
     expect(rendered.captureCharFrame()).not.toContain("enter to open");
     rendered.renderer.destroy();
+  });
+});
+
+describe("fullscreen bridge theme picker", () => {
+  beforeEach(() => {
+    resetStoreSlices();
+    applyTheme("jazz:dark");
+  });
+  afterAll(() => {
+    applyTheme("jazz:dark");
+  });
+
+  it("previews the highlighted theme across the frame and reverts on esc", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    const committedPrimary = THEME.primary;
+    let chosen: Promise<string | undefined> = Promise.resolve("never opened");
+    updateForTest(() => {
+      chosen = pickThemeInteractively();
+    });
+    await flush();
+    const opened = captureCharFrame();
+
+    await mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(flush);
+    const previewedPrimary = THEME.primary;
+
+    await mockInput.pressKey("ESCAPE");
+    await settleKeypress(flush);
+    const answer = await chosen;
+    renderer.destroy();
+
+    expect(opened).toContain("Theme");
+    expect(opened).toContain("current");
+    expect(previewedPrimary).not.toBe(committedPrimary);
+    expect(THEME.primary).toBe(committedPrimary);
+    expect(answer).toBeUndefined();
+  });
+
+  it("jumps to the other variant with l and resolves it on enter", async () => {
+    const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+    });
+    await renderOnce();
+    let chosen: Promise<string | undefined> = Promise.resolve("never opened");
+    updateForTest(() => {
+      chosen = pickThemeInteractively();
+    });
+    await flush();
+    await mockInput.pressKey("l");
+    await settleKeypress(flush);
+    await mockInput.pressKey("RETURN");
+    await settleKeypress(flush);
+    const answer = await chosen;
+    renderer.destroy();
+    expect(answer).toBe("jazz:light");
   });
 });

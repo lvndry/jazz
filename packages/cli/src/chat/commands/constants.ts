@@ -11,7 +11,9 @@
  * `setSkillCommands`, `setMcpPromptCommands` and `setPluginCommands`. Built-ins
  * win every name collision, including against aliases.
  */
+import { report, type TerminalReport } from "@jazz/core/interfaces/terminal";
 import { closestMatch } from "@jazz/core/utils/string";
+import { rankCommands } from "@/cli/ui/suggestion-menu";
 import type { BuiltinCommandType } from "./types";
 
 /** How /help and the docs show the shell escape, which is not a slash command. */
@@ -197,9 +199,25 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
     description: "Change reasoning for this session only",
     usage: "[minimal|low|medium|high|xhigh|max|disable]",
   },
+  {
+    name: "rename",
+    type: "rename",
+    usage: "[title]",
+    description: "Rename the current conversation",
+    forms: [
+      { form: "/rename <title>", meaning: "Set the current conversation title" },
+      { form: "/rename", meaning: "Edit the current title" },
+    ],
+    note: "Titles keep their text without a length limit. This does not call the model.",
+  },
   { name: "resume", type: "resume", description: "Browse and resume a past conversation" },
   { name: "retry", type: "retry", description: "Re-send your last message" },
-  { name: "new", type: "new", description: "Start a new conversation (clear context)" },
+  { name: "new", type: "new", description: "Create a new agent" },
+  {
+    name: "start",
+    type: "start",
+    description: "Start a fresh conversation with the current agent",
+  },
   {
     name: "skills",
     type: "skills",
@@ -220,8 +238,8 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
   {
     name: "theme",
     type: "theme",
-    description: "Switch between light and dark theme",
-    usage: "light|dark",
+    description: "List themes, or switch to one and save it",
+    usage: "[name] [dark|light]",
   },
   { name: "tools", type: "tools", description: "List all agent tools by category" },
   {
@@ -258,22 +276,25 @@ export function commandSignature(command: ChatCommandInfo): string {
 }
 
 /**
- * The lines `/help <command>` prints for a command's forms: each form padded
- * to one column, then its meaning, then the closing note.
+ * What `/help <command>` says about a built-in, and what a command prints when it is run
+ * without the arguments it needs: every form with its meaning, and the closing note.
  */
-export function commandFormLines(command: BuiltinChatCommand): readonly string[] {
-  const forms = command.forms ?? [];
-  const width = Math.max(0, ...forms.map((entry) => entry.form.length));
-  return [
-    ...forms.map((entry) => `${entry.form.padEnd(width)}  ${entry.meaning}`),
-    ...(command.note === undefined ? [] : ["", command.note]),
-  ];
+export function commandUsage(command: BuiltinChatCommand): TerminalReport {
+  return report(
+    `/${command.name}`,
+    (command.forms ?? []).map((entry) => ({
+      kind: "item",
+      name: entry.form,
+      detail: entry.meaning,
+    })),
+    command.note,
+  );
 }
 
-/** The help lines for one built-in command by name, for handlers that print their own usage. */
-export function builtinFormLines(name: string): readonly string[] {
+/** The usage report for one built-in command by name, for handlers that print their own usage. */
+export function builtinUsage(name: string): TerminalReport | undefined {
   const command = findBuiltinCommand(name);
-  return command === undefined ? [] : commandFormLines(command);
+  return command === undefined ? undefined : commandUsage(command);
 }
 
 /** Names a registered skill, MCP prompt, or plugin command may not take. */
@@ -389,17 +410,7 @@ function allCommands(): readonly ChatCommandInfo[] {
  * by alias. Case-insensitive.
  */
 export function filterCommandsByPrefix(query: string): readonly ChatCommandInfo[] {
-  const lower = query.toLowerCase();
-  const all = allCommands();
-  const prefixMatches = all.filter((command) =>
-    namesOf(command).some((name) => name.startsWith(lower)),
-  );
-  if (lower.length === 0) return prefixMatches;
-  const substringMatches = all.filter(
-    (command) =>
-      !prefixMatches.includes(command) && namesOf(command).some((name) => name.includes(lower)),
-  );
-  return [...prefixMatches, ...substringMatches];
+  return rankCommands(allCommands(), query);
 }
 
 /** The registered skill, MCP prompt, and plugin commands, for /help's own sections. */

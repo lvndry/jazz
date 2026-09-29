@@ -4,6 +4,10 @@ description: "How Jazz decides whether a tool call runs, asks, or is refused: ri
 
 # Approvals
 
+HTTP requests and page fetches use global `network.httpApproval`: automatic by default for all
+methods and destinations, or one-call approval outside configured URL grants. This policy is
+independent of risk tiers and previous untrusted content. See [HTTP approvals](../configure/jazz.md#web-request-safety).
+
 Two separate controls decide whether a tool call happens, and confusing them is the usual
 mistake.
 
@@ -76,9 +80,9 @@ that is shaped like an approval request (an MCP server's reply, a fetched JSON d
 refused, and nothing runs. MCP results are always nested under `content` or
 `structuredContent`, so a server cannot produce one at all.
 
-A plain tool above `read-only` (`manage_memory`, `create_pdf`, a custom command tool, an
-`http_request` other than `GET` or `HEAD`) has no proposal half. The executor asks with the
-tool's name, level and arguments, and runs the tool once approved.
+A plain tool above `read-only` (`manage_memory`, `create_pdf`, or a custom command tool) has no
+proposal half. The executor asks with the tool's name, level and arguments, and runs the tool
+once approved.
 
 ## Shell commands are classified individually
 

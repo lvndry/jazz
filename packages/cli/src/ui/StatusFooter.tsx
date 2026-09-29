@@ -2,26 +2,14 @@
  * Bottom status bar: working directory, model, and running cost/token stats.
  */
 
+import { abbreviateHomePath } from "@jazz/core/utils/storage";
 import { formatCompactCount } from "@jazz/core/utils/string";
 import { Box, Text } from "ink";
 import React from "react";
 import { ActivityIndicator } from "./components/ActivityIndicator";
 import type { RunStats } from "./store";
+import { formatCost } from "./text/format";
 import { THEME } from "./theme";
-
-/**
- * Format a USD cost for the status footer.
- *
- * - Below $0.01: 4 decimals so micro-runs aren't all "$0.00".
- * - Below $10: 3 decimals (`$0.042`, `$1.234`).
- * - $10+: 2 decimals (`$12.34`).
- */
-function formatCost(cost: number): string {
-  if (cost === 0) return "$0";
-  if (cost < 0.01) return `$${cost.toFixed(4)}`;
-  if (cost < 10) return `$${cost.toFixed(3)}`;
-  return `$${cost.toFixed(2)}`;
-}
 
 /**
  * Compress a path for footer display.
@@ -31,10 +19,7 @@ function formatCost(cost: number): string {
  *   home anchor stay visible.
  */
 function shortenPath(path: string, homeDir: string | undefined, maxWidth: number): string {
-  let display = path;
-  if (homeDir && display.startsWith(homeDir)) {
-    display = "~" + display.slice(homeDir.length);
-  }
+  const display = abbreviateHomePath(path, homeDir);
   if (display.length <= maxWidth) return display;
   const segments = display.split("/");
   if (segments.length <= 3) {

@@ -37,6 +37,12 @@ describe("diff", () => {
       expect(result).toContain("+hello jazz");
     });
 
+    it("includes changed source lines that resemble patch headers", () => {
+      const result = generateDiff("--flag\n", "++counter\n", "code.ts");
+      expect(result).toContain("---flag");
+      expect(result).toContain("+++counter");
+    });
+
     it("shows additions at end of file", () => {
       const original = "line1\nline2";
       const modified = "line1\nline2\nline3";

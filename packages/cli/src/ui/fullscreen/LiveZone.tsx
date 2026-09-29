@@ -33,12 +33,11 @@
  * running rather than one thing blinking three times.
  */
 
+import { TextAttributes } from "@opentui/core";
 import { memo, useEffect, useState, type ReactNode } from "react";
-import { highlightCodeLine } from "./syntax-spans";
 import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
-import { MOTION, THEME } from "../theme";
-import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
+import { useThemeRevision } from "./theme-revision";
 import {
   LIVE_ZONE_MAX_ROWS,
   type LiveModel,
@@ -46,31 +45,27 @@ import {
   type StepLine,
   type Viewport,
 } from "./types";
+import { RETRY_BAND_ROWS, type RetryBand } from "../models/retry";
+import { planProgress, planWindow, todoLine } from "../models/todo";
+import { formatElapsed } from "../text/format";
+import { roleStyle } from "../text/roles";
+import { highlightCodeLine } from "../text/syntax-spans";
+import { fitTerminalSegments, terminalSegmentsWidth } from "../text/terminal-cells";
+import { MOTION, THEME } from "../theme";
 
 /** Truncation marker. ASCII, because every monospace font has had it since 1970. */
 export interface LiveSegment {
   readonly text: string;
   readonly fg: string;
+  readonly bold?: boolean;
+  readonly strikethrough?: boolean;
 }
 
 export interface LiveRow {
   readonly key: string;
   readonly segments: readonly LiveSegment[];
-}
-
-/**
- * Whole seconds, derived from `elapsedMs` alone.
- *
- * The indicator runs at ~6fps and the digits must not: a number changing
- * faster than it can be read is noise wearing the costume of information. This
- * changes at most once a second no matter how often the frame redraws.
- */
-export function formatElapsed(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  /** A row painted as part of a band, such as the retry notice. */
+  readonly background?: string;
 }
 
 /**
@@ -206,7 +201,8 @@ function waitingRow(
   return alignRow(
     "waiting",
     [
-      { text: laneFrame(tick, glyphs), fg: THEME.primary },
+      // Waiting is one thing in flight: the model, before its first word.
+      { text: laneFrame(tick, glyphs, 1), fg: THEME.primary },
       { text: " ", fg: THEME.muted },
       { text: waiting, fg: THEME.secondary },
     ],
@@ -230,32 +226,25 @@ function waitingRow(
  */
 export const TODO_WINDOW_ROWS = 10;
 
-function todoGlyph(status: TodoSnapshotItem["status"], glyphs: GlyphSet): string {
-  switch (status) {
-    case "completed":
-      return glyphs.todoDone;
-    case "in_progress":
-      return glyphs.todoActive;
-    case "cancelled":
-      return glyphs.todoCancelled;
-    case "pending":
-    default:
-      return glyphs.todoPending;
-  }
-}
-
-function todoColor(status: TodoSnapshotItem["status"]): string {
-  switch (status) {
-    case "completed":
-      return THEME.success;
-    case "in_progress":
-      return THEME.agent;
-    case "cancelled":
-      return THEME.muted;
-    case "pending":
-    default:
-      return THEME.warning;
-  }
+/**
+ * A plan item from the shared plan model, laid out as a live row. The model gives the current
+ * step a resting mark; the band swaps in a moving frame for it.
+ */
+function todoItemSegments(todo: TodoSnapshotItem, tick: number, glyphs: GlyphSet): LiveSegment[] {
+  const line = todoLine(todo, glyphs);
+  const frames = glyphs.spinnerFrames;
+  const markText =
+    line.kind === "active" ? (frames[tick % frames.length] ?? line.mark.text) : line.mark.text;
+  return [
+    { text: markText, fg: roleStyle(line.mark.role).fg },
+    { text: " ", fg: THEME.muted },
+    {
+      text: line.content.text,
+      fg: roleStyle(line.content.role).fg,
+      ...(line.bold ? { bold: true } : {}),
+      ...(line.strikethrough ? { strikethrough: true } : {}),
+    },
+  ];
 }
 
 function todoPanelRows(
@@ -263,42 +252,28 @@ function todoPanelRows(
   glyphs: GlyphSet,
   width: number,
   maxRows: number,
+  tick = 0,
 ): LiveRow[] {
   if (todos.length === 0 || maxRows <= 0) return [];
 
-  const done = todos.filter((todo) => todo.status === "completed").length;
+  const { label, progress } = planProgress(todos);
   const header = alignRow(
     "todo-header",
-    [...gutter(glyphs), { text: `todo ${done}/${todos.length}`, fg: THEME.muted }],
-    [],
+    [...gutter(glyphs), { text: label, fg: THEME.secondary, bold: true }],
+    [{ text: progress, fg: THEME.muted }],
     width,
   );
 
   // One row for the header; the rest of the budget goes to items, capped so
-  // the band never asks for more than the window it actually slides, with a
-  // possible `+N more` overflow row eating one of those slots.
+  // the band never asks for more than the window it actually slides.
   const itemSlots = Math.max(0, Math.min(TODO_WINDOW_ROWS, maxRows - 1));
   if (itemSlots === 0) return [header];
 
-  // Slide the window to the first item still in play, but hold back one slot
-  // so the item that just finished stays on screen long enough to show its
-  // checkmark instead of vanishing the instant it completes.
-  const firstIncomplete = todos.findIndex((todo) => todo.status !== "completed");
-  const anchor = firstIncomplete < 0 ? -1 : Math.max(0, firstIncomplete - 1);
-  const start = anchor < 0 ? Math.max(0, todos.length - itemSlots) : anchor;
-
-  const overflow = todos.length - start - itemSlots;
-  const shownCount = overflow > 0 ? itemSlots - 1 : itemSlots;
-  const showItems = todos.slice(start, start + Math.max(0, shownCount));
-  const itemRows = showItems.map((todo, index) =>
+  const { start, items, overflow } = planWindow(todos, itemSlots);
+  const itemRows = items.map((todo, index) =>
     alignRow(
       `todo:${todo.content}:${start + index}`,
-      [
-        ...gutter(glyphs),
-        { text: todoGlyph(todo.status, glyphs), fg: todoColor(todo.status) },
-        { text: " ", fg: THEME.muted },
-        { text: todo.content, fg: THEME.secondary },
-      ],
+      [...gutter(glyphs), ...todoItemSegments(todo, tick, glyphs)],
       [],
       width,
     ),
@@ -316,6 +291,48 @@ function todoPanelRows(
     );
   }
   return rows;
+}
+
+/**
+ * The retry band: the error bar, because a call really did fail, on the panel tier, and
+ * the keys underneath it. It says "Nothing is lost" because the one thing a stalled
+ * screen makes people fear is that their turn is gone.
+ */
+function retryRows(band: RetryBand, glyphs: GlyphSet, width: number): LiveRow[] {
+  const bar: LiveSegment = { text: `${glyphs.bandBar} `, fg: THEME.error };
+  const title = alignRow(
+    "retry:title",
+    [bar, { text: band.title, fg: THEME.selected, bold: true }],
+    [{ text: `${band.attempt} `, fg: THEME.muted }],
+    width,
+  );
+  const countdown = alignRow(
+    "retry:countdown",
+    [
+      bar,
+      { text: `${band.cause} Retrying in `, fg: THEME.secondary },
+      { text: `${String(band.secondsLeft)}s`, fg: THEME.selected, bold: true },
+      { text: ". Nothing is lost.", fg: THEME.secondary },
+    ],
+    [],
+    width,
+  );
+  const keys = alignRow(
+    "retry:keys",
+    [
+      { text: "  esc esc", fg: THEME.selected, bold: true },
+      { text: " stop retrying    ", fg: THEME.secondary },
+      { text: "/model", fg: THEME.selected, bold: true },
+      { text: " switch model", fg: THEME.secondary },
+    ],
+    [],
+    width,
+  );
+  return [
+    { ...title, background: THEME.surface },
+    { ...countdown, background: THEME.surface },
+    keys,
+  ];
 }
 
 export interface LiveZoneProps {
@@ -375,8 +392,14 @@ export function liveRows(
   // Rows are claimed in the order the reader needs them: what is running, then
   // the plan, then the copy. An under-provisioned reservation therefore loses
   // the waiting line first — it is the only row that says nothing about state.
+  const retry =
+    model.retry === undefined || capacity < RETRY_BAND_ROWS
+      ? []
+      : retryRows(model.retry, glyphs, width);
   const demand = otherTools.length + (model.hiddenTools.length > 0 ? 1 : 0);
-  let showWaiting = model.waiting !== undefined && !streaming;
+  // While a retry is scheduled the band says why nothing is arriving, which is what the
+  // waiting line would otherwise guess at.
+  let showWaiting = model.waiting !== undefined && !streaming && retry.length === 0;
   let showStep = model.step !== undefined && !showTodo;
   while ((showWaiting ? 1 : 0) + (showStep ? 1 : 0) + Math.min(demand, 1) > capacity) {
     if (showWaiting) showWaiting = false;
@@ -388,13 +411,13 @@ export function liveRows(
   // owed a slot whether or not the remaining tools overflow on their own.
   const carriedOver = model.hiddenTools.length > 0;
   const reservedForToggles = (showWaiting ? 1 : 0) + (showStep ? 1 : 0);
-  let budget = Math.max(0, capacity - reservedForToggles);
+  let budget = Math.max(0, capacity - reservedForToggles - retry.length);
 
   // The checklist takes priority over the (redundant) manage_todos tool row and
   // shares the remaining room with any other tools, windowed with `+N more`.
   const todoPanel: LiveRow[] =
     showTodo && model.todoList !== undefined
-      ? todoPanelRows(model.todoList, glyphs, width, budget)
+      ? todoPanelRows(model.todoList, glyphs, width, budget, tick)
       : [];
   budget = Math.max(0, budget - todoPanel.length);
 
@@ -407,7 +430,7 @@ export function liveRows(
   }
   const hiddenNames = [...dropped.map((tool) => tool.app), ...model.hiddenTools];
 
-  const rows: LiveRow[] = [];
+  const rows: LiveRow[] = [...retry];
   if (showWaiting && model.waiting !== undefined) {
     rows.push(
       waitingRow(model.waiting, model.reasoningElapsedMs ?? model.elapsedMs, tick, glyphs, width),
@@ -434,10 +457,20 @@ export function liveRows(
 function liveBandAnimates(model: LiveModel, streaming: boolean, maxRows?: number): boolean {
   if (reservedHeight(model, maxRows) === 0) return false;
   if (model.tools.length > 0) return true;
+  if (model.todoList?.some((todo) => todo.status === "in_progress") === true) return true;
   return model.waiting !== undefined && !streaming;
 }
 
+/** OpenTUI text nodes honour `attributes`, not `bold`/`strikethrough` booleans. */
+function liveAttributes(segment: LiveSegment): { attributes?: number } {
+  const attributes =
+    (segment.bold === true ? TextAttributes.BOLD : 0) |
+    (segment.strikethrough === true ? TextAttributes.STRIKETHROUGH : 0);
+  return attributes === 0 ? {} : { attributes };
+}
+
 function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): ReactNode {
+  useThemeRevision();
   const [tick, setTick] = useState(0);
   const streamingNow = streaming ?? false;
   const animate = liveBandAnimates(model, streamingNow, maxRows);
@@ -472,13 +505,18 @@ function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): R
       {rows.map((row) => (
         <box
           key={row.key}
-          style={{ width: viewport.width, height: 1, flexShrink: 0 }}
+          style={{
+            width: viewport.width,
+            height: 1,
+            flexShrink: 0,
+            ...(row.background === undefined ? {} : { backgroundColor: row.background }),
+          }}
         >
           <text style={{ wrapMode: "none" }}>
             {row.segments.map((segment, index) => (
               <span
                 key={`${String(index)}:${segment.text}`}
-                style={{ fg: segment.fg }}
+                style={{ fg: segment.fg, ...liveAttributes(segment) }}
               >
                 {segment.text}
               </span>

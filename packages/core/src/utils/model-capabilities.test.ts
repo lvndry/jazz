@@ -3,7 +3,6 @@ import type { ModelInfo } from "@/core/types/llm";
 import {
   companionRole,
   COMPANION_ROLES,
-  describeModelCapabilities,
   describeRole,
   filterCapableModels,
   formatModelPriceLine,
@@ -108,42 +107,5 @@ describe("role vocabulary", () => {
   it("says what each role does in words", () => {
     expect(describeRole("analyze:image")).toBe("image understanding");
     expect(describeRole("generate:audio")).toBe("audio generation");
-  });
-});
-
-describe("describeModelCapabilities", () => {
-  it("puts inputs, arrow, outputs — each side with its own price", () => {
-    expect(
-      describeModelCapabilities(
-        model({
-          id: "x",
-          ingestImage: true,
-          ingestPdf: true,
-          inputPricePerMillion: 3,
-          outputPricePerMillion: 15,
-        }),
-      ),
-    ).toBe("txt·img·pdf $3/M → txt $15/M");
-  });
-
-  it("shows generated media on the output side", () => {
-    expect(
-      describeModelCapabilities(
-        model({
-          id: "x",
-          generatesImage: true,
-          generatesAudio: true,
-          inputPricePerMillion: 0,
-          outputPricePerMillion: 0,
-        }),
-      ),
-    ).toBe("txt $0/M → txt·img·aud $0/M");
-  });
-
-  it("marks an unpriced side with ? rather than pretending it is free", () => {
-    expect(describeModelCapabilities(model({ id: "x" }))).toBe("txt ?/M → txt ?/M");
-    expect(describeModelCapabilities(model({ id: "x", inputPricePerMillion: 1.25 }))).toBe(
-      "txt $1.25/M → txt ?/M",
-    );
   });
 });

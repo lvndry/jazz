@@ -11,10 +11,19 @@
  */
 
 import { createRoot } from "@opentui/react";
+import type { ReactNode } from "react";
 import { FullscreenBridge } from "./bridge";
 import { mountFullscreen } from "./mount";
+import { useThemeRevision } from "./theme-revision";
 
-export { decideFullscreen } from "./mount";
+/**
+ * Re-renders the whole interface when the theme changes. The bridge element is created on each
+ * render, so every component below it re-renders too; memoised regions opt in themselves.
+ */
+function ThemedBridge(): ReactNode {
+  useThemeRevision();
+  return <FullscreenBridge />;
+}
 
 export interface FullscreenHandle {
   readonly release: () => void;
@@ -38,7 +47,7 @@ export function mountFullscreenApp(options: FullscreenMountOptions = {}): Fullsc
       }
       try {
         const root = createRoot(renderer);
-        root.render(<FullscreenBridge />);
+        root.render(<ThemedBridge />);
         teardown = () => {
           try {
             root.unmount();

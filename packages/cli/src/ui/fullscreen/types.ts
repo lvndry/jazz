@@ -17,18 +17,17 @@
  *   overlay     floats above all of it, and must not disturb the transcript
  */
 
+import type { TerminalReport } from "@jazz/core/interfaces/terminal";
 import type { TodoSnapshotItem } from "../activity-state";
+import type { ApprovalCommand, ApprovalDiff } from "../models/approval";
+import type { ToolReceipt } from "../models/receipt";
 import type { SubagentStatus } from "../subagent-runs";
 import type { SuggestionPrefix } from "../suggestion-menu";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
-
-/**
- * Once the content column is at least this wide, leftover columns become a
- * short flush-right metadata strip. Below it the frame *is* the measure.
- */
-export const PROSE_MEASURE = 88;
+import type { RetryBand } from "../models/retry";
+import { PROSE_MEASURE } from "../text/measure";
 
 /** Timestamps and lane labels sit here; the rest of the surplus widens prose. */
 export const METADATA_RESERVE = 20;
@@ -87,41 +86,54 @@ export interface ReasoningBlock extends BlockBase {
   readonly kind: "reasoning";
   readonly text: string;
   readonly collapsed: boolean;
+  /** How many reasoning steps a folded line stands for. */
   readonly steps?: number;
+  /** Total once settled. A live block has none: the live zone ticks the elapsed time. */
   readonly durationMs?: number;
   readonly tokens?: number;
+  /** The model is still thinking: only the newest lines show. */
+  readonly live?: boolean;
+  /** False when the model thought without returning text, so there is nothing for ctrl+r to open. */
+  readonly readable?: boolean;
 }
 
 /**
  * A settled tool call is a receipt: the app, the args it used, and a snippet
  * of what came back. Timing and the full output live behind an expand key.
  */
-export interface ToolReceiptBlock extends BlockBase {
+/** A receipt in the transcript: the shared receipt model, plus whether its detail is open. */
+export interface ToolReceiptBlock extends BlockBase, ToolReceipt {
   readonly kind: "tool";
-  readonly app: string;
-  readonly summary: string;
-  /** Compact argument preview shown next to the app name. */
-  readonly args?: string;
-  readonly status: "ok" | "failed" | "denied";
-  /** Shown only on failure, with the remedy inline. */
-  readonly reason?: string;
-  readonly remedyKey?: string;
-  readonly durationMs?: number;
-  readonly detail?: string;
   readonly expanded?: boolean;
-  /** Command-risk classifier verdict, when this call went through it. */
-  readonly classifiedRisk?: string;
 }
 
 export interface NoticeBlock extends BlockBase {
   readonly kind: "notice";
   readonly text: string;
-  readonly tone: "info" | "warn" | "error";
+  /** `receipt` closes a turn with its totals; `info` is system or command output, never the agent. */
+  readonly tone: "info" | "warn" | "error" | "receipt";
+}
+
+/**
+ * A slash command's answer, kept as data so it reads as jazz speaking: the
+ * command's name in the label column, aligned rows under the value column.
+ */
+export interface ReportBlock extends BlockBase {
+  readonly kind: "report";
+  readonly report: TerminalReport;
 }
 
 export interface DividerBlock extends BlockBase {
   readonly kind: "divider";
   readonly label: string;
+}
+
+/** A turn the person stopped: how long it ran, what finished, and what did not. */
+export interface StoppedBlock extends BlockBase {
+  readonly kind: "stopped";
+  readonly elapsedMs: number;
+  readonly done: readonly string[];
+  readonly notDone: readonly string[];
 }
 
 /** A delegated subagent. Depth is a lane column, never indentation. */
@@ -141,7 +153,9 @@ export type Block =
   | ReasoningBlock
   | ToolReceiptBlock
   | NoticeBlock
+  | ReportBlock
   | DividerBlock
+  | StoppedBlock
   | LaneBlock;
 
 // ─── Header ──────────────────────────────────────────────────────────────────
@@ -162,6 +176,8 @@ export interface HeaderModel {
   readonly cwd: string;
   readonly model: string;
   readonly localHost?: string;
+  /** Reasoning effort, when the model has one; shown beside the model in the composer. */
+  readonly reasoning?: string;
   readonly connectors: readonly Connector[];
   readonly contextUsed: number;
   readonly contextMax: number;
@@ -217,6 +233,8 @@ export interface LiveModel {
    * a pure function of the model, so a frame is still reproducible from data.
    */
   readonly reservedRows: number;
+  /** A model call waiting to be tried again. Takes the band's top rows while it lasts. */
+  readonly retry?: RetryBand;
 }
 
 // ─── Sub-agents ──────────────────────────────────────────────────────────────
@@ -263,6 +281,8 @@ export interface InputModel {
      * share this menu, and the rows have to show the one being typed.
      */
     readonly prefix?: SuggestionPrefix;
+    /** What is typed after the sigil; its letters are bold in each name that contains them. */
+    readonly query?: string;
   };
   /**
    * Code-point offset into `value` where the next typed character lands.
@@ -282,6 +302,8 @@ export interface InputModel {
   readonly queueing?: boolean;
   /** Suppressed while a modal overlay owns the keyboard. */
   readonly disabled: boolean;
+  /** Muted, right-aligned on the composer's first line when it fits: `model · reasoning`. */
+  readonly meta?: string;
 }
 
 export interface FooterModel {
@@ -309,6 +331,9 @@ export interface ApprovalField {
  * message has no undo. It names the real account, shows every field that will
  * exist afterwards, states irreversibility in prose, and holds perfectly still.
  */
+/** The three answers the approval card offers, in the order ← → walk them. */
+export type ApprovalChoice = "accept" | "always" | "reject";
+
 export interface ApprovalOverlay {
   readonly kind: "approval";
   readonly app: string;
@@ -320,8 +345,28 @@ export interface ApprovalOverlay {
   /** True after Ctrl+O: long fields wrap in full instead of the 120-cell preview. */
   readonly expanded?: boolean;
   readonly alwaysLabel: string;
+  /** Restricted HTTP calls can only be approved individually. */
+  readonly allowAlways?: boolean;
+  /** Which of the three controls enter confirms; accept until ← → move it. */
+  readonly choice?: ApprovalChoice;
   /** True once the arming delay has passed; before that only deny is accepted. */
   readonly armed: boolean;
+  /** The consequence in two or three words for the title row: `can't be unsent`. */
+  readonly headline?: string;
+  /** The verbs on the two controls: `send` / `don't send`. */
+  readonly acceptLabel?: string;
+  readonly rejectLabel?: string;
+  /** The measured effect, shown as one more field: `removes  214 files, 1.3 GB`. */
+  readonly impact?: ApprovalField;
+  /** A shell command, shown as code in its own band rather than as a field value. */
+  readonly command?: ApprovalCommand;
+  /** A file change, shown as tinted rows with `+N −M` on the title row. */
+  readonly diff?: ApprovalDiff;
+  readonly diffLanguage?: string;
+  /** A caution that must be read before accepting; shown even when the headline replaces the tool's prose. */
+  readonly warning?: string;
+  /** The argument `e` rewrites before accepting (`command`), when the tool allows it. */
+  readonly editableArg?: string;
 }
 
 export interface SearchHit {
@@ -345,8 +390,30 @@ export interface SearchOverlay {
   readonly selected: number;
 }
 
+/** One theme and variant in the picker, drawn with its own colours. */
+export interface ThemePickerRow {
+  /** `name:variant`, what `previewTheme` and `applyTheme` take. */
+  readonly id: string;
+  readonly name: string;
+  readonly label: string;
+  readonly variant: "dark" | "light";
+  readonly swatches: readonly string[];
+  readonly current: boolean;
+}
+
+export interface ThemePickerModel {
+  readonly kind: "theme";
+  readonly rows: readonly ThemePickerRow[];
+  readonly selected: number;
+}
+
 export type Overlay =
-  ApprovalOverlay | SearchOverlay | QuestionModel | TextPromptModel | FilePickerModel;
+  | ApprovalOverlay
+  | SearchOverlay
+  | QuestionModel
+  | TextPromptModel
+  | FilePickerModel
+  | ThemePickerModel;
 
 // ─── The frame ───────────────────────────────────────────────────────────────
 

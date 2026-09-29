@@ -30,6 +30,8 @@ const SOURCE_ROOTS = ["packages", "plugins"].flatMap((parent) =>
     .filter((root) => existsSync(path.join(REPO_ROOT, root)) && !NOT_CLI_SOURCE.has(root)),
 );
 const DOCS_ROOT = "docs";
+/** Planning notes under docs/ that the website does not publish (see its content.config.ts) and that may name future commands. */
+const UNPUBLISHED_DOCS = ["docs/superpowers", "docs/plans"];
 
 /**
  * The repository's files under `root` with one of `extensions`, tests excluded: tracked and
@@ -163,7 +165,12 @@ describe("suggested jazz commands", () => {
   });
 
   it("resolves every command shown in the docs", () => {
-    const files = [...filesUnder(DOCS_ROOT, [".md"]), path.join(REPO_ROOT, "README.md")];
+    const files = [
+      ...filesUnder(DOCS_ROOT, [".md"]).filter(
+        (file) => !UNPUBLISHED_DOCS.some((prefix) => file.startsWith(prefix)),
+      ),
+      path.join(REPO_ROOT, "README.md"),
+    ];
     expect(files.length).toBeGreaterThan(1);
     expect(unresolved(docSuggestions, files)).toEqual([]);
   });

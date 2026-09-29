@@ -3,51 +3,55 @@
 /**
  * The footer: one row of what you can do next, plus what this is costing.
  *
- *   safe ∙ enter to send ∙ up for history        20k/40k $0.18 ∙ 4:12
+ *   safe ∙ enter to send ∙ up for history   20k in ∙ 40k out ∙ $0.18 ∙ 4:12
  *
  * The hints are a priority queue, not a fixed strip: at a narrow width the row
  * gives up the least useful thing rather than wrapping. Mode and spend never
  * drop — the first because acting without knowing the mode is how you get a
  * surprise, the second because a spend you cannot see is a spend you cannot
- * stop. Spend is billed input/output tokens plus estimated USD.
+ * stop. Spend is billed input/output tokens plus USD when known, preferring a provider-reported
+ * charge over an estimate from catalog prices.
  */
 
 import { formatCompactCount } from "@jazz/core/utils/string";
 import { memo, type ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
-import { THEME } from "../theme";
-import { fitTerminalSegments, terminalCellWidth, terminalSegmentsWidth } from "./terminal-cells";
+import { useThemeRevision } from "./theme-revision";
 import type { FooterModel, Viewport } from "./types";
+import { formatCost, formatElapsed } from "../text/format";
+import {
+  fitTerminalSegments,
+  terminalCellWidth,
+  terminalSegmentsWidth,
+} from "../text/terminal-cells";
+import { THEME } from "../theme";
 
 export interface FooterSegment {
   readonly text: string;
   readonly fg: string;
 }
 
-export function formatCost(costUsd: number): string {
-  return `$${costUsd.toFixed(2)}`;
-}
-
-/** `20k/40k $0.26` — tokens when known, cost when known, both when both. */
-export function formatUsage(model: {
-  readonly promptTokens?: number;
-  readonly completionTokens?: number;
-  readonly costUsd?: number;
-}): string | undefined {
+/**
+ * `20k in ∙ 40k out ∙ $0.26` — tokens when known, cost when known, both when both.
+ * Each count carries its own word: a bare `20k/40k` reads as used-of-limit.
+ */
+export function formatUsage(
+  model: {
+    readonly promptTokens?: number;
+    readonly completionTokens?: number;
+    readonly costUsd?: number;
+  },
+  separator = ` ${getGlyphs().bullet} `,
+): string | undefined {
   const hasTokens = model.promptTokens !== undefined || model.completionTokens !== undefined;
   const tokens = hasTokens
-    ? `${formatCompactCount(model.promptTokens ?? 0)}/${formatCompactCount(model.completionTokens ?? 0)}`
+    ? `${formatCompactCount(model.promptTokens ?? 0)} in${separator}${formatCompactCount(model.completionTokens ?? 0)} out`
     : undefined;
   const cost = model.costUsd === undefined ? undefined : formatCost(model.costUsd);
-  if (tokens !== undefined && cost !== undefined) return `${tokens} ${cost}`;
+  if (tokens !== undefined && cost !== undefined) {
+    return `${tokens}${separator}${cost}`;
+  }
   return tokens ?? cost;
-}
-
-export function formatElapsed(elapsedMs: number): string {
-  const seconds = Math.max(0, Math.round(elapsedMs / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
 /**
@@ -63,7 +67,7 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
   const mode: FooterSegment[] = [
     { text: model.mode, fg: model.mode === "yolo" ? THEME.warning : THEME.primary },
   ];
-  const usageText = formatUsage(model);
+  const usageText = formatUsage(model, separator);
   const usage = usageText === undefined ? undefined : { text: usageText, fg: THEME.muted };
   const elapsed =
     model.elapsedMs === undefined
@@ -130,6 +134,7 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
 }
 
 function FooterView({ model, viewport }: { model: FooterModel; viewport: Viewport }): ReactNode {
+  useThemeRevision();
   const segments = footerSegments(model, viewport);
   return (
     <box style={{ width: viewport.width, height: 1, flexShrink: 0 }}>

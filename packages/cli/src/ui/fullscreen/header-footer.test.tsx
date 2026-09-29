@@ -23,10 +23,10 @@ import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
 import { Footer, formatUsage } from "./Footer";
-import { Header, headerGroups } from "./Header";
+import { Header, headerGroups, meterFilledCells } from "./Header";
 import { hintsFor } from "./keymap";
-import { terminalCellWidth } from "./terminal-cells";
 import type { Connector, FooterModel, HeaderModel } from "./types";
+import { terminalCellWidth } from "../text/terminal-cells";
 
 beforeAll(() => {
   process.env["JAZZ_UI_GLYPHS"] = "unicode";
@@ -103,9 +103,9 @@ describe("Header", () => {
     );
 
     expect(terminalCellWidth(row)).toBe(80);
-    // Right-aligned: the meter's percentage is the last thing on the row.
+    // Right-aligned: the meter's percentage is the last thing on the row, one cell in.
     expect(row.trimEnd()).toEndWith("%");
-    expect(terminalCellWidth(row.trimEnd())).toBe(80);
+    expect(terminalCellWidth(row.trimEnd())).toBe(79);
     // One row, never two.
     expect((rows[1] ?? "").trim()).toBe("");
   });
@@ -187,8 +187,25 @@ describe("Header", () => {
     expect(colorOf(broken.spans, "notion renew")).toBe(THEME.warning.toUpperCase());
   });
 
-  it("steps the meter to warning past 80% and error past 92%", async () => {
-    const filled = getGlyphs().gridFilled;
+  it("draws the meter as one heavy line lit in the accent, with one cell for any use", async () => {
+    const glyphs = getGlyphs();
+    expect(meterFilledCells(0)).toBe(0);
+    expect(meterFilledCells(2)).toBe(1);
+
+    const { row } = await render(
+      <Header
+        model={header({ contextUsed: 2_000 })}
+        viewport={{ width: 80, height: 24 }}
+      />,
+      80,
+    );
+    expect(row).toContain(`${glyphs.ruleHeavy.repeat(10)} 2%`);
+    expect(row).not.toContain(glyphs.gridEmpty);
+    expect(meterFilledCells(100)).toBe(10);
+  });
+
+  it("warms the meter where the agent starts warning (70%) and reddens where it trims (95%)", async () => {
+    const filled = getGlyphs().ruleHeavy;
 
     const calm = await render(
       <Header
@@ -197,26 +214,26 @@ describe("Header", () => {
       />,
       80,
     );
-    expect(colorOf(calm.spans, filled)).toBe(THEME.secondary.toUpperCase());
+    expect(colorOf(calm.spans, filled)).toBe(THEME.primary.toUpperCase());
 
     const warning = await render(
       <Header
-        model={header({ contextUsed: 85_000 })}
+        model={header({ contextUsed: 72_000 })}
         viewport={{ width: 80, height: 24 }}
       />,
       80,
     );
-    expect(warning.row).toContain("85%");
+    expect(warning.row).toContain("72%");
     expect(colorOf(warning.spans, filled)).toBe(THEME.warning.toUpperCase());
 
     const error = await render(
       <Header
-        model={header({ contextUsed: 95_000 })}
+        model={header({ contextUsed: 97_000 })}
         viewport={{ width: 80, height: 24 }}
       />,
       80,
     );
-    expect(error.row).toContain("95%");
+    expect(error.row).toContain("97%");
     expect(colorOf(error.spans, filled)).toBe(THEME.error.toUpperCase());
   });
 
@@ -255,11 +272,11 @@ describe("Header", () => {
 
 describe("formatUsage", () => {
   it("joins billed input/output with USD", () => {
-    expect(formatUsage({ promptTokens: 20_000, completionTokens: 40_000, costUsd: 1 })).toBe(
-      "20k/40k $1.00",
+    expect(formatUsage({ promptTokens: 20_000, completionTokens: 40_000, costUsd: 1 }, " · ")).toBe(
+      "20k in · 40k out · $1.00",
     );
-    expect(formatUsage({ costUsd: 0.26 })).toBe("$0.26");
-    expect(formatUsage({ promptTokens: 100, completionTokens: 50 })).toBe("100/50");
+    expect(formatUsage({ costUsd: 0.26 }, " · ")).toBe("$0.26");
+    expect(formatUsage({ promptTokens: 100, completionTokens: 50 }, " · ")).toBe("100 in · 50 out");
   });
 });
 
@@ -293,8 +310,9 @@ describe("Footer", () => {
       80,
     );
 
-    expect(row).toContain("20k/40k $1.00");
-    expect(colorOf(spans, "20k/40k $1.00")).toBe(THEME.muted.toUpperCase());
+    const usage = `20k in ${getGlyphs().bullet} 40k out ${getGlyphs().bullet} $1.00`;
+    expect(row).toContain(usage);
+    expect(colorOf(spans, usage)).toBe(THEME.muted.toUpperCase());
   });
 
   it("replaces hints with a copy confirmation in the live accent", async () => {
@@ -379,7 +397,7 @@ describe("at the minimum width", () => {
     );
     expect(terminalCellWidth(row)).toBe(60);
     expect(row).toContain("plan");
-    expect(row).toContain("20k/40k $0.18");
+    expect(row).toContain(`20k in ${getGlyphs().bullet} 40k out ${getGlyphs().bullet} $0.18`);
   });
 
   it("neither row overflows", async () => {

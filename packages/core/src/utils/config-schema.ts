@@ -27,6 +27,7 @@ import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import { TERMINAL_NOTIFICATION_SETTINGS } from "@/core/notify/terminal-notification";
 import type {
   AnthropicProviderConfig,
+  ChatConfig,
   ChatGPTProviderConfig,
   AppConfig,
   ContextConfig,
@@ -47,6 +48,8 @@ import type {
   SchedulerMode,
   StorageConfig,
   TelemetryConfig,
+  UiCanvasMode,
+  UiConfig,
   VllmProviderConfig,
   WebSearchConfig,
   NetworkConfig,
@@ -80,6 +83,7 @@ import type {
   WebhookSignatureFormat,
 } from "@/core/types/webhook";
 import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
+import { describeHttpUrlPatternError, MAX_HTTP_URL_PATTERNS } from "@/core/utils/http-approval";
 import { isRecord } from "@/core/utils/is-record";
 import {
   describePrivateHostEntryError,
@@ -344,8 +348,21 @@ const privateHostEntry = described(
   "a hostname, *.suffix wildcard, IP address or CIDR block",
 );
 
+const httpUrlEntry = described(
+  z.string().superRefine((entry, refinement) => {
+    const problem = describeHttpUrlPatternError(entry);
+    if (problem !== undefined) {
+      refinement.addIssue({ code: "custom", message: problem });
+    }
+  }),
+  "an exact HTTP(S) URL or trailing /* path prefix",
+);
+
 const networkShape = {
   allowPrivateHosts: z.array(privateHostEntry).max(MAX_PRIVATE_HOST_ENTRIES).exactOptional(),
+  httpApproval: z
+    .union([z.literal("allow"), z.array(httpUrlEntry).max(MAX_HTTP_URL_PATTERNS)])
+    .exactOptional(),
 } satisfies SchemaShape<NetworkConfig>;
 
 const streamingShape = {
@@ -504,6 +521,18 @@ const schedulerShape = {
   mode: exhaustiveEnum<SchedulerMode>()(["auto", "in-process"]).exactOptional(),
 } satisfies SchemaShape<SchedulerConfig>;
 
+const chatShape = {
+  defaultCostLimitUSD: dollars.exactOptional(),
+} satisfies SchemaShape<ChatConfig>;
+
+const uiShape = {
+  theme: described(
+    z.string().regex(/^[a-z0-9][a-z0-9-]*(:(dark|light))?$/),
+    "a theme name, optionally with :dark or :light",
+  ).exactOptional(),
+  canvas: exhaustiveEnum<UiCanvasMode>()(["inherit", "painted"]).exactOptional(),
+} satisfies SchemaShape<UiConfig>;
+
 const mcpOverrideShape = {
   enabled: flag.exactOptional(),
   trusted: flag.exactOptional(),
@@ -620,6 +649,8 @@ const configFileShape = {
     .exactOptional(),
   daemon: z.strictObject(daemonShape).exactOptional(),
   notify: z.strictObject(notifyShape).exactOptional(),
+  ui: z.strictObject(uiShape).exactOptional(),
+  chat: z.strictObject(chatShape).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;
 
 /** A whole config file, as it may appear on disk. */

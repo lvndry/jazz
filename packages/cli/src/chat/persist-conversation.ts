@@ -1,10 +1,9 @@
 /**
  * Decides whether a chat session's history is worth writing to disk, and
- * saves it — skipped for ephemeral sessions or ones with nothing said yet.
+ * saves it — skipped for ephemeral sessions or empty, unnamed conversations.
  *
- * No title is passed: the log derives it from the first user message, so a
- * conversation is always named by how it opened, even when a session resumes
- * another transcript or the runner hands back a new conversation id.
+ * Explicit session titles are preserved without truncation. Otherwise the log derives its
+ * title from the first user message. Naming an empty conversation makes it worth saving too.
  */
 
 import { FileSystem } from "@effect/platform";
@@ -20,6 +19,7 @@ export interface PersistConversationInput {
   readonly ephemeral: boolean;
   readonly conversationHistory: readonly ChatMessage[];
   readonly conversationId: string;
+  readonly title?: string | undefined;
   readonly agentId: string;
   readonly startedAt: string;
   readonly uiTranscript?: readonly ConversationUiEntry[];
@@ -28,7 +28,8 @@ export interface PersistConversationInput {
 export function shouldPersistConversation(input: PersistConversationInput): boolean {
   return (
     !input.ephemeral &&
-    (input.conversationHistory.some((message) => message.role === "user") ||
+    ((input.title?.trim().length ?? 0) > 0 ||
+      input.conversationHistory.some((message) => message.role === "user") ||
       input.uiTranscript?.some((entry) => entry.type === "user") === true)
   );
 }
@@ -56,7 +57,7 @@ export function persistConversationIfNeeded(
 
   const conversation: Conversation = {
     conversationId: input.conversationId,
-    title: "",
+    title: input.title ?? "",
     agentId: input.agentId,
     startedAt: input.startedAt,
     endedAt: new Date().toISOString(),

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
-  commandFormLines,
+  commandUsage,
   filterCommandsByPrefix,
   findBuiltinCommand,
   findCommand,
@@ -102,18 +102,21 @@ describe("isExitCommand", () => {
   });
 });
 
-describe("commandFormLines", () => {
-  it("aligns every form of a command and ends with its note", () => {
+describe("commandUsage", () => {
+  it("lists every form of a command with its meaning and ends with its note", () => {
     const loop = findBuiltinCommand("loop");
     if (loop === undefined) {
       throw new Error("/loop is registered");
     }
-    const lines = commandFormLines(loop);
-    const forms = loop.forms ?? [];
-    const formWidth = Math.max(...forms.map((entry) => entry.form.length));
-    for (const [index, entry] of forms.entries()) {
-      expect(lines[index]).toBe(`${entry.form.padEnd(formWidth)}  ${entry.meaning}`);
-    }
-    expect(lines.at(-1)).toContain("jazz daemon");
+    const usage = commandUsage(loop);
+    expect(usage.label).toBe("/loop");
+    expect(usage.rows).toEqual(
+      (loop.forms ?? []).map((entry) => ({
+        kind: "item",
+        name: entry.form,
+        detail: entry.meaning,
+      })),
+    );
+    expect(usage.note).toContain("jazz daemon");
   });
 });

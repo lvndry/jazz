@@ -57,9 +57,17 @@ The [tool inventory](../tools/index.md) lists exactly which tools send.
 
 ## Network egress
 
-Every URL a model chooses goes through one guarded fetch: `http_request`, `web_fetch`, `read_pdf`
-with a `url`, and whatever the HTML behind `create_pdf` and `create_composition` loads while it
-renders. It enforces four things.
+HTTP requests and web fetches run without approval by default, including private addresses and
+calls after untrusted content. Set global `network.httpApproval` to a URL array to approve only
+matching URLs automatically; unmatched requests ask or park. Approvals authorize one exact call
+and never change the list. Redirect URLs must also match the grant, credentials are stripped
+across origins, and response byte/time limits still apply. See [HTTP approvals](../configure/jazz.md#web-request-safety).
+
+The private-destination restrictions below apply to other model-selected URL tools, including
+`read_pdf` and rendered pages. HTTP tools instead use their scoped global HTTP authorization.
+
+Other URL tools use the guarded fetch too: `read_pdf` with a URL, and the HTML rendered by
+`create_pdf` and `create_composition`. For these tools it enforces four things.
 
 - **Public destinations.** The hostname is resolved, and every address it resolves to must be
   public. Loopback (`127.0.0.0/8`, `::1`), private (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`),

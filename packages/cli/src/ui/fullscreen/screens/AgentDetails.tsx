@@ -7,51 +7,16 @@
  */
 
 import type { ReactNode } from "react";
+import {
+  agentDetailsBodyHeight,
+  agentDetailsRows,
+  AGENT_DETAILS_GUTTER,
+  AGENT_DETAILS_RIGHT_MARGIN,
+} from "../../models/agent-details";
 import type { ActiveAgentDetails } from "../../store";
-import { THEME } from "../../theme";
-import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
+import { clipTerminalCells } from "../../text/terminal-cells";
+import { groundPaint, THEME } from "../../theme";
 import type { Viewport } from "../types";
-
-const GUTTER = 2;
-const RIGHT_MARGIN = 2;
-const LABEL_WIDTH = 17;
-const FRAME_ROWS = 5;
-
-/** Physical body rows after wrapping all fields at the current viewport width. */
-export function agentDetailsRows(
-  fields: ActiveAgentDetails["fields"],
-  width: number,
-): readonly { readonly text: string; readonly section: boolean }[] {
-  const content = Math.max(1, width - GUTTER - RIGHT_MARGIN);
-  const labelWidth = Math.min(LABEL_WIDTH, Math.max(8, Math.floor(content / 3)));
-  const valueWidth = Math.max(1, content - labelWidth - 2);
-  const rows: { text: string; section: boolean }[] = [];
-  let currentSection = "";
-  for (const field of fields) {
-    if (field.section !== currentSection) {
-      if (rows.length > 0) rows.push({ text: "", section: false });
-      rows.push({ text: field.section, section: true });
-      currentSection = field.section;
-    }
-    const clippedLabel = clipTerminalCells(field.label, labelWidth);
-    const label = clippedLabel + " ".repeat(labelWidth - terminalCellWidth(clippedLabel));
-    for (const [index, part] of wrapTerminalCells(
-      field.value.replace(/[\r\n\t]/g, " "),
-      valueWidth,
-    ).entries()) {
-      rows.push({
-        text: `${index === 0 ? label : " ".repeat(labelWidth)}  ${part}`,
-        section: false,
-      });
-    }
-  }
-  return rows;
-}
-
-/** Number of rows the body may show without covering the title or key legend. */
-export function agentDetailsBodyHeight(viewport: Viewport): number {
-  return Math.max(1, viewport.height - FRAME_ROWS);
-}
 
 export function AgentDetails({
   name,
@@ -64,7 +29,10 @@ export function AgentDetails({
   const maxOffset = Math.max(0, rows.length - bodyHeight);
   const start = Math.max(0, Math.min(offset, maxOffset));
   const visible = rows.slice(start, start + bodyHeight);
-  const contentWidth = Math.max(1, viewport.width - GUTTER - RIGHT_MARGIN);
+  const contentWidth = Math.max(
+    1,
+    viewport.width - AGENT_DETAILS_GUTTER - AGENT_DETAILS_RIGHT_MARGIN,
+  );
 
   return (
     <box
@@ -72,12 +40,12 @@ export function AgentDetails({
         width: viewport.width,
         height: viewport.height,
         flexDirection: "column",
-        backgroundColor: THEME.canvas,
+        backgroundColor: groundPaint(),
       }}
     >
       <box style={{ height: 1, flexShrink: 0 }} />
       <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-        <box style={{ width: GUTTER, flexShrink: 0 }} />
+        <box style={{ width: AGENT_DETAILS_GUTTER, flexShrink: 0 }} />
         <text style={{ fg: THEME.selected, wrapMode: "none", truncate: true }}>
           <b>{clipTerminalCells(`agent: ${name}`, contentWidth)}</b>
         </text>
@@ -89,7 +57,7 @@ export function AgentDetails({
             key={start + index}
             style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
           >
-            <box style={{ width: GUTTER, flexShrink: 0 }} />
+            <box style={{ width: AGENT_DETAILS_GUTTER, flexShrink: 0 }} />
             <text
               style={{
                 fg: row.section ? THEME.primary : THEME.secondary,
@@ -104,7 +72,7 @@ export function AgentDetails({
       </box>
       <box style={{ height: 1, flexShrink: 0 }} />
       <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-        <box style={{ width: GUTTER, flexShrink: 0 }} />
+        <box style={{ width: AGENT_DETAILS_GUTTER, flexShrink: 0 }} />
         <text style={{ fg: THEME.muted, wrapMode: "none", truncate: true }}>
           {`up down scroll   esc back${rows.length > bodyHeight ? `   ${start + 1}-${Math.min(start + bodyHeight, rows.length)} of ${rows.length}` : ""}`}
         </text>

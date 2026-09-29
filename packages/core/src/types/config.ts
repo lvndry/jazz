@@ -17,22 +17,14 @@ export interface SchedulerConfig {
   readonly mode?: SchedulerMode;
 }
 
-/**
- * Network reach for the URLs a model chooses (`http_request`, `web_fetch`, `read_pdf`, headless
- * renders), for every agent. Read from the global config file only: a project config cannot
- * widen it.
- *
- * Public internet hosts are always reachable. Loopback, private, link-local and other
- * non-public addresses are refused unless listed here.
- */
+/** Global network permissions; project configuration cannot widen these grants. */
+export type HttpApprovalPolicy = "allow" | readonly string[];
+
 export interface NetworkConfig {
-  /**
-   * Private hosts agents may reach. Each entry is a hostname (`homeassistant.local`), a
-   * `*.suffix` wildcard (`*.lan`), an IP address (`192.168.1.10`, `::1`) or a CIDR block
-   * (`192.168.1.0/24`). A hostname entry allows whatever that name resolves to; an address or
-   * block entry allows those addresses behind any name. At most 64 entries.
-   */
+  /** Private destinations available to other URL tools: hostname, wildcard, IP or CIDR. */
   readonly allowPrivateHosts?: readonly string[];
+  /** HTTP requests and web fetches run automatically by default. A URL list asks outside it. */
+  readonly httpApproval?: HttpApprovalPolicy;
 }
 
 export interface AppConfig {
@@ -109,6 +101,32 @@ export interface AppConfig {
   readonly notify?: NotifyConfig;
   /** What `jazz daemon` may spend and how it reaches you. */
   readonly daemon?: DaemonConfig;
+  /** How the interactive interface looks. */
+  readonly ui?: UiConfig;
+  /** Defaults for interactive chat sessions. */
+  readonly chat?: ChatConfig;
+}
+
+/** Defaults applied to every new chat session; `/limit` can still change them for that session. */
+export interface ChatConfig {
+  /** Starting value of this conversation's `/limit` USD cap. Unset means uncapped by default. */
+  readonly defaultCostLimitUSD?: number;
+}
+
+/** Whether the interface's ground is the terminal's own background or the theme's. */
+export type UiCanvasMode = "inherit" | "painted";
+
+export interface UiConfig {
+  /**
+   * The theme: a name (`jazz`, `catppuccin`, `system`, or a file in `$JAZZ_HOME/themes`), or
+   * `name:dark` / `name:light` to pin a variant. `/theme` writes it. `JAZZ_THEME` wins.
+   */
+  readonly theme?: string;
+  /**
+   * `inherit` (the default) leaves the terminal's own background showing and paints only
+   * panels and code; `painted` paints every cell with the theme's background.
+   */
+  readonly canvas?: UiCanvasMode;
 }
 
 /** A dollar cap per local day and per local month. Either may be unset (unlimited). */

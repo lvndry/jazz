@@ -28,7 +28,7 @@ function webFetchCall(url: string): ToolCall {
   return {
     id: "call-1",
     type: "function",
-    function: { name: "web_fetch", arguments: JSON.stringify({ url }) },
+    function: { name: "read_pdf", arguments: JSON.stringify({ url }) },
   };
 }
 
@@ -136,7 +136,7 @@ const context: ToolExecutionContext = {
 describe("unlistedPrivateAddressesFor", () => {
   function addresses(url: string, allowPrivateHosts: readonly string[] = []) {
     return Effect.runPromise(
-      unlistedPrivateAddressesFor(true, { url }, { agentId: "a" }).pipe(
+      unlistedPrivateAddressesFor("read_pdf", true, { url }, { agentId: "a" }).pipe(
         Effect.provide(testConfigLayer({ network: { allowPrivateHosts } })),
       ),
     );

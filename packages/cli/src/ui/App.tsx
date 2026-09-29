@@ -13,23 +13,31 @@ import { PreWrappedText } from "./components/PreWrappedText";
 import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
 import ErrorBoundary from "./ErrorBoundary";
-import { agentDetailsBodyHeight, agentDetailsRows } from "./fullscreen/screens/AgentDetails";
-import { windowStart } from "./fullscreen/screens/AgentPicker";
-import { skillDetailBodyRows, skillListRows } from "./fullscreen/screens/SkillBrowser";
-import { clipTerminalCells } from "./fullscreen/terminal-cells";
-import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { useInputHandler } from "./hooks/use-input-service";
+import { InkHome } from "./InkHome";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
-import { filterSkills, skillDetailRows, skillLine } from "./skill-browser";
+import {
+  filterSkills,
+  skillDetailBodyRows,
+  skillDetailRows,
+  skillLine,
+  skillListRows,
+  skillSourceLabel,
+} from "./skill-browser";
 import StatusFooter from "./StatusFooter";
 import { store, useOutputSlice, usePromptSlice, useSessionSlice, type ActiveMenu } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId } from "./types";
 import { WizardHome } from "./WizardHome";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
+import { markdownToAnsi } from "./markdown/ansi";
+import { agentDetailsBodyHeight, agentDetailsRows } from "./models/agent-details";
+import { centredWindowStart } from "./text/picker-window";
+import { clipTerminalCells } from "./text/terminal-cells";
+import packageJson from "../../../../package.json";
 
 // ============================================================================
 // Activity Island - Unified state for status + streaming response
@@ -104,24 +112,24 @@ const StatusFooterIsland = React.memo(StatusFooterIslandComponent);
 // Uses TerminalOutputAdapter for two-tier Static/live rendering.
 // ============================================================================
 
-function renderPendingStream(pending: PendingStream, cols: number): string {
+export function renderPendingStream(pending: PendingStream, cols: number): string {
   // The renderer's display config is wired up via store; for this island we
-  // default to formatMarkdown. If the user's display config is `hybrid`, the
-  // renderer will set its own pending text via store.appendStream — the buffer
-  // contains raw markdown either way. We always render with `formatMarkdown`
-  // here; the activity-island's display config doesn't change formatting
-  // semantics for the pending tail.
+  // default to the shared parser's rendered mode. If the user's display
+  // config is `hybrid`, the renderer will set its own pending text via
+  // store.appendStream — the buffer contains raw markdown either way. We
+  // always render in "rendered" syntax here; the activity-island's display
+  // config doesn't change formatting semantics for the pending tail.
   //
   // Pre-wrap to terminal width: under heavy live-area re-rendering Yoga can
   // miscalculate the available width and degenerate into character-by-character
   // wrapping. Hard-wrapping upstream + rendering with PreWrappedText
   // (wrap="truncate") sidesteps that. Same pattern as formatReasoningText
   // in ink-presentation-service.ts.
-  const formatted = formatMarkdown(pending.rawTail);
-  const dimmed = pending.kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
   const width = Math.max(20, cols - PADDING_BUDGET - PADDING.content - RAIL_WIDTH);
+  const formatted = markdownToAnsi(pending.rawTail, { width, syntax: "rendered" });
+  const dimmed = pending.kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
   // Same speaker rail as settled slices so the live tail is seamless.
-  return railStreamLines(wrapToWidth(dimmed, width), pending.kind);
+  return railStreamLines(dimmed, pending.kind);
 }
 
 function OutputIslandComponent(): React.ReactElement {
@@ -172,6 +180,19 @@ const OutputIsland = React.memo(OutputIslandComponent);
 
 function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactElement {
   if (menu.kind === "skills") return <InkSkillBrowserView menu={menu} />;
+  if (menu.kind === "home") {
+    return (
+      <InkHome
+        // One mount per showing: a refresh keeps what is typed, a new showing starts fresh.
+        key={menu.shownAt}
+        model={{ ...menu, version: packageJson.version }}
+        onAnswer={(value, text) =>
+          store.completePrompt({ kind: "select", value, ...(text === undefined ? {} : { text }) })
+        }
+        onQuit={() => store.completePrompt({ kind: "exit" })}
+      />
+    );
+  }
   if (menu.kind === "agent-details") return <InkAgentDetailsView menu={menu} />;
   const options =
     menu.kind === "agents"
@@ -179,7 +200,10 @@ function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactEle
           label: `${agent.name} (${agent.model})`,
           value: agent.id,
         }))
-      : menu.options;
+      : menu.options.map((option) => ({
+          label: option.hint === undefined ? option.label : `${option.label}  ${option.hint}`,
+          value: option.value,
+        }));
   const title = menu.title;
 
   return (
@@ -210,7 +234,7 @@ function InkSkillBrowserView({
   const [offset, setOffset] = useState(0);
   const matches = filterSkills(menu.skills, query);
   const visibleRows = skillListRows({ width: cols, height: rows });
-  const start = windowStart(matches.length, selected, visibleRows);
+  const start = centredWindowStart(matches.length, selected, visibleRows);
   const detailRows = detail === null ? [] : skillDetailRows(detail, cols);
   const detailHeight = skillDetailBodyRows({ width: cols, height: rows });
   const maxOffset = Math.max(0, detailRows.length - detailHeight);
@@ -298,7 +322,7 @@ function InkSkillBrowserView({
             color={start + index === selected ? THEME.selected : THEME.secondary}
             bold={start + index === selected}
           >
-            {`${start + index === selected ? "▏" : " "} ${clipTerminalCells(skillLine(skill.name), Math.max(1, cols - 18))}  ${skill.source}`}
+            {`${start + index === selected ? "▏" : " "} ${clipTerminalCells(skillLine(skill.name), Math.max(1, cols - 18))}  ${skillSourceLabel(skill.source)}`}
           </Text>
         ))
       )}

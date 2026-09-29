@@ -1,43 +1,49 @@
 /**
- * The spend caps the configuration wizard edits, all under `daemon` in config.json: a daily and
- * a monthly dollar cap for goal work (goal cycles and loops), and for every unattended run on
- * this machine. Each is unlimited until set, and clearing one makes it unlimited again.
+ * The spend caps the configuration wizard edits: a daily and a monthly dollar cap for goal work
+ * (goal cycles and loops) and for every unattended run on this machine, both under `daemon` in
+ * config.json, plus a default per-session cap for chat under `chat`. Each is unlimited until
+ * set, and clearing one makes it unlimited again.
  *
  * `parseSpendLimitInput` reads what a person typed; `applySpendLimit` writes it (or removes the
  * key, for unlimited) through the config service, so the wizard and its tests share one rule.
  */
 
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
-import type { DaemonConfig } from "@jazz/core/types/config";
+import type { AppConfig } from "@jazz/core/types/config";
 import { Effect } from "effect";
 
 export interface SpendLimitSetting {
   readonly key: string;
   readonly label: string;
-  readonly read: (caps: DaemonConfig | undefined) => number | undefined;
+  readonly read: (config: AppConfig) => number | undefined;
 }
 
-/** Goal caps come first. */
+/** Goal caps come first, then chat's own default. */
 export const SPEND_LIMIT_SETTINGS: readonly SpendLimitSetting[] = [
   {
     key: "daemon.goals.dailyCostUSD",
     label: "Goals, per day",
-    read: (caps) => caps?.goals?.dailyCostUSD,
+    read: (config) => config.daemon?.goals?.dailyCostUSD,
   },
   {
     key: "daemon.goals.monthlyCostUSD",
     label: "Goals, per month",
-    read: (caps) => caps?.goals?.monthlyCostUSD,
+    read: (config) => config.daemon?.goals?.monthlyCostUSD,
   },
   {
     key: "daemon.dailyCostUSD",
     label: "All unattended work, per day",
-    read: (caps) => caps?.dailyCostUSD,
+    read: (config) => config.daemon?.dailyCostUSD,
   },
   {
     key: "daemon.monthlyCostUSD",
     label: "All unattended work, per month",
-    read: (caps) => caps?.monthlyCostUSD,
+    read: (config) => config.daemon?.monthlyCostUSD,
+  },
+  {
+    key: "chat.defaultCostLimitUSD",
+    label: "Chat, per session (default)",
+    read: (config) => config.chat?.defaultCostLimitUSD,
   },
 ];
 

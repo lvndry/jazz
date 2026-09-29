@@ -744,6 +744,7 @@ This command will be executed on your system. Only approve commands you trust.`;
       }),
 
     approvalErrorMessage: "Command execution requires explicit user approval for security reasons.",
+    editableArg: "command",
 
     handler: (args: ExecuteCommandArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {

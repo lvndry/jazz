@@ -11,6 +11,7 @@ import {
   type ApprovalToolPair,
 } from "../base-tool";
 import { replacePathAtomically } from "./atomic-replace";
+import { describeFootprint, measureFootprint } from "./footprint";
 import { buildKeyFromContext } from "../context-utils";
 import { jazzStateApproval } from "./jazz-state-approval";
 
@@ -54,10 +55,18 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
           { skipExistenceCheck: true },
         );
         const overwrite = args.force === true ? " (will overwrite if exists)" : "";
-        return jazzStateApproval(
+        const footprint = yield* measureFootprint(source);
+        const impact = footprint === undefined ? undefined : describeFootprint(footprint);
+        const approval = jazzStateApproval(
           `About to copy: ${source}\n       to: ${destination}${overwrite}`,
           [destination],
         );
+        if (impact === undefined) {
+          return approval;
+        }
+        return typeof approval === "string"
+          ? { message: approval, impact }
+          : { ...approval, impact };
       }),
 
     handler: (args: CpArgs, context: ToolExecutionContext) =>

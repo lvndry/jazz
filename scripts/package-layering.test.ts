@@ -7,7 +7,7 @@
  * `DAEMON_CONSUMERS`. `eslint.config.mjs` enforces the same rule per import as you edit.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "bun:test";
 import ts from "typescript";
@@ -38,7 +38,9 @@ function sourceFiles(directory: string): string[] {
 function daemonFreePackages(): string[] {
   return readdirSync(PACKAGES_ROOT).filter(
     (entry) =>
-      !DAEMON_CONSUMERS.has(entry) && statSync(path.join(PACKAGES_ROOT, entry)).isDirectory(),
+      !DAEMON_CONSUMERS.has(entry) &&
+      statSync(path.join(PACKAGES_ROOT, entry)).isDirectory() &&
+      existsSync(path.join(PACKAGES_ROOT, entry, "package.json")),
   );
 }
 

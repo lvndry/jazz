@@ -17,6 +17,7 @@ import type { LanguageModelUsage, streamText } from "ai";
 import { Chunk, Effect, Option } from "effect";
 import type { ParseChunk, ReasoningParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
+import { routerBilledCostUSD } from "./router-cost";
 import { toJazzToolCall } from "./tool-call-parts";
 
 /**
@@ -673,6 +674,8 @@ export class StreamProcessor {
         ]));
 
       if (usageResult) {
+        const providerMetadata = await result.providerMetadata;
+        const reportedCost = routerBilledCostUSD(this.config.providerName, providerMetadata);
         usage = {
           promptTokens: usageResult.inputTokens ?? 0,
           completionTokens: usageResult.outputTokens ?? 0,
@@ -690,6 +693,7 @@ export class StreamProcessor {
           ...(usageResult.inputTokenDetails?.cacheWriteTokens != null && {
             cacheWriteTokens: usageResult.inputTokenDetails.cacheWriteTokens,
           }),
+          ...(reportedCost !== undefined ? { billedCostUSD: reportedCost } : {}),
         };
 
         // Emit usage update

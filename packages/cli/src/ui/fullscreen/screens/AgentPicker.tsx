@@ -20,6 +20,10 @@
  * the width runs out — the same column priority the Ink list used, for the same
  * reason: three characters of a sentence are worse than no sentence.
  *
+ * Typing filters. A list of thirty agents is found by name, not walked with
+ * the arrow keys, so every printable key is query text and only the arrows,
+ * enter and esc navigate. Matched name characters are set in weight, not hue.
+ *
  * And no key is handled here. The screen takes `selectedIndex` and renders it,
  * so a frame is reproducible from data alone and input routing stays in one
  * place. A longer-than-the-window list is windowed by arithmetic rather than by
@@ -30,8 +34,10 @@
 
 import type { ReactNode } from "react";
 import { getGlyphs } from "../../glyphs";
-import { THEME } from "../../theme";
-import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
+import { centredWindowStart } from "../../text/picker-window";
+import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells";
+import { groundPaint, THEME } from "../../theme";
+import { CaretValue } from "../overlays/TextPrompt";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
 
@@ -57,8 +63,8 @@ const PERSONA_MAX = 20;
  */
 const DESCRIPTION_MIN = 12;
 
-/** Blank, title, blank. */
-const HEAD_ROWS = 3;
+/** Blank, title, filter, blank. */
+const HEAD_ROWS = 4;
 
 /** Blank, keys. */
 const TAIL_ROWS = 2;
@@ -94,6 +100,70 @@ export interface AgentPickerProps {
   readonly title?: string;
   /** The verb on enter — "start", "edit", "delete". Pairs with `title`. */
   readonly action?: string;
+  /** Filter text typed so far; `selectedIndex` indexes the filtered list. */
+  readonly query?: string;
+  readonly caret?: number;
+}
+
+export interface AgentMatch {
+  readonly agent: AgentChoice;
+  /** Code-point offsets in the name that the query matched, for emphasis. */
+  readonly nameHits: readonly number[];
+}
+
+function hitsOfSubstring(text: string, needle: string): number[] | undefined {
+  const at = text.toLowerCase().indexOf(needle);
+  if (at < 0) return undefined;
+  const start = [...text.slice(0, at)].length;
+  return Array.from({ length: [...needle].length }, (_, offset) => start + offset);
+}
+
+function hitsOfSubsequence(text: string, needle: string): number[] | undefined {
+  const characters = [...text.toLowerCase()];
+  const wanted = [...needle];
+  const hits: number[] = [];
+  let cursor = 0;
+  for (const character of wanted) {
+    while (cursor < characters.length && characters[cursor] !== character) cursor += 1;
+    if (cursor >= characters.length) return undefined;
+    hits.push(cursor);
+    cursor += 1;
+  }
+  return hits;
+}
+
+/**
+ * The agents a query keeps, best first: a name that starts with it, then a name
+ * that contains it, then a model or persona that contains it, then a name that
+ * holds its letters in order (`lxh` finds `luna-xhigh`). Ties keep list order,
+ * so the last-used agent stays on top of an empty query.
+ */
+export function filterAgents(agents: readonly AgentChoice[], query: string): readonly AgentMatch[] {
+  const needle = oneLine(query).toLowerCase();
+  if (needle.length === 0) return agents.map((agent) => ({ agent, nameHits: [] }));
+  const ranked: { match: AgentMatch; rank: number; order: number }[] = [];
+  agents.forEach((agent, order) => {
+    const substring = hitsOfSubstring(agent.name, needle);
+    if (substring !== undefined) {
+      ranked.push({
+        match: { agent, nameHits: substring },
+        rank: substring[0] === 0 ? 0 : 1,
+        order,
+      });
+      return;
+    }
+    if (`${agent.model} ${agent.persona}`.toLowerCase().includes(needle)) {
+      ranked.push({ match: { agent, nameHits: [] }, rank: 2, order });
+      return;
+    }
+    const subsequence = hitsOfSubsequence(agent.name, needle.replace(/\s/g, ""));
+    if (subsequence !== undefined) {
+      ranked.push({ match: { agent, nameHits: subsequence }, rank: 3, order });
+    }
+  });
+  return ranked
+    .sort((left, right) => left.rank - right.rank || left.order - right.order)
+    .map((entry) => entry.match);
 }
 
 function cells(text: string): number {
@@ -149,15 +219,76 @@ export function listRowsFor(viewport: Viewport): number {
  * the names move past it, except at the top and the bottom where the list has
  * somewhere to stand.
  */
-export function windowStart(count: number, selected: number, rows: number): number {
-  if (count <= rows) return 0;
-  return clamp(selected - Math.floor(rows / 2), 0, count - rows);
+
+function positionLabel(
+  total: number,
+  matches: number,
+  selected: number,
+  filtering: boolean,
+): string {
+  if (total === 0) return "no agents";
+  if (filtering) {
+    if (matches === 0) return "no matches";
+    return matches === 1 ? "1 match" : `${String(selected + 1)} of ${String(matches)} matches`;
+  }
+  if (total === 1) return "1 agent";
+  return `${String(selected + 1)} of ${String(total)}`;
 }
 
-function positionLabel(agents: readonly AgentChoice[], selected: number): string {
-  if (agents.length === 0) return "no agents";
-  if (agents.length === 1) return "1 agent";
-  return `${String(selected + 1)} of ${String(agents.length)}`;
+/** The name with the matched characters set heavier than the rest. */
+function AgentName({
+  name,
+  hits,
+  selected,
+}: {
+  name: string;
+  hits: readonly number[];
+  selected: boolean;
+}): ReactNode {
+  const base = selected ? THEME.selected : THEME.secondary;
+  if (hits.length === 0) {
+    return selected ? <b style={{ fg: base }}>{name}</b> : <span style={{ fg: base }}>{name}</span>;
+  }
+  const hitSet = new Set(hits);
+  const runs: { text: string; hit: boolean }[] = [];
+  [...name].forEach((character, index) => {
+    const hit = hitSet.has(index);
+    const last = runs[runs.length - 1];
+    if (last !== undefined && last.hit === hit) {
+      last.text += character;
+    } else {
+      runs.push({ text: character, hit });
+    }
+  });
+  // On the selected row every character is already bold, so a hit is underlined instead.
+  return (
+    <>
+      {runs.map((run, index) =>
+        run.hit ? (
+          <b
+            key={String(index)}
+            style={{ fg: THEME.selected }}
+          >
+            {selected ? <u>{run.text}</u> : run.text}
+          </b>
+        ) : selected ? (
+          <b
+            key={String(index)}
+            style={{ fg: base }}
+          >
+            {run.text}
+          </b>
+        ) : (
+          <span
+            key={String(index)}
+            style={{ fg: base }}
+          >
+            {run.text}
+          </span>
+        ),
+      )}
+    </>
+  );
 }
 
 function Keys({ agents, action }: { agents: readonly AgentChoice[]; action: string }): ReactNode {
@@ -189,16 +320,21 @@ export function AgentPicker({
   viewport,
   title = DEFAULT_TITLE,
   action = DEFAULT_ACTION,
+  query = "",
+  caret = [...query].length,
 }: AgentPickerProps): ReactNode {
   const glyphs = getGlyphs();
   const page = pageWidth(viewport);
   const measure = measureFor(page);
   const rows = listRowsFor(viewport);
   const content = Math.max(NAME_MIN + MODEL_MIN + PERSONA_MIN + COLUMN_GAP * 3, measure.prose);
+  // Columns are sized over every agent, so the table does not jump while typing.
   const columns = agentColumns(agents, content);
-  const selected = clamp(selectedIndex, 0, Math.max(0, agents.length - 1));
-  const start = windowStart(agents.length, selected, rows);
-  const visible = agents.slice(start, start + rows);
+  const filtering = oneLine(query).length > 0;
+  const matches = filterAgents(agents, query);
+  const selected = clamp(selectedIndex, 0, Math.max(0, matches.length - 1));
+  const start = centredWindowStart(matches.length, selected, rows);
+  const visible = matches.slice(start, start + rows);
 
   return (
     <box
@@ -206,7 +342,7 @@ export function AgentPicker({
         width: viewport.width,
         height: viewport.height,
         flexDirection: "column",
-        backgroundColor: THEME.canvas,
+        backgroundColor: groundPaint(),
       }}
     >
       <box style={{ height: 1, flexShrink: 0 }} />
@@ -216,8 +352,27 @@ export function AgentPicker({
         <text style={{ flexGrow: 1, wrapMode: "none", truncate: true }}>
           <b style={{ fg: THEME.selected }}>{clip(oneLine(title), content)}</b>
         </text>
-        <text style={{ flexShrink: 0, fg: THEME.muted }}>{positionLabel(agents, selected)}</text>
+        <text style={{ flexShrink: 0, fg: THEME.muted }}>
+          {positionLabel(agents.length, matches.length, selected, filtering)}
+        </text>
         <box style={{ width: RIGHT_MARGIN, flexShrink: 0 }} />
+      </box>
+
+      <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
+        <text style={{ width: GUTTER, flexShrink: 0, fg: THEME.primary }}>
+          {agents.length === 0 ? " " : glyphs.promptCursor}
+        </text>
+        {agents.length === 0 ? null : query === "" ? (
+          <text style={{ fg: THEME.muted, wrapMode: "none", truncate: true }}>
+            {clip("type to filter by name, model, or persona", content)}
+          </text>
+        ) : (
+          <CaretValue
+            value={query}
+            caret={caret}
+            width={content}
+          />
+        )}
       </box>
 
       <box style={{ height: 1, flexShrink: 0 }} />
@@ -238,9 +393,16 @@ export function AgentPicker({
             </text>
           </box>
         </box>
+      ) : matches.length === 0 ? (
+        <box style={{ height: rows, flexShrink: 0, flexDirection: "row" }}>
+          <box style={{ width: GUTTER, flexShrink: 0 }} />
+          <text style={{ fg: THEME.secondary, wrapMode: "none", truncate: true }}>
+            {clip(`No agent matches "${oneLine(query)}".`, content)}
+          </text>
+        </box>
       ) : (
         <box style={{ height: rows, flexShrink: 0, flexDirection: "column" }}>
-          {visible.map((agent, offset) => {
+          {visible.map(({ agent, nameHits }, offset) => {
             const index = start + offset;
             const isSelected = index === selected;
             const name = clip(oneLine(agent.name), columns.name);
@@ -265,11 +427,11 @@ export function AgentPicker({
                 </text>
                 <box style={{ width: columns.name, flexShrink: 0 }}>
                   <text style={{ wrapMode: "none", truncate: true }}>
-                    {isSelected ? (
-                      <b style={{ fg: THEME.selected }}>{name}</b>
-                    ) : (
-                      <span style={{ fg: THEME.secondary }}>{name}</span>
-                    )}
+                    <AgentName
+                      name={name}
+                      hits={nameHits.filter((hit) => hit < [...name].length)}
+                      selected={isSelected}
+                    />
                   </text>
                 </box>
                 <box style={{ width: COLUMN_GAP, flexShrink: 0 }} />

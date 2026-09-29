@@ -5,7 +5,7 @@
  */
 
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
-import { wrapTerminalCells } from "./fullscreen/terminal-cells";
+import { wrapTerminalCells } from "./text/terminal-cells";
 
 /** Flatten metadata to one safe terminal line, including untrusted frontmatter. */
 export function skillLine(value: string): string {
@@ -13,6 +13,11 @@ export function skillLine(value: string): string {
     .replace(/\p{Cc}/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** How a skill's source reads on screen: the `agents` source is the `~/.agents` directory. */
+export function skillSourceLabel(source: SkillMetadata["source"]): string {
+  return source === "agents" ? "~/.agents" : source;
 }
 
 /** Match every space-delimited term against name, source, or description. */
@@ -23,7 +28,8 @@ export function filterSkills(
   const terms = skillLine(query).toLowerCase().split(" ").filter(Boolean);
   if (terms.length === 0) return skills;
   return skills.filter((skill) => {
-    const haystack = `${skill.name} ${skill.source} ${skill.description}`.toLowerCase();
+    const haystack =
+      `${skill.name} ${skillSourceLabel(skill.source)} ${skill.description}`.toLowerCase();
     return terms.every((term) => haystack.includes(term));
   });
 }
@@ -38,7 +44,7 @@ export function skillDetailRows(skill: SkillMetadata, width: number): readonly S
   const rows: SkillDetailRow[] = [];
   const contentWidth = Math.max(1, width - 4);
   const sections = [
-    ["Source", skill.source],
+    ["Source", skillSourceLabel(skill.source)],
     ["Description", skillLine(skill.description) || "No description provided."],
     ...(skill.path === "" ? [] : [["Location", skillLine(skill.path)]]),
   ] as const;
@@ -50,4 +56,26 @@ export function skillDetailRows(skill: SkillMetadata, width: number): readonly S
     }
   }
   return rows;
+}
+
+const LIST_FRAME_ROWS = 5;
+const DETAIL_FRAME_ROWS = 4;
+/** Below this width the key legend wraps to a second row, which the list gives up. */
+const NARROW_LEGEND_WIDTH = 60;
+
+/** How many skills the list shows under its frame, on either renderer. */
+export function skillListRows(viewport: {
+  readonly width: number;
+  readonly height: number;
+}): number {
+  const legendRows = viewport.width < NARROW_LEGEND_WIDTH ? 1 : 0;
+  return Math.max(1, viewport.height - LIST_FRAME_ROWS - legendRows);
+}
+
+/** How many rows a skill's detail body shows under its frame, on either renderer. */
+export function skillDetailBodyRows(viewport: {
+  readonly width: number;
+  readonly height: number;
+}): number {
+  return Math.max(1, viewport.height - DETAIL_FRAME_ROWS);
 }

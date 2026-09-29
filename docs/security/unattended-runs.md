@@ -49,21 +49,25 @@ because a parked run nobody answers is a job that silently did not happen.
 An inbox digest at `read-only` reads mail somebody else wrote. Without a further rule, the next
 call could put anything the agent knows into a URL of that person's choosing.
 
-So once a run has read external content (a web page, an API response, a search result, an MCP
-result, a peer's answer, or the output of any shell or custom command), egress tools stop
+HTTP requests and page fetches run automatically by default, including unattended runs after
+untrusted content. An optional global `network.httpApproval` URL array requires one-call approval
+outside its grants, or parking when `--park` is enabled. Risk tiers and session grants cannot
+override that list. See [HTTP approvals](../configure/jazz.md#web-request-safety).
+
+For other tools, once a run has read external content (a web page, an API response, a search result, an MCP
+result, a peer's answer, or the output of any shell or custom command), other egress tools stop
 auto-approving under `read-only`, `low-risk` or an unset policy. They prompt where somebody can
 answer, park under `--park`, and are declined otherwise, like any other gated call. The state is
 kept for the whole run, shared with its sub-agents, and restored on resume from the labelled
 results already in the conversation.
 
-Two kinds of call stay automatic because they cannot carry what the run learned:
+Two exceptions stay automatic: a configured destination, or a URL the run received rather than composed:
 
 - `web_search`, which only reaches the search provider you configured;
-- a plain GET (`web_fetch`, `read_pdf` by URL, `http_request` GET or HEAD with no headers, query or
-  body) of a URL that already appears in your messages or in content the run read. Following a link
+- a plain GET (`read_pdf` by URL) of a URL that already appears in your messages or in content the run read. Following a link
   from a page or a search result tells its author nothing new.
 
-Jazz cannot tell what a command read, so any `execute_command` run marks the run: after one, egress
+Jazz cannot tell what a command read, so any `execute_command` run marks the run: after one, other egress
 at `read-only` or `low-risk` needs approval even if the command was `ls`. A job that mixes shell and
 network work should do its fetching first or expect to park.
 

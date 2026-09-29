@@ -84,6 +84,11 @@ export type StreamEvent =
   | {
       type: "tool_execution_complete";
       toolCallId: string;
+      /**
+       * The tool the call named. A call refused before it started (malformed arguments) never
+       * sends `tool_execution_start`, so this is the only place its receipt can learn the name.
+       */
+      toolName?: string;
       result: string;
       durationMs: number;
       summary?: string;

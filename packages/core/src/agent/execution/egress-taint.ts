@@ -2,35 +2,35 @@
  * Egress after untrusted input: the run-scoped rule that stops a read-only agent from being
  * talked into sending data out.
  *
- * An inbox digest running at `autoApprove: read-only` may read attacker-written mail, and
- * `web_fetch`/`http_request`/MCP tools are read-only egress tools. Without this rule the next
- * call could put anything the agent knows into a URL of the attacker's choosing, with nobody
- * asked. So a run carries one piece of state, `EgressTaint`:
+ * Other egress tools use a run-scoped EgressTaint to require approval after reading external
+ * content. HTTP requests and web fetches instead use their independent global HTTP policy,
+ * which allows requests by default and can restrict them with URL grants.
  *
  * - It is marked the first time a tool result with `external` untrusted provenance enters the
  *   context: web pages, API responses, search results, MCP results, peer answers, and the output
  *   of every shell or custom command (Jazz cannot tell what a command read, so any command
- *   output counts, which means egress after any shell command needs a person below `high-risk`).
- *   A run whose history holds such a result or host-recorded exposure starts marked, so resuming or continuing a
+ *   output counts, which means other egress after shell commands needs approval below `high-risk`).
+ *   History carrying such a result or host-recorded exposure starts marked, so resuming a
  *   conversation does not reset it. Sub-agents share their parent's taint in both directions.
- * - Once marked, an egress tool (`egress: true`) is no longer auto-approved by the `read-only`
+ * - Once marked, another egress tool (`egress: true`) is no longer auto-approved by the `read-only`
  *   and `low-risk` tiers or by an unset policy: it prompts, parks, or is declined, exactly like
  *   any other call that needs a person. `high-risk` (and `true`) still approve it, and an explicit
  *   per-tool or per-command allowlist entry still counts.
  *
- * Two kinds of egress call stay automatic, because they cannot carry anything the run learned:
+ * Two exceptions stay automatic: an operator-configured destination, or a URL the run received
+ * rather than composed.
  *
  * - `FIXED_ENDPOINT_EGRESS_TOOLS`: tools that only talk to an endpoint the operator configured
  *   (`web_search` sends its query to the configured search provider, never to a model-chosen
  *   host).
- * - A plain GET (`web_fetch`, `read_pdf` by URL, `http_request` GET/HEAD with no headers, query
- *   or body) whose URL already appears, character for character, in the user's messages or in
- *   external content the run read. Following a link a page or search result contained tells its
+ * - A plain GET (`read_pdf` by URL) whose URL already appears, character for character, in the
+ *   user's messages or external content the run read. Following a link a page or search result contained tells its
  *   author nothing new; a URL the model composed is what needs a person.
  */
 
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy, EgressTaint } from "@/core/types/tools";
+import { isHttpApprovalTool } from "@/core/utils/http-approval";
 import { hasExternalUntrustedFrame } from "@/core/utils/untrusted-content";
 
 /** Most sources an approval message lists; the rest are summarised as a count. */
@@ -145,8 +145,6 @@ export function createEgressTaint(history: readonly ChatMessage[] = []): EgressT
 /** Egress tools whose destination is fixed by configuration rather than by the model. */
 export const FIXED_ENDPOINT_EGRESS_TOOLS: ReadonlySet<string> = new Set(["web_search"]);
 
-const SAFE_HTTP_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
-
 /** Built-in URL tools that only ever issue a GET, so their arguments carry no method. */
 const GET_ONLY_URL_TOOLS: ReadonlySet<string> = new Set(["web_fetch", "read_pdf"]);
 
@@ -179,19 +177,7 @@ function describeRequest(toolName: string, args: Record<string, unknown>, url: s
 /** The URL of a call that sends nothing but that URL, or undefined for any other call. */
 function plainGetUrl(toolName: string, args: Record<string, unknown>): string | undefined {
   const url = args["url"];
-  if (typeof url !== "string") {
-    return undefined;
-  }
-  if (GET_ONLY_URL_TOOLS.has(toolName)) {
-    return url;
-  }
-  if (toolName === "http_request") {
-    const method = egressRequestMethod(toolName, args) ?? "";
-    const sendsMore =
-      args["body"] !== undefined || args["headers"] !== undefined || args["query"] !== undefined;
-    return SAFE_HTTP_METHODS.has(method) && !sendsMore ? url : undefined;
-  }
-  return undefined;
+  return toolName === "read_pdf" && typeof url === "string" ? url : undefined;
 }
 
 function urlSpellings(url: string): readonly string[] {
@@ -243,7 +229,7 @@ export function policyApprovesTaintedEgress(policy: AutoApprovePolicy | undefine
  * tier would otherwise auto-approve it.
  */
 export function taintedEgressNeedsApproval(input: EgressGateInput): boolean {
-  if (!input.egress || input.taint?.isTainted() !== true) {
+  if (isHttpApprovalTool(input.toolName) || !input.egress || input.taint?.isTainted() !== true) {
     return false;
   }
   if (policyApprovesTaintedEgress(input.policy)) {

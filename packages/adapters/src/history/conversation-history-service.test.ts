@@ -88,7 +88,7 @@ describe("saveConversation", () => {
     expect(restored!.messages.some((message) => message.role === "tool")).toBe(false);
     expect(
       taintedEgressNeedsApproval({
-        toolName: "web_fetch",
+        toolName: "read_pdf",
         egress: true,
         args: { url: "https://collector.example/?private=report" },
         policy: "read-only",

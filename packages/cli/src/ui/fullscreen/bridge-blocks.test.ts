@@ -1,7 +1,8 @@
+import { report } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it } from "bun:test";
 import type { EphemeralRegion } from "../store";
 import type { OutputEntry } from "../types";
-import { blocksFrom, shareUnchangedBlocks, transcriptBlocks } from "./bridge";
+import { blocksFrom, shareUnchangedBlocks, transcriptBlocks, waitingLabel } from "./bridge";
 
 const USER: OutputEntry = {
   id: "u1",
@@ -102,5 +103,136 @@ describe("agent prose hyperlinks", () => {
     const streaming = "\x1b]8;;https://example.com\x07site\x1b]8;;\x07";
     const [block] = blocksFrom([], streaming, EMPTY_REGIONS);
     expect(block).toMatchObject({ kind: "agent", markdown: "[site](https://example.com)" });
+  });
+});
+
+describe("conversation flow entries", () => {
+  const at = new Date("2026-08-23T12:00:02.000Z");
+
+  it("drops the approval echo, because the receipt states the outcome", () => {
+    const blocks = blocksFrom(
+      [
+        {
+          id: "e1",
+          type: "log",
+          message: "Approve this action? No",
+          meta: { approvalEcho: true },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toHaveLength(0);
+  });
+
+  it("drops the duration line of reasoning that returned no text", () => {
+    const blocks = blocksFrom(
+      [
+        {
+          id: "z1",
+          type: "log",
+          message: "Reasoning · 1.6s",
+          meta: { collapsedRegion: "reasoning" },
+          timestamp: at,
+        },
+        {
+          id: "z2",
+          type: "log",
+          message: "scout completed · 4.0s",
+          meta: { collapsedRegion: "subagent" },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toEqual([expect.objectContaining({ text: "scout completed · 4.0s" })]);
+  });
+
+  it("carries a declined call as one denied receipt", () => {
+    const blocks = blocksFrom(
+      [
+        {
+          id: "r1",
+          type: "log",
+          message: "",
+          meta: {
+            toolReceipt: { app: "write_file", summary: "", status: "denied", args: "path: a.txt" },
+          },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toEqual([
+      expect.objectContaining({ kind: "tool", app: "write_file", status: "denied" }),
+    ]);
+  });
+
+  it("shows an answer that never streamed as agent prose, without a separate name line", () => {
+    const blocks = blocksFrom(
+      [
+        { id: "h1", type: "info", message: "sol", meta: { agentHeader: true }, timestamp: at },
+        {
+          id: "a1",
+          type: "log",
+          message: "rendered",
+          meta: { plainText: "rendered", agentMarkdown: "**Done.**" },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toEqual([expect.objectContaining({ kind: "agent", markdown: "**Done.**" })]);
+  });
+
+  it("marks the turn receipt as its own quiet notice", () => {
+    const blocks = blocksFrom(
+      [
+        {
+          id: "t1",
+          type: "debug",
+          message: "9.7s · 2 steps",
+          meta: { turnReceipt: true, plainText: "9.7s · 2 steps" },
+          timestamp: at,
+        },
+      ],
+      "",
+      EMPTY_REGIONS,
+    );
+    expect(blocks).toEqual([
+      expect.objectContaining({ kind: "notice", tone: "receipt", text: "9.7s · 2 steps" }),
+    ]);
+  });
+});
+
+describe("command reports", () => {
+  it("travel as data, so the transcript sets them in jazz's voice rather than as styled text", () => {
+    const answer = report("theme", [{ kind: "field", key: "current", value: "jazz, dark" }]);
+    const entry: OutputEntry = {
+      id: "r1",
+      type: "log",
+      message: "\u001b[1mtheme\u001b[22m current jazz, dark",
+      timestamp: new Date("2026-08-23T12:00:02.000Z"),
+      meta: { report: answer, plainText: "theme     current   jazz, dark" },
+    };
+    const [block] = blocksFrom([entry], "", EMPTY_REGIONS);
+    expect(block?.kind).toBe("report");
+    expect(block?.kind === "report" ? block.report : undefined).toBe(answer);
+  });
+});
+
+describe("the waiting label", () => {
+  it("says thinking once the model is reasoning", () => {
+    expect(waitingLabel("thinking", 12_000)).toBe("thinking");
+  });
+
+  it("fills the silence before the first event with the house copy", () => {
+    const first = waitingLabel("awaiting", 0);
+    expect(first).not.toBe("thinking");
+    expect(waitingLabel("awaiting", 4_000)).not.toBe(first);
   });
 });

@@ -2,6 +2,7 @@
 
 import { Duration, Effect, Fiber, Ref, Schedule } from "effect";
 import { LLM_SLOW_MODEL_HINT_SECONDS } from "@/core/constants/agent";
+import type { LlmRetryNotice } from "@/core/interfaces/presentation";
 import { describeRetryableLLMError, llmRetryDelays } from "@/core/utils/llm-error";
 
 /** Keeps the retry notice on one terminal line while still naming the underlying failure. */
@@ -55,24 +56,61 @@ export function makeUserVisibleLlmRetrySchedule(
   agentName: string,
   presentStatus: PresentStatusFn,
   attemptRef: Ref.Ref<number>,
+  presentRetry?: (notice: LlmRetryNotice) => Effect.Effect<void, never>,
 ) {
   return llmRetryDelays().pipe(
-    Schedule.checkEffect((error: unknown) =>
+    Schedule.checkEffect(() =>
       Effect.gen(function* () {
         const attemptsUsed = yield* Ref.get(attemptRef);
         if (attemptsUsed >= maxRetries) {
           return false;
         }
-        const attempt = attemptsUsed + 1;
-        yield* Ref.set(attemptRef, attempt);
-        const reason = describeRetryableLLMError(error);
-        const detail = retryNoticeDetail(error);
-        yield* presentStatus(
-          `${agentName} hit a ${reason}${detail ? ` (${detail})` : ""}. Trying again (attempt ${attempt} of up to ${maxRetries})…`,
-          "progress",
-        );
+        yield* Ref.set(attemptRef, attemptsUsed + 1);
         return true;
       }),
     ),
+    // Announced here rather than in the check: only this stage sees the final delay, after
+    // jitter and any Retry-After, so the wait it names is the wait that happens.
+    Schedule.modifyDelayEffect(([, error], delay) =>
+      Effect.gen(function* () {
+        const notice = retryNotice(agentName, error, yield* Ref.get(attemptRef), maxRetries, delay);
+        if (presentRetry === undefined) {
+          yield* presentStatus(retryNoticeText(notice), "progress");
+        } else {
+          yield* presentRetry(notice);
+        }
+        return delay;
+      }),
+    ),
   );
+}
+
+function retryNotice(
+  agentName: string,
+  error: unknown,
+  attempt: number,
+  maxAttempts: number,
+  delay: Duration.Duration,
+): LlmRetryNotice {
+  const record =
+    error !== null && typeof error === "object" ? (error as Record<string, unknown>) : {};
+  const provider = typeof record["provider"] === "string" ? record["provider"] : undefined;
+  const statusCode = typeof record["statusCode"] === "number" ? record["statusCode"] : undefined;
+  return {
+    agentName,
+    ...(provider === undefined ? {} : { provider }),
+    reason: describeRetryableLLMError(error),
+    detail: retryNoticeDetail(error),
+    ...(statusCode === undefined ? {} : { statusCode }),
+    attempt,
+    maxAttempts,
+    retryInMs: Duration.toMillis(delay),
+  };
+}
+
+/** The retry notice as one line, for surfaces without a structured retry display. */
+export function retryNoticeText(notice: LlmRetryNotice): string {
+  const seconds = Math.max(1, Math.round(notice.retryInMs / 1000));
+  const detail = notice.detail ? ` (${notice.detail})` : "";
+  return `${notice.agentName} hit a ${notice.reason}${detail}. Trying again in ${String(seconds)}s (attempt ${String(notice.attempt)} of up to ${String(notice.maxAttempts)})…`;
 }

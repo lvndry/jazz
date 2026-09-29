@@ -18,10 +18,80 @@ export interface SdkToolCall {
   readonly providerMetadata?: unknown;
 }
 
-/** Why the SDK marked a call invalid, as one line the model can act on. */
-function describeInvalidToolCall(error: unknown): string {
+/** One schema problem as the validator reports it: where, and what was wrong there. */
+interface ValidationIssue {
+  readonly path: readonly PropertyKey[];
+  readonly message: string;
+}
+
+/** Validator messages open with this; it restates what the sentence around it already says. */
+const REDUNDANT_ISSUE_PREFIX = /^Invalid input:\s*/i;
+
+/** How far down a cause chain to look for the validator's issue list. */
+const MAX_CAUSE_DEPTH = 5;
+
+function isValidationIssue(value: unknown): value is ValidationIssue {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const record = value as { path?: unknown; message?: unknown };
+  return (
+    Array.isArray(record.path) &&
+    record.path.every(
+      (part: unknown) =>
+        typeof part === "string" || typeof part === "number" || typeof part === "symbol",
+    ) &&
+    typeof record.message === "string"
+  );
+}
+
+/** The schema issues somewhere down an error's cause chain, or none when it has no such list. */
+function validationIssues(error: unknown): readonly ValidationIssue[] {
+  let current: unknown = error;
+  for (
+    let depth = 0;
+    depth < MAX_CAUSE_DEPTH && current !== null && typeof current === "object";
+    depth += 1
+  ) {
+    const issues = (current as { issues?: unknown }).issues;
+    if (Array.isArray(issues) && issues.length > 0 && issues.every(isValidationIssue)) {
+      return issues;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return [];
+}
+
+/** `todos[0].content`: the field as a person would name it. */
+function issuePath(path: readonly PropertyKey[]): string {
+  return path
+    .map((part, index) =>
+      typeof part === "number"
+        ? `[${String(part)}]`
+        : index === 0
+          ? String(part)
+          : `.${String(part)}`,
+    )
+    .join("");
+}
+
+/**
+ * Why the SDK marked a call invalid, in words the model can act on. A schema mismatch names
+ * every field that was wrong, because the SDK's own message puts those on later lines and its
+ * first line says only that validation failed.
+ */
+export function describeInvalidToolCall(error: unknown): string {
   if (error === undefined) {
     return "the arguments could not be parsed or did not match the tool's parameters.";
+  }
+  const issues = validationIssues(error);
+  if (issues.length > 0) {
+    const problems = issues.map((issue) => {
+      const field = issuePath(issue.path);
+      const message = issue.message.replace(REDUNDANT_ISSUE_PREFIX, "");
+      return field.length > 0 ? `${field}: ${message}` : message;
+    });
+    return `the arguments did not match the tool's parameters (${problems.join("; ")})`;
   }
   return toError(error).message.split("\n")[0] ?? "the arguments could not be parsed.";
 }

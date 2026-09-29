@@ -89,7 +89,7 @@ function confirmInstall(
       );
     } else {
       yield* terminal.log(
-        chalk.yellow(
+        CHALK_THEME.warning(
           `autoApprove is ${autoApprove === false ? "false" : "unset"}: on a schedule or with --auto-approve, every gated tool call is declined. Set autoApprove in its frontmatter after installing to let it act unattended.`,
         ),
       );

@@ -8,7 +8,7 @@ import type { SkillService } from "@/core/skills/skill-service";
 import type { Agent } from "@/core/types/index";
 import type { ChatMessage } from "@/core/types/message";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
-import { AgentConfigServiceTag } from "./agent-config";
+import type { AgentConfigService } from "./agent-config";
 import type { AgentService } from "./agent-service";
 import type { FileSystemContextService } from "./fs";
 import type { JazzStateService } from "./jazz-state";
@@ -51,7 +51,11 @@ export interface ChatService {
     agent: Agent,
     options?: {
       stream?: boolean;
+      /** Reopen this persisted conversation instead of creating a new identity. */
+      conversationId?: string;
       initialHistory?: ChatMessage[];
+      /** Sent as the session's first turn, as if typed at the first prompt. */
+      initialMessage?: string;
       maxIterations?: number;
       /**
        * Skip persistence for this session entirely: no conversation history
@@ -68,7 +72,7 @@ export interface ChatService {
     | LoggerService
     | FileSystemContextService
     | FileSystem.FileSystem
-    | typeof AgentConfigServiceTag
+    | AgentConfigService
     | JazzStateService
     | ToolRegistry
     | AgentService

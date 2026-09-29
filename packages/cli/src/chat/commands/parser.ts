@@ -1,3 +1,8 @@
+/**
+ * Parse built-in and registered chat commands. parseSpecialCommand resolves names through the
+ * shared registry; rename and shell input retain their text instead of tokenizing whitespace.
+ * isCommandInput distinguishes commands from model prose, including ordinary path references.
+ */
 import {
   findBuiltinCommand,
   getMcpPromptCommandNames,
@@ -47,14 +52,17 @@ export function parseSpecialCommand(input: string): SpecialCommand {
     return { type: "unknown", args: [] };
   }
 
-  const parts = trimmed.slice(1).split(/\s+/);
-  const command = parts[0]?.toLowerCase() || "";
-  const args = parts.slice(1);
-
+  const boundary = trimmed.search(/\s/);
+  const end = boundary === -1 ? trimmed.length : boundary;
+  const typedCommand = trimmed.slice(1, end);
+  const command = typedCommand.toLowerCase();
+  const remainder = trimmed.slice(end).trim();
   const builtin = findBuiltinCommand(command);
-  if (builtin !== undefined) {
-    return { type: builtin.type, args };
+  if (builtin?.type === "rename") {
+    return { type: "rename", args: remainder.length > 0 ? [remainder] : [] };
   }
+  const args = remainder.length > 0 ? remainder.split(/\s+/) : [];
+  if (builtin !== undefined) return { type: builtin.type, args };
 
   // A slash command that matches a registered skill runs that skill.
   // args[0] is the skill name (mirrors the "unknown" convention).
@@ -70,7 +78,7 @@ export function parseSpecialCommand(input: string): SpecialCommand {
     return { type: "runPluginCommand", args: [command, ...args] };
   }
 
-  if (startsWithPath(`/${parts[0] ?? ""}`)) {
+  if (startsWithPath(`/${typedCommand}`)) {
     return { type: "prose", args: [] };
   }
   return { type: "unknown", args: [command, ...args] };

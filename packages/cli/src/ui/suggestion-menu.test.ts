@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mergeSuggestions } from "./suggestion-menu";
+import { mergeSuggestions, plainDescription } from "./suggestion-menu";
 
 const command = { name: "model", description: "Change model" };
 const mention = { name: "src/foo.ts", description: "" };
@@ -20,5 +20,15 @@ describe("mergeSuggestions", () => {
 
   test("hides the menu when there is nothing to show", () => {
     expect(mergeSuggestions([], [])).toBeUndefined();
+  });
+});
+
+describe("plainDescription", () => {
+  test("strips inline markdown so a menu row reads as plain words", () => {
+    expect(plainDescription("Explain a *concept* **properly** with `depth`")).toBe(
+      "Explain a concept properly with depth",
+    );
+    expect(plainDescription("See [the docs](https://example.com)\n  now")).toBe("See the docs now");
+    expect(plainDescription("snake_case_name stays")).toBe("snake_case_name stays");
   });
 });

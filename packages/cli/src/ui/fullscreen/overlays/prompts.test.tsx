@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
 import { renderForTest } from "../test-helpers";
 import { FilePicker, type FilePickerModel } from "./FilePicker";
-import { Question, type QuestionModel } from "./Question";
+import { onAccent, Question, type QuestionModel } from "./Question";
 import { TextPrompt, type TextPromptModel } from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
@@ -160,12 +160,12 @@ function inverseSpans(frame: CapturedFrame): CapturedSpan[] {
   return allSpans(frame).filter((span) => (span.attributes & TextAttributes.INVERSE) !== 0);
 }
 
-/** Indices of the rows a bordered frame occupies. */
+/** Indices of the rows a band occupies. */
 function framedRows(frame: string): number[] {
   const glyphs = getGlyphs();
   return rows(frame)
     .map((row, index) => ({ row, index }))
-    .filter(({ row }) => row.includes(glyphs.boxV) || row.includes(glyphs.boxTL))
+    .filter(({ row }) => row.startsWith(glyphs.bandBar))
     .map(({ index }) => index);
 }
 
@@ -194,7 +194,7 @@ async function expectFullscreen(
   const lines = rows(captureCharFrame());
   expect(lines).toHaveLength(viewport.height);
   for (const line of lines) expect([...line]).toHaveLength(viewport.width);
-  expect((lines[0] ?? "")[0]).toBe(getGlyphs().boxTL);
+  expect((lines[0] ?? "")[0]).toBe(getGlyphs().bandBar);
   expect(lines[viewport.height - 1]).toContain(lastRowContains);
   renderer.destroy();
 }
@@ -215,10 +215,9 @@ describe("question overlay", () => {
       expect(frame).toContain(choice.label);
       expect(frame).toContain(choice.description ?? "");
     }
-    expect(frame).toContain("move");
-    expect(frame).toContain("select");
+    expect(frame).toContain("choose");
+    expect(frame).toContain("confirm");
     expect(frame).toContain("cancel");
-    expect(frame).toContain("2 of 3");
 
     renderer.destroy();
   });
@@ -235,12 +234,11 @@ describe("question overlay", () => {
 
     expect(frame).toContain("Yes, book it");
     expect(frame).toContain("No, leave it");
-    expect(frame).toContain("1 of 2");
 
     renderer.destroy();
   });
 
-  it("marks the selected row by weight and a rail, never by a background", async () => {
+  it("lifts the selected row onto the element tier, marked by weight and the accent arrow", async () => {
     const { renderer, captureSpans } = await draw(
       <Question
         model={QUESTION}
@@ -255,15 +253,15 @@ describe("question overlay", () => {
     expect(chosen.attributes & TextAttributes.BOLD).not.toBe(0);
     expect(other.attributes & TextAttributes.BOLD).toBe(0);
 
-    // The rail, in the accent, exactly once.
-    const rails = allSpans(frame).filter(
-      (span) => span.text.trim() === getGlyphs().rail && hexOf(span) === themeHex(THEME.primary),
+    // The arrow, in the accent, exactly once.
+    const markers = allSpans(frame).filter(
+      (span) => span.text.trim() === getGlyphs().arrow && hexOf(span) === themeHex(THEME.primary),
     );
-    expect(rails).toHaveLength(1);
+    expect(markers).toHaveLength(1);
 
-    // Same ground under the selected row as under its neighbours, and nothing
-    // is inverted: a wash would show up as either.
-    expect(bgOf(chosen)).toBe(bgOf(other));
+    // The selected row sits on the element tier; its neighbours stay on the panel. Nothing is inverted.
+    expect(bgOf(chosen)).toBe(themeHex(THEME.surfaceStrong));
+    expect(bgOf(other)).not.toBe(bgOf(chosen));
     expect(inverseSpans(frame)).toHaveLength(0);
 
     renderer.destroy();
@@ -285,12 +283,16 @@ describe("question overlay", () => {
     expect(hexOf(spanWithText(frame, "Work"))).toBe(themeHex(THEME.secondary));
     expect(hexOf(spanWithText(frame, "  evenings and weekends"))).toBe(themeHex(THEME.muted));
 
-    // The accent appears only on the rail: nothing else in a question is live.
+    // The accent marks only the question's bar and the selected row: nothing else in a question is live.
     const accented = allSpans(frame).filter(
       (span) => span.text.trim().length > 0 && hexOf(span) === themeHex(THEME.primary),
     );
-    expect(accented).toHaveLength(1);
-    expect(accented[0]?.text.trim()).toBe(getGlyphs().rail);
+    const glyphs = getGlyphs();
+    expect(accented.length).toBeGreaterThan(0);
+    for (const span of accented) {
+      expect([glyphs.bandBar, glyphs.arrow]).toContain(span.text.trim());
+    }
+    expect(accented.filter((span) => span.text.trim() === glyphs.arrow)).toHaveLength(1);
 
     renderer.destroy();
   });
@@ -461,9 +463,9 @@ describe("question overlay", () => {
     const lines = rows(captureCharFrame());
     const glyphs = getGlyphs();
 
-    expect(lines[0]?.includes(glyphs.boxTL) ?? true).toBe(false);
-    expect(lines.some((line) => line.includes(glyphs.boxTL))).toBe(true);
-    expect(lines.at(-2)).toContain("move");
+    expect(lines[0]?.includes(glyphs.bandBar) ?? true).toBe(false);
+    expect(lines.some((line) => line.startsWith(glyphs.bandBar))).toBe(true);
+    expect(lines.at(-2)).toContain("choose");
     expect(lines.at(-1)?.trim()).toBe("");
 
     renderer.destroy();
@@ -485,15 +487,15 @@ describe("question overlay", () => {
     expect(rowFor("Restaurants")).toContain(`[${glyphs.success}]`);
     expect(rowFor("Hotels")).toContain("[ ]");
     // Focused but unchecked, and checked but unfocused, both exist at once. The
-    // rail lives in the gutter between the frame edge and the label — asserted
+    // rail lives in the gutter between the band bar and the label — asserted
     // by containment rather than column, since the option block is centered and
     // its offset depends on row widths.
     const gutterSegmentOf = (label: string): string => {
       const line = rowFor(label);
-      const borderIndex = line.indexOf(glyphs.boxV);
+      const borderIndex = line.indexOf(glyphs.bandBar);
       return line.slice(borderIndex + 1, line.indexOf(label));
     };
-    expect(gutterSegmentOf("Restaurants")).toContain(glyphs.rail);
+    expect(gutterSegmentOf("Restaurants")).toContain(glyphs.arrow);
     expect(gutterSegmentOf("Flights")).not.toContain(glyphs.rail);
 
     expect(lines.join("\n")).toContain("2 selected");
@@ -511,7 +513,7 @@ describe("question overlay", () => {
       WIDE,
     );
     const restingFrame = resting.captureCharFrame();
-    expect(restingFrame).toContain("Type your own answer");
+    expect(restingFrame).toContain("Something else…");
     expect(rows(restingFrame)).toHaveLength(WIDE.height);
     resting.renderer.destroy();
 
@@ -543,7 +545,7 @@ describe("question overlay", () => {
       />,
       WIDE,
     );
-    expect(captureCharFrame()).toContain("Type your own answer");
+    expect(captureCharFrame()).toContain("Something else…");
     renderer.destroy();
   });
 
@@ -587,8 +589,56 @@ describe("question overlay", () => {
         viewport={NARROW}
       />,
       NARROW,
-      "move",
+      "choose",
     );
+  });
+
+  it("draws a yes/no question as two buttons, the selected one filled with the accent", async () => {
+    const { renderer, captureCharFrame, captureSpans } = await draw(
+      <Question
+        model={{ ...CONFIRM, buttons: true, selected: 0 }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = captureCharFrame();
+    const lines = rows(frame);
+    const buttonRow = lines.find((line) => line.includes("Yes, book it"));
+    expect(buttonRow).toBeDefined();
+    // The keys legend below names the y/n shortcut once; the button row itself must not repeat it.
+    expect(buttonRow).not.toContain("y / n");
+
+    const legendRow = lines.find((line) => line.includes("y/n"));
+    expect(legendRow).toContain("answer");
+
+    const filled = spanWithText(captureSpans(), " Yes, book it ");
+    const other = spanWithText(captureSpans(), " No, leave it ");
+    expect(bgOf(filled)).toBe(themeHex(THEME.primary));
+    expect(hexOf(filled)).toBe(themeHex(onAccent(THEME.primary)));
+    expect(filled.attributes & TextAttributes.BOLD).not.toBe(0);
+    expect(bgOf(other)).toBe(themeHex(THEME.surfaceStrong));
+
+    renderer.destroy();
+  });
+
+  it("says where a question sits in a set asked together, and that esc skips it", async () => {
+    const { renderer, captureCharFrame } = await draw(
+      <Question
+        model={{ ...QUESTION, position: { index: 1, total: 2 }, skippable: true }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = captureCharFrame();
+    expect(frame).toContain("1 of 2");
+    expect(frame).toContain("skip question");
+    expect(frame).toContain("1-3");
+    renderer.destroy();
+  });
+
+  it("reads text on the accent dark on a light accent and white on a dark one", () => {
+    expect(onAccent("#00D7FF")).toBe("#0A0A0A");
+    expect(onAccent("#1F4FD1")).toBe("#FFFFFF");
   });
 });
 
@@ -928,7 +978,7 @@ describe("prompt overlays in unicode glyph mode", () => {
     else process.env["JAZZ_UI_GLYPHS"] = previous;
   });
 
-  it("frames every prompt in light box drawing, never rounded or double", async () => {
+  it("draws every prompt as a band with a heavy bar, never a box", async () => {
     const glyphs = getGlyphs();
     const overlays: readonly ReactNode[] = [
       <Question
@@ -961,8 +1011,9 @@ describe("prompt overlays in unicode glyph mode", () => {
     for (const overlay of overlays) {
       const { renderer, captureCharFrame } = await draw(overlay, WIDE);
       const frame = captureCharFrame();
-      expect(frame).toContain(glyphs.boxTL);
-      expect(frame).toContain(glyphs.boxBR);
+      expect(frame).toContain(glyphs.bandBar);
+      expect(frame).not.toContain(glyphs.boxTL);
+      expect(frame).not.toContain(glyphs.boxBR);
       expect(FORBIDDEN_BOX.test(frame)).toBe(false);
       renderer.destroy();
     }

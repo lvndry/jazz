@@ -77,6 +77,8 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Conversations kept in each agent’s live history. Older conversations are archived, not deleted; active goal, loop and run conversations are protected. Defaults to 100.",
   "network.allowPrivateHosts":
     "Hosts on this machine or your local network agents may reach without asking: hostnames, `*.suffix` wildcards, IP addresses or CIDR blocks, at most 64. Any other private address asks for approval, and approving adds it here. Read from the global config only. See [Private network hosts](./jazz.md#private-network-hosts).",
+  "network.httpApproval":
+    "HTTP requests and web fetches run automatically by default, including private destinations and after untrusted content. Set a URL array to approve only matching requests automatically; every other request asks or parks. Exact HTTP(S) URLs include query strings; trailing /* grants a path prefix on the same origin. A one-call approval never changes the list. Global config only.",
   "storage.type": "Storage backend. `file` is the only one Jazz implements.",
   "storage.path": "Data directory for `file` storage. Defaults to the Jazz home (`~/.jazz`).",
   "storage.connectionString":
@@ -237,6 +239,12 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Unattended spend cap per local month, in dollars, for the agent this key names (agent name or id). Unset is unlimited.",
   "daemon.token":
     "The daemon's bearer token, written here only on a host without a keyring. Written by Jazz.",
+  "ui.theme":
+    "The theme, such as `jazz`, `catppuccin:light` or a file in `~/.jazz/themes`. `/theme` writes it; `JAZZ_THEME` wins. Defaults to `system` (your terminal's own colours).",
+  "ui.canvas":
+    "`inherit` leaves your terminal's background showing; `painted` fills every cell with the theme's background. Defaults to `inherit`.",
+  "chat.defaultCostLimitUSD":
+    "Starting value of a new chat session's `/limit usd` cap, in dollars. `/limit` can still raise, lower or clear it for that session. Unset is unlimited.",
 };
 
 export interface ConfigReferenceRow {
