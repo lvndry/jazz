@@ -450,7 +450,9 @@ Leaving a chat with a goal unfinished asks whether Jazz should finish it in the 
 what it may do there without asking: reading only, low-risk changes, or everything. It carries
 on in the same conversation, and anything above that authority waits for you. The next `jazz`
 then lists the conversation first under **Resume conversation (N waiting for you)**, marked
-with what it waits on.
+with what it waits on. In that picker, choose **End · _goal name_** to stop a waiting goal and keep
+the conversation history; choose the conversation itself to resume it. Reopening keeps the
+conversation's original identity, so its goal controls remain available in chat.
 
 ## `jazz loop`
 

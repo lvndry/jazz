@@ -51,6 +51,8 @@ export interface ChatService {
     agent: Agent,
     options?: {
       stream?: boolean;
+      /** Reopen this persisted conversation instead of creating a new identity. */
+      conversationId?: string;
       initialHistory?: ChatMessage[];
       /** Sent as the session's first turn, as if typed at the first prompt. */
       initialMessage?: string;
