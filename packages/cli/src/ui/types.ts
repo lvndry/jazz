@@ -1,4 +1,5 @@
 import type {
+  ChoicePreviewLine,
   PromptTagTone,
   TerminalOutput,
   TerminalOutputKind,
@@ -42,6 +43,8 @@ export interface Choice<T = unknown> {
   /** A short state flush right on the row, such as "key saved". */
   tag?: string;
   tagTone?: PromptTagTone;
+  /** Rendered live beside (fullscreen) or beneath (Ink) the choice while it is highlighted. */
+  preview?: readonly ChoicePreviewLine[];
 }
 
 export interface PromptOptions<T = unknown> {

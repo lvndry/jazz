@@ -737,7 +737,7 @@ export function themeListingRows(listings: readonly ThemeListing[]): ReportRow[]
 }
 
 /** Commit a theme choice and save it, reporting what is now on screen. */
-function commitTheme(
+export function commitTheme(
   terminal: TerminalService,
   requested: string,
 ): Effect.Effect<boolean, never, AgentConfigService> {

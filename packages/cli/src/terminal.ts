@@ -116,6 +116,7 @@ function normalizeChoices<T>(choices: readonly PromptChoiceInput<T>[]): Choice<T
           ...(choice.disabled === true ? { disabled: true } : {}),
           ...(choice.tag === undefined ? {} : { tag: choice.tag }),
           ...(choice.tagTone === undefined ? {} : { tagTone: choice.tagTone }),
+          ...(choice.preview === undefined ? {} : { preview: choice.preview }),
         },
   );
 }

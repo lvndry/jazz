@@ -14,7 +14,7 @@ import {
 } from "@jazz/core/constants/local-providers";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
-import type { TerminalService } from "@jazz/core/interfaces/terminal";
+import type { ChoicePreviewLine, TerminalService } from "@jazz/core/interfaces/terminal";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import type {
@@ -41,11 +41,15 @@ import {
   parseSpendLimitInput,
   SPEND_LIMIT_SETTINGS,
 } from "./spend-limits";
+import { commitTheme } from "../chat/commands/handler";
 import { signInToChatGPT, signOutOfChatGPT } from "../helpers/chatgpt-sign-in";
 import { isValidServerAddress } from "../helpers/local-provider-url";
 import { writeClipboard } from "../ui/fullscreen/clipboard";
+import { activeKeymapMode } from "../ui/keymaps";
 import { configuredProviderNames } from "../ui/models/configured-providers";
 import { store, type ActiveMenuOption } from "../ui/store";
+import { THEME } from "../ui/theme";
+import { pickThemeInteractively } from "../ui/theme-picker-prompt";
 
 /**
  * Menu actions for the config wizard
@@ -501,6 +505,79 @@ function configureWebSearchProviders() {
   });
 }
 
+/** How a chat reply's `**bold** and \`code\`` reads under each output mode. */
+const OUTPUT_MODE_PREVIEWS: Readonly<Record<OutputMode, readonly ChoicePreviewLine[]>> = {
+  hybrid: [
+    [
+      { text: "**", fg: THEME.muted },
+      { text: "bold", fg: THEME.selected, bold: true },
+      { text: "**", fg: THEME.muted },
+      { text: " and ", fg: THEME.secondary },
+      { text: "`code`", fg: THEME.primary },
+    ],
+    [{ text: "Markdown stays visible, styled on top.", fg: THEME.muted }],
+  ],
+  raw: [
+    [{ text: "**bold** and `code`", fg: THEME.secondary }],
+    [{ text: "No styling at all — safe to copy or pipe.", fg: THEME.muted }],
+  ],
+  rendered: [
+    [
+      { text: "bold", fg: THEME.selected, bold: true },
+      { text: " and ", fg: THEME.secondary },
+      { text: "code", fg: THEME.primary },
+    ],
+    [{ text: "Markdown is fully interpreted, markers dropped.", fg: THEME.muted }],
+  ],
+  quiet: [
+    [{ text: "(nothing prints)", fg: THEME.muted }],
+    [{ text: "For cron jobs and scripts reading only the result.", fg: THEME.muted }],
+  ],
+};
+
+/** Standard xterm 16-color hues — visibly cruder than the theme's own palette, on purpose. */
+const ANSI_16_RED = "#CD0000";
+const ANSI_16_GREEN = "#00CD00";
+const ANSI_16_YELLOW = "#CDCD00";
+const ANSI_16_BLUE = "#0000EE";
+const ANSI_16_MAGENTA = "#CD00CD";
+
+const FULL_COLOR_SWATCH: ChoicePreviewLine = [
+  { text: "██ ", fg: THEME.primary },
+  { text: "██ ", fg: THEME.success },
+  { text: "██ ", fg: THEME.warning },
+  { text: "██ ", fg: THEME.error },
+  { text: "██", fg: THEME.selected },
+];
+
+/** How each color profile paints the same five-swatch sample. */
+const COLOR_PROFILE_PREVIEWS: Readonly<
+  Record<"auto" | ColorProfile, readonly ChoicePreviewLine[]>
+> = {
+  auto: [FULL_COLOR_SWATCH, [{ text: "Detected from your terminal.", fg: THEME.muted }]],
+  full: [FULL_COLOR_SWATCH, [{ text: "Every hue exactly as designed.", fg: THEME.muted }]],
+  basic: [
+    [
+      { text: "██ ", fg: ANSI_16_RED },
+      { text: "██ ", fg: ANSI_16_GREEN },
+      { text: "██ ", fg: ANSI_16_YELLOW },
+      { text: "██ ", fg: ANSI_16_BLUE },
+      { text: "██", fg: ANSI_16_MAGENTA },
+    ],
+    [{ text: "16 colors, rounded to the nearest one.", fg: THEME.muted }],
+  ],
+  none: [
+    [
+      { text: "██ ", fg: THEME.muted },
+      { text: "██ ", fg: THEME.muted },
+      { text: "██ ", fg: THEME.muted },
+      { text: "██ ", fg: THEME.muted },
+      { text: "██", fg: THEME.muted },
+    ],
+    [{ text: "No color; every line reads the same.", fg: THEME.muted }],
+  ],
+};
+
 function configureOutputDisplay() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -529,6 +606,7 @@ function configureOutputDisplay() {
         choices: [
           { name: `Output mode (${displayConfig.mode})`, value: "mode" },
           { name: `Color profile (${colorProfileLabel})`, value: "color-profile" },
+          { name: `Theme (${appConfig.ui?.theme ?? "system"})`, value: "theme" },
           {
             name: `Show reasoning (${displayConfig.showReasoning ? "on" : "off"})`,
             value: "show-reasoning",
@@ -554,10 +632,22 @@ function configureOutputDisplay() {
         case "mode": {
           const mode = yield* terminal.select<OutputMode>("Select output mode:", {
             choices: [
-              { name: "Hybrid (styled, copy-paste friendly)", value: "hybrid" },
-              { name: "Raw (plain text)", value: "raw" },
-              { name: "Rendered (styled)", value: "rendered" },
-              { name: "Quiet (suppress output, for cron/background)", value: "quiet" },
+              {
+                name: "Hybrid (styled, copy-paste friendly)",
+                value: "hybrid",
+                preview: OUTPUT_MODE_PREVIEWS.hybrid,
+              },
+              { name: "Raw (plain text)", value: "raw", preview: OUTPUT_MODE_PREVIEWS.raw },
+              {
+                name: "Rendered (styled)",
+                value: "rendered",
+                preview: OUTPUT_MODE_PREVIEWS.rendered,
+              },
+              {
+                name: "Quiet (suppress output, for cron/background)",
+                value: "quiet",
+                preview: OUTPUT_MODE_PREVIEWS.quiet,
+              },
             ],
           });
           if (mode) {
@@ -569,10 +659,10 @@ function configureOutputDisplay() {
         case "color-profile": {
           const profile = yield* terminal.select<"auto" | ColorProfile>("Select color profile:", {
             choices: [
-              { name: "Auto (default)", value: "auto" },
-              { name: "Full", value: "full" },
-              { name: "Basic", value: "basic" },
-              { name: "None", value: "none" },
+              { name: "Auto (default)", value: "auto", preview: COLOR_PROFILE_PREVIEWS.auto },
+              { name: "Full", value: "full", preview: COLOR_PROFILE_PREVIEWS.full },
+              { name: "Basic", value: "basic", preview: COLOR_PROFILE_PREVIEWS.basic },
+              { name: "None", value: "none", preview: COLOR_PROFILE_PREVIEWS.none },
             ],
           });
           if (profile) {
@@ -583,6 +673,17 @@ function configureOutputDisplay() {
               yield* configService.set("output.colorProfile", profile);
               yield* terminal.success(`Color profile set to ${profile}.`);
             }
+          }
+          break;
+        }
+        case "theme": {
+          if (terminal.isInteractive && activeKeymapMode() === "fullscreen") {
+            const chosen = yield* Effect.promise(() => pickThemeInteractively());
+            if (chosen !== undefined) {
+              yield* commitTheme(terminal, chosen);
+            }
+          } else {
+            yield* terminal.info("Run /theme in chat to preview and switch themes.");
           }
           break;
         }
