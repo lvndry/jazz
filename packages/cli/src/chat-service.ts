@@ -140,6 +140,7 @@ export class ChatServiceImpl implements ChatService {
     agent: Agent,
     options?: {
       stream?: boolean;
+      conversationId?: string;
       initialHistory?: ChatMessage[];
       initialUiTranscript?: readonly ConversationUiEntry[];
       initialMessage?: string;
@@ -169,7 +170,7 @@ export class ChatServiceImpl implements ChatService {
       const terminal = yield* TerminalServiceTag;
       const logger = yield* LoggerServiceTag;
 
-      let conversationId: string = generateConversationId();
+      let conversationId: string = options?.conversationId ?? generateConversationId();
 
       // Logs and todos are keyed by the conversation, so this is re-pointed whenever the
       // conversation changes rather than bound once for the whole sitting.

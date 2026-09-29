@@ -179,6 +179,8 @@ export type WaitingReason = "question" | "approval" | "review" | "stopped";
 export interface WaitingSource extends TitleSources {
   readonly agentId: string;
   readonly conversationId: string;
+  /** Present when the waiting work is a goal that can be ended from the resume picker. */
+  readonly goalId?: string;
   readonly reason: WaitingReason;
   /** The question, the decision it needs, or why it stopped. */
   readonly detail?: string;

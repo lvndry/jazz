@@ -1,4 +1,4 @@
-import { listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
+import { controlGoal, listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
 import {
   loadConversationOrNull,
   loadHistory,
@@ -397,6 +397,7 @@ function waitingWork(agents: readonly Agent[], titles: ReadonlyMap<string, strin
         agentId: goal.agentId,
         agentName: agentName(goal.agentId),
         conversationId,
+        goalId: goal.goalId,
         reason,
         age: age(goal.updatedAt),
         objective: goal.plan.objective,
@@ -716,6 +717,7 @@ function selectAgent(
 function startChatWithAgent(
   agent: Agent,
   options?: {
+    conversationId?: string;
     initialMessage?: string;
     initialHistory?: ChatMessage[];
     initialUiTranscript?: readonly import("@jazz/adapters/history/conversation-history-service").ConversationUiEntry[];
@@ -754,7 +756,7 @@ const MAX_RESUME_CHOICES = 50;
 
 /**
  * Every saved conversation across agents, titled by what it is about, with the ones waiting on
- * you first and what each needs; the chosen one is resumed.
+ * you first and what each needs. A waiting goal can be ended here while keeping its history.
  */
 function resumeConversation(agents: readonly Agent[], terminal: TerminalService) {
   return Effect.gen(function* () {
@@ -800,26 +802,39 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     );
     entries.splice(MAX_RESUME_CHOICES);
 
-    const choices = entries.map((entry, index) => {
+    const choices = entries.flatMap((entry, index) => {
       const work = waiting.get(entry.conversationId);
       const age = formatRelativeWhen(new Date(entry.startedAt).getTime(), nowMs);
-      return {
-        name:
-          work === undefined
-            ? readableTitle({ conversationTitle: entry.title, agentName: entry.agent.name })
-            : readableTitle(work),
+      const title =
+        work === undefined
+          ? readableTitle({ conversationTitle: entry.title, agentName: entry.agent.name })
+          : readableTitle(work);
+      const resume = {
+        name: title,
         description:
           work?.detail === undefined
             ? entry.agent.name
             : `${entry.agent.name} · ${briefDetail(work.detail)}`,
-        value: String(index),
+        value: `resume:${String(index)}`,
         ...(work === undefined
           ? { tag: age, tagTone: "muted" as const }
           : { tag: waitingTag(work.reason, work.age), tagTone: "accent" as const }),
       };
+      return work?.goalId === undefined
+        ? [resume]
+        : [
+            resume,
+            {
+              name: `End · ${title}`,
+              description: `${entry.agent.name} · stop goal and keep conversation history`,
+              value: `end:${String(index)}`,
+              tag: "end goal",
+              tagTone: "warning" as const,
+            },
+          ];
     });
 
-    const selectedIndex = yield* terminal.search<string>(
+    const selection = yield* terminal.search<string>(
       waiting.size === 0
         ? "Which conversation?"
         : `Which conversation? ${String(waiting.size)} ${waiting.size === 1 ? "is" : "are"} waiting for you.`,
@@ -828,12 +843,37 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
         placeholder: "Type to filter by title",
       },
     );
-    if (selectedIndex === null || selectedIndex === undefined) {
+    if (selection === null || selection === undefined) {
       return;
     }
 
-    const selected = entries[Number(selectedIndex)];
+    const [action, rawIndex] = selection.split(":");
+    const index = Number(rawIndex);
+    if (!Number.isInteger(index) || index < 0) {
+      return;
+    }
+    const selected = entries[index];
     if (!selected) {
+      return;
+    }
+
+    if (action === "end") {
+      const work = waiting.get(selected.conversationId);
+      if (work?.goalId === undefined) {
+        return;
+      }
+      const outcome = yield* controlGoal(work.goalId, "cancel").pipe(
+        Effect.provide(makeFileGoalStoreLayer()),
+        Effect.provide(makeFileRunStoreLayer()),
+      );
+      if (outcome.kind === "refused") {
+        yield* terminal.warn(`Could not end ${readableTitle(work)}: ${outcome.reason}`);
+        return;
+      }
+      yield* terminal.info(`Ended ${readableTitle(work)}. Conversation history kept.`);
+      return;
+    }
+    if (action !== "resume") {
       return;
     }
 
@@ -849,6 +889,7 @@ function openConversation(agent: Agent, conversationId: string) {
   return Effect.gen(function* () {
     const conversation = yield* loadConversationOrNull(agent.id, conversationId);
     yield* startChatWithAgent(agent, {
+      conversationId,
       initialHistory: conversation?.messages ?? [],
       ...(conversation?.uiTranscript !== undefined
         ? { initialUiTranscript: conversation.uiTranscript }
