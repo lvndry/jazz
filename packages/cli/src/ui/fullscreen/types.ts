@@ -331,6 +331,9 @@ export interface ApprovalField {
  * message has no undo. It names the real account, shows every field that will
  * exist afterwards, states irreversibility in prose, and holds perfectly still.
  */
+/** The three answers the approval card offers, in the order ← → walk them. */
+export type ApprovalChoice = "accept" | "always" | "reject";
+
 export interface ApprovalOverlay {
   readonly kind: "approval";
   readonly app: string;
@@ -342,6 +345,8 @@ export interface ApprovalOverlay {
   /** True after Ctrl+O: long fields wrap in full instead of the 120-cell preview. */
   readonly expanded?: boolean;
   readonly alwaysLabel: string;
+  /** Which of the three controls enter confirms; accept until ← → move it. */
+  readonly choice?: ApprovalChoice;
   /** True once the arming delay has passed; before that only deny is accepted. */
   readonly armed: boolean;
   /** The consequence in two or three words for the title row: `can't be unsent`. */
