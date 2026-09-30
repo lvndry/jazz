@@ -32,10 +32,14 @@ A guild grant admits everyone in that guild; prefer user or channel grants when 
 
 Messages from anyone else are ignored.
 
-Each allowlisted chat gets isolated conversation state. The Telegram bridge goes further: each
-chat's agent runs as its own Unix user, under its own Jazz home.
+Each allowlisted chat gets isolated conversation state. The Telegram and Discord bridges go
+further when they run as root in the Linux container: each conversation's agent runs as its own
+Unix user, under its own Jazz home. `JAZZ_BOT_CHAT_ISOLATION=0` turns this off. The iMessage,
+WhatsApp, and Photon bridges do not do this; every chat shares one `JAZZ_HOME` and runs as the
+bridge's user.
 
-This prevents one person's agent from reading another's transcripts, memory, or mail credentials.
+Where it applies, this prevents one person's agent from reading another's transcripts, memory,
+or mail credentials.
 
 See [chat surfaces](../surfaces/chat.md) for the per-platform setup.
 

@@ -1,0 +1,76 @@
+{
+  "$schema": "../theme.schema.json",
+  "name": "everblush",
+  "label": "Everblush",
+  "description": "The dark Everblush palette plus a light adaptation, since the original ships dark only. The adaptation keeps its blue, cyan, green and magenta hue families while darkening them to clear Jazz's contrast contract.",
+  "theme": {
+    "background": {
+      "dark": "#141b1e",
+      "light": "#f1f3f2"
+    },
+    "backgroundPanel": {
+      "dark": "#232a2d",
+      "light": "#e4e8e6"
+    },
+    "backgroundElement": {
+      "dark": "#2d3437",
+      "light": "#d4dcda"
+    },
+    "borderSubtle": {
+      "dark": "#2d3437",
+      "light": "#d4dcda"
+    },
+    "border": {
+      "dark": "#424c50",
+      "light": "#b8c4c0"
+    },
+    "borderActive": {
+      "dark": "#636665",
+      "light": "#8b9995"
+    },
+    "selected": {
+      "dark": "#dadada",
+      "light": "#243033"
+    },
+    "secondary": {
+      "dark": "#b3b9b8",
+      "light": "#455557"
+    },
+    "muted": {
+      "dark": "#8a9391",
+      "light": "#5d6b68"
+    },
+    "primary": {
+      "dark": "#67b0e8",
+      "light": "#17609d"
+    },
+    "warning": {
+      "dark": "#e5c76b",
+      "light": "#87620c"
+    },
+    "error": {
+      "dark": "#e57474",
+      "light": "#b93e32"
+    },
+    "success": {
+      "dark": "#8ccf7e",
+      "light": "#377d2f"
+    },
+    "syntaxStructure": {
+      "dark": "#ef7e7e",
+      "light": "#884b98"
+    },
+    "syntaxValue": {
+      "dark": "#c47fd5",
+      "light": "#7a3f8a"
+    },
+    "syntaxType": {
+      "dark": "#b38ed0",
+      "light": "#247d7c"
+    },
+    "accentDim": {
+      "dark": "#7ec8c8",
+      "light": "#1f6b6a"
+    }
+  }
+}

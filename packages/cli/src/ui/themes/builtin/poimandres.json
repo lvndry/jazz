@@ -1,0 +1,76 @@
+{
+  "$schema": "../theme.schema.json",
+  "name": "poimandres",
+  "label": "Poimandres",
+  "description": "The dark Poimandres palette plus a light adaptation, since the original ships dark only. The adaptation keeps its blue, teal and pink hue families while darkening them to clear Jazz's contrast contract.",
+  "theme": {
+    "background": {
+      "dark": "#1b1e28",
+      "light": "#edf1f7"
+    },
+    "backgroundPanel": {
+      "dark": "#171922",
+      "light": "#e1e7f0"
+    },
+    "backgroundElement": {
+      "dark": "#303340",
+      "light": "#d2dce9"
+    },
+    "borderSubtle": {
+      "dark": "#303340",
+      "light": "#d2dce9"
+    },
+    "border": {
+      "dark": "#506477",
+      "light": "#b6c3d4"
+    },
+    "borderActive": {
+      "dark": "#767c9d",
+      "light": "#8192aa"
+    },
+    "selected": {
+      "dark": "#e4f0fb",
+      "light": "#263447"
+    },
+    "secondary": {
+      "dark": "#a6accd",
+      "light": "#45566e"
+    },
+    "muted": {
+      "dark": "#8b91b0",
+      "light": "#5c6b82"
+    },
+    "primary": {
+      "dark": "#add7ff",
+      "light": "#2b5f9e"
+    },
+    "warning": {
+      "dark": "#fffac2",
+      "light": "#7a5c08"
+    },
+    "error": {
+      "dark": "#d0679d",
+      "light": "#9c3c70"
+    },
+    "success": {
+      "dark": "#5de4c7",
+      "light": "#16755f"
+    },
+    "syntaxStructure": {
+      "dark": "#fcc5e9",
+      "light": "#a34935"
+    },
+    "syntaxValue": {
+      "dark": "#e4a0c8",
+      "light": "#8b3e78"
+    },
+    "syntaxType": {
+      "dark": "#91b4d5",
+      "light": "#7a3a86"
+    },
+    "accentDim": {
+      "dark": "#e4a0c8",
+      "light": "#7a3a86"
+    }
+  }
+}

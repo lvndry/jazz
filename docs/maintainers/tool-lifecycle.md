@@ -399,7 +399,7 @@ or SIGTERM. Each is a **clean stop**, not a crash:
 `execute_command` gets two protections beyond the approval gate, both in
 [`shell.ts`](../../packages/core/src/agent/tools/shell.ts).
 
-### A 56-pattern denylist
+### A built-in denylist
 
 Commands are matched against a denylist _before_ execution: privilege escalation (`sudo`,
 `su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),

@@ -38,8 +38,12 @@ package importing from one it doesn't declare a reference to.
 - **`packages/runtime/`** is the composition root: wires core, adapters, and cli into the
   Effect Layer graph that becomes the `jazz` binary.
   - Depends on `core`, `adapters`, and `cli`.
-- **`packages/bot-shared/`**, **`packages/telegram-bot/`**, **`packages/discord-bot/`** are the
-  chat-bridge integrations, each depending on `core`, `adapters`, and `bot-shared`.
+- **`packages/bot-shared/`**, **`packages/telegram-bot/`**, **`packages/discord-bot/`**,
+  **`packages/whatsapp-bot/`**, **`packages/imessage-bot/`**, and **`packages/photon-bot/`** are the
+  chat-bridge integrations. `bot-shared` holds the turn, approval, and sandbox helpers the bridges
+  share.
+- **`packages/website/`** is the Astro site that serves the public docs, the marketplace library,
+  and the plugin catalog.
 
 ## The dependency rule
 
@@ -148,7 +152,11 @@ packages/
 │
 ├── bot-shared/src/                # @jazz/bot-shared: shared bridge helpers
 ├── telegram-bot/src/              # Telegram bridge
-└── discord-bot/src/               # Discord bridge
+├── discord-bot/src/               # Discord bridge
+├── whatsapp-bot/src/              # WhatsApp bridge (linked device, Baileys)
+├── imessage-bot/src/              # iMessage bridge (local Mac, imsg CLI)
+├── photon-bot/src/                # iMessage bridge (hosted Photon line)
+└── website/                       # Astro site: docs, marketplace library, plugin catalog
 ```
 
 ---

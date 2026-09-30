@@ -482,7 +482,8 @@ export function hintsFor(
   if (overlay === "text") return ["waiting for you", "pgup to read above"];
   if (overlay === "question") return ["waiting for you", "pgup to read above"];
   if (overlay === "filepicker") return ["enter to confirm", "esc to cancel"];
-  if (overlay === "theme") return ["enter to keep", "esc to revert", "l for light or dark"];
+  if (overlay === "theme")
+    return ["enter to keep", "esc to revert", "left right for dark or light"];
   if (commandsOpen) return ["up down to choose", "enter to run", "tab to complete"];
   if (focus === "transcript") {
     return ["up down to scroll", "pgup to page", "type to input", "^f to search"];

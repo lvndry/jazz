@@ -81,8 +81,9 @@ Jazz's controls bound what the model chooses to do. The operating system bounds 
 when that fails, and only the second one holds if a prompt injection succeeds.
 
 Run unattended agents as a dedicated OS user, or in a container, with credentials scoped to that
-job and nothing else. The Telegram bridge does this per chat, giving each one its own Unix user
-and Jazz home, so one person's agent cannot read another's mail credentials.
+job and nothing else. The Telegram and Discord bridges do this per conversation when they run as
+root in the Linux container, giving each one its own Unix user and Jazz home, so one person's
+agent cannot read another's mail credentials. The other bridges do not.
 
 ## 7. Run it in the foreground first, under the real policy
 

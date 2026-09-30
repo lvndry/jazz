@@ -1,0 +1,76 @@
+{
+  "$schema": "../theme.schema.json",
+  "name": "nord",
+  "label": "Nord",
+  "description": "Nord's Polar Night and Snow Storm palettes. Aurora and Frost hues are darkened for light mode and separated within their families so every semantic color clears Jazz's contrast and distinctness laws.",
+  "theme": {
+    "background": {
+      "dark": "#2e3440",
+      "light": "#eceff4"
+    },
+    "backgroundPanel": {
+      "dark": "#3b4252",
+      "light": "#e5e9f0"
+    },
+    "backgroundElement": {
+      "dark": "#434c5e",
+      "light": "#d8dee9"
+    },
+    "borderSubtle": {
+      "dark": "#3b4252",
+      "light": "#e5e9f0"
+    },
+    "border": {
+      "dark": "#434c5e",
+      "light": "#d8dee9"
+    },
+    "borderActive": {
+      "dark": "#4c566a",
+      "light": "#a8b0be"
+    },
+    "selected": {
+      "dark": "#eceff4",
+      "light": "#2e3440"
+    },
+    "secondary": {
+      "dark": "#d8dee9",
+      "light": "#3b4252"
+    },
+    "muted": {
+      "dark": "#7b8794",
+      "light": "#5c6779"
+    },
+    "primary": {
+      "dark": "#81a1c1",
+      "light": "#35607d"
+    },
+    "warning": {
+      "dark": "#ebcb8b",
+      "light": "#8a5a00"
+    },
+    "error": {
+      "dark": "#da838a",
+      "light": "#a32833"
+    },
+    "success": {
+      "dark": "#a3be8c",
+      "light": "#3d5e2a"
+    },
+    "syntaxStructure": {
+      "dark": "#72adc7",
+      "light": "#724268"
+    },
+    "syntaxValue": {
+      "dark": "#d08770",
+      "light": "#8b3a6f"
+    },
+    "syntaxType": {
+      "dark": "#a8c8e3",
+      "light": "#1a6b7a"
+    },
+    "accentDim": {
+      "dark": "#c295b4",
+      "light": "#8b3a6f"
+    }
+  }
+}

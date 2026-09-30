@@ -1,0 +1,76 @@
+{
+  "$schema": "../theme.schema.json",
+  "name": "tokyo-night",
+  "label": "Tokyo Night",
+  "description": "Tokyo Night's Night palette for dark and a Day-inspired light variant. Syntax tints and a few light accents are tuned within their source hues to satisfy Jazz's contrast and distinctness laws.",
+  "theme": {
+    "background": {
+      "dark": "#1a1b26",
+      "light": "#e1e2e7"
+    },
+    "backgroundPanel": {
+      "dark": "#16161e",
+      "light": "#d8d9df"
+    },
+    "backgroundElement": {
+      "dark": "#292e42",
+      "light": "#c8cad3"
+    },
+    "borderSubtle": {
+      "dark": "#292e42",
+      "light": "#c8cad3"
+    },
+    "border": {
+      "dark": "#3b4261",
+      "light": "#a9acb9"
+    },
+    "borderActive": {
+      "dark": "#545c7e",
+      "light": "#737aa2"
+    },
+    "selected": {
+      "dark": "#c0caf5",
+      "light": "#343b58"
+    },
+    "secondary": {
+      "dark": "#a9b1d6",
+      "light": "#4c5575"
+    },
+    "muted": {
+      "dark": "#7f87b0",
+      "light": "#5f6787"
+    },
+    "primary": {
+      "dark": "#7aa2f7",
+      "light": "#2c4f9e"
+    },
+    "warning": {
+      "dark": "#e0af68",
+      "light": "#7a5210"
+    },
+    "error": {
+      "dark": "#f7768e",
+      "light": "#a5263b"
+    },
+    "success": {
+      "dark": "#9ece6a",
+      "light": "#3c6e2f"
+    },
+    "syntaxStructure": {
+      "dark": "#bb9af7",
+      "light": "#7653a6"
+    },
+    "syntaxValue": {
+      "dark": "#2ac3de",
+      "light": "#8b3c7a"
+    },
+    "syntaxType": {
+      "dark": "#ff9e64",
+      "light": "#a64b24"
+    },
+    "accentDim": {
+      "dark": "#c0a4f0",
+      "light": "#8b3c7a"
+    }
+  }
+}

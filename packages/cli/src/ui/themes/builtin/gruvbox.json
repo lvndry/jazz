@@ -1,0 +1,76 @@
+{
+  "$schema": "../theme.schema.json",
+  "name": "gruvbox",
+  "label": "Gruvbox",
+  "description": "Gruvbox medium dark and light palettes. Error, warning and the accent are separated within the red/orange/yellow family so Jazz's distinctness laws hold.",
+  "theme": {
+    "background": {
+      "dark": "#282828",
+      "light": "#fbf1c7"
+    },
+    "backgroundPanel": {
+      "dark": "#3c3836",
+      "light": "#ebdbb2"
+    },
+    "backgroundElement": {
+      "dark": "#504945",
+      "light": "#d5c4a1"
+    },
+    "borderSubtle": {
+      "dark": "#504945",
+      "light": "#d5c4a1"
+    },
+    "border": {
+      "dark": "#665c54",
+      "light": "#bdae93"
+    },
+    "borderActive": {
+      "dark": "#7c6f64",
+      "light": "#a89984"
+    },
+    "selected": {
+      "dark": "#ebdbb2",
+      "light": "#3c3836"
+    },
+    "secondary": {
+      "dark": "#bdae93",
+      "light": "#665c54"
+    },
+    "muted": {
+      "dark": "#a89984",
+      "light": "#7c6f64"
+    },
+    "primary": {
+      "dark": "#83a598",
+      "light": "#076678"
+    },
+    "warning": {
+      "dark": "#fabd2f",
+      "light": "#976311"
+    },
+    "error": {
+      "dark": "#fb533f",
+      "light": "#9d0006"
+    },
+    "success": {
+      "dark": "#b8bb26",
+      "light": "#75700e"
+    },
+    "syntaxStructure": {
+      "dark": "#d3869b",
+      "light": "#8f3f71"
+    },
+    "syntaxValue": {
+      "dark": "#b16286",
+      "light": "#b16286"
+    },
+    "syntaxType": {
+      "dark": "#fe8019",
+      "light": "#427b58"
+    },
+    "accentDim": {
+      "dark": "#b16286",
+      "light": "#b16286"
+    }
+  }
+}
