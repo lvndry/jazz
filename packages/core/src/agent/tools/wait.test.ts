@@ -1,13 +1,17 @@
-import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
 import { SHELL_COMMAND_MAX_TIMEOUT_MS, WAIT_FOR_MIN_INTERVAL_MS } from "@/core/constants/agent";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import {
+  JobQueueServiceTag,
+  type EnqueueBatchJobInput,
+  type EnqueueBatchOptions,
+  type JobQueueService,
+} from "@/core/interfaces/job-queue-service";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { createWaitTools, type WaitForOutcome } from "./wait";
+import { createWaitTools } from "./wait";
 
 const fileSystemContext: FileSystemContextService = {
   getCwd: () => Effect.succeed(process.cwd()),
@@ -33,90 +37,93 @@ const logger: LoggerService = {
   popLogGroup: () => Effect.void,
 };
 
+interface EnqueueCall {
+  readonly conversationId: string;
+  readonly jobs: readonly EnqueueBatchJobInput[];
+  readonly options: EnqueueBatchOptions;
+}
+
+const enqueueCalls: EnqueueCall[] = [];
+
+const jobQueue: JobQueueService = {
+  enqueueBatch: (_agentId, conversationId, jobs, options) => {
+    enqueueCalls.push({ conversationId, jobs, options });
+    return Effect.succeed({
+      success: true as const,
+      batch: { id: "batch-1", jobs: [] } as never,
+    });
+  },
+  getBatch: () => Effect.succeed(null),
+  listActiveBatches: () => Effect.succeed([]),
+  cancelBatch: () => Effect.succeed({ success: true, message: "" }),
+};
+
 const testLayer = Layer.mergeAll(
   Layer.succeed(FileSystemContextServiceTag, fileSystemContext),
+  Layer.succeed(JobQueueServiceTag, jobQueue),
   Layer.succeed(LoggerServiceTag, logger),
   NodeFileSystem.layer,
 );
 
 const tools = createWaitTools();
 
-function run(args: Record<string, unknown>) {
+function run(args: Record<string, unknown>, context: Partial<ToolExecutionContext> = {}) {
   return Effect.runPromise(
     tools.execute
-      .execute(args, {} as ToolExecutionContext)
+      .execute(args, {
+        agentId: "agent-1",
+        conversationId: "conversation-1",
+        ...context,
+      } as ToolExecutionContext)
       .pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, Error, never>,
   );
 }
 
-function outcome(result: ToolExecutionResult): WaitForOutcome {
-  return result.result as WaitForOutcome;
-}
-
 describe("wait_for", () => {
-  it("returns as soon as the condition holds, without waiting out the interval", async () => {
+  /**
+   * The call must hand the poll to the background worker and come back immediately; blocking the
+   * turn for the whole wait is what this tool exists to avoid.
+   */
+  it("enqueues the wait as a poll job and returns without running the command", async () => {
+    enqueueCalls.length = 0;
     const started = Date.now();
     const result = await run({
-      command: "true",
-      description: "already true",
-      intervalMs: 10_000,
-      timeoutMs: 30_000,
+      command: "sleep 600; true",
+      description: "a slow condition",
+      intervalMs: 2_000,
+      timeoutMs: 60_000,
     });
 
-    expect(outcome(result).matched).toBe(true);
-    expect(outcome(result).attempts).toBe(1);
     expect(Date.now() - started).toBeLessThan(5_000);
-  });
-
-  /**
-   * The condition becoming true partway through is the whole point, so the loop has to keep
-   * checking rather than treat the first attempt as final.
-   */
-  it("keeps checking until a condition that starts false comes true", async () => {
-    const counter = `${tmpdir()}/wait-for-counter-${String(process.pid)}`;
-    rmSync(counter, { force: true });
-
-    const result = await run({
-      command: `count=$(cat ${counter} 2>/dev/null || echo 0); count=$((count+1)); echo $count > ${counter}; test $count -ge 3`,
-      description: "true on the third check",
-      intervalMs: WAIT_FOR_MIN_INTERVAL_MS,
-      timeoutMs: 10_000,
-    });
-
-    expect(outcome(result).matched).toBe(true);
-    expect(outcome(result).attempts).toBe(3);
-    rmSync(counter, { force: true });
-  });
-
-  /**
-   * Running out of budget is an answer the caller acts on — call wait_for again — so it
-   * comes back as a successful tool call carrying timedOut, not as an error that discards the
-   * last check's output.
-   */
-  it("reports a timeout as a result rather than an error, with the last output", async () => {
-    const result = await run({
-      command: "echo still-waiting; false",
-      description: "never true",
-      intervalMs: WAIT_FOR_MIN_INTERVAL_MS,
-      timeoutMs: 1_200,
-    });
-
     expect(result.success).toBe(true);
-    expect(outcome(result).matched).toBe(false);
-    expect(outcome(result).timedOut).toBe(true);
-    expect(outcome(result).attempts).toBeGreaterThan(1);
-    expect(outcome(result).stdout).toContain("still-waiting");
+    expect((result.result as { batchId: string }).batchId).toBe("batch-1");
+    expect(enqueueCalls).toHaveLength(1);
+    expect(enqueueCalls[0]?.conversationId).toBe("conversation-1");
+    expect(enqueueCalls[0]?.options.reason).toBe("a slow condition");
+    expect(enqueueCalls[0]?.jobs).toEqual([
+      { command: "sleep 600; true", poll: { intervalMs: 2_000, timeoutMs: 60_000 } },
+    ]);
   });
 
-  it("polls repeatedly within the budget rather than once per call", async () => {
-    const result = await run({
-      command: "false",
-      description: "counts attempts",
-      intervalMs: WAIT_FOR_MIN_INTERVAL_MS,
-      timeoutMs: 2_000,
-    });
+  it("defaults the interval and the timeout when they are not given", async () => {
+    enqueueCalls.length = 0;
+    await run({ command: "true", description: "defaults" });
 
-    expect(outcome(result).attempts).toBeGreaterThanOrEqual(3);
+    expect(enqueueCalls[0]?.jobs[0]?.poll?.timeoutMs).toBe(SHELL_COMMAND_MAX_TIMEOUT_MS);
+    expect(enqueueCalls[0]?.jobs[0]?.poll?.intervalMs).toBeGreaterThanOrEqual(
+      WAIT_FOR_MIN_INTERVAL_MS,
+    );
+  });
+
+  it("refuses when there is no conversation to wake", async () => {
+    enqueueCalls.length = 0;
+    const result = await run(
+      { command: "true", description: "nobody to wake" },
+      { conversationId: undefined },
+    );
+
+    expect(result.success).toBe(false);
+    expect(enqueueCalls).toHaveLength(0);
   });
 
   it("refuses a budget beyond the ceiling instead of silently capping it", async () => {
@@ -140,14 +147,15 @@ describe("wait_for", () => {
     expect(result.success).toBe(false);
   });
 
-  it("blocks a denylisted command before running it even once", async () => {
+  it("blocks a denylisted command before enqueueing it", async () => {
+    enqueueCalls.length = 0;
     const result = await run({ command: "sudo rm -rf /", description: "blocked" });
 
     expect(result.success).toBe(false);
+    expect(enqueueCalls).toHaveLength(0);
   });
 
-  it("suppresses the slow-tool warning, since blocking is the point", () => {
-    expect(tools.execute.longRunning).toBe(true);
-    expect(tools.execute.timeoutMs).toBe(SHELL_COMMAND_MAX_TIMEOUT_MS);
+  it("is not a long-running tool, since the call returns at once", () => {
+    expect(tools.execute.longRunning).toBeUndefined();
   });
 });

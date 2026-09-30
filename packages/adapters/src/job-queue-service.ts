@@ -44,6 +44,7 @@ import type {
   EnqueueBatchOptions,
   EnqueueBatchOutcome,
   JobBatchRecord,
+  JobPollSpec,
   JobQueueService,
   JobRecord,
 } from "@jazz/core/interfaces/job-queue-service";
@@ -314,6 +315,7 @@ export class JobQueueServiceImpl implements JobQueueService {
             jobs: jobs.map((job) => ({
               id: newId(),
               command: job.command.trim(),
+              ...(job.poll !== undefined ? { poll: job.poll } : {}),
               status: "pending",
               attempt: 0,
               maxAttempts,
@@ -470,6 +472,7 @@ export interface ClaimedJob {
   readonly batchId: string;
   readonly jobId: string;
   readonly command: string;
+  readonly poll?: JobPollSpec;
   readonly workingDir: string;
   readonly attempt: number;
 }
@@ -563,6 +566,7 @@ export function claimDueJobs(
                 batchId,
                 jobId: job.id,
                 command: job.command,
+                ...(job.poll !== undefined ? { poll: job.poll } : {}),
                 workingDir: batch.workingDir,
                 attempt: job.attempt,
               });

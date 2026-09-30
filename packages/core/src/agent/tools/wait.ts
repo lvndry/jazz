@@ -1,10 +1,11 @@
 /**
- * @fileoverview `wait_for` — poll a condition inside one tool call, so watching costs one model
- * turn instead of one per look. Bounded by `SHELL_COMMAND_MAX_TIMEOUT_MS`; longer waits compose
- * with `register_trigger`, which suspends the run instead of holding a turn open.
+ * @fileoverview `wait_for` — watch a condition in the background. The call enqueues a one-job
+ * batch whose worker reruns the check on an interval, returns at once, and the conversation is
+ * woken when the condition holds or the time runs out, so a wait never holds a turn open.
+ * Bounded by `SHELL_COMMAND_MAX_TIMEOUT_MS`; longer waits compose with `register_trigger`.
  */
 import { FileSystem } from "@effect/platform";
-import { Duration, Effect } from "effect";
+import { Effect } from "effect";
 import { z } from "zod";
 import {
   SHELL_COMMAND_MAX_TIMEOUT_MS,
@@ -12,18 +13,19 @@ import {
   WAIT_FOR_DEFAULT_INTERVAL_MS,
   WAIT_FOR_MIN_INTERVAL_MS,
 } from "@/core/constants/agent";
+import { JOB_REASON_MAX_LENGTH } from "@/core/constants/job-queue";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { JobQueueServiceTag, type JobQueueService } from "@/core/interfaces/job-queue-service";
 import type { LoggerService } from "@/core/interfaces/logger";
+import { spawnJobWorker } from "@/core/jobs/spawn-job-worker";
 import type { ToolExecutionResult } from "@/core/types";
-import { createSanitizedEnv } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
 import { defineApprovalTool, makeZodValidator, type ApprovalToolPair } from "./base-tool";
-import { tailForModel } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
-import { denylistBlockedError, runShellCommand } from "./shell";
-import { toolKnownSecrets } from "./tool-secrets";
+import { denylistBlockedError } from "./shell";
 
-export type WaitToolDeps = FileSystemContextService | LoggerService | FileSystem.FileSystem;
+export type WaitToolDeps =
+  FileSystemContextService | JobQueueService | LoggerService | FileSystem.FileSystem;
 
 const waitForParameters = z
   .object({
@@ -36,6 +38,7 @@ const waitForParameters = z
       .string()
       .trim()
       .min(1, "description cannot be empty")
+      .max(JOB_REASON_MAX_LENGTH)
       .describe("What is being waited for, shown at the approval gate."),
     intervalMs: z
       .number()
@@ -65,34 +68,22 @@ const waitForParameters = z
 
 type WaitForArgs = z.infer<typeof waitForParameters>;
 
-export interface WaitForOutcome {
-  readonly matched: boolean;
-  readonly timedOut: boolean;
-  readonly attempts: number;
-  readonly elapsedMs: number;
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
 export function createWaitTools(): ApprovalToolPair<WaitToolDeps> {
   return defineApprovalTool<WaitToolDeps, WaitForArgs>({
     name: "wait_for",
     disclosure: "private",
     summary:
-      "Block until a condition comes true, checking as often as every quarter second — wait for " +
-      "something to finish, appear, change, drop, arrive or come back up, without spending a " +
-      "turn per look. Capped at " +
-      `${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes.`,
+      "Watch for something to finish, appear, change, drop, arrive or come back up, checking as " +
+      "often as every quarter second, in the background — you keep working and are woken when " +
+      `it happens or after ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes at most.`,
     description:
-      "Rerun a command until it exits 0, all in one tool call; use it for every wait-until check. " +
-      `Runs up to ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes, then returns timedOut: true ` +
-      "with the last output.",
+      "Rerun a command in the background until it exits 0; use it for every wait-until check. " +
+      "Returns at once with a batchId while you keep working, and you are woken with the last " +
+      "check's output when the command first exits 0 or when the time runs out. " +
+      `Waits up to ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes.`,
     parameters: waitForParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(waitForParameters),
-    timeoutMs: SHELL_COMMAND_MAX_TIMEOUT_MS,
-    longRunning: true,
     approvalMessage: (args) => {
       const blocked = denylistBlockedError(args.command);
       if (blocked) {
@@ -113,108 +104,79 @@ Checked every: ${String(intervalMs)}ms
 Giving up after: ${String(Math.round(timeoutMs / 1000))}s
 Worst case: about ${String(maxAttempts)} runs of that command
 
-The command runs repeatedly and unattended until it succeeds or the time runs out. Only approve a command you trust to run that many times.`);
+The command runs repeatedly and unattended, in the background, until it succeeds or the time runs out. Only approve a command you trust to run that many times.`);
     },
     approvalErrorMessage: "Waiting on a repeated command requires explicit user approval.",
     handler: (args, context) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const key = buildKeyFromContext(context);
-        const workingDir = args.workingDirectory
-          ? yield* shell.resolvePath(key, args.workingDirectory)
-          : yield* shell.getCwd(key);
-
         const blocked = denylistBlockedError(args.command);
         if (blocked) {
           return { success: false, result: null, error: blocked } satisfies ToolExecutionResult;
         }
 
-        const intervalMs = args.intervalMs ?? WAIT_FOR_DEFAULT_INTERVAL_MS;
-        const timeoutMs = args.timeoutMs ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
-        const envAllowlist = context.parentAgent?.config.envAllowlist ?? [];
-        const env = createSanitizedEnv(
-          typeof context.timezone === "string" && context.timezone.length > 0
-            ? { TZ: context.timezone }
-            : {},
-          envAllowlist,
-        );
-
-        const startedAt = Date.now();
-        const deadline = startedAt + timeoutMs;
-        let attempts = 0;
-        let lastExitCode = -1;
-        let lastStdout = "";
-        let lastStderr = "";
-        const known = yield* toolKnownSecrets();
-
-        while (true) {
-          const remainingMs = deadline - Date.now();
-          if (remainingMs <= 0) break;
-
-          attempts += 1;
-          // A hung predicate gets only what is left, not the full cap.
-          const attempt = yield* runShellCommand({
-            command: args.command,
-            workingDir,
-            timeoutMs: remainingMs,
-            env,
-            redact: known,
-          }).pipe(
-            Effect.catchAll((error: unknown) =>
-              Effect.succeed({
-                stdout: "",
-                stderr: toError(error).message,
-                exitCode: -1,
-              }),
-            ),
-          );
-
-          lastExitCode = attempt.exitCode;
-          lastStdout = attempt.stdout;
-          lastStderr = attempt.stderr;
-
-          if (attempt.exitCode === 0) {
-            return {
-              success: true,
-              result: {
-                matched: true,
-                timedOut: false,
-                attempts,
-                elapsedMs: Date.now() - startedAt,
-                exitCode: 0,
-                stdout: tailForModel(attempt.stdout),
-                stderr: tailForModel(attempt.stderr),
-              } satisfies WaitForOutcome,
-            } satisfies ToolExecutionResult;
-          }
-
-          const sleepMs = Math.min(intervalMs, deadline - Date.now());
-          if (sleepMs <= 0) break;
-          yield* Effect.sleep(Duration.millis(sleepMs));
+        if (context.conversationId === undefined) {
+          return {
+            success: false,
+            result: null,
+            error: "No conversation to resume — wait_for is unavailable in this context.",
+          } satisfies ToolExecutionResult;
         }
 
-        // Expiring is an answer, not a failure — an error would drop the last output the caller
-        // needs to decide whether to re-arm.
+        const shell = yield* FileSystemContextServiceTag;
+        const jobQueueService = yield* JobQueueServiceTag;
+        const key = buildKeyFromContext(context);
+        const workingDir = args.workingDirectory
+          ? yield* shell.resolvePath(key, args.workingDirectory)
+          : yield* shell.getCwd(key);
+
+        const intervalMs = args.intervalMs ?? WAIT_FOR_DEFAULT_INTERVAL_MS;
+        const timeoutMs = args.timeoutMs ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
+
+        const outcome = yield* jobQueueService.enqueueBatch(
+          context.agentId,
+          context.conversationId,
+          [{ command: args.command, poll: { intervalMs, timeoutMs } }],
+          { workingDir, reason: args.description },
+        );
+
+        if (!outcome.success) {
+          return {
+            success: false,
+            result: null,
+            error: outcome.message,
+          } satisfies ToolExecutionResult;
+        }
+
+        const worker = yield* spawnJobWorker(context.agentId);
+
         return {
           success: true,
           result: {
-            matched: false,
-            timedOut: true,
-            attempts,
-            elapsedMs: Date.now() - startedAt,
-            exitCode: lastExitCode,
-            stdout: tailForModel(lastStdout),
-            stderr: tailForModel(lastStderr),
-          } satisfies WaitForOutcome,
+            batchId: outcome.batch.id,
+            status: "watching",
+            ...(worker.spawned
+              ? {}
+              : {
+                  warning:
+                    `No background worker could be started (${worker.reason ?? "unknown reason"}), ` +
+                    "so this wait only runs if `jazz daemon` is running. Do not assume you " +
+                    "will be woken — tell the person.",
+                }),
+          },
         } satisfies ToolExecutionResult;
-      }),
+      }).pipe(
+        Effect.catchAll((error) =>
+          Effect.succeed({
+            success: false,
+            result: null,
+            error: toError(error).message,
+          } satisfies ToolExecutionResult),
+        ),
+      ),
     createSummary: (result) => {
       if (!result.success) return undefined;
-      const outcome = result.result as WaitForOutcome;
-      const seconds = Math.round(outcome.elapsedMs / 1000);
-      return outcome.matched
-        ? `Condition met after ${String(seconds)}s (${String(outcome.attempts)} checks)`
-        : `Gave up after ${String(seconds)}s (${String(outcome.attempts)} checks)`;
+      const data = result.result as { batchId: string };
+      return `Watching in the background (batch ${data.batchId})`;
     },
   });
 }
