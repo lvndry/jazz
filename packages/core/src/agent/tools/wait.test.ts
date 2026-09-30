@@ -67,14 +67,14 @@ const testLayer = Layer.mergeAll(
 
 const tools = createWaitTools();
 
-function run(args: Record<string, unknown>, context: Partial<ToolExecutionContext> = {}) {
+function run(args: Record<string, unknown>, options: { withConversation?: boolean } = {}) {
+  const context =
+    options.withConversation === false
+      ? { agentId: "agent-1" }
+      : { agentId: "agent-1", conversationId: "conversation-1" };
   return Effect.runPromise(
     tools.execute
-      .execute(args, {
-        agentId: "agent-1",
-        conversationId: "conversation-1",
-        ...context,
-      } as ToolExecutionContext)
+      .execute(args, context as ToolExecutionContext)
       .pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, Error, never>,
   );
 }
@@ -119,7 +119,7 @@ describe("wait_for", () => {
     enqueueCalls.length = 0;
     const result = await run(
       { command: "true", description: "nobody to wake" },
-      { conversationId: undefined },
+      { withConversation: false },
     );
 
     expect(result.success).toBe(false);
