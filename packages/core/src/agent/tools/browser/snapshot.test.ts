@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { type AccessibilityNode, buildSnapshot, SNAPSHOT_CHARACTER_CAP } from "./snapshot";
+import {
+  type AccessibilityNode,
+  buildSnapshot,
+  SNAPSHOT_CHARACTER_CAP,
+  snapshotWindow,
+} from "./snapshot";
 
 function node(
   nodeId: string,
@@ -95,6 +100,138 @@ describe("buildSnapshot", () => {
     );
   });
 
+  test("does not let the page title hide text that happens to share its letters", () => {
+    const letters = [..."This domain is for use in documentation."];
+    const characterNodes = letters.map((letter, index) =>
+      node(String(index + 3), "StaticText", { name: letter, parentId: "2" }),
+    );
+    const snapshot = buildSnapshot(
+      tree(
+        node("1", "RootWebArea", { name: "Example Domain", childIds: ["2"] }),
+        node("2", "paragraph", {
+          name: "",
+          parentId: "1",
+          childIds: characterNodes.map((child) => child.nodeId),
+        }),
+        ...characterNodes,
+      ),
+    );
+
+    expect(snapshot.text).toBe(
+      ['- page "Example Domain"', '  text "This domain is for use in documentation."'].join("\n"),
+    );
+  });
+
+  test("merges adjacent text nodes into one line, keeping the spaces between words", () => {
+    const words = ["Hello", " ", "big", " ", "world"].map((word, index) =>
+      node(String(index + 2), "StaticText", { name: word, parentId: "1" }),
+    );
+    const snapshot = buildSnapshot(
+      tree(
+        node("1", "RootWebArea", { name: "Page", childIds: words.map((word) => word.nodeId) }),
+        ...words,
+      ),
+    );
+
+    expect(snapshot.text).toBe(['- page "Page"', '  text "Hello big world"'].join("\n"));
+  });
+
+  test("merges text that a page wraps in one element per character", () => {
+    const letters = [..."Read me"];
+    const wrappers = letters.map((_, index) =>
+      node(String(index + 10), "generic", {
+        parentId: "1",
+        childIds: [String(index + 100)],
+      }),
+    );
+    const characterNodes = letters.map((letter, index) =>
+      node(String(index + 100), "StaticText", { name: letter, parentId: String(index + 10) }),
+    );
+    const snapshot = buildSnapshot(
+      tree(
+        node("1", "RootWebArea", {
+          name: "Page",
+          childIds: wrappers.map((wrapper) => wrapper.nodeId),
+        }),
+        ...wrappers,
+        ...characterNodes,
+      ),
+    );
+
+    expect(snapshot.text).toBe(['- page "Page"', '  text "Read me"'].join("\n"));
+  });
+
+  test("treats a presentational node as transparent even when a browser names it", () => {
+    const snapshot = buildSnapshot(
+      tree(
+        node("1", "RootWebArea", { name: "Form", childIds: ["2"] }),
+        node("2", "none", { name: "Name", parentId: "1", childIds: ["3"] }),
+        node("3", "textbox", { name: "Name", parentId: "2", backendDOMNodeId: 3 }),
+      ),
+    );
+
+    expect(snapshot.text).toBe(['- page "Form"', '  - textbox "Name" [ref=e1]'].join("\n"));
+  });
+
+  test("prints the text before and after a control as separate lines", () => {
+    const snapshot = buildSnapshot(
+      tree(
+        node("1", "RootWebArea", { name: "Page", childIds: ["2", "3", "4"] }),
+        node("2", "StaticText", { name: "Before", parentId: "1" }),
+        node("3", "button", { name: "Go", parentId: "1", backendDOMNodeId: 3 }),
+        node("4", "StaticText", { name: "After", parentId: "1" }),
+      ),
+    );
+
+    expect(snapshot.text).toBe(
+      ['- page "Page"', '  text "Before"', '  - button "Go" [ref=e1]', '  text "After"'].join("\n"),
+    );
+  });
+
+  test("keeps a long paragraph whole instead of cutting it at the name length", () => {
+    const sentence = "A full sentence of ordinary body text that a reader needs in full. ";
+    const body = sentence.repeat(10).trim();
+    const snapshot = buildSnapshot(
+      tree(
+        node("1", "RootWebArea", { name: "Page", childIds: ["2"] }),
+        node("2", "StaticText", { name: body, parentId: "1" }),
+      ),
+    );
+
+    expect(snapshot.text).toContain(body);
+    expect(snapshot.text).not.toContain("…");
+  });
+
+  test("flattens unnamed paragraphs, label wrappers and select popups", () => {
+    const snapshot = buildSnapshot(
+      tree(
+        node("1", "RootWebArea", { name: "Form", childIds: ["2", "5"] }),
+        node("2", "LabelText", { name: "", parentId: "1", childIds: ["3", "4"] }),
+        node("3", "StaticText", { name: "Size", parentId: "2" }),
+        node("4", "combobox", {
+          name: "Size",
+          parentId: "2",
+          backendDOMNodeId: 4,
+          childIds: ["6"],
+        }),
+        node("5", "paragraph", { name: "", parentId: "1", childIds: ["7"] }),
+        node("6", "MenuListPopup", { name: "", parentId: "4", childIds: ["8"] }),
+        node("7", "StaticText", { name: "Done", parentId: "5" }),
+        node("8", "option", { name: "Large", parentId: "6", backendDOMNodeId: 8 }),
+      ),
+    );
+
+    expect(snapshot.text).toBe(
+      [
+        '- page "Form"',
+        '  text "Size"',
+        '  - combobox "Size" [ref=e1]',
+        '    - option "Large" [ref=e2]',
+        '  text "Done"',
+      ].join("\n"),
+    );
+  });
+
   test("prints state properties and hides false booleans", () => {
     const snapshot = buildSnapshot(
       tree(
@@ -165,9 +302,7 @@ describe("buildSnapshot", () => {
 
     expect(snapshot.truncated).toBe(true);
     expect(snapshot.text.length).toBeLessThan(2_300);
-    expect(snapshot.text.split("\n").at(-1)).toBe(
-      "… snapshot truncated at 2000 characters; scroll or navigate to see more",
-    );
+    expect(snapshot.text.split("\n").at(-1)).toBe("… page outline truncated at 2000 characters");
   });
 
   test("uses a cap that keeps a page outline around six thousand tokens", () => {
@@ -179,5 +314,75 @@ describe("buildSnapshot", () => {
 
     expect(snapshot.text).toBe("");
     expect(snapshot.refs.size).toBe(0);
+  });
+});
+
+describe("snapshotWindow", () => {
+  function longSnapshot(headingCount: number) {
+    const headings = Array.from({ length: headingCount }, (_, index) =>
+      node(String(index + 2), "heading", {
+        name: `Heading number ${String(index)}`,
+        parentId: "1",
+      }),
+    );
+    return buildSnapshot(
+      tree(
+        node("1", "RootWebArea", {
+          name: "Long",
+          childIds: headings.map((heading) => heading.nodeId),
+        }),
+        ...headings,
+      ),
+    );
+  }
+
+  test("returns the whole outline when it fits", () => {
+    const snapshot = longSnapshot(3);
+
+    const window = snapshotWindow(snapshot);
+
+    expect(window.text).toBe(snapshot.text);
+    expect(window.nextStartLine).toBeUndefined();
+  });
+
+  test("ends a long outline with the line that continues it", () => {
+    const snapshot = longSnapshot(50);
+
+    const first = snapshotWindow(snapshot, 1, 300);
+
+    expect(first.nextStartLine).toBeDefined();
+    const remaining = snapshot.lines.length - (first.nextStartLine ?? 0) + 1;
+    expect(first.text.split("\n").at(-1)).toBe(
+      `… ${String(remaining)} more lines; call browser_snapshot with startLine=${String(first.nextStartLine)} to continue`,
+    );
+  });
+
+  test("paging through with nextStartLine shows every line exactly once", () => {
+    const snapshot = longSnapshot(60);
+    const seen: string[] = [];
+    let startLine: number | undefined = 1;
+
+    while (startLine !== undefined) {
+      const window = snapshotWindow(snapshot, startLine, 400);
+      const lines = window.text.split("\n");
+      seen.push(...(window.nextStartLine === undefined ? lines : lines.slice(0, -1)));
+      startLine = window.nextStartLine;
+    }
+
+    expect(seen).toEqual([...snapshot.lines]);
+  });
+
+  test("always returns at least one line, even one longer than the window", () => {
+    const snapshot = longSnapshot(5);
+
+    const window = snapshotWindow(snapshot, 2, 5);
+
+    expect(window.text.split("\n")[0]).toBe(snapshot.lines[1]);
+  });
+
+  test("a start line past the end returns nothing", () => {
+    const snapshot = longSnapshot(3);
+
+    expect(snapshotWindow(snapshot, 999)).toEqual({ text: "", nextStartLine: undefined });
   });
 });

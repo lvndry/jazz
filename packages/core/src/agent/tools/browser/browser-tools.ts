@@ -34,6 +34,7 @@ import {
 import { egressPolicyForContext, type EgressPolicy } from "../guarded-fetch";
 import { createSystemBrowserLookup, resolveBrowserExecutablePath } from "../web-app";
 import { BrowserSession, type BrowserSessions, type PageAction, type PageState } from "./session";
+import { snapshotWindow } from "./snapshot";
 
 export const BROWSER_NAVIGATE_TOOL_NAME = "browser_navigate";
 export const BROWSER_ACT_TOOL_NAME = "browser_act";
@@ -169,30 +170,45 @@ export function createBrowserBackTool(): Tool<AgentConfigService> {
   });
 }
 
-const snapshotParameters = z.object({}).strict();
+const snapshotParameters = z
+  .object({
+    startLine: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        "Line to continue from, when the previous snapshot ended with a continuation note.",
+      ),
+  })
+  .strict();
+
+type SnapshotArgs = z.infer<typeof snapshotParameters>;
 
 export function createBrowserSnapshotTool(): Tool<AgentConfigService> {
-  return defineTool<AgentConfigService, Record<string, never>>({
+  return defineTool<AgentConfigService, SnapshotArgs>({
     name: "browser_snapshot",
     disclosure: "private",
     summary: "Read the current web page as a text outline with refs for links, buttons and fields.",
     description:
       "Read the current page as a text outline of its headings, text and controls. Each link, " +
       "button, field and other interactive element ends with a ref such as [ref=e3] that " +
-      "browser_act takes. Take a new snapshot after the page changes.",
+      "browser_act takes. A long page continues across calls: pass the startLine its last line " +
+      "names. Take a new snapshot after the page changes.",
     tags: ["browser", "read"],
     parameters: snapshotParameters,
     validate: makeZodValidator(snapshotParameters),
     riskLevel: "read-only",
     hidden: false,
-    handler: (_args, context) =>
+    handler: (args, context) =>
       withBrowser(context, (session) => session.snapshot()).pipe(
         Effect.map((page) => {
           const header = describePage(page);
           const refCount = page.snapshot.refs.size;
+          const shown = snapshotWindow(page.snapshot, args.startLine);
           return {
             success: true,
-            result: `${header}\nrefs: ${String(refCount)}\n\n${page.snapshot.text}`,
+            result: `${header}\nrefs: ${String(refCount)}\n\n${shown.text}`,
             untrusted: { kind: "external", source: `browser_snapshot ${page.url}` },
           } satisfies ToolExecutionResult;
         }),

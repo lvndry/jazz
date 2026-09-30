@@ -261,7 +261,7 @@ export class BrowserSession {
   }
 
   async snapshot(): Promise<SnapshotResult> {
-    const tree = await this.client.send("Accessibility.getFullAXTree");
+    const tree = await this.client.send("Accessibility.getFullAXTree", {});
     const snapshot = buildSnapshot(tree.nodes);
     this.refs = snapshot.refs;
     return { ...(await this.state()), snapshot };
@@ -312,8 +312,11 @@ export class BrowserSession {
     return object.objectId;
   }
 
+  /**
+   * A mouse click at the element's centre. A browser without a layout engine has no box model to
+   * aim at, so the click falls back to the element's own `click()`.
+   */
   private async click(backendNodeId: number): Promise<void> {
-    await this.client.send("DOM.scrollIntoViewIfNeeded", { backendNodeId });
     const objectId = await this.objectIdFor(backendNodeId);
     await this.client.send("Runtime.callFunctionOn", {
       objectId,
@@ -322,9 +325,20 @@ export class BrowserSession {
         if (anchor && anchor.target === "_blank") { anchor.target = "_self"; }
       }`,
     });
-    const { model } = await this.client.send("DOM.getBoxModel", { backendNodeId });
-    const [left, top, , , right, bottom] = model.content;
-    await this.page.mouse.click(((left ?? 0) + (right ?? 0)) / 2, ((top ?? 0) + (bottom ?? 0)) / 2);
+    try {
+      await this.client.send("DOM.scrollIntoViewIfNeeded", { backendNodeId });
+      const { model } = await this.client.send("DOM.getBoxModel", { backendNodeId });
+      const [left, top, , , right, bottom] = model.content;
+      await this.page.mouse.click(
+        ((left ?? 0) + (right ?? 0)) / 2,
+        ((top ?? 0) + (bottom ?? 0)) / 2,
+      );
+    } catch {
+      await this.client.send("Runtime.callFunctionOn", {
+        objectId,
+        functionDeclaration: "function () { this.click(); }",
+      });
+    }
   }
 
   private async type(backendNodeId: number, text: string, submit: boolean): Promise<void> {

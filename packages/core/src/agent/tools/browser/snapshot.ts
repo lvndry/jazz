@@ -24,11 +24,17 @@ export interface AccessibilityNode {
   readonly backendDOMNodeId?: number;
 }
 
-/** Characters of snapshot text returned at most: about 6,000 tokens of page structure. */
+/** Characters of snapshot text returned by one call: about 6,000 tokens of page structure. */
 export const SNAPSHOT_CHARACTER_CAP = 24_000;
+
+/** Characters of outline built for a whole page; a page past this ends with a note saying so. */
+export const SNAPSHOT_TOTAL_CAP = 240_000;
 
 /** Longest accessible name printed for one element. */
 const MAX_NAME_CHARACTERS = 160;
+
+/** Longest run of page text printed on one line; the snapshot cap bounds the total. */
+const MAX_TEXT_CHARACTERS = 2_000;
 
 /** Longest field value printed for one element. */
 const MAX_VALUE_CHARACTERS = 120;
@@ -58,15 +64,47 @@ const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
   "listbox",
 ]);
 
+/** Page text gathered between printed nodes, printed as one line. */
+interface TextRun {
+  text: string;
+}
+
+/** Roles that mean "no semantics" whatever name a browser computes for them. */
+const PRESENTATIONAL_ROLES: ReadonlySet<string> = new Set(["none", "presentation"]);
+
 /** Roles that carry no meaning of their own: their children are printed at the same depth. */
 const TRANSPARENT_ROLES: ReadonlySet<string> = new Set([
   "generic",
-  "none",
-  "presentation",
   "GenericContainer",
   "InlineTextBox",
   "LineBreak",
   "Section",
+  "paragraph",
+  "LabelText",
+  "MenuListPopup",
+]);
+
+/**
+ * Roles whose accessible name is built from their own text, so a text child repeating that name
+ * adds nothing. The page, a region or a labelled group is not among them: their names come from
+ * a title or an `aria-label`, and text that happens to appear in one is still content.
+ */
+const CONTENT_NAMED_ROLES: ReadonlySet<string> = new Set([
+  "link",
+  "button",
+  "heading",
+  "tab",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "treeitem",
+  "checkbox",
+  "radio",
+  "switch",
+  "cell",
+  "columnheader",
+  "rowheader",
 ]);
 
 /** Roles whose `value` (the text in a field) is worth printing. */
@@ -97,10 +135,19 @@ export interface SnapshotRef {
 }
 
 export interface PageSnapshot {
+  /** The whole outline, one entry per line. */
+  readonly lines: readonly string[];
   readonly text: string;
   /** Every interactive element printed, by ref. */
   readonly refs: ReadonlyMap<string, SnapshotRef>;
+  /** Whether the page outline was cut at the whole-page cap. */
   readonly truncated: boolean;
+}
+
+export interface SnapshotWindow {
+  readonly text: string;
+  /** The line to ask for next when the window ends before the outline does. */
+  readonly nextStartLine: number | undefined;
 }
 
 function asText(value: unknown): string {
@@ -154,7 +201,7 @@ function describeProperties(node: AccessibilityNode): string {
  */
 export function buildSnapshot(
   nodes: readonly AccessibilityNode[],
-  characterCap: number = SNAPSHOT_CHARACTER_CAP,
+  characterCap: number = SNAPSHOT_TOTAL_CAP,
 ): PageSnapshot {
   const byId = new Map(nodes.map((node) => [node.nodeId, node]));
   const root = nodes.find((node) => node.parentId === undefined);
@@ -174,15 +221,33 @@ export function buildSnapshot(
     return true;
   }
 
-  function visit(node: AccessibilityNode, depth: number, ancestorName: string): boolean {
+  function flushRun(run: TextRun, depth: number, ancestorName: string): boolean {
+    const runText = tidy(run.text, MAX_TEXT_CHARACTERS);
+    run.text = "";
+    if (runText === "" || (ancestorName !== "" && ancestorName.includes(runText))) {
+      return true;
+    }
+    return emit(depth, `text ${quoted(runText)}`);
+  }
+
+  /**
+   * `run` collects the page text between one printed node and the next, so text a page splits
+   * across spans, or across one wrapper per character, prints as one line. Nodes that print
+   * nothing pass their parent's run and depth straight through.
+   */
+  function visit(
+    node: AccessibilityNode,
+    depth: number,
+    ancestorName: string,
+    run: TextRun,
+  ): boolean {
     const role = asText(node.role?.value);
     const name = tidy(asText(node.name?.value), MAX_NAME_CHARACTERS);
-    const children = node.childIds ?? [];
 
-    function visitChildren(childDepth: number, nameAbove: string): boolean {
-      for (const childId of children) {
+    function visitChildren(childDepth: number, nameAbove: string, childRun: TextRun): boolean {
+      for (const childId of node.childIds ?? []) {
         const child = byId.get(childId);
-        if (child !== undefined && !visit(child, childDepth, nameAbove)) {
+        if (child !== undefined && !visit(child, childDepth, nameAbove, childRun)) {
           return false;
         }
       }
@@ -190,18 +255,20 @@ export function buildSnapshot(
     }
 
     if (node.ignored === true || role === "InlineTextBox" || role === "LineBreak") {
-      return visitChildren(depth, ancestorName);
+      return visitChildren(depth, ancestorName, run);
     }
 
     if (role === "StaticText") {
-      if (name === "" || (ancestorName !== "" && ancestorName.includes(name))) {
-        return true;
-      }
-      return emit(depth, `text ${quoted(name)}`);
+      run.text += asText(node.name?.value);
+      return true;
     }
 
-    if (TRANSPARENT_ROLES.has(role) && name === "") {
-      return visitChildren(depth, ancestorName);
+    if (PRESENTATIONAL_ROLES.has(role) || (TRANSPARENT_ROLES.has(role) && name === "")) {
+      return visitChildren(depth, ancestorName, run);
+    }
+
+    if (!flushRun(run, depth, ancestorName)) {
+      return false;
     }
 
     const label = role === "RootWebArea" ? "page" : role;
@@ -235,18 +302,55 @@ export function buildSnapshot(
     if (!emit(depth, line)) {
       return false;
     }
-    return visitChildren(depth + 1, name === "" ? ancestorName : name);
-  }
-
-  if (root !== undefined) {
-    visit(root, 0, "");
-  }
-
-  if (truncated) {
-    lines.push(
-      `… snapshot truncated at ${String(characterCap)} characters; scroll or navigate to see more`,
+    const nameForChildren = CONTENT_NAMED_ROLES.has(role) ? name : "";
+    const childRun: TextRun = { text: "" };
+    return (
+      visitChildren(depth + 1, nameForChildren, childRun) &&
+      flushRun(childRun, depth + 1, nameForChildren)
     );
   }
 
-  return { text: lines.join("\n"), refs, truncated };
+  if (root !== undefined) {
+    const rootRun: TextRun = { text: "" };
+    if (visit(root, 0, "", rootRun)) {
+      flushRun(rootRun, 0, "");
+    }
+  }
+
+  if (truncated) {
+    lines.push(`… page outline truncated at ${String(characterCap)} characters`);
+  }
+
+  return { lines, text: lines.join("\n"), refs, truncated };
+}
+
+/**
+ * The part of `snapshot` a single call returns: lines from `startLine` (1-based) while they fit
+ * in `windowCap` characters, always at least one. When lines remain, the text ends with a note
+ * giving the `startLine` that continues it.
+ */
+export function snapshotWindow(
+  snapshot: PageSnapshot,
+  startLine: number = 1,
+  windowCap: number = SNAPSHOT_CHARACTER_CAP,
+): SnapshotWindow {
+  const firstIndex = Math.max(0, Math.min(startLine - 1, snapshot.lines.length));
+  let characters = 0;
+  let endIndex = firstIndex;
+  while (endIndex < snapshot.lines.length) {
+    const length = (snapshot.lines[endIndex] ?? "").length + 1;
+    if (endIndex > firstIndex && characters + length > windowCap) {
+      break;
+    }
+    characters += length;
+    endIndex += 1;
+  }
+  const shown = snapshot.lines.slice(firstIndex, endIndex);
+  if (endIndex >= snapshot.lines.length) {
+    return { text: shown.join("\n"), nextStartLine: undefined };
+  }
+  const nextStartLine = endIndex + 1;
+  const remaining = snapshot.lines.length - endIndex;
+  const note = `… ${String(remaining)} more lines; call browser_snapshot with startLine=${String(nextStartLine)} to continue`;
+  return { text: [...shown, note].join("\n"), nextStartLine };
 }
