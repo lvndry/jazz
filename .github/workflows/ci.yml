@@ -201,10 +201,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Typecheck tests
-        if: runner.os == 'Linux'
-        run: bun run test:typecheck
-
       - name: Test
         if: runner.os != 'Linux'
         run: bun run test

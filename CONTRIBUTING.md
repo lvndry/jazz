@@ -145,9 +145,8 @@ and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.
 
 ## Before Submitting PR
 
-- [ ] `bun run typecheck` passes
+- [ ] `bun run typecheck` passes (source and test files)
 - [ ] `bun run lint` passes
-- [ ] `bun run test:typecheck` passes (typechecks the test files, which `typecheck` skips)
 - [ ] Docs changes pass `bun run docs:lint`, `bun run docs:check-links` and `bun run docs:check-metadata`
 - [ ] Changes under `plugins/` pass `bun run plugin:catalog`
 - [ ] `bun test` passes

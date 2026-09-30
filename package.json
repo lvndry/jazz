@@ -51,7 +51,7 @@
     "plugin:catalog": "bun run scripts/build-plugin-catalog.ts",
     "plugin:community-catalog": "bun run scripts/build-community-plugin-catalog.ts",
     "stage-npm-packages": "bun run scripts/build.ts --compile --all-targets --npm-packages",
-    "typecheck": "bun run tsc -b tsconfig.json",
+    "typecheck": "bun run tsc -b tsconfig.json && bun run test:typecheck",
     "typecheck:evals": "tsc -p evals/tsconfig.json",
     "evals": "bun run evals/cli.ts",
     "dev": "bun --watch packages/runtime/src/main.ts",

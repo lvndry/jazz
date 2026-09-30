@@ -22,7 +22,6 @@ jobs:
           version="$(bun --print 'require("./packages/plugin-sdk/package.json").version')"
           test "${GITHUB_REF_NAME}" = "plugin-sdk-v${version}"
       - run: bun run typecheck
-      - run: bun run test:typecheck
       - name: Publish with npm trusted publishing
         working-directory: packages/plugin-sdk
         run: npm publish --provenance --access public

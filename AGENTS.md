@@ -117,13 +117,13 @@ happy path. A test that cannot fail is worse than no test.
 
 ### Checks
 
-CI runs all four. `typecheck` does not cover test files; `test:typecheck` does.
+CI runs all three. `typecheck` covers source and test files; `test:typecheck` runs
+just the test half.
 When a task starts from a failing check, run that exact command first and see
 it fail, then again before you report.
 
 ```sh
 bun run typecheck
-bun run test:typecheck
 bun run lint
 bun test
 ```
