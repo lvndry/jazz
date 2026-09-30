@@ -1,3 +1,11 @@
+/**
+ * CLI workflow commands: list definitions, run an agent with a rendered workflow
+ * prompt, and manage schedules. `runWorkflowCommand` supports interactive output
+ * or one JSON result on stdout; selected progress and failure events use stderr.
+ * JSON runs report typed failures and unexpected defects without intercepting
+ * fiber interruption, which remains owned by the command's shutdown handling.
+ */
+
 import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
@@ -9,6 +17,7 @@ import {
 } from "@jazz/core/agent/run/run-spend";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { PresentationServiceTag } from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { deliverWorkflowResult, notifyWorkflowNotRun } from "@jazz/core/notify/workflow-delivery";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -59,10 +68,6 @@ import { Duration, Effect, Option } from "effect";
 import { store } from "@/cli/ui/store";
 import { separatorLine } from "@/cli/utils/string-utils";
 import { answerOutcomeFields, formatOneShotError, formatOneShotResult } from "./run/envelope";
-
-/**
- * CLI commands for managing and running workflows.
- */
 
 /**
  * List all available workflows, or print them as one JSON document with `--json`.
@@ -610,20 +615,28 @@ export function runWorkflowCommand(
   // envelope (with a non-zero exit code) instead of a rendered error, and the
   // one-shot presentation layer keeps agent streaming off stdout (optionally
   // emitting NDJSON events on stderr, as `jazz run --events` does).
-  return command.pipe(
-    Effect.catchAll((error) =>
-      Effect.sync(() => {
+  const reportFailure = (error: unknown) =>
+    Effect.gen(function* () {
+      const message = getErrorMessage(toError(error));
+      if (options?.eventTypes && options.eventTypes.size > 0) {
+        yield* (yield* PresentationServiceTag).writeError(message);
+      }
+      yield* Effect.sync(() => {
         process.stdout.write(
           formatOneShotError(
-            getErrorMessage(error),
+            message,
             { json: true },
             runSpend,
             error instanceof NoUsableAnswerError ? { code: error.code } : {},
           ),
         );
         process.exitCode = 1;
-      }),
-    ),
+      });
+    });
+
+  return command.pipe(
+    Effect.catchAll(reportFailure),
+    Effect.catchAllDefect(reportFailure),
     Effect.provide(makeOneShotPresentationServiceLayer(options?.eventTypes ?? new Set())),
   );
 }
