@@ -98,6 +98,7 @@ import {
 import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
 import { receiptFromMeta } from "../models/receipt";
 import { RETRY_BAND_ROWS, retryBand } from "../models/retry";
+import { settledPlan } from "../models/todo";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
 import { initialChoiceIndex } from "../prompt-core/picker-adapter";
 import { readPromptStep } from "../prompt-core/stepper";
@@ -1489,7 +1490,11 @@ export function FullscreenBridge(): React.ReactNode {
   if (freshTodoList !== undefined && freshTodoList.length > 0) {
     lastTodoListRef.current = freshTodoList;
   }
-  const todoList = freshTodoList ?? lastTodoListRef.current;
+  const retainedTodoList = freshTodoList ?? lastTodoListRef.current;
+  const todoList = useMemo(
+    () => (runActive ? retainedTodoList : settledPlan(retainedTodoList)),
+    [runActive, retainedTodoList],
+  );
   const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
   const retryNotice = runActive ? session.retryNotice : null;
   const neededRows = Math.min(
