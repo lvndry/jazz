@@ -39,7 +39,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import type { ActivePreference } from "@/core/memory/preference-line";
+import type { ActivePreference, SituationalPreference } from "@/core/memory/preference-line";
 import { collectMemorySources } from "@/core/memory/source-trust";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { closeUserSecretStore, openUserSecretStore } from "@/core/secrets/user-secrets";
@@ -131,34 +131,60 @@ import { normalizeToolConfig } from "./utils/tool-config";
  * Unknown models count as "cannot", matching every other capability check here: the consequence
  * of guessing wrong is an agent that promises an image it cannot make.
  */
+/** The memory entries injected into the system prompt: standing ones and situational ones. */
+interface InjectedPreferences {
+  readonly standing: readonly ActivePreference[];
+  readonly situational: readonly SituationalPreference[];
+}
+
+const NO_INJECTED_PREFERENCES: InjectedPreferences = { standing: [], situational: [] };
+
 /**
- * Reads the entries that apply to every turn (`always/`).
+ * Reads every entry the model should see without asking: the ones that apply to every turn
+ * (`always/`) and the ones that apply to a kind of task (`when/<topic>/`).
  *
  * Injected rather than looked up: recall that depends on the model choosing to
  * spend a tool call is recall it will sometimes skip, and a preference the user
- * already stated is not something they should have to restate. Topic-scoped
- * entries are the agent's responsibility to discover via `view_memory`.
+ * already stated is not something they should have to restate. Situational entries
+ * carry the situation they apply to so the model can combine several for one task.
+ * Nothing is truncated; the entries are one thought each and the user wrote them
+ * down on purpose.
  *
  * Memory is optional — an agent configured without it still runs — and a failure
  * to read degrades to injecting nothing rather than failing the run.
  */
-function resolveActivePreferences(
+export function resolveInjectedPreferences(
   memoryScopes: readonly string[],
   logger: LoggerService,
-): Effect.Effect<readonly ActivePreference[], never, FileSystem.FileSystem> {
+): Effect.Effect<InjectedPreferences, never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
     if (Option.isNone(memoryServiceOption)) {
       yield* logger.debug("No memory service in context; skipping memory injection");
-      return [];
+      return NO_INJECTED_PREFERENCES;
     }
     const memoryService = memoryServiceOption.value;
     return yield* Effect.gen(function* () {
       const standingEntries = yield* memoryService.standingEntries(memoryScopes);
-      return standingEntries.map((entry) => ({
-        scope: entry.scope,
-        summary: entry.summary,
-      }));
+      const conditionalEntries = yield* memoryService.conditionalEntries(memoryScopes);
+      return {
+        standing: standingEntries.map((entry) => ({
+          scope: entry.scope,
+          summary: entry.summary,
+        })),
+        situational: conditionalEntries.flatMap((entry) =>
+          entry.topic === undefined
+            ? []
+            : [
+                {
+                  scope: entry.scope,
+                  topic: entry.topic,
+                  summary: entry.summary,
+                  path: entry.path,
+                },
+              ],
+        ),
+      };
     }).pipe(
       Effect.catchAll((error) =>
         logger
@@ -166,7 +192,7 @@ function resolveActivePreferences(
             scopeCount: memoryScopes.length,
             errorCategory: telemetryErrorCategory(error),
           })
-          .pipe(Effect.as<readonly ActivePreference[]>([])),
+          .pipe(Effect.as(NO_INJECTED_PREFERENCES)),
       ),
     );
   });
@@ -739,9 +765,12 @@ function initializeAgentRun(
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llm.provider);
-    const activePreferences = boundary.injectsPreferences
-      ? yield* resolveActivePreferences(agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE], logger)
-      : [];
+    const injectedPreferences = boundary.injectsPreferences
+      ? yield* resolveInjectedPreferences(
+          agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
+          logger,
+        )
+      : NO_INJECTED_PREFERENCES;
     const memoryServiceForReceipts = yield* Effect.serviceOption(MemoryServiceTag);
     const memoryScopes = agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
     const memoryOpportunities = Option.isSome(memoryServiceForReceipts)
@@ -775,7 +804,12 @@ function initializeAgentRun(
         availableTools,
         knownSkills: relevantSkills,
         ...(deferredToolSummaries.length > 0 && { deferredTools: deferredToolSummaries }),
-        ...(activePreferences.length > 0 && { activePreferences }),
+        ...(injectedPreferences.standing.length > 0 && {
+          activePreferences: injectedPreferences.standing,
+        }),
+        ...(injectedPreferences.situational.length > 0 && {
+          situationalPreferences: injectedPreferences.situational,
+        }),
         ...(attachmentWorkingDirectory !== undefined && {
           workingDirectory: attachmentWorkingDirectory,
         }),

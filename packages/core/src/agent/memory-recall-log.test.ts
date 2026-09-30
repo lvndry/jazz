@@ -108,6 +108,30 @@ describe("analyzeMemoryRecall", () => {
     expect(observation.writeCallCount).toBe(2);
   });
 
+  test("counts the preference lines the system prompt carried", () => {
+    const observation = analyzeMemoryRecall(
+      [
+        {
+          role: "system",
+          content:
+            "## Preferences\n- [personal] concise\n## Situational preferences\nApply.\n- [personal] (sending email) sign\n- [personal] (food) no cilantro",
+        },
+        { role: "user", content: "hey" },
+        answer(),
+      ],
+      true,
+    );
+    expect(observation.injectedCount).toBe(3);
+  });
+
+  test("counts zero when the system prompt carries no preferences", () => {
+    const observation = analyzeMemoryRecall(
+      [{ role: "system", content: "You are an agent." }, answer()],
+      true,
+    );
+    expect(observation.injectedCount).toBe(0);
+  });
+
   test("records whether the tools were offered at all", () => {
     expect(analyzeMemoryRecall([answer()], false).memoryToolsOffered).toBe(false);
     expect(analyzeMemoryRecall([answer()], true).memoryToolsOffered).toBe(true);
@@ -140,9 +164,35 @@ describe("summarizeMemoryRecalls", () => {
       entry("telegram", true),
     ]);
     expect(rates).toEqual([
-      { surface: "cli", eligibleRuns: 2, viewedBeforeFirstAnswer: 2, rate: 1 },
-      { surface: "telegram", eligibleRuns: 3, viewedBeforeFirstAnswer: 1, rate: 1 / 3 },
+      {
+        surface: "cli",
+        eligibleRuns: 2,
+        viewedBeforeFirstAnswer: 2,
+        rate: 1,
+        averageInjected: undefined,
+      },
+      {
+        surface: "telegram",
+        eligibleRuns: 3,
+        viewedBeforeFirstAnswer: 1,
+        rate: 1 / 3,
+        averageInjected: undefined,
+      },
     ]);
+  });
+
+  test("averages injected entries over the runs that recorded a count", () => {
+    const rates = summarizeMemoryRecalls([
+      { ...entry("cli", true), injectedCount: 4 },
+      { ...entry("cli", false), injectedCount: 2 },
+      entry("cli", false),
+    ]);
+    expect(rates[0]?.averageInjected).toBe(3);
+  });
+
+  test("reports no average when no run recorded a count", () => {
+    const rates = summarizeMemoryRecalls([entry("cli", true)]);
+    expect(rates[0]?.averageInjected).toBeUndefined();
   });
 
   test("excludes runs that were never offered the tools from the denominator", () => {
@@ -152,7 +202,13 @@ describe("summarizeMemoryRecalls", () => {
       entry("cli", false, false),
     ]);
     expect(rates).toEqual([
-      { surface: "cli", eligibleRuns: 1, viewedBeforeFirstAnswer: 1, rate: 1 },
+      {
+        surface: "cli",
+        eligibleRuns: 1,
+        viewedBeforeFirstAnswer: 1,
+        rate: 1,
+        averageInjected: undefined,
+      },
     ]);
   });
 });

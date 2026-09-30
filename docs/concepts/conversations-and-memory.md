@@ -94,7 +94,8 @@ preferred response length. Agents can share it through memory scopes.
 Each entry is a Markdown file. Its directory determines when it applies:
 
 - **`<scope>/always/<slug>.md`** — in force on every turn, injected automatically.
-- **`<scope>/when/<topic>/<slug>.md`** — in force when the agent discovers it via `view_memory`.
+- **`<scope>/when/<topic>/<slug>.md`** — in force for the situation its topic names, such as
+  `writing-to-friends` or `sending-email`. It is listed in the prompt on every turn.
 
 You can edit or delete these files directly.
 
@@ -110,16 +111,30 @@ agents that should share durable context share a scope; two agents that should n
 
 ### Recalling memory
 
-Entries in `always/` are included every turn. The agent uses `view_memory` to find and read
-relevant entries under `when/`. An entry there may go unused if the agent does not look it up.
+Every entry is in front of the agent on every turn, with no lookup needed. Entries in `always/`
+are listed under **Preferences**. Entries in `when/` are listed under **Situational
+preferences**, each tagged with the situation its topic names. The agent applies every entry that
+matches the task, and several can apply at once. A request to email a friend can use both a
+`writing-to-friends` entry and a `sending-email` entry.
+
+Nothing is truncated, however many entries there are. The agent can read an entry in full with
+`view_memory`.
+
+When the agent saves something, it names the topic after the situation the entry applies to, so a
+request worded differently from your original statement still matches it. If you write entries by
+hand, name the topic directory the same way: `writing-to-friends`, not `communication`.
+
+`jazz memory recall` reports, per surface, how often the agent also looked something up before
+answering and how many entries were injected per run.
 
 ### How the agent learns
 
 Memory is written in two passes, both automatic. Neither needs a command from you.
 
 **During the conversation.** When you state a preference, opinion, relationship, or personal
-fact ("I'm allergic to shellfish", "I prefer dark mode"), the agent saves it in the same turn
-with `manage_memory`, without waiting to be asked. Before it answers or acts on a request that
+fact ("I'm allergic to shellfish", "I prefer dark mode"), or correct how it did something ("too
+formal", "make it shorter"), the agent saves it in the same turn with `manage_memory`, without
+waiting to be asked. Before it answers or acts on a request that
 your preferences or history could shape, it checks memory with `view_memory`. For each
 candidate fact it weighs:
 
@@ -128,8 +143,11 @@ candidate fact it weighs:
   work, and small talk do not.
 - **Is it sensitive?** Secrets, credentials, and sensitive claims are never saved.
 - **When should it apply?** An `always` entry is for instructions that shape nearly every task,
-  such as a preference for concise replies. Everything else is filed under a topic in `when/`,
-  so a favorite fruit can inform a shopping list without entering unrelated requests.
+  such as a preference for concise replies. Everything else is filed under a topic in `when/`
+  named for the situation it applies to, so a favorite fruit can inform a shopping list without
+  entering unrelated requests.
+- **Which scope?** The agent's first scope, unless you say the preference applies to everything
+  you do.
 - **Is it worth the cost of being wrong?** Every `always` entry is injected into every future
   turn of every agent that shares the scope, so when the agent is unsure a fact is durable, it
   does not save it. You can still ask it to remember something explicitly.

@@ -15,6 +15,7 @@
  */
 import * as path from "node:path";
 import { Effect } from "effect";
+import { countInjectedPreferenceLines } from "@/core/memory/preference-line";
 import type { ChatMessage } from "@/core/types/message";
 import { appendBoundedJsonlLine, readJsonlNewestFirst } from "@/core/utils/bounded-jsonl";
 import { getMemoryRecallLogDirectory } from "@/core/utils/paths";
@@ -42,6 +43,11 @@ export interface MemoryRecallObservation {
   readonly viewedBeforeFirstAnswer: boolean;
   readonly viewCallCount: number;
   readonly writeCallCount: number;
+  /**
+   * Entries the run's system prompt carried, standing and situational together. Absent on
+   * entries written before this field existed.
+   */
+  readonly injectedCount?: number;
 }
 
 export interface MemoryRecallEntry extends MemoryRecallObservation {
@@ -109,7 +115,16 @@ export function analyzeMemoryRecall(
     firstViewIndex !== undefined &&
     (firstAnswerIndex === undefined || firstViewIndex < firstAnswerIndex);
 
-  return { memoryToolsOffered, viewedBeforeFirstAnswer, viewCallCount, writeCallCount };
+  const systemPrompt = messages.find((message) => message.role === "system")?.content ?? "";
+  const injectedCount = countInjectedPreferenceLines(systemPrompt);
+
+  return {
+    memoryToolsOffered,
+    viewedBeforeFirstAnswer,
+    viewCallCount,
+    writeCallCount,
+    injectedCount,
+  };
 }
 
 /** Append one recall entry. Failure is swallowed: see file header. */
@@ -179,17 +194,31 @@ export interface MemoryRecallRate {
   readonly eligibleRuns: number;
   readonly viewedBeforeFirstAnswer: number;
   readonly rate: number;
+  /** Mean entries injected per run, over the runs that recorded a count; `undefined` when none did. */
+  readonly averageInjected: number | undefined;
 }
 
 export function summarizeMemoryRecalls(
   entries: readonly MemoryRecallEntry[],
 ): readonly MemoryRecallRate[] {
-  const bySurface = new Map<string, { eligible: number; viewed: number }>();
+  const bySurface = new Map<
+    string,
+    { eligible: number; viewed: number; injectedTotal: number; injectedRuns: number }
+  >();
   for (const entry of entries) {
     if (!entry.memoryToolsOffered) continue;
-    const bucket = bySurface.get(entry.surface) ?? { eligible: 0, viewed: 0 };
+    const bucket = bySurface.get(entry.surface) ?? {
+      eligible: 0,
+      viewed: 0,
+      injectedTotal: 0,
+      injectedRuns: 0,
+    };
     bucket.eligible += 1;
     if (entry.viewedBeforeFirstAnswer) bucket.viewed += 1;
+    if (typeof entry.injectedCount === "number") {
+      bucket.injectedTotal += entry.injectedCount;
+      bucket.injectedRuns += 1;
+    }
     bySurface.set(entry.surface, bucket);
   }
   return [...bySurface.entries()]
@@ -199,5 +228,7 @@ export function summarizeMemoryRecalls(
       eligibleRuns: bucket.eligible,
       viewedBeforeFirstAnswer: bucket.viewed,
       rate: bucket.eligible === 0 ? 0 : bucket.viewed / bucket.eligible,
+      averageInjected:
+        bucket.injectedRuns === 0 ? undefined : bucket.injectedTotal / bucket.injectedRuns,
     }));
 }
