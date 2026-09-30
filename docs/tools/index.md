@@ -17,12 +17,12 @@ and the [security model](../security/index.md).
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **56** |
-| Hidden `execute_*` counterparts (the second half of each approval pair) | 11     |
-| Total registered                                                        | 67     |
-| `read-only`                                                             | 32     |
-| `low-risk`                                                              | 11     |
-| `high-risk`                                                             | 10     |
+| **Agent-facing tools**                                                  | **62** |
+| Hidden `execute_*` counterparts (the second half of each approval pair) | 13     |
+| Total registered                                                        | 75     |
+| `read-only`                                                             | 35     |
+| `low-risk`                                                              | 12     |
+| `high-risk`                                                             | 11     |
 | `unknown`                                                               | 3      |
 
 Plus, registered per agent rather than globally:
@@ -41,7 +41,7 @@ Every tool above `read-only` is **gated**: under a policy that does not clear it
 asks first, or is declined (or parked) when nobody can answer. With no policy, or
 `false`, nothing clears. Gated tools include approval pairs and tools that ask before running directly.
 
-The 11 approval pairs split proposing from acting: calling one does not act. It returns a
+The 12 approval pairs split proposing from acting: calling one does not act. It returns a
 description of the intended action (including a preview diff for edits), and only after
 approval, from a human or from the policy, does Jazz invoke the hidden `execute_*`
 counterpart. A plain gated tool has no proposal half: the executor asks with its name, risk
@@ -63,18 +63,10 @@ machine; disclosure asks how freely its answer can be shared. The two do not cor
 nothing, `write_file` changes the machine and reveals nothing at all.
 
 | Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ---------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `report_goal_cycle`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                                          |
-| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cancel_wait_for`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                                                                                |
-| `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `ask_user_secret`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_subagents`, `list_todos`, `manage_memory`, `manage_todos`, `manage_scratchpad`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `steer_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for`, `wait_subagents` |
-
-A tool spanning two levels takes the more sensitive one. `edit_file` writes, but its approval
-message carries a diff of your file, so it is `private`. `http_request` can reach
-hosts on your own network once they are in `network.allowPrivateHosts`, so it is too.
-
-Skill tools (`find_skills`, `load_skill`, `load_skill_section`) are `internal` too, and are
-absent from the table for the same reason they are absent from the one below. They are
-registered per agent rather than globally.
+| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cancel_wait_for`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                                                                                        |
+| `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `ask_user_secret`, `browser_act`, `browser_back`, `browser_close`, `browser_navigate`, `browser_screenshot`, `browser_snapshot`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_subagents`, `list_todos`, `manage_memory`, `manage_todos`, `manage_scratchpad`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `steer_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for`, `wait_subagents` |
 
 **MCP and custom tools are `private`.**
 
@@ -86,9 +78,9 @@ Risk and disclosure are both about this end of the call: what a tool does to you
 what its answer would reveal. Neither asks about the **request**, and for a handful of tools
 the request is where your material would actually leave.
 
-| Sends | Tools                                                 |
-| ----- | ----------------------------------------------------- |
-| yes   | `http_request`, `read_pdf`, `web_fetch`, `web_search` |
+| Sends | Tools                                                                                    |
+| ----- | ---------------------------------------------------------------------------------------- |
+| yes   | `browser_act`, `browser_navigate`, `http_request`, `read_pdf`, `web_fetch`, `web_search` |
 
 Three more, absent above only because they are registered per agent rather than globally:
 `ask_peer` (`high-risk`), whose whole purpose is to put your model's words in front of somebody else's
@@ -315,6 +307,20 @@ or static images. The bundled `composition` skill supplies design instructions.
 | -------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `create_composition` | `low-risk`  | none          | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
 | `create_pdf`         | `high-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
+
+### Browser
+
+Enable [Browser](../concepts/browser.md) per agent to drive real web pages. The tools load on
+demand and are off by default.
+
+| Tool                 | Risk        | Approval pair         | What it does                                                                                                                            |
+| -------------------- | ----------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `browser_navigate`   | `low-risk`  | none                  | Open an http(s) URL in the run's browser and return its URL and title.                                                                  |
+| `browser_back`       | `low-risk`  | none                  | Go back one page in the browser's history.                                                                                              |
+| `browser_snapshot`   | `read-only` | none                  | Read the current page as a text outline with a ref on every interactive element.                                                        |
+| `browser_screenshot` | `low-risk`  | none                  | Save a PNG of the current page and return its path for `analyze_media`.                                                                 |
+| `browser_act`        | `high-risk` | `execute_browser_act` | Click, type, choose an option, or press a key. Typed secrets from `ask_user_secret` are entered only after you approve, on https pages. |
+| `browser_close`      | `read-only` | none                  | Close the browser and discard its cookies and session.                                                                                  |
 
 ---
 

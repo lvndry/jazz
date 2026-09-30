@@ -17,6 +17,7 @@ for charts and interactive pages, read [Compositions](./compositions.md).
 - A [tool](./tools.md) lets the model inspect or change something.
 - A [skill](./skills.md) teaches the model how to complete a kind of work.
 - [Model companions](./media.md) use specialist models to understand or generate images, audio, and video.
+- The [browser](./browser.md) lets an agent read and act on real web pages, including ones that need JavaScript or a login.
 - [Subagents](./agents.md#delegation) delegate bounded work to child runs with isolated context.
 - [MCP](../configure/mcp.md), [custom tools](../configure/agents.md#custom-tools), and [plugins](../configure/plugins.md) extend the agent's capabilities.
 
