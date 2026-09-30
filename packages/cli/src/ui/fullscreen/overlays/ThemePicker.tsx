@@ -24,6 +24,7 @@ import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./ov
 import { getGlyphs } from "../../glyphs";
 import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells";
 import { THEME } from "../../theme";
+import { themePickerVisibleRows } from "../theme-picker-keys";
 import { useThemeRevision } from "../theme-revision";
 import type { ThemePickerModel, Viewport } from "../types";
 
@@ -41,7 +42,8 @@ const VARIANT_COLUMN = 8;
 /** The card's size and placement, shared with the layout that makes room for it. */
 export function themePickerLayout(model: ThemePickerModel, viewport: Viewport) {
   const frame = overlayWidth(viewport);
-  const wantedListRows = Math.max(1, Math.min(MAX_LIST_ROWS, model.rows.length));
+  const visibleCount = themePickerVisibleRows(model.rows, model.selected).length;
+  const wantedListRows = Math.max(1, Math.min(MAX_LIST_ROWS, visibleCount));
   const placement = placeOverlay(viewport, frame, TITLE_ROWS + PADDING_ROWS + wantedListRows);
   return {
     ...placement,
@@ -61,18 +63,25 @@ export function ThemePicker({ model, viewport }: ThemePickerProps): ReactNode {
   const { width, inner, height, listRows, left, top } = themePickerLayout(model, viewport);
   const selected = Math.max(0, Math.min(model.selected, model.rows.length - 1));
   const highlighted = model.rows[selected];
+  const visibleRows = themePickerVisibleRows(model.rows, selected);
+  const visibleSelected = Math.max(
+    0,
+    visibleRows.findIndex((row) => row.id === highlighted?.id),
+  );
 
   const list = useRef<ScrollBoxRenderable | null>(null);
   useEffect(() => {
     const box = list.current;
     if (box === null) return;
-    if (selected < box.scrollTop) box.scrollTop = selected;
-    else if (selected + 1 > box.scrollTop + listRows) box.scrollTop = selected + 1 - listRows;
-  }, [selected, listRows]);
+    if (visibleSelected < box.scrollTop) box.scrollTop = visibleSelected;
+    else if (visibleSelected + 1 > box.scrollTop + listRows) {
+      box.scrollTop = visibleSelected + 1 - listRows;
+    }
+  }, [visibleSelected, listRows]);
 
-  const previewing =
-    highlighted === undefined ? "" : `previewing ${highlighted.label}, ${highlighted.variant}`;
-  const titleRoom = Math.max(0, inner - terminalCellWidth("Theme") - 2);
+  const activeVariant = highlighted?.variant ?? "dark";
+  const previewing = highlighted === undefined ? "" : `previewing ${highlighted.label}`;
+  const titleRoom = Math.max(0, inner - terminalCellWidth("Theme  dark  light") - 2);
 
   return (
     <box
@@ -92,6 +101,19 @@ export function ThemePicker({ model, viewport }: ThemePickerProps): ReactNode {
       <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
         <text style={{ flexShrink: 0 }}>
           <b style={{ fg: THEME.selected }}>Theme</b>
+          {(["dark", "light"] as const).map((variant) =>
+            variant === activeVariant ? (
+              <b
+                key={variant}
+                style={{ fg: THEME.primary }}
+              >{`  ${variant}`}</b>
+            ) : (
+              <span
+                key={variant}
+                style={{ fg: THEME.muted }}
+              >{`  ${variant}`}</span>
+            ),
+          )}
         </text>
         <box style={{ flexGrow: 1 }} />
         <text style={{ fg: THEME.muted, flexShrink: 0 }}>
@@ -102,13 +124,13 @@ export function ThemePicker({ model, viewport }: ThemePickerProps): ReactNode {
 
       <scrollbox
         style={{ height: listRows, flexShrink: 0 }}
-        scrollbarOptions={{ visible: model.rows.length > listRows }}
+        scrollbarOptions={{ visible: visibleRows.length > listRows }}
         ref={(instance: ScrollBoxRenderable | null) => {
           list.current = instance;
         }}
       >
-        {model.rows.map((row, index) => {
-          const isSelected = index === selected;
+        {visibleRows.map((row, index) => {
+          const isSelected = index === visibleSelected;
           const name = clipTerminalCells(row.label, NAME_COLUMN - 1).padEnd(NAME_COLUMN);
           return (
             <box
