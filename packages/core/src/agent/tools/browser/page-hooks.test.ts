@@ -67,7 +67,7 @@ function answeredFlags(...flags: readonly [PageFlagId, number][]): ClassifyPageO
   };
 }
 
-function answeredRoute(...elements: readonly [string, number][]): RouteSnapshotOutcome {
+function answeredRoute(...elements: readonly (readonly [string, number])[]): RouteSnapshotOutcome {
   const total = elements.reduce((sum, [, probability]) => sum + probability, 0);
   return {
     status: "answered",

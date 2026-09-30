@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "com.jazz.plugins.jev",
   "name": "Jev decision provider",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "hostApi": 1,
   "entry": "src/index.ts",
-  "hooks": ["route.skills", "compact.tools"],
+  "hooks": ["route.skills", "compact.tools", "classify.page", "route.snapshot"],
   "policyHooks": ["classify.command-risk"],
   "decisionProviders": ["typesafe-jev"],
   "network": {
@@ -15,7 +15,8 @@
     "current turn request text",
     "installed skill names and one-line descriptions",
     "proposed shell command text",
-    "tool call names and result previews during compaction"
+    "tool call names and result previews during compaction",
+    "current page origin, title, and interactive element roles and labels (never the page body, path, or query)"
   ],
   "secrets": [
     {
