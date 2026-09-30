@@ -11,7 +11,10 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import type { MemoryEntrySnapshot } from "@/core/interfaces/memory-service";
-import { formatPreferenceLine } from "@/core/memory/preference-line";
+import {
+  formatPreferenceLine,
+  formatSituationalPreferenceLine,
+} from "@/core/memory/preference-line";
 import type { ChatMessage } from "@/core/types/message";
 import { toError } from "@/core/utils/errors";
 import { sha256Hex } from "@/core/utils/hash";
@@ -378,8 +381,11 @@ export function completeMemoryOpportunities(
   const viewsByPath = deliveredViewsByPath(messages);
   return forEachScopeGroup(tickets, ({ receipt, entry, receiptsDirectory }) => {
     const exposures: MemoryExposureRecord[] = [];
-    const injectedLine = formatPreferenceLine(entry);
-    if (entry.topic === undefined && systemLines.has(injectedLine)) {
+    const injectedLine =
+      entry.topic === undefined
+        ? formatPreferenceLine(entry)
+        : formatSituationalPreferenceLine({ ...entry, topic: entry.topic });
+    if (systemLines.has(injectedLine)) {
       exposures.push({
         kind: "injected",
         shownContentHash: sha256Hex(entry.summary),

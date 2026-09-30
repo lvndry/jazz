@@ -189,11 +189,16 @@ const createMemoryParameters = z.object({
     .string()
     .min(1)
     .describe(
-      'The kind of task this matters to, e.g. "food" for favorite fruit, "writing" for favorite authors. ' +
+      'The situation this applies to, named in a few words, e.g. "writing-to-friends", "sending-email", "food" for favorite fruit. ' +
         `"${ALWAYS_SEGMENT}" only for instructions affecting nearly every task, like "prefer concise replies". ` +
-        "Not a folder: the entry resurfaces wherever that work happens.",
+        "The entry resurfaces wherever that situation comes up, so name the situation itself.",
     ),
-  scope: z.string().optional().describe("Defaults to your first accessible scope."),
+  scope: z
+    .string()
+    .optional()
+    .describe(
+      "Defaults to your first accessible scope. Pass a shared scope only when the user says the preference applies to everything they do.",
+    ),
 });
 
 const manageMemoryParameters = z.discriminatedUnion("command", [

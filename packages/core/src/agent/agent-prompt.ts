@@ -7,7 +7,14 @@
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
-import { formatPreferenceLine, type ActivePreference } from "@/core/memory/preference-line";
+import {
+  formatPreferenceLine,
+  formatSituationalPreferenceLine,
+  PREFERENCES_HEADING,
+  SITUATIONAL_PREFERENCES_HEADING,
+  type ActivePreference,
+  type SituationalPreference,
+} from "@/core/memory/preference-line";
 import { formatMemorySourceTag } from "@/core/memory/source-trust";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
@@ -106,6 +113,13 @@ export interface AgentPromptOptions {
    * or removed, which is an ordinary prompt change rather than a per-turn rewrite.
    */
   readonly activePreferences?: readonly ActivePreference[];
+  /**
+   * Every `when/<topic>/` entry in the agent's memory scopes, listed with the situation it
+   * applies to so the model can combine several of them for one task without having to look
+   * any up. The list is never truncated: an entry the model cannot see is an entry it cannot
+   * apply.
+   */
+  readonly situationalPreferences?: readonly SituationalPreference[];
   /**
    * AGENTS.md files discovered for the working directory, outermost first.
    * Rendered verbatim into the system prompt so project conventions reach the
@@ -240,6 +254,9 @@ export class AgentPromptBuilder {
     // turn rather than serving a stale copy from the cache.
     if (options.activePreferences && options.activePreferences.length > 0) {
       hash.update(`activePreferences:${JSON.stringify(options.activePreferences)}`);
+    }
+    if (options.situationalPreferences && options.situationalPreferences.length > 0) {
+      hash.update(`situationalPreferences:${JSON.stringify(options.situationalPreferences)}`);
     }
     // Content, not just paths: editing an AGENTS.md must take effect on the
     // next turn rather than waiting for a process restart.
@@ -414,9 +431,20 @@ export class AgentPromptBuilder {
             live.push({
               id: "active-preferences",
               content: [
-                "## Preferences",
+                PREFERENCES_HEADING,
                 "How this user wants things done. Follow them without being asked. The bracketed tag is the memory scope each one came from.",
                 ...options.activePreferences.map(formatPreferenceLine),
+              ].join("\n"),
+            });
+          }
+
+          if (options.situationalPreferences && options.situationalPreferences.length > 0) {
+            live.push({
+              id: "situational-preferences",
+              content: [
+                SITUATIONAL_PREFERENCES_HEADING,
+                "How this user wants things done in particular situations. The parentheses name the situation each one applies to; apply every one that matches the task, and several can apply at once. The first bracketed tag is the memory scope each one came from; the trailing brackets hold its path for manage_memory.",
+                ...options.situationalPreferences.map(formatSituationalPreferenceLine),
               ].join("\n"),
             });
           }

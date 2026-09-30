@@ -12,6 +12,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { MemoryEntrySnapshot } from "@/core/interfaces/memory-service";
+import { formatSituationalPreferenceLine } from "@/core/memory/preference-line";
 import type { ChatMessage, MemoryDelivery } from "@/core/types/message";
 import { sha256Hex } from "@/core/utils/hash";
 import {
@@ -67,6 +68,47 @@ describe("memory opportunity receipts", () => {
   function receiptsFor(entry: MemoryEntrySnapshot) {
     return run(readMemoryOpportunityReceipts("personal", entry.entryId, 5, receiptsDirectory));
   }
+
+  test("records a situational entry as injected when its exact line is in the system prompt", async () => {
+    const situational = snapshotOf(
+      "The user said: use humor",
+      "personal/when/writing-to-friends/humor.md",
+      "writing-to-friends",
+    );
+    const absent = snapshotOf(
+      "The user said: metric units",
+      "personal/when/cooking/units.md",
+      "cooking",
+    );
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `## Situational preferences\n${formatSituationalPreferenceLine({
+          scope: "personal",
+          topic: "writing-to-friends",
+          summary: situational.summary,
+          path: situational.path,
+        })}`,
+      },
+      { role: "user", content: "Write to my friend" },
+    ];
+    const tickets = await run(
+      beginMemoryOpportunities({
+        runId: "run-8",
+        iteration: 1,
+        entries: [situational, absent],
+        messages,
+        receiptsDirectory,
+      }),
+    );
+
+    await run(completeMemoryOpportunities(tickets, messages));
+
+    expect((await receiptsFor(situational))[0]?.exposures.map((exposure) => exposure.kind)).toEqual(
+      ["injected"],
+    );
+    expect((await receiptsFor(absent))[0]?.exposures).toEqual([]);
+  });
 
   test("records eligible unseen entries and only exact model-delivered exposures", async () => {
     const standing = snapshotOf("Prefer concise replies", "personal/always/style.md", undefined);

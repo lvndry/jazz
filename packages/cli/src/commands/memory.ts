@@ -171,9 +171,10 @@ export function explainMemoryCommand(identifier: string, memoryPath: string) {
  * `jazz memory recall` — the measured rate at which runs consulted memory
  * before answering, split by surface.
  *
- * `view_memory` is tool-call-gated with no preload, so recall is something the
- * model chooses rather than something the harness guarantees. This is how you
- * find out whether it actually happens, per front door, instead of assuming.
+ * Standing and situational entries are injected into every run, so the percentage here counts
+ * only the lookups the model chose to make with `view_memory`; the injected average is the
+ * entries it saw without asking. This is how you find out, per front door, what actually
+ * reaches the model instead of assuming.
  */
 export function memoryRecallCommand(options: { readonly surface?: string }) {
   return Effect.gen(function* () {
@@ -193,8 +194,12 @@ export function memoryRecallCommand(options: { readonly surface?: string }) {
     yield* terminal.log("Runs that consulted memory before answering:\n");
     for (const rate of rates) {
       const percent = (rate.rate * 100).toFixed(0);
+      const injected =
+        rate.averageInjected === undefined
+          ? ""
+          : `  ${rate.averageInjected.toFixed(1)} entries injected per run`;
       yield* terminal.log(
-        `  ${rate.surface.padEnd(10)} ${percent.padStart(3)}%  (${rate.viewedBeforeFirstAnswer}/${rate.eligibleRuns} runs)`,
+        `  ${rate.surface.padEnd(10)} ${percent.padStart(3)}%  (${rate.viewedBeforeFirstAnswer}/${rate.eligibleRuns} runs)${injected}`,
       );
     }
     yield* terminal.log(

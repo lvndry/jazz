@@ -16,6 +16,7 @@ Save only durable information the user themselves stated or decided that is like
 - Stable preferences the user expressed (how they want things done, tools they prefer, tone, formats).
 - Recurring facts about the user or their world that stay true across conversations (role, environment, relationships, standing constraints).
 - Standing decisions the user made about a project or ongoing work.
+- Corrections to how the assistant did something, when the user states what they want instead ("too formal", "shorter").
 
 ## What must never be saved
 
@@ -31,6 +32,7 @@ When in doubt, do not save it. Writing nothing is the correct and common outcome
 
 - First call view_memory with no path to see the scopes and entries that already exist. Choose the scope that fits the fact; do not guess a path.
 - Every write quotes the user: set source_ref to the ID in a `[memory source <id>]` tag and source_quote to words copied exactly from that message. Untagged text cannot be quoted.
+- Name the topic after the situation the entry applies to ("writing-to-friends", "sending-email"), so the entry matches requests worded differently.
 - Each entry is one subject. Read the entry with view_memory before changing it.
 - If a fact is already recorded, do nothing. If it is recorded but stale, use manage_memory amend on that entry, quoting the words that correct it, instead of creating a duplicate.
 - Create a new entry only when no existing entry covers the subject.
