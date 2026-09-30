@@ -1,0 +1,2180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Jazz commands and flags — Jazz docs</title>
+    <meta name="description" content="Every jazz command and flag, verified against the source: run agents, manage sessions, configure providers, and drive headless automation.">
+    <link rel="canonical" href="https://jazz-cli.vercel.app/docs/commands">
+    <meta property="og:title" content="Jazz commands and flags — Jazz docs">
+    <meta property="og:description" content="Every jazz command and flag, verified against the source: run agents, manage sessions, configure providers, and drive headless automation.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://jazz-cli.vercel.app/docs/commands">
+    <meta property="og:image" content="https://jazz-cli.vercel.app/og/commands.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Jazz commands and flags — Jazz docs">
+    <meta name="twitter:description" content="Every jazz command and flag, verified against the source: run agents, manage sessions, configure providers, and drive headless automation.">
+    <meta name="twitter:image" content="https://jazz-cli.vercel.app/og/commands.png">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="alternate" type="application/rss+xml" title="Jazz blog" href="/rss.xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Jazz","url":"https://jazz-cli.vercel.app/","logo":"https://jazz-cli.vercel.app/favicon.svg","description":"Open-source AI agent harness that runs a general-purpose AI agent on your own machine.","sameAs":["https://github.com/lvndry/jazz","https://www.npmjs.com/package/jazz-ai"]}</script><script type="application/ld+json">[{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"https://jazz-cli.vercel.app/"},{"@type":"ListItem","position":2,"name":"Docs","item":"https://jazz-cli.vercel.app/docs"},{"@type":"ListItem","position":3,"name":"Jazz commands and flags","item":"https://jazz-cli.vercel.app/docs/commands"}]},{"@context":"https://schema.org","@type":"TechArticle","headline":"Jazz commands and flags","description":"Every jazz command and flag, verified against the source: run agents, manage sessions, configure providers, and drive headless automation.","url":"https://jazz-cli.vercel.app/docs/commands","isPartOf":{"@type":"WebSite","name":"Jazz","url":"https://jazz-cli.vercel.app/"},"about":"AI agent harness — open-source CLI that runs AI agents on your own machine","image":"https://jazz-cli.vercel.app/og/commands.png"}]</script>
+  <style>:root{--jz-background:#fff;--jz-background-panel:#fafafa;--jz-background-element:#f3f3f3;--jz-border-subtle:#ededed;--jz-border:#e4e4e4;--jz-border-active:#b8b8b8;--jz-selected:#1a1a1a;--jz-secondary:#555;--jz-muted:#8a8a8a;--jz-primary:#00718f;--jz-accent-dim:#005f87;--jz-agent:#00718f;--jz-prompt:#00718f;--jz-link:#005f87;--jz-reasoning:#005f87;--jz-info:#555;--jz-success:#116b3e;--jz-warning:#8a5f00;--jz-error:#b3261e;--jz-syntax-structure:#5b3fbf;--jz-syntax-value:#9b2c6f;--jz-syntax-type:#2f6690;--jz-canvas:#fff;--jz-surface:#fafafa;--jz-surface-soft:#fafafa;--jz-surface-strong:#f3f3f3;--jz-border-soft:#ededed;--jz-tool-border:#ededed}@media (prefers-color-scheme:dark){:root:not([data-skin=light]){--jz-background:#0a0a0a;--jz-background-panel:#141414;--jz-background-element:#1e1e1e;--jz-border-subtle:#282828;--jz-border:#3c3c3c;--jz-border-active:#606060;--jz-selected:#eee;--jz-secondary:#a8a8a8;--jz-muted:gray;--jz-primary:#00d7ff;--jz-accent-dim:#00afd7;--jz-agent:#00d7ff;--jz-prompt:#00d7ff;--jz-link:#00afd7;--jz-reasoning:#00afd7;--jz-info:#a8a8a8;--jz-success:#5fd787;--jz-warning:#d7af5f;--jz-error:#ff6b6b;--jz-syntax-structure:#9b8cff;--jz-syntax-value:#d787af;--jz-syntax-type:#92b4c8;--jz-canvas:#0a0a0a;--jz-surface:#141414;--jz-surface-soft:#141414;--jz-surface-strong:#1e1e1e;--jz-border-soft:#282828;--jz-tool-border:#282828}}[data-skin=dark]{--jz-background:#0a0a0a;--jz-background-panel:#141414;--jz-background-element:#1e1e1e;--jz-border-subtle:#282828;--jz-border:#3c3c3c;--jz-border-active:#606060;--jz-selected:#eee;--jz-secondary:#a8a8a8;--jz-muted:gray;--jz-primary:#00d7ff;--jz-accent-dim:#00afd7;--jz-agent:#00d7ff;--jz-prompt:#00d7ff;--jz-link:#00afd7;--jz-reasoning:#00afd7;--jz-info:#a8a8a8;--jz-success:#5fd787;--jz-warning:#d7af5f;--jz-error:#ff6b6b;--jz-syntax-structure:#9b8cff;--jz-syntax-value:#d787af;--jz-syntax-type:#92b4c8;--jz-canvas:#0a0a0a;--jz-surface:#141414;--jz-surface-soft:#141414;--jz-surface-strong:#1e1e1e;--jz-border-soft:#282828;--jz-tool-border:#282828}:root{--font-shout:"Anton", "Arial Narrow", Impact, sans-serif;--font-mono:"IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;--font-body:"IBM Plex Sans", -apple-system, "Segoe UI", sans-serif}*{box-sizing:border-box;margin:0;padding:0}html{scroll-behavior:smooth}body{background:var(--jz-canvas);color:var(--jz-selected);font-family:var(--font-body);-webkit-font-smoothing:antialiased;font-size:16px;line-height:1.65;overflow-x:hidden}::selection{background:var(--jz-primary);color:var(--jz-canvas)}a{color:var(--jz-link)}:focus-visible{outline:2px solid var(--jz-primary);outline-offset:2px}.shout{font-family:var(--font-shout);text-transform:uppercase;letter-spacing:.01em;font-weight:400;line-height:.92}.mono{font-family:var(--font-mono)}[data-skin=dark] body:after{content:"";pointer-events:none;z-index:60;mix-blend-mode:overlay;background:repeating-linear-gradient(0deg,#ffffff06 0 1px,#0000 1px 3px);position:fixed;inset:0}@media (prefers-reduced-motion:reduce){*,:before,:after{transition-duration:1ms!important;animation-duration:1ms!important;animation-iteration-count:1!important}}
+</style>
+<link rel="stylesheet" href="/_astro/_..CJtwfu0H.css"></head>
+  <body>
+    
+  <header class="top" data-astro-cid-lpetmyok>
+    <a class="brand mono" href="/" data-astro-cid-lpetmyok>▞ jazz</a>
+    <a class="mono docs-home" href="/docs" data-astro-cid-lpetmyok>docs</a>
+    <a class="mono" href="/blog" data-astro-cid-lpetmyok>blog</a>
+    <a class="mono" href="/library" data-astro-cid-lpetmyok>library</a>
+    <div class="grow" data-astro-cid-lpetmyok></div>
+    <div id="search" class="search" data-astro-cid-lpetmyok></div>
+    <a class="mono" href="https://github.com/lvndry/jazz" data-astro-cid-lpetmyok>github</a>
+  </header>
+  <div class="shell" data-astro-cid-lpetmyok>
+    <nav class="sidebar" aria-label="Documentation" data-astro-cid-lpetmyok>
+      <section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/getting-started" data-astro-cid-lpetmyok>
+                Getting started
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              <li data-astro-cid-lpetmyok>
+                  <a href="/docs/getting-started/quick-start" data-astro-cid-lpetmyok>
+                    Quick start
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/getting-started/create-an-agent" data-astro-cid-lpetmyok>
+                    Creating agents
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/getting-started/local-models" data-astro-cid-lpetmyok>
+                    Run Jazz with local and air-gapped models
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/getting-started/uninstall" data-astro-cid-lpetmyok>
+                    Uninstalling Jazz
+                  </a>
+                </li>
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/features" data-astro-cid-lpetmyok>
+                Features
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              <li data-astro-cid-lpetmyok>
+                  <a href="/docs/features/goals-and-loops" data-astro-cid-lpetmyok>
+                    Goals and loops
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/features/long-running-work" data-astro-cid-lpetmyok>
+                    Long-running work
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/features/automation" data-astro-cid-lpetmyok>
+                    Automate AI agent work with Jazz
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/features/media" data-astro-cid-lpetmyok>
+                    Model companions for images, audio, and video
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/features/detach" data-astro-cid-lpetmyok>
+                    Continue on your server
+                  </a>
+                </li>
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/surfaces" data-astro-cid-lpetmyok>
+                Where it runs
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              <li data-astro-cid-lpetmyok>
+                  <a href="/docs/surfaces/headless" data-astro-cid-lpetmyok>
+                    Headless: the `jazz run` contract
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/surfaces/chat" data-astro-cid-lpetmyok>
+                    Chat platforms. Telegram, Discord, iMessage, WhatsApp, your own app
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/surfaces/ci" data-astro-cid-lpetmyok>
+                    CI/CD. Jazz in your pipeline
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/surfaces/scheduled" data-astro-cid-lpetmyok>
+                    Scheduled runs on a clock
+                  </a>
+                </li>
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/concepts" data-astro-cid-lpetmyok>
+                Concepts
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              <li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/agents" data-astro-cid-lpetmyok>
+                    Agents
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/personas" data-astro-cid-lpetmyok>
+                    Personas
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/skills" data-astro-cid-lpetmyok>
+                    Skills
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/tools" data-astro-cid-lpetmyok>
+                    Tools
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/workflows" data-astro-cid-lpetmyok>
+                    Workflows
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/conversations-and-memory" data-astro-cid-lpetmyok>
+                    Conversations, state, and memory
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/budgets" data-astro-cid-lpetmyok>
+                    Budgets: capping and watching a run
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/artifacts" data-astro-cid-lpetmyok>
+                    Artifacts: files a run produced
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/deferred-work" data-astro-cid-lpetmyok>
+                    Work that outlives the turn
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/webhooks" data-astro-cid-lpetmyok>
+                    Webhooks
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/agent-to-agent" data-astro-cid-lpetmyok>
+                    Peers: talking to someone else&#39;s agent
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/daemon" data-astro-cid-lpetmyok>
+                    Daemon: Jazz with no terminal attached
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/concepts/lexicon" data-astro-cid-lpetmyok>
+                    Lexicon: what Jazz&#39;s words mean
+                  </a>
+                </li>
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/guides" data-astro-cid-lpetmyok>
+                Guides
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              <li data-astro-cid-lpetmyok>
+                  <a href="/docs/guides/pr-review" data-astro-cid-lpetmyok>
+                    Review pull requests in CI with your choice of model
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/guides/contain-cloudflare-attack" data-astro-cid-lpetmyok>
+                    Investigate an attack and approve a Cloudflare WAF rule
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/guides/multi-agent-verification" data-astro-cid-lpetmyok>
+                    Build a multi-agent verification council
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/guides/goggins-accountability-agent" data-astro-cid-lpetmyok>
+                    Build a Goggins accountability agent
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/guides/media-companions" data-astro-cid-lpetmyok>
+                    Turn incident evidence into a visual briefing with companion models
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/guides/connect-peers" data-astro-cid-lpetmyok>
+                    Setting up peers
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/guides/webhook-endpoint" data-astro-cid-lpetmyok>
+                    Wake an agent from another system with a webhook
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/guides/deploy-a-chat-agent" data-astro-cid-lpetmyok>
+                    Reaching your agent from a chat app
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/guides/inbox-triage" data-astro-cid-lpetmyok>
+                    Start each workday with a read-only inbox briefing
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/guides/research-digest" data-astro-cid-lpetmyok>
+                    Build a weekly multi-agent research radar
+                  </a>
+                </li>
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/configure" data-astro-cid-lpetmyok>
+                Configure
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              <li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/jazz" data-astro-cid-lpetmyok>
+                    Jazz configuration
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/config-reference" data-astro-cid-lpetmyok>
+                    Config file reference
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/environment-variables" data-astro-cid-lpetmyok>
+                    Environment variables
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/agents" data-astro-cid-lpetmyok>
+                    Agent configuration
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/workflows" data-astro-cid-lpetmyok>
+                    Workflow frontmatter
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/providers" data-astro-cid-lpetmyok>
+                    Configure model providers
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/mcp" data-astro-cid-lpetmyok>
+                    Connect MCP servers to Jazz
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/web-search" data-astro-cid-lpetmyok>
+                    Configure web search
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/email-calendar" data-astro-cid-lpetmyok>
+                    Connect email and calendars
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/observability" data-astro-cid-lpetmyok>
+                    Observability
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/lsp-plugin" data-astro-cid-lpetmyok>
+                    Language Server Protocol plugin
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/notifications" data-astro-cid-lpetmyok>
+                    Notifications
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/configure/plugins" data-astro-cid-lpetmyok>
+                    Plugins
+                  </a>
+                </li>
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/tools" data-astro-cid-lpetmyok>
+                Tools
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/security" data-astro-cid-lpetmyok>
+                Security
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              <li data-astro-cid-lpetmyok>
+                  <a href="/docs/security/approvals" data-astro-cid-lpetmyok>
+                    Approvals
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/security/unattended-runs" data-astro-cid-lpetmyok>
+                    Unattended runs
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/security/secrets-and-egress" data-astro-cid-lpetmyok>
+                    Secrets and egress
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/security/privacy" data-astro-cid-lpetmyok>
+                    What Jazz sends on its own
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/security/surface-access" data-astro-cid-lpetmyok>
+                    Surface access
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/security/threat-model" data-astro-cid-lpetmyok>
+                    Jazz threat model
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/security/detach-hosts" data-astro-cid-lpetmyok>
+                    Detach hosts
+                  </a>
+                </li>
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/runtime-data" data-astro-cid-lpetmyok>
+                Runtime data
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/maintainers" data-astro-cid-lpetmyok>
+                Maintainers
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              <li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/architecture" data-astro-cid-lpetmyok>
+                    Code map
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/run-lifecycle" data-astro-cid-lpetmyok>
+                    The agent loop
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/context-lifecycle" data-astro-cid-lpetmyok>
+                    Context management
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/tool-lifecycle" data-astro-cid-lpetmyok>
+                    Tools &amp; approval
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/add-a-service" data-astro-cid-lpetmyok>
+                    Feature Flag Service. Example Template
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/add-a-provider" data-astro-cid-lpetmyok>
+                    Providers &amp; models
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/testing-and-evals" data-astro-cid-lpetmyok>
+                    Evals: measuring the harness
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/design-decisions" data-astro-cid-lpetmyok>
+                    Design decisions
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/documentation" data-astro-cid-lpetmyok>
+                    Documentation quality standard
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/detach-snapshots" data-astro-cid-lpetmyok>
+                    Remote handoff snapshot
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/goal-lifecycle" data-astro-cid-lpetmyok>
+                    Goal lifecycle
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/interface-design" data-astro-cid-lpetmyok>
+                    Interface Design
+                  </a>
+                </li><li data-astro-cid-lpetmyok>
+                  <a href="/docs/maintainers/plugin-lifecycle" data-astro-cid-lpetmyok>
+                    Plugin lifecycle
+                  </a>
+                </li>
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/troubleshooting" data-astro-cid-lpetmyok>
+                Troubleshooting
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              
+            </ul>
+          </section><section data-astro-cid-lpetmyok>
+            <a class="section-label mono" href="/docs/upgrading" data-astro-cid-lpetmyok>
+                Upgrading
+              </a>
+            <ul data-astro-cid-lpetmyok>
+              
+            </ul>
+          </section>
+    </nav>
+    <main data-astro-cid-lpetmyok>
+      <article data-pagefind-body data-astro-cid-lpetmyok>
+        
+  <h1 id="jazz-commands-and-flags">Jazz commands and flags</h1>
+<p>This page helps you find the exact command and flag you need.</p>
+<p>Verified against <a href="https://github.com/lvndry/jazz/blob/main/packages/runtime/src/cli-app.ts"><code>packages/runtime/src/cli-app.ts</code></a>. Run <code>jazz &#x3C;command> --help</code>
+for the same information at the terminal.</p>
+<hr>
+<h2 id="global-options">Global options</h2>
+<p>Available on every command.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Flag</th><th>Effect</th></tr></thead><tbody><tr><td><code>-v, --verbose</code></td><td>Verbose logging</td></tr><tr><td><code>--debug</code></td><td>Debug-level logging</td></tr><tr><td><code>--config &#x3C;path></code></td><td>Use a specific config file (also <code>JAZZ_CONFIG_PATH</code>). A path that does not exist, or a file that is not valid, stops the command with the reason and exit code <code>1</code></td></tr><tr><td><code>--data-dir &#x3C;path></code></td><td>Directory holding this invocation’s config, data, and keyring entries (overrides <code>$JAZZ_HOME</code>; defaults to <code>~/.jazz</code>). Lets one host run several independent agents by flag</td></tr><tr><td><code>--no-tui</code></td><td>Disable the full-screen interface; use plain terminal output for CI, scripts, or small terminals. Same as <code>JAZZ_NO_TUI=1</code></td></tr><tr><td><code>--output &#x3C;mode></code></td><td><code>rendered</code> | <code>hybrid</code> (default) | <code>raw</code> (no formatting) | <code>quiet</code> (suppress output). Same as <code>JAZZ_OUTPUT_MODE</code></td></tr><tr><td><code>--version</code></td><td>Print the version</td></tr><tr><td><code>--help</code></td><td>Print help</td></tr></tbody></table>
+<hr>
+<h2 id="jazz"><code>jazz</code></h2>
+<p>With no arguments, launches the interactive wizard: new conversation, create/list/edit/delete
+agents, update configuration. The home screen reports what is ready under <strong>setup</strong> (agents) and,
+under <strong>environment</strong>, the same machine facts every agent receives in its system prompt: date,
+OS with shell and user, working directory, and hardware. Both come from one source, so the screen
+cannot drift from what agents are actually told. On a short terminal the environment report is the
+first section dropped, after the tip. A randomly chosen tip highlights a chat command, agent
+setting, tool, workflow, or example task available in Jazz.</p>
+<p>Global options work here too: <code>jazz --debug</code> and <code>jazz --data-dir ~/work</code> open the same home. The
+home needs a terminal to ask its questions. Without one (stdin or stdout piped, cron, CI), or with
+<code>--no-tui</code>, it prints what to run instead and exits <code>2</code> without touching your configuration. On a
+terminal that is too limited for the full-screen interface (<code>TERM=dumb</code>, <code>CI</code> set, a screen reader
+via <code>JAZZ_A11Y=1</code> or <code>INK_SCREEN_READER=1</code>, or a window under 32 columns by 10 rows), Jazz uses the
+classic inline interface, which prompts the same way.</p>
+<hr>
+<h2 id="jazz-run-headless-one-shot"><code>jazz run</code>: headless, one-shot</h2>
+<p>The command every non-terminal integration is built on. Takes a dynamic prompt, runs one
+agent turn, prints a clean payload. <strong>stdout is the answer; all chatter goes to stderr.</strong></p>
+<pre class="astro-code css-variables" style="background-color:var(--astro-code-background);color:var(--astro-code-foreground); overflow-x: auto;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> run</span><span style="color:var(--astro-code-token-string)"> --agent</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">i</span><span style="color:var(--astro-code-foreground)">d</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-foreground)"> [prompt]</span></span></code></pre>
+<p>The prompt comes from the positional argument, from an <code>--input-stdin</code> frame, or from piped
+stdin when neither is given and stdin is not a TTY. Only a positional or framed prompt may back a
+memory write; plain piped stdin is treated as untrusted text.</p>
+<p>Framed stdin preserves UTF-8 characters across arbitrary pipe chunk boundaries, including
+incognito history. Bytes after the first newline remain available for interactive replies.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Flag</th><th>Default</th><th>Purpose</th></tr></thead><tbody><tr><td><code>--agent &#x3C;id></code></td><td><strong>required</strong></td><td>Agent id or name</td></tr><tr><td><code>--json</code></td><td>off</td><td>Emit one JSON envelope: <code>{ ok, answer, costUSD, tokenUsage, toolCalls }</code></td></tr><tr><td><code>--conversation &#x3C;id></code></td><td>none</td><td>Stable conversation key. Loads prior history before the run, saves the transcript after, which gives stateless bridges per-chat memory</td></tr><tr><td><code>--approval-policy &#x3C;p></code></td><td>none</td><td><code>read-only</code> | <code>low-risk</code> | <code>high-risk</code>. Tools above the tier are <strong>declined</strong></td></tr><tr><td><code>--auto-approve-tools &#x3C;names></code></td><td>none</td><td>Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier</td></tr><tr><td><code>--propose-goals</code></td><td>off</td><td>Let the agent propose a goal for work that outlasts the run; the proposal waits for <code>jazz goal accept</code></td></tr><tr><td><code>--timezone &#x3C;iana-tz></code></td><td>UTC</td><td>Time zone used to resolve reminder times, such as <code>Europe/Paris</code></td></tr><tr><td><code>--events &#x3C;categories></code></td><td>none</td><td>NDJSON progress on stderr: <code>tools</code>, <code>reasoning</code>, <code>text</code>, <code>usage</code>, <code>approval</code>, <code>subagent</code>, <code>spend</code>, <code>all</code> (comma-separated)</td></tr><tr><td><code>--reasoning &#x3C;effort></code></td><td>agent config</td><td><code>minimal</code> | <code>low</code> | <code>medium</code> | <code>high</code> | <code>xhigh</code> | <code>max</code> | <code>disable</code>; a level the model does not accept runs at the nearest one it does, with a warning on stderr</td></tr><tr><td><code>--timeout &#x3C;ms></code></td><td>none</td><td>Abort the run after this many milliseconds (hard external kill, no warning): running commands are killed and the provider request is aborted</td></tr><tr><td><code>--max-iterations &#x3C;n></code></td><td>100</td><td>Cap reasoning iterations</td></tr><tr><td><code>--max-cost-usd &#x3C;$></code></td><td>none</td><td>Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations</td></tr><tr><td><code>--max-tokens &#x3C;n></code></td><td>none</td><td>Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing</td></tr><tr><td><code>--max-duration-ms &#x3C;ms></code></td><td>none</td><td>Stop once elapsed wall-clock time reaches this budget, interrupting a model call or tool in flight, with agent pressure nudges at 50/80/90%</td></tr><tr><td><code>--stream</code></td><td>auto</td><td>Force streaming. Required for <code>--events</code> in non-TTY contexts, where streaming auto-disables</td></tr><tr><td><code>--no-stream</code></td><td>off</td><td>Disable streaming</td></tr><tr><td><code>--interactive-stdin</code></td><td>off</td><td>Let a bridge relay questions and approvals as stdin/stdout events</td></tr><tr><td><code>--ephemeral</code></td><td>off</td><td>Do not load or save Jazz conversation/session history; withhold long-term memory writes</td></tr><tr><td><code>--input-stdin</code></td><td>off</td><td>Read <code>{"prompt": ..., "history": [...]}</code> from the first stdin line, keeping a relayed message off argv. <code>history</code> needs <code>--ephemeral</code></td></tr><tr><td><code>--park</code></td><td>off</td><td>Persist the run and exit <code>2</code> at an unanswered approval; resume it with <code>jazz runs approve</code></td></tr><tr><td><code>--with-vision &#x3C;p/m></code></td><td>agent config</td><td>Bind an image-analysis companion for this run</td></tr><tr><td><code>--with-audio &#x3C;p/m></code></td><td>agent config</td><td>Bind an audio-analysis companion for this run</td></tr><tr><td><code>--with-video &#x3C;p/m></code></td><td>agent config</td><td>Bind a video-analysis companion for this run</td></tr></tbody></table>
+<p><code>--max-cost-usd</code> and <code>--max-tokens</code> are soft checkpoints, checked between iterations.
+<code>--max-duration-ms</code> is a deadline: it interrupts the run wherever it is and still returns a
+result. See <a href="/docs/configure/jazz#run-budgets">Configuration → run budgets</a>
+for the enforcement model and how they differ from <code>--timeout</code>.</p>
+<p><strong>Exit codes:</strong> <code>0</code> on success; <code>1</code> on failure, including a run that finishes without a usable
+answer (an empty zero-token completion, a non-<code>stop</code> finish with no text, or a content-filtered
+answer); <code>2</code> when <code>--park</code> parks the run on an approval; <code>130</code> or <code>143</code> when SIGINT or SIGTERM
+stops it. In plain mode stdout is empty on failure and the message goes to stderr; in <code>--json</code>
+mode stdout always carries exactly one object, with a <code>code</code> on failures (<code>failed</code>,
+<code>empty_response</code>, <code>no_answer</code>, <code>content_filtered</code>, <code>interrupted</code>). A cut-off answer
+(<code>truncated</code>), an iteration limit (<code>iterationLimited</code>) and dropped tools (<code>toolsDisabled</code>) are
+flagged in the envelope and warned about on stderr. See
+<a href="/docs/surfaces/headless#json---json">Headless → JSON</a>.</p>
+<p>Full contract, examples, and a complete bridge implementation:
+<a href="/docs/surfaces/headless">Surfaces → Headless</a>.</p>
+<hr>
+<h2 id="jazz-agent"><code>jazz agent</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz agent list</code></td><td>List all agents; <code>--can image|audio|video</code> filters to the ones that can generate that medium. <code>--json</code> prints one document. Agent files that cannot be read, or name an unknown provider or reasoning level, are reported on stderr (under <code>problems</code> in JSON)</td></tr><tr><td><code>jazz agent create</code></td><td>Create an agent (interactive)</td></tr><tr><td><code>jazz agent show &#x3C;agentId></code></td><td>Show an agent’s details</td></tr><tr><td><code>jazz agent edit &#x3C;agentId></code></td><td>Edit an agent</td></tr><tr><td><code>jazz agent delete &#x3C;agentId></code></td><td>Delete an agent. <code>-y, --yes</code> / <code>-f, --force</code> to skip confirmation</td></tr><tr><td><code>jazz agent chat &#x3C;agentIdentifier></code></td><td>Interactive session with a specific agent, by id or name. <code>--continue</code> picks up the agent’s most recent saved conversation; add <code>--conversation &#x3C;id></code> for a specific one</td></tr></tbody></table>
+<p><code>agent chat</code> accepts <code>--stream</code> / <code>--no-stream</code>, <code>--max-iterations &#x3C;n></code>, and <code>--ephemeral</code>.</p>
+<p>Without a terminal, <code>agent chat</code> reads messages from stdin, one per line, and ends when stdin does:</p>
+<pre class="astro-code css-variables" style="background-color:var(--astro-code-background);color:var(--astro-code-foreground); overflow-x: auto;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:var(--astro-code-token-function)">echo</span><span style="color:var(--astro-code-token-string-expression)"> "What is on my calendar today?"</span><span style="color:var(--astro-code-token-keyword)"> |</span><span style="color:var(--astro-code-token-function)"> jazz</span><span style="color:var(--astro-code-token-string)"> agent</span><span style="color:var(--astro-code-token-string)"> chat</span><span style="color:var(--astro-code-token-string)"> assistant</span></span></code></pre>
+<p>Slash commands work the same way (<code>/exit</code> ends early). Tool calls that need approval are declined,
+since nobody can answer the prompt. If stdin ends before any message arrives, <code>agent chat</code> says so
+and exits <code>2</code>. For one scripted turn with a parseable result, use <a href="#jazz-run-headless-one-shot"><code>jazz run</code></a>.</p>
+<p><code>agent create</code> and <code>agent edit</code> need a terminal. Without one they exit <code>2</code> and point at the agent’s
+JSON file under <code>$JAZZ_HOME/agents/</code>, which you can write by hand (see
+<a href="/docs/configure/agents">Configure → Agents</a>). <code>persona create</code>, <code>persona edit</code>, and
+<code>workflow create</code> behave the same way.</p>
+<hr>
+<h2 id="jazz-workflow"><code>jazz workflow</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz workflow create</code></td><td>Create a new workflow interactively</td></tr><tr><td><code>jazz workflow list</code></td><td>List available workflows (global and local); <code>--json</code> prints one document</td></tr><tr><td><code>jazz workflow show &#x3C;name></code></td><td>Show a workflow’s prompt and metadata</td></tr><tr><td><code>jazz workflow run &#x3C;name></code></td><td>Run once. See flags below</td></tr><tr><td><code>jazz workflow schedule &#x3C;name></code></td><td>Install a schedule: the workflow’s own frequency, or <code>--cron "&#x3C;expr>"</code> for another. <code>--as &#x3C;label></code> names it</td></tr><tr><td><code>jazz workflow unschedule &#x3C;id></code></td><td>Remove a schedule by <code>&#x3C;name>/&#x3C;label></code>, or by <code>&#x3C;name></code> to pick among its schedules</td></tr><tr><td><code>jazz workflow scheduled [name]</code></td><td>List every installed schedule, or one workflow’s</td></tr><tr><td><code>jazz workflow catchup</code></td><td>List workflows that missed a slot, select, run</td></tr><tr><td><code>jazz workflow history [name]</code></td><td>Show run history</td></tr><tr><td><code>jazz workflow browse</code></td><td>Browse the library and install a workflow (interactive). <code>--refresh</code></td></tr><tr><td><code>jazz workflow search</code></td><td>List every workflow the library offers. <code>--refresh</code></td></tr><tr><td><code>jazz workflow install &#x3C;name></code></td><td>Install a library workflow into <code>~/.jazz/workflows/</code>. <code>--as &#x3C;name></code> (local name), <code>-y</code>/<code>--yes</code> (skip confirmation), <code>--refresh</code></td></tr></tbody></table>
+<p><code>install</code> prints the whole <code>WORKFLOW.md</code>, frontmatter included, and asks before writing it: the
+frontmatter decides what the workflow may do unattended, so non-interactive runs must pass <code>--yes</code>.
+The catalog is cached under <code>&#x3C;jazz home>/cache/workflow-registry.json</code> and keeps working offline;
+<code>JAZZ_LIBRARY_URL</code> points Jazz at a self-hosted library.</p>
+<h3 id="jazz-workflow-run-flags"><code>jazz workflow run</code> flags</h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Flag</th><th>Purpose</th></tr></thead><tbody><tr><td><code>--auto-approve</code></td><td>Run without the agent picker at the workflow’s own <code>autoApprove:</code> policy (unset is <code>false</code>)</td></tr><tr><td><code>--agent &#x3C;agentId></code></td><td>Override the agent for this run</td></tr><tr><td><code>--max-iterations &#x3C;n></code></td><td>Override the workflow’s iteration cap</td></tr><tr><td><code>--max-cost-usd &#x3C;$></code></td><td>Override the workflow’s spend cap</td></tr><tr><td><code>--max-tokens &#x3C;n></code></td><td>Override the workflow’s token cap</td></tr><tr><td><code>--max-duration-ms &#x3C;ms></code></td><td>Override the workflow’s wall-clock budget (50/80/90% agent pressure nudges)</td></tr><tr><td><code>--json</code></td><td>One JSON envelope on stdout; all chatter suppressed</td></tr><tr><td><code>--timeout &#x3C;ms></code></td><td>Abort after this many milliseconds (hard external kill, no warning)</td></tr><tr><td><code>--events &#x3C;categories></code></td><td>NDJSON progress on stderr. <strong>Requires <code>--json</code></strong>: otherwise it errors</td></tr><tr><td><code>--scheduled</code></td><td>Marks the run as scheduler-triggered (set automatically by launchd/cron)</td></tr><tr><td><code>--schedule &#x3C;id></code></td><td>Which schedule fired, as <code>&#x3C;name>/&#x3C;label></code> (set automatically by launchd/cron)</td></tr></tbody></table>
+<p>A workflow run that finishes without a usable answer (an empty zero-token completion, a
+non-<code>stop</code> finish with no text, or a content-filtered answer) is recorded as failed in
+<code>jazz workflow history</code> and exits <code>1</code>, with the same <code>code</code> in its <code>--json</code> envelope as
+<code>jazz run</code>.</p>
+<h3 id="several-schedules-for-one-workflow">Several schedules for one workflow</h3>
+<p>A workflow is a definition; a schedule binds it to a cron. <code>schedule &#x3C;name></code> installs
+<code>&#x3C;name>/default</code> from the frontmatter <code>schedule:</code> line. <code>schedule &#x3C;name> --cron "0 9 1 * *" --as monthly</code>
+adds <code>&#x3C;name>/monthly</code> beside it, so the same recap runs weekly and monthly. Each schedule keeps its
+own last-run marker, and the prompt can read <code>{schedule.label}</code>, <code>{schedule.cron}</code>,
+<code>{schedule.lastRunAt}</code>, and <code>{run.startedAt}</code>. See <a href="/docs/concepts/workflows#several-schedules-one-workflow">Workflows</a>.</p>
+<p>Frontmatter fields: <a href="/docs/configure/workflows">Workflow frontmatter</a>.</p>
+<hr>
+<h2 id="jazz-mcp"><code>jazz mcp</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz mcp add [json]</code></td><td>Add a server from inline JSON, <code>--file &#x3C;path></code>, stdin, or by name with <code>--transport</code>, repeatable <code>--env</code>/<code>--header</code> (values go to the keyring), and optional <code>--trusted</code></td></tr><tr><td><code>jazz mcp list</code></td><td>List configured servers; <code>--tools</code> connects and discovers tools; <code>--json</code> prints one document without env values or headers</td></tr><tr><td><code>jazz mcp test</code></td><td>Connect to one server and report its tools and capabilities</td></tr><tr><td><code>jazz mcp auth</code></td><td>Complete OAuth 2.1 authorization for a remote server</td></tr><tr><td><code>jazz mcp logout</code></td><td>Remove a remote server’s stored OAuth credentials</td></tr><tr><td><code>jazz mcp trust</code></td><td>Honor the read-only annotations of a server defined in <code>~/.agents/mcp.json</code> when applying approval policy</td></tr><tr><td><code>jazz mcp untrust</code></td><td>Require approval for every tool from the server</td></tr><tr><td><code>jazz mcp remove</code></td><td>Remove a server</td></tr><tr><td><code>jazz mcp enable</code></td><td>Enable a disabled server</td></tr><tr><td><code>jazz mcp disable</code></td><td>Disable a server</td></tr></tbody></table>
+<p>See <a href="/docs/configure/mcp">MCP configuration</a>.</p>
+<hr>
+<h2 id="jazz-hosts"><code>jazz hosts</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz hosts list</code></td><td>List registered SSH servers</td></tr><tr><td><code>jazz hosts add &#x3C;name> &#x3C;ssh-target> &#x3C;workspace-path></code></td><td>Register a server and existing workspace</td></tr><tr><td><code>jazz hosts remove &#x3C;name></code></td><td>Remove the local host registration</td></tr><tr><td><code>jazz hosts doctor &#x3C;name></code></td><td>Check SSH, disk, platform, Jazz, and daemon</td></tr></tbody></table>
+<p>To set up a server and move a conversation step by step, see
+<a href="/docs/features/detach">Continue on your server</a>.</p>
+<p>The SSH target is a configured SSH alias. The remote workspace must exist and be writable.
+Pass <code>--allow-file-secrets</code> to <code>hosts add</code> for a server without an OS keyring (libsecret);
+without it, a handoff to such a server stops before anything moves.
+See <a href="/docs/security/detach-hosts">Detach hosts</a> for the host checks and credential scope.</p>
+<h2 id="jazz-detach"><code>jazz detach</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz detach list</code></td><td>List conversations moved to a server, newest first</td></tr><tr><td><code>jazz detach attach &#x3C;handoffId></code></td><td>Watch a remote conversation live, reply, and answer approvals</td></tr><tr><td><code>jazz detach status &#x3C;handoffId></code></td><td>Read the remote state of a detached conversation</td></tr><tr><td><code>jazz detach approve &#x3C;handoffId></code></td><td>Approve the tool call on which a detached run has parked</td></tr><tr><td><code>jazz detach reject &#x3C;handoffId></code></td><td>Reject that tool call and let the detached run continue</td></tr><tr><td><code>jazz detach cancel &#x3C;handoffId></code></td><td>Stop the remote run’s current or queued turn</td></tr><tr><td><code>jazz detach reclaim &#x3C;handoffId> [--overwrite]</code></td><td>Bring the conversation and its file changes back to this machine</td></tr><tr><td><code>jazz detach pull &#x3C;handoffId></code></td><td>Download remote file changes to a local staging directory</td></tr></tbody></table>
+<p><code>unknown</code> means the host could not be reached; it does not mean the remote run stopped.
+For a parked tool approval, <code>status</code> shows the tool and its approval message before
+offering <code>approve</code> or <code>reject</code>. Other interactive input is reported as unsupported
+in this version.
+<code>attach</code> replays everything the remote run has done so far, then follows it live. When a
+turn finishes it prompts for your next message; when the run parks it asks to approve or
+reject. An empty answer or Ctrl+C leaves; the remote run keeps going, and attaching again
+picks up where you left off.</p>
+<p><code>reclaim</code> freezes the remote job so the host never runs it again, downloads its final state,
+applies the remote file changes to your working tree, and restores the conversation locally
+with the remote turns included. Continue it with <code>/resume</code> in chat. If a file changed both
+locally and remotely, nothing is written: commit or stash your edits and rerun, or pass
+<code>--overwrite</code> to let the remote version win. A reclaim that fails part way leaves the
+conversation fenced; rerunning it continues where it stopped.</p>
+<p><code>pull</code> downloads and verifies the completed result, then lists changed paths and conflicts
+with local changes, without touching the working tree.</p>
+<p>In interactive chat, <code>/detach &#x3C;host></code> asks for a continuation instruction, previews the
+files and state to transfer, and asks for confirmation. When entered while the agent is
+busy, it runs after the current turn. A failure before remote ownership leaves the local
+chat available. Once transfer begins, the local chat closes if the remote run acknowledges
+the handoff or ownership cannot be resolved safely. Register and check hosts with
+<code>jazz hosts</code> first.</p>
+<h2 id="jazz-runs"><code>jazz runs</code></h2>
+<p>Inspect runs still in flight, including your own parked ones, and, once a daemon started
+one, runs begun from somewhere else entirely.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz runs list</code></td><td>List unfinished runs, newest first. <code>--agent</code>, <code>--conversation</code>, <code>--all</code> (include finished, with cost), <code>--json</code></td></tr><tr><td><code>jazz runs show &#x3C;runId></code></td><td>Show one run, including what it’s waiting for. <code>--json</code></td></tr><tr><td><code>jazz runs approve &#x3C;runId></code></td><td>Approve what a parked run is waiting for; blocks until it finishes</td></tr><tr><td><code>jazz runs reject &#x3C;runId></code></td><td>Refuse what it’s waiting for; <code>--note &#x3C;text></code> tells it why</td></tr><tr><td><code>jazz runs answer &#x3C;runId></code></td><td>Answer a question the run asked, in your own words: <code>--response &#x3C;text></code> (empty declines it)</td></tr><tr><td><code>jazz runs secret &#x3C;runId></code></td><td>Type the secret the run asked for, hidden (or pipe it in); held in memory for the resumed run. Empty declines</td></tr><tr><td><code>jazz runs cancel &#x3C;runId></code></td><td>Abandon a parked run without answering it</td></tr></tbody></table>
+<p>A run parks when it hits something needing your approval and nobody is there to give it: see
+<a href="#jazz-daemon">Daemon</a> for answering one from a different process than the one that started it.
+With a <a href="/docs/configure/notifications">notify target</a> the approval request reaches your phone, and
+a Telegram or Discord bridge can answer it with <code>/approve &#x3C;runId></code>.</p>
+<hr>
+<h2 id="jazz-spend"><code>jazz spend</code></h2>
+<p>What every run on this machine cost today and this month, from the machine-wide ledger under
+<code>$JAZZ_HOME/spend</code>, with a breakdown by source (chat, workflows, goals, loops, bots, …) and by
+agent, what unattended runs spent today, and where each <code>daemon</code> spend cap stands. <code>--json</code>
+emits <code>{ ok, day, month, today, thisMonth, caps, unreadableLines }</code>. See
+<a href="/docs/concepts/budgets#daily-and-monthly-caps">Budgets</a>.</p>
+<hr>
+<h2 id="jazz-notify"><code>jazz notify</code></h2>
+<p>Where results, reminders, parked approvals, failures and pauses reach you while you are away:
+the <code>notify.targets</code> list. See <a href="/docs/configure/notifications">Notifications</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz notify list</code></td><td>List the targets (one desktop target while <code>notify.targets</code> is unset). <code>--json</code></td></tr><tr><td><code>jazz notify add &#x3C;name></code></td><td>Add or replace a target: <code>--kind desktop|ntfy|webhook|telegram|discord</code>, <code>--url</code>, <code>--chat-id</code>, <code>--channel-id</code>, <code>--api-base-url</code>, <code>--events</code>, <code>--approve-from-chat</code>. Asks for its secret</td></tr><tr><td><code>jazz notify test &#x3C;name></code></td><td>Send a test through one target and report what it answered. <code>--json</code></td></tr><tr><td><code>jazz notify outbox</code></td><td>Show notifications still waiting, with the last error and next retry. <code>--json</code></td></tr><tr><td><code>jazz notify retry</code></td><td>Re-arm notifications that stopped retrying and deliver the outbox now. <code>--json</code></td></tr></tbody></table>
+<hr>
+<h2 id="jazz-daemon"><code>jazz daemon</code></h2>
+<p>Serves runs over HTTP: start one, poll it, approve or reject what a parked one is waiting for
+, from a different terminal, a different process, or a different machine than the one that
+began it. It backgrounds itself by default; use <code>--foreground</code> under your own supervisor.
+<code>jazz daemon install</code> creates the systemd/launchd service for you.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Flag</th><th>Purpose</th></tr></thead><tbody><tr><td><code>--port &#x3C;n></code></td><td>Port to listen on. Default <code>4747</code></td></tr><tr><td><code>--host &#x3C;address></code></td><td>Interface to bind. Default <code>127.0.0.1</code>. Anything else requires a daemon token</td></tr><tr><td><code>--serve-peers &#x3C;agentId></code></td><td>Also answer questions from configured peers, using this agent. Off unless given</td></tr><tr><td><code>--foreground</code></td><td>Stay attached instead of spawning a background daemon</td></tr></tbody></table>
+<p>A bearer token authenticates operator routes (<code>/runs</code>, <code>/health</code>) on every bind, including
+loopback. On first start Jazz generates one, stores it in the OS keyring or its protected local
+fallback, and prints it once. A non-loopback daemon refuses to start if no token can be supplied or
+stored. When keyring storage is deliberately disabled, loopback alone may warn and continue without
+one. <code>/peer/ask</code> uses separate per-peer credentials; see <a href="#jazz-peers"><code>jazz peers</code></a>.</p>
+<p>A request that grants authority (accepting or resuming a goal, starting or resuming a loop,
+approving or answering a parked run, and any write to an agent or persona) also needs the operator token in <code>X-Jazz-Operator-Token</code>. It lives only in
+the OS keyring, so an agent that read the daemon token from disk cannot use it to grant itself
+more. Without one the daemon grants nothing over HTTP, and the CLI on the machine decides instead.
+See <a href="/docs/concepts/daemon#granting-authority-over-http">Daemon</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz daemon set-token</code></td><td>Generate (or store <code>$JAZZ_DAEMON_TOKEN</code> if set) a token before the daemon’s first run: useful when a client needs the value in advance</td></tr><tr><td><code>jazz daemon forget-token</code></td><td>Remove the stored token</td></tr><tr><td><code>jazz daemon operator-token</code></td><td>Generate the operator token that HTTP grants need (accept a goal, start or resume a loop, approve or answer a run), store it in the OS keyring only, and print it once. Refused inside a process a Jazz agent started</td></tr><tr><td><code>jazz daemon forget-operator-token</code></td><td>Remove the operator token, so the daemon grants nothing over HTTP</td></tr><tr><td><code>jazz daemon stop</code></td><td>Stop the background daemon listening on this port</td></tr><tr><td><code>jazz daemon status</code></td><td>Whether this home’s daemon is running and supervised, its last tick and pending work, pause state, today’s spend against the daily caps, and everything waiting for you. <code>--json</code>; exits 1 when not running</td></tr><tr><td><code>jazz daemon logs</code></td><td>Print recent daemon output; <code>-n, --lines &#x3C;n></code> and <code>-f, --follow</code></td></tr><tr><td><code>jazz daemon pause</code></td><td>Stop background work from starting: goal cycles, loop runs, triggers, and new HTTP runs. Running work finishes and waiting items can still be answered</td></tr><tr><td><code>jazz daemon resume</code></td><td>Start background work again; when a machine daily cap is reached, lift it for the rest of the day. Refused inside a process a Jazz agent started, and over HTTP it needs the operator token</td></tr><tr><td><code>jazz daemon install</code></td><td>Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or <code>$JAZZ_DAEMON_TOKEN</code> needed); doesn’t report success until <code>/health</code> answers; <code>--serve-peers &#x3C;agentId></code> (optional: also answer peers), <code>--host</code>, <code>--port</code>, <code>--yes</code></td></tr><tr><td><code>jazz daemon uninstall</code></td><td>Remove the service installed by <code>install</code>. Needs root; <code>--yes</code></td></tr></tbody></table>
+<p>Set <code>$JAZZ_DAEMON_TOKEN</code> yourself instead of letting Jazz generate one when the value needs to
+be known ahead of time: a client config written before the daemon has ever run, or an
+ephemeral container whose <code>$JAZZ_HOME</code> doesn’t survive to the next deploy.</p>
+<p>See <a href="/docs/guides/connect-peers">Setting up peers</a> for a full walkthrough, and
+<a href="/docs/concepts/agent-to-agent">Agent-to-agent</a> for the tier model this exists to serve.</p>
+<p>A background daemon writes its output to <code>$JAZZ_HOME/logs/daemon.log</code>. Without an installed
+service, nothing restarts it after a reboot; <code>jazz goal</code> and <code>jazz loop</code> say so when they hand it
+work. See <a href="/docs/concepts/daemon#running-it-persistently">Running it persistently</a>.</p>
+<p><code>jazz wake-trigger fire --agent &#x3C;agentId> --id &#x3C;id></code> is internal plumbing, not something you run
+by hand: it’s what <code>register_trigger</code> schedules with <code>launchd</code>/<code>at</code> to fire a wake trigger without
+<code>jazz daemon</code> running. See <a href="/docs/tools#wake-triggers">Wake Triggers</a>. <code>jazz reminder fire</code>
+and <code>jazz job run</code> are the same kind of plumbing for reminders and job batches.</p>
+<hr>
+<h2 id="jazz-reminders-jazz-triggers-jazz-jobs"><code>jazz reminders</code>, <code>jazz triggers</code>, <code>jazz jobs</code></h2>
+<p>What agents have scheduled to happen later, across every agent unless <code>--agent &#x3C;id-or-name></code>
+narrows it.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz reminders list</code></td><td>Reminders set with <code>remind_me</code>, soonest first. <code>--agent</code>, <code>--json</code></td></tr><tr><td><code>jazz reminders cancel &#x3C;id></code></td><td>Cancel one, and its host scheduler job. <code>--agent</code></td></tr><tr><td><code>jazz triggers list</code></td><td>Wake triggers that will resume a conversation, soonest first. <code>--agent</code>, <code>--json</code></td></tr><tr><td><code>jazz triggers cancel &#x3C;id></code></td><td>Cancel one, and its host scheduler job. <code>--agent</code></td></tr><tr><td><code>jazz jobs list</code></td><td>Background job batches still active, with each batch’s jobs by status. <code>--agent</code>, <code>--json</code></td></tr><tr><td><code>jazz jobs cancel &#x3C;id></code></td><td>Cancel a batch’s jobs that have not started; running jobs finish. <code>--agent</code></td></tr></tbody></table>
+<p><code>--json</code> prints one envelope: <code>{"ok":true,"reminders":[…]}</code>, <code>{"ok":true,"triggers":[…]}</code>, or
+<code>{"ok":true,"batches":[…]}</code>.</p>
+<hr>
+<h2 id="jazz-goal"><code>jazz goal</code></h2>
+<p>Goals are objectives Jazz keeps working toward across runs until verified evidence shows they
+are done. Each goal has a short name, like <code>detach-to-prod</code>, that every command accepts in place
+of its id. In chat, a goal you accept runs in the chat, asking its approvals there; see
+<a href="#goals-in-chat">Goals in chat</a>. From a shell, the daemon does the work: accepting or starting a
+goal launches <code>jazz daemon</code> in the background when none is serving this Jazz home.</p>
+<pre class="astro-code css-variables" style="background-color:var(--astro-code-background);color:var(--astro-code-foreground); overflow-x: auto;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> draft</span><span style="color:var(--astro-code-token-string)"> --agent</span><span style="color:var(--astro-code-token-string)"> assistant</span><span style="color:var(--astro-code-token-string-expression)"> "Get every recipe into the new format until ./check.sh passes"</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> start</span><span style="color:var(--astro-code-token-string)"> --agent</span><span style="color:var(--astro-code-token-string)"> assistant</span><span style="color:var(--astro-code-token-string)"> --yes</span><span style="color:var(--astro-code-token-string)"> --max-cycles</span><span style="color:var(--astro-code-token-constant)"> 20</span><span style="color:var(--astro-code-token-string-expression)"> "…"</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> list</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> show</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">goa</span><span style="color:var(--astro-code-foreground)">l</span><span style="color:var(--astro-code-token-keyword)">></span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> accept</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">goa</span><span style="color:var(--astro-code-foreground)">l</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-token-string)"> --approval-policy</span><span style="color:var(--astro-code-token-string)"> low-risk</span><span style="color:var(--astro-code-token-comment)">   # start a proposed goal; work begins now</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> decline</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">goa</span><span style="color:var(--astro-code-foreground)">l</span><span style="color:var(--astro-code-token-keyword)">></span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> approve</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">goa</span><span style="color:var(--astro-code-foreground)">l</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-token-comment)">             # allow the step it waits on</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> reject</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">goa</span><span style="color:var(--astro-code-foreground)">l</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-foreground)"> [why]        </span><span style="color:var(--astro-code-token-comment)"># refuse that step; the reason goes to the agent</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> answer</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">goa</span><span style="color:var(--astro-code-foreground)">l</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">answe</span><span style="color:var(--astro-code-foreground)">r</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-token-comment)">     # answer its question</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> pause</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">goa</span><span style="color:var(--astro-code-foreground)">l</span><span style="color:var(--astro-code-token-keyword)">></span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> resume</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">goa</span><span style="color:var(--astro-code-foreground)">l</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-foreground)"> [note]       </span><span style="color:var(--astro-code-token-comment)"># the note steers the next cycle</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> goal</span><span style="color:var(--astro-code-token-string)"> cancel</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">goa</span><span style="color:var(--astro-code-foreground)">l</span><span style="color:var(--astro-code-token-keyword)">></span></span></code></pre>
+<p><code>--approval-policy</code> on <code>accept</code> and <code>start</code> is what the goal may run while you are away without
+asking: <code>read-only</code>, <code>low-risk</code>, or <code>high-risk</code> (everything). Above it, a cycle waits for your
+approval. Without the flag nothing runs unasked, so every gated call waits for you. <code>approve</code>, <code>reject</code>, and <code>answer</code> run the rest of that cycle in the shell; the
+daemon carries on after. A Jazz agent cannot approve or answer a parked run itself.</p>
+<p><code>draft</code> prints the plan, or the questions it needs answered first, without creating anything.
+<code>start</code> drafts and, with <code>--yes</code>, starts the plan; without <code>--yes</code> it only shows it.
+<code>--max-cycles</code> caps the cycles (no limit by default). Each cycle is an ordinary run, held to the agent loop’s own
+limits (<code>maxIterations</code>, <code>maxTokens</code>, <code>maxCostUSD</code>, <code>maxDurationMs</code> in config); the goal adds
+no spend cap of its own.
+A read-only pass over the current directory informs the plan, as it would in chat; <code>--no-inspect</code>
+drafts from the request alone. With <code>--json</code> each command prints one JSON envelope.
+Exit codes: <code>0</code> done, <code>1</code> refused or failed, <code>2</code> the request needs answers before a plan.</p>
+<h3 id="goals-in-chat">Goals in chat</h3>
+<p><code>/goal &#x3C;objective></code> starts working toward the objective right away, in the same conversation.
+Nothing is drafted or confirmed first, and the turns look like any other: the same streaming,
+approvals under the chat’s safe or yolo mode, and questions asked inline. When a turn ends, the
+next one starts on its own, with a <code>↻ Goal &#x3C;name> · turn n</code> line, until the agent reports
+the goal done. A done report is accepted only when it quotes the tool output that shows the
+objective holds; otherwise the goal goes on with the reason. If it stops for you (a question,
+a blocker), the chat asks right there and carries on with your answer.</p>
+<p>Esc pauses the goal. Anything you type meanwhile goes first and the goal picks up after it.
+<code>/goal</code> shows where it stands, <code>/goal pause</code>, <code>/goal resume [note]</code>, and <code>/goal clear</code> control
+it, and <code>/goal help</code> lists the rest, including <code>approve</code>, <code>reject</code>, and <code>answer</code> for a goal left
+waiting in the background. A conversation has one goal at a time; setting another offers to
+drop the current one.</p>
+<p>Leaving a chat with a goal unfinished asks whether Jazz should finish it in the background, and
+what it may do there without asking: reading only, low-risk changes, or everything. It carries
+on in the same conversation, and anything above that authority waits for you. The next <code>jazz</code>
+then lists the conversation first under <strong>Resume conversation (N waiting for you)</strong>, marked
+with what it waits on. In that picker, choose <strong>End · <em>goal name</em></strong> to stop a waiting goal and keep
+the conversation history; choose the conversation itself to resume it. Reopening keeps the
+conversation’s original identity, so its goal controls remain available in chat.</p>
+<h2 id="jazz-loop"><code>jazz loop</code></h2>
+<p>A loop reruns a prompt for an agent on a schedule, on one conversation of its own, until it ends:
+“every 10 minutes, check whether the deploy finished and tell me”. Each loop has a short name,
+taken from <code>--name</code> or the start of its prompt, that every command accepts in place of its id.
+Loops run in the daemon, never in the terminal that started them: starting or resuming one
+launches <code>jazz daemon</code> in the background when none is serving this Jazz home.</p>
+<pre class="astro-code css-variables" style="background-color:var(--astro-code-background);color:var(--astro-code-foreground); overflow-x: auto;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> loop</span><span style="color:var(--astro-code-token-string)"> start</span><span style="color:var(--astro-code-token-string)"> --agent</span><span style="color:var(--astro-code-token-string)"> assistant</span><span style="color:var(--astro-code-token-string)"> --every</span><span style="color:var(--astro-code-token-string)"> 10m</span><span style="color:var(--astro-code-token-string-expression)"> "Check whether the deploy finished and tell me"</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> loop</span><span style="color:var(--astro-code-token-string)"> start</span><span style="color:var(--astro-code-token-string)"> --agent</span><span style="color:var(--astro-code-token-string)"> assistant</span><span style="color:var(--astro-code-token-string)"> --every</span><span style="color:var(--astro-code-token-string-expression)"> "0 9 * * mon-fri"</span><span style="color:var(--astro-code-token-string)"> --until</span><span style="color:var(--astro-code-token-string)"> 2026-10-31</span><span style="color:var(--astro-code-token-string)"> --name</span><span style="color:var(--astro-code-token-string)"> standup</span><span style="color:var(--astro-code-token-string-expression)"> "Summarize yesterday's PRs"</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> loop</span><span style="color:var(--astro-code-token-string)"> list</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> loop</span><span style="color:var(--astro-code-token-string)"> show</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">loo</span><span style="color:var(--astro-code-foreground)">p</span><span style="color:var(--astro-code-token-keyword)">></span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> loop</span><span style="color:var(--astro-code-token-string)"> approve</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">loo</span><span style="color:var(--astro-code-foreground)">p</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-token-comment)">             # allow the step its run waits on</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> loop</span><span style="color:var(--astro-code-token-string)"> reject</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">loo</span><span style="color:var(--astro-code-foreground)">p</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-foreground)"> [why]        </span><span style="color:var(--astro-code-token-comment)"># refuse that step; the reason goes to the agent</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> loop</span><span style="color:var(--astro-code-token-string)"> answer</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">loo</span><span style="color:var(--astro-code-foreground)">p</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">answe</span><span style="color:var(--astro-code-foreground)">r</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-token-comment)">     # answer its run's question</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> loop</span><span style="color:var(--astro-code-token-string)"> pause</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">loo</span><span style="color:var(--astro-code-foreground)">p</span><span style="color:var(--astro-code-token-keyword)">></span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> loop</span><span style="color:var(--astro-code-token-string)"> resume</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">loo</span><span style="color:var(--astro-code-foreground)">p</span><span style="color:var(--astro-code-token-keyword)">></span><span style="color:var(--astro-code-token-comment)">              # a budget-limited loop gets one more default budget</span></span>
+<span class="line"><span style="color:var(--astro-code-token-function)">jazz</span><span style="color:var(--astro-code-token-string)"> loop</span><span style="color:var(--astro-code-token-string)"> cancel</span><span style="color:var(--astro-code-token-keyword)"> &#x3C;</span><span style="color:var(--astro-code-token-string)">loo</span><span style="color:var(--astro-code-foreground)">p</span><span style="color:var(--astro-code-token-keyword)">></span></span></code></pre>
+<p><code>--every</code> takes a duration (<code>10m</code>, <code>1h30m</code>, at least a minute) or a five-field cron expression,
+read in <code>--tz</code> (default: this machine’s timezone). An interval loop runs right away; a cron loop
+waits for its first scheduled time. Runs missed while the daemon was down collapse into one, and a
+loop never overlaps itself, including while a run waits for an approval.</p>
+<p>A loop ends when its run calls <code>end_loop</code> (it gets that tool, and only loop runs do), when it
+reaches <code>--max-runs</code> or <code>--until</code>, or when you cancel it. Three failed runs in a row stop it
+for you to look at; <code>resume</code> starts it again. Budget flags cover all runs together:
+<code>--max-tokens</code>, <code>--max-minutes</code>, and <code>--max-cost-usd</code> (enforced when pricing is known), and
+each run is held to the agent loop’s own limits like any run. A loop that hits one of its
+budgets is budget-limited until you resume it.</p>
+<p><code>--approval-policy</code> is what its runs may do without asking: <code>read-only</code>, <code>low-risk</code>, or
+<code>high-risk</code> (everything). Above it, the run waits; <code>approve</code>, <code>reject</code>, and <code>answer</code> finish that
+run in the shell, under what the loop’s budget has left. Pausing or canceling a loop whose run is
+waiting drops that run. A Jazz agent cannot start, resume, approve, or answer a loop. With
+<code>--json</code> each command prints one JSON envelope. Exit codes: <code>0</code> done, <code>1</code> refused or failed.</p>
+<h3 id="loops-in-chat">Loops in chat</h3>
+<p><code>/loop 10m &#x3C;prompt></code> (or <code>/loop every 10m &#x3C;prompt></code>, or <code>/loop cron 0 9 * * mon-fri &#x3C;prompt></code>)
+starts a loop for the chat’s agent in its current directory, after asking what its runs may do
+without asking. <code>/loop help</code> lists the commands; they mirror <code>jazz loop</code>. Opening a conversation
+shows its loops that wait for you, and the next <code>jazz</code> counts them under <strong>Resume conversation</strong>.</p>
+<h2 id="jazz-imessage"><code>jazz imessage</code></h2>
+<p>Reach the agent from Messages. The bare command uses a hosted Photon line and can run on any
+supported host. <code>--local</code> instead uses the Apple account signed into a Mac (macOS 14+) and walks
+through installing <a href="https://github.com/openclaw/imsg"><code>imsg</code></a>, granting Full Disk Access, and
+optionally installing a background service.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz imessage</code></td><td>Start the bridge. <code>--local</code> uses your Mac account; <code>--agent &#x3C;id-or-name></code> seeds it from an existing agent</td></tr><tr><td><code>jazz imessage status</code></td><td>Whether the local-Mac background service is installed and loaded</td></tr><tr><td><code>jazz imessage logs</code></td><td>Follow the local-Mac service log at <code>~/.jazz-imessage/bridge.log</code> by default</td></tr><tr><td><code>jazz imessage stop</code></td><td>Stop the local-Mac launchd service; its plist remains</td></tr></tbody></table>
+<p>Who it answers is <code>IMESSAGE_ALLOWED_HANDLES</code>, deny-by-default; with nothing set, an
+interactive first run answers only you, via a <code>jazz</code> prefix in a chat with yourself. The
+background service’s environment is snapshotted into its plist at install time: see
+<a href="/docs/guides/deploy-a-chat-agent#imessage-through-your-own-mac">Reaching your agent from a chat app</a> for changing it
+afterwards, and
+<a href="https://github.com/lvndry/jazz/blob/main/packages/imessage-bot/README.md"><code>packages/imessage-bot/README.md</code></a> for every
+variable.</p>
+<hr>
+<h2 id="jazz-whatsapp"><code>jazz whatsapp</code></h2>
+<p>Reach the agent from WhatsApp. The bridge links to your account as a device, the way
+WhatsApp Web does, and runs in the foreground: there is no service installer.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz whatsapp</code></td><td>Start the bridge. <code>--agent &#x3C;id-or-name></code> seeds it from an agent you have, copied into its home</td></tr></tbody></table>
+<p>The first run asks whose messages to answer and remembers it in <code>wa-allowed.json</code>;
+<code>WHATSAPP_ALLOWED_NUMBERS</code> skips the question and is required where there is no terminal to
+ask. Pairing is a QR code, or an 8-character code with <code>WHATSAPP_PAIR_NUMBER</code> on a headless
+machine, and happens once: credentials live in <code>WHATSAPP_AUTH_DIR</code>. See
+<a href="/docs/guides/deploy-a-chat-agent#whatsapp">Reaching your agent from a chat app</a> for the walkthrough and
+<a href="https://github.com/lvndry/jazz/blob/main/packages/whatsapp-bot/README.md"><code>packages/whatsapp-bot/README.md</code></a> for every variable.</p>
+<hr>
+<h2 id="jazz-peers"><code>jazz peers</code></h2>
+<p>Other people’s agents this machine talks to, and what has been said to or by them.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz peers list</code></td><td>List configured peers and what each may learn. <code>--json</code></td></tr><tr><td><code>jazz peers set-token &#x3C;name></code></td><td>Store a peer’s token, read from <code>$JAZZ_PEER_TOKEN</code> (or <code>--from-env &#x3C;VAR></code>)</td></tr><tr><td><code>jazz peers forget-token &#x3C;name></code></td><td>Remove a peer’s stored token</td></tr><tr><td><code>jazz peers log</code></td><td>Everything said to and by a peer, newest first. <code>--peer &#x3C;name></code>, <code>--limit &#x3C;n></code>, <code>--json</code>, <code>--follow</code></td></tr></tbody></table>
+<p>Peers can be added by <a href="/docs/guides/connect-peers">invite</a>: <code>jazz peers invite create/accept</code>
+, or by editing <code>~/.jazz/config.json</code> directly. See <a href="/docs/guides/connect-peers">Setting up peers</a>
+for both paths.</p>
+<h3 id="jazz-peers-invite"><code>jazz peers invite</code></h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz peers invite create &#x3C;name></code></td><td>Create a one-time invite link granting <code>&#x3C;name></code> a tier once accepted. <code>--disclosure &#x3C;tier></code> (required), <code>--persona &#x3C;name></code> (which persona answers them), <code>--expires &#x3C;duration></code>, <code>--host</code>/<code>--port</code> or <code>--public-url</code> (reverse-proxy setups), <code>--as &#x3C;name></code>, <code>--qr</code>, <code>--json</code></td></tr><tr><td><code>jazz peers invite accept &#x3C;url></code></td><td>Accept an invite link. <code>--as &#x3C;name></code>, <code>--yes</code> (skip confirmation), <code>--json</code></td></tr><tr><td><code>jazz peers invite list</code></td><td>Invites created on this machine. <code>--json</code></td></tr><tr><td><code>jazz peers invite revoke &#x3C;id></code></td><td>Invalidate an invite before it’s redeemed</td></tr></tbody></table>
+<hr>
+<h2 id="jazz-persona"><code>jazz persona</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz persona list</code></td><td>List personas (built-in + custom); <code>--json</code> prints one document</td></tr><tr><td><code>jazz persona create</code></td><td>Create a custom persona (interactive)</td></tr><tr><td><code>jazz persona show &#x3C;identifier></code></td><td>Show a persona by name or id</td></tr><tr><td><code>jazz persona edit &#x3C;identifier></code></td><td>Edit a custom persona</td></tr><tr><td><code>jazz persona delete &#x3C;identifier></code></td><td>Delete a custom persona</td></tr><tr><td><code>jazz persona browse</code></td><td>Browse the library and install a persona (interactive). <code>--refresh</code></td></tr><tr><td><code>jazz persona search</code></td><td>List every persona the library offers. <code>--refresh</code></td></tr><tr><td><code>jazz persona install &#x3C;name></code></td><td>Install a library persona. <code>--as &#x3C;name></code> (local name), <code>-y</code>/<code>--yes</code> (skip confirmation), <code>--refresh</code></td></tr></tbody></table>
+<p><code>install</code> prints the full system prompt and asks before writing it: a persona becomes an agent’s
+instructions, so non-interactive runs must pass <code>--yes</code>. The catalog is cached under
+<code>&#x3C;jazz home>/cache/persona-registry.json</code> and keeps working offline; <code>JAZZ_LIBRARY_URL</code>
+points Jazz at a self-hosted library.</p>
+<p>See <a href="/docs/concepts/personas">Personas</a>.</p>
+<hr>
+<h2 id="jazz-skill"><code>jazz skill</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz skill list</code></td><td>List the skills agents can load, by source; <code>--json</code> prints one document</td></tr><tr><td><code>jazz skill browse</code></td><td>Browse the reviewed skill marketplace and install a skill (interactive). <code>--refresh</code></td></tr><tr><td><code>jazz skill search [query]</code></td><td>Search marketplace skill names, descriptions, tags, and metadata. <code>--refresh</code></td></tr><tr><td><code>jazz skill install &#x3C;name></code></td><td>Install one reviewed <code>SKILL.md</code> into <code>~/.jazz/skills/</code>. <code>-y</code>/<code>--yes</code> (skip confirmation), <code>--refresh</code></td></tr></tbody></table>
+<p>Marketplace skills are instruction-only. Installation prints the complete file, asks for
+confirmation, writes only <code>SKILL.md</code>, and never executes or imports the downloaded text. Non-
+interactive installs must pass <code>--yes</code>. The catalog is cached under
+<code>&#x3C;jazz home>/cache/skill-registry.json</code>, works offline after a successful fetch, and uses
+<code>JAZZ_LIBRARY_URL</code> when you host a compatible library yourself.</p>
+<p>Skills can influence an agent’s behavior but grant no tools, credentials, network access, or
+approval authority. Read the source for prompt injection or unsafe guidance before installing.
+See <a href="/docs/concepts/skills">Skills</a>.</p>
+<hr>
+<h2 id="jazz-plugin"><code>jazz plugin</code></h2>
+<p>Every command below that takes <code>&#x3C;id></code> also accepts the <code>owner/repo</code> (or GitHub URL) you installed
+from — it resolves to the installed plugin. Trust and enable prompt for a plain yes/no confirmation.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz plugin init &#x3C;directory></code></td><td>Scaffold a types-only SDK plugin project. <code>--id</code>, <code>--name</code></td></tr><tr><td><code>jazz plugin dev [directory]</code></td><td>Pack and audit in a disposable host. <code>--hook route.skills --input &#x3C;json></code></td></tr><tr><td><code>jazz plugin pack [directory]</code></td><td>Emit <code>plugin.mjs</code>, its SHA-256, and <code>catalog-entry.json</code></td></tr><tr><td><code>jazz plugin add &#x3C;owner/repo|source|id></code></td><td>Install from a GitHub <code>owner/repo</code> (default, <code>@ref</code> to pin), a local source dir, a manifest, or a catalog id; does not trust or enable</td></tr><tr><td><code>jazz plugin inspect &#x3C;id></code></td><td>Show exact digest, declarations, grants, enablement, and secret status. <code>--json</code></td></tr><tr><td><code>jazz plugin trust &#x3C;id></code></td><td>Locally acknowledge full OS-user code execution for the current digest</td></tr><tr><td><code>jazz plugin enable &#x3C;id> [--agent &#x3C;id-or-name>]</code></td><td>Grant current egress consent and enable for one agent, or for all agents when <code>--agent</code> is omitted</td></tr><tr><td><code>jazz plugin disable &#x3C;id> [--agent &#x3C;id-or-name>]</code></td><td>Prevent new dispatches for one agent or all agents</td></tr><tr><td><code>jazz plugin update &#x3C;id> [source]</code></td><td>Re-fetch and install an update, retaining one rollback artifact and disabling pending grants. Omitting <code>source</code> re-pulls the recorded source, so <code>jazz plugin update owner/repo</code> re-fetches a GitHub source install</td></tr><tr><td><code>jazz plugin rollback &#x3C;id></code></td><td>Swap current/previous artifacts and disable pending grants</td></tr><tr><td><code>jazz plugin doctor &#x3C;id></code></td><td>Check artifact, grants, declarations, and required secrets. <code>--json</code></td></tr><tr><td><code>jazz plugin remove &#x3C;id></code></td><td>Remove state/artifacts and Jazz-owned secrets. <code>--keep-secrets</code></td></tr><tr><td><code>jazz plugin list</code></td><td>List installed plugin state</td></tr><tr><td><code>jazz plugin gc</code></td><td>Remove unreferenced, unloaded artifacts</td></tr><tr><td><code>jazz plugin secret set &#x3C;id> &#x3C;name></code></td><td>Store a declared plugin-scoped credential</td></tr><tr><td><code>jazz plugin secret status &#x3C;id> &#x3C;name></code></td><td>Report whether a credential comes from environment, keyring, file, or is missing</td></tr><tr><td><code>jazz plugin secret forget &#x3C;id> &#x3C;name></code></td><td>Delete a Jazz-owned plugin credential; environment values are unaffected</td></tr></tbody></table>
+<p>Trust and consent require a local interactive terminal. This includes explicit consent for a
+<code>classify.command-risk</code> policy hook: it may send bounded command text to its declared destination
+and its validated verdict can affect whether an eligible <code>execute_command</code> call needs approval.
+Static tool risks, allowlists, approval tiers, and the shell denylist remain enforced by Jazz. See
+<a href="/docs/configure/plugins">Plugins</a>.</p>
+<hr>
+<h2 id="jazz-config"><code>jazz config</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz config show</code></td><td>Show all configuration values, secrets redacted; <code>--reveal</code> prints them</td></tr><tr><td><code>jazz config validate</code></td><td>Check config files without starting the application</td></tr><tr><td><code>jazz config get &#x3C;key></code></td><td>Print one value and nothing else, redacted when it is or holds a secret; <code>--reveal</code> prints it. Exits <code>1</code> if unset</td></tr><tr><td><code>jazz config set &#x3C;key> [value]</code></td><td>Set one value</td></tr></tbody></table>
+<p><code>config validate</code> also checks every agent file: one that cannot be read, or names a provider or
+reasoning level Jazz does not know, fails the check with exit code <code>1</code>; a tool name no built-in
+provides is a warning, since an MCP server, plugin, or custom tool may supply it. <code>config set</code>
+refuses a key Jazz does not read, including an API key for a provider that does not exist
+(<code>llm.opneai.api_key</code>), and trims pasted keys. <code>jazz config set &#x3C;provider></code> with no value prompts
+for the key, so it never lands in your shell history, and checks it with the provider where
+there is a free endpoint to ask.</p>
+<p>See <a href="/docs/configure/jazz">Configuration</a>.</p>
+<hr>
+<h2 id="jazz-memory"><code>jazz memory</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz memory list &#x3C;agent></code></td><td>List durable memory files available to an agent</td></tr><tr><td><code>jazz memory show &#x3C;agent> &#x3C;path></code></td><td>Print one memory file as the agent reads it</td></tr><tr><td><code>jazz memory forget &#x3C;agent> &#x3C;path></code></td><td>Permanently delete one memory file</td></tr><tr><td><code>jazz memory explain &#x3C;agent> &#x3C;path></code></td><td>Show provenance and recent opportunity receipts for one entry</td></tr><tr><td><code>jazz memory recall</code></td><td>Report memory consultation; <code>--surface &#x3C;name></code> filters it</td></tr></tbody></table>
+<p>Conversation history and current working state are separate. See <a href="/docs/concepts/conversations-and-memory">Conversations, working state, and memory</a>.</p>
+<hr>
+<h2 id="jazz-webhook"><code>jazz webhook</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz webhook token &#x3C;name></code></td><td>Generate and store a bearer token; print it once</td></tr><tr><td><code>jazz webhook forget-token &#x3C;name></code></td><td>Remove a webhook’s stored token</td></tr><tr><td><code>jazz webhook secret &#x3C;name></code></td><td>Generate and store the secret its sender signs bodies with (GitHub’s webhook secret)</td></tr><tr><td><code>jazz webhook forget-secret &#x3C;name></code></td><td>Remove a webhook’s stored signing secret</td></tr></tbody></table>
+<p>Webhook definitions live in Jazz configuration. See <a href="/docs/concepts/webhooks">Webhooks</a>.</p>
+<hr>
+<h2 id="jazz-update"><code>jazz update</code></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>jazz update</code></td><td>Update Jazz to the latest version</td></tr><tr><td><code>jazz update --check</code></td><td>Check for updates without installing</td></tr></tbody></table>
+<p>Both exit 1 when the version check or the install fails, so a script can tell a failed update
+from “already up to date”.</p>
+<hr>
+<h2 id="in-chat-commands">In-chat commands</h2>
+<p>Available inside an interactive session. <code>/help</code> lists them, then your skills, MCP prompts, and
+plugin commands in their own sections, then the keys of the interface you are in. <code>/help &#x3C;command></code>
+shows every form of one command. The table below is generated from the same list
+(<code>bun run docs:chat-commands</code>).</p>
+<!-- chat-commands:start -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Purpose</th></tr></thead><tbody><tr><td><code>/agents</code></td><td>List all available agents.</td></tr><tr><td><code>/peers</code></td><td>List configured peers and what each may learn or do.</td></tr><tr><td><code>/clear</code></td><td>Clear the screen.</td></tr><tr><td><code>/compact</code></td><td>Summarize older history now, keeping recent messages.</td></tr><tr><td><code>/config [tools]</code></td><td>Show the agent’s configuration (‘/config tools’ toggles its tools).</td></tr><tr><td><code>/context</code></td><td>Show context window usage and token breakdown.</td></tr><tr><td><code>/work [clear]</code></td><td>Show saved task state and compaction records (‘/work clear’ discards them).</td></tr><tr><td><code>/copy</code></td><td>Copy the last agent response to clipboard.</td></tr><tr><td><code>/cost</code></td><td>Show conversation token usage and estimated cost, including sub-agents.</td></tr><tr><td><code>/exit</code></td><td>Exit the chat. Also <code>/quit</code>.</td></tr><tr><td><code>/export [path]</code></td><td>Export the conversation to a markdown file.</td></tr><tr><td><code>/fork</code></td><td>Fork conversation into a new branch (keeps full history).</td></tr><tr><td><code>/detach &#x3C;host></code></td><td>Continue this conversation on a registered SSH host after this turn.</td></tr><tr><td><code>/goal [objective|pause|resume|clear|list|accept|decline]</code></td><td>Keep working toward an objective, turn after turn, in this conversation. See <a href="#goals-in-chat">Goals in chat</a>.</td></tr><tr><td><code>/help [command]</code></td><td>Show available commands and shortcuts.</td></tr><tr><td><code>/loop &#x3C;every> &#x3C;prompt>|cron|list|approve|reject|answer|pause|resume|cancel</code></td><td>Rerun a prompt on a schedule in the background. See <a href="#loops-in-chat">Loops in chat</a>.</td></tr><tr><td><code>/memory [forget &#x3C;path>]</code></td><td>Show what this agent has remembered about you, or forget one file.</td></tr><tr><td><code>/limit [turns|usd|tokens &#x3C;value>|clear]</code></td><td>Set a session turn, cost, or token limit (applied immediately).</td></tr><tr><td><code>/mcp [reconnect &#x3C;server>]</code></td><td>Show MCP servers, or reconnect one.</td></tr><tr><td><code>/mode [allow|disallow &#x3C;cmd>]</code></td><td>Switch between safe mode and yolo mode for tool approvals (also Shift+Tab).</td></tr><tr><td><code>/model [model]</code></td><td>Change the agent’s model for this session only. Also <code>/models</code>.</td></tr><tr><td><code>/reasoning [minimal|low|medium|high|xhigh|max|disable]</code></td><td>Change reasoning for this session only.</td></tr><tr><td><code>/rename [title]</code></td><td>Rename the current conversation.</td></tr><tr><td><code>/resume</code></td><td>Browse and resume a past conversation.</td></tr><tr><td><code>/retry</code></td><td>Re-send your last message.</td></tr><tr><td><code>/start</code></td><td>Start a fresh conversation with the current agent. Also <code>/new</code>.</td></tr><tr><td><code>/create</code></td><td>Create a new agent.</td></tr><tr><td><code>/skills</code></td><td>Search installed skills by name, source, or description.</td></tr><tr><td><code>/info</code></td><td>Show conversation id, title, usage, and log file paths for this session. Also <code>/stats</code>.</td></tr><tr><td><code>/switch [agent]</code></td><td>Switch to a different agent in the same conversation.</td></tr><tr><td><code>/theme [name] [dark|light]</code></td><td>List themes, or switch to one and save it.</td></tr><tr><td><code>/tools</code></td><td>List all agent tools by category.</td></tr><tr><td><code>/workflows [action]</code></td><td>List workflows, or send an action (e.g. create) to the agent.</td></tr><tr><td><code>! &#x3C;command></code></td><td>Run a shell command and give its output to the agent. See <a href="#shell-escapes">Shell escapes</a>.</td></tr></tbody></table>
+<!-- chat-commands:end -->
+<p><code>/start</code> starts a fresh conversation with that agent; <code>/new</code> is an alias for that. <code>/create</code> creates a new agent.</p>
+<p>Chat bridges have independent command contracts described in their surface guides.</p>
+<p><code>/rename &#x3C;title></code> sets the current conversation’s title, preserving internal whitespace and
+Unicode without an artificial length limit. Bare <code>/rename</code> edits the current title; Escape
+cancels. Naming a conversation before its first message saves it too. Later turns and resumes
+preserve the title. Ephemeral sessions keep it only in memory. Renaming never calls the model,
+and a save failure is reported without changing the title.</p>
+<p>Only <code>/exit</code> (or <code>/quit</code>) ends the chat; <code>exit</code> or <code>quit</code> typed alone is sent to the agent as a
+message. A message that starts with a file path, which is what dragging a file into the terminal
+inserts (<code>/Users/me/shot.png what is this?</code>), is sent to the agent rather than read as a command.
+An unknown command stays in the composer so you can fix it, and Jazz suggests the closest command.</p>
+<p><code>/model</code> changes the model for the rest of this session on the agent’s own provider: <code>/model</code>
+opens a picker, <code>/model &#x3C;model-id></code> sets it directly. The agent file keeps its model; use
+<code>jazz agent edit</code> to change that for good. <code>/reasoning</code> works the same way for the reasoning level.</p>
+<h3 id="mentioning-files-with-">Mentioning files with <code>@</code></h3>
+<p>Type <code>@</code> to pick a file or folder under the current directory. A picked path with spaces is
+quoted for you (<code>@"my notes.md"</code>). When you send the message:</p>
+<ul>
+<li>An image, PDF, audio, or video file is attached, if the model accepts that kind of input.</li>
+<li>A text file of up to 256 KiB is read and sent along with your message, so the agent sees its
+contents.</li>
+<li>Anything else (a folder, a binary file, a larger file) is sent as its path only. Jazz says so for
+a binary or oversized file; the agent can still open it with its file tools.</li>
+</ul>
+<h3 id="keyboard-shortcuts">Keyboard shortcuts</h3>
+<p>The fullscreen interface is the default on a capable terminal. The classic inline interface runs
+with <code>JAZZ_FULLSCREEN=0</code>, and on terminals the fullscreen one cannot use. The two bind different
+keys. In both, interrupting work takes a double Esc or one Ctrl+C.</p>
+<p><strong>Fullscreen:</strong></p>
+<!-- keys-fullscreen:start -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Keys</th><th>Action</th></tr></thead><tbody><tr><td>Enter</td><td>Send the message</td></tr><tr><td>Shift+Enter</td><td>Insert a newline for a multi-line message</td></tr><tr><td>Tab</td><td>Complete the highlighted slash command or @ path</td></tr><tr><td>Up/Down (empty input)</td><td>Recall previously sent messages</td></tr><tr><td>Ctrl+A / Ctrl+E</td><td>Move to the start or end of the line</td></tr><tr><td>Ctrl+U</td><td>Delete from the caret to the start of the line</td></tr><tr><td>Option+Enter</td><td>Insert a newline for a multi-line message</td></tr><tr><td>Ctrl+V</td><td>Paste from the clipboard</td></tr><tr><td>Ctrl+Z / Ctrl+Shift+Z</td><td>Undo or redo an edit in the composer</td></tr><tr><td>Cmd+A</td><td>Select the whole draft</td></tr><tr><td>Esc</td><td>Close the open dialog, search, or menu; otherwise clear the draft; otherwise focus the transcript</td></tr><tr><td>Esc Esc (agent busy)</td><td>Interrupt the current generation or tool</td></tr><tr><td>Esc Esc (agent busy, messages queued)</td><td>Interrupt and send the queued messages now</td></tr><tr><td>Ctrl+C (agent busy)</td><td>Interrupt the current generation or tool</td></tr><tr><td>Ctrl+C Ctrl+C</td><td>Leave the conversation</td></tr><tr><td>Shift+Tab</td><td>Toggle safe/yolo approval mode</td></tr><tr><td>Ctrl+R</td><td>Expand collapsed reasoning (repeat for earlier blocks)</td></tr><tr><td>Ctrl+O</td><td>Expand the last truncated diff or tool output</td></tr><tr><td>Up (agent busy)</td><td>Recall queued messages for editing</td></tr><tr><td>Ctrl+X (agent busy, empty input)</td><td>Clear the message queue</td></tr><tr><td>Ctrl+B (tool running)</td><td>Move the running tool call to the background</td></tr><tr><td>Down (sub-agents listed)</td><td>Pick a sub-agent under the input; Enter opens its log</td></tr><tr><td>Enter (sub-agent open)</td><td>Send the draft to that sub-agent instead of the main chat</td></tr><tr><td>Esc (sub-agent open)</td><td>Return to the main conversation</td></tr><tr><td>Ctrl+F</td><td>Search the conversation</td></tr><tr><td>PgUp/PgDn</td><td>Scroll the conversation</td></tr><tr><td>Up/Down, Home/End (transcript focused)</td><td>Scroll line by line or to either end; type to return to the input</td></tr></tbody></table>
+<!-- keys-fullscreen:end -->
+<p><strong>Classic:</strong></p>
+<!-- keys-classic:start -->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Keys</th><th>Action</th></tr></thead><tbody><tr><td>Enter</td><td>Send the message</td></tr><tr><td>Shift+Enter</td><td>Insert a newline for a multi-line message</td></tr><tr><td>Tab</td><td>Complete the highlighted slash command or @ path</td></tr><tr><td>Up/Down (empty input)</td><td>Recall previously sent messages</td></tr><tr><td>Ctrl+A / Ctrl+E</td><td>Move to the start or end of the line</td></tr><tr><td>Ctrl+U</td><td>Delete from the caret to the start of the line</td></tr><tr><td>Ctrl+K</td><td>Delete from the caret to the end of the line</td></tr><tr><td>Ctrl+W</td><td>Delete the word before the caret</td></tr><tr><td>Esc</td><td>Clear the current draft</td></tr><tr><td>Esc Esc (agent busy)</td><td>Interrupt the current generation or tool, and drop queued messages</td></tr><tr><td>Ctrl+C (agent busy)</td><td>Interrupt the current generation or tool</td></tr><tr><td>Ctrl+C Ctrl+C</td><td>Leave the conversation</td></tr><tr><td>Shift+Tab</td><td>Toggle safe/yolo approval mode</td></tr><tr><td>Ctrl+R</td><td>Expand collapsed reasoning (repeat for earlier blocks)</td></tr><tr><td>Ctrl+O</td><td>Expand the last truncated diff or tool output</td></tr><tr><td>Up (agent busy)</td><td>Recall queued messages for editing</td></tr><tr><td>Ctrl+X (agent busy, empty input)</td><td>Clear the message queue</td></tr></tbody></table>
+<!-- keys-classic:end -->
+<h3 id="watching-and-steering-sub-agents">Watching and steering sub-agents</h3>
+<p>When the agent delegates with <code>spawn_subagent</code>, the turn’s sub-agents are listed under the
+composer with what each one is doing right now. With the composer empty, press Down to
+move into the list, Up and Down to pick one, and Enter to open it: the transcript is
+replaced by that sub-agent’s brief, reasoning, tool calls, and answer, and keeps updating
+while it works. Esc returns to the main conversation.</p>
+<p>While a sub-agent is open, Enter sends your draft to it instead of to the main chat. The
+sub-agent reads it between tool calls, the same point where the main agent picks up
+queued messages, and treats it as guidance on its current task. If it finishes before
+reaching another tool call, Jazz says the message was not delivered. Finished sub-agents
+stay in the list until your next message. The agent can steer its sub-agents too: its messages appear in the sub-agent’s log as
+<code>↳ parent: …</code>, and a pause shows as <code>⏸ Paused by the parent agent</code> until it resumes. Companions started by <code>analyze_media</code> and
+<code>generate_media</code> are listed too, but take no messages: each makes a single model call with
+no tool calls to pause between.</p>
+<p>With <code>output.streaming.enabled: false</code>, completed model responses and tool calls still appear
+in the sub-agent’s detail log. A message queued during the final tool batch stays marked
+undelivered when the child reaches its iteration or run budget before another model call.</p>
+<h3 id="shell-escapes">Shell escapes</h3>
+<p>In the interactive terminal, type <code>! &#x3C;command></code> when the agent asks you to run a command
+yourself. Jazz executes the command in the current session directory and sends its bounded
+stdout, stderr, and exit code to the agent as context for the next response:</p>
+<pre class="astro-code css-variables" style="background-color:var(--astro-code-background);color:var(--astro-code-foreground); overflow-x: auto;" tabindex="0" data-language="text"><code><span class="line"><span>> ! ssh user@test rm -r folder</span></span>
+<span class="line"><span>> Did that remove the folder successfully?</span></span></code></pre>
+<p>The <code>!</code> must be followed by a space (or tab). A message such as <code>!!! call the bank today</code> or
+<code>!important</code> is prose and goes to the agent. In the fullscreen interface, typing <code>!</code> on an empty
+line inserts the <code>!</code> and a space for you; typing a second <code>!</code> straight away takes the space
+back.</p>
+<p>The command is executed because you entered it explicitly; it does not wait for the model to
+call <code>execute_command</code>. The built-in shell denylist, sanitized environment, timeout, process
+interruption, and 256 KiB per-stream output cap still apply. Output is treated as command data,
+not as instructions. A non-zero exit code is still passed to the agent so it can explain or
+suggest the next step. <code>!</code> is an interactive terminal feature and is not interpreted by
+<code>jazz run</code>, scheduled jobs, CI, or chat bridges.</p>
+<hr>
+<h2 id="output-modes">Output modes</h2>
+<p><code>--output</code> controls formatting; it does not change what goes to stdout vs stderr.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Mode</th><th>Behavior</th></tr></thead><tbody><tr><td><code>rendered</code></td><td>Full markdown rendering</td></tr><tr><td><code>hybrid</code></td><td>Default: rendered with plain fallbacks</td></tr><tr><td><code>raw</code></td><td>No formatting, no ANSI. <strong>Use this in CI</strong></td></tr><tr><td><code>quiet</code></td><td>Suppress output</td></tr></tbody></table>
+<p>Set <code>NO_COLOR</code> to any non-empty value (see <a href="https://no-color.org">no-color.org</a>) to turn colour off
+everywhere: the classic interface and plain output print no colour codes at all, and the
+fullscreen interface paints in its neutral greys, keeping bold and dim for emphasis.</p>
+<hr>
+<h2 id="related">Related</h2>
+<ul>
+<li><a href="/docs/surfaces/headless">Surfaces → Headless</a>: the <code>jazz run</code> contract in depth</li>
+<li><a href="/docs/configure/jazz">Configuration</a>: config file and environment variables</li>
+<li><a href="/docs/tools">Tools</a>: every tool and its risk tier</li>
+<li><a href="/docs/configure/workflows">Workflow frontmatter</a>: the <code>WORKFLOW.md</code> fields</li>
+</ul>
+
+      </article>
+      <footer class="pager" data-astro-cid-lpetmyok>
+        <span data-astro-cid-lpetmyok></span>
+        
+      </footer>
+      <p class="raw mono" data-astro-cid-lpetmyok>
+        machine-readable: <a href="/docs/commands.md" data-astro-cid-lpetmyok>/docs/commands.md</a> · <a href="/llms.txt" data-astro-cid-lpetmyok>/llms.txt</a> · 
+        <a href="/llms-full.txt" data-astro-cid-lpetmyok>/llms-full.txt</a>
+      </p>
+    </main>
+  </div>
+
+  </body>
+</html>
+
+
+
+
+
+<script type="module" src="/_astro/Docs.astro_astro_type_script_index_0_lang.CKFY8_EQ.js"></script>
+
+
+
+<script>
+      {`
+        (function () {
+          var link = document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = "/pagefind/pagefind-ui.css";
+          document.head.appendChild(link);
+          var script = document.createElement("script");
+          script.src = "/pagefind/pagefind-ui.js";
+          script.onload = function () {
+            new window.PagefindUI({ element: "#search", showSubResults: true, showImages: false });
+          };
+          document.head.appendChild(script);
+        })();
+      `}
+    </script>
