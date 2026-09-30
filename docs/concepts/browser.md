@@ -92,6 +92,24 @@ Reading pages, typing, choosing options, and clicking work there. A browser with
 layout engine clicks through the element itself, and pages that depend on rendering or
 anti-bot checks may behave differently from Chrome.
 
+## Flagged pages
+
+Some pages deserve a second look before the agent types into them. Jazz flags a page when its own
+structure shows a password field or payment card fields. A flagged page changes two things:
+
+- `browser_snapshot` opens with a warning line, such as "Warning: this page has a password field."
+- `browser_act` asks you on every call there, even under the `high-risk` policy or an allowlist,
+  and the approval repeats the warning.
+
+A flag only adds scrutiny. Nothing lowers a risk, skips an approval, or clears the
+untrusted-content marking. Fields inside a frame from another site are not seen by this check.
+
+An enabled plugin can add flags, for a page that may be a human check or whose labels address an AI
+agent, and can reorder a snapshot so the elements relevant to your request come first under
+"Likely relevant to your request:". It cannot hide an element: the whole outline follows. Both
+hooks are advisory, time-limited, and fall back to the plain behavior on any error or abstention.
+See [Browser page hooks](../configure/plugins.md#browser-page-hooks).
+
 ## What the page can reach
 
 Every request a page makes, including images, scripts, and redirects, is held to the same rules

@@ -13,9 +13,10 @@ contribute any mix of capabilities:
 - **commands** — user-invoked `/name` slash commands;
 - **personas** — selectable agent personalities;
 - **skills** — loadable instruction documents;
-- **advisory hooks** — `route.skills` (suggest a skill before the first model request) and
-  `compact.tools` (choose which stale tool results to prune during compaction), which only shape
-  context;
+- **advisory hooks** — `route.skills` (suggest a skill before the first model request),
+  `compact.tools` (choose which stale tool results to prune during compaction), `classify.page`
+  (flag a browser page for extra scrutiny), and `route.snapshot` (put the relevant elements of a
+  browser snapshot first), which only shape context or add scrutiny;
 - a **policy hook** — `classify.command-risk`, which can affect whether the active approval policy
   requires a person to approve one shell command.
 
@@ -143,6 +144,29 @@ Because this happens quietly mid-run, Jazz surfaces it: the first time a run rec
 it prints a one-line green notice crediting the plugin, and the individual keep / truncate / drop
 decisions are written to the log (`Compaction plugin tool-result decisions`) at both the clear rung
 and `/compact`. `/compact` additionally shows the decisions live and names the plugin as it works.
+
+## Browser page hooks
+
+Two advisory hooks serve the [browser tools](../concepts/browser.md).
+
+`classify.page` runs on each `browser_snapshot`. It receives the page's origin (scheme and host,
+never the path or query), its title, up to 200 interactive elements as role and label pairs, and
+whether the page has a password or payment card field. It returns a probability for each of four
+flags: `credential-entry`, `payment`, `captcha`, and `agent-directed-instructions`. A flag at or
+above 0.5 adds scrutiny: `browser_act` asks on every call on that page, even under the `high-risk`
+policy or an allowlist, and the approval and the snapshot carry a warning that Jazz words from the
+flag names alone. Jazz rebuilds the answer from those two fields, so nothing else a plugin returns
+can reach a decision, and no answer can lower a risk, skip an approval, remove a flag the page's own
+structure raised, or clear the untrusted-content marking.
+
+`route.snapshot` runs on the first window of a snapshot. It receives your latest request, the
+origin, and the same elements, and returns a probability for each element plus one for none. Up to
+eight elements at or above 0.1 are listed first under "Likely relevant to your request:". The whole
+outline follows unchanged, so a wrong answer costs attention and hides nothing.
+
+Neither hook receives page text. Both time out after two seconds like the other advisory hooks,
+and any error, invalid answer, or abstention leaves the snapshot exactly as it would be without
+them. `jazz plugin dev` cannot run these two hooks yet.
 
 ## Command-risk policy hook
 

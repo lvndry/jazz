@@ -117,16 +117,16 @@ with runtime package dependencies must use [bundled distribution](../../docs/con
 The [SDK declarations](./src/index.ts) are the full API reference. Every capability must
 be declared in `jazz-plugin.json` before its matching handler can register.
 
-| API                              | Purpose                                                                            |
-| -------------------------------- | ---------------------------------------------------------------------------------- |
-| `api.tools.register`             | Add a model-callable tool with its declared schema, risk and egress behavior.      |
-| `api.commands.register`          | Add a slash command; its returned `message` becomes a user turn for the agent.     |
-| `api.hooks.register`             | Advise skill routing (`route.skills`) or tool-result compaction (`compact.tools`). |
-| `api.policy.register`            | Classify shell-command risk (`classify.command-risk`), which can affect approval.  |
-| `api.decisions.registerProvider` | Register a decision provider and receive a host-managed decision client.           |
-| `api.lifecycle.register`         | Observe declared lifecycle events, such as `run-complete` or `awaiting-input`.     |
-| `api.workspace.register`         | Supply bounded, transient workspace context before model requests.                 |
-| `api.secrets.get`                | Resolve a secret name declared by the plugin, from environment or secure storage.  |
+| API                              | Purpose                                                                                                                                |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `api.tools.register`             | Add a model-callable tool with its declared schema, risk and egress behavior.                                                          |
+| `api.commands.register`          | Add a slash command; its returned `message` becomes a user turn for the agent.                                                         |
+| `api.hooks.register`             | Advise skill routing (`route.skills`), tool-result compaction (`compact.tools`), or browser pages (`classify.page`, `route.snapshot`). |
+| `api.policy.register`            | Classify shell-command risk (`classify.command-risk`), which can affect approval.                                                      |
+| `api.decisions.registerProvider` | Register a decision provider and receive a host-managed decision client.                                                               |
+| `api.lifecycle.register`         | Observe declared lifecycle events, such as `run-complete` or `awaiting-input`.                                                         |
+| `api.workspace.register`         | Supply bounded, transient workspace context before model requests.                                                                     |
+| `api.secrets.get`                | Resolve a secret name declared by the plugin, from environment or secure storage.                                                      |
 
 Personas and skills are manifest-only contributions; they need no runtime registration.
 Use `JazzPluginSourceManifest` to type-check a manifest authored in TypeScript.
