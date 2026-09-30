@@ -44,10 +44,6 @@ stdout contains one single-line JSON object on success or failure.
 An invalid configuration file or a missing `--config` path also returns this failure
 envelope with `code: "failed"` and `costUSD: 0`, even before the agent starts. Recovery
 instructions stay on stderr. `jazz workflow run --json` follows the same rule.
-Unexpected crashes during a JSON workflow run also return an `ok:false` envelope
-and exit non-zero. With `--events`, workflow failures additionally emit an NDJSON
-`status` event with `level: "error"` on stderr, so live log readers can show the
-failure before parsing the final result.
 
 ```jsonc
 // success
