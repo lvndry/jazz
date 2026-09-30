@@ -146,6 +146,55 @@ What this does not cover:
   frame from another site, and a plugin's classification reads titles and labels that the page
   wrote, which can be written to steer it.
 
+## Computer use safety (experimental)
+
+The [computer tools](../concepts/computer-use.md) let the model read and act in desktop apps. They
+are experimental and run on macOS with Apple Silicon only. Five rules bound them.
+
+- **Only apps you granted, and only as far as their class allows.** You grant each app by bundle
+  id, for a time you choose, with `jazz computer grant`. Terminals, password managers, System
+  Settings and script editors cannot be granted at all, because controlling one would bypass the
+  shell tool's approvals or hand the model your credentials or permissions. Browsers can only be
+  read, and editors and Finder take clicks but no typing. The class is fixed by the app and a
+  grant cannot raise it. Grants are read again before every action, so a revoke or an expiry
+  takes effect on the next one.
+- **Only you can grant.** `jazz computer acknowledge` and `jazz computer grant` refuse to run in
+  a process a Jazz agent started, no tool grants, and the agent's file tools ask about every
+  change under `$JAZZ_HOME/computer` under every policy. An agent with shell approval under the
+  `high-risk` policy can still edit that state, as it can any other Jazz state.
+- **Only a person watching.** The tools exist only in a terminal conversation. A script, a
+  schedule, a goal or loop cycle, a webhook, a peer request, a bot, or a detached job does not
+  get them.
+- **What a window says is data.** An observation arrives in the `untrusted-content` envelope and
+  marks the run as having read external content, so outbound tools stop auto-approving below the
+  `high-risk` policy afterwards. `computer_input` and `computer_foreground` need approval, and a
+  password field accepts only a secret you collected with `ask_user_secret`. Jazz also refuses
+  the shortcuts that empty the Trash, lock the screen or log out, and text that downloads and
+  runs code or deletes data.
+- **You can stop it.** `jazz computer stop` ends the run at its next action and stops the driver
+  at once. One run holds the desktop at a time, and a crashed run releases it.
+
+The driver is pinned: `jazz computer acknowledge` records the SHA-256 of the `cua-driver`
+executable, and a session refuses to start if that file changed. The driver runs in its
+promptless standard mode with no manifest inherited from your shell.
+
+What this does not cover:
+
+- **It is not an operating-system sandbox.** An app the agent controls can do anything that app
+  can do, including things Jazz never sees. The class of an app limits what Jazz tries, not what
+  the app does in response.
+- **The model sees what the window shows.** Screenshots and on-screen text go to your model
+  provider. Pixels cannot be redacted: Jazz redacts secrets it knows in the accessibility text,
+  and reads only windows of granted apps, but a window that displays a secret in an image shows
+  it. Keep sensitive apps out of the grant and close their windows.
+- **The driver's hash covers one executable.** If the driver hands work to a separate helper
+  app, that app is not hashed.
+- **Text in a window can still steer the model.** The envelope and the approvals limit what
+  follows, but they do not stop a model from being persuaded to click something inside an app it
+  was granted.
+- **The record is metadata.** `jazz computer log` holds the action, the app and a shortened,
+  redacted element label, never a screenshot or typed text.
+
 ## Secret values in tool output
 
 Files read normally, whatever they hold: `read_file`, `grep`, `find`, `ls`, `cp` and `mv` treat
@@ -236,10 +285,12 @@ passphrase. The agent asks for one with `ask_user_secret`, and the value never r
   conversation log, the run record or a provider request.
 - **Only declared arguments get the value.** Just before a tool runs, Jazz puts the value in place
   of the placeholder in the arguments that tool declares for secrets: `password` of `read_pdf` and
-  `pdf_page_count`, `command` of `execute_command`, and `text` of `browser_act`. A command or a
-  typed browser action carrying one always asks you, under every auto-approve policy, and its
-  approval shows the placeholder. `browser_act` is the one tool that sends the value off this
-  machine, to the page you are signed in to; see [browser safety](#browser-safety). Any other tool or
+  `pdf_page_count`, `command` of `execute_command`, `text` of `browser_act`, and `text` of
+  `computer_input` and `computer_foreground`. A command or a typed browser or desktop action
+  carrying one always asks you, under every auto-approve policy, and its approval shows the
+  placeholder. `browser_act` sends the value off this machine, to the page you are signed in to;
+  see [browser safety](#browser-safety). The computer tools enter it into an app on this machine;
+  see [computer use safety](#computer-use-safety-experimental). Any other tool or
   argument carrying the placeholder is refused, so it cannot reach a file, a URL, a web search, an
   MCP server, a notification or a sub-agent's prompt. A placeholder standing for a secret Jazz holds
   in its config (`[redacted:llm.openai.api_key]`) is never replaced by anything.

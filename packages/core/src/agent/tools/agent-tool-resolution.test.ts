@@ -2,7 +2,13 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent, AgentConfig } from "@/core/types";
-import { resolveAgentToolNames, runToolDenials, toolDenials } from "./agent-tool-resolution";
+import {
+  isAttendedRun,
+  resolveAgentToolNames,
+  runToolDenials,
+  toolDenials,
+} from "./agent-tool-resolution";
+import { COMPUTER_TOOL_NAMES } from "./computer/tool-names";
 
 function agentWith(config: Partial<AgentConfig>): Agent {
   return {
@@ -99,6 +105,10 @@ describe("resolving what an agent can actually reach", () => {
   });
 });
 
+function withoutComputerTools(denied: ReadonlySet<string>): string[] {
+  return [...denied].filter((name) => !COMPUTER_TOOL_NAMES.includes(name)).sort();
+}
+
 describe("runToolDenials", () => {
   /**
    * The regression: every surface got `propose_goal`, so a webhook or workflow run that called
@@ -106,17 +116,15 @@ describe("runToolDenials", () => {
    */
   it("withholds propose_goal unless the surface shows proposals to a person", () => {
     const agent = agentWith({ deniedTools: ["rm"] });
-    expect([...runToolDenials(agent, undefined, {})].sort()).toEqual([
+    expect(withoutComputerTools(runToolDenials(agent, undefined, {}))).toEqual([
       "end_loop",
       "propose_goal",
       "report_goal_cycle",
       "rm",
     ]);
-    expect([...runToolDenials(agent, undefined, { offersGoalProposals: true })].sort()).toEqual([
-      "end_loop",
-      "report_goal_cycle",
-      "rm",
-    ]);
+    expect(
+      withoutComputerTools(runToolDenials(agent, undefined, { offersGoalProposals: true })),
+    ).toEqual(["end_loop", "report_goal_cycle", "rm"]);
   });
 
   it("gives end_loop only to loop runs and report_goal_cycle only to goal cycles", () => {
@@ -131,5 +139,51 @@ describe("runToolDenials", () => {
     );
     expect(runToolDenials(agent, undefined, { startedBy: "goal" }).has("end_loop")).toBe(true);
     expect(runToolDenials(agent, undefined, {}).has("report_goal_cycle")).toBe(true);
+  });
+});
+
+describe("computer tools", () => {
+  const agent = agentWith({});
+  const denies = (surface: Parameters<typeof runToolDenials>[2]) => {
+    const denied = runToolDenials(agent, undefined, surface);
+    return COMPUTER_TOOL_NAMES.every((name) => denied.has(name));
+  };
+  const grants = (surface: Parameters<typeof runToolDenials>[2]) => {
+    const denied = runToolDenials(agent, undefined, surface);
+    return COMPUTER_TOOL_NAMES.every((name) => !denied.has(name));
+  };
+
+  it("are given to a terminal conversation with a person watching", () => {
+    expect(grants({ origin: { source: "chat" } })).toBe(true);
+    expect(isAttendedRun({ origin: { source: "chat" } })).toBe(true);
+  });
+
+  it("are withheld, hidden halves included, from every run nobody is watching", () => {
+    for (const source of [
+      "run",
+      "workflow",
+      "goal",
+      "loop",
+      "wake-trigger",
+      "job",
+      "webhook",
+      "peer",
+      "daemon",
+      "bot",
+      "detached",
+      "resume",
+    ] as const) {
+      expect(denies({ origin: { source } })).toBe(true);
+    }
+  });
+
+  it("are withheld when the run has no origin", () => {
+    expect(denies({})).toBe(true);
+  });
+
+  it("are withheld from a chat run that cannot ask a person, or that a goal or loop started", () => {
+    expect(denies({ origin: { source: "chat" }, withholdInteractiveTools: true })).toBe(true);
+    expect(denies({ origin: { source: "chat" }, startedBy: "goal" })).toBe(true);
+    expect(denies({ origin: { source: "chat" }, startedBy: "loop" })).toBe(true);
   });
 });

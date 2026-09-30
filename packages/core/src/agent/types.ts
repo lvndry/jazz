@@ -1,5 +1,6 @@
 import type { Effect } from "effect";
 import type { BrowserSessions } from "@/core/agent/tools/browser/session";
+import type { ComputerSessions } from "@/core/agent/tools/computer/session";
 import type { ProviderName } from "@/core/constants/models";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { UserSecretStore } from "@/core/secrets/user-secrets";
@@ -264,6 +265,11 @@ export interface AgentRunnerOptions {
    * browser, and the parent closes it. A top-level run opens its own and closes it when it ends.
    */
   readonly browserSessions?: BrowserSessions;
+  /**
+   * The computer-session holder the runner opened for this run. A sub-agent is never given the
+   * computer tools, so it never shares its parent's.
+   */
+  readonly computerSessions?: ComputerSessions;
   /**
    * This run is continuing a parked one. Its history already ends mid-turn, so no user
    * message is appended.

@@ -103,6 +103,11 @@ export const BROWSER_CATEGORY: ToolCategory = {
   displayName: "Browser Use",
   loadTier: "deferred",
 };
+export const COMPUTER_CATEGORY: ToolCategory = {
+  id: "computer",
+  displayName: "Computer use (experimental)",
+  loadTier: "deferred",
+};
 export const COMPOSITION_CATEGORY: ToolCategory = {
   id: "composition",
   displayName: "Compositions",
@@ -132,6 +137,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   USER_INTERACTION_CATEGORY,
   COMPOSITION_CATEGORY,
   BROWSER_CATEGORY,
+  COMPUTER_CATEGORY,
   GOALS_CATEGORY,
 ] as const;
 
