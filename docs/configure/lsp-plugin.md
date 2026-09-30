@@ -61,14 +61,6 @@ every turn. A failed server start is retried after a short delay rather than on 
 an unavailable server does not stop the coding run. The model cannot choose the
 executable or its arguments.
 
-For TypeScript, a file excluded by its nearest `tsconfig.json` can be opened by the
-language server in an inferred project. Such a project may lack the package's `types`
-and produce misleading diagnostics for `bun:test`, `node:*`, or `process` despite a
-passing test typecheck. Keep test files in a discoverable TypeScript project instead
-of suppressing those diagnostics: Jazz's CLI uses `packages/cli/src/tsconfig.json`
-for editor/LSP analysis while `packages/cli/tsconfig.json` continues to exclude
-tests from the production build.
-
 The tools use **1-based** line and UTF-16 character coordinates. `code_actions` lists available
 actions for a range. `apply_code_action` selects one by its exact title, with a zero-based `index`
 when titles repeat, and resolves lazy edits when the server supports it. Actions without an edit
