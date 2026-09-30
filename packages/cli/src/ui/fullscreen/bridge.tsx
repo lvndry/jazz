@@ -988,6 +988,7 @@ function sameBlock(previous: Block | undefined, current: Block): previous is Blo
         previous.notDone === current.notDone &&
         previous.durationMs === current.durationMs &&
         previous.detail === current.detail &&
+        previous.outputPreview === current.outputPreview &&
         previous.expanded === current.expanded &&
         previous.classifiedRisk === current.classifiedRisk
       );
