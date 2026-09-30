@@ -1,7 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs } from "../glyphs";
-import { planProgress, planWindow, todoLine, todoMarkKind, todoPlainLine } from "./todo";
+import {
+  planProgress,
+  planWindow,
+  settledPlan,
+  todoLine,
+  todoMarkKind,
+  todoPlainLine,
+} from "./todo";
 
 const glyphs = getGlyphs();
 
@@ -107,5 +114,25 @@ describe("planWindow", () => {
     const window = planWindow(finished, 3);
     expect(window.start).toBe(5);
     expect(window.overflow).toBe(0);
+  });
+});
+
+describe("settledPlan", () => {
+  it("drops a step still in progress back to pending and leaves the rest", () => {
+    const todos: TodoSnapshotItem[] = [
+      { content: "a", status: "completed" },
+      { content: "b", status: "in_progress" },
+      { content: "c", status: "pending" },
+    ];
+    expect(settledPlan(todos).map((todo) => todo.status)).toEqual([
+      "completed",
+      "pending",
+      "pending",
+    ]);
+  });
+
+  it("returns the same list when nothing is in progress", () => {
+    const todos: TodoSnapshotItem[] = [{ content: "a", status: "completed" }];
+    expect(settledPlan(todos)).toBe(todos);
   });
 });

@@ -66,6 +66,18 @@ export function todoLine(todo: TodoSnapshotItem, glyphs: GlyphSet): TodoLine {
   };
 }
 
+/**
+ * The plan as it reads once no run is driving it. A step still marked in progress belongs to a
+ * run that ended (stopped, failed, cancelled) without finishing it, so it drops back to pending
+ * instead of keeping a moving mark for work nobody is doing.
+ */
+export function settledPlan(todos: readonly TodoSnapshotItem[]): readonly TodoSnapshotItem[] {
+  if (!todos.some((todo) => todo.status === "in_progress")) return todos;
+  return todos.map((todo) =>
+    todo.status === "in_progress" ? { ...todo, status: "pending" } : todo,
+  );
+}
+
 /** `✓ Check status`: an item as plain text, for a receipt's detail and plain output. */
 export function todoPlainLine(todo: TodoSnapshotItem, glyphs: GlyphSet): string {
   const line = todoLine(todo, glyphs);
