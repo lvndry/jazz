@@ -10,6 +10,8 @@ scripts, templates, and reference material.
 
 Use skills to teach a repeatable procedure without putting the whole procedure in every prompt.
 
+Jazz is compatible with [Agent Skills](https://agentskills.io).
+
 ## Use a skill
 
 Enter `/skills` in a conversation to browse available skills. Read one, then ask for a task
@@ -42,7 +44,7 @@ Jazz loads skill instructions on demand:
 | Source   | Path                | Scope                                |
 | -------- | ------------------- | ------------------------------------ |
 | Built-in | ships with Jazz     | everywhere                           |
-| Shared   | `~/.agents/skills/` | every tool that reads the convention |
+| Shared   | `~/.agents/skills/` | other tools that read this directory |
 | Global   | `~/.jazz/skills/`   | all your projects                    |
 | Project  | `./skills/`         | this repository only                 |
 
