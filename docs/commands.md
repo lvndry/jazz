@@ -55,7 +55,7 @@ Available on every command.
 ## `jazz`
 
 With no arguments, opens the home screen. Choose an agent and type a message to start work.
-Use `/new` to create an agent, `/agents` to manage agents, `/resume` to continue a conversation,
+Use `/start` or `/new` to start a fresh conversation, `/create` to create an agent, `/agents` to manage agents, `/resume` to continue a conversation,
 and `/settings` to configure providers, display, and limits.
 
 Global options work here too: `jazz --debug` and `jazz --data-dir ~/work` open the same home. The
@@ -940,8 +940,8 @@ shows every form of one command. The table below is generated from the same list
 | `/rename [title]`                                                                    | Rename the current conversation.                                                                              |
 | `/resume`                                                                            | Browse and resume a past conversation.                                                                        |
 | `/retry`                                                                             | Re-send your last message.                                                                                    |
-| `/new`                                                                               | Create a new agent.                                                                                           |
-| `/start`                                                                             | Start a fresh conversation with the current agent.                                                            |
+| `/start`                                                                             | Start a fresh conversation with the current agent. Also `/new`.                                               |
+| `/create`                                                                            | Create a new agent.                                                                                           |
 | `/skills`                                                                            | Search installed skills by name, source, or description.                                                      |
 | `/info`                                                                              | Show conversation id, title, usage, and log file paths for this session. Also `/stats`.                       |
 | `/switch [agent]`                                                                    | Switch to a different agent in the same conversation.                                                         |
@@ -952,9 +952,8 @@ shows every form of one command. The table below is generated from the same list
 
 <!-- chat-commands:end -->
 
-`/new` creates an agent in both home and terminal chat. In chat it leaves your active agent and
-conversation in place; `/start` starts a fresh conversation with that agent. Chat bridges have
-independent command contracts described in their surface guides.
+`/start` starts a fresh conversation with that agent; `/new` is an alias for that. `/create` creates a new agent.
+Chat bridges have independent command contracts described in their surface guides.
 
 `/rename <title>` sets the current conversation's title, preserving internal whitespace and
 Unicode without an artificial length limit. Bare `/rename` edits the current title; Escape

@@ -7,14 +7,20 @@ describe("parseSpecialCommand", () => {
     const title = `研究  Café 🪷\t${"long title ".repeat(1000).trim()}`;
     expect(parseSpecialCommand(`/ReNaMe ${title}`)).toEqual({ type: "rename", args: [title] });
     expect(parseSpecialCommand("/rename")).toEqual({ type: "rename", args: [] });
-    expect(parseSpecialCommand("/new")).toEqual({ type: "new", args: [] });
+    expect(parseSpecialCommand("/new")).toEqual({ type: "start", args: [] });
+    expect(parseSpecialCommand("/create")).toEqual({ type: "create", args: [] });
     expect(parseSpecialCommand("/start")).toEqual({ type: "start", args: [] });
   });
-
   describe("recognized commands", () => {
-    it("should parse /new command", () => {
+    it("should parse /new as a fresh conversation command", () => {
       const result = parseSpecialCommand("/new");
-      expect(result.type).toBe("new");
+      expect(result.type).toBe("start");
+      expect(result.args).toEqual([]);
+    });
+
+    it("should parse /create command", () => {
+      const result = parseSpecialCommand("/create");
+      expect(result.type).toBe("create");
       expect(result.args).toEqual([]);
     });
 
@@ -143,12 +149,12 @@ describe("parseSpecialCommand", () => {
   describe("case insensitivity", () => {
     it("should handle uppercase commands", () => {
       const result = parseSpecialCommand("/NEW");
-      expect(result.type).toBe("new");
+      expect(result.type).toBe("start");
     });
 
     it("should handle mixed case commands", () => {
-      const result = parseSpecialCommand("/HeLp");
-      expect(result.type).toBe("help");
+      const result = parseSpecialCommand("/CrEaTe");
+      expect(result.type).toBe("create");
     });
   });
 

@@ -187,7 +187,7 @@ export function handleSpecialCommand(
       case "rename":
         return yield* handleRenameCommand(terminal, context, command.args);
 
-      case "new": {
+      case "create": {
         const created = yield* Effect.either(createAgentCommand());
         if (created._tag === "Left")
           yield* terminal.error(`Failed to create agent: ${created.left.message}`);
