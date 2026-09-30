@@ -81,6 +81,17 @@ the Chrome DevTools Protocol, set `network.browserEndpoint` in your global confi
 Everything the agent reads and types then reaches that browser's host, so point it only at a
 browser you control.
 
+For example, [Lightpanda](https://lightpanda.io) is a lightweight browser that starts in
+milliseconds. Run `lightpanda serve --host 127.0.0.1 --port 9222`, then set:
+
+```json
+{ "network": { "browserEndpoint": "ws://127.0.0.1:9222" } }
+```
+
+Reading pages, typing, choosing options, and clicking work there. A browser without a full
+layout engine clicks through the element itself, and pages that depend on rendering or
+anti-bot checks may behave differently from Chrome.
+
 ## What the page can reach
 
 Every request a page makes, including images, scripts, and redirects, is held to the same rules
@@ -96,8 +107,9 @@ isolation does and does not cover.
 
 ## Limits
 
-- The snapshot is capped at 24,000 characters. A long page ends with a line saying so; scroll
-  with a `PageDown` key press and snapshot again.
+- One snapshot call shows at most 24,000 characters. A longer page ends with a note naming the
+  `startLine` that continues it, and refs stay valid across those calls. The outline of a whole
+  page stops at 240,000 characters.
 - One page action waits at most 15 seconds, and a navigation 30 seconds.
 - Downloads are disabled where the browser supports it, and there are no file uploads.
 - WebSocket and WebRTC traffic from a page is not covered by the request rules above.
