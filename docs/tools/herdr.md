@@ -1,3 +1,7 @@
+---
+description: "Agent-state reporting when Jazz runs inside a Herdr pane: identity, live working/blocked/idle state, and session restore."
+---
+
 # Herdr agent-state reporting
 
 Jazz reports its state to [Herdr](https://herdr.dev) when it runs inside a Herdr
