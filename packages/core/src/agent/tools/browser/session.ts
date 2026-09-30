@@ -16,7 +16,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import puppeteer, { type CDPSession, type HTTPRequest, type Page } from "puppeteer-core";
+import type { PageFlagId, PageStructuralSignals } from "@/core/types/plugin";
 import type { EgressPolicy } from "../guarded-fetch";
+import { readPageSignals } from "./page-signals";
 import { decideBrowserRequest } from "./request-guard";
 import { buildSnapshot, type PageSnapshot, type SnapshotRef } from "./snapshot";
 
@@ -97,6 +99,7 @@ export class BrowserSession {
   private blocks: string[] = [];
   private queue: Promise<unknown> = Promise.resolve();
   private closed = false;
+  private flagged: { readonly url: string; readonly flags: readonly PageFlagId[] } | undefined;
 
   private constructor(
     private readonly page: Page,
@@ -289,6 +292,21 @@ export class BrowserSession {
     }
     await this.settle();
     return this.state();
+  }
+
+  /** Whether the current document holds a password or card field. */
+  pageSignals(): Promise<PageStructuralSignals> {
+    return readPageSignals(this.page);
+  }
+
+  /** Remember the flags raised for `url`, for the approvals that follow on that page. */
+  recordFlags(url: string, flags: readonly PageFlagId[]): void {
+    this.flagged = { url, flags };
+  }
+
+  /** The flags last raised for `url`; none when the session has not flagged that page. */
+  flagsFor(url: string): readonly PageFlagId[] {
+    return this.flagged?.url === url ? this.flagged.flags : [];
   }
 
   /** The role and name the last snapshot gave `ref`, or undefined when it has no such ref. */

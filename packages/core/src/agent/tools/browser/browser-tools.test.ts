@@ -53,6 +53,9 @@ function fakeBrowser(page: FakePage, refs: Readonly<Record<string, string>> = {}
       return { ...page };
     },
     describeRef: (ref: string) => refs[ref],
+    pageSignals: async () => ({ passwordField: false, paymentField: false }),
+    recordFlags: () => undefined,
+    flagsFor: () => [],
     close: async () => {
       closes += 1;
     },

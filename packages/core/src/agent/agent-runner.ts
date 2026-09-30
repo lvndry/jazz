@@ -867,6 +867,8 @@ function initializeAgentRun(
                   command: candidate,
                 }),
               ),
+            classifyPage: pluginSession.value.runClassifyPage,
+            routeSnapshot: pluginSession.value.runRouteSnapshot,
           }
         : {}),
       // Always pass arrays by reference so that in-place mutations via

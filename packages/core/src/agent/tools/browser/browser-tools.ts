@@ -33,8 +33,9 @@ import {
 } from "../base-tool";
 import { egressPolicyForContext, type EgressPolicy } from "../guarded-fetch";
 import { createSystemBrowserLookup, resolveBrowserExecutablePath } from "../web-app";
+import { advisePage, renderSnapshot } from "./page-hooks";
+import { combineFlags, describeFlags } from "./page-signals";
 import { BrowserSession, type BrowserSessions, type PageAction, type PageState } from "./session";
-import { snapshotWindow } from "./snapshot";
 
 export const BROWSER_NAVIGATE_TOOL_NAME = "browser_navigate";
 export const BROWSER_ACT_TOOL_NAME = "browser_act";
@@ -201,19 +202,26 @@ export function createBrowserSnapshotTool(): Tool<AgentConfigService> {
     riskLevel: "read-only",
     hidden: false,
     handler: (args, context) =>
-      withBrowser(context, (session) => session.snapshot()).pipe(
-        Effect.map((page) => {
-          const header = describePage(page);
-          const refCount = page.snapshot.refs.size;
-          const shown = snapshotWindow(page.snapshot, args.startLine);
-          return {
-            success: true,
-            result: `${header}\nrefs: ${String(refCount)}\n\n${shown.text}`,
-            untrusted: { kind: "external", source: `browser_snapshot ${page.url}` },
-          } satisfies ToolExecutionResult;
-        }),
-        Effect.catchAll(toFailure),
-      ),
+      Effect.gen(function* () {
+        const { page, signals, session } = yield* withBrowser(context, async (browser) => ({
+          page: await browser.snapshot(),
+          signals: await browser.pageSignals(),
+          session: browser,
+        }));
+        const advice = yield* advisePage(context, {
+          page,
+          signals,
+          firstWindow: args.startLine === undefined || args.startLine === 1,
+        });
+        session.recordFlags(page.url, advice.flags);
+        const header = describePage(page);
+        const refCount = page.snapshot.refs.size;
+        return {
+          success: true,
+          result: `${header}\nrefs: ${String(refCount)}\n\n${renderSnapshot(page.snapshot, advice, args.startLine)}`,
+          untrusted: { kind: "external", source: `browser_snapshot ${page.url}` },
+        } satisfies ToolExecutionResult;
+      }).pipe(Effect.catchAll(toFailure)),
     createSummary: (result) => (result.success ? "Read the browser page" : undefined),
   });
 }
@@ -427,14 +435,20 @@ export function createBrowserActTools(): ApprovalToolPair<AgentConfigService> {
           } as const;
         }
         const state = yield* Effect.tryPromise({ try: () => session.state(), catch: toError });
-        const message = `${describeAction(args, target)}\non ${state.url}`;
+        const signals = yield* Effect.tryPromise({
+          try: () => session.pageSignals(),
+          catch: toError,
+        });
+        const flags = combineFlags(signals, session.flagsFor(state.url));
+        const notice = describeFlags(flags);
+        const message = `${describeAction(args, target)}\non ${state.url}${notice === undefined ? "" : `\n\n${notice}`}`;
 
         const typedSecrets =
           context.userSecrets === undefined || args.text === undefined
             ? []
             : userSecretNamesIn(args.text, context.userSecrets);
         if (typedSecrets.length === 0) {
-          return message;
+          return flags.length === 0 ? message : ({ message, alwaysAsk: true } as const);
         }
         if (!isSecureOrigin(state.url)) {
           return {
