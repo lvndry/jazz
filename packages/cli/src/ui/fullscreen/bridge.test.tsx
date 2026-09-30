@@ -3549,7 +3549,7 @@ describe("fullscreen bridge theme picker", () => {
     expect(answer).toBeUndefined();
   });
 
-  it("jumps to the other variant with l and resolves it on enter", async () => {
+  it("switches to the light list with the right arrow and resolves it on enter", async () => {
     const { renderer, renderOnce, flush, mockInput } = await renderForTest(<FullscreenBridge />, {
       width: WIDTH,
       height: HEIGHT,
@@ -3560,7 +3560,7 @@ describe("fullscreen bridge theme picker", () => {
       chosen = pickThemeInteractively();
     });
     await flush();
-    await mockInput.pressKey("l");
+    await mockInput.pressKey("ARROW_RIGHT");
     await settleKeypress(flush);
     await mockInput.pressKey("RETURN");
     await settleKeypress(flush);

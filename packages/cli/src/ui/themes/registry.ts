@@ -14,7 +14,15 @@ import path from "node:path";
 import chalk from "chalk";
 import type { ThemeVariant } from "../theme";
 import catppuccin from "./builtin/catppuccin.json";
+import everblush from "./builtin/everblush.json";
+import everforest from "./builtin/everforest.json";
+import gruvbox from "./builtin/gruvbox.json";
 import jazz from "./builtin/jazz.json";
+import kanagawa from "./builtin/kanagawa.json";
+import nord from "./builtin/nord.json";
+import poimandres from "./builtin/poimandres.json";
+import rosePine from "./builtin/rose-pine.json";
+import tokyoNight from "./builtin/tokyo-night.json";
 import {
   legibilityWarnings,
   parseThemeFile,
@@ -29,15 +37,23 @@ export const HOUSE_THEME = "jazz";
 /** The theme generated from the terminal's own palette, and `inherit` mode's default. */
 export const SYSTEM_THEME = "system";
 
+const BUILTIN_FILES: readonly (readonly [string, unknown])[] = [
+  ["jazz.json", jazz],
+  ["catppuccin.json", catppuccin],
+  ["tokyo-night.json", tokyoNight],
+  ["kanagawa.json", kanagawa],
+  ["rose-pine.json", rosePine],
+  ["gruvbox.json", gruvbox],
+  ["nord.json", nord],
+  ["everforest.json", everforest],
+  ["poimandres.json", poimandres],
+  ["everblush.json", everblush],
+];
+
 const CHALK_LEVEL_256 = 2;
 
 /** 256-colour terminals paint each def's `xterm` index exactly rather than a rounded hex. */
 const PARSE_OPTIONS = { xterm256: chalk.level === CHALK_LEVEL_256 };
-
-const BUILTIN_FILES: readonly (readonly [string, unknown])[] = [
-  ["jazz.json", jazz],
-  ["catppuccin.json", catppuccin],
-];
 
 function loadBuiltins(): ReadonlyMap<string, ThemeDefinition> {
   const themes = new Map<string, ThemeDefinition>();

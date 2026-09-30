@@ -1,0 +1,76 @@
+{
+  "$schema": "../theme.schema.json",
+  "name": "rose-pine",
+  "label": "Rosé Pine",
+  "description": "Rosé Pine for dark and Dawn for light. Success maps to foam rather than the low-contrast pine role, and syntax tints are tuned within hue for Jazz's distinctness laws.",
+  "theme": {
+    "background": {
+      "dark": "#191724",
+      "light": "#faf4ed"
+    },
+    "backgroundPanel": {
+      "dark": "#1f1d2e",
+      "light": "#f4ede8"
+    },
+    "backgroundElement": {
+      "dark": "#26233a",
+      "light": "#dfdad9"
+    },
+    "borderSubtle": {
+      "dark": "#21202e",
+      "light": "#dfdad9"
+    },
+    "border": {
+      "dark": "#403d52",
+      "light": "#cecacd"
+    },
+    "borderActive": {
+      "dark": "#524f67",
+      "light": "#9893a5"
+    },
+    "selected": {
+      "dark": "#e0def4",
+      "light": "#534f74"
+    },
+    "secondary": {
+      "dark": "#908caa",
+      "light": "#6f6b8a"
+    },
+    "muted": {
+      "dark": "#807c99",
+      "light": "#837e94"
+    },
+    "primary": {
+      "dark": "#c4a7e7",
+      "light": "#7e659b"
+    },
+    "warning": {
+      "dark": "#f6c177",
+      "light": "#9a5910"
+    },
+    "error": {
+      "dark": "#eb6f92",
+      "light": "#ad546e"
+    },
+    "success": {
+      "dark": "#9ccfd8",
+      "light": "#286983"
+    },
+    "syntaxStructure": {
+      "dark": "#ebbcba",
+      "light": "#8a4a35"
+    },
+    "syntaxValue": {
+      "dark": "#6ba0eb",
+      "light": "#5c7a3a"
+    },
+    "syntaxType": {
+      "dark": "#d7827e",
+      "light": "#9d4a6a"
+    },
+    "accentDim": {
+      "dark": "#6e9fc0",
+      "light": "#3f6e8c"
+    }
+  }
+}
