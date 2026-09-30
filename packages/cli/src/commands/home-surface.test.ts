@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { buildHome, firstRunActions } from "./home-surface";
-import { openConversationValue, parseOpenConversationValue } from "../ui/models/home-view";
+import {
+  START_COMMAND,
+  openConversationValue,
+  parseOpenConversationValue,
+} from "../ui/models/home-view";
 
 describe("buildHome", () => {
   const agents = [
@@ -24,11 +28,14 @@ describe("buildHome", () => {
     expect(home.commands.map((command) => command.name)).toEqual([
       "start",
       "new",
+      "create",
       "resume",
       "agents",
       "settings",
       "quit",
     ]);
+    expect(home.commands.find((command) => command.name === "new")?.value).toBe(START_COMMAND);
+    expect(home.commands.find((command) => command.name === "create")?.value).toBe("create-agent");
     expect(home.warning).toBeUndefined();
     expect(home.firstRun).toBeUndefined();
   });

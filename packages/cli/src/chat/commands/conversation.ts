@@ -88,7 +88,7 @@ export function handleStartCommand(
   return Effect.gen(function* () {
     yield* terminal.clear();
     yield* terminal.log(
-      report("start", [
+      report("new", [
         { kind: "text", text: "A fresh conversation. The agent starts with no history." },
       ]),
     );
