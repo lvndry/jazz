@@ -8,6 +8,7 @@ import type z from "zod";
 import type { ToolActivityTracker } from "@/core/agent/run/tool-activity";
 import type { SubagentSupervisor } from "@/core/agent/subagents/supervisor";
 import type { BrowserSessions } from "@/core/agent/tools/browser/session";
+import type { ComputerSessions } from "@/core/agent/tools/computer/session";
 import type { LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
@@ -463,6 +464,11 @@ export interface ToolExecutionContext {
    * so a child editing files shows up in the parent run's occupancy entry.
    */
   readonly toolActivity?: ToolActivityTracker;
+  /**
+   * This run's computer session, started by the first computer tool call and closed when the run
+   * ends. Sub-agents do not get the computer tools, so none shares it.
+   */
+  readonly computerSessions?: ComputerSessions;
   /** The individual call currently executing. Set on a per-call context copy. */
   readonly toolCallId?: string;
   /**

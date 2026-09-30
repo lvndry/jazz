@@ -35,6 +35,7 @@ import puppeteer, {
 } from "puppeteer-core";
 import type { PageFlagId, PageStructuralSignals } from "@/core/types/plugin";
 import type { EgressPolicy } from "../guarded-fetch";
+import { RunScopedResource } from "../run-scoped-resource";
 import { readPageSignals } from "./page-signals";
 import { stripSingletonLocks } from "./real-profile";
 import { decideBrowserRequest } from "./request-guard";
@@ -1030,49 +1031,8 @@ async function userPagesOf(browser: Browser): Promise<readonly Page[]> {
  * The run's browser: launched on first use, closed once when the run ends. Sub-agents share
  * their parent's, and the parent closes it.
  */
-export class BrowserSessions {
-  private session: Promise<BrowserSession> | undefined;
-  private closed = false;
-
-  /** The run's browser, launching it with `launch` the first time. */
-  obtain(launch: () => Promise<BrowserSession>): Promise<BrowserSession> {
-    if (this.closed) {
-      return Promise.reject(new Error("The browser for this run is closed."));
-    }
-    if (this.session === undefined) {
-      const pending = launch();
-      this.session = pending;
-      pending.catch(() => {
-        if (this.session === pending) {
-          this.session = undefined;
-        }
-      });
-    }
-    return this.session;
-  }
-
-  /** The run's browser when one was launched, without launching it. */
-  peek(): Promise<BrowserSession> | undefined {
-    return this.session;
-  }
-
-  /** Close the browser if one was launched; the next `obtain` launches a fresh one. */
-  async release(): Promise<void> {
-    const pending = this.session;
-    this.session = undefined;
-    if (pending === undefined) {
-      return;
-    }
-    const session = await pending.catch(() => undefined);
-    await session?.close();
-  }
-
-  /**
-   * End the run's use of the browser: close it and refuse to launch another. Safe to call twice
-   * and while a launch is pending.
-   */
-  async close(): Promise<void> {
-    this.closed = true;
-    await this.release();
+export class BrowserSessions extends RunScopedResource<BrowserSession> {
+  constructor() {
+    super("The browser for this run is closed.");
   }
 }

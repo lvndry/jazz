@@ -8,16 +8,17 @@ Look up shell commands, their flags, and commands available inside chat.
 
 ## Find a command
 
-| Task                  | Commands                                                                                                                                                        |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Start work            | [`jazz`](#jazz), [`jazz run`](#jazz-run-headless-one-shot), [`jazz agent`](#jazz-agent)                                                                         |
-| Save or schedule jobs | [`jazz workflow`](#jazz-workflow), [`jazz goal`](#jazz-goal), [`jazz loop`](#jazz-loop)                                                                         |
-| Check work and spend  | [`jazz runs`](#jazz-runs), [`jazz spend`](#jazz-spend), [reminders, triggers, jobs](#jazz-reminders-jazz-triggers-jazz-jobs)                                    |
-| Connect services      | [`jazz mcp`](#jazz-mcp), [`jazz peers`](#jazz-peers), [`jazz webhook`](#jazz-webhook)                                                                           |
-| Run elsewhere         | [`jazz daemon`](#jazz-daemon), [`jazz hosts`](#jazz-hosts), [`jazz detach`](#jazz-detach), [`jazz imessage`](#jazz-imessage), [`jazz whatsapp`](#jazz-whatsapp) |
-| Configure and extend  | [`jazz config`](#jazz-config), [`jazz persona`](#jazz-persona), [`jazz skill`](#jazz-skill), [`jazz plugin`](#jazz-plugin), [`jazz memory`](#jazz-memory)       |
-| Update                | [`jazz update`](#jazz-update)                                                                                                                                   |
-| Work inside chat      | [Slash commands](#in-chat-commands), [keyboard shortcuts](#keyboard-shortcuts), [file mentions](#mentioning-files-with-)                                        |
+| Task                             | Commands                                                                                                                                                        |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Start work                       | [`jazz`](#jazz), [`jazz run`](#jazz-run-headless-one-shot), [`jazz agent`](#jazz-agent)                                                                         |
+| Save or schedule jobs            | [`jazz workflow`](#jazz-workflow), [`jazz goal`](#jazz-goal), [`jazz loop`](#jazz-loop)                                                                         |
+| Check work and spend             | [`jazz runs`](#jazz-runs), [`jazz spend`](#jazz-spend), [reminders, triggers, jobs](#jazz-reminders-jazz-triggers-jazz-jobs)                                    |
+| Connect services                 | [`jazz mcp`](#jazz-mcp), [`jazz peers`](#jazz-peers), [`jazz webhook`](#jazz-webhook)                                                                           |
+| Run elsewhere                    | [`jazz daemon`](#jazz-daemon), [`jazz hosts`](#jazz-hosts), [`jazz detach`](#jazz-detach), [`jazz imessage`](#jazz-imessage), [`jazz whatsapp`](#jazz-whatsapp) |
+| Configure and extend             | [`jazz config`](#jazz-config), [`jazz persona`](#jazz-persona), [`jazz skill`](#jazz-skill), [`jazz plugin`](#jazz-plugin), [`jazz memory`](#jazz-memory)       |
+| Use your computer (experimental) | [`jazz computer`](#jazz-computer)                                                                                                                               |
+| Update                           | [`jazz update`](#jazz-update)                                                                                                                                   |
+| Work inside chat                 | [Slash commands](#in-chat-commands), [keyboard shortcuts](#keyboard-shortcuts), [file mentions](#mentioning-files-with-)                                        |
 
 ## Help
 
@@ -255,6 +256,27 @@ The SSH target is a configured SSH alias. The remote workspace must exist and be
 Pass `--allow-file-secrets` to `hosts add` for a server without an OS keyring (libsecret);
 without it, a handoff to such a server stops before anything moves.
 See [Detach hosts](./security/detach-hosts.md) for the host checks and credential scope.
+
+## `jazz computer`
+
+**Experimental.** Commands for [computer use](./concepts/computer-use.md): letting an agent look
+at and act in desktop apps you grant. It runs on macOS with Apple Silicon only, and these
+commands may change or break between releases.
+
+| Command                            | Purpose                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------- |
+| `jazz computer acknowledge`        | Record that you understand computer use, and pin the driver build you trust |
+| `jazz computer grant <bundle-id>`  | Let agents act in one app for a limited time                                |
+| `jazz computer revoke <bundle-id>` | Take back an app's grant, effective on the agent's next action              |
+| `jazz computer list`               | Show the acknowledgement and every grant                                    |
+| `jazz computer apps`               | List running apps with their bundle ids and the class each would get        |
+| `jazz computer stop`               | Stop the run that is using the computer                                     |
+| `jazz computer log`                | Show what computer use did, newest first                                    |
+| `jazz computer doctor`             | Check that this machine and the driver are ready                            |
+
+`acknowledge`, `grant`, and `apps` refuse to run inside a process a Jazz agent started, so an
+agent cannot give itself reach. `doctor` exits 0 when ready, 1 when something needs attention,
+and 2 when computer use cannot run here.
 
 ## `jazz detach`
 
@@ -786,6 +808,12 @@ options still accept [global options](#global-options) and `-h, --help`.
 | `jazz plugin secret status` | `--json`                        | Emit JSON                                                                                                                                                                                                   |
 | `jazz config get`           | `--reveal`                      | Print secret values in full                                                                                                                                                                                 |
 | `jazz config show`          | `--reveal`                      | Print secret values in full                                                                                                                                                                                 |
+| `jazz computer acknowledge` | `--yes`                         | Acknowledge without the typed confirmation                                                                                                                                                                  |
+| `jazz computer grant`       | `--expires <duration>`          | How long the grant lasts, such as 8h (default 8h, at most 7d)                                                                                                                                               |
+| `jazz computer grant`       | `--idle <duration>`             | End a run's access after this long without an action (default 30m)                                                                                                                                          |
+| `jazz computer grant`       | `--foreground`                  | Let Jazz bring the app to the front, for apps the background tools cannot drive                                                                                                                             |
+| `jazz computer grant`       | `--name <name>`                 | A display name to show while the app is not running                                                                                                                                                         |
+| `jazz computer log`         | `--limit <n>`                   | How many entries to show (default 20)                                                                                                                                                                       |
 | `jazz hosts add`            | `--allow-file-secrets`          | Let a server without an OS keyring store handed-off API keys in ~/.jazz/secrets.json                                                                                                                        |
 | `jazz detach reclaim`       | `--overwrite`                   | Let remote versions win where a file also changed locally                                                                                                                                                   |
 | `jazz memory recall`        | `--surface <name>`              | Only report one surface (cli, telegram, discord)                                                                                                                                                            |

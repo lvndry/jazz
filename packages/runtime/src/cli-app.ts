@@ -761,6 +761,103 @@ async function runRemoteHelper(helper: () => Promise<void>): Promise<void> {
   }
 }
 
+/** Register the operator commands for computer use (experimental). */
+function registerComputerCommands(program: Command): void {
+  const computer = program
+    .command("computer")
+    .description("(experimental) Let an agent look at and act in desktop apps you grant");
+  const run = (loadEffect: () => Promise<CliCommandEffect>) =>
+    runCliAction(loadEffect, cliRuntimeOptions(program), { skipCatchUp: true });
+  computer
+    .command("acknowledge")
+    .description("(experimental) Record that you understand computer use and pin the driver build")
+    .option("--yes", "Acknowledge without the typed confirmation")
+    .action((options: { yes?: boolean }) =>
+      run(() =>
+        import("@jazz/cli/commands/computer").then((mod) =>
+          mod.acknowledgeCommand({ yes: options.yes === true }),
+        ),
+      ),
+    );
+  computer
+    .command("grant <bundle-id>")
+    .description("(experimental) Let agents act in one app for a limited time")
+    .option(
+      "--expires <duration>",
+      "How long the grant lasts, such as 8h (default 8h, at most 7d)",
+      parseDurationMs("--expires"),
+    )
+    .option(
+      "--idle <duration>",
+      "End a run's access after this long without an action (default 30m)",
+      parseDurationMs("--idle"),
+    )
+    .option(
+      "--foreground",
+      "Let Jazz bring the app to the front, for apps the background tools cannot drive",
+    )
+    .option("--name <name>", "A display name to show while the app is not running")
+    .action(
+      (
+        bundleId: string,
+        options: { expires?: number; idle?: number; foreground?: boolean; name?: string },
+      ) =>
+        run(() =>
+          import("@jazz/cli/commands/computer").then((mod) =>
+            mod.grantCommand(bundleId, {
+              expiresMs: options.expires,
+              idleMs: options.idle,
+              foreground: options.foreground === true,
+              name: options.name,
+            }),
+          ),
+        ),
+    );
+  computer
+    .command("revoke <bundle-id>")
+    .description("(experimental) Take back an app's grant, effective on the agent's next action")
+    .action((bundleId: string) =>
+      run(() => import("@jazz/cli/commands/computer").then((mod) => mod.revokeCommand(bundleId))),
+    );
+  computer
+    .command("list")
+    .description("(experimental) Show the acknowledgement and every grant")
+    .action(() =>
+      run(() => import("@jazz/cli/commands/computer").then((mod) => mod.listGrantsCommand())),
+    );
+  computer
+    .command("apps")
+    .description(
+      "(experimental) List running apps with their bundle ids and the class each would get",
+    )
+    .action(() =>
+      run(() => import("@jazz/cli/commands/computer").then((mod) => mod.appsCommand())),
+    );
+  computer
+    .command("stop")
+    .description("(experimental) Stop the run that is using the computer")
+    .action(() =>
+      run(() => import("@jazz/cli/commands/computer").then((mod) => mod.stopCommand())),
+    );
+  computer
+    .command("log")
+    .description("(experimental) Show what computer use did, newest first")
+    .option("--limit <n>", "How many entries to show (default 20)", parsePositiveInt("--limit"))
+    .action((options: { limit?: number }) =>
+      run(() =>
+        import("@jazz/cli/commands/computer").then((mod) =>
+          mod.logCommand({ limit: options.limit }),
+        ),
+      ),
+    );
+  computer
+    .command("doctor")
+    .description("(experimental) Check that this machine and the driver are ready")
+    .action(() =>
+      run(() => import("@jazz/cli/commands/computer").then((mod) => mod.doctorCommand())),
+    );
+}
+
 /** Register operator-owned SSH destinations separately from agent peers. */
 function registerHostsCommands(program: Command): void {
   const hosts = program.command("hosts").description("Manage your SSH servers for /detach");
@@ -3356,6 +3453,7 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
   registerPluginCommands(program);
   registerConfigCommands(program);
   registerHostsCommands(program);
+  registerComputerCommands(program);
   registerDetachCommands(program);
   registerMemoryCommands(program);
   registerWebhookCommands(program);

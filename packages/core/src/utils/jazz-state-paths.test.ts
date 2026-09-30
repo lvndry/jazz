@@ -38,6 +38,12 @@ describe("jazzStateChangeReason", () => {
     expect(jazzStateChangeReason(join(jazzHome, "agents", "default.json"))).toContain("state");
   });
 
+  it("flags the computer-use grants, acknowledgement, record and stop request", () => {
+    for (const name of ["grants.json", "ledger.jsonl", "session.json", "stop", "run.lock"]) {
+      expect(jazzStateChangeReason(join(jazzHome, "computer", name))).toContain("state");
+    }
+  });
+
   it("flags a target that contains Jazz's home", () => {
     expect(jazzStateChangeReason(jazzHome)).toBeDefined();
     expect(jazzStateChangeReason(root)).toBeDefined();

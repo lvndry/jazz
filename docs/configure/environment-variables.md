@@ -134,11 +134,12 @@ The standard OpenTelemetry variables configure OTLP export when `telemetry.otlp`
 
 ## Tools and plugins
 
-| Variable                                      | Effect                                                                                              |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `PUPPETEER_EXECUTABLE_PATH`                   | Chrome or Chromium binary for the web page and PDF tools.                                           |
-| `JAZZ_TERMINAL_NOTIFIER`, `TERMINAL_NOTIFIER` | Path to `terminal-notifier` for desktop notifications on macOS. The bundled copy is used otherwise. |
-| `JAZZ_LSP_CONFIG`                             | Server list for the `lsp` plugin. Defaults to `~/.jazz/lsp.json`, whatever `JAZZ_HOME` is.          |
+| Variable                                      | Effect                                                                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `PUPPETEER_EXECUTABLE_PATH`                   | Chrome or Chromium binary for the web page and PDF tools.                                                           |
+| `JAZZ_COMPUTER_DRIVER`                        | Path to the `cua-driver` executable for [computer use](../concepts/computer-use.md). Searched on `PATH` when unset. |
+| `JAZZ_TERMINAL_NOTIFIER`, `TERMINAL_NOTIFIER` | Path to `terminal-notifier` for desktop notifications on macOS. The bundled copy is used otherwise.                 |
+| `JAZZ_LSP_CONFIG`                             | Server list for the `lsp` plugin. Defaults to `~/.jazz/lsp.json`, whatever `JAZZ_HOME` is.                          |
 
 ## Installer
 
@@ -220,10 +221,10 @@ Platform credentials, allowlists and addresses:
 These variables are private controls for the compiled terminal test fixture. The
 normal Jazz executable does not read them.
 
-| Variable | Effect |
-| --- | --- |
+| Variable           | Effect                                                                      |
+| ------------------ | --------------------------------------------------------------------------- |
 | `JAZZ_PTY_CONTROL` | Validated control-file path used by the compiled PTY qualification fixture. |
-| `JAZZ_PTY_RESULT` | Result-file path used by that fixture to report native frame captures. |
+| `JAZZ_PTY_RESULT`  | Result-file path used by that fixture to report native frame captures.      |
 
 ## Set by Jazz
 

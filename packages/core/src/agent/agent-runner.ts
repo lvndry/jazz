@@ -97,9 +97,11 @@ import { discoverProjectInstructions, type ProjectInstructionFile } from "./proj
 import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
 import { ToolActivityTracker } from "./run/tool-activity";
-import { runToolDenials } from "./tools/agent-tool-resolution";
+import { isAttendedRun, runToolDenials } from "./tools/agent-tool-resolution";
 import { BrowserSessions } from "./tools/browser/session";
 import { resolveCommandRisk } from "./tools/command-risk";
+import { ComputerSessions } from "./tools/computer/session";
+import { COMPUTER_TOOL_NAMES } from "./tools/computer/tool-names";
 import { registerCustomToolsForAgent } from "./tools/custom";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
@@ -662,6 +664,15 @@ function initializeAgentRun(
     // Both scopes of denial, after everything that grants. Neither is undoable below: the
     // allowlist and carve-outs that follow can only narrow further.
     const denied = runToolDenials(agent, toolProfile, options);
+    if (
+      !isAttendedRun(options) &&
+      agentToolNames.some((name) => COMPUTER_TOOL_NAMES.includes(name))
+    ) {
+      yield* logger.info(
+        "Computer tools withheld: computer use needs a terminal conversation with a person watching",
+        { agentId: agent.id },
+      );
+    }
     combinedToolNames = combinedToolNames.filter((name) => !denied.has(name));
 
     // Ephemeral runs (jazz run --ephemeral) withhold the memory-writing tool
@@ -926,6 +937,9 @@ function initializeAgentRun(
       ...(options.browserSessions !== undefined
         ? { browserSessions: options.browserSessions }
         : {}),
+      ...(options.computerSessions !== undefined
+        ? { computerSessions: options.computerSessions }
+        : {}),
       subagentDepth: options.subagentDepth ?? 0,
       maxSubagentDepth: Math.max(
         0,
@@ -1133,8 +1147,20 @@ export class AgentRunner {
             (sessions) => Effect.promise(() => sessions.close()),
           ));
 
+        // The same holder pattern for the desktop: started by the first computer tool call, and
+        // closed, with its lock released and its screenshots deleted, when the run ends.
+        const computerSessions = yield* Effect.acquireRelease(
+          Effect.sync(() => new ComputerSessions()),
+          (sessions) => Effect.promise(() => sessions.close()),
+        );
+
         // Initialize run context
-        const runContext = yield* initializeAgentRun({ ...options, userSecrets, browserSessions });
+        const runContext = yield* initializeAgentRun({
+          ...options,
+          userSecrets,
+          browserSessions,
+          computerSessions,
+        });
 
         // Internal runs without their own panel (compaction) must not take over
         // the parent's stream — a streamed completion finalizes the transcript,
