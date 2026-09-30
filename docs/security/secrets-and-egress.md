@@ -125,6 +125,12 @@ approval names the page, Jazz refuses plain `http` pages that are not on this ma
 model only ever sees the placeholder. The page itself receives the value, so approve it only for
 a site you expect to sign in to.
 
+A page that shows a password or payment card field is flagged. `browser_act` then asks on every
+call there, even under the `high-risk` policy or an allowlist, and the approval carries a warning.
+A plugin can add flags through the `classify.page` hook. A flag only adds scrutiny: a plugin cannot
+remove a flag the page's own structure raised, lower a risk, skip an approval, or clear the
+untrusted-content marking.
+
 What this does not cover:
 
 - **It is not a sandbox for the page.** A malicious page can still try to exploit the browser.
@@ -136,6 +142,9 @@ What this does not cover:
   that rebinds a name between two requests in the same call is not caught.
 - **What the agent types goes to the page.** A page that looks like the site you expected can
   collect a typed secret. The approval shows the page address; read it.
+- **Flags are an extra alarm, not a boundary.** The structural check does not see fields inside a
+  frame from another site, and a plugin's classification reads titles and labels that the page
+  wrote, which can be written to steer it.
 
 ## Secret values in tool output
 
