@@ -17,6 +17,12 @@ import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
 import type { HttpApprovalPolicy } from "@/core/types/config";
 import type { ChatMessage, MemoryExposure, MemorySource } from "@/core/types/message";
+import type {
+  ClassifyPageInput,
+  ClassifyPageOutcome,
+  RouteSnapshotInput,
+  RouteSnapshotOutcome,
+} from "@/core/types/plugin";
 import type { StreamEvent } from "@/core/types/streaming";
 
 /** A secret typed for a parked ask_user_secret call, or the person declining to type one. */
@@ -405,6 +411,13 @@ export interface ToolExecutionContext {
     command: string,
     conversationMessages?: readonly ChatMessage[],
   ) => Effect.Effect<ToolRiskLevel, never, LLMService | LoggerService>;
+  /**
+   * Advisory page hooks bound to this run's plugin session. Each resolves to an abstention when
+   * no plugin answers. What they return can add scrutiny to a page and reorder its snapshot; it
+   * cannot lower a risk, skip an approval, or clear taint.
+   */
+  readonly classifyPage?: (input: ClassifyPageInput) => Effect.Effect<ClassifyPageOutcome>;
+  readonly routeSnapshot?: (input: RouteSnapshotInput) => Effect.Effect<RouteSnapshotOutcome>;
   /**
    * The parent agent running this tool execution.
    * Used by tools like spawn_subagent to inherit LLM configuration.
