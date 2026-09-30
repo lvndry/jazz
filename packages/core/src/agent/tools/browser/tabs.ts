@@ -100,6 +100,33 @@ export class TabRegistry<Tab> {
   }
 
   /**
+   * Give the tab named `from` the name `to`, keeping its place in the order and its active
+   * status.
+   */
+  rename(from: string, to: string): void {
+    const tab = this.tabs.get(from);
+    if (tab === undefined) {
+      throw new Error(this.unknownTabMessage(from));
+    }
+    const problem =
+      tabNameProblem(to) ??
+      (this.tabs.has(to) ? `A tab named "${to}" is already open.` : undefined);
+    if (problem !== undefined) {
+      throw new Error(problem);
+    }
+    const renamed = [...this.tabs.entries()].map(
+      ([name, entry]) => [name === from ? to : name, entry] as const,
+    );
+    this.tabs.clear();
+    for (const [name, entry] of renamed) {
+      this.tabs.set(name, entry);
+    }
+    if (this.activeName === from) {
+      this.activeName = to;
+    }
+  }
+
+  /**
    * Forget `name` and return its tab. When it was the active tab, the most recently opened
    * remaining tab becomes active, or none does.
    */

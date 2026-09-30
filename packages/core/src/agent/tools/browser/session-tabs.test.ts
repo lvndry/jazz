@@ -211,6 +211,13 @@ function userPage(address: string, title: string): FakePage {
 const PUBLIC_ADDRESS = "http://93.184.216.34/";
 const PRIVATE_ADDRESS = "http://127.0.0.1:9/";
 
+/** A session whose start tab has been used, so a named navigation opens a tab beside it. */
+async function openWithUsedStartTab(engine: BrowserEngine): Promise<BrowserSession> {
+  const session = await BrowserSession.openWith(engine);
+  await session.navigate(PUBLIC_ADDRESS);
+  return session;
+}
+
 describe("a session's tabs", () => {
   test("opens with one owned tab named main", async () => {
     const { engine } = makeEngine();
@@ -224,7 +231,7 @@ describe("a session's tabs", () => {
 
   test("opens a named tab on navigation and makes it the active one", async () => {
     const { engine, owned } = makeEngine();
-    const session = await BrowserSession.openWith(engine);
+    const session = await openWithUsedStartTab(engine);
 
     const state = await session.navigate(PUBLIC_ADDRESS, "checkout");
 
@@ -237,9 +244,31 @@ describe("a session's tabs", () => {
     ]);
   });
 
-  test("navigates the active tab when no name is given", async () => {
+  test("names the tab the run started with instead of opening a second one beside it", async () => {
     const { engine, owned } = makeEngine();
     const session = await BrowserSession.openWith(engine);
+
+    const state = await session.navigate(PUBLIC_ADDRESS, "form");
+
+    expect(state.tab).toBe("form");
+    expect(owned).toHaveLength(1);
+    expect((await session.listTabs()).map((tab) => tab.tab)).toEqual(["form"]);
+  });
+
+  test("opens a new tab once the start tab has been used", async () => {
+    const { engine, owned } = makeEngine();
+    const session = await BrowserSession.openWith(engine);
+    await session.navigate(PUBLIC_ADDRESS);
+
+    await session.navigate("http://93.184.216.35/", "second");
+
+    expect(owned).toHaveLength(2);
+    expect((await session.listTabs()).map((tab) => tab.tab)).toEqual(["main", "second"]);
+  });
+
+  test("navigates the active tab when no name is given", async () => {
+    const { engine, owned } = makeEngine();
+    const session = await openWithUsedStartTab(engine);
     await session.navigate(PUBLIC_ADDRESS, "checkout");
 
     await session.navigate("http://93.184.216.35/");
@@ -250,7 +279,7 @@ describe("a session's tabs", () => {
 
   test("switches back to an existing tab by name", async () => {
     const { engine } = makeEngine();
-    const session = await BrowserSession.openWith(engine);
+    const session = await openWithUsedStartTab(engine);
     await session.navigate(PUBLIC_ADDRESS, "checkout");
 
     const state = await session.switchTab("main");
@@ -270,7 +299,7 @@ describe("a session's tabs", () => {
 
   test("stops at the tab cap with a message naming the way out", async () => {
     const { engine, owned } = makeEngine();
-    const session = await BrowserSession.openWith(engine);
+    const session = await openWithUsedStartTab(engine);
     for (let index = 1; index < MAX_TABS; index += 1) {
       await session.navigate(PUBLIC_ADDRESS, `tab-${String(index)}`);
     }
@@ -284,7 +313,7 @@ describe("a session's tabs", () => {
 
   test("closes an owned tab's page and moves the active tab", async () => {
     const { engine, owned } = makeEngine();
-    const session = await BrowserSession.openWith(engine);
+    const session = await openWithUsedStartTab(engine);
     await session.navigate(PUBLIC_ADDRESS, "checkout");
 
     const closed = await session.closeTab("checkout");
@@ -296,7 +325,7 @@ describe("a session's tabs", () => {
 
   test("closes a page it could not finish setting up", async () => {
     const { engine, owned, failNextAttach } = makeEngine();
-    const session = await BrowserSession.openWith(engine);
+    const session = await openWithUsedStartTab(engine);
     failNextAttach();
 
     await expect(session.navigate(PUBLIC_ADDRESS, "broken")).rejects.toThrow("attach failed");
@@ -359,7 +388,7 @@ describe("refs across a page change", () => {
 
   test("keeps each tab's refs apart", async () => {
     const { engine } = makeEngine();
-    const session = await BrowserSession.openWith(engine);
+    const session = await openWithUsedStartTab(engine);
     await session.snapshot();
     await session.navigate(PUBLIC_ADDRESS, "checkout");
 
@@ -375,7 +404,7 @@ describe("a tab the user already had open", () => {
     const mail = userPage("https://mail.example.com/", "Inbox");
     const bank = userPage("https://bank.example.com/", "Accounts");
     const { engine, userPageCalls } = makeEngine({ userPages: [mail, bank] });
-    const session = await BrowserSession.openWith(engine);
+    const session = await openWithUsedStartTab(engine);
 
     await session.navigate(PUBLIC_ADDRESS, "checkout");
     await session.switchTab("main");

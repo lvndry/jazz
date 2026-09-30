@@ -71,6 +71,8 @@ const PROFILE_PREFIX = "jazz-browser-";
 
 const POPUP_FLAG = "--block-new-web-contents";
 
+const BLANK_PAGE_URL = "about:blank";
+
 /** What the model is told when an adoption did not happen, whatever the reason. */
 export const NOT_ADOPTED_MESSAGE = "No tab was adopted.";
 
@@ -437,6 +439,10 @@ export class BrowserSession {
         this.tabs.activate(requested);
         return requested;
       }
+      if (this.untouchedStartTab()) {
+        this.tabs.rename(DEFAULT_TAB_NAME, requested);
+        return requested;
+      }
       await this.openOwnedTab(requested);
       return requested;
     }
@@ -446,6 +452,20 @@ export class BrowserSession {
     }
     await this.openOwnedTab(DEFAULT_TAB_NAME);
     return DEFAULT_TAB_NAME;
+  }
+
+  /**
+   * Whether the tab the run started with is still the only one and still blank. The first named
+   * navigation takes that tab over instead of leaving it empty beside the one it opens.
+   */
+  private untouchedStartTab(): boolean {
+    const start = this.tabs.get(DEFAULT_TAB_NAME);
+    return (
+      this.tabs.size === 1 &&
+      start !== undefined &&
+      start.origin === "owned" &&
+      start.page.url() === BLANK_PAGE_URL
+    );
   }
 
   async back(): Promise<PageState> {

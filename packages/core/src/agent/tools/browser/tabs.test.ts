@@ -106,6 +106,31 @@ describe("TabRegistry", () => {
     expect(registry.active()).toBe("two");
   });
 
+  test("renames a tab in place, keeping its order and whether it is active", () => {
+    const registry = new TabRegistry<string>();
+    registry.add("main", "one");
+    registry.add("second", "two");
+    registry.activate("main");
+
+    registry.rename("main", "form");
+
+    expect(registry.names()).toEqual(["form", "second"]);
+    expect(registry.active()).toBe("form");
+    expect(registry.get("form")).toBe("one");
+    expect(registry.has("main")).toBe(false);
+  });
+
+  test("refuses to rename to a name that is taken or invalid, or an unknown tab", () => {
+    const registry = new TabRegistry<string>();
+    registry.add("main", "one");
+    registry.add("second", "two");
+
+    expect(() => registry.rename("main", "second")).toThrow("already open");
+    expect(() => registry.rename("main", "Not Valid")).toThrow("lowercase words");
+    expect(() => registry.rename("ghost", "other")).toThrow('No tab named "ghost"');
+    expect(registry.names()).toEqual(["main", "second"]);
+  });
+
   test("has no active tab once the last one closes", () => {
     const registry = new TabRegistry<string>();
     registry.add("only", "x");
