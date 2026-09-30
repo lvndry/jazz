@@ -135,10 +135,11 @@ bookkeeping or start child runs, so a peer reaches them only when its `allow` na
 | Tool              | Risk      | Approval pair             | What it does                                                                                                                                                                                                  |
 | ----------------- | --------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `execute_command` | `unknown` | `execute_execute_command` | Run a shell command when no dedicated tool exists. Each command is classified `read-only`, `low-risk`, or `high-risk`, and the active tier then applies to that verdict. Stdout/stderr capped at 256 KB each. |
-| `wait_for`        | `unknown` | `execute_wait_for`        | Block until a command exits 0, re-running it on an interval as tight as 250 ms. One tool call however many checks it takes, capped at 15 minutes.                                                             |
+| `wait_for`        | `unknown` | `execute_wait_for`        | Watch in the background until a command exits 0, re-running it on an interval as tight as 250 ms. Returns at once; the agent is woken when the condition holds or after 15 minutes at most.                   |
 
-`wait_for` polls within one tool call, up to 15 minutes. For longer waits,
-`register_trigger` suspends the run and resumes it later.
+`wait_for` runs as a background job (the same worker as `enqueue_batch`), so the agent keeps
+working and is woken with the last check's output when the condition holds or the time runs out.
+For waits longer than 15 minutes, `register_trigger` suspends the run and resumes it later.
 
 In the interactive terminal, an operator can also type `! <command>` (the space after `!` is
 required). That explicit shell escape

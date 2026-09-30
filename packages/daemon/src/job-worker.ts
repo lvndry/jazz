@@ -27,6 +27,7 @@ import {
 } from "@jazz/adapters/job-queue-service";
 import { inFlight } from "@jazz/adapters/runs/runs-in-flight";
 import { tailForModel } from "@jazz/core/agent/tools/capped-output";
+import { pollUntilSuccess } from "@jazz/core/agent/tools/poll-until";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
 import {
@@ -48,10 +49,22 @@ function jobBatchDirectory(): string {
   return `${getJazzHomeDirectory()}/job-batches`;
 }
 
+function formatWaitLine(job: JobRecord, tail: (output: string) => string): string {
+  const output = (job.result?.stdout?.trim() || job.result?.stderr?.trim()) ?? "";
+  const lastOutput = output ? `\n\`\`\`\n${tail(output)}\n\`\`\`` : "";
+  if (job.status === "succeeded") {
+    return `- Wait for \`${job.command}\`: the condition holds now.${lastOutput}`;
+  }
+  return `- Wait for \`${job.command}\`: gave up, the condition never held (${job.lastError ?? "timed out"}). Last check:${lastOutput || " no output."}`;
+}
+
 function formatJobLine(job: JobRecord, known: readonly KnownSecret[]): string {
   const tail = (output: string): string => tailForModel(redactSecretText(output, known));
   if (job.status === "cancelled") {
     return `- \`${job.command}\`: cancelled before it ran.`;
+  }
+  if (job.poll !== undefined) {
+    return formatWaitLine(job, tail);
   }
   if (job.status === "succeeded") {
     const attempts = job.attempt > 1 ? ` (attempt ${job.attempt})` : "";
@@ -144,26 +157,49 @@ function heartbeat(claimed: ClaimedJob, leaseOwner: string) {
   );
 }
 
-function runClaimedJob(claimed: ClaimedJob, leaseOwner: string) {
-  return Effect.gen(function* () {
-    const outcome = yield* runShellCommand({
+function runJobCommand(claimed: ClaimedJob) {
+  const env = createSanitizedEnv({}, []);
+  if (claimed.poll !== undefined) {
+    return pollUntilSuccess({
       command: claimed.command,
       workingDir: claimed.workingDir,
-      timeoutMs: DEFAULT_JOB_TIMEOUT_MS,
-      env: createSanitizedEnv({}, []),
+      intervalMs: claimed.poll.intervalMs,
+      timeoutMs: claimed.poll.timeoutMs,
+      env,
     }).pipe(
-      Effect.match({
-        onSuccess: (result) => ({
-          success: result.exitCode === 0,
-          result: { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode },
-          error: result.exitCode === 0 ? null : `exit code ${result.exitCode}`,
-        }),
-        onFailure: (error) => ({
-          success: false,
-          result: null,
-          error: toError(error).message,
-        }),
+      Effect.map((polled) => ({
+        success: polled.matched,
+        result: { stdout: polled.stdout, stderr: polled.stderr, exitCode: polled.exitCode },
+        error: polled.matched
+          ? null
+          : `timed out after ${Math.round(polled.elapsedMs / 1000)}s and ${polled.attempts} checks`,
+      })),
+    );
+  }
+  return runShellCommand({
+    command: claimed.command,
+    workingDir: claimed.workingDir,
+    timeoutMs: DEFAULT_JOB_TIMEOUT_MS,
+    env,
+  }).pipe(
+    Effect.match({
+      onSuccess: (result) => ({
+        success: result.exitCode === 0,
+        result: { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode },
+        error: result.exitCode === 0 ? null : `exit code ${result.exitCode}`,
       }),
+      onFailure: (error) => ({
+        success: false,
+        result: null,
+        error: toError(error).message,
+      }),
+    }),
+  );
+}
+
+function runClaimedJob(claimed: ClaimedJob, leaseOwner: string) {
+  return Effect.gen(function* () {
+    const outcome = yield* runJobCommand(claimed).pipe(
       Effect.raceFirst(heartbeat(claimed, leaseOwner).pipe(Effect.zipRight(Effect.never))),
     );
 

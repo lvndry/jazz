@@ -147,6 +147,23 @@ describe("claimDueJobs", () => {
     expect(claimedIds.length).toBe(6);
   });
 
+  test("hands a wait_for job's poll spec to the worker that claims it", async () => {
+    const service = makeService();
+    const poll = { intervalMs: 500, timeoutMs: 30_000 };
+    const outcome = await runEffect(
+      service.enqueueBatch("agent-1", "conv-1", [{ command: "test -f done", poll }], {
+        workingDir: "/tmp",
+        reason: "watch for done",
+      }),
+    );
+    expect(outcome.success).toBe(true);
+
+    const claimed = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 4, "worker-a"));
+
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0]?.poll).toEqual(poll);
+  });
+
   test("respects the batch's concurrencyCap even when more jobs are due", async () => {
     const service = makeService();
     const outcome = await runEffect(

@@ -6,9 +6,17 @@ import type { ProcessOwner } from "@/core/utils/process";
 
 export type JobStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 
+/** A job that reruns its command every `intervalMs` until it exits 0, giving up after `timeoutMs`. */
+export interface JobPollSpec {
+  readonly intervalMs: number;
+  readonly timeoutMs: number;
+}
+
 export interface JobRecord {
   readonly id: string;
   readonly command: string;
+  /** Set for `wait_for` jobs: the job succeeds when the command first exits 0 and fails on timeout. */
+  readonly poll?: JobPollSpec;
   readonly status: JobStatus;
   /** 1-based; incremented each time a failed job is retried. */
   readonly attempt: number;
@@ -67,6 +75,12 @@ export interface JobBatchRecord {
 const JobRecordSchema: z.ZodType<JobRecord> = z.object({
   id: z.string().min(1),
   command: z.string(),
+  poll: z
+    .object({
+      intervalMs: z.number().int().positive(),
+      timeoutMs: z.number().int().positive(),
+    })
+    .exactOptional(),
   status: z.enum(["pending", "running", "succeeded", "failed", "cancelled"]),
   attempt: z.number().int().nonnegative(),
   maxAttempts: z.number().int().positive(),
@@ -102,6 +116,7 @@ export const JobBatchRecordSchema: z.ZodType<JobBatchRecord> = z.object({
 
 export interface EnqueueBatchJobInput {
   readonly command: string;
+  readonly poll?: JobPollSpec;
 }
 
 export interface EnqueueBatchOptions {

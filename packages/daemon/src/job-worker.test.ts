@@ -107,6 +107,43 @@ describe("summarizeBatch", () => {
     expect(summary).toContain("1 test failed");
   });
 
+  it("tells the woken agent a watched condition now holds", () => {
+    const summary = summarizeWithoutHeldSecrets(
+      batch([
+        job({
+          id: "j1",
+          command: "test -f build.done",
+          poll: { intervalMs: 1000, timeoutMs: 60_000 },
+          result: { stdout: "build.done", stderr: "", exitCode: 0 },
+        }),
+      ]),
+    );
+
+    expect(summary).toContain("the condition holds now");
+    expect(summary).toContain("build.done");
+    expect(summary).not.toContain("succeeded after");
+  });
+
+  it("tells the woken agent a watched condition never held, with the last check", () => {
+    const summary = summarizeWithoutHeldSecrets(
+      batch([
+        job({
+          id: "j1",
+          command: "test -f build.done",
+          status: "failed",
+          poll: { intervalMs: 1000, timeoutMs: 60_000 },
+          result: { stdout: "", stderr: "still building", exitCode: 1 },
+          lastError: "timed out after 60s and 61 checks",
+        }),
+      ]),
+    );
+
+    expect(summary).toContain("gave up");
+    expect(summary).toContain("timed out after 60s and 61 checks");
+    expect(summary).toContain("still building");
+    expect(summary).not.toContain("attempt(s)");
+  });
+
   it("falls back to stdout for a failed job that diagnosed itself there", () => {
     const summary = summarizeWithoutHeldSecrets(
       batch([
