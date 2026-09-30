@@ -329,6 +329,80 @@ describe("a question card over the conversation", () => {
 });
 
 describe("transcript wheel and type-to-input", () => {
+  it("holds a paged receipt view and returns to live output without duplicating rows", async () => {
+    let grow = (_count: number): void => undefined;
+    function ReceiptApp(): React.ReactNode {
+      const [count, setCount] = useState(40);
+      grow = setCount;
+      const blocks: Block[] = Array.from({ length: count }, (_, index) => index).flatMap(
+        (index): Block[] => [
+          ...(index >= 40 && index % 5 === 0
+            ? [
+                {
+                  id: `answer-${String(index)}`,
+                  seq: index * 2,
+                  kind: "agent" as const,
+                  markdown: "Still working.",
+                },
+              ]
+            : []),
+          {
+            id: `memory-${String(index)}`,
+            seq: index * 2 + 1,
+            kind: "tool",
+            app: "view_memory",
+            args: "personal/when/preferences",
+            summary: `receipt-${String(index).padStart(2, "0")}`,
+            status: "ok",
+          },
+        ],
+      );
+      return (
+        <App
+          view={{ ...sampleIdleView(), blocks }}
+          onAction={() => undefined}
+        />
+      );
+    }
+    const rendered = await renderForTest(<ReceiptApp />, { width: 80, height: 16 });
+    try {
+      await rendered.renderOnce();
+      expect(rendered.captureCharFrame()).toContain("receipt-39");
+      updateForTest(() => grow(41));
+      await rendered.flush();
+      expect(rendered.captureCharFrame().match(/receipt-40/g)).toHaveLength(1);
+      rendered.mockInput.pressKey("\u001b[5~");
+      await rendered.flush();
+      const older = rendered.captureCharFrame().match(/receipt-\d+/g);
+      expect(older?.length).toBeGreaterThan(0);
+      expect(older).not.toContain("receipt-39");
+      for (let count = 60; count <= 400; count += 20) {
+        updateForTest(() => grow(count));
+        await rendered.flush();
+        expect(rendered.captureCharFrame().match(/receipt-\d+/g)).toEqual(older);
+      }
+      expect(rendered.captureCharFrame()).toContain("new below");
+      rendered.mockInput.pressKey("\u001b[5~");
+      await rendered.flush();
+      expect(rendered.captureCharFrame().match(/receipt-\d+/g)).not.toEqual(older);
+      rendered.mockInput.pressKey("\u001b[F");
+      await rendered.flush();
+      updateForTest(() => grow(420));
+      await rendered.flush();
+      const live = rendered.captureCharFrame();
+      expect(live.match(/receipt-419/g)).toHaveLength(1);
+      expect(live).not.toContain("receipt-399");
+      expect(live).not.toContain("new below");
+      rendered.mockInput.pressKey("\u001b[H");
+      await rendered.flush();
+      const oldest = rendered.captureCharFrame();
+      expect(oldest.match(/receipt-00/g)).toHaveLength(1);
+      expect(oldest).not.toContain("receipt-419");
+    } finally {
+      rendered.renderer.destroy();
+    }
+  });
+
   it("scrolls older conversation lines into view with the mouse wheel", async () => {
     const { renderer, renderOnce, flush, mockMouse, captureCharFrame } = await renderForTest(
       <App
