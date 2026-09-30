@@ -15,7 +15,7 @@ import {
   type WorkflowService,
 } from "@jazz/core/workflows/workflow-service";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Exit, Layer } from "effect";
 import { runWorkflowCommand } from "./workflow";
 
 /**
@@ -195,6 +195,72 @@ describe("runWorkflowCommand", () => {
       expect(envelope["ok"]).toBe(false);
       expect(String(envelope["error"])).toContain("rate limited");
       expect(process.exitCode).toBe(1);
+    });
+
+    it("reports unexpected crashes in the JSON envelope and live event stream", async () => {
+      AgentRunner.run = mock(() =>
+        Effect.sync(() => {
+          throw new TypeError("undefined provider in token accounting");
+        }),
+      ) as unknown as typeof AgentRunner.run;
+      const stderrWrites: string[] = [];
+      const originalStderrWrite = process.stderr.write;
+      process.stderr.write = ((chunk: string | Uint8Array) => {
+        stderrWrites.push(String(chunk));
+        return true;
+      }) as typeof process.stderr.write;
+
+      try {
+        const program = runWorkflowCommand("code-review", {
+          autoApprove: true,
+          agent: "ci-reviewer",
+          json: true,
+          eventTypes: new Set(["error"]),
+        });
+        const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<
+          void,
+          unknown,
+          never
+        >;
+        const exit = await Effect.runPromiseExit(runnable);
+
+        expect(Exit.isSuccess(exit)).toBe(true);
+        expect(stdoutWrites).toHaveLength(1);
+        const envelope = JSON.parse(stdoutWrites[0] as string) as Record<string, unknown>;
+        expect(envelope["ok"]).toBe(false);
+        expect(envelope["error"]).toBe("undefined provider in token accounting");
+        expect(process.exitCode).toBe(1);
+        const events = stderrWrites
+          .join("")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
+        expect(events).toContainEqual({
+          type: "status",
+          level: "error",
+          message: "undefined provider in token accounting",
+        });
+      } finally {
+        process.stderr.write = originalStderrWrite;
+      }
+    });
+
+    it("does not turn interruption into a crash envelope", async () => {
+      AgentRunner.run = mock(() => Effect.interrupt) as unknown as typeof AgentRunner.run;
+      const program = runWorkflowCommand("code-review", {
+        agent: "ci-reviewer",
+        json: true,
+      });
+      const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<
+        void,
+        unknown,
+        never
+      >;
+
+      const exit = await Effect.runPromiseExit(runnable);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(stdoutWrites).toHaveLength(0);
     });
 
     it("aborts a hung run at --timeout and reports it in the envelope", async () => {
