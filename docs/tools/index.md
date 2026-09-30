@@ -17,11 +17,11 @@ and the [security model](../security/index.md).
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **61** |
+| **Agent-facing tools**                                                  | **62** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 12     |
-| Total registered                                                        | 73     |
+| Total registered                                                        | 74     |
 | `read-only`                                                             | 34     |
-| `low-risk`                                                              | 13     |
+| `low-risk`                                                              | 14     |
 | `high-risk`                                                             | 11     |
 | `unknown`                                                               | 3      |
 
@@ -62,11 +62,11 @@ machine; disclosure asks how freely its answer can be shared. The two do not cor
 `read_file` is read-only and can reveal anything, `get_time` is read-only and reveals
 nothing, `write_file` changes the machine and reveals nothing at all.
 
-| Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ---------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `report_goal_cycle`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                                                                                                                                                                                                                 |
-| `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `ask_user_secret`, `browser_act`, `browser_back`, `browser_close`, `browser_navigate`, `browser_screenshot`, `browser_snapshot`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_subagents`, `list_todos`, `manage_memory`, `manage_scratchpad`, `manage_todos`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `steer_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for`, `wait_subagents` |
+| Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `report_goal_cycle`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                                                                                                                                                                                                                                 |
+| `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `ask_user_secret`, `browser_act`, `browser_back`, `browser_close`, `browser_navigate`, `browser_screenshot`, `browser_snapshot`, `browser_tabs`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_subagents`, `list_todos`, `manage_memory`, `manage_scratchpad`, `manage_todos`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `steer_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for`, `wait_subagents` |
 
 A tool spanning two levels takes the more sensitive one. `edit_file` writes, but its approval
 message carries a diff of your file, so it is `private`. `http_request` can reach
@@ -319,14 +319,20 @@ or static images. The bundled `composition` skill supplies design instructions.
 Enable [Browser](../concepts/browser.md) per agent to drive real web pages. The tools load on
 demand and are off by default.
 
-| Tool                 | Risk        | Approval pair         | What it does                                                                                                                            |
-| -------------------- | ----------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `browser_navigate`   | `low-risk`  | none                  | Open an http(s) URL in the run's browser and return its URL and title.                                                                  |
-| `browser_back`       | `low-risk`  | none                  | Go back one page in the browser's history.                                                                                              |
-| `browser_snapshot`   | `read-only` | none                  | Read the current page as a text outline with a ref on every interactive element.                                                        |
-| `browser_screenshot` | `low-risk`  | none                  | Save a PNG of the current page and return its path for `analyze_media`.                                                                 |
-| `browser_act`        | `high-risk` | `execute_browser_act` | Click, type, choose an option, or press a key. Typed secrets from `ask_user_secret` are entered only after you approve, on https pages. |
-| `browser_close`      | `read-only` | none                  | Close the browser and discard its cookies and session.                                                                                  |
+| Tool                 | Risk        | Approval pair         | What it does                                                                                                                             |
+| -------------------- | ----------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `browser_navigate`   | `low-risk`  | none                  | Open an http(s) URL in the run's browser and return its URL and title.                                                                   |
+| `browser_back`       | `low-risk`  | none                  | Go back one page in the browser's history.                                                                                               |
+| `browser_snapshot`   | `read-only` | none                  | Read the current page as a text outline with a ref on every interactive element.                                                         |
+| `browser_screenshot` | `low-risk`  | none                  | Save a PNG of the current page and return its path for `analyze_media`.                                                                  |
+| `browser_tabs`       | `low-risk`  | none                  | List, switch between, and close the run's named tabs. `list` is `read-only`. Open a new tab by giving `browser_navigate` a new tab name. |
+| `browser_act`        | `high-risk` | `execute_browser_act` | Click, type, choose an option, or press a key. Typed secrets from `ask_user_secret` are entered only after you approve, on https pages.  |
+| `browser_close`      | `read-only` | none                  | Close the browser and discard its cookies and session.                                                                                   |
+
+`browser_adopt_tab` (`high-risk`, pair `execute_browser_adopt_tab`) is registered only when
+`network.browserEndpoint` points at a browser the user runs: it lets the agent take over one
+existing tab the user names, after a separate approval showing the tab's title and URL. The
+agent sees only tabs it created or adopted, never the rest of the user's browser.
 
 ---
 

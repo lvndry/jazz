@@ -32,6 +32,7 @@ import {
 } from "./page-signals";
 import { type BrowserSession, BrowserSessions } from "./session";
 import type { PageSnapshot } from "./snapshot";
+import type { RefLookup } from "./tabs";
 
 const NO_SIGNALS: PageStructuralSignals = { passwordField: false, paymentField: false };
 const PASSWORD_SIGNALS: PageStructuralSignals = { passwordField: true, paymentField: false };
@@ -55,6 +56,7 @@ const SNAPSHOT: PageSnapshot = {
 };
 
 const PAGE = {
+  tab: "main",
   url: "https://shop.example/cart/checkout?session=secret-token#step2",
   title: "Checkout",
   snapshot: SNAPSHOT,
@@ -321,12 +323,24 @@ describe("renderSnapshot", () => {
     expect(text.startsWith("Warning:")).toBe(true);
   });
 });
-
 function fakeSession(signals: PageStructuralSignals, recorded: { flags: PageFlagId[] }) {
+  const lookup = (ref: string): RefLookup => {
+    const entry = SNAPSHOT.refs.get(ref);
+    return entry === undefined
+      ? { kind: "missing" }
+      : { kind: "ok", backendNodeId: entry.backendNodeId, label: entry.label };
+  };
   return {
     exclusive: async (_policy: unknown, operation: () => Promise<unknown>) => operation(),
-    state: async () => ({ url: "https://shop.example/pay", title: "Pay" }),
-    snapshot: async () => ({ url: "https://shop.example/pay", title: "Pay", snapshot: SNAPSHOT }),
+    state: async () => ({ tab: "main", url: "https://shop.example/pay", title: "Pay" }),
+    hasTab: () => true,
+    resolveRef: lookup,
+    snapshot: async () => ({
+      tab: "main",
+      url: "https://shop.example/pay",
+      title: "Pay",
+      snapshot: SNAPSHOT,
+    }),
     pageSignals: async () => signals,
     recordFlags: (_url: string, flags: readonly PageFlagId[]) => {
       recorded.flags = [...flags];
@@ -380,7 +394,7 @@ describe("browser tools on a flagged page", () => {
 
   test("a clean page with no plugin asks as it did before", async () => {
     const context = await contextFor(NO_SIGNALS, { flags: [] });
-    const result = await run(actProposal, { action: "click", ref: "e3" }, context);
+    const result = await run(actProposal, { actions: [{ action: "click", ref: "e3" }] }, context);
     const proposal = result.result as { message: string; alwaysAsk?: boolean };
     expect(proposal.alwaysAsk).toBeUndefined();
     expect(proposal.message).toBe('Click button "Pay now"\non https://shop.example/pay');
@@ -388,7 +402,7 @@ describe("browser tools on a flagged page", () => {
 
   test("a password field makes browser_act always ask and puts the warning in the approval", async () => {
     const context = await contextFor(PASSWORD_SIGNALS, { flags: [] });
-    const result = await run(actProposal, { action: "click", ref: "e3" }, context);
+    const result = await run(actProposal, { actions: [{ action: "click", ref: "e3" }] }, context);
     const proposal = result.result as { message: string; alwaysAsk?: boolean };
     expect(proposal.alwaysAsk).toBe(true);
     expect(proposal.message).toContain("Warning: this page has a password field");
@@ -400,7 +414,7 @@ describe("browser tools on a flagged page", () => {
       classifyPage: () => Effect.succeed(answeredFlags(["agent-directed-instructions", 0.95])),
     });
     await run(snapshotTool, {}, context);
-    const result = await run(actProposal, { action: "click", ref: "e3" }, context);
+    const result = await run(actProposal, { actions: [{ action: "click", ref: "e3" }] }, context);
     const proposal = result.result as { message: string; alwaysAsk?: boolean };
     expect(proposal.alwaysAsk).toBe(true);
     expect(proposal.message).toContain("addressed to an AI agent");
@@ -416,7 +430,7 @@ describe("browser tools on a flagged page", () => {
         classifyPage: () => Effect.succeed(classification),
       });
       await run(snapshotTool, {}, context);
-      const result = await run(actProposal, { action: "click", ref: "e3" }, context);
+      const result = await run(actProposal, { actions: [{ action: "click", ref: "e3" }] }, context);
       expect((result.result as { alwaysAsk?: boolean }).alwaysAsk).toBeUndefined();
     }
   });
@@ -427,7 +441,7 @@ describe("browser tools on a flagged page", () => {
       classifyPage: () => Effect.succeed(answeredFlags(["credential-entry", 0])),
     });
     await run(snapshotTool, {}, context);
-    const result = await run(actProposal, { action: "click", ref: "e3" }, context);
+    const result = await run(actProposal, { actions: [{ action: "click", ref: "e3" }] }, context);
     expect((result.result as { alwaysAsk?: boolean }).alwaysAsk).toBe(true);
     expect(actProposal.riskLevel).toBe("high-risk");
   });
