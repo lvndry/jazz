@@ -10,8 +10,8 @@ scripts, templates, and reference material.
 
 Use skills to teach a repeatable procedure without putting the whole procedure in every prompt.
 
-Jazz skills use the [Agent Skills](https://agentskills.io) format, so a skill written for another
-tool that reads it works in Jazz, and a Jazz skill works there.
+Jazz reads the `SKILL.md` layout of the [Agent Skills](https://agentskills.io) format. See
+[what Jazz reads](#what-jazz-reads-from-a-skill) for the fields it uses.
 
 ## Use a skill
 
@@ -42,25 +42,32 @@ Jazz loads skill instructions on demand:
 
 ## Skill locations
 
-| Source   | Path                | Scope                              |
-| -------- | ------------------- | ---------------------------------- |
-| Built-in | ships with Jazz     | everywhere                         |
-| Shared   | `~/.agents/skills/` | every tool that reads Agent Skills |
-| Global   | `~/.jazz/skills/`   | all your projects                  |
-| Project  | `./skills/`         | this repository only               |
+| Source   | Path                | Scope                                |
+| -------- | ------------------- | ------------------------------------ |
+| Built-in | ships with Jazz     | everywhere                           |
+| Shared   | `~/.agents/skills/` | other tools that read this directory |
+| Global   | `~/.jazz/skills/`   | all your projects                    |
+| Project  | `./skills/`         | this repository only                 |
 
 On a name collision the more specific source wins, so a project can override a built-in skill.
 
-## Compatibility with the Agent Skills format
+## What Jazz reads from a skill
 
-Jazz finds a `SKILL.md` up to three folders deep in each location. The frontmatter needs a
-`name` and a `description`; a skill missing either one is skipped, and the rest still load.
-Other frontmatter fields, such as `license`, `compatibility`, `metadata`, and `allowed-tools`,
-are accepted and ignored.
+Jazz loads the subset of the [Agent Skills](https://agentskills.io) format described here.
+Other tools that read the same format may validate it more strictly or treat fields differently,
+so a skill that loads in Jazz is not guaranteed to load the same way elsewhere, or the reverse.
 
-`allowed-tools` has no effect in Jazz: a skill supplies instructions, and the agent's own tool
-permissions and approval policy decide what runs. Jazz does not check that `name` matches the
-folder name.
+- **Discovery:** Jazz finds `SKILL.md` up to three folders deep in the global, shared, and
+  project locations. Built-in skills are found two folders deep, at `skills/<name>/SKILL.md`.
+- **Required fields:** `name` and `description`. A definition that lacks either, or cannot be
+  parsed, is skipped on its own; the other skills still load.
+- **Discovery is best effort.** A folder Jazz cannot read is treated as empty, without an error,
+  so a permissions problem can leave the catalog incomplete.
+- **Other fields:** `license`, `compatibility`, `metadata`, and `allowed-tools` are accepted and
+  ignored.
+- **`allowed-tools` has no effect.** A skill supplies instructions; the agent's own tool
+  permissions and approval policy decide what runs.
+- **The folder name is not checked** against `name`.
 
 Jazz ships skills for research, journaling, meeting notes, email, calendar, Obsidian, and
 creating personas, workflows and skills themselves.
