@@ -1503,7 +1503,7 @@ export function FullscreenBridge(): React.ReactNode {
     tools.length +
       (retryNotice === null ? 0 : RETRY_BAND_ROWS) +
       (waitingNow ? 1 : 0) +
-      (step === undefined || todoList.length > 0 ? 0 : 1) +
+      (step === undefined ? 0 : 1) +
       (todoList.length > 0 ? 1 + Math.min(todoList.length, TODO_WINDOW_ROWS) : 0),
   );
 
