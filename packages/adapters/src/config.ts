@@ -602,15 +602,16 @@ function mergeMcpServers(
 }
 
 /**
- * The project config without its `network` section. HTTP approvals and private-network grants
- * are the operator's call; a config file from a cloned repository cannot widen either.
+ * The project config without its `network` section. HTTP approvals, private-network grants and
+ * the browser endpoint are the operator's call; a config file from a cloned repository cannot
+ * widen or redirect any of them.
  */
 function withoutProjectNetwork(localPath: string, local: ConfigFile): ConfigFile {
   if (local.network === undefined) {
     return local;
   }
   process.stderr.write(
-    `jazz: ignoring network in ${localPath}. Only your global config controls HTTP approvals and private hosts; ` +
+    `jazz: ignoring network in ${localPath}. Only your global config controls HTTP approvals, private hosts, and the browser endpoint; ` +
       "edit network settings with jazz > Settings.\n",
   );
   const { network: _network, ...rest } = local;

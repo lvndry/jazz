@@ -8,6 +8,14 @@ import { Effect, Layer } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
+import {
+  createBrowserActTools,
+  createBrowserBackTool,
+  createBrowserCloseTool,
+  createBrowserNavigateTool,
+  createBrowserScreenshotTool,
+  createBrowserSnapshotTool,
+} from "./browser/browser-tools";
 import { createContextInfoTool, createGetTimeTool, createRetrieveToolResultTool } from "./context";
 import { createPdfTool } from "./create-pdf";
 import { fs } from "./fs";
@@ -30,6 +38,7 @@ import { createSkillTools } from "./skill";
 import { createSubagentTools } from "./subagent";
 import { createListTodosTool, createManageTodosTool } from "./todo";
 import {
+  BROWSER_CATEGORY,
   CONTEXT_CATEGORY,
   FILE_MANAGEMENT_CATEGORY,
   GOALS_CATEGORY,
@@ -90,6 +99,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerPerceptionTools();
     yield* registerUserInteractionTools();
     yield* registerCompositionTools();
+    yield* registerBrowserTools();
   });
 }
 
@@ -330,6 +340,22 @@ export function registerCompositionTools(): Effect.Effect<void, Error, ToolRegis
     yield* registerTool(createCompositionTool());
     // Same category: both turn HTML the agent wrote into a file, and both need Chromium.
     yield* registerTool(createPdfTool());
+  });
+}
+
+export function registerBrowserTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(BROWSER_CATEGORY);
+
+    yield* registerTool(createBrowserNavigateTool());
+    yield* registerTool(createBrowserBackTool());
+    yield* registerTool(createBrowserSnapshotTool());
+    yield* registerTool(createBrowserScreenshotTool());
+    yield* registerTool(createBrowserCloseTool());
+    const actTools = createBrowserActTools();
+    yield* registerTool(actTools.approval);
+    yield* registerTool(actTools.execute);
   });
 }
 

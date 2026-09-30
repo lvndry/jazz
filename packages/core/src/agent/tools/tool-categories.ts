@@ -98,6 +98,11 @@ export const GOALS_CATEGORY: ToolCategory = {
   displayName: "Goals and loops",
   loadTier: "eager",
 };
+export const BROWSER_CATEGORY: ToolCategory = {
+  id: "browser",
+  displayName: "Browser",
+  loadTier: "deferred",
+};
 export const COMPOSITION_CATEGORY: ToolCategory = {
   id: "composition",
   displayName: "Compositions",
@@ -126,6 +131,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   PERCEPTION_CATEGORY,
   USER_INTERACTION_CATEGORY,
   COMPOSITION_CATEGORY,
+  BROWSER_CATEGORY,
   GOALS_CATEGORY,
 ] as const;
 
