@@ -2,9 +2,10 @@
  * Starting a computer session: every check that must hold before a driver process exists.
  *
  * In order: this machine is supported, the operator acknowledged computer use and the driver is
- * the acknowledged build, at least one app is granted, and no other run holds the desktop. Only
- * then does the driver start. Anything that fails stops here with a message the operator can act
- * on, and nothing is left running or locked.
+ * the acknowledged build, and no other run holds the desktop. Only then does the driver start.
+ * No apps need to be granted: the agent asks for each app on its first reach, and an active
+ * grant is only a way for the operator to pre-authorize. Anything that fails stops here with a
+ * message the operator can act on, and nothing is left running or locked.
  */
 
 import * as path from "node:path";
@@ -13,8 +14,7 @@ import { acquireComputerLock, clearStopRequest, writeSessionInfo } from "./contr
 import { CuaDriver } from "./cua-driver";
 import type { ComputerDriver } from "./driver";
 import { checkDriverPin, computerUseSupported, UNSUPPORTED_PLATFORM_MESSAGE } from "./driver-pin";
-import { activeGrants, type ComputerState, computerDirectory, readComputerState } from "./grants";
-import { NO_GRANTS_MESSAGE } from "./messages";
+import { computerDirectory, readComputerState, type ComputerState } from "./grants";
 import { ComputerSession } from "./session";
 
 /** Deepest process ancestry followed when finding the terminal Jazz runs in. */
@@ -75,9 +75,6 @@ export async function openComputerSession(
   const pin = await checkDriverPin(state.acknowledgement, options.environment);
   if (!pin.ok) {
     throw new Error(pin.reason);
-  }
-  if (activeGrants(state, (options.now ?? Date.now)()).length === 0) {
-    throw new Error(NO_GRANTS_MESSAGE);
   }
 
   const releaseLock = await acquireComputerLock();
