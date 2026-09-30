@@ -1,0 +1,76 @@
+{
+  "$schema": "../theme.schema.json",
+  "name": "everforest",
+  "label": "Everforest",
+  "description": "Everforest medium dark and light palettes. The accent maps to blue and syntax tints are separated across the aqua, purple and orange families so Jazz's distinctness laws hold.",
+  "theme": {
+    "background": {
+      "dark": "#2d353b",
+      "light": "#fdf6e3"
+    },
+    "backgroundPanel": {
+      "dark": "#343f44",
+      "light": "#f4f0d9"
+    },
+    "backgroundElement": {
+      "dark": "#3d484d",
+      "light": "#efebd4"
+    },
+    "borderSubtle": {
+      "dark": "#475258",
+      "light": "#e6e2cc"
+    },
+    "border": {
+      "dark": "#56635f",
+      "light": "#bdc3af"
+    },
+    "borderActive": {
+      "dark": "#7a8478",
+      "light": "#939f91"
+    },
+    "selected": {
+      "dark": "#d3c6aa",
+      "light": "#4a555c"
+    },
+    "secondary": {
+      "dark": "#9da9a0",
+      "light": "#65737b"
+    },
+    "muted": {
+      "dark": "#899b90",
+      "light": "#77836f"
+    },
+    "primary": {
+      "dark": "#7fbbb3",
+      "light": "#27779b"
+    },
+    "warning": {
+      "dark": "#dbbc7f",
+      "light": "#8a6500"
+    },
+    "error": {
+      "dark": "#e67e80",
+      "light": "#bb3d3b"
+    },
+    "success": {
+      "dark": "#a7c080",
+      "light": "#5e7600"
+    },
+    "syntaxStructure": {
+      "dark": "#d699b6",
+      "light": "#a22e83"
+    },
+    "syntaxValue": {
+      "dark": "#c58fb0",
+      "light": "#8f3a72"
+    },
+    "syntaxType": {
+      "dark": "#e69875",
+      "light": "#b05a1a"
+    },
+    "accentDim": {
+      "dark": "#e5a88a",
+      "light": "#b05a1a"
+    }
+  }
+}

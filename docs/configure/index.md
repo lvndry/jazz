@@ -10,6 +10,7 @@ run `jazz` and type `/settings`.
 
 - [Jazz configuration](./jazz.md) controls runtime defaults, limits, output, telemetry, schedulers, peers, and webhooks.
 - [Config file reference](./config-reference.md) lists every key `config.json` accepts, generated from the schema, and [environment variables](./environment-variables.md) lists every variable Jazz reads.
+- [CLI themes](./themes.md) lists built-in palettes, dark and light variants, and custom theme files.
 - [Agent configuration](./agents.md) selects primary and companion models, personas, context limits, capabilities, and per-agent restrictions.
 - [Workflows](./workflows.md) combine a prompt with scheduling and run overrides.
 - [Notifications](./notifications.md) send results, reminders, parked approvals and failures to Telegram, Discord, a signed webhook, or the desktop.

@@ -1,0 +1,76 @@
+{
+  "$schema": "../theme.schema.json",
+  "name": "kanagawa",
+  "label": "Kanagawa",
+  "description": "Kanagawa Wave for dark and Lotus for light. Syntax tints are tuned within hue to satisfy Jazz's distinctness laws.",
+  "theme": {
+    "background": {
+      "dark": "#1f1f28",
+      "light": "#f2ecbc"
+    },
+    "backgroundPanel": {
+      "dark": "#181820",
+      "light": "#e5ddb0"
+    },
+    "backgroundElement": {
+      "dark": "#2a2a37",
+      "light": "#d5cea3"
+    },
+    "borderSubtle": {
+      "dark": "#2a2a37",
+      "light": "#d5cea3"
+    },
+    "border": {
+      "dark": "#363646",
+      "light": "#c9cbd1"
+    },
+    "borderActive": {
+      "dark": "#54546d",
+      "light": "#a09cac"
+    },
+    "selected": {
+      "dark": "#dcd7ba",
+      "light": "#43436c"
+    },
+    "secondary": {
+      "dark": "#c8c093",
+      "light": "#545464"
+    },
+    "muted": {
+      "dark": "#8a8780",
+      "light": "#6a6759"
+    },
+    "primary": {
+      "dark": "#7e9cd8",
+      "light": "#5d57a3"
+    },
+    "warning": {
+      "dark": "#e6c384",
+      "light": "#80671d"
+    },
+    "error": {
+      "dark": "#e46876",
+      "light": "#c0374a"
+    },
+    "success": {
+      "dark": "#98bb6c",
+      "light": "#4f6b34"
+    },
+    "syntaxStructure": {
+      "dark": "#957fb8",
+      "light": "#624c83"
+    },
+    "syntaxValue": {
+      "dark": "#d27e99",
+      "light": "#a13b7a"
+    },
+    "syntaxType": {
+      "dark": "#ffa066",
+      "light": "#a6501a"
+    },
+    "accentDim": {
+      "dark": "#d27e99",
+      "light": "#a13b7a"
+    }
+  }
+}

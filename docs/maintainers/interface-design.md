@@ -24,8 +24,9 @@ drifted design doc is worse than none.
 This document covers both, and says which is which.
 
 **Shipped.** The fullscreen single-column layout, live zone, approval card,
-renderer-neutral prompts, in-app history search, both palettes, and the glyph and
-emphasis rules are in the code and under test. Unsupported terminals use the
+renderer-neutral prompts, in-app history search, both **house-palette** variants,
+ten selectable built-in theme families (each with dark and light variants), and the
+glyph and emphasis rules are in the code and under test. Unsupported terminals use the
 append-only interface; an OpenTUI startup failure or an Ink-only workflow hands
 the session to the complete legacy interface rather than leaving an inert frame.
 
