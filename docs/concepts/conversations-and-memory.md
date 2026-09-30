@@ -184,6 +184,7 @@ it was available to model requests; those records do not prove the model used it
 
 ## Related
 
+- [Why memory works this way](./memory-design.md): the design choices behind what Jazz learns
 - [Context management](./context-management.md): how history is summarized and findings survive
 - [Lexicon](./lexicon.md): the precise word for each of these
 - [Agents](./agents.md): `memoryScopes` and the rest of the configuration
