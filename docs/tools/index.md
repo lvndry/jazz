@@ -359,6 +359,7 @@ See [email and calendar setup](../configure/email-calendar.md).
 
 ## Related
 
+- [Herdr](./herdr.md): agent-state reporting when running inside a Herdr pane
 - [Approvals](../security/approvals.md): what runs without asking
 - [Concepts: tools](../concepts/tools.md): what a tool is and how to add one
 - [Commands and flags](../commands.md): `--approval-policy` and friends
