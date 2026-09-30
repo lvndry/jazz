@@ -80,6 +80,10 @@ import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
 import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
 import { reasoningEffortLabel } from "@/cli/helpers/reasoning";
+import {
+  attachPaneStateReporting,
+  detachPaneStateReporting,
+} from "@/cli/integrations/pane-state-registry";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
@@ -192,6 +196,12 @@ export class ChatServiceImpl implements ChatService {
       // The interface needs to know which conversation it is showing so history search can
       // be narrowed to it. Set here and wherever the id changes, so the two never drift.
       store.setCurrentConversation({ agentId: agent.id, conversationId });
+
+      // When this chat runs inside a tiling workspace that embeds agents
+      // (Herdr and the like), mirror its state to that product. Deliberately
+      // one line: discovery, wiring, and pane release live in the pane-state
+      // registry, and outside such a workspace this is a no-op.
+      attachPaneStateReporting(store);
 
       updateWorkingDirectoryInStore(
         agent.id,
@@ -1039,6 +1049,10 @@ export class ChatServiceImpl implements ChatService {
         title: conversationTitle,
         uiTranscript: uiTranscriptFromStore(),
       });
+      // Stop mirroring state to the pane product once the session is over;
+      // the exit hooks handle the pane release.
+      detachPaneStateReporting();
+      detachPaneStateReporting();
       return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
     }).pipe(
       Effect.catchAll(() =>
