@@ -10,6 +10,9 @@ scripts, templates, and reference material.
 
 Use skills to teach a repeatable procedure without putting the whole procedure in every prompt.
 
+Jazz skills use the [Agent Skills](https://agentskills.io) format, so a skill written for another
+tool that reads it works in Jazz, and a Jazz skill works there.
+
 ## Use a skill
 
 Enter `/skills` in a conversation to browse available skills. Read one, then ask for a task
@@ -39,14 +42,25 @@ Jazz loads skill instructions on demand:
 
 ## Skill locations
 
-| Source   | Path                | Scope                                |
-| -------- | ------------------- | ------------------------------------ |
-| Built-in | ships with Jazz     | everywhere                           |
-| Shared   | `~/.agents/skills/` | every tool that reads the convention |
-| Global   | `~/.jazz/skills/`   | all your projects                    |
-| Project  | `./skills/`         | this repository only                 |
+| Source   | Path                | Scope                              |
+| -------- | ------------------- | ---------------------------------- |
+| Built-in | ships with Jazz     | everywhere                         |
+| Shared   | `~/.agents/skills/` | every tool that reads Agent Skills |
+| Global   | `~/.jazz/skills/`   | all your projects                  |
+| Project  | `./skills/`         | this repository only               |
 
 On a name collision the more specific source wins, so a project can override a built-in skill.
+
+## Compatibility with the Agent Skills format
+
+Jazz finds a `SKILL.md` up to three folders deep in each location. The frontmatter needs a
+`name` and a `description`; a skill missing either one is skipped, and the rest still load.
+Other frontmatter fields, such as `license`, `compatibility`, `metadata`, and `allowed-tools`,
+are accepted and ignored.
+
+`allowed-tools` has no effect in Jazz: a skill supplies instructions, and the agent's own tool
+permissions and approval policy decide what runs. Jazz does not check that `name` matches the
+folder name.
 
 Jazz ships skills for research, journaling, meeting notes, email, calendar, Obsidian, and
 creating personas, workflows and skills themselves.
