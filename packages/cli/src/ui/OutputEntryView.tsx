@@ -8,6 +8,7 @@ import React from "react";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { getGlyphs } from "./glyphs";
 import {
+  EXPAND_DIFF_KEY,
   receiptDiffRows,
   receiptFromMeta,
   receiptMark,
@@ -64,6 +65,18 @@ function colorFor(type: OutputType): string {
       return THEME.selected;
   }
 }
+/**
+ * A settled tool call, laid out from the same receipt parts the fullscreen transcript uses: the
+ * status mark, then app, arguments, outcome, and on a denial or failure what did not happen.
+ * Receipts sit tight against each other so a burst of calls reads as one group.
+ */
+const COMMAND_PREVIEW_DISPLAY_CHARS = 48;
+
+function previewDisplay(preview: string): string {
+  return preview.length > COMMAND_PREVIEW_DISPLAY_CHARS
+    ? `${preview.slice(0, COMMAND_PREVIEW_DISPLAY_CHARS - 1).trimEnd()}…`
+    : preview;
+}
 
 /**
  * A settled tool call, laid out from the same receipt parts the fullscreen transcript uses: the
@@ -74,6 +87,15 @@ function ReceiptLine({ receipt }: { receipt: ToolReceipt }): React.ReactElement 
   const glyphs = getGlyphs();
   const mark = receiptMark(receipt, glyphs);
   const diffRows = receiptDiffRows(receipt);
+  const preview = receipt.outputPreview?.trim();
+  const previewText = preview === undefined ? undefined : previewDisplay(preview);
+  const previewHint =
+    previewText !== undefined &&
+    previewText.length > 0 &&
+    receipt.detail !== undefined &&
+    receipt.detail.trim() !== preview
+      ? ` · ${EXPAND_DIFF_KEY} to expand`
+      : "";
   return (
     <Box
       paddingLeft={PADDING.content}
@@ -83,6 +105,16 @@ function ReceiptLine({ receipt }: { receipt: ToolReceipt }): React.ReactElement 
         {paintRole(mark.role, mark.text)}{" "}
         {paintSegments(receiptParts(receipt, glyphs, { duration: true }))}
       </Text>
+      {previewText !== undefined && previewText.length > 0 ? (
+        <Text
+          wrap="truncate-end"
+          color={THEME.secondary}
+        >
+          {"  "}
+          {previewText}
+          {previewHint}
+        </Text>
+      ) : null}
       {diffRows.map((row, index) => (
         <Text
           key={index}

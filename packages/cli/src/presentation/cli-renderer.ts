@@ -20,7 +20,13 @@ import { TerminalWriter } from "./output-writer";
 import { ThinkingRenderer } from "./thinking-renderer";
 import { getGlyphs } from "../ui/glyphs";
 import { markdownToAnsi } from "../ui/markdown/ansi";
-import { receiptDiffRows, receiptMark, receiptParts, toolReceipt } from "../ui/models/receipt";
+import {
+  receiptDiffRows,
+  receiptMark,
+  receiptParts,
+  toolReceipt,
+  EXPAND_DIFF_KEY,
+} from "../ui/models/receipt";
 import { formatCost, formatPreciseDuration } from "../ui/text/format";
 import { paintRole, paintSegments } from "../ui/text/roles";
 import { CHALK_THEME } from "../ui/theme";
@@ -363,7 +369,15 @@ export class CLIRenderer {
     const diffRows = receiptDiffRows(receipt)
       .map((row) => `\n   ${paintRole(row.role, row.text)}`)
       .join("");
-    return ` ${paintRole(mark.role, mark.text)} ${paintSegments(receiptParts(receipt, glyphs, { duration: true }))}${diffRows}\n\n`;
+    const outputPreview =
+      receipt.outputPreview !== undefined && receipt.outputPreview.trim().length > 0
+        ? `\n   ${chalk.dim(receipt.outputPreview)}${
+            receipt.detail !== undefined && receipt.detail.trim() !== receipt.outputPreview.trim()
+              ? chalk.dim(` · ${EXPAND_DIFF_KEY} to expand`)
+              : ""
+          }`
+        : "";
+    return ` ${paintRole(mark.role, mark.text)} ${paintSegments(receiptParts(receipt, glyphs, { duration: true }))}${outputPreview}${diffRows}\n\n`;
   }
 
   private renderError(error: LLMError): string {

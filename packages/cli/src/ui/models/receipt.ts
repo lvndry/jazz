@@ -37,6 +37,8 @@ export interface ToolReceipt {
   readonly remedyKey?: string;
   /** The full result as plain text, behind the expand key. */
   readonly detail?: string;
+  /** A short preview of command output, shown inline in the transcript. */
+  readonly outputPreview?: string;
   /** The command-risk classifier's verdict, when it decided this call. */
   readonly classifiedRisk?: string;
   /** A write_file / edit_file diff, shown under the receipt line. */
@@ -60,6 +62,76 @@ export interface ToolReceiptInput {
 }
 
 const FALLBACK_FAILURE = "Tool execution failed";
+const COMMAND_PREVIEW_CHARS = 100;
+
+function truncateCommandPreview(text: string): string {
+  const normalized = stripAnsiCodes(text).replace(/\r\n/g, "\n").trim();
+  if (normalized.length <= COMMAND_PREVIEW_CHARS) return normalized;
+  return `${normalized.slice(0, COMMAND_PREVIEW_CHARS - 1).trimEnd()}…`;
+}
+
+function stringValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function commandResultText(result: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result);
+  } catch {
+    const fallback = stripAnsiCodes(result).replace(/\r\n/g, "\n").trim();
+    return fallback.length > 0 ? fallback : undefined;
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    const fallback = stripAnsiCodes(result).replace(/\r\n/g, "\n").trim();
+    return fallback.length > 0 ? fallback : undefined;
+  }
+  const record = parsed as Record<string, unknown>;
+  const stdout = stringValue(record["stdout"]);
+  const stderr = stringValue(record["stderr"]);
+  const exitCode = stringValue(record["exitCode"]);
+  const failed = exitCode !== "" && exitCode !== "0";
+
+  if (!stdout && !stderr) {
+    return failed ? `failed (exit code ${exitCode}), no output` : "no output";
+  }
+
+  const lines: string[] = [];
+  if (stdout) lines.push(stdout);
+  if (stderr) {
+    if (stdout) lines.push("");
+    lines.push("stderr:");
+    lines.push(stderr);
+  }
+  if (failed) {
+    lines.push("");
+    lines.push(`failed (exit code ${exitCode})`);
+  }
+  return lines.join("\n");
+}
+
+function commandOutputPreview(result: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result);
+  } catch {
+    const fallback = truncateCommandPreview(result);
+    return fallback.length > 0 ? fallback : undefined;
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    const fallback = truncateCommandPreview(result);
+    return fallback.length > 0 ? fallback : undefined;
+  }
+  const record = parsed as Record<string, unknown>;
+  const stdout = stringValue(record["stdout"]);
+  if (stdout.trim().length > 0) return truncateCommandPreview(stdout.split("\n")[0] ?? stdout);
+  const stderr = stringValue(record["stderr"]);
+  if (stderr.trim().length > 0) return truncateCommandPreview(stderr.split("\n")[0] ?? stderr);
+  const fallback = truncateCommandPreview(result);
+  return fallback.length > 0 ? fallback : undefined;
+}
 
 /** The receipt for a settled call. Pure: the same event always gives the same receipt. */
 export function toolReceipt(input: ToolReceiptInput): ToolReceipt {
@@ -72,7 +144,11 @@ export function toolReceipt(input: ToolReceiptInput): ToolReceipt {
     explicit !== undefined && explicit.length > 0 && !explicit.includes("\n")
       ? explicit
       : receiptOutcome(input.result);
-  const detail = stripAnsiCodes(input.formattedResult ?? "").trim();
+  const commandDetail =
+    input.toolName === "execute_command" || input.toolName === "execute_execute_command"
+      ? commandResultText(input.result)
+      : undefined;
+  const detail = stripAnsiCodes(input.formattedResult ?? commandDetail ?? "").trim();
   const failure =
     reason !== undefined && !denied && input.toolName !== undefined
       ? failureOutcome(input.toolName, reason)
@@ -86,6 +162,10 @@ export function toolReceipt(input: ToolReceiptInput): ToolReceipt {
       : argsPreview;
   const notDone =
     denied && input.toolName !== undefined ? declinedOutcome(input.toolName) : failure?.notDone;
+  const outputPreview =
+    input.toolName === "execute_command" || input.toolName === "execute_execute_command"
+      ? commandOutputPreview(input.result)
+      : undefined;
 
   return {
     app,
@@ -97,6 +177,7 @@ export function toolReceipt(input: ToolReceiptInput): ToolReceipt {
     ...(notDone === undefined ? {} : { notDone }),
     ...(failure?.remedy === undefined ? {} : { remedyKey: failure.remedy }),
     ...(!failed && detail.length > 0 && detail !== outcome ? { detail } : {}),
+    ...(outputPreview !== undefined && outputPreview.length > 0 ? { outputPreview } : {}),
     ...(input.classifiedRisk === undefined ? {} : { classifiedRisk: input.classifiedRisk }),
     ...(diffPreview === undefined ? {} : { diffPreview }),
   };
@@ -127,6 +208,7 @@ export function receiptFromMeta(candidate: unknown): ToolReceipt | null {
     ...text("notDone"),
     ...text("remedyKey"),
     ...text("detail"),
+    ...text("outputPreview"),
     ...text("classifiedRisk"),
     ...diffPreviewFromMeta(record["diffPreview"]),
   };
