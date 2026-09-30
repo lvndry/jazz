@@ -82,8 +82,10 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 ## Budgets and reproducibility
 
 `run.ts --output` writes versioned reports with OS, architecture and Bun version.
-`--samples 3` uses three fresh processes per suite and retains the median of each
-reported measurement, reducing single-process outliers. Timing percentiles remain
+CI runs `--samples 5`, using five fresh processes per suite and retaining the median of each
+reported measurement; the odd count keeps the median a real observation, so a single
+contention-hit process can no longer pull the reported number across the gate. Local runs
+default to a single sample unless `--samples` is given. Timing percentiles remain
 percentiles within a process; a report does not pool differently warmed processes.
 Numeric `metrics` carry suite-specific observations such as retained bytes.
 Context accounting and summarizer preparation use 100 measured iterations
