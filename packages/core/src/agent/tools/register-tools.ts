@@ -10,11 +10,13 @@ import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import {
   createBrowserActTools,
+  createBrowserAdoptTabTools,
   createBrowserBackTool,
   createBrowserCloseTool,
   createBrowserNavigateTool,
   createBrowserScreenshotTool,
   createBrowserSnapshotTool,
+  createBrowserTabsTool,
 } from "./browser/browser-tools";
 import { createContextInfoTool, createGetTimeTool, createRetrieveToolResultTool } from "./context";
 import { createPdfTool } from "./create-pdf";
@@ -351,10 +353,37 @@ export function registerBrowserTools(): Effect.Effect<void, Error, ToolRegistry>
     yield* registerTool(createBrowserBackTool());
     yield* registerTool(createBrowserSnapshotTool());
     yield* registerTool(createBrowserScreenshotTool());
+    yield* registerTool(createBrowserTabsTool());
     yield* registerTool(createBrowserCloseTool());
     const actTools = createBrowserActTools();
     yield* registerTool(actTools.approval);
     yield* registerTool(actTools.execute);
+  });
+}
+
+/**
+ * Registers `browser_adopt_tab`, only when `network.browserEndpoint` points at a browser the user
+ * runs.
+ *
+ * Config-dependent like the peer tools: a launched browser has no tabs of the user's to share,
+ * and a tool the model can see is a tool it will try. Without an endpoint the tool does not
+ * exist for the run.
+ */
+export function registerBrowserAdoptionTools(): Effect.Effect<
+  void,
+  Error,
+  ToolRegistry | AgentConfigService
+> {
+  return Effect.gen(function* () {
+    const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
+    if (appConfig.network?.browserEndpoint === undefined) {
+      return;
+    }
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(BROWSER_CATEGORY);
+    const adoptTools = createBrowserAdoptTabTools();
+    yield* registerTool(adoptTools.approval);
+    yield* registerTool(adoptTools.execute);
   });
 }
 
