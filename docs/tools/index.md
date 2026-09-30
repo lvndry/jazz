@@ -17,11 +17,11 @@ and the [security model](../security/index.md).
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **68** |
+| **Agent-facing tools**                                                  | **70** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 16     |
-| Total registered                                                        | 84     |
+| Total registered                                                        | 86     |
 | `read-only`                                                             | 37     |
-| `low-risk`                                                              | 15     |
+| `low-risk`                                                              | 17     |
 | `high-risk`                                                             | 13     |
 | `unknown`                                                               | 3      |
 

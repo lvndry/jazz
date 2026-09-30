@@ -275,6 +275,12 @@ export interface ApprovalRequiredResult {
    * to ask, the run parks for approval.
    */
   readonly alwaysAsk?: true;
+  /**
+   * The message the tool result carries when a person declines this request, instead of
+   * the generic "you declined" one. Set it when the default text would not say what
+   * declined and what happens next.
+   */
+  readonly rejectionMessage?: string;
 }
 
 /**

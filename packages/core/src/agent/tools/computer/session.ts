@@ -43,7 +43,6 @@ import {
   shortestIdleTimeoutMs,
 } from "./grants";
 import { appendLedgerEntry, ledgerLabel, type LedgerEntry, type LedgerOutcome } from "./ledger";
-import { NO_GRANTS_MESSAGE } from "./messages";
 import {
   buildObservation,
   frameCenter,
@@ -182,12 +181,25 @@ export class ComputerSession {
   private lapsedReason: string | undefined;
   private closed = false;
   private queue: Promise<unknown> = Promise.resolve();
+  /** Apps approved by the person the first time this run reached them, bundleId to name. */
+  private readonly approvedThisRun = new Map<string, string>();
 
   constructor(private readonly settings: ComputerSessionSettings) {
     this.startedAt = this.now();
     this.lastActionAt = this.startedAt;
   }
 
+  /** Whether this run may reach the app: an active grant, or a first-reach approval in this run. */
+  isConsented(bundleId: string, grants: readonly ComputerGrant[]): boolean {
+    return (
+      grants.some((grant) => grant.bundleId === bundleId) || this.approvedThisRun.has(bundleId)
+    );
+  }
+
+  /** Record a first-reach approval; it lasts until the run ends and is never written to disk. */
+  approveForRun(bundleId: string, appName: string): void {
+    this.approvedThisRun.set(bundleId, appName);
+  }
   private now(): number {
     return (this.settings.now ?? Date.now)();
   }
@@ -212,13 +224,14 @@ export class ComputerSession {
     }
     const state = await this.state();
     const grants = activeGrants(state, this.now());
-    if (grants.length === 0) {
-      throw new Error(NO_GRANTS_MESSAGE);
-    }
-    const idleLimit = shortestIdleTimeoutMs(grants);
-    if (this.now() - this.lastActionAt > idleLimit) {
-      this.lapsedReason = `Computer use ended after ${String(Math.round(idleLimit / 60_000))} minutes without an action. Ask the operator to start a new run.`;
-      throw new Error(this.lapsedReason);
+    // No grants is not an error: the agent asks for each app on its first reach. The idle
+    // limit is enforced only while granted apps bound it.
+    if (grants.length > 0) {
+      const idleLimit = shortestIdleTimeoutMs(grants);
+      if (idleLimit !== undefined && this.now() - this.lastActionAt > idleLimit) {
+        this.lapsedReason = `Computer use ended after ${String(Math.round(idleLimit / 60_000))} minutes without an action. Ask the operator to start a new run.`;
+        throw new Error(this.lapsedReason);
+      }
     }
     return grants;
   }
@@ -266,22 +279,16 @@ export class ComputerSession {
     this.lastActionAt = this.now();
     return report;
   }
-
-  private chooseApp(
-    running: readonly DriverApp[],
-    grants: readonly ComputerGrant[],
-    wanted: string | undefined,
-  ): DriverApp {
+  private chooseApp(running: readonly DriverApp[], wanted: string | undefined): DriverApp {
     const reachable = running.filter(
       (app) =>
         app.running &&
         app.bundleId !== null &&
         classifyApp(app.bundleId) !== "refused" &&
-        !this.settings.ancestorPids.has(app.pid) &&
-        grants.some((grant) => grant.bundleId === app.bundleId),
+        !this.settings.ancestorPids.has(app.pid),
     );
     if (reachable.length === 0) {
-      throw new Error("None of the granted apps is running. Open one, then observe it.");
+      throw new Error("No app is running that Jazz may use. Open one, then observe it.");
     }
     if (wanted === undefined) {
       if (reachable.length === 1 && reachable[0] !== undefined) {
@@ -295,17 +302,17 @@ export class ComputerSession {
     );
     if (match === undefined) {
       throw new Error(
-        `${wanted} is not a granted, running app. Granted and running: ${reachable.map((app) => app.name).join(", ")}.`,
+        `${wanted} is not a running app. Running: ${reachable.map((app) => app.name).join(", ")}.`,
       );
     }
     return match;
   }
 
-  /** Look at one window of a granted app and register its refs. */
+  /** Look at one window of a running app and register its refs. */
   async observe(input: ObserveInput, known: readonly KnownSecret[]): Promise<Observation> {
-    const grants = await this.assertActive();
+    await this.assertActive();
     const running = await this.settings.driver.listApps();
-    const app = this.chooseApp(running, grants, input.app);
+    const app = this.chooseApp(running, input.app);
     const bundleId = app.bundleId ?? "";
     const appClass = classifyApp(bundleId);
     if (appClass === "refused") {
