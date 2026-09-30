@@ -96,7 +96,6 @@ export interface ReasoningBlock extends BlockBase {
  * A settled tool call is a receipt: the app, the args it used, and a snippet
  * of what came back. Timing and the full output live behind an expand key.
  */
-/** A receipt in the transcript: the shared receipt model, plus whether its detail is open. */
 export interface ToolReceiptBlock extends BlockBase, ToolReceipt {
   readonly kind: "tool";
   readonly expanded?: boolean;

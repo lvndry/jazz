@@ -181,6 +181,33 @@ describe("CLIRenderer", () => {
       expect(result2).toBe("\nNormal text after code block\n");
     });
 
+    it("shows a command output preview inline", () => {
+      const stdout = "x".repeat(120);
+      const output = (
+        renderer as unknown as {
+          renderToolExecutionComplete(event: {
+            toolCallId: string;
+            toolName?: string;
+            result: string;
+            durationMs: number;
+            summary?: string;
+            success?: boolean;
+            error?: string;
+            classifiedRisk?: string;
+          }): string;
+        }
+      ).renderToolExecutionComplete({
+        toolCallId: "call-preview",
+        toolName: "execute_command",
+        result: JSON.stringify({ stdout, stderr: "", exitCode: 0 }),
+        durationMs: 3,
+        success: true,
+      });
+
+      expect(output).toContain(stdout.slice(0, 20));
+      expect(output).toContain("ctrl+e to expand");
+    });
+
     it("should handle multiple code blocks in sequence", () => {
       // First code block
       const chunk1 = "```typescript\nconst x = 1;\n```\n";

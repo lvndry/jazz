@@ -29,7 +29,7 @@ import { parseMarkdown, type MarkdownBlock } from "../markdown/parse";
 import { markdownRoleColor, type MarkdownSpan } from "../markdown/spans";
 import { layoutTable } from "../markdown/table";
 import { stoppedHeading } from "../models/interrupt";
-import { receiptDiffRows, receiptParts } from "../models/receipt";
+import { EXPAND_DIFF_KEY, receiptDiffRows, receiptParts } from "../models/receipt";
 import { reportLines, type ReportSegment } from "../report-layout";
 import { formatPreciseDuration } from "../text/format";
 import { roleStyle, type RoleSegment, type TextRole } from "../text/roles";
@@ -1050,6 +1050,41 @@ function receiptSegments(block: ToolReceiptBlock, glyphs: GlyphSet, budget: numb
   return [...head, ...cropped, { text: "…", fg: THEME.muted }, ...tail];
 }
 
+const COMMAND_PREVIEW_DISPLAY_CHARS = 48;
+
+function previewDisplay(preview: string): string {
+  return preview.length > COMMAND_PREVIEW_DISPLAY_CHARS
+    ? `${preview.slice(0, COMMAND_PREVIEW_DISPLAY_CHARS - 1).trimEnd()}…`
+    : preview;
+}
+
+function outputPreviewRows(
+  block: ToolReceiptBlock,
+  geometry: Geometry,
+  rail: Segment,
+): RenderRow[] {
+  const preview = block.outputPreview?.trim();
+  const previewText = preview === undefined ? undefined : previewDisplay(preview);
+  if (previewText === undefined || previewText.length === 0) return [];
+  const expanded = block.expanded === true && block.detail !== undefined;
+  const hint =
+    expanded || block.detail === undefined || block.detail.trim() === preview
+      ? ""
+      : ` · ${EXPAND_DIFF_KEY} to expand`;
+  return [
+    {
+      key: `${block.id}:preview`,
+      gutter: [rail, blankCell()],
+      content: fitTerminalSegments(
+        [{ text: `  ${previewText}${hint}`, fg: THEME.secondary }],
+        geometry.content,
+      ),
+      contentWidth: geometry.content,
+      meta: [],
+    },
+  ];
+}
+
 /** Pack short receipts; wrap any tool call that needs more than one row. */
 function receiptRows(
   blocks: readonly ToolReceiptBlock[],
@@ -1085,6 +1120,7 @@ function receiptRows(
       block.status !== "ok" ||
       block.expanded === true ||
       block.diffPreview !== undefined ||
+      block.outputPreview !== undefined ||
       segments.some((segment) => segment.text.includes("\n")) ||
       terminalSegmentsWidth(segments) > contentWidth;
 
@@ -1108,6 +1144,11 @@ function receiptRows(
             contentWidth,
             meta: lineIndex === 0 ? meta : [],
           });
+        }
+      }
+      if (block.expanded !== true) {
+        for (const row of outputPreviewRows(block, geometry, rail)) {
+          rows.push(row);
         }
       }
       const diffRows = receiptDiffRows(block);
@@ -1149,7 +1190,7 @@ function receiptRows(
     if (terminalSegmentsWidth(packed) > 0) {
       packed.push({ text: `  ${glyphs.bullet} `, fg: THEME.border });
     } else {
-      packedKey = block.id;
+      packedKey = "";
     }
     packed.push(...segments);
   }
