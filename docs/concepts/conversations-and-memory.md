@@ -14,8 +14,10 @@ For example, tell your agent:
 Remember that I prefer concise replies and use Europe/Paris as my timezone.
 ```
 
-In a later conversation, those preferences can apply without repeating them. Ask it to
-forget a preference when it no longer applies, or [review saved memory from the CLI](#cli-access).
+In a later conversation, those preferences can apply without repeating them. You do not have
+to say "remember": the agent [decides when a fact is worth keeping](#how-the-agent-learns) as
+the conversation goes. Ask it to forget a preference when it no longer applies, or
+[review saved memory from the CLI](#cli-access).
 
 ## Types of state
 
@@ -111,23 +113,52 @@ agents that should share durable context share a scope; two agents that should n
 Entries in `always/` are included every turn. The agent uses `view_memory` to find and read
 relevant entries under `when/`. An entry there may go unused if the agent does not look it up.
 
+### How the agent learns
+
+Memory is written in two passes, both automatic. Neither needs a command from you.
+
+**During the conversation.** When you state a preference, opinion, relationship, or personal
+fact ("I'm allergic to shellfish", "I prefer dark mode"), the agent saves it in the same turn
+with `manage_memory`, without waiting to be asked. Before it answers or acts on a request that
+your preferences or history could shape, it checks memory with `view_memory`. For each
+candidate fact it weighs:
+
+- **Did you state it?** Only your own words count. What the agent inferred does not.
+- **Will it still be true later?** Durable preferences and facts qualify. Task state, in-progress
+  work, and small talk do not.
+- **Is it sensitive?** Secrets, credentials, and sensitive claims are never saved.
+- **When should it apply?** An `always` entry is for instructions that shape nearly every task,
+  such as a preference for concise replies. Everything else is filed under a topic in `when/`,
+  so a favorite fruit can inform a shopping list without entering unrelated requests.
+- **Is it worth the cost of being wrong?** Every `always` entry is injected into every future
+  turn of every agent that shares the scope, so when the agent is unsure a fact is durable, it
+  does not save it. You can still ask it to remember something explicitly.
+
+How consistently an agent follows this depends on the model.
+
+**At compaction.** When a conversation grows long enough that Jazz must
+[summarize older messages](./context-management.md), a separate extraction pass first reads the
+messages about to be folded away and saves any durable facts you stated that the agent had not
+already saved. It reads existing memory first, does not duplicate an entry that already covers
+the fact, and amends an entry that has gone stale. Saving nothing is the common outcome. The
+pass is one extra model call, and its cost counts toward the run's caps. A manual `/compact`
+does not run it.
+
+Both passes can write only what they can quote from your messages (see below), and neither runs
+when persistence is off: `--ephemeral` on `jazz run` or `jazz agent chat`, or a run answering a peer.
+
+Memory holds facts and preferences. It does not turn a procedure the agent worked out into a
+reusable [skill](./skills.md).
+
 ### Saving, correcting, and forgetting
 
-The agent can save what you explicitly tell it, using an exact quote from your message.
-Tool output, web pages, model summaries, and synthetic subagent prompts cannot establish
-facts about you. Secrets and sensitive claims are refused.
+Every save must quote your message. Tool output, web pages, model summaries, and synthetic
+subagent prompts cannot establish facts about you. Secrets and sensitive claims are refused.
 
 To correct an entry, tell the agent what changed. To remove one, ask it to forget that
 specific fact. Jazz also revokes the quoted source so later compaction cannot save the
 same statement again. Older memories created before source tracking may require you to
 review their original conversation history.
-
-### Automatic extraction at compaction
-
-Before compaction, Jazz checks the older messages for durable facts you stated and can
-save them to memory. It excludes inferred preferences, task progress, and small talk.
-
-See [Context management](./context-management.md) for when compaction happens.
 
 ### CLI access
 
