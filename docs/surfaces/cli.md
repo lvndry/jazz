@@ -81,8 +81,8 @@ changes; inspect them before retrying.
 | Command                  | Use it to                                                        |
 | ------------------------ | ---------------------------------------------------------------- |
 | `/resume`                | Continue an earlier conversation                                 |
-| `/start`                 | Start a fresh conversation with the current agent                |
-| `/new`                   | Alias for `/start`                                               |
+| `/new`                   | Start a fresh conversation with the current agent                |
+| `/start`                 | Alias for `/new`                                                 |
 | `/create`                | Create another agent                                             |
 | `/agents`                | Choose another agent for the current conversation                |
 | `/rename Release review` | Give this conversation a recognizable title                      |

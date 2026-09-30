@@ -306,6 +306,12 @@ describe("CHAT_COMMANDS registry", () => {
     expect(mismatched).toEqual([]);
   });
 
+  it("advertises /new as the canonical fresh-conversation command", () => {
+    const command = CHAT_COMMANDS.find((entry) => entry.type === "start");
+    expect(command?.name).toBe("new");
+    expect(command?.aliases).toEqual(["start"]);
+  });
+
   it("gives every command and alias a unique name", () => {
     const names = CHAT_COMMANDS.flatMap((command) => [command.name, ...(command.aliases ?? [])]);
     expect(new Set(names).size).toBe(names.length);

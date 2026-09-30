@@ -258,13 +258,21 @@ describe("agent creation and fresh conversations", () => {
     }
   });
 
-  test("/start saves the current history and begins a fresh conversation with the same agent", async () => {
-    const terminal = terminalFixture();
+  test("/new saves the current history, begins a fresh conversation, and labels the result /new", async () => {
+    const reportLabels: string[] = [];
+    const terminal = terminalFixture({
+      log: (message) =>
+        Effect.sync(() => {
+          if (isTerminalReport(message)) reportLabels.push(message.label);
+          return undefined;
+        }),
+    });
     const result = await Effect.runPromise(
       handleSpecialCommand({ type: "start", args: [] }, context).pipe(
         Effect.provideService(TerminalServiceTag, terminal),
       ) as Effect.Effect<CommandResult, unknown, never>,
     );
+    expect(reportLabels).toEqual(["new"]);
     expect(result.newConversationId).toBeString();
     expect(result.newConversationId).not.toBe(context.conversationId);
     expect(result.newHistory).toEqual([]);
