@@ -38,8 +38,9 @@ function fakeBrowser(page: FakePage, refs: Readonly<Record<string, string>> = {}
     snapshot: async () => ({
       ...page,
       snapshot: {
+        lines: ['- page "Home"', '  - link "Docs" [ref=e1]'],
         text: '- page "Home"\n  - link "Docs" [ref=e1]',
-        refs: new Map([["e1", 1]]),
+        refs: new Map([["e1", { backendNodeId: 1, label: 'link "Docs"' }]]),
         truncated: false,
       },
     }),
@@ -206,6 +207,34 @@ describe("browser tool results", () => {
       kind: "external",
       source: "browser_snapshot https://example.com/",
     });
+  });
+
+  test("browser_snapshot pages through a long page with startLine", async () => {
+    const { context, browser } = await contextWithBrowser({
+      url: "https://example.com/",
+      title: "Long",
+    });
+    const lines = Array.from(
+      { length: 4_000 },
+      (_, index) => `- heading "Heading ${String(index)}"`,
+    );
+    (browser.session as unknown as { snapshot: () => Promise<unknown> }).snapshot = async () => ({
+      url: "https://example.com/",
+      title: "Long",
+      snapshot: { lines, text: lines.join("\n"), refs: new Map(), truncated: false },
+    });
+    const snapshotTool = createBrowserSnapshotTool() as unknown as Tool<never>;
+
+    const first = await run(snapshotTool, {}, context);
+    const continuation = /startLine=(\d+) to continue/.exec(String(first.result));
+    expect(continuation).not.toBeNull();
+    const second = await run(snapshotTool, { startLine: Number(continuation?.[1]) }, context);
+
+    expect(String(first.result)).toContain('- heading "Heading 0"');
+    expect(String(second.result)).toContain(
+      `- heading "Heading ${String(Number(continuation?.[1]) - 1)}"`,
+    );
+    expect(String(second.result)).not.toContain('- heading "Heading 0"');
   });
 
   test("a snapshot wrapped the way the agent loop wraps it is recognised as external", async () => {
