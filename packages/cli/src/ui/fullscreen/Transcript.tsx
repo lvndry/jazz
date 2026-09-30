@@ -1190,7 +1190,7 @@ function receiptRows(
     if (terminalSegmentsWidth(packed) > 0) {
       packed.push({ text: `  ${glyphs.bullet} `, fg: THEME.border });
     } else {
-      packedKey = "";
+      packedKey = block.id;
     }
     packed.push(...segments);
   }

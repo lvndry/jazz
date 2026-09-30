@@ -540,6 +540,39 @@ describe("the measure", () => {
 });
 
 describe("tool receipts", () => {
+  it("gives packed rows unique identities across runs and growing receipt bursts", () => {
+    const calls: Block[] = Array.from({ length: 24 }, (_, index) => ({
+      id: `memory-${String(index)}`,
+      seq: index,
+      kind: "tool",
+      app: "view_memory",
+      args: "personal/when/preferences",
+      summary: "1 entry",
+      status: "ok",
+    }));
+    const viewport = { width: 80, height: 24 };
+    const before = transcriptRows(calls.slice(0, 12), viewport);
+    const grown = transcriptRows(calls, viewport);
+    const after = transcriptRows(
+      [
+        ...calls.slice(0, 12),
+        { id: "answer", seq: 24, kind: "agent", markdown: "Still working." },
+        ...calls.slice(12),
+      ],
+      viewport,
+    );
+    expect(before.length).toBeGreaterThan(1);
+    expect(new Set(before.map((row) => row.key)).size).toBe(before.length);
+    expect(new Set(grown.map((row) => row.key)).size).toBe(grown.length);
+    expect(new Set(after.map((row) => row.key)).size).toBe(after.length);
+    expect(grown.slice(0, before.length).map((row) => row.key)).toEqual(
+      before.map((row) => row.key),
+    );
+    expect(after.slice(0, before.length).map((row) => row.key)).toEqual(
+      before.map((row) => row.key),
+    );
+  });
+
   it("shows a settled call as a receipt with no marker, status word or duration", async () => {
     const { rows } = await render(transcript(SESSION, WIDE), WIDE);
     const row = rows.find((line) => line.includes("4 flagged of 26")) ?? "";

@@ -363,6 +363,9 @@ Settled tool calls show their arguments and up to three lines of result text.
 Short receipts share a row; a receipt that exceeds the content width wraps onto
 its own rows, so a long command or todo item is readable instead of disappearing
 at the right edge. Longer result bodies retain the Ctrl+O expansion affordance.
+Each packed row retains the identity of its first receipt, so successive bursts
+reconcile without duplicating or omitting rows. Scrolling into history holds the
+view as new receipts arrive; End returns to following live output.
 
 ---
 
