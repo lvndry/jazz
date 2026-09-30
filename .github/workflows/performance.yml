@@ -52,7 +52,7 @@ jobs:
           BENCH_PROFILE: smoke
           BENCH_STARTUP_BASELINE: "1"
           JAZZ_BENCH_BINARY: ${{ github.workspace }}/base/deploy/binaries/jazz-linux-x64
-        run: bun run bench --samples 3 --output ../base-report.json
+        run: bun run bench --samples 5 --output ../base-report.json
       - name: Measure pull request
         working-directory: head
         env:
@@ -61,7 +61,7 @@ jobs:
           JAZZ_OFFLINE: "1"
           BENCH_PROFILE: smoke
           JAZZ_BENCH_BINARY: ${{ github.workspace }}/head/deploy/binaries/jazz-linux-x64
-        run: bun run bench --samples 3 --output ../head-report.json
+        run: bun run bench --samples 5 --output ../head-report.json
       - name: Enforce latency and release size budgets
         run: |
           bun head/scripts/performance-check.ts --absolute head-report.json
