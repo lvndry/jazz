@@ -20,8 +20,8 @@ See [Quick start](../getting-started/quick-start.md) if Jazz is not installed ye
 
 After setup, the home screen offers your recent agents. Select one with the arrow keys,
 type a request, and press Enter. Tab opens the full agent picker. Type `/` to find home
-commands such as `/resume` for earlier conversations, `/new` to create an agent, and
-`/settings` for providers, keys, appearance, and limits.
+commands such as `/resume` for earlier conversations, `/start` or `/new` for a fresh conversation, and
+`/create` to create an agent, and `/settings` for providers, keys, appearance, and limits.
 
 To open a particular agent directly:
 
@@ -82,7 +82,8 @@ changes; inspect them before retrying.
 | ------------------------ | ---------------------------------------------------------------- |
 | `/resume`                | Continue an earlier conversation                                 |
 | `/start`                 | Start a fresh conversation with the current agent                |
-| `/new`                   | Create another agent                                             |
+| `/new`                   | Alias for `/start`                                               |
+| `/create`                | Create another agent                                             |
 | `/agents`                | Choose another agent for the current conversation                |
 | `/rename Release review` | Give this conversation a recognizable title                      |
 | `/fork`                  | Continue with the same history on a separate conversation branch |

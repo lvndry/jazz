@@ -243,11 +243,11 @@ describe("agent creation and fresh conversations", () => {
     sessionLimits: {},
     sessionStartedAt: new Date(),
   };
-  test("/new opens agent creation without changing the current agent or conversation", async () => {
+  test("/create opens agent creation without changing the current agent or conversation", async () => {
     const create = spyOn(agentCreation, "createAgentCommand").mockReturnValue(Effect.void);
     try {
       const result = await Effect.runPromise(
-        handleSpecialCommand({ type: "new", args: [] }, context).pipe(
+        handleSpecialCommand({ type: "create", args: [] }, context).pipe(
           Effect.provideService(TerminalServiceTag, terminalFixture()),
         ) as Effect.Effect<CommandResult, unknown, never>,
       );

@@ -212,12 +212,13 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
   },
   { name: "resume", type: "resume", description: "Browse and resume a past conversation" },
   { name: "retry", type: "retry", description: "Re-send your last message" },
-  { name: "new", type: "new", description: "Create a new agent" },
   {
     name: "start",
     type: "start",
     description: "Start a fresh conversation with the current agent",
+    aliases: ["new"],
   },
+  { name: "create", type: "create", description: "Create a new agent" },
   {
     name: "skills",
     type: "skills",
