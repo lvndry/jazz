@@ -23,6 +23,7 @@ for charts and interactive pages, read [Compositions](./compositions.md).
 ## Conversations and state
 
 - A [conversation](./conversations-and-memory.md) carries dialogue; work state, todos, the scratchpad, and memory each provide a different kind of continuity.
+- [Why memory works this way](./memory-design.md) explains what Jazz learns about you, how scopes keep contexts apart, and why saves must quote you.
 - [Context management](./context-management.md) preserves working state, compacts history, and detects repetitive tool calls.
 - A [composition](./compositions.md) is a chart, dashboard, calculator, or interactive HTML page you can open or share.
 - An [artifact](./artifacts.md) is a file a run produced, labelled with whether a model generated it or it was rendered from data.
