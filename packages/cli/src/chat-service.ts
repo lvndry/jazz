@@ -81,12 +81,9 @@ import { Effect, Layer, Option } from "effect";
 import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
 import { reasoningEffortLabel } from "@/cli/helpers/reasoning";
 import {
-  deriveHerdrState,
-  herdrBlockedReason,
-  herdrReporter,
-  installHerdrExitHooks,
-  type HerdrSession,
-} from "@/cli/integrations/herdr-agent-state";
+  attachPaneStateReporting,
+  detachPaneStateReporting,
+} from "@/cli/integrations/pane-state-registry";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
@@ -200,29 +197,11 @@ export class ChatServiceImpl implements ChatService {
       // be narrowed to it. Set here and wherever the id changes, so the two never drift.
       store.setCurrentConversation({ agentId: agent.id, conversationId });
 
-      // If this chat runs in a Herdr pane, report its state there so the sidebar and
-      // `herdr agent list` show the agent and can restore the session. A no-op outside
-      // Herdr; a reporting error must never disturb the chat.
-      const herdr = herdrReporter();
-      const herdrActive = herdr.enabled;
-      const reportHerdrState = (): void => {
-        if (!herdrActive) return;
-        try {
-          const snapshot = store.getSessionSnapshot();
-          herdr.reportState(deriveHerdrState(snapshot), herdrBlockedReason(snapshot));
-        } catch {
-          // Fail-open: the chat loop is the source of truth.
-        }
-      };
-      const herdrUnsubscribe = herdrActive ? store.subscribeSession(reportHerdrState) : undefined;
-      const reportHerdrSession = (id: string): void => {
-        if (herdrActive)
-          herdr.reportSession({ agent: agent.id, conversationId: id } satisfies HerdrSession);
-      };
-      if (herdrActive) {
-        installHerdrExitHooks();
-        reportHerdrSession(conversationId);
-      }
+      // When this chat runs inside a tiling workspace that embeds agents
+      // (Herdr and the like), mirror its state to that product. Deliberately
+      // one line: discovery, wiring, and pane release live in the pane-state
+      // registry, and outside such a workspace this is a no-op.
+      attachPaneStateReporting(store);
 
       updateWorkingDirectoryInStore(
         agent.id,
@@ -636,7 +615,6 @@ export class ChatServiceImpl implements ChatService {
                 yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
               }
               store.setCurrentConversation({ agentId: agent.id, conversationId });
-              reportHerdrSession(conversationId);
               // Logs follow the conversation, so /start starts a new file rather than
               // appending the next conversation to the previous one's.
               yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
@@ -1071,10 +1049,10 @@ export class ChatServiceImpl implements ChatService {
         title: conversationTitle,
         uiTranscript: uiTranscriptFromStore(),
       });
-      // Stop mirroring state to Herdr once the chat session is over; the
-      // exit hooks handle the pane release.
-      herdrUnsubscribe?.();
-
+      // Stop mirroring state to the pane product once the session is over;
+      // the exit hooks handle the pane release.
+      detachPaneStateReporting();
+      detachPaneStateReporting();
       return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
     }).pipe(
       Effect.catchAll(() =>

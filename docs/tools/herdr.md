@@ -22,9 +22,17 @@ agent slot accurate.
 
 ## How it works
 
-`packages/cli/src/integrations/herdr-agent-state.ts` activates only when
-`HERDR_ENV=1` is set. The chat session subscribes to the UI store's session
-snapshot and coalesces it into one of the three Herdr states:
+Pane integration lives in `packages/cli/src/integrations/` behind a small
+`PaneStateAdapter` contract (`pane-state.ts`), with a registry
+(`pane-state-registry.ts`) as the only entry point the chat service sees —
+`attachPaneStateReporting(store)` / `detachPaneStateReporting()`. The
+Herdr implementation is `herdr.ts`. Adding another tiling workspace that
+embeds agents (TUIOS and the like) is one new adapter file plus one entry
+in the registry; the chat service does not change.
+
+The adapter is active only when `HERDR_ENV=1` is set. It subscribes to the
+UI store's session snapshot and coalesces it into one of the three Herdr
+states:
 
 | Jazz is doing this                            | Reported state |
 | --------------------------------------------- | -------------- |
