@@ -137,9 +137,8 @@ cp evals/agents/*.json ~/.jazz/agents/
 
 `evals/tasks/<domain>/*.ts` each `export const tasks: EvalTask[]`. Each task has
 a `setup` (seed the temp workspace), a verifiable `check` (state / constraint /
-citation-grounding / comprehension-proxy), and an optional `rubric`. v1 covers
-tooluse / planning / productivity / tutoring (non-web); research (web) tasks use
-record-replay cassettes under `evals/fixtures/web/` and need the fetch-based web
+citation-grounding / comprehension-proxy), and an optional `rubric`. Tasks are grouped
+by domain; web-dependent tasks use record-replay cassettes under `evals/fixtures/web/` and need the fetch-based web
 path — deferred until a fetch-based search provider is wired.
 
 ### Grounding / deixis

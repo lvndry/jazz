@@ -90,10 +90,11 @@ the request is where your material would actually leave.
 | ----- | ----------------------------------------------------- |
 | yes   | `http_request`, `read_pdf`, `web_fetch`, `web_search` |
 
-Two more, absent above only because they are registered per agent rather than globally:
+Three more, absent above only because they are registered per agent rather than globally:
 `ask_peer` (`high-risk`), whose whole purpose is to put your model's words in front of somebody else's
-agent, and every MCP tool, whatever its transport: where a server outside this codebase
-carries the model's arguments is not knowable from here.
+agent; `request_clarification` (`low-risk`), offered only when a peer relationship is configured, which
+lets the agent ask a peer one question back before answering theirs; and every MCP tool, whatever its
+transport: where a server outside this codebase carries the model's arguments is not knowable from here.
 
 This changes nothing in the terminal: approval tiers read the risk column, and a `read-only`
 tool that fetches a URL is still auto-approved under `--approval-policy read-only`. It matters at exactly one door: a tool listed here is **never** granted to another

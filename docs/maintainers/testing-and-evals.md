@@ -35,7 +35,7 @@ flowchart LR
         JUDGE["<b>eval-judge</b><br/>strong model, rubric scoring<br/><i>never the SUT</i>"]
     end
 
-    TASKS["Task suite<br/>tooluse · planning<br/>productivity · tutoring<br/>grounding"]
+    TASKS["Task suites<br/>verifiable tasks<br/>by capability"]
 
     TASKS --> SUT
     TASKS --> CEIL
