@@ -163,6 +163,7 @@ export function registerShellTools(): Effect.Effect<void, Error, ToolRegistry> {
     const waitTools = createWaitTools();
     yield* registerTool(waitTools.approval);
     yield* registerTool(waitTools.execute);
+    yield* registerTool(waitTools.cancelWaitFor);
   });
 }
 

@@ -17,15 +17,25 @@ import { JOB_REASON_MAX_LENGTH } from "@/core/constants/job-queue";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import { JobQueueServiceTag, type JobQueueService } from "@/core/interfaces/job-queue-service";
 import type { LoggerService } from "@/core/interfaces/logger";
+import type { Tool } from "@/core/interfaces/tool-registry";
 import { spawnJobWorker } from "@/core/jobs/spawn-job-worker";
 import type { ToolExecutionResult } from "@/core/types";
 import { toError } from "@/core/utils/errors";
-import { defineApprovalTool, makeZodValidator, type ApprovalToolPair } from "./base-tool";
+import {
+  defineApprovalTool,
+  defineTool,
+  makeZodValidator,
+  type ApprovalToolPair,
+} from "./base-tool";
 import { buildKeyFromContext } from "./context-utils";
 import { denylistBlockedError } from "./shell";
 
 export type WaitToolDeps =
   FileSystemContextService | JobQueueService | LoggerService | FileSystem.FileSystem;
+
+function summarizeJobBatchId(batchId: string): string {
+  return `wait_for batch ${batchId}`;
+}
 
 const waitForParameters = z
   .object({
@@ -68,14 +78,63 @@ const waitForParameters = z
 
 type WaitForArgs = z.infer<typeof waitForParameters>;
 
-export function createWaitTools(): ApprovalToolPair<WaitToolDeps> {
-  return defineApprovalTool<WaitToolDeps, WaitForArgs>({
+const cancelWaitForParameters = z
+  .object({
+    batchId: z.string().min(1).describe("Batch id from wait_for."),
+  })
+  .strict();
+
+type CancelWaitForArgs = z.infer<typeof cancelWaitForParameters>;
+
+export type WaitTools = ApprovalToolPair<WaitToolDeps> & {
+  readonly cancelWaitFor: Tool<WaitToolDeps>;
+};
+
+function createCancelWaitForTool(): Tool<WaitToolDeps> {
+  return defineTool<WaitToolDeps, CancelWaitForArgs>({
+    name: "cancel_wait_for",
+    disclosure: "internal",
+    summary: "Cancel a pending wait_for by batch id (get the batch id from wait_for first).",
+    description: "Cancel a pending wait_for by batch id.",
+    parameters: cancelWaitForParameters,
+    riskLevel: "low-risk",
+    hidden: false,
+    validate: makeZodValidator(cancelWaitForParameters),
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const jobQueueService = yield* JobQueueServiceTag;
+        const outcome = yield* jobQueueService.cancelBatch(context.agentId, args.batchId);
+
+        return {
+          success: outcome.success,
+          result: outcome.success ? { message: outcome.message } : null,
+          ...(outcome.success ? {} : { error: outcome.message }),
+        } satisfies ToolExecutionResult;
+      }).pipe(
+        Effect.catchAll((error) =>
+          Effect.succeed({
+            success: false,
+            result: null,
+            error: toError(error).message,
+          } satisfies ToolExecutionResult),
+        ),
+      ),
+    createSummary: (result) => {
+      if (!result.success) return undefined;
+      const data = result.result as { message: string };
+      return data.message;
+    },
+  });
+}
+
+export function createWaitTools(): WaitTools {
+  const waitTools = defineApprovalTool<WaitToolDeps, WaitForArgs>({
     name: "wait_for",
     disclosure: "private",
     summary:
       "Watch for something to finish, appear, change, drop, arrive or come back up, checking as " +
       "often as every quarter second, in the background — you keep working and are woken when " +
-      `it happens or after ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes at most.`,
+      `it happens or after ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes at most. Cancel with cancel_wait_for using the batch id it returns.`,
     description:
       "Rerun a command in the background until it exits 0; use it for every wait-until check. " +
       "Returns at once with a batchId while you keep working, and you are woken with the last " +
@@ -176,7 +235,12 @@ The command runs repeatedly and unattended, in the background, until it succeeds
     createSummary: (result) => {
       if (!result.success) return undefined;
       const data = result.result as { batchId: string };
-      return `Watching in the background (batch ${data.batchId})`;
+      return `Watching in the background (${summarizeJobBatchId(data.batchId)})`;
     },
   });
+
+  return {
+    ...waitTools,
+    cancelWaitFor: createCancelWaitForTool(),
+  };
 }

@@ -43,7 +43,13 @@ interface EnqueueCall {
   readonly options: EnqueueBatchOptions;
 }
 
+interface CancelCall {
+  readonly agentId: string;
+  readonly batchId: string;
+}
+
 const enqueueCalls: EnqueueCall[] = [];
+const cancelCalls: CancelCall[] = [];
 
 const jobQueue: JobQueueService = {
   enqueueBatch: (_agentId, conversationId, jobs, options) => {
@@ -55,7 +61,10 @@ const jobQueue: JobQueueService = {
   },
   getBatch: () => Effect.succeed(null),
   listActiveBatches: () => Effect.succeed([]),
-  cancelBatch: () => Effect.succeed({ success: true, message: "" }),
+  cancelBatch: (agentId, batchId) => {
+    cancelCalls.push({ agentId, batchId });
+    return Effect.succeed({ success: true, message: `Cancelled wait_for batch ${batchId}.` });
+  },
 };
 
 const testLayer = Layer.mergeAll(
@@ -75,6 +84,14 @@ function run(args: Record<string, unknown>, options: { withConversation?: boolea
   return Effect.runPromise(
     tools.execute
       .execute(args, context as ToolExecutionContext)
+      .pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, Error, never>,
+  );
+}
+
+function runCancel(args: Record<string, unknown>) {
+  return Effect.runPromise(
+    tools.cancelWaitFor
+      .execute(args, { agentId: "agent-1" } as ToolExecutionContext)
       .pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, Error, never>,
   );
 }
@@ -157,5 +174,43 @@ describe("wait_for", () => {
 
   it("is not a long-running tool, since the call returns at once", () => {
     expect(tools.execute.longRunning).toBeUndefined();
+  });
+});
+
+describe("cancel_wait_for", () => {
+  it("has the expected shape", () => {
+    expect(tools.cancelWaitFor.name).toBe("cancel_wait_for");
+    expect(tools.cancelWaitFor.riskLevel).toBe("low-risk");
+    expect(tools.cancelWaitFor.hidden).toBe(false);
+  });
+
+  it("dispatches cancel to the service and reports success", async () => {
+    cancelCalls.length = 0;
+    const result = await runCancel({ batchId: "batch-1" });
+
+    expect(result.success).toBe(true);
+    expect(cancelCalls).toEqual([{ agentId: "agent-1", batchId: "batch-1" }]);
+    expect(result.result).toEqual({ message: "Cancelled wait_for batch batch-1." });
+  });
+
+  it("surfaces a failed cancellation as a failed tool result", async () => {
+    const failingLayer = Layer.mergeAll(
+      Layer.succeed(FileSystemContextServiceTag, fileSystemContext),
+      Layer.succeed(JobQueueServiceTag, {
+        ...jobQueue,
+        cancelBatch: () => Effect.succeed({ success: false, message: "No wait found." }),
+      }),
+      Layer.succeed(LoggerServiceTag, logger),
+      NodeFileSystem.layer,
+    );
+
+    const result = await Effect.runPromise(
+      tools.cancelWaitFor
+        .execute({ batchId: "missing" }, { agentId: "agent-1" } as ToolExecutionContext)
+        .pipe(Effect.provide(failingLayer)) as Effect.Effect<ToolExecutionResult, Error, never>,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("No wait found.");
   });
 });
