@@ -358,11 +358,17 @@ const httpUrlEntry = described(
   "an exact HTTP(S) URL or trailing /* path prefix",
 );
 
+const browserEndpointUrl = described(
+  z.url({ protocol: /^(https?|wss?)$/ }),
+  "an http(s):// or ws(s):// DevTools URL",
+);
+
 const networkShape = {
   allowPrivateHosts: z.array(privateHostEntry).max(MAX_PRIVATE_HOST_ENTRIES).exactOptional(),
   httpApproval: z
     .union([z.literal("allow"), z.array(httpUrlEntry).max(MAX_HTTP_URL_PATTERNS)])
     .exactOptional(),
+  browserEndpoint: browserEndpointUrl.exactOptional(),
 } satisfies SchemaShape<NetworkConfig>;
 
 const streamingShape = {

@@ -97,6 +97,7 @@ import { discoverProjectInstructions, type ProjectInstructionFile } from "./proj
 import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
 import { runToolDenials } from "./tools/agent-tool-resolution";
+import { BrowserSessions } from "./tools/browser/session";
 import { resolveCommandRisk } from "./tools/command-risk";
 import { registerCustomToolsForAgent } from "./tools/custom";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
@@ -874,6 +875,9 @@ function initializeAgentRun(
         ? { resolvedUserSecrets: options.resolvedUserSecrets }
         : {}),
       ...(options.userSecrets !== undefined ? { userSecrets: options.userSecrets } : {}),
+      ...(options.browserSessions !== undefined
+        ? { browserSessions: options.browserSessions }
+        : {}),
       subagentDepth: options.subagentDepth ?? 0,
       maxSubagentDepth: Math.max(
         0,
@@ -1066,8 +1070,17 @@ export class AgentRunner {
             Effect.sync(() => closeUserSecretStore(store)),
           ));
 
+        // The run's browser launches on the first browser tool call; a top-level run closes it
+        // when it ends, and a sub-agent shares its parent's.
+        const browserSessions =
+          options.browserSessions ??
+          (yield* Effect.acquireRelease(
+            Effect.sync(() => new BrowserSessions()),
+            (sessions) => Effect.promise(() => sessions.close()),
+          ));
+
         // Initialize run context
-        const runContext = yield* initializeAgentRun({ ...options, userSecrets });
+        const runContext = yield* initializeAgentRun({ ...options, userSecrets, browserSessions });
 
         // Internal runs without their own panel (compaction) must not take over
         // the parent's stream — a streamed completion finalizes the transcript,

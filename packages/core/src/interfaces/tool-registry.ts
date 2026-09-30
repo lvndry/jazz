@@ -199,7 +199,9 @@ export interface Tool<R = never> {
    * or to a tool without this list, is refused.
    *
    * Name only arguments whose value stays on this machine and is written nowhere: a local
-   * reader's password, or `execute_command`'s command, which a person approves every time.
+   * reader's password, or `execute_command`'s command, which a person approves every time. The
+   * one exception is `browser_act`'s `text`, which a person approves every time with the page
+   * address shown, because signing in is typing a secret into someone else's site.
    */
   readonly userSecretArguments?: readonly string[];
   /**

@@ -25,6 +25,11 @@ export interface NetworkConfig {
   readonly allowPrivateHosts?: readonly string[];
   /** HTTP requests and web fetches run automatically by default. A URL list asks outside it. */
   readonly httpApproval?: HttpApprovalPolicy;
+  /**
+   * A running browser the browser tools drive instead of launching Chrome, as an `http(s)://`
+   * or `ws(s)://` DevTools URL. Page content and typed text reach that browser's host.
+   */
+  readonly browserEndpoint?: string;
 }
 
 export interface AppConfig {
