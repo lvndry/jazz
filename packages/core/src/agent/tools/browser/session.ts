@@ -4,23 +4,48 @@
  * `BrowserSessions` is the run-scoped holder: the runner opens one for a top-level run, hands
  * the same object to its sub-agents, and closes it when the run finishes, errors or is
  * interrupted. The browser itself launches on the first tool call, into a fresh temporary
- * profile that is deleted with it, so no cookie or login outlives the run. A run has exactly one
- * tab; a popup is refused by the browser rather than opened.
+ * profile that is deleted with it, so no cookie or login outlives the run.
  *
- * Every request the page makes passes through `decideBrowserRequest`. Tool calls on a session
- * run one at a time, so the policy in force for a call (private addresses approved for it) is
- * the one every request during that call is judged by.
+ * A run works in named tabs, up to `MAX_TABS`, and acts on the active one. It starts with one
+ * tab named `main`; a popup is refused by the browser rather than opened. Every tab a run opens
+ * is its own: in a browser the user runs, the run's tabs live in a separate browser context, so
+ * they share no cookies or logins with the user's own tabs.
+ *
+ * The user's own tabs are invisible to the run. A tab joins only when the person adopts it: the
+ * session lists the user's tabs to the host, never to the model, and `adopt` attaches to exactly
+ * the one tab the person approved. An adopted tab is guarded like any other and is detached,
+ * never closed, when the run ends.
+ *
+ * Every request a tab makes passes through `decideBrowserRequest`. Tool calls on a session run
+ * one at a time, so the policy in force for a call (private addresses approved for it) is the
+ * one every request during that call is judged by.
  */
 
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import puppeteer, { type CDPSession, type HTTPRequest, type Page } from "puppeteer-core";
+import puppeteer, {
+  type Browser,
+  type CDPSession,
+  type Frame,
+  type HTTPRequest,
+  type Page,
+} from "puppeteer-core";
 import type { PageFlagId, PageStructuralSignals } from "@/core/types/plugin";
 import type { EgressPolicy } from "../guarded-fetch";
 import { readPageSignals } from "./page-signals";
 import { decideBrowserRequest } from "./request-guard";
-import { buildSnapshot, type PageSnapshot, type SnapshotRef } from "./snapshot";
+import { buildSnapshot, type PageSnapshot } from "./snapshot";
+import {
+  DEFAULT_TAB_NAME,
+  RefTable,
+  STALE_REF_MESSAGE,
+  TabRegistry,
+  matchAdoptionCandidates,
+  missingRefMessage,
+  type AdoptionCandidate,
+  type RefLookup,
+} from "./tabs";
 
 /** Time one navigation may take before it fails. */
 export const NAVIGATION_TIMEOUT_MS = 30_000;
@@ -46,6 +71,13 @@ const PROFILE_PREFIX = "jazz-browser-";
 
 const POPUP_FLAG = "--block-new-web-contents";
 
+const BLANK_PAGE_URL = "about:blank";
+
+/** What the model is told when an adoption did not happen, whatever the reason. */
+export const NOT_ADOPTED_MESSAGE = "No tab was adopted.";
+
+export const NO_TAB_MESSAGE = "No tab is open. Use browser_navigate to open one.";
+
 export interface BrowserSettings {
   /** Chrome to launch, from `resolveBrowserExecutablePath`. Unused when `cdpEndpoint` is set. */
   readonly executablePath: string | null;
@@ -54,6 +86,8 @@ export interface BrowserSettings {
 }
 
 export interface PageState {
+  /** The name of the tab this state describes. */
+  readonly tab: string;
   readonly url: string;
   readonly title: string;
 }
@@ -61,6 +95,19 @@ export interface PageState {
 export interface SnapshotResult extends PageState {
   readonly snapshot: PageSnapshot;
 }
+
+export interface TabSummary extends PageState {
+  readonly origin: TabOrigin;
+  readonly active: boolean;
+}
+
+/** What the person is shown when asked to adopt a tab. */
+export interface AdoptionOffer {
+  readonly title: string;
+  readonly url: string;
+}
+
+export type TabOrigin = "owned" | "adopted";
 
 export type PageAction =
   | { readonly kind: "click"; readonly ref: string }
@@ -78,6 +125,10 @@ export const MISSING_CHROME_ERROR =
   "Chrome or Chromium, point PUPPETEER_EXECUTABLE_PATH at a browser binary, or set " +
   "network.browserEndpoint to a running browser.";
 
+export function adoptedNavigationMessage(name: string): string {
+  return `Tab "${name}" is one you adopted and stays on the page it is on. Open another tab with browser_navigate and a tab name.`;
+}
+
 function isWebSocketEndpoint(endpoint: string): boolean {
   return endpoint.startsWith("ws://") || endpoint.startsWith("wss://");
 }
@@ -91,22 +142,43 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isWebPage(url: string): boolean {
+  return url.startsWith("http://") || url.startsWith("https://");
+}
+
+/**
+ * How a session opens tabs of its own and, in a browser the user runs, reaches the user's. The
+ * session is built from one so tests can supply pages without a browser.
+ */
+export interface BrowserEngine {
+  readonly newPage: () => Promise<Page>;
+  /** The user's own pages in an attached browser; undefined for a browser this run launched. */
+  readonly userPages: (() => Promise<readonly Page[]>) | undefined;
+  readonly release: () => Promise<void>;
+  readonly profileDirectory: string | undefined;
+}
+
+interface Tab {
+  readonly origin: TabOrigin;
+  readonly page: Page;
+  readonly client: CDPSession;
+  readonly refs: RefTable;
+  /** Stop guarding the page and let go of it; an owned tab's page is also closed. */
+  readonly dispose: () => Promise<void>;
+}
+
 export class BrowserSession {
   private policy: EgressPolicy = {};
   private verifiedHosts = new Set<string>();
   private readonly approvedOrigins = new Set<string>();
-  private refs: ReadonlyMap<string, SnapshotRef> = new Map();
+  private readonly tabs = new TabRegistry<Tab>();
+  private readonly adoptionOffers = new Map<string, AdoptionCandidate<Page>>();
   private blocks: string[] = [];
   private queue: Promise<unknown> = Promise.resolve();
   private closed = false;
   private flagged: { readonly url: string; readonly flags: readonly PageFlagId[] } | undefined;
 
-  private constructor(
-    private readonly page: Page,
-    private readonly client: CDPSession,
-    private readonly owned: { readonly profileDirectory: string | undefined },
-    private readonly release: () => Promise<void>,
-  ) {}
+  private constructor(private readonly engine: BrowserEngine) {}
 
   /** Launch Chrome into a temporary profile, or connect to `settings.cdpEndpoint`. */
   static open(settings: BrowserSettings): Promise<BrowserSession> {
@@ -127,10 +199,14 @@ export class BrowserSession {
       protocolTimeout: PROTOCOL_TIMEOUT_MS,
     });
     const context = await browser.createBrowserContext();
-    const page = await context.newPage();
-    return BrowserSession.prepare(page, { profileDirectory: undefined }, async () => {
-      await context.close().catch(() => undefined);
-      await browser.disconnect();
+    return BrowserSession.openWith({
+      newPage: () => context.newPage(),
+      userPages: () => userPagesOf(browser),
+      profileDirectory: undefined,
+      release: async () => {
+        await context.close().catch(() => undefined);
+        await browser.disconnect();
+      },
     });
   }
 
@@ -145,9 +221,13 @@ export class BrowserSession {
         protocolTimeout: PROTOCOL_TIMEOUT_MS,
         args: [...sandboxArguments(), POPUP_FLAG, "--disable-extensions", "--mute-audio"],
       });
-      const page = await browser.newPage();
-      return await BrowserSession.prepare(page, { profileDirectory }, async () => {
-        await browser.close();
+      return await BrowserSession.openWith({
+        newPage: () => browser.newPage(),
+        userPages: undefined,
+        profileDirectory,
+        release: async () => {
+          await browser.close();
+        },
       });
     } catch (error) {
       await rm(profileDirectory, { recursive: true, force: true });
@@ -155,32 +235,93 @@ export class BrowserSession {
     }
   }
 
-  private static async prepare(
-    page: Page,
-    owned: { readonly profileDirectory: string | undefined },
-    release: () => Promise<void>,
-  ): Promise<BrowserSession> {
-    await page.setViewport(VIEWPORT);
-    page.setDefaultTimeout(ACTION_TIMEOUT_MS);
-    page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
-    page.on("dialog", (dialog) => {
-      void dialog.dismiss().catch(() => undefined);
-    });
-    const client = await page.createCDPSession();
-    await client.send("Accessibility.enable");
-    await client.send("Page.setDownloadBehavior", { behavior: "deny" }).catch(() => undefined);
-
-    const session = new BrowserSession(page, client, owned, release);
-    await page.setRequestInterception(true);
-    page.on("request", (request) => {
-      void session.guard(request);
-    });
+  /** A session over `engine`, opened on its first tab. */
+  static async openWith(engine: BrowserEngine): Promise<BrowserSession> {
+    const session = new BrowserSession(engine);
+    try {
+      await session.openOwnedTab(DEFAULT_TAB_NAME);
+    } catch (error) {
+      await engine.release().catch(() => undefined);
+      throw error;
+    }
     return session;
   }
 
-  private async guard(request: HTTPRequest): Promise<void> {
+  /** Whether the person can adopt one of their own tabs: only in a browser they run. */
+  get canAdopt(): boolean {
+    return this.engine.userPages !== undefined;
+  }
+
+  private async openOwnedTab(name: string): Promise<Tab> {
+    const problem = this.tabs.problemAdding(name);
+    if (problem !== undefined) {
+      throw new Error(problem);
+    }
+    const page = await this.engine.newPage();
+    let tab: Tab;
+    try {
+      tab = await this.attach(page, "owned");
+    } catch (error) {
+      await page.close().catch(() => undefined);
+      throw error;
+    }
+    this.tabs.add(name, tab);
+    return tab;
+  }
+
+  private async attach(page: Page, origin: TabOrigin): Promise<Tab> {
+    const owned = origin === "owned";
+    const dismissDialog = (dialog: { dismiss: () => Promise<void> }): void => {
+      void dialog.dismiss().catch(() => undefined);
+    };
+    if (owned) {
+      await page.setViewport(VIEWPORT);
+      page.on("dialog", dismissDialog);
+    }
+    page.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
+    const client = await page.createCDPSession();
+    await client.send("Accessibility.enable");
+    if (owned) {
+      await client.send("Page.setDownloadBehavior", { behavior: "deny" }).catch(() => undefined);
+    }
+
+    const refs = new RefTable();
+    const onNavigated = (frame: Frame): void => {
+      if (frame === page.mainFrame()) {
+        refs.invalidate();
+      }
+    };
+    const onRequest = (request: HTTPRequest): void => {
+      void this.guard(page, request);
+    };
+    page.on("framenavigated", onNavigated);
+    await page.setRequestInterception(true);
+    page.on("request", onRequest);
+
+    return {
+      origin,
+      page,
+      client,
+      refs,
+      dispose: async () => {
+        page.off("framenavigated", onNavigated);
+        page.off("request", onRequest);
+        if (owned) {
+          page.off("dialog", dismissDialog);
+          await page.close().catch(() => undefined);
+          return;
+        }
+        await page.setRequestInterception(false).catch(() => undefined);
+        await client.send("Accessibility.disable").catch(() => undefined);
+        await client.detach().catch(() => undefined);
+      },
+    };
+  }
+
+  private async guard(page: Page, request: HTTPRequest): Promise<void> {
     const isMainFrameNavigation =
-      request.isNavigationRequest() && request.frame() === this.page.mainFrame();
+      request.isNavigationRequest() && request.frame() === page.mainFrame();
     try {
       const decision = await decideBrowserRequest(
         { url: request.url(), isMainFrameNavigation },
@@ -214,7 +355,7 @@ export class BrowserSession {
       try {
         return await operation();
       } catch (error) {
-        throw new Error(`${errorMessage(error)}${this.describeBlocks()}`, { cause: error });
+        throw new Error(`${errorMessage(error)}${this.blockedSummary()}`, { cause: error });
       }
     };
     const result = this.queue.then(run, run);
@@ -222,7 +363,8 @@ export class BrowserSession {
     return result;
   }
 
-  private describeBlocks(): string {
+  /** The requests the guard refused during the current call, worded for a failure message. */
+  blockedSummary(): string {
     if (this.blocks.length === 0) {
       return "";
     }
@@ -234,11 +376,40 @@ export class BrowserSession {
     return ` Blocked requests: ${listed}${more}.`;
   }
 
-  async state(): Promise<PageState> {
-    return { url: this.page.url(), title: await this.page.title() };
+  /** The active tab and its name, or an error when no tab is open. */
+  private active(): { readonly name: string; readonly tab: Tab } {
+    const name = this.tabs.active();
+    const tab = name === undefined ? undefined : this.tabs.get(name);
+    if (name === undefined || tab === undefined) {
+      throw new Error(NO_TAB_MESSAGE);
+    }
+    return { name, tab };
   }
 
-  async navigate(url: string): Promise<PageState> {
+  private async describe(name: string, tab: Tab): Promise<PageState> {
+    return { tab: name, url: tab.page.url(), title: await tab.page.title() };
+  }
+
+  /** Whether a tab is open to act on. */
+  hasTab(): boolean {
+    return this.tabs.active() !== undefined;
+  }
+
+  /** How many tabs are open. */
+  get tabCount(): number {
+    return this.tabs.size;
+  }
+
+  async state(): Promise<PageState> {
+    const { name, tab } = this.active();
+    return this.describe(name, tab);
+  }
+
+  /**
+   * Open `url` in the tab named `tabName`, opening that tab first when it does not exist, or in
+   * the active tab when no name is given. The tab becomes the active one.
+   */
+  async navigate(url: string, tabName?: string): Promise<PageState> {
     const decision = await decideBrowserRequest(
       { url, isMainFrameNavigation: true },
       this.policy,
@@ -248,55 +419,113 @@ export class BrowserSession {
     if (decision.kind === "abort") {
       throw new Error(`Navigation refused: ${decision.reason}.`);
     }
+    const name = await this.tabForNavigation(tabName);
+    const tab = this.tabs.get(name);
+    if (tab === undefined) {
+      throw new Error(NO_TAB_MESSAGE);
+    }
+    if (tab.origin === "adopted") {
+      throw new Error(adoptedNavigationMessage(name));
+    }
     this.approvedOrigins.add(new URL(url).origin);
-    await this.page.goto(url, { waitUntil: "load", timeout: NAVIGATION_TIMEOUT_MS });
-    await this.settle();
-    return this.state();
+    await tab.page.goto(url, { waitUntil: "load", timeout: NAVIGATION_TIMEOUT_MS });
+    await this.settle(tab.page);
+    return this.describe(name, tab);
+  }
+
+  private async tabForNavigation(requested: string | undefined): Promise<string> {
+    if (requested !== undefined) {
+      if (this.tabs.has(requested)) {
+        this.tabs.activate(requested);
+        return requested;
+      }
+      if (this.untouchedStartTab()) {
+        this.tabs.rename(DEFAULT_TAB_NAME, requested);
+        return requested;
+      }
+      await this.openOwnedTab(requested);
+      return requested;
+    }
+    const active = this.tabs.active();
+    if (active !== undefined) {
+      return active;
+    }
+    await this.openOwnedTab(DEFAULT_TAB_NAME);
+    return DEFAULT_TAB_NAME;
+  }
+
+  /**
+   * Whether the tab the run started with is still the only one and still blank. The first named
+   * navigation takes that tab over instead of leaving it empty beside the one it opens.
+   */
+  private untouchedStartTab(): boolean {
+    const start = this.tabs.get(DEFAULT_TAB_NAME);
+    return (
+      this.tabs.size === 1 &&
+      start !== undefined &&
+      start.origin === "owned" &&
+      start.page.url() === BLANK_PAGE_URL
+    );
   }
 
   async back(): Promise<PageState> {
-    const response = await this.page.goBack({ waitUntil: "load", timeout: NAVIGATION_TIMEOUT_MS });
-    if (response === null && this.page.url() === "about:blank") {
+    const { name, tab } = this.active();
+    const response = await tab.page.goBack({
+      waitUntil: "load",
+      timeout: NAVIGATION_TIMEOUT_MS,
+    });
+    if (response === null && tab.page.url() === "about:blank") {
       throw new Error("There is no earlier page in this browser's history.");
     }
-    await this.settle();
-    return this.state();
+    await this.settle(tab.page);
+    return this.describe(name, tab);
   }
 
   async snapshot(): Promise<SnapshotResult> {
-    const tree = await this.client.send("Accessibility.getFullAXTree", {});
+    const { name, tab } = this.active();
+    const tree = await tab.client.send("Accessibility.getFullAXTree", {});
     const snapshot = buildSnapshot(tree.nodes);
-    this.refs = snapshot.refs;
-    return { ...(await this.state()), snapshot };
+    tab.refs.replace(snapshot.refs);
+    return { ...(await this.describe(name, tab)), snapshot };
   }
 
   async screenshot(filePath: string, fullPage: boolean): Promise<PageState> {
-    await this.page.screenshot({ path: filePath, type: "png", fullPage });
-    return this.state();
+    const { name, tab } = this.active();
+    await tab.page.screenshot({ path: filePath, type: "png", fullPage });
+    return this.describe(name, tab);
   }
 
   async act(action: PageAction): Promise<PageState> {
+    const { name, tab } = this.active();
     switch (action.kind) {
       case "click":
-        await this.click(this.backendNodeId(action.ref));
+        await this.click(tab, this.backendNodeId(tab, action.ref));
         break;
       case "type":
-        await this.type(this.backendNodeId(action.ref), action.text, action.submit);
+        await this.type(tab, this.backendNodeId(tab, action.ref), action.text, action.submit);
         break;
       case "select":
-        await this.select(this.backendNodeId(action.ref), action.value);
+        await this.select(tab, this.backendNodeId(tab, action.ref), action.value);
         break;
       case "press":
-        await this.page.keyboard.press(action.key as Parameters<Page["keyboard"]["press"]>[0]);
+        await tab.page.keyboard.press(action.key as Parameters<Page["keyboard"]["press"]>[0]);
         break;
     }
-    await this.settle();
-    return this.state();
+    await this.settle(tab.page);
+    return this.describe(name, tab);
   }
 
-  /** Whether the current document holds a password or card field. */
+  /** What the active tab's latest snapshot says about `ref`. */
+  resolveRef(ref: string): RefLookup {
+    const name = this.tabs.active();
+    const tab = name === undefined ? undefined : this.tabs.get(name);
+    return tab === undefined ? { kind: "missing" } : tab.refs.lookup(ref);
+  }
+
+  /** Whether the active document holds a password or card field. */
   pageSignals(): Promise<PageStructuralSignals> {
-    return readPageSignals(this.page);
+    const { tab } = this.active();
+    return readPageSignals(tab.page);
   }
 
   /** Remember the flags raised for `url`, for the approvals that follow on that page. */
@@ -309,21 +538,113 @@ export class BrowserSession {
     return this.flagged?.url === url ? this.flagged.flags : [];
   }
 
-  /** The role and name the last snapshot gave `ref`, or undefined when it has no such ref. */
-  describeRef(ref: string): string | undefined {
-    return this.refs.get(ref)?.label;
-  }
-
-  private backendNodeId(ref: string): number {
-    const found = this.refs.get(ref);
-    if (found === undefined) {
-      throw new Error(`No element has ref ${ref}. Take a new snapshot and use a ref from it.`);
+  private backendNodeId(tab: Tab, ref: string): number {
+    const found = tab.refs.lookup(ref);
+    if (found.kind === "stale") {
+      throw new Error(STALE_REF_MESSAGE);
+    }
+    if (found.kind === "missing") {
+      throw new Error(missingRefMessage(ref));
     }
     return found.backendNodeId;
   }
 
-  private async objectIdFor(backendNodeId: number): Promise<string> {
-    const { object } = await this.client.send("DOM.resolveNode", { backendNodeId });
+  /** The run's tabs with the address and title each shows now. */
+  async listTabs(): Promise<readonly TabSummary[]> {
+    const active = this.tabs.active();
+    return Promise.all(
+      this.tabs.entries().map(async ([name, tab]) => ({
+        ...(await this.describe(name, tab)),
+        origin: tab.origin,
+        active: name === active,
+      })),
+    );
+  }
+
+  async switchTab(name: string): Promise<PageState> {
+    const tab = this.tabs.activate(name);
+    return this.describe(name, tab);
+  }
+
+  /**
+   * Close the tab named `name`. A tab the person adopted is detached and left open in their
+   * browser.
+   */
+  async closeTab(name: string): Promise<{ readonly closed: string; readonly active?: string }> {
+    const tab = this.tabs.remove(name);
+    await tab.dispose();
+    const active = this.tabs.active();
+    return active === undefined ? { closed: name } : { closed: name, active };
+  }
+
+  /**
+   * The user's tabs an adoption request naming `hint` could mean, for the person who is asked,
+   * never for the model. When exactly one matches it is remembered as the one on offer, so
+   * `adopt` attaches to that tab and to no other.
+   */
+  async offerAdoption(hint: string, name: string): Promise<readonly AdoptionOffer[]> {
+    const matches = matchAdoptionCandidates(await this.userCandidates(), hint);
+    const key = adoptionKey(hint, name);
+    this.adoptionOffers.delete(key);
+    const only = matches.length === 1 ? matches[0] : undefined;
+    if (only !== undefined) {
+      this.adoptionOffers.set(key, only);
+    }
+    return matches.map((candidate) => ({ title: candidate.title, url: candidate.url }));
+  }
+
+  /**
+   * Attach to the tab that was offered to the person for `hint` and `name`, and make it the
+   * active tab. It fails, with a message that does not say why, unless the very tab and address
+   * the person saw are still the only match.
+   */
+  async adopt(hint: string, name: string): Promise<PageState> {
+    const key = adoptionKey(hint, name);
+    const offered = this.adoptionOffers.get(key);
+    this.adoptionOffers.delete(key);
+    const matches = matchAdoptionCandidates(await this.userCandidates(), hint);
+    const found = matches.length === 1 ? matches[0] : undefined;
+    const problem = this.tabs.problemAdding(name);
+    if (
+      offered === undefined ||
+      found === undefined ||
+      found.page !== offered.page ||
+      found.url !== offered.url ||
+      problem !== undefined
+    ) {
+      throw new Error(NOT_ADOPTED_MESSAGE);
+    }
+    const tab = await this.attach(found.page, "adopted");
+    try {
+      this.tabs.add(name, tab);
+    } catch (error) {
+      await tab.dispose();
+      throw error;
+    }
+    this.approvedOrigins.add(new URL(found.url).origin);
+    return this.describe(name, tab);
+  }
+
+  private async userCandidates(): Promise<readonly AdoptionCandidate<Page>[]> {
+    if (this.engine.userPages === undefined) {
+      return [];
+    }
+    const adopted = new Set(
+      this.tabs
+        .entries()
+        .filter(([, tab]) => tab.origin === "adopted")
+        .map(([, tab]) => tab.page),
+    );
+    const pages = await this.engine.userPages();
+    return Promise.all(
+      pages
+        .filter((page) => isWebPage(page.url()) && !adopted.has(page))
+        .map(async (page) => ({ page, url: page.url(), title: await page.title() })),
+    );
+  }
+
+  private async objectIdFor(tab: Tab, backendNodeId: number): Promise<string> {
+    const { object } = await tab.client.send("DOM.resolveNode", { backendNodeId });
     if (object.objectId === undefined) {
       throw new Error("The element is no longer in the page. Take a new snapshot.");
     }
@@ -334,9 +655,9 @@ export class BrowserSession {
    * A mouse click at the element's centre. A browser without a layout engine has no box model to
    * aim at, so the click falls back to the element's own `click()`.
    */
-  private async click(backendNodeId: number): Promise<void> {
-    const objectId = await this.objectIdFor(backendNodeId);
-    await this.client.send("Runtime.callFunctionOn", {
+  private async click(tab: Tab, backendNodeId: number): Promise<void> {
+    const objectId = await this.objectIdFor(tab, backendNodeId);
+    await tab.client.send("Runtime.callFunctionOn", {
       objectId,
       functionDeclaration: `function () {
         const anchor = this.closest ? this.closest("a") : null;
@@ -344,41 +665,46 @@ export class BrowserSession {
       }`,
     });
     try {
-      await this.client.send("DOM.scrollIntoViewIfNeeded", { backendNodeId });
-      const { model } = await this.client.send("DOM.getBoxModel", { backendNodeId });
+      await tab.client.send("DOM.scrollIntoViewIfNeeded", { backendNodeId });
+      const { model } = await tab.client.send("DOM.getBoxModel", { backendNodeId });
       const [left, top, , , right, bottom] = model.content;
-      await this.page.mouse.click(
+      await tab.page.mouse.click(
         ((left ?? 0) + (right ?? 0)) / 2,
         ((top ?? 0) + (bottom ?? 0)) / 2,
       );
     } catch {
-      await this.client.send("Runtime.callFunctionOn", {
+      await tab.client.send("Runtime.callFunctionOn", {
         objectId,
         functionDeclaration: "function () { this.click(); }",
       });
     }
   }
 
-  private async type(backendNodeId: number, text: string, submit: boolean): Promise<void> {
-    await this.client.send("DOM.focus", { backendNodeId });
-    const objectId = await this.objectIdFor(backendNodeId);
-    await this.client.send("Runtime.callFunctionOn", {
+  private async type(
+    tab: Tab,
+    backendNodeId: number,
+    text: string,
+    submit: boolean,
+  ): Promise<void> {
+    await tab.client.send("DOM.focus", { backendNodeId });
+    const objectId = await this.objectIdFor(tab, backendNodeId);
+    await tab.client.send("Runtime.callFunctionOn", {
       objectId,
       functionDeclaration: "function () { if (this.select) { this.select(); } }",
     });
     if (text === "") {
-      await this.page.keyboard.press("Backspace");
+      await tab.page.keyboard.press("Backspace");
     } else {
-      await this.page.keyboard.type(text);
+      await tab.page.keyboard.type(text);
     }
     if (submit) {
-      await this.page.keyboard.press("Enter");
+      await tab.page.keyboard.press("Enter");
     }
   }
 
-  private async select(backendNodeId: number, value: string): Promise<void> {
-    const objectId = await this.objectIdFor(backendNodeId);
-    const outcome = await this.client.send("Runtime.callFunctionOn", {
+  private async select(tab: Tab, backendNodeId: number, value: string): Promise<void> {
+    const objectId = await this.objectIdFor(tab, backendNodeId);
+    const outcome = await tab.client.send("Runtime.callFunctionOn", {
       objectId,
       arguments: [{ value }],
       returnByValue: true,
@@ -399,8 +725,8 @@ export class BrowserSession {
     }
   }
 
-  private async settle(): Promise<void> {
-    await this.page
+  private async settle(page: Page): Promise<void> {
+    await page
       .waitForNetworkIdle({ idleTime: SETTLE_IDLE_MS, timeout: SETTLE_TIMEOUT_MS })
       .catch(() => undefined);
   }
@@ -411,13 +737,29 @@ export class BrowserSession {
     }
     this.closed = true;
     try {
-      await this.release();
+      for (const [, tab] of this.tabs.entries()) {
+        if (tab.origin === "adopted") {
+          await tab.dispose().catch(() => undefined);
+        }
+      }
+      await this.engine.release();
     } finally {
-      if (this.owned.profileDirectory !== undefined) {
-        await rm(this.owned.profileDirectory, { recursive: true, force: true });
+      if (this.engine.profileDirectory !== undefined) {
+        await rm(this.engine.profileDirectory, { recursive: true, force: true });
       }
     }
   }
+}
+
+function adoptionKey(hint: string, name: string): string {
+  return `${name}\n${hint}`;
+}
+
+/** The pages of the user's own context in an attached browser, not the run's separate one. */
+async function userPagesOf(browser: Browser): Promise<readonly Page[]> {
+  const userContext = browser.defaultBrowserContext();
+  const pages = await browser.pages();
+  return pages.filter((page) => page.browserContext() === userContext);
 }
 
 /**

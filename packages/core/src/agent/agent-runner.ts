@@ -102,7 +102,7 @@ import { resolveCommandRisk } from "./tools/command-risk";
 import { registerCustomToolsForAgent } from "./tools/custom";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
-import { registerPeerTools } from "./tools/register-tools";
+import { registerBrowserAdoptionTools, registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
 import { BUILTIN_TOOL_CATEGORIES } from "./tools/tool-categories";
 import { INTERACTIVE_TOOL_NAMES } from "./tools/user-interaction";
@@ -595,6 +595,7 @@ function initializeAgentRun(
     // Registered per run rather than globally, because whether it exists at all depends on
     // the config: an agent with no peers never sees the tool.
     yield* registerPeerTools().pipe(Effect.catchAll(() => Effect.void));
+    yield* registerBrowserAdoptionTools().pipe(Effect.catchAll(() => Effect.void));
 
     // Register MCP tools for this agent if needed (only connects to relevant servers)
     // This happens before validation so MCP tools are available

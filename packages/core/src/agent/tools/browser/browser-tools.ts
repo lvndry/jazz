@@ -4,7 +4,9 @@
  * The agent reads a page as an accessibility snapshot whose interactive elements carry refs,
  * and acts on those refs. Reading and navigating are ordinary tools; `browser_act`, which clicks,
  * types and presses keys, is an approval pair because a click can submit a form or buy
- * something.
+ * something, and it takes a list of steps so one approval covers one task. The agent works in
+ * named tabs it opened itself. A tab the user already had open stays invisible until the person
+ * adopts it through `browser_adopt_tab`.
  *
  * Everything a page shows the model is another party's text. Results carry `untrusted`
  * provenance, so the run is marked as having read external content and its later outbound tools
@@ -16,7 +18,7 @@ import { Effect } from "effect";
 import shortuuid from "short-uuid";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
-import type { Tool } from "@/core/interfaces/tool-registry";
+import type { Tool, ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import { redactionPlaceholder } from "@/core/secrets/secret-names";
 import { userSecretNamesIn } from "@/core/secrets/user-secrets";
 import type { GeneratedArtifact } from "@/core/types/artifact";
@@ -35,10 +37,31 @@ import { egressPolicyForContext, type EgressPolicy } from "../guarded-fetch";
 import { createSystemBrowserLookup, resolveBrowserExecutablePath } from "../web-app";
 import { advisePage, renderSnapshot } from "./page-hooks";
 import { combineFlags, describeFlags } from "./page-signals";
-import { BrowserSession, type BrowserSessions, type PageAction, type PageState } from "./session";
+import {
+  BrowserSession,
+  NO_TAB_MESSAGE,
+  type BrowserSessions,
+  type PageAction,
+  type PageState,
+  type TabSummary,
+} from "./session";
+import {
+  MAX_ADOPTION_HINT_LENGTH,
+  STALE_REF_MESSAGE,
+  missingRefMessage,
+  tabNameProblem,
+} from "./tabs";
 
 export const BROWSER_NAVIGATE_TOOL_NAME = "browser_navigate";
 export const BROWSER_ACT_TOOL_NAME = "browser_act";
+export const BROWSER_TABS_TOOL_NAME = "browser_tabs";
+export const BROWSER_ADOPT_TAB_TOOL_NAME = "browser_adopt_tab";
+
+/**
+ * Most steps one `browser_act` call runs. A form or a short flow fits in a dozen steps; a longer
+ * sequence is several tasks, each worth its own approval and its own look at the page.
+ */
+export const MAX_ACT_STEPS = 12;
 
 /** Most characters one `type` action enters. */
 const MAX_TYPED_TEXT_CHARACTERS = 4_000;
@@ -55,7 +78,7 @@ function failure(error: string): ToolExecutionResult {
 }
 
 function describePage(state: PageState): string {
-  return `url: ${state.url}\ntitle: ${state.title}`;
+  return `tab: ${state.tab}\nurl: ${state.url}\ntitle: ${state.title}`;
 }
 
 function pageResult(state: PageState, source: string, extra?: string): ToolExecutionResult {
@@ -118,9 +141,18 @@ function toFailure(error: Error): Effect.Effect<ToolExecutionResult> {
   return Effect.succeed(failure(error.message));
 }
 
+const tabNameSchema = z.string().refine((name) => tabNameProblem(name) === undefined, {
+  message: "A tab name is lowercase words joined by hyphens, such as checkout.",
+});
+
 const navigateParameters = z
   .object({
     url: z.string().min(1).describe("Absolute http(s) URL to open."),
+    tab: tabNameSchema
+      .optional()
+      .describe(
+        "Name of the tab to open the URL in, such as checkout. A name that is not open yet opens a new tab. Omit it to use the active tab.",
+      ),
   })
   .strict();
 
@@ -133,8 +165,9 @@ export function createBrowserNavigateTool(): Tool<AgentConfigService> {
     summary:
       "Open a web page in a real browser: browse sites, log in, fill forms, use pages that need JavaScript.",
     description:
-      "Open an http(s) URL in the run's browser and return the page's URL and title. " +
-      `${SNAPSHOT_HINT} The browser starts on the first call and keeps its pages and cookies until the run ends.`,
+      "Open an http(s) URL in a tab of the run's browser and return the page's URL and title. " +
+      "Name a tab to keep several pages open side by side, and switch between them with browser_tabs. " +
+      `${SNAPSHOT_HINT} The browser starts on the first call and keeps its tabs and cookies until the run ends.`,
     tags: ["browser", "web", "navigate"],
     parameters: navigateParameters,
     validate: makeZodValidator(navigateParameters),
@@ -142,7 +175,7 @@ export function createBrowserNavigateTool(): Tool<AgentConfigService> {
     egress: true,
     hidden: false,
     handler: (args, context) =>
-      withBrowser(context, (session) => session.navigate(args.url)).pipe(
+      withBrowser(context, (session) => session.navigate(args.url, args.tab)).pipe(
         Effect.map((state) => pageResult(state, BROWSER_NAVIGATE_TOOL_NAME)),
         Effect.catchAll(toFailure),
       ),
@@ -307,9 +340,113 @@ export function createBrowserCloseTool(): Tool<AgentConfigService> {
   });
 }
 
-const actParameters = z
+const tabsParameters = z
   .object({
-    action: z.enum(["click", "type", "select", "press"]).describe("click, type, select or press."),
+    action: z
+      .enum(["list", "switch", "close"])
+      .describe("list the open tabs, switch to one by name, or close one by name."),
+    name: tabNameSchema.optional().describe("Tab name (switch, close)."),
+  })
+  .strict()
+  .superRefine((args, refinement) => {
+    if (args.action !== "list" && args.name === undefined) {
+      refinement.addIssue({
+        code: "custom",
+        message: `${args.action} needs name`,
+        path: ["name"],
+      });
+    }
+  });
+
+type TabsArgs = z.infer<typeof tabsParameters>;
+
+function describeTabs(tabs: readonly TabSummary[]): string {
+  if (tabs.length === 0) {
+    return NO_TAB_MESSAGE;
+  }
+  const lines = tabs.map((tab) => {
+    const marker = tab.active ? "*" : " ";
+    const adopted = tab.origin === "adopted" ? " (adopted)" : "";
+    return `${marker} ${tab.tab}${adopted}  ${tab.url}  ${JSON.stringify(tab.title)}`;
+  });
+  return `Open tabs (* is active):\n${lines.join("\n")}`;
+}
+
+export function createBrowserTabsTool(): Tool<AgentConfigService> {
+  return defineTool<AgentConfigService, TabsArgs>({
+    name: BROWSER_TABS_TOOL_NAME,
+    disclosure: "private",
+    summary: "List, switch between, and close the named tabs of the browser.",
+    description:
+      "Manage the run's browser tabs. list shows each tab's name, address and title; switch makes " +
+      "a named tab the one browser_snapshot and browser_act use; close closes a tab. Open a tab by " +
+      "giving browser_navigate a new tab name.",
+    tags: ["browser", "tabs"],
+    parameters: tabsParameters,
+    validate: makeZodValidator(tabsParameters),
+    riskLevel: "low-risk",
+    resolveRiskLevel: (args) => (args["action"] === "list" ? "read-only" : "low-risk"),
+    hidden: false,
+    handler: (args, context) =>
+      withBrowser(context, async (session) => {
+        if (args.action === "list") {
+          return {
+            success: true,
+            result: describeTabs(await session.listTabs()),
+            untrusted: { kind: "external", source: BROWSER_TABS_TOOL_NAME },
+          } satisfies ToolExecutionResult;
+        }
+        const name = args.name ?? "";
+        if (args.action === "switch") {
+          return pageResult(await session.switchTab(name), BROWSER_TABS_TOOL_NAME, SNAPSHOT_HINT);
+        }
+        const closed = await session.closeTab(name);
+        const now =
+          closed.active === undefined
+            ? NO_TAB_MESSAGE
+            : `Active tab: ${closed.active}. ${SNAPSHOT_HINT}`;
+        return {
+          success: true,
+          result: `Closed tab ${closed.closed}. ${now}`,
+        } satisfies ToolExecutionResult;
+      }).pipe(Effect.catchAll(toFailure)),
+    createSummary: (result) => (result.success ? "Used the browser tabs" : undefined),
+  });
+}
+
+const STEP_ACTIONS = ["click", "type", "select", "press"] as const;
+
+type StepAction = (typeof STEP_ACTIONS)[number];
+
+const RISK_RANK = { "read-only": 0, "low-risk": 1, "high-risk": 2 } as const;
+
+type RankedRisk = keyof typeof RISK_RANK;
+
+/**
+ * The risk of each kind of step. A click can submit a form or buy something and a keystroke can
+ * confirm a dialog, so every step that changes the page is `high-risk`.
+ */
+export const STEP_RISK: Readonly<Record<StepAction, RankedRisk>> = {
+  click: "high-risk",
+  type: "high-risk",
+  select: "high-risk",
+  press: "high-risk",
+};
+
+/** The riskiest of `levels`: one approval covers a whole batch, so the worst step sets its level. */
+export function highestRisk(levels: readonly RankedRisk[]): RankedRisk {
+  return levels.reduce<RankedRisk>(
+    (highest, level) => (RISK_RANK[level] > RISK_RANK[highest] ? level : highest),
+    "read-only",
+  );
+}
+
+/** The level `browser_act` is gated at: the highest of any step it can run. */
+export const ACT_RISK_LEVEL: ToolRiskLevel = highestRisk(Object.values(STEP_RISK));
+
+const stepSchema = z
+  .object({
+    action: z.enum(STEP_ACTIONS).describe("click, type, select or press."),
     ref: z
       .string()
       .min(1)
@@ -335,59 +472,78 @@ const actParameters = z
       .describe("Key to press, such as Enter, Tab, Escape or PageDown (press)."),
   })
   .strict()
-  .superRefine((args, refinement) => {
+  .superRefine((step, refinement) => {
     const missing = (field: string): void => {
       refinement.addIssue({
         code: "custom",
-        message: `${args.action} needs ${field}`,
+        message: `${step.action} needs ${field}`,
         path: [field],
       });
     };
-    if (args.action !== "press" && args.ref === undefined) {
+    if (step.action !== "press" && step.ref === undefined) {
       missing("ref");
     }
-    if (args.action === "type" && args.text === undefined) {
+    if (step.action === "type" && step.text === undefined) {
       missing("text");
     }
-    if (args.action === "select" && args.value === undefined) {
+    if (step.action === "select" && step.value === undefined) {
       missing("value");
     }
-    if (args.action === "press" && args.key === undefined) {
+    if (step.action === "press" && step.key === undefined) {
       missing("key");
     }
   });
 
+type ActStep = z.infer<typeof stepSchema>;
+
+const actParameters = z
+  .object({
+    actions: z
+      .array(stepSchema)
+      .min(1)
+      .max(MAX_ACT_STEPS)
+      .describe(
+        `The steps of one task, in order, up to ${String(MAX_ACT_STEPS)}. Each is a click, type, select or press.`,
+      ),
+  })
+  .strict();
+
 type ActArgs = z.infer<typeof actParameters>;
 
-function toPageAction(args: ActArgs): PageAction {
-  switch (args.action) {
+function toPageAction(step: ActStep): PageAction {
+  switch (step.action) {
     case "click":
-      return { kind: "click", ref: args.ref ?? "" };
+      return { kind: "click", ref: step.ref ?? "" };
     case "type":
       return {
         kind: "type",
-        ref: args.ref ?? "",
-        text: args.text ?? "",
-        submit: args.submit === true,
+        ref: step.ref ?? "",
+        text: step.text ?? "",
+        submit: step.submit === true,
       };
     case "select":
-      return { kind: "select", ref: args.ref ?? "", value: args.value ?? "" };
+      return { kind: "select", ref: step.ref ?? "", value: step.value ?? "" };
     case "press":
-      return { kind: "press", key: args.key ?? "" };
+      return { kind: "press", key: step.key ?? "" };
   }
 }
 
-function describeAction(args: ActArgs, target: string | undefined): string {
-  switch (args.action) {
+function describeStep(step: ActStep, target: string | undefined): string {
+  switch (step.action) {
     case "click":
-      return `Click ${target ?? args.ref ?? ""}`;
+      return `Click ${target ?? step.ref ?? ""}`;
     case "type":
-      return `Type ${JSON.stringify(args.text ?? "")} into ${target ?? args.ref ?? ""}${args.submit === true ? " and press Enter" : ""}`;
+      return `Type ${JSON.stringify(step.text ?? "")} into ${target ?? step.ref ?? ""}${step.submit === true ? " and press Enter" : ""}`;
     case "select":
-      return `Choose ${JSON.stringify(args.value ?? "")} in ${target ?? args.ref ?? ""}`;
+      return `Choose ${JSON.stringify(step.value ?? "")} in ${target ?? step.ref ?? ""}`;
     case "press":
-      return `Press ${args.key ?? ""}`;
+      return `Press ${step.key ?? ""}`;
   }
+}
+
+/** A step named by its action and ref alone, so a failure never repeats text the page wrote. */
+function briefStep(step: ActStep): string {
+  return step.action === "press" ? `press ${step.key ?? ""}` : `${step.action} ${step.ref ?? ""}`;
 }
 
 function isSecureOrigin(pageUrl: string): boolean {
@@ -399,22 +555,100 @@ function isSecureOrigin(pageUrl: string): boolean {
   }
 }
 
+/** Whether the text of `step`, after the registry substituted secrets, holds a typed secret. */
+function stepEntersSecret(step: ActStep, context: ToolExecutionContext): boolean {
+  const text = step.text;
+  if (text === undefined || context.userSecrets === undefined) {
+    return false;
+  }
+  return context.userSecrets.knownSecrets().some((secret) => text.includes(secret.value));
+}
+
+interface StepsOutcome {
+  readonly completed: number;
+  readonly failure?: { readonly index: number; readonly message: string };
+  readonly state?: PageState;
+  readonly blocked: string;
+}
+
+/**
+ * Run `steps` in order on the active tab and stop at the first failure. A step that types a
+ * secret first checks the tab still shows an https page, because an earlier step may have
+ * moved it.
+ */
+async function runSteps(
+  session: BrowserSession,
+  steps: readonly ActStep[],
+  context: ToolExecutionContext,
+): Promise<StepsOutcome> {
+  let failure: StepsOutcome["failure"];
+  let completed = 0;
+  for (const [index, step] of steps.entries()) {
+    try {
+      if (stepEntersSecret(step, context)) {
+        const current = await session.state();
+        if (!isSecureOrigin(current.url)) {
+          throw new Error(
+            `${current.url} is not served over https, so a secret you typed is not entered there.`,
+          );
+        }
+      }
+      await session.act(toPageAction(step));
+      completed += 1;
+    } catch (error) {
+      failure = { index, message: toError(error).message };
+      break;
+    }
+  }
+  const state = await session.state().catch(() => undefined);
+  return {
+    completed,
+    ...(failure === undefined ? {} : { failure }),
+    ...(state === undefined ? {} : { state }),
+    blocked: session.blockedSummary(),
+  };
+}
+
+function stepsResult(steps: readonly ActStep[], outcome: StepsOutcome): ToolExecutionResult {
+  const total = steps.length;
+  const progress = `Completed ${String(outcome.completed)} of ${String(total)} step${total === 1 ? "" : "s"}.`;
+  const source = BROWSER_ACT_TOOL_NAME;
+  if (outcome.failure === undefined) {
+    return outcome.state === undefined
+      ? { success: true, result: progress }
+      : pageResult(outcome.state, source, `${progress}\n${SNAPSHOT_HINT}`);
+  }
+  const failed = steps[outcome.failure.index];
+  const named = failed === undefined ? "" : ` (${briefStep(failed)})`;
+  const error = `Step ${String(outcome.failure.index + 1)} of ${String(total)} failed${named}: ${outcome.failure.message}${outcome.blocked}`;
+  return {
+    success: false,
+    result: outcome.state === undefined ? progress : `${describePage(outcome.state)}\n${progress}`,
+    error,
+    ...(outcome.state === undefined
+      ? {}
+      : { untrusted: { kind: "external", source: `${source} ${outcome.state.url}` } }),
+  };
+}
+
 export function createBrowserActTools(): ApprovalToolPair<AgentConfigService> {
   return defineApprovalTool<AgentConfigService, ActArgs>({
     name: BROWSER_ACT_TOOL_NAME,
     disclosure: "private",
     summary: "Click, type into, select from or press keys on a web page in the browser.",
     description:
-      "Act on the current page: click an element, type into a field, choose an option from a " +
-      "list, or press a key. Elements come from the latest browser_snapshot by ref. The action " +
-      "runs after approval and returns the new URL and title. To sign in, collect the password " +
-      "with ask_user_secret and pass its placeholder as text.",
+      "Act on the active tab's page. Put the steps of one task in actions, in order: each step " +
+      "clicks an element, types into a field, chooses an option from a list, or presses a key. " +
+      "Elements come from the latest browser_snapshot by ref. The steps run after one approval " +
+      "and stop at the first failure, and the result names how many completed. When a step " +
+      "changes the page address, take a new browser_snapshot before using refs again. To sign " +
+      "in, collect the password with ask_user_secret and pass its placeholder as text.",
     tags: ["browser", "click", "type", "form"],
     parameters: actParameters,
     validate: makeZodValidator(actParameters),
-    riskLevel: "high-risk",
+    riskLevel: ACT_RISK_LEVEL,
     egress: true,
-    userSecretArguments: ["text"],
+    userSecretArguments: ["actions[].text"],
     approvalMessage: (args, context) =>
       Effect.gen(function* () {
         const pending = browserSessionsFor(context)?.peek();
@@ -425,14 +659,22 @@ export function createBrowserActTools(): ApprovalToolPair<AgentConfigService> {
           } as const;
         }
         const session = yield* Effect.tryPromise({ try: () => pending, catch: toError });
-        const target = args.ref === undefined ? undefined : session.describeRef(args.ref);
-        if (args.ref !== undefined && target === undefined) {
-          return {
-            skipApproval: true,
-            toolResult: failure(
-              `No element has ref ${args.ref}. Take a browser_snapshot and use a ref from it.`,
-            ),
-          } as const;
+        if (!session.hasTab()) {
+          return { skipApproval: true, toolResult: failure(NO_TAB_MESSAGE) } as const;
+        }
+        const lines: string[] = [];
+        for (const step of args.actions) {
+          const lookup = step.ref === undefined ? undefined : session.resolveRef(step.ref);
+          if (lookup?.kind === "stale") {
+            return { skipApproval: true, toolResult: failure(STALE_REF_MESSAGE) } as const;
+          }
+          if (lookup?.kind === "missing") {
+            return {
+              skipApproval: true,
+              toolResult: failure(missingRefMessage(step.ref ?? "")),
+            } as const;
+          }
+          lines.push(describeStep(step, lookup?.label));
         }
         const state = yield* Effect.tryPromise({ try: () => session.state(), catch: toError });
         const signals = yield* Effect.tryPromise({
@@ -441,12 +683,21 @@ export function createBrowserActTools(): ApprovalToolPair<AgentConfigService> {
         });
         const flags = combineFlags(signals, session.flagsFor(state.url));
         const notice = describeFlags(flags);
-        const message = `${describeAction(args, target)}\non ${state.url}${notice === undefined ? "" : `\n\n${notice}`}`;
+        const base =
+          lines.length === 1
+            ? `${lines[0] ?? ""}\non ${state.url}`
+            : `Run ${String(lines.length)} steps on ${state.url}, stopping at the first that fails:\n${lines
+                .map((line, index) => `${String(index + 1)}. ${line}`)
+                .join("\n")}`;
+        const message = `${base}${notice === undefined ? "" : `\n\n${notice}`}`;
 
         const typedSecrets =
-          context.userSecrets === undefined || args.text === undefined
+          context.userSecrets === undefined
             ? []
-            : userSecretNamesIn(args.text, context.userSecrets);
+            : userSecretNamesIn(
+                args.actions.map((step) => step.text),
+                context.userSecrets,
+              );
         if (typedSecrets.length === 0) {
           return flags.length === 0 ? message : ({ message, alwaysAsk: true } as const);
         }
@@ -466,10 +717,79 @@ export function createBrowserActTools(): ApprovalToolPair<AgentConfigService> {
       }),
     approvalErrorMessage: "Browser actions need your approval.",
     handler: (args, context) =>
-      withBrowser(context, (session) => session.act(toPageAction(args))).pipe(
-        Effect.map((state) => pageResult(state, BROWSER_ACT_TOOL_NAME, SNAPSHOT_HINT)),
+      withBrowser(context, (session) => runSteps(session, args.actions, context)).pipe(
+        Effect.map((outcome) => stepsResult(args.actions, outcome)),
         Effect.catchAll(toFailure),
       ),
     createSummary: (result) => (result.success ? "Acted on the browser page" : undefined),
+  });
+}
+
+const adoptParameters = z
+  .object({
+    match: z
+      .string()
+      .min(1)
+      .max(MAX_ADOPTION_HINT_LENGTH)
+      .describe("A word or phrase from the title or address of the tab to share."),
+    name: tabNameSchema.describe("The name to give the tab in this run, such as checkout."),
+  })
+  .strict();
+
+type AdoptArgs = z.infer<typeof adoptParameters>;
+
+function adoptionMessage(
+  args: AdoptArgs,
+  offers: readonly { readonly title: string; readonly url: string }[],
+): string {
+  const only = offers.length === 1 ? offers[0] : undefined;
+  if (only !== undefined) {
+    return (
+      `Share your open tab "${only.title}"\n${only.url}\nwith the agent as "${args.name}"?\n\n` +
+      "The agent can read this tab's page, which may be signed in as you, and acts on it only " +
+      "with your approval of each action. The tab stays open in your browser when the run ends."
+    );
+  }
+  if (offers.length === 0) {
+    return `The agent asked to share one of your open tabs matching "${args.match}", but none of them match. Approving shares nothing.`;
+  }
+  const listed = offers.map((offer) => `- ${offer.title} (${offer.url})`).join("\n");
+  return `${String(offers.length)} of your open tabs match "${args.match}", so approving shares nothing. Deny, and ask the agent for a more specific word.\n${listed}`;
+}
+
+export function createBrowserAdoptTabTools(): ApprovalToolPair<AgentConfigService> {
+  return defineApprovalTool<AgentConfigService, AdoptArgs>({
+    name: BROWSER_ADOPT_TAB_TOOL_NAME,
+    disclosure: "private",
+    summary: "Ask the person to share one tab they already have open in their own browser.",
+    description:
+      "Ask the person to share one tab that is already open in their own browser, named by a " +
+      "word from its title or address, and work in it under a name you choose. Only tabs you " +
+      "opened are available until the person approves the exact tab. Once shared, switch to it " +
+      "with browser_tabs and read it with browser_snapshot.",
+    tags: ["browser", "tabs", "share"],
+    parameters: adoptParameters,
+    validate: makeZodValidator(adoptParameters),
+    riskLevel: "high-risk",
+    approvalMessage: (args, context) =>
+      withBrowser(context, async (session) => {
+        if (!session.canAdopt) {
+          return {
+            skipApproval: true,
+            toolResult: failure(
+              "Sharing a tab needs network.browserEndpoint to point at a browser you run.",
+            ),
+          } as const;
+        }
+        const offers = await session.offerAdoption(args.match, args.name);
+        return { message: adoptionMessage(args, offers), alwaysAsk: true } as const;
+      }),
+    approvalErrorMessage: "Sharing a tab needs your approval.",
+    handler: (args, context) =>
+      withBrowser(context, (session) => session.adopt(args.match, args.name)).pipe(
+        Effect.map((state) => pageResult(state, BROWSER_ADOPT_TAB_TOOL_NAME, SNAPSHOT_HINT)),
+        Effect.catchAll(toFailure),
+      ),
+    createSummary: (result) => (result.success ? "Shared a browser tab" : undefined),
   });
 }

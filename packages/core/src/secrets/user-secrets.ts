@@ -191,9 +191,66 @@ export type UserSecretPlan =
       readonly toolAccepts: boolean;
     };
 
+/** Marks, in an argument path, every element of an array: `actions[].text`. */
+const ARRAY_ELEMENT = "[]";
+
+type ArgumentPath = readonly string[];
+
 /**
- * Whether `args` carry any of this run's typed secrets, and whether they sit only in `accepted`
- * top-level string arguments.
+ * The segments of an argument path as `userSecretArguments` writes it: `text` is a top-level
+ * argument, and `actions[].text` is the `text` field of every element of the `actions` array.
+ */
+function parseArgumentPath(specification: string): ArgumentPath {
+  return specification
+    .split(".")
+    .flatMap((segment) =>
+      segment.endsWith(ARRAY_ELEMENT)
+        ? [segment.slice(0, -ARRAY_ELEMENT.length), ARRAY_ELEMENT]
+        : [segment],
+    );
+}
+
+function pathsMatch(actual: ArgumentPath, pattern: ArgumentPath): boolean {
+  return (
+    actual.length === pattern.length && actual.every((segment, index) => segment === pattern[index])
+  );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/** `value` with `transform` applied to each string, given the path it sits at. */
+function mapStringLeaves(
+  value: unknown,
+  path: ArgumentPath,
+  transform: (text: string, path: ArgumentPath) => string,
+): unknown {
+  if (typeof value === "string") {
+    return transform(value, path);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item: unknown) => mapStringLeaves(item, [...path, ARRAY_ELEMENT], transform));
+  }
+  if (isPlainObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        mapStringLeaves(nested, [...path, key], transform),
+      ]),
+    );
+  }
+  return value;
+}
+
+/**
+ * Whether `args` carry any of this run's typed secrets, and whether they sit only in the strings
+ * `accepted` names. A name is a top-level argument (`text`) or a field of each element of an
+ * array argument (`actions[].text`).
  */
 export function planUserSecrets(
   args: Readonly<Record<string, unknown>>,
@@ -204,40 +261,42 @@ export function planUserSecrets(
   if (names.length === 0) {
     return { kind: "none" };
   }
-  const acceptedKeys = new Set(accepted);
-  const outside = Object.entries(args).filter(
-    ([key, value]) => !(acceptedKeys.has(key) && typeof value === "string"),
-  );
-  const strayNames = userSecretNamesIn(Object.fromEntries(outside), store);
-  if (acceptedKeys.size === 0 || strayNames.length > 0) {
+  const patterns = accepted.map(parseArgumentPath);
+  const outside: string[] = [];
+  mapStringLeaves(args, [], (text, path) => {
+    if (!patterns.some((pattern) => pathsMatch(path, pattern))) {
+      outside.push(text);
+    }
+    return text;
+  });
+  const strayNames = userSecretNamesIn(outside, store);
+  if (patterns.length === 0 || strayNames.length > 0) {
     return {
       kind: "refuse",
-      names: acceptedKeys.size === 0 ? names : strayNames,
-      toolAccepts: acceptedKeys.size > 0,
+      names: patterns.length === 0 ? names : strayNames,
+      toolAccepts: patterns.length > 0,
     };
   }
   return { kind: "substitute", names };
 }
 
 /**
- * `args` with every placeholder of this run's typed secrets in the `accepted` string arguments
- * replaced by the value. Only names this store holds are replaced: a placeholder for a config
- * secret, an environment variable or a recognised shape has no value here and stays as written.
+ * `args` with every placeholder of this run's typed secrets in the strings `accepted` names
+ * (see `planUserSecrets`) replaced by the value. Only names this store holds are replaced: a
+ * placeholder for a config secret, an environment variable or a recognised shape has no value
+ * here and stays as written.
  */
 export function substituteUserSecrets(
   args: Readonly<Record<string, unknown>>,
   accepted: readonly string[],
   store: UserSecretStore,
 ): Record<string, unknown> {
-  const acceptedKeys = new Set(accepted);
-  return Object.fromEntries(
-    Object.entries(args).map(([key, value]) => [
-      key,
-      acceptedKeys.has(key) && typeof value === "string"
-        ? value.replace(PLACEHOLDER_PATTERN, (placeholder, name: string) => {
-            return store.valueOf(name) ?? placeholder;
-          })
-        : value,
-    ]),
-  );
+  const patterns = accepted.map(parseArgumentPath);
+  return mapStringLeaves(args, [], (text, path) =>
+    patterns.some((pattern) => pathsMatch(path, pattern))
+      ? text.replace(PLACEHOLDER_PATTERN, (placeholder, name: string) => {
+          return store.valueOf(name) ?? placeholder;
+        })
+      : text,
+  ) as Record<string, unknown>;
 }
