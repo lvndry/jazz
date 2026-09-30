@@ -1,7 +1,4 @@
 {
-  // The production package project excludes colocated tests from emitted output.
-  // Give editors and language servers a configured project for both source and
-  // tests instead of opening excluded *.test.ts files as inferred projects.
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true
