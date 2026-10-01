@@ -9,7 +9,7 @@ import { apiKeyHint } from "@jazz/core/constants/provider-env-vars";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { CLIOptionsTag, type CLIOptions } from "@jazz/core/interfaces/cli-options";
 import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interfaces/jazz-state";
-import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import { report, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/agent";
 import { CLIError, StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
 import type { MediaModality } from "@jazz/core/types/llm";
@@ -17,7 +17,6 @@ import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import chalk from "chalk";
 import { Effect } from "effect";
-import React from "react";
 import { formatReasoningSelection } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { CHALK_THEME } from "@/cli/ui/theme";
@@ -30,8 +29,6 @@ import {
   wrapCommaList,
 } from "@/cli/utils/string-utils";
 import { findAgentsThatGenerate, suggestModelsForModality } from "./media-agents";
-import { AgentDetailsCard } from "../ui/AgentDetailsCard";
-import { AgentsList } from "../ui/AgentsList";
 
 /** Narrower than this, a description column shows too little to be worth a column. */
 const MIN_DESCRIPTION_WIDTH = 10;
@@ -320,21 +317,10 @@ export function listAgentsCommand(
       return;
     }
 
-    // Ink component sized to the terminal width at print time (Static
-    // scrollback cannot reflow after printing). Plain string block when
-    // not in a TTY.
-    if (process.stdout.isTTY) {
-      yield* terminal.log({
-        _tag: "ink",
-        node: React.createElement(AgentsList, {
-          agents,
-          verbose: cliOptions.verbose === true,
-        }),
-      });
-    } else {
-      const block = formatAgentsListBlock(agents, { verbose: cliOptions.verbose === true });
-      yield* terminal.log(block);
-    }
+    const block = formatAgentsListBlock(agents, { verbose: cliOptions.verbose === true });
+    yield* terminal.log(
+      process.stdout.isTTY ? report("agents", [{ kind: "text", text: block }]) : block,
+    );
   });
 }
 
@@ -424,29 +410,9 @@ export function getAgentCommand(
     const agent = yield* getAgentByIdentifier(agentIdentifier);
     const terminal = yield* TerminalServiceTag;
 
-    // In TTY mode, render a structured Ink card (single log entry, no noisy bullets).
     if (process.stdout.isTTY) {
       yield* terminal.log(
-        ink(
-          React.createElement(AgentDetailsCard, {
-            agent: {
-              id: agent.id,
-              name: agent.name,
-              description: agent.description,
-              createdAt: agent.createdAt,
-              updatedAt: agent.updatedAt,
-              config: {
-                persona: agent.config.persona,
-                llm: {
-                  provider: agent.config.llm.provider,
-                  model: agent.config.llm.model,
-                  reasoning: agent.config.llm.reasoning,
-                },
-                tools: agent.config.tools ?? [],
-              },
-            },
-          }),
-        ),
+        report("agent", [{ kind: "text", text: formatAgentDetailsBlock(agent) }]),
       );
       return;
     }

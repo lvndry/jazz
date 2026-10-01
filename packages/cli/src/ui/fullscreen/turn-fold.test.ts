@@ -1,9 +1,12 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant } from "../theme";
-import { LIVE_REASONING_LINES, transcriptRows, type RenderRow } from "./Transcript";
+import { createLayoutFixture } from "./testing/layout-fixture";
+import { LIVE_REASONING_LINES, type RenderRow } from "./transcript-layout";
 import { foldTurn } from "./turn-fold";
 import type { Block } from "./types";
+
+const { rows: layoutRows } = createLayoutFixture();
 
 const VIEWPORT = { width: 120, height: 40 };
 
@@ -57,7 +60,7 @@ describe("reasoning rows", () => {
 
   it("shows only the newest lines, italic, and leaves the label to the live zone", () => {
     const lines = Array.from({ length: 8 }, (_, index) => `line ${String(index + 1)} of thought`);
-    const rows = transcriptRows(
+    const rows = layoutRows(
       [
         {
           id: "r",
@@ -79,7 +82,7 @@ describe("reasoning rows", () => {
   });
 
   it("opens to the full text with a fold hint", () => {
-    const rows = transcriptRows(
+    const rows = layoutRows(
       [
         {
           id: "r",

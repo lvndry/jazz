@@ -5,6 +5,10 @@
  * inputs, so only their import paths are remapped when the old paths exist.
  * Markdown parsing changed its contract and case names: base keeps its original
  * suite, and those differently named rows are deliberately not compared.
+ * Presentation ownership also changed source APIs: its baseline keeps the
+ * original reducer, hydration and layout suites rather than inserting runtime
+ * compatibility code into production. Equal end-to-end renderer workloads
+ * remain comparable through their existing fixture.
  * Run `bun scripts/prepare-benchmark-baseline.ts /path/to/base /path/to/head`.
  */
 import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -26,6 +30,22 @@ const moves = [
 for (const name of readdirSync(join(head, "bench")).filter((file) => file.endsWith(".bench.ts"))) {
   const destination = join(base, "bench", name);
   if (!existsSync(destination)) continue;
+  const hasSemanticDocument = existsSync(join(base, "packages/cli/src/ui/document.ts"));
+  const hasLayoutIndex = existsSync(
+    join(base, "packages/cli/src/ui/fullscreen/transcript-layout.ts"),
+  );
+  if (
+    (!hasSemanticDocument &&
+      [
+        "activity-reducer.bench.ts",
+        "markdown-split.bench.ts",
+        "conversation-log.bench.ts",
+      ].includes(name)) ||
+    (!hasLayoutIndex && ["transcript-rows.bench.ts", "streaming-answer.bench.ts"].includes(name))
+  ) {
+    console.log(`${name}: keeping original baseline implementation for changed source API`);
+    continue;
+  }
   if (
     name === "markdown-prose.bench.ts" &&
     !existsSync(join(base, "packages/cli/src/ui/markdown/parse.ts"))

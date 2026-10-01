@@ -5,6 +5,11 @@
  * that the marker reached the painted frame. Ink includes its production frame
  * throttle and completed stdout writes. Both use isolated terminal streams.
  * BENCH_PROFILE=smoke bounds samples while preserving all answer-size cases.
+ * Each provider-delta case reports the first delta after the ready frame
+ * separately from sustained deltas. Every delta is measured: there is no
+ * discarded warmup. Smoke uses 32 sustained frames so p50 and p95 no longer
+ * both describe the slower of two startup frames. Buffer, pacing, and resize
+ * cases retain their independent sample counts and existing budget rules.
  */
 import { Effect } from "effect";
 import { markdownReply, PROSE_PARAGRAPH } from "./corpus";
@@ -22,6 +27,7 @@ import { DEFAULT_DISPLAY_CONFIG } from "../packages/core/src/agent/types";
 
 const smoke = process.env["BENCH_PROFILE"] === "smoke";
 const frames = positiveLimit("BENCH_PIPELINE_FRAMES", smoke ? 2 : 12);
+const deltaFrames = positiveLimit("BENCH_PIPELINE_DELTA_FRAMES", smoke ? 32 : 64);
 const historyTurns = positiveLimit("BENCH_PIPELINE_HISTORY", smoke ? 20 : 300);
 const results: BenchResult[] = [];
 
@@ -41,24 +47,29 @@ for (const kind of ["opentui", "ink"] satisfies RendererKind[]) {
           store.appendStream("response", `${text}\nreadyMARK `);
         });
         await awaitPaint(pipeline, "readyMARK");
-        const beforeBytes = pipeline.outputBytes();
-        const result = await benchAsync(
-          `${kind} ${shape} ${size} chars, ${historyTurns} turns, delta -> painted frame`,
-          async (iteration) => {
-            const marker = `deltaMARK${iteration}`;
-            pipeline.mutate(() => store.appendStream("response", `\n${marker} words `));
-            await awaitPaint(pipeline, marker);
-          },
-          { iterations: frames, warmupIterations: 0 },
-        );
-        results.push({
-          ...result,
-          metrics: {
-            rendererOutputBytes: pipeline.outputBytes() - beforeBytes,
-            historyTurns,
-            answerCharacters: size,
-          },
-        });
+        for (const phase of [
+          { name: "first delta", marker: "firstDeltaMARK", iterations: 1 },
+          { name: "steady deltas", marker: "steadyDeltaMARK", iterations: deltaFrames },
+        ]) {
+          const beforeBytes = pipeline.outputBytes();
+          const result = await benchAsync(
+            `${kind} ${shape} ${size} chars, ${historyTurns} turns, ${phase.name} -> painted frame`,
+            async (iteration) => {
+              const marker = `${phase.marker}${iteration}`;
+              pipeline.mutate(() => store.appendStream("response", `\n${marker} words `));
+              await awaitPaint(pipeline, marker);
+            },
+            { iterations: phase.iterations, warmupIterations: 0 },
+          );
+          results.push({
+            ...result,
+            metrics: {
+              rendererOutputBytes: pipeline.outputBytes() - beforeBytes,
+              historyTurns,
+              answerCharacters: size,
+            },
+          });
+        }
       } finally {
         await pipeline.close();
       }
@@ -67,7 +78,7 @@ for (const kind of ["opentui", "ink"] satisfies RendererKind[]) {
   const pipeline = await mountPipeline(kind);
   try {
     for (const size of [1_000, 10_000, 50_000]) {
-      const renderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
+      let renderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
       try {
         results.push(
           await benchAsync(
@@ -78,6 +89,7 @@ for (const kind of ["opentui", "ink"] satisfies RendererKind[]) {
               pipeline.mutate(() => {
                 Effect.runSync(renderer.reset());
                 store.clearOutputs();
+                renderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
                 Effect.runSync(
                   renderer.handleEvent({
                     type: "stream_start",
@@ -105,7 +117,7 @@ for (const kind of ["opentui", "ink"] satisfies RendererKind[]) {
         pipeline.mutate(() => Effect.runSync(renderer.reset()));
       }
     }
-    const fenceRenderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
+    let fenceRenderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
     try {
       results.push(
         await benchAsync(
@@ -116,6 +128,11 @@ for (const kind of ["opentui", "ink"] satisfies RendererKind[]) {
             pipeline.mutate(() => {
               Effect.runSync(fenceRenderer.reset());
               store.clearOutputs();
+              fenceRenderer = new InkStreamingRenderer(
+                "bench-local",
+                false,
+                DEFAULT_DISPLAY_CONFIG,
+              );
               Effect.runSync(
                 fenceRenderer.handleEvent({
                   type: "stream_start",

@@ -1,9 +1,9 @@
 /**
- * Vertical allocation and scroll-window arithmetic for the fullscreen shell.
+ * Vertical allocation and wheel-input normalization for the fullscreen shell.
  *
  * `allocateRegions` gives the transcript, live-work band, composer, and sub-agent list a
- * bounded share of the current viewport; the scroll helpers keep transcript
- * navigation within the rows that allocation leaves visible.
+ * bounded share of the current viewport. ViewportController owns all transcript
+ * position, follow intent and content anchoring.
  */
 import { inputRows } from "./Input";
 import { reservedHeight } from "./LiveZone";
@@ -14,56 +14,6 @@ export const TRANSCRIPT_CHROME_ABOVE = 2;
 
 /** Quiet gap above the composer, plus the footer. */
 export const TRANSCRIPT_CHROME_BELOW = 2;
-
-export function clampScrollFromBottom(
-  scrollFromBottom: number,
-  rowCount: number,
-  visibleCount: number,
-): number {
-  const maxOffset = Math.max(0, rowCount - Math.max(0, visibleCount));
-  return Math.max(0, Math.min(scrollFromBottom, maxOffset));
-}
-
-/**
- * Slice of rows that should be on screen.
- *
- * `scrollFromBottom` is 0 at the live edge (newest). Larger values walk toward
- * older rows. Short conversations return every row so the caller can pin them
- * above the composer.
- */
-export function windowTranscriptRows<T>(
-  rows: readonly T[],
-  visibleCount: number,
-  scrollFromBottom: number,
-): readonly T[] {
-  const count = Math.max(0, visibleCount);
-  if (count === 0) return [];
-  if (rows.length <= count) return rows;
-  const offset = clampScrollFromBottom(scrollFromBottom, rows.length, count);
-  const end = rows.length - offset;
-  return rows.slice(end - count, end);
-}
-
-/**
- * Apply a scroll-transcript action.
- *
- * Negative `delta` walks toward older rows (PageUp, wheel up). Positive walks
- * toward the live edge (PageDown, wheel down). `end` jumps: negative is Home
- * (oldest), positive is End (newest).
- */
-export function applyScrollDelta(
-  scrollFromBottom: number,
-  rowCount: number,
-  visibleCount: number,
-  delta: number,
-  unit: "line" | "page" | "end",
-): number {
-  const count = Math.max(0, visibleCount);
-  const maxOffset = Math.max(0, rowCount - count);
-  if (unit === "end") return delta < 0 ? maxOffset : 0;
-  const step = unit === "page" ? Math.max(1, count - 1) : 1;
-  return clampScrollFromBottom(scrollFromBottom - delta * step, rowCount, count);
-}
 
 export interface RegionHeights {
   readonly transcript: number;

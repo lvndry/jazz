@@ -90,7 +90,7 @@ describe("transcript block identity", () => {
 
 describe("agent prose hyperlinks", () => {
   it("keeps the target of a formatted link so the transcript can make it clickable", () => {
-    const formatted = "See \x1b]8;;https://example.com/guide\x07the guide\x1b]8;;\x07.";
+    const formatted = "See [the guide](https://example.com/guide).";
     const entry: OutputEntry = { ...AGENT, message: formatted };
     const [block] = blocksFrom([entry], "", EMPTY_REGIONS);
     expect(block).toMatchObject({
@@ -100,7 +100,7 @@ describe("agent prose hyperlinks", () => {
   });
 
   it("keeps link targets in the turn still streaming", () => {
-    const streaming = "\x1b]8;;https://example.com\x07site\x1b]8;;\x07";
+    const streaming = "[site](https://example.com)";
     const [block] = blocksFrom([], streaming, EMPTY_REGIONS);
     expect(block).toMatchObject({ kind: "agent", markdown: "[site](https://example.com)" });
   });
@@ -115,8 +115,12 @@ describe("conversation flow entries", () => {
         {
           id: "e1",
           type: "log",
-          message: "Approve this action? No",
-          meta: { approvalEcho: true },
+          message: {
+            kind: "notice",
+            tone: "log",
+            text: "Approve this action? No",
+            audience: "classic",
+          },
           timestamp: at,
         },
       ],
@@ -132,15 +136,13 @@ describe("conversation flow entries", () => {
         {
           id: "z1",
           type: "log",
-          message: "Reasoning · 1.6s",
-          meta: { collapsedRegion: "reasoning" },
+          message: { kind: "reasoning", text: "", label: "Reasoning" },
           timestamp: at,
         },
         {
           id: "z2",
           type: "log",
           message: "scout completed · 4.0s",
-          meta: { collapsedRegion: "subagent" },
           timestamp: at,
         },
       ],
@@ -156,9 +158,9 @@ describe("conversation flow entries", () => {
         {
           id: "r1",
           type: "log",
-          message: "",
-          meta: {
-            toolReceipt: { app: "write_file", summary: "", status: "denied", args: "path: a.txt" },
+          message: {
+            kind: "tool",
+            receipt: { app: "write_file", summary: "", status: "denied", args: "path: a.txt" },
           },
           timestamp: at,
         },
@@ -174,12 +176,11 @@ describe("conversation flow entries", () => {
   it("shows an answer that never streamed as agent prose, without a separate name line", () => {
     const blocks = blocksFrom(
       [
-        { id: "h1", type: "info", message: "sol", meta: { agentHeader: true }, timestamp: at },
+        { id: "h1", type: "info", message: { kind: "header", name: "sol" }, timestamp: at },
         {
           id: "a1",
           type: "log",
-          message: "rendered",
-          meta: { plainText: "rendered", agentMarkdown: "**Done.**" },
+          message: { kind: "agent", markdown: "**Done.**" },
           timestamp: at,
         },
       ],
@@ -195,8 +196,7 @@ describe("conversation flow entries", () => {
         {
           id: "t1",
           type: "debug",
-          message: "9.7s · 2 steps",
-          meta: { turnReceipt: true, plainText: "9.7s · 2 steps" },
+          message: { kind: "turn-receipt", steps: [{ durationMs: 4700 }, { durationMs: 5000 }] },
           timestamp: at,
         },
       ],
@@ -215,9 +215,8 @@ describe("command reports", () => {
     const entry: OutputEntry = {
       id: "r1",
       type: "log",
-      message: "\u001b[1mtheme\u001b[22m current jazz, dark",
+      message: answer,
       timestamp: new Date("2026-08-23T12:00:02.000Z"),
-      meta: { report: answer, plainText: "theme     current   jazz, dark" },
     };
     const [block] = blocksFrom([entry], "", EMPTY_REGIONS);
     expect(block?.kind).toBe("report");

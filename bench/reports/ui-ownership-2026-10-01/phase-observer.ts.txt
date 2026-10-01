@@ -1,0 +1,48 @@
+/** Read-only timing diagnostic; wraps callbacks without changing scheduling or dropping frames. */
+import { join } from 'node:path';
+const checkout = process.argv[2]!;
+const { default: instances } = await import(join(checkout, 'node_modules/ink/build/instances.js'));
+let events: { event: string; atMs: number; detail?: number }[] = [];
+let started = performance.now();
+const record = (event: string, detail?: number) => events.push({ event, atMs: Number((performance.now() - started).toFixed(4)), ...(detail === undefined ? {} : { detail }) });
+const originalSet = instances.set.bind(instances);
+instances.set = (stream: any, instance: any) => {
+  const root = instance.rootNode;
+  for (const name of ['onComputeLayout', 'onRender', 'onImmediateRender']) {
+    const original = root[name];
+    if (typeof original === 'function') root[name] = function (...args: any[]) { record(name + ':start'); const result = original.apply(this, args); record(name + ':end'); return result; };
+  }
+  const onRender = instance.options.onRender;
+  instance.options.onRender = (value: any) => { record('native:render', value.renderTime); onRender?.(value); };
+  const write = stream.write;
+  stream.write = function (...args: any[]) { record('stdout:write', typeof args[0] === 'string' ? Buffer.byteLength(args[0]) : args[0]?.length); return write.apply(this, args); };
+  const flush = instance.waitUntilRenderFlush;
+  instance.waitUntilRenderFlush = async (...args: any[]) => { record('flush:start'); const result = await flush(...args); record('flush:end'); return result; };
+  record('config:throttleMs', instance.renderThrottleMs);
+  return originalSet(stream, instance);
+};
+const fixture = await import(join(checkout, 'bench/ui-pipeline-fixture.ts'));
+const { store } = await import(join(checkout, 'packages/cli/src/ui/store.ts'));
+for (const name of ['commitPresentation', 'computeClassicProjection']) {
+  const original = store[name];
+  if (typeof original === 'function') store[name] = function (...args: any[]) { record(name + ':start'); const result = original.apply(this, args); record(name + ':end'); return result; };
+}
+const observations = [];
+for (const shape of ['unicode', 'unbroken']) {
+  const pipeline = await fixture.mountPipeline('ink');
+  try {
+    const text = shape === 'unicode' ? '界 e\u0301 👨‍👩‍👧‍👦 words '.repeat(Math.ceil(1_000 / 23)).slice(0, 1_000) : 'x'.repeat(1_000);
+    pipeline.mutate(() => { fixture.seedHistory(20); store.appendStream('response', `${text}\nreadyMARK `); });
+    await fixture.awaitPaint(pipeline, 'readyMARK');
+    for (let iteration = 0; iteration < 33; iteration++) {
+      events = []; started = performance.now();
+      const marker = iteration === 0 ? 'firstDeltaMARK0' : `steadyDeltaMARK${iteration - 1}`;
+      const bytes = pipeline.outputBytes();
+      record('publish:start'); pipeline.mutate(() => store.appendStream('response', `\n${marker} words `)); record('publish:end');
+      await fixture.awaitPaint(pipeline, marker);
+      record('visible');
+      observations.push({ shape, iteration, elapsedMs: Number((performance.now() - started).toFixed(4)), outputBytes: pipeline.outputBytes() - bytes, events });
+    }
+  } finally { await pipeline.close(); }
+}
+console.log(JSON.stringify({ diagnostic: true, observations }));

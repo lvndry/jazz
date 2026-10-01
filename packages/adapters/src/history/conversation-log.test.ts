@@ -1,9 +1,11 @@
+/** Exercises append-only history, strict semantic UI recovery, and explicit version 2 migration. */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { presentationEntrySchema } from "@jazz/core/types/presentation-content-schema";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import {
@@ -12,9 +14,12 @@ import {
   deriveConversationTitle,
   conversationLogPath,
   listConversationLogs,
+  migratePresentationLog,
+  parseConversationLog,
   parseConversationLogLine,
   readConversationLog,
   recordConversationTranscript,
+  reduceConversationLog,
 } from "./conversation-log";
 
 let tmpDir: string;
@@ -205,8 +210,16 @@ describe("recordConversationTranscript", () => {
         {
           ...record([userMessage("hi")]),
           uiTranscript: [
-            { type: "user", message: "/info" },
-            { type: "log", message: "Conversation info" },
+            {
+              id: "/info",
+              timestamp: "2026-08-01T10:00:00.000Z",
+              content: { kind: "user" as const, text: "/info" },
+            },
+            {
+              id: "Conversation info",
+              timestamp: "2026-08-01T10:00:00.000Z",
+              content: { kind: "notice" as const, tone: "log" as const, text: "Conversation info" },
+            },
           ],
         },
         tmpDir,
@@ -216,8 +229,16 @@ describe("recordConversationTranscript", () => {
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(session?.messages).toEqual([userMessage("hi")]);
     expect(session?.uiTranscript).toEqual([
-      { type: "user", message: "/info" },
-      { type: "log", message: "Conversation info" },
+      {
+        id: "/info",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "user" as const, text: "/info" },
+      },
+      {
+        id: "Conversation info",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "notice" as const, tone: "log" as const, text: "Conversation info" },
+      },
     ]);
   });
 });
@@ -229,12 +250,24 @@ describe("UI scrollback growth", () => {
   /** One chat turn: about a kilobyte of messages and the same again of scrollback. */
   function turnsOfChat(turns: number) {
     const messages: ChatMessage[] = [];
-    const uiTranscript: { type: "user" | "info"; message: string }[] = [];
+    const uiTranscript: import("@jazz/core/types/presentation-content").PresentationEntry[] = [];
     for (let turn = 0; turn < turns; turn++) {
       messages.push(userMessage(`question ${turn}${TURN_PADDING}`));
       messages.push(assistantMessage(`answer ${turn}${ANSWER_PADDING}`));
-      uiTranscript.push({ type: "user", message: `question ${turn}${TURN_PADDING}` });
-      uiTranscript.push({ type: "info", message: `answer ${turn}${ANSWER_PADDING}` });
+      uiTranscript.push({
+        id: `question:${turn}`,
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "user" as const, text: `question ${turn}${TURN_PADDING}` },
+      });
+      uiTranscript.push({
+        id: `answer:${turn}`,
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: {
+          kind: "notice" as const,
+          tone: "info" as const,
+          text: `answer ${turn}${ANSWER_PADDING}`,
+        },
+      });
     }
     return { messages, uiTranscript };
   }
@@ -272,9 +305,28 @@ describe("UI scrollback growth", () => {
   });
 
   test("appends new scrollback entries and snapshots a scrollback that was cleared", async () => {
-    const first = [{ type: "user" as const, message: "hi" }];
-    const second = [...first, { type: "info" as const, message: "hello" }];
-    const cleared = [{ type: "info" as const, message: "fresh start" }];
+    const first = [
+      {
+        id: "hi",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "user" as const, text: "hi" },
+      },
+    ];
+    const second = [
+      ...first,
+      {
+        id: "hello",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "notice" as const, tone: "info" as const, text: "hello" },
+      },
+    ];
+    const cleared = [
+      {
+        id: "fresh start",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "notice" as const, tone: "info" as const, text: "fresh start" },
+      },
+    ];
     for (const uiTranscript of [first, second, cleared]) {
       await runEffect(
         recordConversationTranscript({ ...record([userMessage("hi")]), uiTranscript }, tmpDir),
@@ -292,7 +344,13 @@ describe("UI scrollback growth", () => {
   });
 
   test("an unchanged scrollback appends nothing", async () => {
-    const uiTranscript = [{ type: "user" as const, message: "hi" }];
+    const uiTranscript = [
+      {
+        id: "hi",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "user" as const, text: "hi" },
+      },
+    ];
     await runEffect(
       recordConversationTranscript({ ...record([userMessage("hi")]), uiTranscript }, tmpDir),
     );
@@ -336,7 +394,11 @@ describe("UI scrollback growth", () => {
 
     const nextScrollback = [
       ...(legacy?.uiTranscript ?? []),
-      { type: "info" as const, message: "more" },
+      {
+        id: "more",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "notice" as const, tone: "info" as const, text: "more" },
+      },
     ];
     await runEffect(
       recordConversationTranscript(
@@ -353,7 +415,15 @@ describe("UI scrollback growth", () => {
   });
 
   test("collapsing keeps every non-UI line, unreadable ones included", () => {
+    const header = JSON.stringify({
+      type: "conversation",
+      version: 2,
+      agentId: AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      startedAt: "2026-08-01T10:00:00.000Z",
+    });
     const content = [
+      header,
       '{"type":"ui-transcript","at":"t","entries":[]}',
       "not json",
       '{"type":"ui-append","at":"t","entries":[]}',
@@ -362,6 +432,7 @@ describe("UI scrollback growth", () => {
     ].join("\n");
     expect(collapseSupersededUiEvents(content)).toBe(
       [
+        header,
         "not json",
         '{"type":"ui-transcript","at":"t","entries":[{"type":"user","message":"x"}]}',
         "",
@@ -487,6 +558,50 @@ describe("parseConversationLogLine", () => {
       message: { role: "user", content: "hi" },
     });
   });
+
+  test("legacy decoding requires an explicit version 2 context and preserves record identity", () => {
+    const line = JSON.stringify({
+      type: "ui-transcript",
+      at: "2026-08-01T10:00:00.000Z",
+      entries: [{ type: "user", message: "old question" }],
+    });
+    expect(parseConversationLogLine(line)).toBeNull();
+    expect(parseConversationLogLine(line, 7, 1)).toBeNull();
+    expect(parseConversationLogLine(line, 7, 3)).toBeNull();
+    expect(parseConversationLogLine(line, 7, 2)).toEqual({
+      type: "ui-transcript",
+      at: "2026-08-01T10:00:00.000Z",
+      entries: [
+        {
+          id: "legacy:7:0",
+          timestamp: "2026-08-01T10:00:00.000Z",
+          content: { kind: "user", text: "old question" },
+        },
+      ],
+    });
+  });
+
+  test("legacy timestamps become schema-valid ISO instants", () => {
+    for (const [at, timestamp] of [
+      ["2026-01-01", "2026-01-01T00:00:00.000Z"],
+      ["2026-01-01T01:00:00+01:00", "2026-01-01T00:00:00.000Z"],
+      ["unreadable date", "1970-01-01T00:00:00.000Z"],
+    ] as const) {
+      const event = parseConversationLogLine(
+        JSON.stringify({
+          type: "ui-transcript",
+          at,
+          entries: [{ type: "user", message: "old question" }],
+        }),
+        7,
+        2,
+      );
+      expect(event?.type).toBe("ui-transcript");
+      if (event?.type !== "ui-transcript") throw new Error("Legacy UI event expected");
+      expect(event.entries[0]?.timestamp).toBe(timestamp);
+      expect(presentationEntrySchema.safeParse(event.entries[0]).success).toBe(true);
+    }
+  });
 });
 
 describe("deriveConversationTitle", () => {
@@ -534,5 +649,217 @@ describe("conversation log privacy and versions", () => {
     );
     expect(append._tag).toBe("Left");
     expect(fs.readFileSync(logPath, "utf8")).toBe(newer);
+  });
+});
+
+describe("semantic presentation persistence", () => {
+  const timestamp = "2026-10-01T10:00:00.000Z";
+  const receipt = {
+    id: "receipt",
+    timestamp,
+    content: {
+      kind: "tool" as const,
+      receipt: { app: "read_file", summary: "README.md", status: "ok" as const },
+    },
+  };
+  const answer = {
+    id: "answer",
+    timestamp,
+    content: { kind: "agent" as const, markdown: "**answer**" },
+  };
+
+  function boundaryHistory(...events: readonly unknown[]) {
+    return reduceConversationLog(
+      parseConversationLog(
+        [
+          {
+            type: "conversation",
+            version: 3,
+            agentId: AGENT_ID,
+            conversationId: CONVERSATION_ID,
+            startedAt: timestamp,
+          },
+          { type: "message", at: timestamp, message: userMessage("model-facing text") },
+          { type: "ui-transcript", at: timestamp, entries: [receipt] },
+          ...events,
+        ]
+          .map((event) => JSON.stringify(event))
+          .join("\n"),
+      ),
+    );
+  }
+
+  test("rejects a whole snapshot with duplicate source IDs and preserves valid history", () => {
+    const history = boundaryHistory({
+      type: "ui-transcript",
+      at: timestamp,
+      entries: [answer, answer],
+    });
+    expect(history?.uiTranscript).toEqual([receipt]);
+    expect(history?.messages).toEqual([userMessage("model-facing text")]);
+  });
+
+  test("rejects a whole append that republishes an existing source ID", () => {
+    const history = boundaryHistory({
+      type: "ui-append",
+      at: timestamp,
+      entries: [answer, receipt],
+    });
+    expect(history?.uiTranscript).toEqual([receipt]);
+    expect(history?.messages).toEqual([userMessage("model-facing text")]);
+  });
+
+  test("rejects duplicate IDs within an append without reserving IDs from the rejected batch", () => {
+    const history = boundaryHistory(
+      { type: "ui-append", at: timestamp, entries: [answer, answer] },
+      { type: "ui-append", at: timestamp, entries: [answer] },
+    );
+    expect(history?.uiTranscript).toEqual([receipt, answer]);
+  });
+
+  test("a malformed entry rejects its whole UI batch without losing later model messages", () => {
+    for (const type of ["ui-transcript", "ui-append"]) {
+      const history = boundaryHistory(
+        {
+          type,
+          at: timestamp,
+          entries: [
+            answer,
+            {
+              ...answer,
+              id: "invalid",
+              content: { ...answer.content, viewport: 12 },
+            },
+          ],
+        },
+        { type: "message", at: timestamp, message: assistantMessage("still model-facing") },
+        { type: "ui-append", at: timestamp, entries: [answer] },
+      );
+      expect(history?.uiTranscript).toEqual([receipt, answer]);
+      expect(history?.messages).toEqual([
+        userMessage("model-facing text"),
+        assistantMessage("still model-facing"),
+      ]);
+    }
+  });
+
+  test("does not reinterpret malformed semantic facts as legacy text", () => {
+    const history = boundaryHistory({
+      type: "ui-transcript",
+      at: timestamp,
+      entries: [{ ...answer, type: "user", message: "invented legacy text" }],
+    });
+    expect(history?.uiTranscript).toEqual([receipt]);
+    expect(
+      parseConversationLogLine(
+        JSON.stringify({
+          type: "ui-transcript",
+          at: timestamp,
+          entries: [{ ...answer, type: "user", message: "invented legacy text" }],
+        }),
+        3,
+        2,
+      ),
+    ).toBeNull();
+  });
+
+  test("a version 3 header refuses legacy text records", () => {
+    const history = boundaryHistory({
+      type: "ui-transcript",
+      at: timestamp,
+      entries: [{ type: "user", message: "legacy under version 3" }],
+    });
+    expect(history?.uiTranscript).toEqual([receipt]);
+  });
+
+  test("an earlier fact change replaces the snapshot even when the last entry is unchanged", async () => {
+    await runEffect(
+      recordConversationTranscript({ ...record([]), uiTranscript: [receipt, answer] }, tmpDir),
+    );
+    const changed = {
+      ...receipt,
+      content: { kind: "tool" as const, receipt: { ...receipt.content.receipt, durationMs: 12 } },
+    };
+    await runEffect(
+      recordConversationTranscript({ ...record([]), uiTranscript: [changed, answer] }, tmpDir),
+    );
+    expect(logLines().map((line) => JSON.parse(line).type)).toEqual([
+      "conversation",
+      "ui-append",
+      "ui-transcript",
+    ]);
+    expect(
+      (await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir)))?.uiTranscript,
+    ).toEqual([changed, answer]);
+  });
+
+  test("receipt facts and throughput survive a save/read cycle", async () => {
+    const stats = {
+      id: "stats",
+      timestamp,
+      content: {
+        kind: "turn-receipt" as const,
+        steps: [
+          {
+            durationMs: 500,
+            generationDurationMs: 400,
+            completionTokens: 40,
+            tokensPerSecond: 100,
+          },
+        ],
+      },
+    };
+    await runEffect(
+      recordConversationTranscript(
+        { ...record([]), uiTranscript: [receipt, answer, stats] },
+        tmpDir,
+      ),
+    );
+    expect(
+      (await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir)))?.uiTranscript,
+    ).toEqual([receipt, answer, stats]);
+  });
+
+  test("rejects duplicate identities before creating a log", async () => {
+    await expect(
+      runEffect(
+        recordConversationTranscript({ ...record([]), uiTranscript: [receipt, receipt] }, tmpDir),
+      ),
+    ).rejects.toThrow("duplicate");
+    expect(fs.existsSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir))).toBe(false);
+  });
+
+  test("legacy migration preserves model and unreadable records, strips paint, and is idempotent", () => {
+    const header = JSON.stringify({
+      type: "conversation",
+      version: 2,
+      agentId: AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      startedAt: timestamp,
+    });
+    const message = JSON.stringify({
+      type: "message",
+      at: timestamp,
+      message: userMessage("original"),
+    });
+    const ui = JSON.stringify({
+      type: "ui-transcript",
+      at: timestamp,
+      entries: [{ type: "log", message: "\u001b[31mold receipt\u001b[0m" }],
+    });
+    const body = [header, message, "unreadable record", ui, ""].join("\n");
+    const upgraded = migratePresentationLog(body);
+    expect(upgraded).not.toBeNull();
+    if (upgraded === null) throw new Error("Migration expected");
+    expect(upgraded).toContain(message + "\nunreadable record\n");
+    expect(migratePresentationLog(upgraded)).toBeNull();
+    const uiEvent = parseConversationLog(upgraded).find((event) => event.type === "ui-transcript");
+    expect(uiEvent?.type === "ui-transcript" ? uiEvent.entries : []).toEqual([
+      {
+        id: "legacy:3:0",
+        timestamp,
+        content: { kind: "notice", tone: "log", text: "old receipt" },
+      },
+    ]);
   });
 });

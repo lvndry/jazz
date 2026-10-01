@@ -1,8 +1,11 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
-import { forgetStreamingRows, transcriptRows, type RenderRow } from "./Transcript";
+import { createLayoutFixture } from "./testing/layout-fixture";
+import type { RenderRow } from "./transcript-layout";
 import type { Block } from "./types";
+
+const { rows: layoutRows, reset: resetLayout } = createLayoutFixture();
 
 const VIEWPORT = { width: 120, height: 40 };
 
@@ -59,10 +62,10 @@ function withoutStreamingMarks(rows: readonly RenderRow[]): string {
   );
 }
 
-function freshRows(markdown: string): RenderRow[] {
-  forgetStreamingRows();
-  const rows = transcriptRows(streamingBlock(markdown), VIEWPORT);
-  forgetStreamingRows();
+function freshRows(markdown: string): readonly RenderRow[] {
+  resetLayout();
+  const rows = layoutRows(streamingBlock(markdown), VIEWPORT);
+  resetLayout();
   return rows;
 }
 
@@ -72,12 +75,10 @@ describe("a streaming answer renders incrementally", () => {
   });
 
   it("renders every prefix exactly as a from-scratch render of the same text", () => {
-    forgetStreamingRows();
+    resetLayout();
     const streamed: string[] = [];
     for (let length = 1; length <= ANSWER.length; length += 1) {
-      streamed.push(
-        JSON.stringify(transcriptRows(streamingBlock(ANSWER.slice(0, length)), VIEWPORT)),
-      );
+      streamed.push(JSON.stringify(layoutRows(streamingBlock(ANSWER.slice(0, length)), VIEWPORT)));
     }
     const mismatches: number[] = [];
     for (let length = 1; length <= ANSWER.length; length += 1) {
@@ -89,31 +90,31 @@ describe("a streaming answer renders incrementally", () => {
   });
 
   it("keeps the rows of settled paragraphs instead of rebuilding them each frame", () => {
-    forgetStreamingRows();
+    resetLayout();
     const settled = ANSWER.slice(0, ANSWER.indexOf("That's"));
-    const before = transcriptRows(streamingBlock(`${settled}That`), VIEWPORT);
-    const after = transcriptRows(streamingBlock(`${settled}That's the`), VIEWPORT);
+    const before = layoutRows(streamingBlock(`${settled}That`), VIEWPORT);
+    const after = layoutRows(streamingBlock(`${settled}That's the`), VIEWPORT);
     const firstRow = (rows: readonly RenderRow[]): RenderRow | undefined =>
       rows.find((row) => row.key.startsWith("answer:0"));
     expect(firstRow(after)).toBe(firstRow(before));
   });
 
   it("starts over when the text is not a continuation of what was on screen", () => {
-    forgetStreamingRows();
-    transcriptRows(streamingBlock(ANSWER), VIEWPORT);
+    resetLayout();
+    layoutRows(streamingBlock(ANSWER), VIEWPORT);
     const replaced = "A different answer.\n\nWith two paragraphs.";
-    expect(JSON.stringify(transcriptRows(streamingBlock(replaced), VIEWPORT))).toBe(
+    expect(JSON.stringify(layoutRows(streamingBlock(replaced), VIEWPORT))).toBe(
       JSON.stringify(freshRows(replaced)),
     );
   });
 
   it("renders every prefix of a mixed answer the way a settled answer renders it", () => {
-    forgetStreamingRows();
+    resetLayout();
     const mismatches: number[] = [];
     for (let length = 1; length <= ANSWER.length; length += 1) {
       const markdown = ANSWER.slice(0, length);
-      const streamed = transcriptRows(streamingBlock(markdown), VIEWPORT);
-      const settled = transcriptRows(
+      const streamed = layoutRows(streamingBlock(markdown), VIEWPORT);
+      const settled = layoutRows(
         [{ id: "answer", seq: 0, kind: "agent", markdown, streaming: false }],
         VIEWPORT,
       );
@@ -124,7 +125,7 @@ describe("a streaming answer renders incrementally", () => {
   });
 
   it("renders a long unclosed fence the way a settled answer renders it", () => {
-    forgetStreamingRows();
+    resetLayout();
     const fence = [
       "Here is the file:",
       "",
@@ -138,8 +139,8 @@ describe("a streaming answer renders incrementally", () => {
     const mismatches: number[] = [];
     for (let length = 1; length <= fence.length; length += 1) {
       const markdown = fence.slice(0, length);
-      const streamed = transcriptRows(streamingBlock(markdown), VIEWPORT);
-      const settled = transcriptRows(
+      const streamed = layoutRows(streamingBlock(markdown), VIEWPORT);
+      const settled = layoutRows(
         [{ id: "answer", seq: 0, kind: "agent", markdown, streaming: false }],
         VIEWPORT,
       );
@@ -150,10 +151,10 @@ describe("a streaming answer renders incrementally", () => {
   });
 
   it("does not re-highlight settled fence lines on later frames", () => {
-    forgetStreamingRows();
+    resetLayout();
     const opening = "```ts\n" + "const line = 1;\n".repeat(40);
-    const before = transcriptRows(streamingBlock(`${opening}const`), VIEWPORT);
-    const after = transcriptRows(streamingBlock(`${opening}const next`), VIEWPORT);
+    const before = layoutRows(streamingBlock(`${opening}const`), VIEWPORT);
+    const after = layoutRows(streamingBlock(`${opening}const next`), VIEWPORT);
     const rowFor = (rows: readonly RenderRow[]): RenderRow | undefined =>
       rows.find((row) => row.key === "answer:0:3");
     expect(rowFor(after)).toBeDefined();
@@ -161,8 +162,8 @@ describe("a streaming answer renders incrementally", () => {
   });
 
   it("settles into the same rows the streamed frames converged on", () => {
-    forgetStreamingRows();
-    const streamed = transcriptRows(streamingBlock(ANSWER), VIEWPORT);
+    resetLayout();
+    const streamed = layoutRows(streamingBlock(ANSWER), VIEWPORT);
     const reference = freshRows(ANSWER);
     expect(JSON.stringify(streamed)).toBe(JSON.stringify(reference));
   });
@@ -174,13 +175,13 @@ describe("the stream cursor", () => {
   });
 
   it("sits in the accent after the last text while the answer streams", () => {
-    const rows = transcriptRows(streamingBlock("Three things need you"), VIEWPORT);
+    const rows = layoutRows(streamingBlock("Three things need you"), VIEWPORT);
     const last = rows.at(-1)?.content.at(-1);
     expect(last).toEqual({ text: getGlyphs().streamCursor, fg: THEME.agent });
   });
 
   it("is gone once the answer settles", () => {
-    const rows = transcriptRows(
+    const rows = layoutRows(
       [
         {
           id: "answer",
@@ -199,7 +200,7 @@ describe("the stream cursor", () => {
 
   it("never pushes a full line past its width", () => {
     const full = "word ".repeat(200).trim();
-    const rows = transcriptRows(streamingBlock(full), VIEWPORT);
+    const rows = layoutRows(streamingBlock(full), VIEWPORT);
     for (const row of rows) {
       const width = row.content.reduce((total, segment) => total + [...segment.text].length, 0);
       expect(width).toBeLessThanOrEqual(row.contentWidth);

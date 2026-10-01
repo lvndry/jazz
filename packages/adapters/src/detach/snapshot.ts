@@ -935,14 +935,18 @@ export function withRemoteTurnsInUiTranscript(
     const { uiTranscript: _stale, ...rest } = returned;
     return rest;
   }
-  const remoteTurns = returned.messages.slice(shared).flatMap((message) =>
+  const remoteTurns = returned.messages.slice(shared).flatMap((message, index) =>
     (message.role === "user" || message.role === "assistant") &&
     message.kind !== "continuation" &&
     message.content.trim().length > 0
       ? [
           {
-            type: message.role === "user" ? ("user" as const) : ("streamContent" as const),
-            message: message.content,
+            id: `remote:${returned.conversationId}:${shared + index}`,
+            timestamp: returned.endedAt ?? returned.startedAt,
+            content:
+              message.role === "user"
+                ? { kind: "user" as const, text: message.content }
+                : { kind: "agent" as const, markdown: message.content },
           },
         ]
       : [],
@@ -951,7 +955,11 @@ export function withRemoteTurnsInUiTranscript(
     ...returned,
     uiTranscript: [
       ...returned.uiTranscript,
-      { type: "info", message: "Continued on a remote host" },
+      {
+        id: `remote:${returned.conversationId}:continued:${shared}`,
+        timestamp: returned.endedAt ?? returned.startedAt,
+        content: { kind: "notice", tone: "info", text: "Continued on a remote host" },
+      },
       ...remoteTurns,
     ],
   };

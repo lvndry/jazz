@@ -1,31 +1,22 @@
 /**
- * Deliver provider deltas to the scrollback in order, optionally pacing their
- * reveal for a person watching the terminal. createStreamPacer owns the reveal
- * clock and frame timer; unpaced streams pass through without retaining text.
- * flush shows a backlog, end finishes a stream, and reset discards it. Changing
- * pacing flushes already received text before the next delivery mode starts.
+ * Owns only the reveal cursor, arrival lengths, and frame timer. Accepted text
+ * stays in the caller's canonical source; every frame reads that source by
+ * reference and publishes an absolute visible length. Reset invalidates even
+ * a canceled callback that was already queued by the timer implementation.
  */
 import {
-  extendReveal,
   flushReveal,
   initialReveal,
   isRevealing,
+  receiveTarget,
   stepReveal,
-  type RevealState,
 } from "./stream-reveal";
 
-/**
- * One reveal frame. 30fps is the rate at which prose stops reading as steps:
- * at a typical 60–120 characters per second a frame adds two to four
- * characters, about half a word. The fullscreen renderer's frame cap follows it.
- */
 export const REVEAL_FRAME_MS = 33;
-
 export interface PacerTimers {
   readonly now: () => number;
   readonly every: (intervalMs: number, tick: () => void) => () => void;
 }
-
 const REAL_TIMERS: PacerTimers = {
   now: () => Date.now(),
   every: (intervalMs, tick) => {
@@ -33,92 +24,80 @@ const REAL_TIMERS: PacerTimers = {
     return () => clearInterval(handle);
   },
 };
-
-export interface StreamPacer<Kind> {
-  /** Take in a delta of the stream `kind`. A change of kind shows everything of the previous one first. */
-  receive(kind: Kind, delta: string): void;
-  /** Show everything received so far, now. */
+export interface StreamSource {
+  readonly id: string;
+  readonly text: string;
+}
+export interface StreamPacer {
+  /** Call after accepting text into source. Flush before changing its identity. */
+  receive(): void;
   flush(): void;
-  /** Show everything, then forget the stream: the next delta starts a new one. */
   end(): void;
-  /** Forget the stream without showing the rest, as when the transcript is cleared. */
   reset(): void;
-  /** False shows every delta the moment it arrives. */
   setPaced(paced: boolean): void;
 }
 
-/**
- * Paces a streamed answer into whatever renders it, so text lands as a steady
- * flow instead of in the bursts the provider sends. It sits in front of the
- * store's scrollback, the one place both the fullscreen and the Ink renderer
- * read streamed text from, so the two pace identically, and a block the Ink
- * renderer commits to its static scrollback is never ahead of the text around
- * it.
- *
- * `apply` receives the text in order, already paced. The rate is
- * stream-reveal's: a backlog drains with a 250ms time constant, never slower
- * than 90 characters a second, never more than half a second behind, and it
- * stops only at word ends. The frame timer runs only while there is a backlog.
- */
-export function createStreamPacer<Kind>(
-  apply: (kind: Kind, delta: string) => void,
+/** Reads source by reference; no full answer or separately concatenated text is retained. */
+export function createStreamPacer(
+  source: () => StreamSource | null,
+  publish: (id: string, length: number) => void,
   timers: PacerTimers = REAL_TIMERS,
-): StreamPacer<Kind> {
+): StreamPacer {
   let paced = false;
-  let kind: Kind | undefined;
-  let received = "";
-  let applied = 0;
-  let reveal: RevealState = initialReveal(timers.now());
+  let id: string | undefined;
+  let reveal = initialReveal(timers.now());
   let stopTimer: (() => void) | undefined;
-
-  const applyUpTo = (length: number): void => {
-    if (kind === undefined || length <= applied) return;
-    const delta = received.slice(applied, length);
-    applied = length;
-    apply(kind, delta);
-  };
-
+  let epoch = 0;
   const stop = (): void => {
     stopTimer?.();
     stopTimer = undefined;
   };
-
-  const tick = (): void => {
-    reveal = stepReveal(reveal, timers.now());
-    applyUpTo(reveal.shown);
-    if (!isRevealing(reveal)) stop();
-  };
-
-  const flush = (): void => {
-    reveal = flushReveal(reveal, timers.now());
-    applyUpTo(received.length);
-    stop();
-  };
-
   const forget = (): void => {
     stop();
-    kind = undefined;
-    received = "";
-    applied = 0;
+    epoch += 1;
+    id = undefined;
     reveal = initialReveal(timers.now());
   };
-
+  const flush = (): void => {
+    const current = source();
+    if (current !== null && current.id === id) {
+      reveal = flushReveal(receiveTarget(reveal, current.text.length, timers.now()), timers.now());
+      publish(current.id, reveal.shown);
+    }
+    stop();
+  };
+  const tick = (): void => {
+    const current = source();
+    if (current === null || current.id !== id) {
+      forget();
+      return;
+    }
+    const before = reveal.shown;
+    reveal = stepReveal(reveal, current.text, timers.now());
+    if (reveal.shown !== before) publish(current.id, reveal.shown);
+    if (!isRevealing(reveal)) stop();
+  };
   return {
-    receive(nextKind, delta) {
-      if (delta.length === 0) return;
-      if (!paced) {
-        apply(nextKind, delta);
+    receive() {
+      const current = source();
+      if (current === null) {
+        forget();
         return;
       }
-      if (kind !== undefined && nextKind !== kind) {
-        flush();
+      if (id !== current.id) {
         forget();
+        id = current.id;
       }
-      kind = nextKind;
-      received += delta;
-      reveal = extendReveal(reveal, received, timers.now());
+      reveal = receiveTarget(reveal, current.text.length, timers.now());
+      if (!paced) {
+        flush();
+        return;
+      }
       if (stopTimer === undefined && isRevealing(reveal)) {
-        stopTimer = timers.every(REVEAL_FRAME_MS, tick);
+        const scheduledEpoch = epoch;
+        stopTimer = timers.every(REVEAL_FRAME_MS, () => {
+          if (scheduledEpoch === epoch) tick();
+        });
       }
     },
     flush,
@@ -130,10 +109,7 @@ export function createStreamPacer<Kind>(
     setPaced(next) {
       if (paced === next) return;
       paced = next;
-      if (!paced) {
-        flush();
-        forget();
-      }
+      if (!paced) flush();
     },
   };
 }

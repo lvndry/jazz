@@ -153,6 +153,7 @@ const SEARCH: SearchOverlay = {
 /** The base frame: mid-session, two tools in flight, nothing blocking. */
 export function sampleView(): ViewModel {
   return {
+    documentId: "sample:main",
     header: {
       version: packageJson.version,
       cwd: "~/github/jazz",

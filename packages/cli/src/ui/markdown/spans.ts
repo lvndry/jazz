@@ -1,4 +1,10 @@
-import { THEME } from "../theme";
+/**
+ * Semantic Markdown spans and their shared palette mapping. Parsers return roles
+ * and marks; painters choose colors. Immediate surfaces use the current theme,
+ * while retained layout indexes pass a captured palette so deferred wrapping
+ * cannot mix a previous geometry/theme epoch with new global colors.
+ */
+import { THEME, type ThemeColors } from "../theme";
 
 /**
  * What a run of markdown text is, rather than how it is painted. Each renderer
@@ -62,24 +68,27 @@ export function markedSpan(text: string, role: MarkdownRole, marks: InlineMarks)
   };
 }
 
-/** The one table from markdown roles to theme colours, read at call time so `/theme` is total. */
-export function markdownRoleColor(role: MarkdownRole): string {
+/** Map a role through the supplied snapshot, or the current theme for immediate painting. */
+export function markdownRoleColor(
+  role: MarkdownRole,
+  palette: Readonly<ThemeColors> = THEME,
+): string {
   switch (role) {
     case "text":
-      return THEME.selected;
+      return palette.selected;
     case "secondary":
-      return THEME.secondary;
+      return palette.secondary;
     case "muted":
-      return THEME.muted;
+      return palette.muted;
     case "border":
-      return THEME.border;
+      return palette.border;
     case "code":
-      return THEME.syntaxValue;
+      return palette.syntaxValue;
     case "link":
-      return THEME.link;
+      return palette.link;
     case "cite":
-      return THEME.accentDim;
+      return palette.accentDim;
     case "success":
-      return THEME.success;
+      return palette.success;
   }
 }

@@ -1,6 +1,11 @@
 /**
- * TerminalService implementation backed by Ink — mounts the React/Ink app and
- * routes terminal output/input through it.
+ * Implements the terminal port for fullscreen, classic Ink and plain streams.
+ *
+ * InkTerminalService accepts an optionally lazy-loaded fullscreen mount. Output
+ * publishes to the shared document; fullscreen clear/title invoke the owner's
+ * explicit capabilities. Runtime handoff mounts Ink against the same document,
+ * and cleanup releases the singleton even when renderer disposal fails.
+ * PlainTerminalService uses injected line/output streams for unattended runs.
  */
 
 import {
@@ -11,11 +16,9 @@ import {
   type TerminalOutput,
   type TerminalService,
 } from "@jazz/core/interfaces/terminal";
-import chalk from "chalk";
 import { Effect, Layer } from "effect";
 import { render } from "ink";
 import React from "react";
-import { wrapToWidth, getTerminalWidth } from "@/cli/presentation/markdown-formatter";
 import { createLineSource, type LineSource } from "@/cli/stdin-lines";
 import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
@@ -24,11 +27,9 @@ import type { FullscreenHandle, mountFullscreenApp } from "@/cli/ui/fullscreen/a
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { setActiveKeymap } from "@/cli/ui/keymaps";
 import { maskSecret } from "@/cli/ui/mask-secret";
-import { reportAnsiText } from "@/cli/ui/report-ansi";
 import { reportPlainText } from "@/cli/ui/report-layout";
 import { store } from "@/cli/ui/store";
 import { screenReaderRequested } from "@/cli/ui/terminal-capabilities";
-import { CHALK_THEME, PADDING_BUDGET } from "@/cli/ui/theme";
 import type { Choice, OutputEntry } from "@/cli/ui/types";
 
 // Singleton guard to prevent accidental double instantiation
@@ -52,27 +53,14 @@ export const INK_RENDER_OPTIONS = {
 export { maskSecret };
 
 /**
- * Width offset used when wrapping user-echo messages.
- *
- * Accounts for the App container's `paddingX={3}` (6 chars total) plus the
- * "› " icon + space rendered by OutputEntryView's user-entry styling
- * (2 chars). Centralized so the `ask("You:")` resolve path, the `user()`
- * method and answered pickers all wrap at the same column.
- */
-const USER_ECHO_WIDTH_OFFSET = 8;
-
-/**
  * Push a `You: <message>` entry into scrollback. Shared by the chat
  * `ask()` resolve handler and by `terminalService.user()` so the visual
  * styling stays in one place.
  */
 function printUserMessage(message: string): void {
-  // No inline color — OutputEntryView owns user styling (brass rail + text).
-  const wrapped = wrapToWidth(message, getTerminalWidth() - USER_ECHO_WIDTH_OFFSET);
   store.printOutput({
     type: "user",
-    message: wrapped,
-    meta: { plainText: message }, // unwrapped source for non-Ink renderers
+    message,
     timestamp: new Date(),
   });
 }
@@ -85,10 +73,7 @@ function closePromptWithAnswer(message: string, answer: string): void {
   store.setPrompt(null);
   store.printOutput({
     type: "log",
-    message: wrapToWidth(
-      `${message} ${CHALK_THEME.primary(answer)}`,
-      getTerminalWidth() - USER_ECHO_WIDTH_OFFSET,
-    ),
+    message: `${message} ${answer}`,
     timestamp: new Date(),
   });
 }
@@ -98,7 +83,7 @@ function closePromptCancelled(message: string): void {
   store.setPrompt(null);
   store.printOutput({
     type: "log",
-    message: `${message} ${chalk.dim("(cancelled)")}`,
+    message: `${message} (cancelled)`,
     timestamp: new Date(),
   });
 }
@@ -170,8 +155,13 @@ export class InkTerminalService implements TerminalService {
     queueMicrotask(() => {
       this.fallbackScheduled = false;
       if (this.disposed || this.inkInstance !== null) return;
-      this.fullscreen?.release();
+      const fullscreen = this.fullscreen;
       this.fullscreen = null;
+      try {
+        fullscreen?.release();
+      } catch {
+        // Runtime cleanup exhausted its resources; handoff still renders the same document.
+      }
       this.mountInk();
     });
   };
@@ -199,18 +189,17 @@ export class InkTerminalService implements TerminalService {
     store.setStreamPacing(false);
     this.unregisterRendererFallback?.();
     this.unregisterRendererFallback = null;
-    if (this.fullscreen) {
-      // Releases the alternate screen, the cursor and raw mode. Idempotent, so
-      // it is safe if a signal handler already ran.
-      this.fullscreen.release();
+    try {
+      this.fullscreen?.release();
+    } finally {
       this.fullscreen = null;
+      try {
+        this.inkInstance?.unmount();
+      } finally {
+        this.inkInstance = null;
+        instanceExists = false;
+      }
     }
-    if (this.inkInstance) {
-      this.inkInstance.unmount();
-      this.inkInstance = null;
-    }
-    // Reset singleton so a new instance can be created if needed
-    instanceExists = false;
   }
 
   // Basic Logging Methods
@@ -241,16 +230,7 @@ export class InkTerminalService implements TerminalService {
 
   log(message: TerminalOutput): Effect.Effect<string | undefined, never> {
     return Effect.sync(() => {
-      // A report travels as data so the fullscreen interface can set it in its own
-      // voice; the styled string is what the scrollback renderer prints.
-      const entry: OutputEntry = isTerminalReport(message)
-        ? {
-            type: "log",
-            message: reportAnsiText(message, getTerminalWidth() - PADDING_BUDGET),
-            timestamp: new Date(),
-            meta: { report: message, plainText: reportPlainText(message, getGlyphs()) },
-          }
-        : { type: "log", message, timestamp: new Date() };
+      const entry: OutputEntry = { type: "log", message, timestamp: new Date() };
       const logId = store.printOutput(entry);
       return logId;
     });
@@ -260,13 +240,12 @@ export class InkTerminalService implements TerminalService {
     return Effect.sync(() => printUserMessage(message));
   }
 
-  debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
+  debug(message: string, _meta?: Record<string, unknown>): Effect.Effect<void, never> {
     return Effect.sync(() => {
       store.printOutput({
         type: "debug",
         message,
         timestamp: new Date(),
-        ...(meta ? { meta } : {}),
       });
     });
   }
@@ -289,13 +268,9 @@ export class InkTerminalService implements TerminalService {
 
   clear(): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      // Clear visible screen + scrollback buffer, then reset UI state.
-      // console.clear() must come BEFORE store.clearOutputs() because
-      // the store reset changes <Static>'s React key (forcing a remount),
-      // and any content Ink already wrote to stdout needs to be erased
-      // before that remount produces new output.
-      console.clear();
+      if (!this.fullscreen) console.clear();
       store.clearOutputs();
+      this.fullscreen?.invalidate();
     });
   }
 
@@ -365,9 +340,6 @@ export class InkTerminalService implements TerminalService {
             resume(Effect.succeed(inputValue));
             return;
           }
-          // Pre-wrap user message to fit terminal width, consistent with how
-          // agent responses are pre-wrapped. The offset accounts for App paddingX=3
-          // (6 chars) + the "›" icon + space (2 chars) = 8 chars total.
           const displayValue = isSecret ? maskSecret(inputValue) : inputValue;
           // For chat-type prompts the visual "You:" prefix already comes from
           // OutputEntryView's user-entry styling; including the prompt's own
@@ -384,11 +356,10 @@ export class InkTerminalService implements TerminalService {
             }
             printUserMessage(displayValue);
           } else {
-            const rawMessage = `${message} ${CHALK_THEME.primary(displayValue)}`;
+            const rawMessage = `${message} ${displayValue}`;
             store.printOutput({
               type: "user",
-              message: wrapToWidth(rawMessage, getTerminalWidth() - USER_ECHO_WIDTH_OFFSET),
-              meta: { plainText: `${message} ${displayValue}` },
+              message: rawMessage,
               timestamp: new Date(),
             });
           }
@@ -569,11 +540,8 @@ export class InkTerminalService implements TerminalService {
 
   setTitle(title: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      // Use OSC 0 sequence to set both icon name and window/tab title
-      // Format: ESC]0;title BEL
-      // \x1b is ESC, \x07 is BEL (bell)
-      // This is widely supported across modern terminals (Warp, iTerm2, WezTerm, Alacritty, etc.)
-      process.stdout.write(`\x1b]0;${title}\x07`);
+      if (this.fullscreen) this.fullscreen.setTitle(title);
+      else process.stdout.write(`\x1b]0;${title.replace(/\p{Cc}/gu, "")}\x07`);
     });
   }
 }

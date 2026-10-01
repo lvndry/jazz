@@ -1,7 +1,21 @@
+/**
+ * Terminal-port regressions for semantic output, prompt privacy and runtime ownership.
+ * Injected fullscreen handles and streams qualify clear/title capabilities,
+ * failure handoff and cleanup without acquiring a user terminal. Plain prompts
+ * must wait for input and finish without inventing an answer after EOF.
+ */
+
 import { PassThrough } from "node:stream";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
-import { INK_RENDER_OPTIONS, PlainTerminalService } from "./terminal";
+import {
+  INK_RENDER_OPTIONS,
+  InkTerminalService,
+  PlainTerminalService,
+  maskSecret,
+} from "./terminal";
+import type { FullscreenHandle } from "./ui/fullscreen/attach";
+import { store } from "./ui/store";
 
 describe("INK_RENDER_OPTIONS", () => {
   /**
@@ -26,6 +40,130 @@ describe("INK_RENDER_OPTIONS", () => {
 
   test("must disable exitOnCtrlC so app handles SIGINT", () => {
     expect(INK_RENDER_OPTIONS.exitOnCtrlC).toBe(false);
+  });
+});
+
+describe("fullscreen terminal effects", () => {
+  test("fallback renders the existing document once even when renderer cleanup fails", async () => {
+    let releases = 0;
+    let mounted = 0;
+    let renderedDocument: ReturnType<typeof store.getDocumentSnapshot> | undefined;
+    const terminal = new InkTerminalService({
+      mountFullscreen: () => ({
+        release: () => {
+          releases++;
+          throw new Error("renderer cleanup failed");
+        },
+        setTitle: () => undefined,
+        invalidate: () => undefined,
+      }),
+    });
+    Reflect.set(terminal, "mountInk", () => {
+      mounted++;
+      renderedDocument = store.getDocumentSnapshot();
+    });
+    try {
+      store.clearOutputs();
+      Effect.runSync(terminal.log("existing source"));
+      store.flushOutputBatchNow();
+      const document = store.getDocumentSnapshot();
+      store.requestRendererFallback();
+      store.requestRendererFallback();
+      await Promise.resolve();
+      expect(mounted).toBe(1);
+      expect(releases).toBe(1);
+      expect(renderedDocument).toBe(document);
+    } finally {
+      terminal.cleanup();
+      store.clearOutputs();
+    }
+  });
+
+  test("failed renderer cleanup still releases the terminal service singleton", () => {
+    const failure = new Error("renderer cleanup failed");
+    const terminal = new InkTerminalService({
+      mountFullscreen: () => ({
+        release: () => {
+          throw failure;
+        },
+        setTitle: () => undefined,
+        invalidate: () => undefined,
+      }),
+    });
+    let next: InkTerminalService | undefined;
+    try {
+      expect(() => terminal.cleanup()).toThrow(failure);
+      expect(() => {
+        next = new InkTerminalService({
+          mountFullscreen: () => ({
+            release: () => undefined,
+            setTitle: () => undefined,
+            invalidate: () => undefined,
+          }),
+        });
+      }).not.toThrow();
+    } finally {
+      next?.cleanup();
+    }
+  });
+
+  test("clear resets source before requesting renderer invalidation and never externally clears", () => {
+    const terminal = Object.create(InkTerminalService.prototype) as InkTerminalService;
+    const clear = spyOn(console, "clear").mockImplementation(() => undefined);
+    let invalidations = 0;
+    const handle: FullscreenHandle = {
+      release: () => undefined,
+      setTitle: () => undefined,
+      invalidate: () => {
+        invalidations++;
+        expect(store.getDocumentSnapshot().entries).toEqual([]);
+      },
+    };
+    Reflect.set(terminal, "fullscreen", handle);
+    try {
+      Effect.runSync(terminal.log("visible source"));
+      store.flushOutputBatchNow();
+      expect(store.getDocumentSnapshot().entries).toHaveLength(1);
+      Effect.runSync(terminal.clear());
+      expect(invalidations).toBe(1);
+      expect(clear).not.toHaveBeenCalled();
+    } finally {
+      clear.mockRestore();
+      store.clearOutputs();
+    }
+  });
+
+  test("fullscreen title uses its deliberate capability without foreign stream writes", () => {
+    const terminal = Object.create(InkTerminalService.prototype) as InkTerminalService;
+    const titles: string[] = [];
+    const handle: FullscreenHandle = {
+      release: () => undefined,
+      invalidate: () => undefined,
+      setTitle: (title) => {
+        titles.push(title);
+      },
+    };
+    Reflect.set(terminal, "fullscreen", handle);
+    const writer = spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      Effect.runSync(terminal.setTitle("Jazz session"));
+      expect(titles).toEqual(["Jazz session"]);
+      expect(writer).not.toHaveBeenCalled();
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  test("classic title cannot inject terminal controls through its OSC payload", () => {
+    const terminal = Object.create(InkTerminalService.prototype) as InkTerminalService;
+    Reflect.set(terminal, "fullscreen", null);
+    const writer = spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      Effect.runSync(terminal.setTitle("Jazz\x07\x1b[2J\n"));
+      expect(writer).toHaveBeenCalledWith("\x1b]0;Jazz[2J\x07");
+    } finally {
+      writer.mockRestore();
+    }
   });
 });
 
@@ -122,5 +260,70 @@ describe("PlainTerminalService", () => {
     expect(written.stderr).toContain("error line");
     expect(written.stderr).toContain("warn line");
     expect(written.stderr).toContain("debug line");
+  });
+});
+
+/** The production terminal port must accept meaning before any width-dependent layout. */
+describe("Ink terminal semantic acceptance", () => {
+  const terminal = Object.create(InkTerminalService.prototype) as InkTerminalService;
+  test("long user source remains unchanged at different terminal widths", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+    const text = "a long user sentence with Unicode 界 and e\u0301 ".repeat(10);
+    try {
+      for (const width of [32, 120]) {
+        Object.defineProperty(process.stdout, "columns", { configurable: true, value: width });
+        store.clearOutputs();
+        Effect.runSync(terminal.user(text));
+        store.flushOutputBatchNow();
+        expect(store.getDocumentSnapshot().entries[0]?.content).toEqual({ kind: "user", text });
+      }
+    } finally {
+      if (descriptor === undefined) Reflect.deleteProperty(process.stdout, "columns");
+      else Object.defineProperty(process.stdout, "columns", descriptor);
+      store.clearOutputs();
+    }
+  });
+
+  test("secret prompt echo stores only masked text and cannot enter recall history", async () => {
+    store.clearOutputs();
+    const secret = "a-very-private-secret-that-must-never-enter-source";
+    const pending = Effect.runPromise(terminal.ask("API key:", { secret: true }));
+    await Promise.resolve();
+    store.getPromptSnapshot()!.resolve(secret);
+    expect(await pending).toBe(secret);
+    store.flushOutputBatchNow();
+    expect(store.getDocumentSnapshot().entries[0]?.content).toEqual({
+      kind: "user",
+      text: maskSecret(secret),
+    });
+    expect(JSON.stringify(store.getDocumentSnapshot())).not.toContain(secret);
+    expect(store.getInputHistory()).not.toContain(secret);
+    store.clearOutputs();
+  });
+
+  test("answered and cancelled prompts persist unwrapped words only", async () => {
+    store.clearOutputs();
+    const message = "a deliberately long prompt label ".repeat(5);
+    const answer = "a deliberately long answer ".repeat(5);
+    const pending = Effect.runPromise(terminal.ask(message, { simple: true }));
+    await Promise.resolve();
+    store.getPromptSnapshot()!.resolve(answer);
+    expect(await pending).toBe(answer);
+    store.flushOutputBatchNow();
+    expect(store.getDocumentSnapshot().entries[0]?.content).toEqual({
+      kind: "user",
+      text: `${message} ${answer}`,
+    });
+    const cancelled = Effect.runPromise(terminal.ask(message, { simple: true, cancellable: true }));
+    await Promise.resolve();
+    store.getPromptSnapshot()!.reject!();
+    expect(await cancelled).toBeUndefined();
+    store.flushOutputBatchNow();
+    expect(store.getDocumentSnapshot().entries.at(-1)?.content).toEqual({
+      kind: "notice",
+      tone: "log",
+      text: `${message} (cancelled)`,
+    });
+    store.clearOutputs();
   });
 });

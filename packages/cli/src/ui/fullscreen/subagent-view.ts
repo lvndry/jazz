@@ -50,7 +50,7 @@ export function subagentBlocks(run: SubagentRun, now: number): Block[] {
 
   const lastIndex = run.entries.length - 1;
   run.entries.forEach((entry, index) => {
-    const id = `${run.id}:${String(index)}`;
+    const id = entry.id;
     switch (entry.kind) {
       case "steer":
         blocks.push({ id, seq: seq++, kind: "user", text: entry.text });

@@ -43,7 +43,6 @@ import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells"
 import { groundPaint, THEME } from "../../theme";
 import { commandSuggestRows } from "../Input";
 import { CaretValue } from "../overlays/TextPrompt";
-import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
 
 export type { HomeModel } from "../../models/home-view";
@@ -378,7 +377,7 @@ function firstRunRows(model: HomeModel, state: HomeState, width: number): HomeRo
 
 /** The width the block is set to: the prose measure plus the gutter, never past the window. */
 export function homeWidth(viewport: Viewport): number {
-  return Math.min(viewport.width, measureFor(pageWidth(viewport)).prose + GUTTER);
+  return Math.min(viewport.width, measureFor(viewport.width).prose + GUTTER);
 }
 
 /**

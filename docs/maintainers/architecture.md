@@ -281,12 +281,16 @@ const result = await Effect.runPromise(myEffect.pipe(Effect.provide(testLayer)))
 
 ## UI Architecture
 
-`@jazz/cli` uses [Ink](https://github.com/vadimdemedes/ink) (React for terminals) with a dual-pattern state management:
+`@jazz/cli` projects one semantic presentation document into OpenTUI's fullscreen
+interface or the classic Ink interface. Effect services mutate the presentation
+store; React consumes committed snapshots. Stable source IDs survive streaming,
+settlement and resume. Geometry, scroll position, prompt continuations and secret
+drafts remain outside persisted entries.
 
-1. **External Store (`store` object)**: Imperative access for Effect-based services
-2. **React Context (`AppContext`)**: Reactive state for components
-
-The `ErrorBoundary` component wraps the app to catch rendering errors gracefully.
+See [Conversation presentation](./presentation-documents.md) for ownership,
+source links, and the version 3 history migration. Use the
+[terminal rendering tests](./terminal-rendering-tests.md) to compare the emitted
+terminal screen with the renderer's intended buffer.
 
 ---
 

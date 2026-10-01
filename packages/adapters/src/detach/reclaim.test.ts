@@ -330,7 +330,13 @@ describe("resumed transcript after reclaim", () => {
     startedAt: "2026-09-26T00:00:00.000Z",
     endedAt: null,
     messages: [{ role: "user", content: "start" }],
-    uiTranscript: [{ type: "user", message: "start" }],
+    uiTranscript: [
+      {
+        id: "start",
+        timestamp: "2026-09-26T00:00:00.000Z",
+        content: { kind: "user", text: "start" },
+      },
+    ],
   };
 
   test("appends the remote turns after the saved local transcript", () => {
@@ -344,10 +350,22 @@ describe("resumed transcript after reclaim", () => {
       ],
     };
     expect(withRemoteTurnsInUiTranscript(base, returned).uiTranscript).toEqual([
-      { type: "user", message: "start" },
-      { type: "info", message: "Continued on a remote host" },
-      { type: "user", message: "more" },
-      { type: "streamContent", message: "answer" },
+      ...(base.uiTranscript ?? []),
+      {
+        id: "remote:conversation:continued:1",
+        timestamp: base.startedAt,
+        content: { kind: "notice", tone: "info", text: "Continued on a remote host" },
+      },
+      {
+        id: "remote:conversation:1",
+        timestamp: base.startedAt,
+        content: { kind: "user", text: "more" },
+      },
+      {
+        id: "remote:conversation:3",
+        timestamp: base.startedAt,
+        content: { kind: "agent", markdown: "answer" },
+      },
     ]);
   });
 

@@ -38,7 +38,6 @@ import { centredWindowStart } from "../../text/picker-window";
 import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells";
 import { groundPaint, THEME } from "../../theme";
 import { CaretValue } from "../overlays/TextPrompt";
-import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
 
 /** Markers live in the left margin, so the name column never moves. */
@@ -324,7 +323,7 @@ export function AgentPicker({
   caret = [...query].length,
 }: AgentPickerProps): ReactNode {
   const glyphs = getGlyphs();
-  const page = pageWidth(viewport);
+  const page = viewport.width;
   const measure = measureFor(page);
   const rows = listRowsFor(viewport);
   const content = Math.max(NAME_MIN + MODEL_MIN + PERSONA_MIN + COLUMN_GAP * 3, measure.prose);

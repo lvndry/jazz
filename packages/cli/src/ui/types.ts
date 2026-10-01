@@ -1,17 +1,18 @@
+/** Terminal input descriptors; source content is committed to the presentation document. */
 import type {
   ChoicePreviewLine,
   PromptTagTone,
   TerminalOutput,
   TerminalOutputKind,
 } from "@jazz/core/interfaces/terminal";
+import type { PresentationContent } from "@jazz/core/types/presentation-content";
 
 export type OutputType = TerminalOutputKind;
 
 /** Input type for adding output entries - id is auto-generated */
 export interface OutputEntry {
   type: OutputType;
-  message: TerminalOutput;
-  meta?: Record<string, unknown>;
+  message: TerminalOutput | PresentationContent;
   timestamp: Date;
   /** Optional ID for entries that need to be updated later */
   id?: string;

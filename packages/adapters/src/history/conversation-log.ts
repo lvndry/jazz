@@ -40,8 +40,10 @@ import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { gzipSync } from "node:zlib";
 import { FileSystem } from "@effect/platform";
-import { isTerminalOutputKind, type TerminalOutputKind } from "@jazz/core/interfaces/terminal";
+import { isTerminalOutputKind } from "@jazz/core/interfaces/terminal";
 import type { ChatMessage } from "@jazz/core/types/message";
+import type { PresentationEntry } from "@jazz/core/types/presentation-content";
+import { presentationEntrySchema } from "@jazz/core/types/presentation-content-schema";
 import { toError } from "@jazz/core/utils/errors";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
@@ -54,10 +56,13 @@ const CONVERSATION_LOCKS_DIRECTORY_NAME = "conversation-locks";
 /**
  * Schema version stamped on every header.
  *
+ * 3 stores semantic presentation entries with source IDs and structured facts.
+ * Version 2 UI text remains readable; the next save upgrades it atomically.
+ *
  * 2 dropped the derived `conversationId` field, stopped recording system messages, and moved
  * from one flat directory of `{agent}~{conversation}.jsonl` to a directory per agent.
  */
-export const CONVERSATION_LOG_VERSION = 2;
+export const CONVERSATION_LOG_VERSION = 3;
 
 const CONVERSATIONS_DIRECTORY_NAME = "conversations";
 const CONVERSATION_LOG_EXTENSION = ".jsonl";
@@ -183,10 +188,7 @@ export type ConversationLogEvent =
   | ConversationLogUiTranscript
   | ConversationLogUiAppend;
 
-export interface ConversationUiEntry {
-  readonly type: TerminalOutputKind;
-  readonly message: string;
-}
+export type ConversationUiEntry = PresentationEntry;
 
 /** A conversation and everything said in it. */
 export interface Conversation {
@@ -196,7 +198,7 @@ export interface Conversation {
   readonly startedAt: string;
   readonly endedAt: string | null;
   readonly messages: ChatMessage[];
-  /** Text-only UI scrollback snapshot, kept separate from messages and never sent to the model. */
+  /** Semantic UI scrollback snapshot, kept separate from messages and never sent to the model. */
   readonly uiTranscript?: readonly ConversationUiEntry[];
 }
 
@@ -236,8 +238,14 @@ function optionalString(value: unknown): string | undefined {
  *
  * A truncated final line from a killed process lands here as a JSON syntax error; treating
  * it as "no event" is what keeps one bad write from poisoning the whole log.
+ * UI batches are atomic: an invalid entry or duplicate ID rejects the event.
+ * Standalone calls use version 3; only an explicit version 2 context decodes legacy text.
  */
-export function parseConversationLogLine(line: string): ConversationLogEvent | null {
+export function parseConversationLogLine(
+  line: string,
+  recordIndex = 0,
+  version = CONVERSATION_LOG_VERSION,
+): ConversationLogEvent | null {
   const trimmed = line.trim();
   if (trimmed.length === 0) return null;
 
@@ -294,17 +302,71 @@ export function parseConversationLogLine(line: string): ConversationLogEvent | n
     case "ui-append": {
       const entries = parsed["entries"];
       if (!Array.isArray(entries)) return null;
-      const accepted = entries.flatMap((entry): ConversationUiEntry[] => {
-        if (!isRecordObject(entry) || typeof entry["message"] !== "string") return [];
-        const type = entry["type"];
-        if (!isTerminalOutputKind(type)) return [];
-        return [{ type, message: entry["message"] }];
-      });
+      const accepted: ConversationUiEntry[] = [];
+      const ids = new Set<string>();
+      for (const [index, entry] of entries.entries()) {
+        const validated = presentationEntrySchema.safeParse(entry);
+        let source: ConversationUiEntry;
+        if (validated.success) {
+          source = validated.data;
+        } else {
+          if (
+            version !== 2 ||
+            !isRecordObject(entry) ||
+            Object.keys(entry).some((key) => key !== "type" && key !== "message") ||
+            typeof entry["message"] !== "string" ||
+            !isTerminalOutputKind(entry["type"])
+          )
+            return null;
+          const type = entry["type"];
+          const text = Bun.stripANSI(entry["message"]);
+          source = {
+            id: `legacy:${recordIndex}:${index}`,
+            timestamp: Number.isNaN(Date.parse(at))
+              ? new Date(0).toISOString()
+              : new Date(at).toISOString(),
+            content:
+              type === "user"
+                ? { kind: "user", text }
+                : { kind: "notice", text, tone: type === "streamContent" ? "log" : type },
+          };
+        }
+        if (ids.has(source.id)) return null;
+        ids.add(source.id);
+        accepted.push(source);
+      }
       return { type: parsed["type"], at, entries: accepted };
     }
     default:
       return null;
   }
+}
+
+/** Accept all IDs or leave the current set unchanged when any entry conflicts. */
+function acceptUiEntryIds(entries: readonly ConversationUiEntry[], ids: Set<string>): boolean {
+  const added = new Set<string>();
+  for (const entry of entries) {
+    if (ids.has(entry.id) || added.has(entry.id)) return false;
+    added.add(entry.id);
+  }
+  for (const id of added) ids.add(id);
+  return true;
+}
+
+/** Retain line positions while applying the header version and atomic UI identity boundary. */
+function parseConversationLogRecords(lines: readonly string[]): (ConversationLogEvent | null)[] {
+  let version = CONVERSATION_LOG_VERSION;
+  let uiIds = new Set<string>();
+  return lines.map((line, index) => {
+    const event = parseConversationLogLine(line, index, version);
+    if (event?.type === "conversation") version = event.version;
+    if (event?.type === "ui-transcript" || event?.type === "ui-append") {
+      const nextIds = event.type === "ui-transcript" ? new Set<string>() : uiIds;
+      if (!acceptUiEntryIds(event.entries, nextIds)) return null;
+      uiIds = nextIds;
+    }
+    return event;
+  });
 }
 
 /** First line of the first user message, used when a conversation has no title. */
@@ -332,6 +394,7 @@ export function reduceConversationLog(
   let endedAt: string | null = null;
   let messages: ChatMessage[] = [];
   let uiTranscript: ConversationUiEntry[] = [];
+  let uiIds = new Set<string>();
 
   for (const event of events) {
     switch (event.type) {
@@ -349,10 +412,15 @@ export function reduceConversationLog(
       case "rewrite":
         messages = [];
         break;
-      case "ui-transcript":
+      case "ui-transcript": {
+        const nextIds = new Set<string>();
+        if (!acceptUiEntryIds(event.entries, nextIds)) break;
+        uiIds = nextIds;
         uiTranscript = [...event.entries];
         break;
+      }
       case "ui-append":
+        if (!acceptUiEntryIds(event.entries, uiIds)) break;
         uiTranscript.push(...event.entries);
         break;
     }
@@ -440,12 +508,7 @@ function requireReadableLogVersion(
 
 /** Parses a log body into events, skipping lines a crash left unreadable. */
 export function parseConversationLog(content: string): ConversationLogEvent[] {
-  const events: ConversationLogEvent[] = [];
-  for (const line of content.split("\n")) {
-    const event = parseConversationLogLine(line);
-    if (event) events.push(event);
-  }
-  return events;
+  return parseConversationLogRecords(content.split("\n")).filter((event) => event !== null);
 }
 
 /** Reads a whole conversation log and folds it into a conversation. */
@@ -601,7 +664,7 @@ interface AppendState {
   readonly title: string;
   readonly endedAt: string | null;
   readonly uiEntryCount: number;
-  readonly lastUiEntryFingerprint: string;
+  readonly uiEntryFingerprints: readonly string[];
 }
 
 function messageFingerprint(message: ChatMessage): string {
@@ -613,11 +676,32 @@ function fingerprintAt(messages: readonly ChatMessage[], index: number): string 
   return message ? messageFingerprint(message) : "";
 }
 
-function uiEntryFingerprintAt(entries: readonly ConversationUiEntry[], index: number): string {
-  const entry = entries[index];
-  return entry
-    ? `${entry.type}:${entry.message.length}:${fingerprint(entry.message, MESSAGE_FINGERPRINT_CHARS)}`
-    : "";
+/** Entries are immutable source facts, so unchanged entries need no repeat serialization. */
+const uiEntryFingerprints = new WeakMap<ConversationUiEntry, string>();
+const validatedUiEntries = new WeakSet<ConversationUiEntry>();
+
+function uiEntryFingerprint(entry: ConversationUiEntry): string {
+  const cached = uiEntryFingerprints.get(entry);
+  if (cached !== undefined) return cached;
+  const result = createHash("sha256")
+    .update(JSON.stringify(presentationEntrySchema.parse(entry)))
+    .digest("hex");
+  uiEntryFingerprints.set(entry, result);
+  return result;
+}
+
+/** Compare every persisted entry: changing an earlier fact must replace the snapshot too. */
+function uiPrefixHolds(
+  entries: readonly ConversationUiEntry[],
+  previous: readonly string[],
+): boolean {
+  return (
+    entries.length >= previous.length &&
+    previous.every((hash, index) => {
+      const entry = entries[index];
+      return entry !== undefined && uiEntryFingerprint(entry) === hash;
+    })
+  );
 }
 
 function serializeEvent(event: ConversationLogEvent): string {
@@ -696,7 +780,7 @@ interface LoadedAppendState {
  */
 export function collapseSupersededUiEvents(content: string): string | null {
   const lines = content.split("\n");
-  const events = lines.map(parseConversationLogLine);
+  const events = parseConversationLogRecords(lines);
   let lastSnapshot = -1;
   events.forEach((event, index) => {
     if (event?.type === "ui-transcript") {
@@ -714,6 +798,24 @@ export function collapseSupersededUiEvents(content: string): string | null {
     .join("\n");
 }
 
+/** Upgrade text-only UI records once; unknown and model-facing lines retain their bytes. */
+export function migratePresentationLog(content: string): string | null {
+  const lines = content.split("\n");
+  const events = parseConversationLogRecords(lines);
+  const header = events.find((event) => event?.type === "conversation");
+  if (header?.type !== "conversation" || header.version >= CONVERSATION_LOG_VERSION) return null;
+  return lines
+    .map((line, index) => {
+      const event = events[index];
+      if (event?.type === "conversation")
+        return JSON.stringify({ ...event, version: CONVERSATION_LOG_VERSION });
+      if (event?.type === "ui-transcript" || event?.type === "ui-append")
+        return JSON.stringify(event);
+      return line;
+    })
+    .join("\n");
+}
+
 function appendStateFromContent(content: string): AppendState | null {
   const conversation = reduceConversationLog(parseConversationLog(content));
   if (!conversation) return null;
@@ -724,7 +826,7 @@ function appendStateFromContent(content: string): AppendState | null {
     title: conversation.title,
     endedAt: conversation.endedAt,
     uiEntryCount: uiTranscript.length,
-    lastUiEntryFingerprint: uiEntryFingerprintAt(uiTranscript, uiTranscript.length - 1),
+    uiEntryFingerprints: uiTranscript.map(uiEntryFingerprint),
   };
 }
 
@@ -744,13 +846,13 @@ function loadAppendState(
     if (read === null) return { state: null, needsLeadingNewline: false };
 
     yield* requireReadableLogVersion(parseConversationLog(read), logPath);
-    let content = read;
+    let content = migratePresentationLog(read) ?? read;
     const collapsed = collapseSupersededUiEvents(content);
-    if (collapsed !== null) {
-      yield* writeFileStringAtomic(logPath, collapsed, {
+    if (collapsed !== null) content = collapsed;
+    if (content !== read) {
+      yield* writeFileStringAtomic(logPath, content, {
         mode: stateFileMode(),
       });
-      content = collapsed;
     }
 
     // A crash can leave the last line half-written; the next append has to start on a
@@ -792,6 +894,20 @@ export function recordConversationTranscript(
     // reader will see. The system prompt is rebuilt from the persona, tools and skills on
     // every run, so recording one stores a copy that is already stale.
     const messages = input.messages.filter((message) => message.role !== "system");
+    if (input.uiTranscript !== undefined) {
+      const ids = new Set<string>();
+      for (const entry of input.uiTranscript) {
+        const valid =
+          validatedUiEntries.has(entry) || presentationEntrySchema.safeParse(entry).success;
+        if (!valid || ids.has(entry.id)) {
+          return yield* Effect.fail(
+            new Error("Invalid or duplicate presentation entry in conversation history"),
+          );
+        }
+        ids.add(entry.id);
+        validatedUiEntries.add(entry);
+      }
+    }
 
     yield* fs
       .makeDirectory(path.dirname(logPath), { recursive: true, mode: stateDirectoryMode() })
@@ -821,7 +937,7 @@ export function recordConversationTranscript(
         title: deriveConversationTitle(title, messages),
         endedAt: null,
         uiEntryCount: 0,
-        lastUiEntryFingerprint: "",
+        uiEntryFingerprints: [],
       };
     }
 
@@ -857,13 +973,11 @@ export function recordConversationTranscript(
     }
 
     let uiEntryCount = state.uiEntryCount;
-    let lastUiEntryFingerprint = state.lastUiEntryFingerprint;
+    let nextUiEntryFingerprints = state.uiEntryFingerprints;
     const uiTranscript = input.uiTranscript;
     if (uiTranscript !== undefined) {
-      const uiPrefixHolds =
-        uiTranscript.length >= state.uiEntryCount &&
-        uiEntryFingerprintAt(uiTranscript, state.uiEntryCount - 1) === state.lastUiEntryFingerprint;
-      if (!uiPrefixHolds) {
+      const prefixHolds = uiPrefixHolds(uiTranscript, state.uiEntryFingerprints);
+      if (!prefixHolds) {
         chunks.push(serializeEvent({ type: "ui-transcript", at: now, entries: uiTranscript }));
       } else if (uiTranscript.length > state.uiEntryCount) {
         chunks.push(
@@ -875,7 +989,7 @@ export function recordConversationTranscript(
         );
       }
       uiEntryCount = uiTranscript.length;
-      lastUiEntryFingerprint = uiEntryFingerprintAt(uiTranscript, uiTranscript.length - 1);
+      nextUiEntryFingerprints = uiTranscript.map(uiEntryFingerprint);
     }
 
     if (chunks.length > 0) {
@@ -894,7 +1008,7 @@ export function recordConversationTranscript(
           title: nextTitle,
           endedAt: endedAtChanged ? input.endedAt : state.endedAt,
           uiEntryCount,
-          lastUiEntryFingerprint,
+          uiEntryFingerprints: nextUiEntryFingerprints,
         },
       });
     }

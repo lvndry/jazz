@@ -9,7 +9,6 @@ import type { ReactNode } from "react";
 import { getGlyphs } from "../../glyphs";
 import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells";
 import { groundPaint, THEME } from "../../theme";
-import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
 
 /** The bar cell plus one space; row text starts here. */
@@ -65,7 +64,7 @@ export function menuRows(
 
 export function MenuScreen({ title, choices, selected, viewport }: MenuScreenProps): ReactNode {
   const glyphs = getGlyphs();
-  const width = Math.min(viewport.width, measureFor(pageWidth(viewport)).prose + GUTTER);
+  const width = Math.min(viewport.width, measureFor(viewport.width).prose + GUTTER);
   const rows = menuRows(choices, selected, viewport);
   const labelWidth = Math.min(
     Math.floor((width - GUTTER) / 2),

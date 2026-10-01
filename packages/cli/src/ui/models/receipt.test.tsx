@@ -4,17 +4,12 @@ import { reduceEvent, createAccumulator } from "../../presentation/activity-redu
 import { CLIRenderer } from "../../presentation/cli-renderer";
 import { stripAnsiCodes } from "../../utils/string-utils";
 import { blocksFrom } from "../fullscreen/bridge";
-import { transcriptRows } from "../fullscreen/Transcript";
+import { createLayoutFixture } from "../fullscreen/testing/layout-fixture";
 import { getGlyphs } from "../glyphs";
 import { OutputEntryView } from "../OutputEntryView";
-import {
-  receiptFromMeta,
-  receiptParts,
-  receiptPlainText,
-  summaryRestatesReason,
-  toolReceipt,
-  type ToolReceipt,
-} from "./receipt";
+import { receiptParts, receiptPlainText, summaryRestatesReason, toolReceipt } from "./receipt";
+
+const { rows: layoutRows } = createLayoutFixture();
 
 const glyphs = getGlyphs();
 
@@ -87,25 +82,6 @@ describe("receiptParts", () => {
   });
 });
 
-describe("receiptFromMeta", () => {
-  it("round-trips a receipt and refuses anything else", () => {
-    const receipt: ToolReceipt = {
-      app: "grep",
-      summary: "23 matches",
-      status: "ok",
-      args: "TODO",
-      durationMs: 12,
-    };
-    expect(receiptFromMeta(receipt)).toEqual(receipt);
-    expect(receiptFromMeta({ app: 3 })).toBeNull();
-    expect(receiptFromMeta(undefined)).toBeNull();
-  });
-});
-
-/**
- * The same settled call through all three renderers. Each lays it out its own way, but the
- * words a reader gets are the receipt's, on every surface.
- */
 describe("the same receipt on fullscreen, Ink and plain output", () => {
   const event = {
     type: "tool_execution_complete" as const,
@@ -126,17 +102,13 @@ describe("the same receipt on fullscreen, Ink and plain output", () => {
 
   it("states the same facts everywhere", () => {
     const accumulator = createAccumulator("jazz");
-    const [entry] = reduceEvent(
-      accumulator,
-      event,
-      (node) => ({ _tag: "ink", node }) as never,
-    ).outputs;
+    const [entry] = reduceEvent(accumulator, event).outputs;
     if (entry === undefined) {
       throw new Error("the reducer printed nothing");
     }
 
     const blocks = blocksFrom([{ ...entry, id: "e1" }], "", []);
-    const fullscreen = transcriptRows(blocks, { width: 120, height: 30 })
+    const fullscreen = layoutRows(blocks, { width: 120, height: 30 })
       .map((row) => row.content.map((segment) => segment.text).join(""))
       .join("\n");
 

@@ -9,12 +9,15 @@ import React, { useEffect, useRef, useState } from "react";
 import { InputPriority, InputResults } from "@/cli/services/input-service";
 import { ActivityView } from "./ActivityView";
 import type { PendingStream } from "./adapters/terminal-output-adapter";
+import { ApprovalView } from "./ApprovalView";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
 import ErrorBoundary from "./ErrorBoundary";
 import { useInputHandler } from "./hooks/use-input-service";
 import { InkHome } from "./InkHome";
+import { markdownToAnsi } from "./markdown/ansi";
+import { agentDetailsBodyHeight, agentDetailsRows } from "./models/agent-details";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
@@ -33,8 +36,6 @@ import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId } from "./types";
 import { WizardHome } from "./WizardHome";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
-import { markdownToAnsi } from "./markdown/ansi";
-import { agentDetailsBodyHeight, agentDetailsRows } from "./models/agent-details";
 import { centredWindowStart } from "./text/picker-window";
 import { clipTerminalCells } from "./text/terminal-cells";
 import packageJson from "../../../../package.json";
@@ -59,14 +60,17 @@ const ActivityIsland = React.memo(ActivityIslandComponent);
 
 function PromptIslandComponent(): React.ReactElement | null {
   const { prompt, messageQueue } = usePromptSlice();
-  const { workingDirectory, chatBusy } = useSessionSlice();
+  const { workingDirectory, chatBusy, approvalRequest } = useSessionSlice();
 
   if (prompt) {
     return (
-      <Prompt
-        prompt={prompt}
-        workingDirectory={workingDirectory}
-      />
+      <Box flexDirection="column">
+        {approvalRequest === null ? null : <ApprovalView request={approvalRequest} />}
+        <Prompt
+          prompt={prompt}
+          workingDirectory={workingDirectory}
+        />
+      </Box>
     );
   }
 
@@ -146,9 +150,15 @@ function OutputIslandComponent(): React.ReactElement {
         {(entry: OutputEntryWithId, index: number) => {
           const prevEntry = index > 0 ? output.entries[index - 1] : null;
           const isReasoning =
-            entry.type === "streamContent" && entry.meta?.["kind"] === "reasoning";
+            typeof entry.message !== "string" &&
+            "kind" in entry.message &&
+            entry.message.kind === "reasoning";
           const prevIsReasoning =
-            prevEntry?.type === "streamContent" && prevEntry.meta?.["kind"] === "reasoning";
+            prevEntry !== null &&
+            prevEntry !== undefined &&
+            typeof prevEntry.message !== "string" &&
+            "kind" in prevEntry.message &&
+            prevEntry.message.kind === "reasoning";
           const addSpacing =
             entry.type === "user" ||
             (entry.type === "info" && prevEntry?.type === "user") ||
@@ -549,9 +559,8 @@ export function App(): React.ReactElement {
       if (receiptDiff !== undefined) {
         store.printOutput({
           type: "log",
-          message: receiptDiff,
+          message: { kind: "expanded", text: receiptDiff },
           timestamp: new Date(),
-          meta: { expandedOutput: true },
         });
         return InputResults.consumed();
       }
@@ -571,7 +580,7 @@ export function App(): React.ReactElement {
 
       store.printOutput({
         type: "log",
-        message: payload.fullDiff,
+        message: { kind: "expanded", text: payload.fullDiff },
         timestamp: new Date(),
       });
       store.clearExpandableDiff();

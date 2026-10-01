@@ -66,9 +66,8 @@ export function seedHistory(turns: number): void {
     store.printOutput({ type: "user", message: `question ${turn}`, timestamp: new Date(0) });
     store.printOutput({
       type: "streamContent",
-      message: `${PROSE_PARAGRAPH}turn ${turn}`,
+      message: { kind: "agent", markdown: `${PROSE_PARAGRAPH}turn ${turn}` },
       timestamp: new Date(0),
-      meta: { kind: "response" },
     });
   }
   store.flushOutputBatchNow();
@@ -152,7 +151,6 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
     };
     try {
       updateForTest(() => root.render(React.createElement(FullscreenBridge)));
-      renderer.start();
       const mountedAt = performance.now();
       while (!stripAnsiCodes(output.text).includes("bench-local")) {
         await paint();

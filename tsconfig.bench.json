@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": ".tsbuild/bench",
+    "module": "preserve",
+    "composite": true,
+    "declaration": true,
+    "tsBuildInfoFile": ".tsbuildinfo.bench"
+  },
+  "references": [
+    { "path": "./packages/plugin-sdk" },
+    { "path": "./packages/core" },
+    { "path": "./packages/adapters" },
+    { "path": "./packages/daemon" },
+    { "path": "./packages/cli" },
+    { "path": "./packages/runtime" },
+    { "path": "./packages/bot-shared" },
+    { "path": "./packages/discord-bot" },
+    { "path": "./packages/imessage-bot" },
+    { "path": "./packages/photon-bot" },
+    { "path": "./packages/telegram-bot" },
+    { "path": "./packages/whatsapp-bot" }
+  ],
+  "include": ["bench/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

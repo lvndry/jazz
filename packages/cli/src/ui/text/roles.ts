@@ -3,11 +3,12 @@
  *
  * View models (receipts, reports, plans, the status line) tag their text with a role rather
  * than a colour, so fullscreen, Ink and plain output paint the same fact the same way and a
- * theme switch reaches all of them at once.
+ * theme switch reaches all of them at once. Deferred layout passes its captured
+ * palette; immediate ANSI and React painting use the current theme by default.
  */
 
 import chalk from "chalk";
-import { THEME } from "../theme";
+import { THEME, type ThemeColors } from "../theme";
 
 export type TextRole =
   | "label"
@@ -31,29 +32,29 @@ export interface RoleStyle {
   readonly bold?: boolean;
 }
 
-/** The colour and weight a role takes in the current theme; read per call so `/theme` is live. */
-export function roleStyle(role: TextRole): RoleStyle {
+/** Color and weight in an explicit palette snapshot, or the current theme for immediate painting. */
+export function roleStyle(role: TextRole, palette: Readonly<ThemeColors> = THEME): RoleStyle {
   switch (role) {
     case "label":
-      return { fg: THEME.secondary, bold: true };
+      return { fg: palette.secondary, bold: true };
     case "text":
-      return { fg: THEME.selected };
+      return { fg: palette.selected };
     case "strong":
-      return { fg: THEME.selected, bold: true };
+      return { fg: palette.selected, bold: true };
     case "secondary":
-      return { fg: THEME.secondary };
+      return { fg: palette.secondary };
     case "muted":
-      return { fg: THEME.muted };
+      return { fg: palette.muted };
     case "accent":
-      return { fg: THEME.primary };
+      return { fg: palette.primary };
     case "success":
-      return { fg: THEME.success };
+      return { fg: palette.success };
     case "warning":
-      return { fg: THEME.warning };
+      return { fg: palette.warning };
     case "error":
-      return { fg: THEME.error };
+      return { fg: palette.error };
     case "border":
-      return { fg: THEME.border };
+      return { fg: palette.border };
   }
 }
 

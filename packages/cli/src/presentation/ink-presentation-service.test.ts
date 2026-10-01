@@ -6,18 +6,14 @@ import { Effect } from "effect";
 import { renderToString } from "ink";
 import React from "react";
 import { InkPresentationService, InkStreamingRenderer } from "./ink-presentation-service";
+import { formatTurnReceipt } from "./turn-receipt";
 import type { ActivityState } from "../ui/activity-state";
+import { ApprovalView } from "../ui/ApprovalView";
+import { contentFromOutput } from "../ui/document";
+import { interruptSummaryLines } from "../ui/models/interrupt";
+import { OutputEntryView } from "../ui/OutputEntryView";
 import { store } from "../ui/store";
 import type { OutputEntry, PromptState } from "../ui/types";
-
-/** Recursively extract the text content of a React element tree. */
-function extractNodeText(node: unknown): string {
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (!React.isValidElement(node)) return "";
-  const children = (node.props as { children?: unknown }).children;
-  if (Array.isArray(children)) return children.map(extractNodeText).join("");
-  return extractNodeText(children);
-}
 
 function completeResponse(content: string): ChatCompletionResponse {
   return { id: "test", model: "test", content, toolCalls: [] };
@@ -93,6 +89,257 @@ describe("InkStreamingRenderer", () => {
     store.setActivity = originalSetActivity;
     store.printOutput = originalPrintOutput;
     store.setCollapseReasoning(true);
+  });
+
+  test("child lifecycle events do not settle or relabel the concurrent main stream", () => {
+    store.clearOutputs();
+    const regionId = store.openEphemeral("subagent", "Child", 8, {
+      task: "inspect a file",
+      acceptsMessages: true,
+    });
+    const child = new InkStreamingRenderer(
+      "Child",
+      true,
+      DEFAULT_DISPLAY_CONFIG,
+      { textBufferMs: 0 },
+      0,
+      { kind: "ephemeral", regionId },
+    );
+    store.appendStream("response", "main prefix");
+    store.setActivity({ phase: "streaming", agentName: "Main", text: "main prefix" });
+    store.resetRunStats({
+      provider: "main-provider",
+      model: "main-model",
+      tokensInContext: 100,
+      maxContextTokens: 8_000,
+    });
+    store.setExpandableDiff("main output");
+    const detail = store.getExpandableDiff();
+    const expected = store.getDocumentSnapshot();
+    const activity = store.getSessionSnapshot().activity;
+    const assertMainUnchanged = (): void => {
+      expect(store.getDocumentSnapshot()).toBe(expected);
+      expect(store.getSessionSnapshot().activity).toBe(activity);
+      expect(store.getExpandableDiff()).toBe(detail);
+      expect(store.getRunStatsSnapshot()).toMatchObject({
+        provider: "main-provider",
+        model: "main-model",
+        tokensInContext: 100,
+        maxContextTokens: 8_000,
+      });
+    };
+    try {
+      Effect.runSync(
+        child.handleEvent({
+          type: "stream_start",
+          provider: "child-provider",
+          model: "child-model",
+          pinnedContextWindow: 900,
+          timestamp: 0,
+        }),
+      );
+      assertMainUnchanged();
+      Effect.runSync(child.handleEvent({ type: "text_start" }));
+      Effect.runSync(
+        child.handleEvent({
+          type: "text_chunk",
+          delta: "child answer",
+          accumulated: "child answer",
+          sequence: 0,
+        }),
+      );
+      Effect.runSync(
+        child.handleEvent({
+          type: "tool_execution_start",
+          toolName: "read_file",
+          toolCallId: "child-tool",
+          arguments: { path: "child.txt" },
+        }),
+      );
+      Effect.runSync(
+        child.handleEvent({
+          type: "tool_execution_complete",
+          toolCallId: "child-tool",
+          result: "child result",
+          summary: "child inspected",
+          durationMs: 5,
+          success: true,
+        }),
+      );
+      assertMainUnchanged();
+      Effect.runSync(child.flush());
+      assertMainUnchanged();
+      Effect.runSync(child.reset());
+      assertMainUnchanged();
+      emitStreamStart(child);
+      Effect.runSync(
+        child.handleEvent({
+          type: "complete",
+          response: {
+            ...completeResponse("child fallback answer"),
+            usage: {
+              promptTokens: 700,
+              completionTokens: 30,
+              totalTokens: 730,
+              billedCostUSD: 0.01,
+            },
+          },
+          totalDurationMs: 100,
+          metrics: { firstTokenLatencyMs: 10 },
+        }),
+      );
+      assertMainUnchanged();
+      expect(store.getRunStatsSnapshot()).toMatchObject({
+        promptTokens: 700,
+        completionTokens: 30,
+        costUSD: 0.01,
+      });
+      const run = store.getSubagentsSnapshot().runs.find((candidate) => candidate.id === regionId);
+      expect(run?.entries).toContainEqual(
+        expect.objectContaining({
+          kind: "response",
+          text: "child answer",
+        }),
+      );
+      expect(run?.entries).toContainEqual(
+        expect.objectContaining({
+          kind: "response",
+          text: "child fallback answer",
+        }),
+      );
+      expect(run?.entries).toContainEqual(
+        expect.objectContaining({
+          kind: "tool",
+          summary: "child inspected",
+          status: "ok",
+        }),
+      );
+      store.appendStream("response", " main suffix");
+      expect(store.getDocumentSnapshot().entries).toHaveLength(1);
+      expect(store.getDocumentSnapshot().entries[0]?.id).toBe(expected.streamingId);
+      expect(store.getDocumentSnapshot().entries[0]?.content).toEqual({
+        kind: "agent",
+        markdown: "main prefix main suffix",
+      });
+    } finally {
+      Effect.runSync(child.reset());
+      store.clearOutputs();
+    }
+  });
+
+  test("a child renderer cannot change the main reasoning collapse preference", () => {
+    store.clearOutputs();
+    store.setCollapseReasoning(false);
+    const childId = store.openEphemeral("subagent", "Child", 8);
+    const child = new InkStreamingRenderer(
+      "Child",
+      false,
+      DEFAULT_DISPLAY_CONFIG,
+      { textBufferMs: 0 },
+      0,
+      { kind: "ephemeral", regionId: childId },
+    );
+    try {
+      const reasoningId = store.openEphemeral("reasoning", "Main reasoning", 8);
+      store.appendEphemeral(reasoningId, "main reasoning remains expanded");
+      store.collapseEphemeral(reasoningId, { durationMs: 10 });
+      expect(store.isReasoningExpanded(reasoningId)).toBe(true);
+    } finally {
+      Effect.runSync(child.reset());
+      store.clearOutputs();
+    }
+  });
+
+  describe("document lease retirement", () => {
+    test("late provider, tool, and complete events cannot modify a replacement document", async () => {
+      store.clearOutputs();
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "old answer",
+          accumulated: "old answer",
+          sequence: 0,
+        }),
+      );
+      store.replaceDocument("new", [
+        {
+          id: "new-user",
+          timestamp: "2026-01-01T00:00:00.000Z",
+          content: { kind: "user", text: "new question" },
+        },
+      ]);
+      store.setActivity({ phase: "thinking", agentName: "new agent" });
+      const expected = store.getDocumentSnapshot();
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: " late text",
+          accumulated: "old answer late text",
+          sequence: 1,
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "tool_execution_start",
+          toolName: "read_file",
+          toolCallId: "old-tool",
+          arguments: { path: "old.txt" },
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "tool_execution_complete",
+          toolCallId: "old-tool",
+          result: "old result",
+          durationMs: 1,
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "complete",
+          response: completeResponse("old final"),
+          totalDurationMs: 50,
+        }),
+      );
+      Effect.runSync(renderer.flush());
+      Effect.runSync(renderer.reset());
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(store.getDocumentSnapshot()).toBe(expected);
+      expect(store.getSessionSnapshot().activity).toEqual({
+        phase: "thinking",
+        agentName: "new agent",
+      });
+    });
+
+    test("a buffered provider timer cannot publish after clear", async () => {
+      store.clearOutputs();
+      const renderer = new InkStreamingRenderer(
+        "old",
+        false,
+        DEFAULT_DISPLAY_CONFIG,
+        { textBufferMs: 20 },
+        0,
+      );
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "text_chunk",
+          delta: "queued old answer",
+          accumulated: "queued old answer",
+          sequence: 0,
+        }),
+      );
+      store.clearOutputs();
+      const expected = store.getDocumentSnapshot();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(store.getDocumentSnapshot()).toBe(expected);
+      expect(store.getDocumentSnapshot().entries).toHaveLength(0);
+      Effect.runSync(renderer.reset());
+    });
   });
 
   describe("out-of-order text_chunk events", () => {
@@ -519,10 +766,12 @@ describe("InkStreamingRenderer", () => {
       Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
       await new Promise((r) => setTimeout(r, 0));
 
-      const reasoning = printOutputCalls.filter((e) => e.meta?.["kind"] === "reasoning");
+      const reasoning = store
+        .getOutputSnapshot()
+        .entries.filter((e) => contentFromOutput(e).kind === "reasoning");
       expect(reasoning.length).toBeGreaterThan(0);
-      expect(reasoning[0]!.meta?.["collapsed"]).toBe(false);
-      expect(String(reasoning[0]!.message)).toContain("let me think");
+      expect(store.isReasoningExpanded(reasoning[0]!.id)).toBe(true);
+      expect(reasoning[0]!.message).toMatchObject({ kind: "reasoning", text: "let me think" });
       expect(String(reasoning[0]!.message)).not.toContain("ctrl+r");
     });
   });
@@ -847,9 +1096,12 @@ describe("InkStreamingRenderer", () => {
         }
         const receipts = printOutputCalls
           .slice(baseline)
-          .filter((entry) => entry.meta?.["turnReceipt"] === true);
+          .filter((entry) => contentFromOutput(entry).kind === "turn-receipt");
         expect(receipts).toHaveLength(1);
-        expect(receipts[0]?.meta?.["plainText"]).toBe("9.7s · 2 steps · 30k in → 102 out");
+        const receipt = contentFromOutput(receipts[0]!);
+        expect(receipt.kind === "turn-receipt" ? formatTurnReceipt(receipt) : undefined).toBe(
+          "9.7s · 2 steps · 30k in → 102 out · 10.5 tok/s",
+        );
       } finally {
         Effect.runSync(renderer.reset());
       }
@@ -942,7 +1194,7 @@ describe("InkStreamingRenderer", () => {
       expect(idleIdx).toBeGreaterThanOrEqual(0);
     });
 
-    test("does not use AgentResponseCard when streaming was active", () => {
+    test("does not emit a second semantic answer when streaming was active", () => {
       const renderer = createRenderer();
       emitStreamStart(renderer);
 
@@ -964,17 +1216,9 @@ describe("InkStreamingRenderer", () => {
         }),
       );
 
-      // Streaming path should not render the AgentResponseCard. The turn
-      // header emitted at stream_start is an ink node too, so assert on
-      // content: no ink log may carry the response body.
-      const inkLogs = printOutputCalls.filter(
-        (e) => e.type === "log" && typeof e.message === "object" && e.message !== null,
-      );
-      const cardLogs = inkLogs.filter((e) => {
-        const node = (e.message as { node?: unknown }).node;
-        return extractNodeText(node).includes("response");
-      });
-      expect(cardLogs.length).toBe(0);
+      expect(
+        printOutputCalls.filter((entry) => contentFromOutput(entry).kind === "agent"),
+      ).toHaveLength(0);
     });
   });
 
@@ -1028,12 +1272,9 @@ describe("InkStreamingRenderer", () => {
   });
 
   describe("non-streaming complete (fallback path)", () => {
-    test("uses AgentResponseCard when no stream_start was emitted", () => {
-      // Create renderer without emitting stream_start — simulates non-streaming response
+    test("emits semantic answer content when no stream_start was emitted", () => {
       const renderer = createRenderer();
-
       printOutputCalls.length = 0;
-
       Effect.runSync(
         renderer.handleEvent({
           type: "complete",
@@ -1041,19 +1282,13 @@ describe("InkStreamingRenderer", () => {
           totalDurationMs: 50,
         }),
       );
-
-      // Should emit an info entry (agent name header) followed by a log entry (response card)
-      const infoEntries = printOutputCalls.filter((e) => e.type === "info");
-      const logEntries = printOutputCalls.filter((e) => e.type === "log");
-      expect(infoEntries.length).toBeGreaterThan(0);
-      expect(logEntries.length).toBeGreaterThan(0);
-
-      // The log entry should be an Ink node (AgentResponseCard)
-      const responseEntry = logEntries[0]!;
-      const msg = responseEntry.message;
-      if (typeof msg === "object" && msg !== null && "_tag" in msg) {
-        expect(msg._tag).toBe("ink");
-      }
+      expect(printOutputCalls.some((entry) => contentFromOutput(entry).kind === "agent")).toBe(
+        true,
+      );
+      const response = printOutputCalls
+        .map(contentFromOutput)
+        .find((content) => content.kind === "agent");
+      expect(response).toEqual({ kind: "agent", markdown: "Non-streamed answer" });
     });
 
     test("does not print when response content is empty", () => {
@@ -1122,7 +1357,10 @@ describe("InkStreamingRenderer", () => {
         originalFinalize();
       };
       store.printOutput = (entry): string => {
-        if (entry.type === "info") events.push(`info:${entry.message as string}`);
+        if (entry.type === "info") {
+          const content = contentFromOutput(entry);
+          events.push(`info:${content.kind === "notice" ? content.text : ""}`);
+        }
         return originalPrint(entry);
       };
       try {
@@ -1595,11 +1833,10 @@ describe("InkStreamingRenderer", () => {
 
       const streamContentEntries = printOutputCalls.filter((e) => e.type === "streamContent");
       expect(streamContentEntries.length).toBeGreaterThan(0);
-      const msg =
-        typeof streamContentEntries[0]!.message === "string"
-          ? streamContentEntries[0]!.message
-          : "";
-      expect(msg).toContain("Fallback response");
+      expect(contentFromOutput(streamContentEntries[0]!)).toEqual({
+        kind: "agent",
+        markdown: "Fallback response",
+      });
     });
   });
 });
@@ -1681,12 +1918,12 @@ describe("InkPresentationService approval rejection", () => {
       }),
     );
     const prompt = await waitForPromptType("select");
-    const card = printed.find(
-      (entry) => typeof entry.message === "object" && entry.message !== null,
-    );
-    const text = renderToString((card?.message as unknown as { node: React.ReactElement }).node, {
+    const request = store.getSessionSnapshot().approvalRequest;
+    expect(request).not.toBeNull();
+    const text = renderToString(React.createElement(ApprovalView, { request: request! }), {
       columns: 100,
     });
+    expect(printed).toHaveLength(0);
     expect(text).toContain("Delete");
     expect(text).toContain("can't be undone");
     expect(text).toContain("removes");
@@ -1802,7 +2039,9 @@ describe("InkPresentationService sub-agent collapse line", () => {
     );
 
     const run = store.getSubagentsSnapshot().runs.find((candidate) => candidate.id === regionId);
-    expect(run?.entries).toEqual([{ kind: "response", text: "The answer is 42." }]);
+    expect(run?.entries).toEqual([
+      { id: `${regionId}:entry:0`, kind: "response", text: "The answer is 42." },
+    ]);
     expect(store.getOutputSnapshot().entries.length).toBe(outputBefore);
   });
 
@@ -1941,11 +2180,11 @@ describe("stopping a turn in the Ink interface", () => {
     store.printOutput({ type: "user", message: "Get Saturday sorted", timestamp: new Date() });
     store.printOutput({
       type: "log",
-      message: "",
-      timestamp: new Date(),
-      meta: {
-        toolReceipt: { app: "mcp_calendar_create_event", summary: "hold placed", status: "ok" },
+      message: {
+        kind: "tool",
+        receipt: { app: "mcp_calendar_create_event", summary: "hold placed", status: "ok" },
       },
+      timestamp: new Date(),
     });
     const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
     Effect.runSync(service.presentInterrupted("sol"));
@@ -1953,8 +2192,10 @@ describe("stopping a turn in the Ink interface", () => {
     const last = store.getOutputSnapshot().entries.at(-1);
     store.setChatBusy(false);
 
-    expect(last?.meta?.["interruptNotice"]).toBe(true);
-    const text = String(last?.message);
+    const content = last === undefined ? undefined : contentFromOutput(last);
+    expect(content?.kind).toBe("stopped");
+    const text =
+      content?.kind === "stopped" ? interruptSummaryLines(content.summary).join("\n") : "";
     expect(text).toMatch(/^stopped by you after \d+\.\ds/);
     expect(text).toContain("done      mcp_calendar_create_event  hold placed");
   });
@@ -2024,8 +2265,16 @@ describe("Ink markdown, from the shared parser", () => {
       null,
     );
     await Effect.runPromise(service.presentAgentResponse("sol", "**bold** answer"));
-    const logged = printed.find((entry) => entry.type === "log");
-    expect(entryText(logged as OutputEntry)).toContain("bold");
-    expect(entryText(logged as OutputEntry)).not.toContain("**");
+    const response = printed.find((entry) => contentFromOutput(entry).kind === "agent");
+    expect(response).toBeDefined();
+    expect(response!.message).toEqual({ kind: "agent", markdown: "**bold** answer" });
+    const painted = renderToString(
+      React.createElement(OutputEntryView, {
+        entry: { ...response!, id: "response" },
+        addSpacing: false,
+      }),
+    );
+    expect(painted).toContain("bold");
+    expect(painted).not.toContain("**");
   });
 });

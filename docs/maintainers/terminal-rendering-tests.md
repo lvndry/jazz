@@ -51,6 +51,21 @@ establish foreground/background attributes, fonts, hyperlinks, host compositor
 behavior, or PTY transport correctness. Compiled-binary PTY qualification and
 actual terminal checks complement it.
 
+The [compiled PTY qualifier](../../packages/cli/src/ui/fullscreen/testing/pty-session.test.ts)
+mounts the production store, bridge, and runtime inside a compiled fixture. It
+holds history through receipt bursts, follows End across two turns, types into
+the composer, attempts a foreign clear, resizes, and compares the independent
+terminal grid before exiting. Run it with:
+
+```bash
+bun test packages/cli/src/ui/fullscreen/testing/pty-session.test.ts
+```
+
+The fixture does not launch a provider or use a person's Jazz home. Whole release
+CLI startup is qualified separately by `bench/startup.bench.ts`. See the
+[runtime contract](./terminal-runtime.md) for trusted output boundaries and the
+pinned backend upgrade gates.
+
 ## Benchmarks
 
 `createVtObserver(columns, rows)` is reusable by a native-output benchmark sink.

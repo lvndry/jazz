@@ -1,55 +1,49 @@
 /**
- * Replays a chat session's persisted message history into the scrollback
- * store, so resuming a conversation shows prior turns instead of starting
- * from a blank transcript.
+ * Restores conversation presentation as one atomic document transaction. Saved
+ * semantic entries retain source identity and facts; message-only history gets
+ * deterministic IDs and source Markdown without replaying terminal output.
+ * Model continuation nudges, tool protocol messages, and system prompts are not
+ * conversation presentation and never become visible user turns.
  */
-
-import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
 import type { ChatMessage } from "@jazz/core/types/message";
+import type { PresentationEntry } from "@jazz/core/types/presentation-content";
 import { store } from "./store";
-import type { OutputEntry } from "./types";
 
 export interface TranscriptSink {
-  readonly clearOutputs: () => void;
-  readonly printOutput: (entry: OutputEntry) => string;
-  readonly flushOutputBatchNow: () => void;
+  readonly replaceDocument: (id: string, entries: readonly PresentationEntry[]) => void;
 }
 
-export function outputEntriesFromHistory(messages: readonly ChatMessage[]): OutputEntry[] {
-  const entries: OutputEntry[] = [];
-  const timestamp = new Date();
-
-  for (const message of messages) {
-    if (message.role !== "user" && message.role !== "assistant") {
+/** Derive source entries only when a conversation has no saved semantic document. */
+export function presentationEntriesFromHistory(
+  messages: readonly ChatMessage[],
+  documentId: string,
+): PresentationEntry[] {
+  const entries: PresentationEntry[] = [];
+  for (const [index, message] of messages.entries()) {
+    if (
+      (message.role !== "user" && message.role !== "assistant") ||
+      message.kind === "continuation" ||
+      message.content.trim().length === 0
+    )
       continue;
-    }
-    // Compaction's "continue the task" nudge is addressed to the model. Painted as a
-    // user turn, it reads as something the user typed.
-    if (message.kind === "continuation") {
-      continue;
-    }
-    if (message.content.trim().length === 0) {
-      continue;
-    }
     entries.push({
-      type: message.role === "user" ? "user" : "streamContent",
-      message: message.content,
-      timestamp,
+      id: `${documentId}:message:${index}`,
+      timestamp: new Date(0).toISOString(),
+      content:
+        message.role === "user"
+          ? { kind: "user", text: message.content }
+          : { kind: "agent", markdown: message.content },
     });
   }
-
   return entries;
 }
 
 export function hydrateTranscriptFromHistory(
   messages: readonly ChatMessage[],
+  documentId: string,
   target: TranscriptSink = store,
 ): void {
-  target.clearOutputs();
-  for (const entry of outputEntriesFromHistory(messages)) {
-    target.printOutput(entry);
-  }
-  target.flushOutputBatchNow();
+  target.replaceDocument(documentId, presentationEntriesFromHistory(messages, documentId));
 }
 
 /**
@@ -75,41 +69,11 @@ export function hydrateInputHistoryFromMessages(
   }
 }
 
-/** Restore UI-only command output without feeding it back into the model. */
+/** Restore UI-only facts without manufacturing model-facing messages or live streams. */
 export function hydrateTranscriptFromUiEntries(
-  entries: readonly ConversationUiEntry[],
+  entries: readonly PresentationEntry[],
+  documentId: string,
   target: TranscriptSink = store,
 ): void {
-  target.clearOutputs();
-  for (const entry of entries) {
-    target.printOutput({ ...entry, timestamp: new Date() });
-  }
-  target.flushOutputBatchNow();
-}
-
-/**
- * Which transcript to repaint on session start, and what to seed ↑ recall from.
- *
- * Recall always draws from the saved model history — the UI transcript is
- * command output and carries no model turns. A conversation with both a UI
- * transcript and saved history therefore repaints the UI entries yet still
- * recalls the history's user turns; a brand-new conversation seeds an empty
- * list so it does not leak the previous session's recall.
- */
-export type SessionHydrationPlan =
-  | { readonly transcript: "ui"; readonly entries: readonly ConversationUiEntry[] }
-  | { readonly transcript: "history" }
-  | { readonly transcript: "none" };
-
-export function resolveSessionHydration(
-  uiTranscript: readonly ConversationUiEntry[] | undefined,
-  history: readonly ChatMessage[],
-): SessionHydrationPlan {
-  if (uiTranscript !== undefined && uiTranscript.length > 0) {
-    return { transcript: "ui", entries: uiTranscript };
-  }
-  if (history.length > 0) {
-    return { transcript: "history" };
-  }
-  return { transcript: "none" };
+  target.replaceDocument(documentId, entries);
 }

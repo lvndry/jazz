@@ -44,7 +44,7 @@ interface Arrival {
 }
 
 export interface RevealState {
-  readonly target: string;
+  readonly targetLength: number;
   readonly shown: number;
   /** Sub-character progress carried between frames. */
   readonly carry: number;
@@ -54,61 +54,38 @@ export interface RevealState {
 }
 
 export function initialReveal(nowMs: number): RevealState {
-  return { target: "", shown: 0, carry: 0, arrivals: [], lastStepMs: nowMs };
+  return { targetLength: 0, shown: 0, carry: 0, arrivals: [], lastStepMs: nowMs };
 }
 
-/**
- * Take in the latest full text. Growth is queued for pacing; anything that is
- * not a continuation of what was being revealed (a new turn, a reset) starts
- * over from what is already on screen of it, which for a fresh turn is nothing.
- */
-export function receiveTarget(state: RevealState, target: string, nowMs: number): RevealState {
-  if (target === state.target) {
-    return state;
-  }
-  if (!target.startsWith(state.target)) {
-    return {
-      target,
-      shown: 0,
-      carry: 0,
-      arrivals: target.length > 0 ? [{ length: target.length, atMs: nowMs }] : [],
-      lastStepMs: nowMs,
-    };
-  }
-  return extendReveal(state, target, nowMs);
-}
-
-/**
- * Take in `target`, which the caller guarantees continues what was being
- * revealed. A caller that owns the stream (the store's pacer) uses this to
- * skip the continuation check, which compares the whole text so far and would
- * make each delta cost the length of the answer.
- */
-export function extendReveal(state: RevealState, target: string, nowMs: number): RevealState {
-  if (target.length === state.target.length) return state;
-  const idle = state.shown >= state.target.length;
+/** Queue growth in an owned source; a shorter source starts a new reveal. */
+export function receiveTarget(
+  state: RevealState,
+  targetLength: number,
+  nowMs: number,
+): RevealState {
+  if (targetLength === state.targetLength) return state;
+  if (targetLength < state.targetLength)
+    return receiveTarget(initialReveal(nowMs), targetLength, nowMs);
+  const idle = state.shown >= state.targetLength;
   return {
     ...state,
-    target,
-    arrivals: [...state.arrivals, { length: target.length, atMs: nowMs }],
-    // A stream that was caught up starts its clock now, so the first frame of
-    // the new burst does not count the idle gap as elapsed reveal time.
+    targetLength,
+    arrivals: [...state.arrivals, { length: targetLength, atMs: nowMs }],
     lastStepMs: idle ? nowMs : state.lastStepMs,
   };
 }
 
 /** Everything shown at once: turn end, interrupt, or anything that must not lag. */
 export function flushReveal(state: RevealState, nowMs: number): RevealState {
-  return { ...state, shown: state.target.length, carry: 0, arrivals: [], lastStepMs: nowMs };
+  return { ...state, shown: state.targetLength, carry: 0, arrivals: [], lastStepMs: nowMs };
 }
 
 export function isRevealing(state: RevealState): boolean {
-  return state.shown < state.target.length;
+  return state.shown < state.targetLength;
 }
 
 /** Advance the revealed prefix to `nowMs`. */
-export function stepReveal(state: RevealState, nowMs: number): RevealState {
-  const { target } = state;
+export function stepReveal(state: RevealState, target: string, nowMs: number): RevealState {
   if (state.shown >= target.length) {
     return state.arrivals.length === 0 && state.lastStepMs === nowMs
       ? state
@@ -134,7 +111,7 @@ export function stepReveal(state: RevealState, nowMs: number): RevealState {
   }
   const arrivals = state.arrivals.filter((arrival) => arrival.length > next);
   return {
-    target,
+    targetLength: state.targetLength,
     shown: next,
     carry: next >= target.length ? 0 : progress - whole,
     arrivals,
@@ -142,8 +119,8 @@ export function stepReveal(state: RevealState, nowMs: number): RevealState {
   };
 }
 
-export function revealedText(state: RevealState): string {
-  return state.target.slice(0, state.shown);
+export function revealedText(state: RevealState, target: string): string {
+  return target.slice(0, state.shown);
 }
 
 /**

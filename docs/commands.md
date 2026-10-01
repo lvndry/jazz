@@ -58,6 +58,9 @@ With no arguments, opens the home screen. Choose an agent and type a message to 
 Use `/new` to start a fresh conversation (`/start` is an alias), `/create` to create an agent, `/agents` to manage agents, `/resume` to continue a conversation,
 and `/settings` to configure providers, display, and limits.
 
+The slash menu ranks command-name prefixes first, then substring matches. On home,
+`/re` offers `/resume` before `/create`; Enter runs the highlighted command.
+
 Global options work here too: `jazz --debug` and `jazz --data-dir ~/work` open the same home. The
 home needs a terminal. Without one (stdin or stdout piped, cron, CI), or with
 `--no-tui`, it prints what to run instead and exits `2` without touching your configuration. On a

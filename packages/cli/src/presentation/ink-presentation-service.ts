@@ -28,7 +28,6 @@ import type {
   UserInputRequest,
 } from "@jazz/core/interfaces/presentation";
 import type { LlmRetryNotice } from "@jazz/core/interfaces/presentation";
-import { ink } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
 import { redactionPlaceholder } from "@jazz/core/secrets/secret-names";
 import type { DisplayConfig } from "@jazz/core/types/output";
@@ -47,18 +46,15 @@ import {
 import { computeUsageCostUSD, type UsageCostPricing } from "@jazz/core/utils/usage-cost";
 import chalk from "chalk";
 import { Effect, Layer, Option } from "effect";
-import { Box, Text } from "ink";
-import React from "react";
 import type { ActivityState } from "@/cli/ui/activity-state";
 import { approvalAccount, approvalFacts } from "@/cli/ui/models/approval";
 import {
   interruptSummary,
-  interruptSummaryLines,
   type InterruptSummary,
   type ReceiptFacts,
 } from "@/cli/ui/models/interrupt";
 import { retryLine } from "@/cli/ui/models/retry";
-import { clipTerminalCells, terminalCellWidth } from "@/cli/ui/text/terminal-cells";
+import { terminalCellWidth } from "@/cli/ui/text/terminal-cells";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
@@ -68,9 +64,8 @@ import {
   formatToolExecutionStartEffect,
   formatToolResult,
   formatToolsDetectedEffect,
-  formatWarning,
 } from "./format-utils";
-import { getTerminalWidth, wrapToWidth } from "./markdown-formatter";
+import { getTerminalWidth } from "./markdown-formatter";
 import { isInsideOpenStructure } from "./markdown-split";
 import {
   addStep,
@@ -79,31 +74,23 @@ import {
   formatTurnReceipt,
   type TurnTotals,
 } from "./turn-receipt";
-import { AgentResponseCard } from "../ui/AgentResponseCard";
+import { contentFromOutput } from "../ui/document";
 import { getGlyphs } from "../ui/glyphs";
 import { markdownToAnsi } from "../ui/markdown/ansi";
-import { receiptFromMeta } from "../ui/models/receipt";
 import { store } from "../ui/store";
 import type { SubagentChannel } from "../ui/subagent-runs";
 import { formatCost } from "../ui/text/format";
 import { PADDING_BUDGET } from "../ui/theme";
-import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
+import { CHALK_THEME } from "../ui/theme";
 import { separatorLine, stripAnsiCodes } from "../utils/string-utils";
 
 /** Last-N-lines cap for a live sub-agent panel. */
 const SUBAGENT_PANEL_LINES = 12;
 
-/**
- * Width offset used when wrapping a user-echo, matching `terminal.ts`.
- * App `paddingX={3}` (6) plus the user-entry rail and space (2).
- */
-const USER_ECHO_WIDTH_OFFSET = 8;
-
 function echoUserTurn(text: string): void {
   store.printOutput({
     type: "user",
-    message: wrapToWidth(text, getTerminalWidth() - USER_ECHO_WIDTH_OFFSET),
-    meta: { plainText: text }, // unwrapped source for non-Ink renderers
+    message: text,
     timestamp: new Date(),
   });
 }
@@ -270,8 +257,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
   /** Max time to defer the live-area flush while inside an open structure. */
   private static readonly MAX_ADAPTIVE_WAIT_MS = 2000;
 
+  private readonly documentLease = store.captureDocumentLease();
+
   constructor(
-    private readonly agentName: string,
+    agentName: string,
     private readonly showMetrics: boolean,
     private readonly displayConfig: DisplayConfig,
     streamingConfig?: { textBufferMs?: number },
@@ -282,7 +271,21 @@ export class InkStreamingRenderer implements StreamingRenderer {
     this.textBufferMs =
       streamingConfig?.textBufferMs ?? InkStreamingRenderer.DEFAULT_TEXT_BUFFER_MS;
     this.acc = createAccumulator(agentName);
-    store.setCollapseReasoning(displayConfig.collapseReasoning !== false);
+    if (this.streamTarget.kind === "scrollback")
+      store.setCollapseReasoning(displayConfig.collapseReasoning !== false);
+  }
+
+  /** Retire timers and retained input without publishing into a replacement conversation. */
+  private discardStaleWork(): void {
+    if (this.updateTimeoutId !== null) clearTimeout(this.updateTimeoutId);
+    if (this.streamFlushTimeoutId !== null) clearTimeout(this.streamFlushTimeoutId);
+    this.updateTimeoutId = null;
+    this.streamFlushTimeoutId = null;
+    this.pendingActivity = null;
+    this.streamBuffer = [];
+    this.cumulativeResponseText = "";
+    this.reasoningFullText = "";
+    this.clearAllToolTimeouts();
   }
 
   /**
@@ -290,6 +293,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * or `appendEphemeral` for a panel region.
    */
   private dispatchBufferedDelta(entry: BufferedStreamDelta): void {
+    if (!this.documentLease()) return;
     if (entry.target === "stream") {
       store.appendStream(entry.kind, entry.delta);
     } else {
@@ -397,6 +401,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
    */
   private scheduleBufferFlush(delayMs: number): void {
     this.streamFlushTimeoutId = setTimeout(() => {
+      if (!this.documentLease()) {
+        this.discardStaleWork();
+        return;
+      }
       this.streamFlushTimeoutId = null;
 
       if (this.shouldDeferForOpenStructure()) {
@@ -435,6 +443,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * of one per token.
    */
   private flushStreamBuffer(): void {
+    if (!this.documentLease()) {
+      this.discardStaleWork();
+      return;
+    }
     if (this.streamFlushTimeoutId !== null) {
       clearTimeout(this.streamFlushTimeoutId);
       this.streamFlushTimeoutId = null;
@@ -465,6 +477,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   reset(): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (!this.documentLease()) {
+        this.discardStaleWork();
+        return;
+      }
       this.acc.activeTools.clear();
       this.acc.isThinking = false;
       this.acc.lastAgentHeaderWritten = false;
@@ -484,13 +500,19 @@ export class InkStreamingRenderer implements StreamingRenderer {
       // in-flight reasoning text lands in the panel before it collapses.
       this.flushStreamBuffer();
       this.collapseReasoningRegion();
-      store.finalizeStream();
-      store.setActivity({ phase: "idle" });
+      if (this.streamTarget.kind === "scrollback") {
+        store.finalizeStream();
+        store.setActivity({ phase: "idle" });
+      }
     });
   }
 
   flush(): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (!this.documentLease()) {
+        this.discardStaleWork();
+        return;
+      }
       if (this.updateTimeoutId) {
         clearTimeout(this.updateTimeoutId);
         this.updateTimeoutId = null;
@@ -502,8 +524,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       // in-flight reasoning text lands in the panel before it collapses.
       this.flushStreamBuffer();
       this.collapseReasoningRegion();
-      store.finalizeStream();
-      store.setActivity({ phase: "idle" });
+      if (this.streamTarget.kind === "scrollback") {
+        store.finalizeStream();
+        store.setActivity({ phase: "idle" });
+      }
     });
   }
 
@@ -595,11 +619,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
   handleEvent(event: StreamEvent): Effect.Effect<void, never> {
     return Effect.sync(() => {
+      if (!this.documentLease()) {
+        this.discardStaleWork();
+        return;
+      }
       if (InkStreamingRenderer.SETTLE_BEFORE.has(event.type)) {
         // Flush any in-flight buffered deltas BEFORE finalizing the stream
         // so they land in the slice that's about to settle, not the next one.
         this.flushStreamBuffer();
-        store.finalizeStream();
+        if (this.streamTarget.kind === "scrollback") store.finalizeStream();
       }
 
       // Close any open reasoning panel before non-reasoning events. Tokens
@@ -614,15 +642,17 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
       // Anything the model sends after a retry means the retry went through. A new
       // attempt opening (stream_start) does not: it may fail and be retried again.
-      if (event.type !== "stream_start") {
+      if (this.streamTarget.kind === "scrollback" && event.type !== "stream_start") {
         store.setRetryNotice(null);
       }
 
       if (event.type === "stream_start") {
         this.seenLength = 0;
         this.hasStreamedText = false;
-        store.updateRunStats({ provider: event.provider, model: event.model });
-        this.resolveContextWindow(event.provider, event.model, event.pinnedContextWindow);
+        if (this.streamTarget.kind === "scrollback") {
+          store.updateRunStats({ provider: event.provider, model: event.model });
+          this.resolveContextWindow(event.provider, event.model, event.pinnedContextWindow);
+        }
       }
 
       if (this.displayConfig.showReasoning) {
@@ -687,7 +717,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
           : undefined;
       if (event.type === "tool_execution_complete") {
         this.clearToolTimeout(event.toolCallId);
-        this.storeExpandableDiff(completedToolName, event.result);
+        if (this.streamTarget.kind === "scrollback")
+          this.storeExpandableDiff(completedToolName, event.result);
       }
       if (event.type === "error") {
         this.clearAllToolTimeouts();
@@ -696,19 +727,37 @@ export class InkStreamingRenderer implements StreamingRenderer {
         if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
       }
 
-      const result = reduceEvent(this.acc, event, ink);
+      const result = reduceEvent(this.acc, event);
 
-      // Sub-agent tool activity goes into its bounded panel (capped height)
-      // rather than unbounded scrollback; non-tool outputs (errors, headers)
-      // still reach scrollback so failures aren't cropped away.
+      // Each renderer publishes into its own feed. The parent stream remains
+      // active while a child starts, changes phase, completes, or retries.
       const isSubagentToolEvent =
         this.streamTarget.kind === "ephemeral" &&
         (event.type === "tools_detected" ||
           event.type === "tool_execution_start" ||
           event.type === "tool_execution_complete");
 
-      if (isSubagentToolEvent && this.streamTarget.kind === "ephemeral") {
-        this.appendToolActivityToEphemeral(event, this.streamTarget.regionId, completedToolName);
+      if (this.streamTarget.kind === "ephemeral") {
+        if (isSubagentToolEvent) {
+          this.appendToolActivityToEphemeral(event, this.streamTarget.regionId, completedToolName);
+        } else {
+          for (const entry of result.outputs) {
+            const content = contentFromOutput(entry);
+            const text =
+              content.kind === "header"
+                ? `${content.name} · ${content.provider ?? ""}/${content.model ?? ""}`
+                : content.kind === "notice"
+                  ? content.text
+                  : undefined;
+            if (text !== undefined)
+              this.bufferStreamDelta({
+                target: "ephemeral",
+                regionId: this.streamTarget.regionId,
+                delta: `\n${text}`,
+                channel: "note",
+              });
+          }
+        }
       } else {
         for (const entry of result.outputs) {
           store.printOutput(entry);
@@ -748,7 +797,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         }
       }
 
-      if (result.activity) {
+      if (result.activity && this.streamTarget.kind === "scrollback") {
         const phase = result.activity.phase;
         if (phase === "thinking" || phase === "streaming") {
           this.throttledSetActivity(result.activity);
@@ -762,11 +811,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
       Effect.catchAllDefect((defect) =>
         Effect.sync(() => {
           const message = toError(defect).message;
-          store.printOutput({
-            type: "warn",
-            message: `Stream rendering error (${event.type}): ${message}`,
-            timestamp: new Date(),
-          });
+          const text = `Stream rendering error (${event.type}): ${message}`;
+          if (this.streamTarget.kind === "ephemeral") {
+            store.appendEphemeral(this.streamTarget.regionId, text, "note");
+          } else {
+            store.printOutput({ type: "warn", message: text, timestamp: new Date() });
+          }
         }),
       ),
     );
@@ -783,7 +833,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     // turn settles, so neither leaves a hanging tail in scrollback.
     this.flushStreamBuffer();
     this.collapseReasoningRegion();
-    store.finalizeStream();
+    if (this.streamTarget.kind === "scrollback") store.finalizeStream();
     // A complete event is the terminal boundary for the renderer, even when
     // an execution path did not deliver a matching tool completion event.
     // Clear the accumulator so a tool from this turn cannot reappear when the
@@ -798,7 +848,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.printOutro(event);
     }
 
-    store.setActivity({ phase: "idle" });
+    if (this.streamTarget.kind === "scrollback") store.setActivity({ phase: "idle" });
     // Defensive reset so a reused renderer instance starts clean even if no
     // text_start fires before the next text_chunk.
     this.seenLength = 0;
@@ -817,43 +867,22 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   private printFinalResponse(event: Extract<StreamEvent, { type: "complete" }>): void {
-    const wasStreaming = this.acc.lastAgentHeaderWritten;
-    const fullContent = event.response.content?.trim() ?? "";
-    if (fullContent.length === 0) return;
-    const formattedFull = this.formatMarkdownContent(fullContent);
-    if (formattedFull.length === 0) return;
-
-    if (wasStreaming) {
-      store.printOutput({
-        type: "streamContent",
-        message: formattedFull,
-        timestamp: new Date(),
+    const markdown = event.response.content?.trim() ?? "";
+    if (markdown.length === 0) return;
+    if (this.streamTarget.kind === "ephemeral") {
+      this.bufferStreamDelta({
+        target: "ephemeral",
+        regionId: this.streamTarget.regionId,
+        delta: markdown,
+        channel: "response",
       });
-    } else {
-      store.printOutput({
-        type: "info",
-        message: this.agentName,
-        timestamp: new Date(),
-        meta: { agentHeader: true },
-      });
-      store.printOutput({
-        type: "log",
-        message: ink(
-          React.createElement(AgentResponseCard, {
-            agentName: this.agentName,
-            content: formattedFull,
-          }),
-        ),
-        // The message above renders only in an Ink-based terminal — it is an
-        // opaque React element to anything else. `formattedFull` is the actual
-        // text and travels alongside it in meta, so a non-Ink renderer has a
-        // real answer to show instead of an unrenderable object.
-        // `agentMarkdown` is the unrendered source, so a renderer that lays out
-        // markdown itself can show this answer exactly like a streamed one.
-        meta: { plainText: formattedFull, agentMarkdown: fullContent },
-        timestamp: new Date(),
-      });
+      return;
     }
+    store.printOutput({
+      type: "streamContent",
+      message: { kind: "agent", markdown },
+      timestamp: new Date(),
+    });
   }
 
   /**
@@ -873,7 +902,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
       this.acc.lastPromptTokens = usage.promptTokens;
-      store.updateRunStats({ tokensInContext: usage.promptTokens });
+      if (this.streamTarget.kind === "scrollback")
+        store.updateRunStats({ tokensInContext: usage.promptTokens });
       store.addSessionUsage({
         promptTokens: usage.promptTokens,
         completionTokens: usage.completionTokens,
@@ -881,6 +911,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
 
     const tokensPerSecond = event.metrics?.tokensPerSecond;
+    const generationDurationMs =
+      event.metrics === undefined
+        ? undefined
+        : event.totalDurationMs - event.metrics.firstTokenLatencyMs;
     const costUSD = this.recordStepCost(usage);
     this.turn = addStep(this.turn, {
       durationMs: event.totalDurationMs,
@@ -894,6 +928,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
           ? { totalTokens: event.metrics.totalTokens }
           : {}),
       ...(costUSD !== undefined ? { costUSD } : {}),
+      ...(generationDurationMs !== undefined &&
+      Number.isFinite(generationDurationMs) &&
+      generationDurationMs > 0
+        ? { generationDurationMs }
+        : {}),
       ...(tokensPerSecond !== undefined && Number.isFinite(tokensPerSecond)
         ? { tokensPerSecond }
         : {}),
@@ -920,9 +959,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
     store.printOutput({ type: "log", message: "", timestamp: new Date() });
     store.printOutput({
       type: "debug",
-      message: `${getGlyphs().success} ${line}`,
+      message: { kind: "turn-receipt", steps: turn.steps },
       timestamp: new Date(),
-      meta: { turnReceipt: true, plainText: line },
     });
     if (turn.steps.length > 1 && store.getExpandableDiff() === null) {
       store.setExpandableDiff(formatStepBreakdown(turn));
@@ -943,6 +981,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const computeCost = (meta: UsageCostPricing | undefined): number | null =>
       computeUsageCostUSD(usage, meta);
     const rollIntoFooter = (totalCost: number): void => {
+      if (!this.documentLease()) return;
       this.acc.cumulativeCostUSD += totalCost;
       // Accumulate into the shared session total so sub-agent renderers add
       // to the footer rather than overwriting it with their own figure.
@@ -989,6 +1028,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     pinnedContextWindow: number | undefined,
   ): void {
     const publish = (modelMaxTokens: number | undefined): void => {
+      if (!this.documentLease()) return;
       const effective = resolveEffectiveContextWindow({
         provider,
         ...(modelMaxTokens !== undefined && { modelMaxTokens }),
@@ -1025,13 +1065,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private setupToolTimeout(toolCallId: string, toolName: string): void {
     const startedAt = Date.now();
     const warn = (): void => {
+      if (!this.documentLease()) return;
       if (!this.acc.activeTools.has(toolCallId)) return;
       const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
-      store.printOutput({
-        type: "warn",
-        message: `Tool ${toolName} still running after ${elapsedSeconds}s (press Esc twice to interrupt)`,
-        timestamp: new Date(),
-      });
+      const text = `Tool ${toolName} still running after ${elapsedSeconds}s (press Esc twice to interrupt)`;
+      if (this.streamTarget.kind === "ephemeral") {
+        store.appendEphemeral(this.streamTarget.regionId, text, "note");
+      } else {
+        store.printOutput({ type: "warn", message: text, timestamp: new Date() });
+      }
       // Re-arm so multi-minute tools keep reassuring the user instead of
       // going silent after a single warning.
       const timeoutId = setTimeout(warn, InkStreamingRenderer.TOOL_WARNING_MS);
@@ -1092,6 +1134,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (!this.updateTimeoutId) {
         const delay = this.updateThrottleMs - timeSinceLastUpdate;
         this.updateTimeoutId = setTimeout(() => {
+          if (!this.documentLease()) {
+            this.discardStaleWork();
+            return;
+          }
           this.updateTimeoutId = null;
           this.lastUpdateTime = Date.now();
           if (this.pendingActivity) {
@@ -1112,9 +1158,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   /** Apply markdown formatting based on display mode (no wrapping). */
-  private formatMarkdownContent(text: string): string {
-    return formatMarkdownForDisplay(text, this.displayConfig.mode);
-  }
 }
 
 /**
@@ -1144,12 +1187,11 @@ function inkStopSummary(): InterruptSummary {
   // Receipts printed this tick are still batched; read the turn as it really stands.
   store.flushOutputBatchNow();
   const session = store.getSessionSnapshot();
-  const entries = store.getOutputSnapshot().entries;
+  const entries = store.getDocumentSnapshot().entries;
   let start = entries.length;
-  while (start > 0 && entries[start - 1]?.type !== "user") start -= 1;
+  while (start > 0 && entries[start - 1]?.content.kind !== "user") start -= 1;
   const receipts = entries.slice(start).flatMap((entry): ReceiptFacts[] => {
-    const receipt = receiptFromMeta(entry.meta?.["toolReceipt"]);
-    return receipt === null ? [] : [receipt];
+    return entry.content.kind === "tool" ? [entry.content.receipt] : [];
   });
   const activity = session.activity;
   const running =
@@ -1168,7 +1210,6 @@ function inkStopSummary(): InterruptSummary {
 }
 
 /** Labels share a column so the approval's values line up and read as a record. */
-const APPROVAL_LABEL_COLUMN = 11;
 
 export class InkPresentationService implements PresentationService {
   // Approval queue to handle parallel tool calls
@@ -1222,9 +1263,8 @@ export class InkPresentationService implements PresentationService {
       const summary = inkStopSummary();
       store.printOutput({
         type: "info",
-        message: interruptSummaryLines(summary).join("\n"),
+        message: { kind: "stopped", summary },
         timestamp: new Date(),
-        meta: { interruptNotice: true },
       });
     });
   }
@@ -1233,7 +1273,7 @@ export class InkPresentationService implements PresentationService {
     return Effect.sync(() => {
       store.printOutput({
         type: "warn",
-        message: formatWarning(agentName, message),
+        message: { kind: "notice", tone: "warn", text: `${agentName}: ${message}` },
         timestamp: new Date(),
       });
     });
@@ -1249,11 +1289,14 @@ export class InkPresentationService implements PresentationService {
         store.appendEphemeral(options.ephemeralRegionId, content, "response");
         return;
       }
-      const header = CHALK_THEME.primaryBold(`${getGlyphs().active} ${agentName}:`);
-      const rendered = this.formatMarkdownText(content);
       store.printOutput({
         type: "log",
-        message: `${header}\n${rendered}`,
+        message: { kind: "header", name: agentName },
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "streamContent",
+        message: { kind: "agent", markdown: content },
         timestamp: new Date(),
       });
     });
@@ -1349,9 +1392,13 @@ export class InkPresentationService implements PresentationService {
       // fullscreen transcript skips this line and draws the band from the store instead.
       store.printOutput({
         type: "info",
-        message: `${chalk.cyan(getGlyphs().pending)} ${retryLine(scheduled, now)}`,
+        message: {
+          kind: "notice",
+          tone: "info",
+          text: retryLine(scheduled, now),
+          audience: "classic",
+        },
         timestamp: new Date(),
-        meta: { retryNotice: true },
       });
     });
   }
@@ -1361,19 +1408,19 @@ export class InkPresentationService implements PresentationService {
     level: "info" | "success" | "warning" | "error" | "progress",
   ): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      const glyphs = getGlyphs();
-      const icons: Record<typeof level, { icon: string; color: string }> = {
-        info: { icon: glyphs.info, color: "blue" },
-        success: { icon: glyphs.success, color: "green" },
-        warning: { icon: glyphs.warn, color: "yellow" },
-        error: { icon: glyphs.error, color: "red" },
-        progress: { icon: glyphs.pending, color: "cyan" },
-      };
-      const { icon, color } = icons[level];
-      const colorFn = chalk[color as keyof typeof chalk] as (s: string) => string;
-      const formatted = `${colorFn(icon)} ${message}`;
-      const type = level === "error" ? "error" : level === "warning" ? "warn" : "info";
-      store.printOutput({ type, message: formatted, timestamp: new Date() });
+      const tone =
+        level === "error"
+          ? "error"
+          : level === "warning"
+            ? "warn"
+            : level === "success"
+              ? "success"
+              : "info";
+      store.printOutput({
+        type: tone,
+        message: { kind: "notice", tone, text: message },
+        timestamp: new Date(),
+      });
     });
   }
 
@@ -1496,7 +1543,6 @@ export class InkPresentationService implements PresentationService {
     }
 
     // Format the approval message as an Ink bordered card
-    const pendingCount = this.approvalQueue.length;
 
     const isPicker = (request.options?.length ?? 0) > 0;
 
@@ -1531,85 +1577,6 @@ export class InkPresentationService implements PresentationService {
       ...(request.warning === undefined ? [] : [`Warning: ${request.warning}`]),
       ...(request.previewDiff === undefined ? [] : [request.previewDiff]),
     ].join("\n\n");
-    const factRow = (label: string, value: string, key: string) =>
-      React.createElement(
-        Box,
-        { key },
-        React.createElement(Text, { color: THEME.muted }, label.padEnd(APPROVAL_LABEL_COLUMN)),
-        React.createElement(Text, {}, clipTerminalCells(value.replace(/\s+/g, " "), 120)),
-      );
-    const diff = facts.intent.diff;
-    const approvalCard = React.createElement(
-      Box,
-      {
-        flexDirection: "column",
-        borderStyle: "round",
-        borderColor: THEME.warning,
-        paddingX: PADDING.content,
-        paddingY: 1,
-        marginTop: 1,
-      },
-      React.createElement(
-        Box,
-        {},
-        React.createElement(Text, { bold: true }, isPicker ? "Pick a model" : facts.title),
-        !isPicker && facts.consequence.length > 0
-          ? React.createElement(Text, { color: THEME.warning }, `  ${facts.consequence}`)
-          : null,
-        pendingCount > 0
-          ? React.createElement(Text, { dimColor: true }, ` (${pendingCount} more pending)`)
-          : null,
-      ),
-      isPicker
-        ? React.createElement(Box, { marginTop: 1 }, React.createElement(Text, {}, request.message))
-        : React.createElement(
-            Box,
-            { flexDirection: "column", marginTop: 1 },
-            factRow("Account", approvalAccount(facts.account, facts.app), "account"),
-            ...facts.fields.map((field, index) => factRow(field.label, field.value, `f${index}`)),
-            ...(facts.intent.impact === undefined
-              ? []
-              : [factRow(facts.intent.impact.label, facts.intent.impact.value, "impact")]),
-            ...(facts.intent.command === undefined
-              ? []
-              : [
-                  React.createElement(
-                    Box,
-                    { key: "command", marginTop: 1 },
-                    React.createElement(Text, { color: THEME.muted }, "$ "),
-                    React.createElement(Text, {}, facts.intent.command.text),
-                  ),
-                ]),
-            ...(diff === undefined
-              ? []
-              : [
-                  React.createElement(
-                    Box,
-                    { key: "diff", marginTop: 1 },
-                    React.createElement(Text, { color: THEME.success }, `+${diff.added}`),
-                    React.createElement(Text, { color: THEME.error }, ` −${diff.removed}`),
-                    // Never let users approve a file edit blind: point at the diff.
-                    React.createElement(Text, { dimColor: true }, "  Ctrl+O to view the diff"),
-                  ),
-                ]),
-            ...(facts.warning === undefined
-              ? []
-              : [
-                  React.createElement(
-                    Box,
-                    { key: "warning", marginTop: 1 },
-                    React.createElement(Text, { color: THEME.warning }, facts.warning),
-                  ),
-                ]),
-          ),
-    );
-
-    store.printOutput({
-      type: "log",
-      message: ink(approvalCard),
-      timestamp: new Date(),
-    });
-
     store.clearExpandableDiff();
     if (needsDetails) store.setExpandableDiff(details);
 
@@ -1712,10 +1679,14 @@ export class InkPresentationService implements PresentationService {
         }
         store.printOutput({
           type: "log",
-          message: `Approve this action? ${CHALK_THEME.success(choice === "no" ? "No" : "Yes")}`,
+          message: {
+            kind: "notice",
+            tone: "log",
+            text: `Approve this action? ${choice === "no" ? "No" : "Yes"}`,
+            audience: "classic",
+          },
           timestamp: new Date(),
           // The fullscreen transcript states the outcome on the tool's own receipt.
-          meta: { approvalEcho: true },
         });
 
         if (choice === "yes") {
