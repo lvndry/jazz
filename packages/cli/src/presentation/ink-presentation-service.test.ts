@@ -91,6 +91,165 @@ describe("InkStreamingRenderer", () => {
     store.setCollapseReasoning(true);
   });
 
+  test("child lifecycle events do not settle or relabel the concurrent main stream", () => {
+    store.clearOutputs();
+    const regionId = store.openEphemeral("subagent", "Child", 8, {
+      task: "inspect a file",
+      acceptsMessages: true,
+    });
+    const child = new InkStreamingRenderer(
+      "Child",
+      true,
+      DEFAULT_DISPLAY_CONFIG,
+      { textBufferMs: 0 },
+      0,
+      { kind: "ephemeral", regionId },
+    );
+    store.appendStream("response", "main prefix");
+    store.setActivity({ phase: "streaming", agentName: "Main", text: "main prefix" });
+    store.resetRunStats({
+      provider: "main-provider",
+      model: "main-model",
+      tokensInContext: 100,
+      maxContextTokens: 8_000,
+    });
+    store.setExpandableDiff("main output");
+    const detail = store.getExpandableDiff();
+    const expected = store.getDocumentSnapshot();
+    const activity = store.getSessionSnapshot().activity;
+    const assertMainUnchanged = (): void => {
+      expect(store.getDocumentSnapshot()).toBe(expected);
+      expect(store.getSessionSnapshot().activity).toBe(activity);
+      expect(store.getExpandableDiff()).toBe(detail);
+      expect(store.getRunStatsSnapshot()).toMatchObject({
+        provider: "main-provider",
+        model: "main-model",
+        tokensInContext: 100,
+        maxContextTokens: 8_000,
+      });
+    };
+    try {
+      Effect.runSync(
+        child.handleEvent({
+          type: "stream_start",
+          provider: "child-provider",
+          model: "child-model",
+          pinnedContextWindow: 900,
+          timestamp: 0,
+        }),
+      );
+      assertMainUnchanged();
+      Effect.runSync(child.handleEvent({ type: "text_start" }));
+      Effect.runSync(
+        child.handleEvent({
+          type: "text_chunk",
+          delta: "child answer",
+          accumulated: "child answer",
+          sequence: 0,
+        }),
+      );
+      Effect.runSync(
+        child.handleEvent({
+          type: "tool_execution_start",
+          toolName: "read_file",
+          toolCallId: "child-tool",
+          arguments: { path: "child.txt" },
+        }),
+      );
+      Effect.runSync(
+        child.handleEvent({
+          type: "tool_execution_complete",
+          toolCallId: "child-tool",
+          result: "child result",
+          summary: "child inspected",
+          durationMs: 5,
+          success: true,
+        }),
+      );
+      assertMainUnchanged();
+      Effect.runSync(child.flush());
+      assertMainUnchanged();
+      Effect.runSync(child.reset());
+      assertMainUnchanged();
+      emitStreamStart(child);
+      Effect.runSync(
+        child.handleEvent({
+          type: "complete",
+          response: {
+            ...completeResponse("child fallback answer"),
+            usage: {
+              promptTokens: 700,
+              completionTokens: 30,
+              totalTokens: 730,
+              billedCostUSD: 0.01,
+            },
+          },
+          totalDurationMs: 100,
+          metrics: { firstTokenLatencyMs: 10 },
+        }),
+      );
+      assertMainUnchanged();
+      expect(store.getRunStatsSnapshot()).toMatchObject({
+        promptTokens: 700,
+        completionTokens: 30,
+        costUSD: 0.01,
+      });
+      const run = store.getSubagentsSnapshot().runs.find((candidate) => candidate.id === regionId);
+      expect(run?.entries).toContainEqual(
+        expect.objectContaining({
+          kind: "response",
+          text: "child answer",
+        }),
+      );
+      expect(run?.entries).toContainEqual(
+        expect.objectContaining({
+          kind: "response",
+          text: "child fallback answer",
+        }),
+      );
+      expect(run?.entries).toContainEqual(
+        expect.objectContaining({
+          kind: "tool",
+          summary: "child inspected",
+          status: "ok",
+        }),
+      );
+      store.appendStream("response", " main suffix");
+      expect(store.getDocumentSnapshot().entries).toHaveLength(1);
+      expect(store.getDocumentSnapshot().entries[0]?.id).toBe(expected.streamingId);
+      expect(store.getDocumentSnapshot().entries[0]?.content).toEqual({
+        kind: "agent",
+        markdown: "main prefix main suffix",
+      });
+    } finally {
+      Effect.runSync(child.reset());
+      store.clearOutputs();
+    }
+  });
+
+  test("a child renderer cannot change the main reasoning collapse preference", () => {
+    store.clearOutputs();
+    store.setCollapseReasoning(false);
+    const childId = store.openEphemeral("subagent", "Child", 8);
+    const child = new InkStreamingRenderer(
+      "Child",
+      false,
+      DEFAULT_DISPLAY_CONFIG,
+      { textBufferMs: 0 },
+      0,
+      { kind: "ephemeral", regionId: childId },
+    );
+    try {
+      const reasoningId = store.openEphemeral("reasoning", "Main reasoning", 8);
+      store.appendEphemeral(reasoningId, "main reasoning remains expanded");
+      store.collapseEphemeral(reasoningId, { durationMs: 10 });
+      expect(store.isReasoningExpanded(reasoningId)).toBe(true);
+    } finally {
+      Effect.runSync(child.reset());
+      store.clearOutputs();
+    }
+  });
+
   describe("document lease retirement", () => {
     test("late provider, tool, and complete events cannot modify a replacement document", async () => {
       store.clearOutputs();

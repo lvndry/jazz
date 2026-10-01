@@ -55,6 +55,12 @@ timer work is ignored. Construct a new renderer for work on the replacement
 document. A saved entry keeps its ID; newly generated IDs use a store-instance
 namespace so a new process cannot collide with hydrated history.
 
+Child renderer lifecycle events own their region and feed. Starting, flushing,
+resetting, or completing a child cannot finalize the main answer or replace its
+activity, model, prompt-context count, retry state, or expanded detail. Child
+usage and cost still contribute to session totals. The main renderer owns the
+main footer's current model and context.
+
 The durable snapshot includes accepted partial response text. After resume it
 is ordinary settled history: no provider stream or approval continuation is
 restarted. Message-only histories derive deterministic per-document entries for

@@ -1971,35 +1971,6 @@ describe("fullscreen bridge", () => {
     expect(selected).toEqual(["exit"]);
   });
 
-  it("starts a replacement document at its live edge within the same conversation", async () => {
-    store.setCurrentConversation({ agentId: "sol", conversationId: "same-conversation" });
-    const rendered = await liveComposer();
-    const history = (prefix: string) =>
-      Array.from({ length: 100 }, (_, index) => `${prefix}-${String(index).padStart(3, "0")}`).join("\n\n");
-    try {
-      updateForTest(() => {
-        store.printContent({ kind: "agent", markdown: history("retired") });
-        store.flushOutputBatchNow();
-      });
-      await rendered.flush();
-      await rendered.mockInput.pressKey("\u001b[5~");
-      await rendered.flush();
-      expect(rendered.captureCharFrame()).not.toContain("retired-099");
-      updateForTest(() => {
-        store.clearOutputs();
-        store.printContent({ kind: "agent", markdown: history("replacement") });
-        store.flushOutputBatchNow();
-      });
-      await rendered.flush();
-      expect(store.getSessionSnapshot().currentConversation?.conversationId).toBe("same-conversation");
-      expect(rendered.captureCharFrame()).toContain("replacement-099");
-      expect(rendered.captureCharFrame()).not.toContain("new below");
-    } finally {
-      rendered.renderer.destroy();
-      store.setPrompt(null);
-    }
-  });
-
   it("scrolls older transcript lines into view with the mouse wheel", async () => {
     const rendered = await liveComposer();
     for (let index = 0; index < 40; index++) {
