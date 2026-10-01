@@ -74,6 +74,7 @@ import {
   formatTurnReceipt,
   type TurnTotals,
 } from "./turn-receipt";
+import { contentFromOutput } from "../ui/document";
 import { getGlyphs } from "../ui/glyphs";
 import { markdownToAnsi } from "../ui/markdown/ansi";
 import { store } from "../ui/store";
@@ -270,7 +271,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
     this.textBufferMs =
       streamingConfig?.textBufferMs ?? InkStreamingRenderer.DEFAULT_TEXT_BUFFER_MS;
     this.acc = createAccumulator(agentName);
-    store.setCollapseReasoning(displayConfig.collapseReasoning !== false);
+    if (this.streamTarget.kind === "scrollback")
+      store.setCollapseReasoning(displayConfig.collapseReasoning !== false);
   }
 
   /** Retire timers and retained input without publishing into a replacement conversation. */
@@ -498,8 +500,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       // in-flight reasoning text lands in the panel before it collapses.
       this.flushStreamBuffer();
       this.collapseReasoningRegion();
-      store.finalizeStream();
-      store.setActivity({ phase: "idle" });
+      if (this.streamTarget.kind === "scrollback") {
+        store.finalizeStream();
+        store.setActivity({ phase: "idle" });
+      }
     });
   }
 
@@ -520,8 +524,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       // in-flight reasoning text lands in the panel before it collapses.
       this.flushStreamBuffer();
       this.collapseReasoningRegion();
-      store.finalizeStream();
-      store.setActivity({ phase: "idle" });
+      if (this.streamTarget.kind === "scrollback") {
+        store.finalizeStream();
+        store.setActivity({ phase: "idle" });
+      }
     });
   }
 
@@ -621,7 +627,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         // Flush any in-flight buffered deltas BEFORE finalizing the stream
         // so they land in the slice that's about to settle, not the next one.
         this.flushStreamBuffer();
-        store.finalizeStream();
+        if (this.streamTarget.kind === "scrollback") store.finalizeStream();
       }
 
       // Close any open reasoning panel before non-reasoning events. Tokens
@@ -636,15 +642,17 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
       // Anything the model sends after a retry means the retry went through. A new
       // attempt opening (stream_start) does not: it may fail and be retried again.
-      if (event.type !== "stream_start") {
+      if (this.streamTarget.kind === "scrollback" && event.type !== "stream_start") {
         store.setRetryNotice(null);
       }
 
       if (event.type === "stream_start") {
         this.seenLength = 0;
         this.hasStreamedText = false;
-        store.updateRunStats({ provider: event.provider, model: event.model });
-        this.resolveContextWindow(event.provider, event.model, event.pinnedContextWindow);
+        if (this.streamTarget.kind === "scrollback") {
+          store.updateRunStats({ provider: event.provider, model: event.model });
+          this.resolveContextWindow(event.provider, event.model, event.pinnedContextWindow);
+        }
       }
 
       if (this.displayConfig.showReasoning) {
@@ -709,7 +717,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
           : undefined;
       if (event.type === "tool_execution_complete") {
         this.clearToolTimeout(event.toolCallId);
-        this.storeExpandableDiff(completedToolName, event.result);
+        if (this.streamTarget.kind === "scrollback")
+          this.storeExpandableDiff(completedToolName, event.result);
       }
       if (event.type === "error") {
         this.clearAllToolTimeouts();
@@ -720,17 +729,35 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
       const result = reduceEvent(this.acc, event);
 
-      // Sub-agent tool activity goes into its bounded panel (capped height)
-      // rather than unbounded scrollback; non-tool outputs (errors, headers)
-      // still reach scrollback so failures aren't cropped away.
+      // Each renderer publishes into its own feed. The parent stream remains
+      // active while a child starts, changes phase, completes, or retries.
       const isSubagentToolEvent =
         this.streamTarget.kind === "ephemeral" &&
         (event.type === "tools_detected" ||
           event.type === "tool_execution_start" ||
           event.type === "tool_execution_complete");
 
-      if (isSubagentToolEvent && this.streamTarget.kind === "ephemeral") {
-        this.appendToolActivityToEphemeral(event, this.streamTarget.regionId, completedToolName);
+      if (this.streamTarget.kind === "ephemeral") {
+        if (isSubagentToolEvent) {
+          this.appendToolActivityToEphemeral(event, this.streamTarget.regionId, completedToolName);
+        } else {
+          for (const entry of result.outputs) {
+            const content = contentFromOutput(entry);
+            const text =
+              content.kind === "header"
+                ? `${content.name} · ${content.provider ?? ""}/${content.model ?? ""}`
+                : content.kind === "notice"
+                  ? content.text
+                  : undefined;
+            if (text !== undefined)
+              this.bufferStreamDelta({
+                target: "ephemeral",
+                regionId: this.streamTarget.regionId,
+                delta: `\n${text}`,
+                channel: "note",
+              });
+          }
+        }
       } else {
         for (const entry of result.outputs) {
           store.printOutput(entry);
@@ -770,7 +797,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         }
       }
 
-      if (result.activity) {
+      if (result.activity && this.streamTarget.kind === "scrollback") {
         const phase = result.activity.phase;
         if (phase === "thinking" || phase === "streaming") {
           this.throttledSetActivity(result.activity);
@@ -784,11 +811,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
       Effect.catchAllDefect((defect) =>
         Effect.sync(() => {
           const message = toError(defect).message;
-          store.printOutput({
-            type: "warn",
-            message: `Stream rendering error (${event.type}): ${message}`,
-            timestamp: new Date(),
-          });
+          const text = `Stream rendering error (${event.type}): ${message}`;
+          if (this.streamTarget.kind === "ephemeral") {
+            store.appendEphemeral(this.streamTarget.regionId, text, "note");
+          } else {
+            store.printOutput({ type: "warn", message: text, timestamp: new Date() });
+          }
         }),
       ),
     );
@@ -805,7 +833,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     // turn settles, so neither leaves a hanging tail in scrollback.
     this.flushStreamBuffer();
     this.collapseReasoningRegion();
-    store.finalizeStream();
+    if (this.streamTarget.kind === "scrollback") store.finalizeStream();
     // A complete event is the terminal boundary for the renderer, even when
     // an execution path did not deliver a matching tool completion event.
     // Clear the accumulator so a tool from this turn cannot reappear when the
@@ -820,7 +848,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       this.printOutro(event);
     }
 
-    store.setActivity({ phase: "idle" });
+    if (this.streamTarget.kind === "scrollback") store.setActivity({ phase: "idle" });
     // Defensive reset so a reused renderer instance starts clean even if no
     // text_start fires before the next text_chunk.
     this.seenLength = 0;
@@ -841,6 +869,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private printFinalResponse(event: Extract<StreamEvent, { type: "complete" }>): void {
     const markdown = event.response.content?.trim() ?? "";
     if (markdown.length === 0) return;
+    if (this.streamTarget.kind === "ephemeral") {
+      this.bufferStreamDelta({
+        target: "ephemeral",
+        regionId: this.streamTarget.regionId,
+        delta: markdown,
+        channel: "response",
+      });
+      return;
+    }
     store.printOutput({
       type: "streamContent",
       message: { kind: "agent", markdown },
@@ -865,7 +902,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
       this.acc.lastPromptTokens = usage.promptTokens;
-      store.updateRunStats({ tokensInContext: usage.promptTokens });
+      if (this.streamTarget.kind === "scrollback")
+        store.updateRunStats({ tokensInContext: usage.promptTokens });
       store.addSessionUsage({
         promptTokens: usage.promptTokens,
         completionTokens: usage.completionTokens,
@@ -1030,11 +1068,12 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (!this.documentLease()) return;
       if (!this.acc.activeTools.has(toolCallId)) return;
       const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
-      store.printOutput({
-        type: "warn",
-        message: `Tool ${toolName} still running after ${elapsedSeconds}s (press Esc twice to interrupt)`,
-        timestamp: new Date(),
-      });
+      const text = `Tool ${toolName} still running after ${elapsedSeconds}s (press Esc twice to interrupt)`;
+      if (this.streamTarget.kind === "ephemeral") {
+        store.appendEphemeral(this.streamTarget.regionId, text, "note");
+      } else {
+        store.printOutput({ type: "warn", message: text, timestamp: new Date() });
+      }
       // Re-arm so multi-minute tools keep reassuring the user instead of
       // going silent after a single warning.
       const timeoutId = setTimeout(warn, InkStreamingRenderer.TOOL_WARNING_MS);

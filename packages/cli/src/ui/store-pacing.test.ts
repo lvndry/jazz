@@ -1,3 +1,4 @@
+/** Verifies visible pacing prefixes and ordering against the canonical accepted source. */
 import { describe, expect, test } from "bun:test";
 import { UIStore } from "./store";
 
@@ -6,7 +7,15 @@ function streamedText(store: UIStore): string {
   const snapshot = store.getOutputSnapshot();
   const settled = snapshot.entries
     .filter((entry) => entry.type === "streamContent")
-    .map((entry) => String(entry.message))
+    .map((entry) =>
+      typeof entry.message !== "string" && "kind" in entry.message
+        ? entry.message.kind === "agent"
+          ? entry.message.markdown
+          : entry.message.kind === "reasoning"
+            ? entry.message.text
+            : ""
+        : entry.message,
+    )
     .join("");
   return settled + snapshot.streaming;
 }
@@ -19,6 +28,10 @@ describe("paced streaming in the store", () => {
     store.setStreamPacing(true);
     store.appendStream("response", BURST);
     expect(streamedText(store).length).toBeLessThan(BURST.length);
+    expect(store.getDocumentSnapshot().entries[0]?.content).toEqual({
+      kind: "agent",
+      markdown: BURST,
+    });
     store.finalizeStream();
     expect(streamedText(store)).toBe(BURST);
     store.setStreamPacing(false);
@@ -35,6 +48,10 @@ describe("paced streaming in the store", () => {
     const entries = store.getOutputSnapshot().entries;
     const receipt = entries.findIndex((entry) => entry.message === "tool receipt");
     expect(receipt).toBeGreaterThan(-1);
+    expect(store.getDocumentSnapshot().entries.map((entry) => entry.content.kind)).toEqual([
+      "agent",
+      "notice",
+    ]);
     store.setStreamPacing(false);
   });
 
