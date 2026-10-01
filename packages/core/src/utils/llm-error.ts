@@ -462,10 +462,15 @@ function authFailureMessage(providerName: ProviderName, cleanMessage: string): s
  *
  * @param error - The unknown error to convert
  * @param providerName - The LLM provider name for context
+ * @param attemptedUrl - Resolved base URL used by the failed request, for local-server diagnostics
  * @returns An appropriate LLMError instance
  *
  */
-export function convertToLLMError(error: unknown, providerName: ProviderName): LLMError {
+export function convertToLLMError(
+  error: unknown,
+  providerName: ProviderName,
+  attemptedUrl?: string,
+): LLMError {
   // Use clean message for user-facing error (keeps terminal output readable)
   const cleanMessage = extractCleanErrorMessage(error);
 
@@ -481,7 +486,7 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
 
   // No statusCode keeps this retryable, so a server that starts mid-retry recovers.
   if (isConnectionError(error)) {
-    const localMessage = localServerUnreachableMessage(providerName);
+    const localMessage = localServerUnreachableMessage(providerName, attemptedUrl);
     if (localMessage) {
       return new LLMRequestError({ provider: providerName, message: localMessage });
     }

@@ -1,3 +1,7 @@
+/**
+ * Verifies provider-error classification, retry decisions, and safe diagnostic metadata
+ * with SDK errors and synthetic failures, including resolved local-server endpoints.
+ */
 import { UnsupportedFunctionalityError } from "@ai-sdk/provider";
 import { APICallError, RetryError } from "ai";
 import { describe, expect, it } from "bun:test";
@@ -136,6 +140,22 @@ describe("localServerUnreachableMessage", () => {
 });
 
 describe("convertToLLMError - local server diagnostics", () => {
+  it.each(["llamacpp", "ollama", "sglang", "vllm"] as const)(
+    "uses the attempted endpoint when converting a %s connection failure",
+    (provider) => {
+      const error = convertToLLMError(
+        new Error("fetch failed"),
+        provider,
+        "http://gpu.example:9123/v1",
+      );
+      expect(error).toBeInstanceOf(LLMRequestError);
+      expect(error.message).toContain("at http://gpu.example:9123.");
+      expect(error.message).not.toContain("127.0.0.1");
+      expect(error.message).not.toContain("start it with");
+      expect(isRetryableLLMError(error)).toBe(true);
+    },
+  );
+
   it("turns a connection failure against llamacpp into an actionable, retryable error", () => {
     const error = convertToLLMError(new Error("fetch failed"), "llamacpp");
     expect(error).toBeInstanceOf(LLMRequestError);

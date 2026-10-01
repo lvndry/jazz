@@ -1667,6 +1667,18 @@ function schemaCharCount(toolDef: {
   }
 }
 
+/** Resolve diagnostics with the same routing as model selection, including Ollama Cloud. */
+function localRequestBaseUrl(
+  provider: ProviderName,
+  modelId: string,
+  llmConfig?: LLMConfig,
+): string | undefined {
+  if (!isLocalServerProvider(provider)) return undefined;
+  return provider === "ollama"
+    ? resolveOllamaRequestBaseUrl(modelId, llmConfig)
+    : resolveLocalProviderBaseUrl(provider, llmConfig);
+}
+
 class AISDKService implements LLMService {
   private config: AISDKConfig;
   private readonly providerModels = PROVIDER_MODELS;
@@ -1997,6 +2009,14 @@ class AISDKService implements LLMService {
     providerName: ProviderName,
     options: ChatCompletionOptions,
   ): Effect.Effect<ChatCompletionResponse, LLMError> {
+    return Effect.suspend(() => this.createChatCompletionAttempt(providerName, options));
+  }
+
+  private createChatCompletionAttempt(
+    providerName: ProviderName,
+    options: ChatCompletionOptions,
+  ): Effect.Effect<ChatCompletionResponse, LLMError> {
+    let attemptedUrl: string | undefined;
     return Effect.tryPromise({
       try: async (signal) => {
         await this.refreshRuntimeConfigIfChanged();
@@ -2004,6 +2024,7 @@ class AISDKService implements LLMService {
           this.config.llmConfig,
           options.providerApiKeys,
         );
+        attemptedUrl = localRequestBaseUrl(providerName, options.model, effectiveLLMConfig);
         const timingStart = Date.now();
         Effect.runFork(this.logger.debug("LLM completion started", { provider: providerName }));
 
@@ -2187,7 +2208,7 @@ class AISDKService implements LLMService {
         return resultObj;
       },
       catch: (error: unknown) => {
-        const llmError = convertToLLMError(error, providerName);
+        const llmError = convertToLLMError(error, providerName, attemptedUrl);
 
         Effect.runFork(
           this.logger.error(
@@ -2273,6 +2294,14 @@ class AISDKService implements LLMService {
     providerName: ProviderName,
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
+    return Effect.suspend(() => this.createStreamingChatCompletionAttempt(providerName, options));
+  }
+
+  private createStreamingChatCompletionAttempt(
+    providerName: ProviderName,
+    options: ChatCompletionOptions,
+  ): Effect.Effect<StreamingResult, LLMError> {
+    let attemptedUrl: string | undefined;
     return Effect.tryPromise({
       try: async (signal) => {
         await this.refreshRuntimeConfigIfChanged();
@@ -2280,6 +2309,7 @@ class AISDKService implements LLMService {
           this.config.llmConfig,
           options.providerApiKeys,
         );
+        attemptedUrl = localRequestBaseUrl(providerName, options.model, effectiveLLMConfig);
         const timingStart = Date.now();
         Effect.runFork(
           this.logger.debug("LLM streaming completion started", { provider: providerName }),
@@ -2333,7 +2363,7 @@ class AISDKService implements LLMService {
           coreMessages,
         };
       },
-      catch: (error) => convertToLLMError(error, providerName),
+      catch: (error) => convertToLLMError(error, providerName, attemptedUrl),
     }).pipe(
       Effect.flatMap(
         ({
@@ -2492,7 +2522,7 @@ class AISDKService implements LLMService {
                     suppressStreamTextUnhandledRejections(streamTextResult);
                   }
 
-                  const llmError = convertToLLMError(error, providerName);
+                  const llmError = convertToLLMError(error, providerName, attemptedUrl);
                   Effect.runFork(
                     this.logger.error(
                       "LLM request failed",
@@ -2528,7 +2558,7 @@ class AISDKService implements LLMService {
             stream,
             response: Effect.tryPromise({
               try: () => responseDeferred.promise,
-              catch: (error) => convertToLLMError(error, providerName),
+              catch: (error) => convertToLLMError(error, providerName, attemptedUrl),
             }),
             cancel: Effect.sync(() => {
               if (processorRef) {
