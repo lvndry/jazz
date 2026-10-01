@@ -124,6 +124,18 @@ describe("localServerUnreachableMessage", () => {
     expect(message).not.toContain("llama-server -m");
   });
 
+  it("never echoes userinfo or a query token from a configured URL into the diagnostic", () => {
+    const message = localServerUnreachableMessage(
+      "llamacpp",
+      "http://user:sekrit-token@172.17.0.1:8090/v1?api_key=lek",
+    );
+    expect(message).toContain("http://172.17.0.1:8090");
+    expect(message).not.toContain("user");
+    expect(message).not.toContain("sekrit");
+    expect(message).not.toContain("token");
+    expect(message).not.toContain("lek");
+  });
+
   it("shows the actual URL when LLAMACPP_BASE_URL is set", () => {
     const original = process.env["LLAMACPP_BASE_URL"];
     try {

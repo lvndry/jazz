@@ -58,14 +58,21 @@ export function isLocalServerProvider(provider: string): provider is LocalServer
 
 /**
  * The address a user types and reads for a local server: its base URL without the REST path
- * (`/v1` for llama.cpp and vLLM, `/api` for Ollama). Stored URLs carry that path because the clients need
- * it; showing it back invites users to type it, and a bare `host:port` is what the prompts accept.
+ * (`/v1` for llama.cpp and vLLM, `/api` for Ollama) and without anything the URL could carry on
+ * behalf of the request — userinfo, query, and fragment — because the address is echoed into
+ * diagnostics, and a `user:token@host` or `?token=` in a configured URL is a credential. Stored
+ * URLs carry the REST path because the clients need it; showing it back invites users to type
+ * it, and a bare `host:port` is what the prompts accept. An unparseable URL falls back to plain-
+ * string stripping so the address degrades instead of failing.
  */
 export function localServerAddress(baseUrl: string): string {
-  return baseUrl
-    .trim()
-    .replace(/\/(v1|api)\/?$/, "")
-    .replace(/\/+$/, "");
+  const trimmed = baseUrl.trim();
+  try {
+    const url = new URL(trimmed);
+    return `${url.protocol}//${url.host}${url.pathname.replace(/\/(v1|api)\/?$/, "").replace(/\/+$/, "")}`;
+  } catch {
+    return trimmed.replace(/\/(v1|api)\/?$/, "").replace(/\/+$/, "");
+  }
 }
 
 /**
