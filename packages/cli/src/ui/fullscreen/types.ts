@@ -8,7 +8,7 @@
  * Layout, fixed at every width:
  *
  *   header      1 row, never hidden
- *   transcript  flex, owns its own scrolling
+ *   transcript  flex, paints the viewport controller’s selected rows
  *   live zone   0–12 rows, grows upward, present only while work is in flight
  *   gap         1 row, so the live band never sits on the composer
  *   input       1–N rows, anchored to the bottom
@@ -54,8 +54,8 @@ export const MIN_HEIGHT = 10;
  * The transcript is an ordered list of blocks, not a stream of lines. The block
  * is the shared unit of scroll anchoring, collapse, copy-out, search-hit
  * attribution and persistence — which is what keeps a resize from losing the
- * reader's place, since the scroll anchor is a block id rather than a line
- * number.
+ * reader's place, since the scroll anchor is a block id plus an offset in its unwrapped
+ * semantic text, rather than a wrap-line number.
  */
 export type BlockId = string;
 
@@ -414,7 +414,7 @@ export type Overlay =
 export type Focus = "input" | "transcript";
 
 export interface ViewModel {
-  /** Conversation/child identity for source and view lifecycle. */
+  /** Conversation/child identity; viewport state belongs to this document alone. */
   readonly documentId: string;
   readonly header: HeaderModel;
   readonly blocks: readonly Block[];
@@ -426,8 +426,6 @@ export interface ViewModel {
   readonly subagents?: SubagentListModel;
   readonly overlay?: Overlay;
   readonly focus: Focus;
-  /** Set while the reader is scrolled away from the live edge. */
-  readonly newBelow?: number;
 }
 
 /** Terminal geometry, resolved once per frame. */

@@ -8,6 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { ReactNode } from "react";
+import { createLayoutFixture } from "./layout-fixture";
 import { repaintAfterResize } from "../mount";
 import { Transcript } from "../Transcript";
 import type { Block } from "../types";
@@ -17,6 +18,8 @@ import {
   nativeGrid,
   type TerminalGrid,
 } from "./terminal-oracle";
+
+const { rows: layoutRows } = createLayoutFixture();
 
 function text(grid: TerminalGrid): string {
   return grid.cells.map((row) => row.map((cell) => cell.chars).join("")).join("\n");
@@ -30,7 +33,7 @@ function scene(blocks: readonly Block[], width: number, height: number): ReactNo
       flexDirection="column"
     >
       <Transcript
-        blocks={blocks}
+        rows={layoutRows(blocks, { width, height }).slice(-height)}
         viewport={{ width, height }}
         focus="input"
       />

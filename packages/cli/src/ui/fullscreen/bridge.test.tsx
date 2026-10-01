@@ -2015,6 +2015,71 @@ describe("fullscreen bridge", () => {
     expect(selected).toEqual(["exit"]);
   });
 
+  it("starts a replacement document at its live edge within the same conversation", async () => {
+    store.setCurrentConversation({ agentId: "sol", conversationId: "same-conversation" });
+    const rendered = await liveComposer();
+    const history = (prefix: string) =>
+      Array.from({ length: 100 }, (_, index) => `${prefix}-${String(index).padStart(3, "0")}`).join(
+        "\n\n",
+      );
+    try {
+      updateForTest(() => {
+        store.printContent({ kind: "agent", markdown: history("retired") });
+        store.flushOutputBatchNow();
+      });
+      await rendered.flush();
+      await rendered.mockInput.pressKey("\u001b[5~");
+      await rendered.flush();
+      expect(rendered.captureCharFrame()).not.toContain("retired-099");
+      updateForTest(() => {
+        store.clearOutputs();
+        store.printContent({ kind: "agent", markdown: history("replacement") });
+        store.flushOutputBatchNow();
+      });
+      await rendered.flush();
+      expect(store.getSessionSnapshot().currentConversation?.conversationId).toBe(
+        "same-conversation",
+      );
+      expect(rendered.captureCharFrame()).toContain("replacement-099");
+      expect(rendered.captureCharFrame()).not.toContain("new below");
+    } finally {
+      rendered.renderer.destroy();
+      store.setPrompt(null);
+    }
+  });
+
+  it("retires the viewport when replacement source reuses a document and entry ID", async () => {
+    const documentId = "reused-conversation:main";
+    const replacement = (prefix: string) => [
+      {
+        id: "reused-entry",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        content: {
+          kind: "agent" as const,
+          markdown: Array.from(
+            { length: 100 },
+            (_, index) => `${prefix}-${String(index).padStart(3, "0")}`,
+          ).join("\n\n"),
+        },
+      },
+    ];
+    store.replaceDocument(documentId, replacement("retired"));
+    const rendered = await liveComposer();
+    try {
+      await rendered.mockInput.pressKey("\u001b[5~");
+      await rendered.flush();
+      expect(rendered.captureCharFrame()).not.toContain("retired-099");
+      updateForTest(() => store.replaceDocument(documentId, replacement("replacement")));
+      await rendered.flush();
+      expect(store.getDocumentSnapshot().id).toBe(documentId);
+      expect(rendered.captureCharFrame()).toContain("replacement-099");
+      expect(rendered.captureCharFrame()).not.toContain("new below");
+    } finally {
+      rendered.renderer.destroy();
+      store.setPrompt(null);
+    }
+  });
+
   it("scrolls older transcript lines into view with the mouse wheel", async () => {
     const rendered = await liveComposer();
     for (let index = 0; index < 40; index++) {

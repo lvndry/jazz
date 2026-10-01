@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { interruptSummary, interruptSummaryLines, type ReceiptFacts } from "./interrupt";
-import { transcriptRows } from "../fullscreen/Transcript";
+import { createLayoutFixture } from "../fullscreen/testing/layout-fixture";
+
+const { rows: layoutRows } = createLayoutFixture();
 
 const TURN: readonly ReceiptFacts[] = [
   { app: "read_file", summary: "venue.md 40 lines", status: "ok" },
@@ -51,7 +53,7 @@ describe("interruptSummary", () => {
 
 describe("the stopped block", () => {
   it("draws a quiet rule with the time, then done and not done rows", () => {
-    const rows = transcriptRows(
+    const rows = layoutRows(
       [
         {
           id: "s",

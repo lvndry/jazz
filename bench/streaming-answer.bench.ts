@@ -4,9 +4,21 @@
 // curve is the claim, and one small size would prove nothing.
 import { markdownReply } from "./corpus";
 import { bench, report } from "./harness";
-import { transcriptRows } from "../packages/cli/src/ui/fullscreen/Transcript";
+import { createTranscriptLayout } from "../packages/cli/src/ui/fullscreen/transcript-layout";
 import type { Block } from "../packages/cli/src/ui/fullscreen/types";
-import { setThemeVariant } from "../packages/cli/src/ui/theme";
+import { getGlyphs } from "../packages/cli/src/ui/glyphs";
+import { setThemeVariant, getThemeRevision, THEME } from "../packages/cli/src/ui/theme";
+
+const layout = createTranscriptLayout();
+function frame(blocks: readonly Block[]): void {
+  const index = layout.update(blocks, {
+    width: VIEWPORT.width,
+    glyphs: getGlyphs(),
+    themeRevision: getThemeRevision(),
+    colors: THEME,
+  });
+  index.window(Math.max(0, index.length - VIEWPORT.height), VIEWPORT.height);
+}
 
 const VIEWPORT = { width: 120, height: 40 };
 const ANSWER_SIZES = [1_000, 10_000, 50_000];
@@ -66,7 +78,7 @@ function run(label: string, sequence: readonly Block[][]) {
   return bench(
     label,
     (iteration) => {
-      transcriptRows(sequence[iteration % sequence.length] ?? [], VIEWPORT);
+      frame(sequence[iteration % sequence.length] ?? []);
     },
     { iterations: FRAMES, warmupIterations: 0 },
   );

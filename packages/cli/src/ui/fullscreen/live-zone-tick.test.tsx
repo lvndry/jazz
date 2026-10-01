@@ -9,8 +9,10 @@ import { Header } from "./Header";
 import { Input } from "./Input";
 import { LiveZone } from "./LiveZone";
 import { sampleView } from "./sample";
-import { transcriptRows } from "./Transcript";
+import { createLayoutFixture } from "./testing/layout-fixture";
 import type { HeaderModel, InputModel, ViewModel, Viewport } from "./types";
+
+const { rows: layoutRows } = createLayoutFixture();
 
 const WIDTH = 120;
 const HEIGHT = 34;
@@ -125,7 +127,7 @@ describe("live tick isolation", () => {
     expect(inputModels.every((model) => model === view.input)).toBe(true);
   });
 
-  it("does not re-enter transcriptRows when the live indicator advances", async () => {
+  it("does not re-enter layoutRows when the live indicator advances", async () => {
     const view = sampleView();
     const viewport: Viewport = { width: WIDTH, height: HEIGHT };
     const builds: number[] = [];
@@ -134,7 +136,7 @@ describe("live tick isolation", () => {
       const countRef = useRef(0);
       countRef.current += 1;
       builds.push(countRef.current);
-      transcriptRows(view.blocks, viewport);
+      layoutRows(view.blocks, viewport);
       return <text>probe</text>;
     }
 
