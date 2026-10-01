@@ -42,7 +42,7 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 | tool-result-clearing     | `clearToolResults` walk, BPE vs ratio                                                            | per turn on long chats      |
 | agent-prompt             | `buildSystemPrompt` cold vs cached + work-state preamble                                         | per turn / on resume        |
 | summarizer-chunking      | `chunkForSummarizer` by history length and budget                                                | per compaction              |
-| conversation-log         | parse + reduce + `presentationEntriesFromHistory`                                               | session resume              |
+| conversation-log         | parse + reduce + `presentationEntriesFromHistory`                                                | session resume              |
 | conversation-search      | `search` over a synthetic history directory                                                      | per keystroke while open    |
 | tool-formatter           | `formatToolResult` at 1KB / 100KB / 1MB                                                          | per tool call               |
 | capped-output            | `appendCapped` fold, `decodeCapped`, `tailForModel`                                              | per stdout chunk            |
@@ -81,9 +81,11 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 
 ## Budgets and reproducibility
 
-[UI ownership qualification, 2026-10-01](results/ui-ownership-2026-10-01/qualification.md)
+[UI ownership qualification, 2026-10-01](reports/ui-ownership-2026-10-01/qualification.md)
 archives matched local reports, corrected first/steady frame sampling, unresolved
-Ink relative gates, and extended-run resource limits.
+Ink relative gates, and extended-run resource limits. The report links its raw
+per-run JSONs in `bench/results/`, which stay local (gitignored); only the
+write-up and runner snapshots under `bench/reports/` are tracked.
 
 `run.ts --output` writes versioned reports with OS, architecture and Bun version.
 CI runs `--samples 5`, using five fresh processes per suite and retaining the median of each
