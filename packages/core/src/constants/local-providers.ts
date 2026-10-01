@@ -17,32 +17,47 @@ export const LOCAL_MODEL_PROVIDERS = [
 export type LocalServerProvider = (typeof LOCAL_MODEL_PROVIDERS)[number];
 
 // Local, user-run servers. This metadata drives the "server unreachable" diagnostics.
+// `remoteHostnames` names hosts the provider also serves from remotely (Ollama Cloud):
+// a failure against one is a network or account problem, not a daemon to start, so the
+// diagnostic must not point the user at `ollama serve`.
+interface LocalServerProviderMeta {
+  readonly name: string;
+  readonly defaultUrl: string;
+  readonly envVar: string;
+  readonly startHint: string;
+  readonly remoteHostnames: readonly string[];
+}
+
 export const LOCAL_SERVER_PROVIDERS = {
   llamacpp: {
     name: "llama.cpp",
     defaultUrl: "http://127.0.0.1:8080",
     envVar: "LLAMACPP_BASE_URL",
     startHint: "llama-server -m <model>.gguf --port 8080 --jinja",
+    remoteHostnames: [],
   },
   ollama: {
     name: "Ollama",
     defaultUrl: "http://127.0.0.1:11434",
     envVar: "OLLAMA_BASE_URL",
     startHint: "ollama serve",
+    remoteHostnames: ["ollama.com"],
   },
   sglang: {
     name: "SGLang",
     defaultUrl: "http://127.0.0.1:30000",
     envVar: "SGLANG_BASE_URL",
     startHint: "python -m sglang.launch_server --model-path <model> --port 30000",
+    remoteHostnames: [],
   },
   vllm: {
     name: "vLLM",
     defaultUrl: "http://127.0.0.1:8000",
     envVar: "VLLM_BASE_URL",
     startHint: "vllm serve <model> --port 8000",
+    remoteHostnames: [],
   },
-} as const satisfies Record<LocalServerProvider, unknown>;
+} as const satisfies Record<LocalServerProvider, LocalServerProviderMeta>;
 
 /**
  * Whether this provider serves models from the user's own machine.
@@ -58,14 +73,21 @@ export function isLocalServerProvider(provider: string): provider is LocalServer
 
 /**
  * The address a user types and reads for a local server: its base URL without the REST path
- * (`/v1` for llama.cpp and vLLM, `/api` for Ollama). Stored URLs carry that path because the clients need
- * it; showing it back invites users to type it, and a bare `host:port` is what the prompts accept.
+ * (`/v1` for llama.cpp and vLLM, `/api` for Ollama) and without anything the URL could carry on
+ * behalf of the request — userinfo, query, and fragment — because the address is echoed into
+ * diagnostics, and a `user:token@host` or `?token=` in a configured URL is a credential. Stored
+ * URLs carry the REST path because the clients need it; showing it back invites users to type
+ * it, and a bare `host:port` is what the prompts accept. An unparseable URL falls back to plain-
+ * string stripping so the address degrades instead of failing.
  */
 export function localServerAddress(baseUrl: string): string {
-  return baseUrl
-    .trim()
-    .replace(/\/(v1|api)\/?$/, "")
-    .replace(/\/+$/, "");
+  const trimmed = baseUrl.trim();
+  try {
+    const url = new URL(trimmed);
+    return `${url.protocol}//${url.host}${url.pathname.replace(/\/(v1|api)\/?$/, "").replace(/\/+$/, "")}`;
+  } catch {
+    return trimmed.replace(/\/(v1|api)\/?$/, "").replace(/\/+$/, "");
+  }
 }
 
 /**

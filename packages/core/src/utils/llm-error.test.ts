@@ -1,3 +1,7 @@
+/**
+ * Verifies provider-error classification, retry decisions, and safe diagnostic metadata
+ * with SDK errors and synthetic failures, including resolved local-server endpoints.
+ */
 import { UnsupportedFunctionalityError } from "@ai-sdk/provider";
 import { APICallError, RetryError } from "ai";
 import { describe, expect, it } from "bun:test";
@@ -107,6 +111,21 @@ describe("localServerUnreachableMessage", () => {
     expect(message).not.toContain("127.0.0.1:8080");
   });
 
+  it("treats a failed Ollama Cloud request as a remote endpoint, not a server to start", () => {
+    const message = localServerUnreachableMessage("ollama", "https://ollama.com/api");
+    expect(message).toContain("https://ollama.com");
+    expect(message).toContain("remote endpoint");
+    expect(message).not.toContain("ollama serve");
+    expect(message).not.toContain("Make sure it is running");
+  });
+
+  it("still treats a local Ollama default as a server to start", () => {
+    const message = localServerUnreachableMessage("ollama");
+    expect(message).toContain("ollama serve");
+    expect(message).toContain("127.0.0.1:11434");
+    expect(message).not.toContain("remote endpoint");
+  });
+
   it("gives the start hint for any loopback server, shown without its API path", () => {
     const message = localServerUnreachableMessage("llamacpp", "http://localhost:8090/v1");
     expect(message).toContain("llama-server -m");
@@ -118,6 +137,18 @@ describe("localServerUnreachableMessage", () => {
     const message = localServerUnreachableMessage("llamacpp", "http://172.17.0.1:8090/v1");
     expect(message).toContain("at http://172.17.0.1:8090.");
     expect(message).not.toContain("llama-server -m");
+  });
+
+  it("never echoes userinfo or a query token from a configured URL into the diagnostic", () => {
+    const message = localServerUnreachableMessage(
+      "llamacpp",
+      "http://user:sekrit-token@172.17.0.1:8090/v1?api_key=lek",
+    );
+    expect(message).toContain("http://172.17.0.1:8090");
+    expect(message).not.toContain("user");
+    expect(message).not.toContain("sekrit");
+    expect(message).not.toContain("token");
+    expect(message).not.toContain("lek");
   });
 
   it("shows the actual URL when LLAMACPP_BASE_URL is set", () => {
@@ -136,6 +167,22 @@ describe("localServerUnreachableMessage", () => {
 });
 
 describe("convertToLLMError - local server diagnostics", () => {
+  it.each(["llamacpp", "ollama", "sglang", "vllm"] as const)(
+    "uses the attempted endpoint when converting a %s connection failure",
+    (provider) => {
+      const error = convertToLLMError(
+        new Error("fetch failed"),
+        provider,
+        "http://gpu.example:9123/v1",
+      );
+      expect(error).toBeInstanceOf(LLMRequestError);
+      expect(error.message).toContain("at http://gpu.example:9123.");
+      expect(error.message).not.toContain("127.0.0.1");
+      expect(error.message).not.toContain("start it with");
+      expect(isRetryableLLMError(error)).toBe(true);
+    },
+  );
+
   it("turns a connection failure against llamacpp into an actionable, retryable error", () => {
     const error = convertToLLMError(new Error("fetch failed"), "llamacpp");
     expect(error).toBeInstanceOf(LLMRequestError);

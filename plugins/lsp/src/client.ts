@@ -168,7 +168,7 @@ export async function document(
     server.transport.setDocumentVersion(uri, 1);
     if (sync.openClose)
       server.transport.notify("textDocument/didOpen", {
-        textDocument: { uri, languageId: selected.config.languageId, version: 1, text },
+        textDocument: { uri, languageId: selected.languageId, version: 1, text },
       });
   } else if (previous.text !== text) {
     const version = previous.version + 1;
@@ -187,7 +187,7 @@ export async function document(
     } else if (sync.openClose) {
       server.transport.notify("textDocument/didClose", { textDocument: { uri } });
       server.transport.notify("textDocument/didOpen", {
-        textDocument: { uri, languageId: selected.config.languageId, version, text },
+        textDocument: { uri, languageId: selected.languageId, version, text },
       });
     }
   }

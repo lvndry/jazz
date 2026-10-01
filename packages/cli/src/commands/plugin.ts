@@ -1,8 +1,9 @@
 /**
  * Local-operator commands for Jazz's trusted in-process plugin lifecycle.
  *
- * These commands deliberately keep persistent code trust and egress consent on an
- * interactive local terminal. Installation and inspection never import plugin code.
+ * Persistent code trust and egress consent are confirmed on a local interactive terminal
+ * by default; `--yes` is itself the consent and grants them headlessly. Installation and
+ * inspection never import plugin code.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -303,11 +304,12 @@ export function pluginTrustCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    yield* requireInteractive(terminal, "Plugin trust");
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     yield* renderInspection(terminal, inspection);
-    if (!options.yes) {
+    if (options.yes !== true) {
+      // Without an explicit grant the consent still needs a human at a real terminal.
+      yield* requireInteractive(terminal, "Plugin trust");
       const confirmed = yield* terminal.confirm(
         `Are you sure you want to trust ${inspection.id}? This can execute code on your behalf.`,
         false,
@@ -329,7 +331,6 @@ export function pluginEnableCommand(
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const agent = agentId === undefined ? undefined : yield* getAgentByIdentifier(agentId);
-    yield* requireInteractive(terminal, "Plugin egress consent");
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     if (!inspection.trusted) {
@@ -345,7 +346,9 @@ export function pluginEnableCommand(
         "This plugin declares policy hooks that can affect authorization decisions, including whether Jazz asks before running a command.",
       );
     }
-    if (!options.yes) {
+    if (options.yes !== true) {
+      // Without an explicit grant the consent still needs a human at a real terminal.
+      yield* requireInteractive(terminal, "Plugin egress consent");
       const target = agent === undefined ? "all agents" : agent.name;
       const confirmed = yield* terminal.confirm(
         `Enable ${inspection.id} for ${target}? It runs with your OS-user authority and its declared network and data access.`,

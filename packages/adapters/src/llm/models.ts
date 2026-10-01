@@ -5,7 +5,7 @@ import {
   type LocalServerProvider,
 } from "@jazz/core/constants/local-providers";
 import type { ProviderName } from "@jazz/core/constants/models";
-import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
+import { isOllamaCloudModel, OLLAMA_CLOUD_ROOT } from "@jazz/core/constants/ollama";
 import type { LLMConfig } from "@jazz/core/types/config";
 import { CHATGPT_CODEX_BASE_URL } from "./chatgpt/transport";
 
@@ -33,7 +33,7 @@ export type ModelSource =
     };
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/api";
-export const OLLAMA_CLOUD_API_ROOT = "https://ollama.com/api";
+export const OLLAMA_CLOUD_API_ROOT = `${OLLAMA_CLOUD_ROOT}/api`;
 export const DEFAULT_LLAMACPP_BASE_URL = "http://127.0.0.1:8080/v1";
 export const DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:8000/v1";
 export const DEFAULT_SGLANG_BASE_URL = "http://127.0.0.1:30000/v1";

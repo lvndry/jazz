@@ -1,3 +1,7 @@
+/**
+ * Exercises provider configuration, request serialization, and failure handling through
+ * the AI SDK service using mock transports, plus the pure schema and message helpers.
+ */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +30,7 @@ import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { APICallError, generateText, Output } from "ai";
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Cause, Duration, Effect, Exit, Layer, Stream } from "effect";
+import { Cause, Duration, Effect, Either, Exit, Layer, Stream } from "effect";
 import { z } from "zod";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
@@ -721,6 +725,113 @@ describe("AI SDK Service - Unit Tests", () => {
     } finally {
       globalThis.fetch = actualFetch;
     }
+  });
+
+  describe("Local server connection diagnostics", () => {
+    it.each(["batch", "stream"] as const)(
+      "reports the configured vLLM endpoint for a failed %s request",
+      async (mode) => {
+        const attemptedUrls: string[] = [];
+        const previousBaseUrl = process.env["VLLM_BASE_URL"];
+        process.env["VLLM_BASE_URL"] = "http://env-host:8000/v1";
+        globalThis.fetch = (async (input) => {
+          const url = String(input);
+          attemptedUrls.push(url);
+          if (url.endsWith("/models")) {
+            return Response.json({ data: [{ id: "test-model" }] });
+          }
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error("Connection refused"), { code: "ECONNREFUSED" }),
+          });
+        }) as typeof fetch;
+
+        try {
+          const result = await runWithTestLayers(
+            Effect.gen(function* () {
+              const llm = yield* LLMServiceTag;
+              const options: ChatCompletionOptions = {
+                model: "test-model",
+                messages: [{ role: "user", content: "Hello" }],
+              };
+              if (mode === "batch") {
+                return yield* Effect.either(
+                  llm.createChatCompletion("vllm", options).pipe(Effect.asVoid),
+                );
+              }
+              const completion = yield* llm.createStreamingChatCompletion("vllm", options);
+              const streamResult = yield* Effect.either(Stream.runDrain(completion.stream));
+              const responseResult = yield* Effect.either(completion.response);
+              expect(Either.isLeft(responseResult)).toBe(true);
+              if (Either.isLeft(responseResult)) {
+                expect(responseResult.left.message).toContain("http://gpu.example:9123");
+              }
+              return streamResult;
+            }),
+            createTestConfigLayer({ vllm: { base_url: "http://gpu.example:9123/v1" } }),
+          );
+
+          expect(attemptedUrls).toContain("http://gpu.example:9123/v1/chat/completions");
+          expect(Either.isLeft(result)).toBe(true);
+          if (Either.isLeft(result)) {
+            expect(result.left).toBeInstanceOf(LLMRequestError);
+            expect(result.left.message).toContain("http://gpu.example:9123");
+            expect(result.left.message).not.toContain("127.0.0.1:8000");
+            expect(result.left.message).not.toContain("env-host");
+            expect(result.left.message).not.toContain("start it with");
+            expect(isRetryableLLMError(result.left)).toBe(true);
+          }
+        } finally {
+          globalThis.fetch = actualFetch;
+          if (previousBaseUrl === undefined) delete process.env["VLLM_BASE_URL"];
+          else process.env["VLLM_BASE_URL"] = previousBaseUrl;
+        }
+      },
+    );
+
+    it("treats a failed Ollama Cloud request as a remote endpoint, not a local server to start", async () => {
+      const attemptedUrls: string[] = [];
+      const previousKey = process.env["OLLAMA_API_KEY"];
+      process.env["OLLAMA_API_KEY"] = "test-cloud-key";
+      globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+        const url = String(input);
+        attemptedUrls.push(url);
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("Connection refused"), { code: "ECONNREFUSED" }),
+        });
+      }) as typeof fetch;
+
+      try {
+        const result = await runWithTestLayers(
+          Effect.gen(function* () {
+            const llm = yield* LLMServiceTag;
+            return yield* Effect.either(
+              llm
+                .createChatCompletion("ollama", {
+                  model: "llama3.1:8b:cloud",
+                  messages: [{ role: "user", content: "Hello" }],
+                })
+                .pipe(Effect.asVoid),
+            );
+          }),
+          createTestConfigLayer({}),
+        );
+
+        expect(attemptedUrls).toContain("https://ollama.com/api/chat");
+        expect(Either.isLeft(result)).toBe(true);
+        if (Either.isLeft(result)) {
+          expect(result.left).toBeInstanceOf(LLMRequestError);
+          expect(result.left.message).toContain("https://ollama.com");
+          expect(result.left.message).toContain("remote endpoint");
+          expect(result.left.message).not.toContain("ollama serve");
+          expect(result.left.message).not.toContain("127.0.0.1:11434");
+          expect(isRetryableLLMError(result.left)).toBe(true);
+        }
+      } finally {
+        globalThis.fetch = actualFetch;
+        if (previousKey === undefined) delete process.env["OLLAMA_API_KEY"];
+        else process.env["OLLAMA_API_KEY"] = previousKey;
+      }
+    });
   });
 
   describe("Provider Authentication", () => {

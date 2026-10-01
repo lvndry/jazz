@@ -28,16 +28,20 @@ Install your language-server executable separately and configure its command in 
       "id": "typescript",
       "command": "typescript-language-server",
       "args": ["--stdio"],
-      "extensions": [".ts", ".tsx"],
-      "languageId": "typescript",
+      "extensions": {
+        ".ts": "typescript",
+        ".tsx": "typescriptreact"
+      },
       "rootMarkers": ["tsconfig.json", "package.json"]
     },
     {
       "id": "javascript",
       "command": "typescript-language-server",
       "args": ["--stdio"],
-      "extensions": [".js", ".jsx"],
-      "languageId": "javascript",
+      "extensions": {
+        ".js": "javascript",
+        ".jsx": "javascriptreact"
+      },
       "rootMarkers": ["jsconfig.json", "package.json"]
     }
   ]
@@ -46,8 +50,12 @@ Install your language-server executable separately and configure its command in 
 
 Install `typescript-language-server` and a compatible `typescript` package containing
 `tsserver.js` before using this example. To configure another
-language, add an entry with its executable, argument vector, extensions,
-language ID, and project-root markers. The first entry matching a file extension wins. The
+language, add an entry with its executable, argument vector, an extensions-to-language-ID
+map, and project-root markers. Each extension is bound to exactly one language ID because the
+language decides how the server parses the file: `.tsx` and `.jsx` must open as the React
+dialects (`typescriptreact`, `javascriptreact`), never as plain `typescript` or `javascript`. A
+legacy top-level `languageId` is rejected at load time with a message naming the replacement.
+The first entry whose extensions name a file's extension wins. The
 plugin walks upward from the current directory to identify configured project roots and starts
 their servers before the first model request. It also starts a matching server when Jazz later
 touches a supported file outside those roots. If no marker exists, it uses the agent's current

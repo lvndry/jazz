@@ -43,4 +43,26 @@ describe("localServerAddress", () => {
   it("keeps a custom reverse-proxy path", () => {
     expect(localServerAddress("https://proxy.example/llama")).toBe("https://proxy.example/llama");
   });
+
+  it("drops userinfo, a query token, and a fragment, which can carry credentials", () => {
+    expect(localServerAddress("http://user:sekrit@172.17.0.1:8090/v1")).toBe(
+      "http://172.17.0.1:8090",
+    );
+    expect(localServerAddress("http://172.17.0.1:8090/v1?token=sekrit")).toBe(
+      "http://172.17.0.1:8090",
+    );
+    expect(localServerAddress("http://172.17.0.1:8090/v1#key")).toBe("http://172.17.0.1:8090");
+    expect(localServerAddress("https://u:t@proxy.example/llama?api_key=k1")).toBe(
+      "https://proxy.example/llama",
+    );
+  });
+
+  it("still drops the REST path on a loopback URL", () => {
+    expect(localServerAddress("http://localhost:8090/v1")).toBe("http://localhost:8090");
+  });
+
+  it("degrades to plain stripping when the URL does not parse", () => {
+    expect(localServerAddress("not a url")).toBe("not a url");
+    expect(localServerAddress("/v1")).toBe("");
+  });
 });
