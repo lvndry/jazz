@@ -28,7 +28,6 @@ const live: Block = {
 };
 const markers = (frame: string) => frame.match(/history-\d+/g);
 
-
 function transcriptSurface(node: Renderable): TranscriptSurfaceRenderable | undefined {
   if (node instanceof TranscriptSurfaceRenderable) return node;
   for (const child of node.getChildren()) {
