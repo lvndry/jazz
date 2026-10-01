@@ -28,16 +28,32 @@ Install your language-server executable separately and configure its command in 
       "id": "typescript",
       "command": "typescript-language-server",
       "args": ["--stdio"],
-      "extensions": [".ts", ".tsx"],
+      "extensions": [".ts"],
       "languageId": "typescript",
+      "rootMarkers": ["tsconfig.json", "package.json"]
+    },
+    {
+      "id": "tsx",
+      "command": "typescript-language-server",
+      "args": ["--stdio"],
+      "extensions": [".tsx"],
+      "languageId": "typescriptreact",
       "rootMarkers": ["tsconfig.json", "package.json"]
     },
     {
       "id": "javascript",
       "command": "typescript-language-server",
       "args": ["--stdio"],
-      "extensions": [".js", ".jsx"],
+      "extensions": [".js"],
       "languageId": "javascript",
+      "rootMarkers": ["jsconfig.json", "package.json"]
+    },
+    {
+      "id": "jsx",
+      "command": "typescript-language-server",
+      "args": ["--stdio"],
+      "extensions": [".jsx"],
+      "languageId": "javascriptreact",
       "rootMarkers": ["jsconfig.json", "package.json"]
     }
   ]
