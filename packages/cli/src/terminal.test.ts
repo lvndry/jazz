@@ -1,5 +1,12 @@
+/**
+ * Terminal-port regressions for semantic output, prompt privacy and runtime ownership.
+ * Injected fullscreen handles and streams qualify clear/title capabilities,
+ * failure handoff and cleanup without acquiring a user terminal. Plain prompts
+ * must wait for input and finish without inventing an answer after EOF.
+ */
+
 import { PassThrough } from "node:stream";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
 import {
   INK_RENDER_OPTIONS,
@@ -7,6 +14,7 @@ import {
   PlainTerminalService,
   maskSecret,
 } from "./terminal";
+import type { FullscreenHandle } from "./ui/fullscreen/attach";
 import { store } from "./ui/store";
 
 describe("INK_RENDER_OPTIONS", () => {
@@ -32,6 +40,130 @@ describe("INK_RENDER_OPTIONS", () => {
 
   test("must disable exitOnCtrlC so app handles SIGINT", () => {
     expect(INK_RENDER_OPTIONS.exitOnCtrlC).toBe(false);
+  });
+});
+
+describe("fullscreen terminal effects", () => {
+  test("fallback renders the existing document once even when renderer cleanup fails", async () => {
+    let releases = 0;
+    let mounted = 0;
+    let renderedDocument: ReturnType<typeof store.getDocumentSnapshot> | undefined;
+    const terminal = new InkTerminalService({
+      mountFullscreen: () => ({
+        release: () => {
+          releases++;
+          throw new Error("renderer cleanup failed");
+        },
+        setTitle: () => undefined,
+        invalidate: () => undefined,
+      }),
+    });
+    Reflect.set(terminal, "mountInk", () => {
+      mounted++;
+      renderedDocument = store.getDocumentSnapshot();
+    });
+    try {
+      store.clearOutputs();
+      Effect.runSync(terminal.log("existing source"));
+      store.flushOutputBatchNow();
+      const document = store.getDocumentSnapshot();
+      store.requestRendererFallback();
+      store.requestRendererFallback();
+      await Promise.resolve();
+      expect(mounted).toBe(1);
+      expect(releases).toBe(1);
+      expect(renderedDocument).toBe(document);
+    } finally {
+      terminal.cleanup();
+      store.clearOutputs();
+    }
+  });
+
+  test("failed renderer cleanup still releases the terminal service singleton", () => {
+    const failure = new Error("renderer cleanup failed");
+    const terminal = new InkTerminalService({
+      mountFullscreen: () => ({
+        release: () => {
+          throw failure;
+        },
+        setTitle: () => undefined,
+        invalidate: () => undefined,
+      }),
+    });
+    let next: InkTerminalService | undefined;
+    try {
+      expect(() => terminal.cleanup()).toThrow(failure);
+      expect(() => {
+        next = new InkTerminalService({
+          mountFullscreen: () => ({
+            release: () => undefined,
+            setTitle: () => undefined,
+            invalidate: () => undefined,
+          }),
+        });
+      }).not.toThrow();
+    } finally {
+      next?.cleanup();
+    }
+  });
+
+  test("clear resets source before requesting renderer invalidation and never externally clears", () => {
+    const terminal = Object.create(InkTerminalService.prototype) as InkTerminalService;
+    const clear = spyOn(console, "clear").mockImplementation(() => undefined);
+    let invalidations = 0;
+    const handle: FullscreenHandle = {
+      release: () => undefined,
+      setTitle: () => undefined,
+      invalidate: () => {
+        invalidations++;
+        expect(store.getDocumentSnapshot().entries).toEqual([]);
+      },
+    };
+    Reflect.set(terminal, "fullscreen", handle);
+    try {
+      Effect.runSync(terminal.log("visible source"));
+      store.flushOutputBatchNow();
+      expect(store.getDocumentSnapshot().entries).toHaveLength(1);
+      Effect.runSync(terminal.clear());
+      expect(invalidations).toBe(1);
+      expect(clear).not.toHaveBeenCalled();
+    } finally {
+      clear.mockRestore();
+      store.clearOutputs();
+    }
+  });
+
+  test("fullscreen title uses its deliberate capability without foreign stream writes", () => {
+    const terminal = Object.create(InkTerminalService.prototype) as InkTerminalService;
+    const titles: string[] = [];
+    const handle: FullscreenHandle = {
+      release: () => undefined,
+      invalidate: () => undefined,
+      setTitle: (title) => {
+        titles.push(title);
+      },
+    };
+    Reflect.set(terminal, "fullscreen", handle);
+    const writer = spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      Effect.runSync(terminal.setTitle("Jazz session"));
+      expect(titles).toEqual(["Jazz session"]);
+      expect(writer).not.toHaveBeenCalled();
+    } finally {
+      writer.mockRestore();
+    }
+  });
+
+  test("classic title cannot inject terminal controls through its OSC payload", () => {
+    const terminal = Object.create(InkTerminalService.prototype) as InkTerminalService;
+    Reflect.set(terminal, "fullscreen", null);
+    const writer = spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      Effect.runSync(terminal.setTitle("Jazz\x07\x1b[2J\n"));
+      expect(writer).toHaveBeenCalledWith("\x1b]0;Jazz[2J\x07");
+    } finally {
+      writer.mockRestore();
+    }
   });
 });
 
