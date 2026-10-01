@@ -10,6 +10,7 @@ import { formatOneShotError } from "@jazz/cli/commands/run/envelope";
 import {
   isReasoningEffortFlag,
   parseEventCategories,
+  resolveEventsValue,
   VALID_REASONING_EFFORTS,
   resolveStreamOption,
 } from "@jazz/cli/commands/run/flags";
@@ -204,6 +205,10 @@ function registerRunCommand(program: Command): void {
       "Emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,spend,all). stdout stays the clean payload.",
     )
     .option(
+      "--watch <categories>",
+      "Alias of --events: watch the run by emitting selected event categories as NDJSON to stderr. Takes the same categories; do not combine with --events.",
+    )
+    .option(
       "--reasoning <effort>",
       `Reasoning effort for this run: ${VALID_REASONING_EFFORTS.join(" | ")} (overrides the agent's config)`,
     )
@@ -260,6 +265,7 @@ function registerRunCommand(program: Command): void {
           maxTokens?: number;
           maxDurationMs?: number;
           events?: string;
+          watch?: string;
           reasoning?: string;
           conversation?: string;
           stream?: boolean;
@@ -289,8 +295,14 @@ function registerRunCommand(program: Command): void {
           return;
         }
 
+        const eventsValue = resolveEventsValue(options.events, options.watch);
+        if (!eventsValue.ok) {
+          process.stderr.write(`${eventsValue.error}\n`);
+          process.exitCode = 1;
+          return;
+        }
         const eventCategories =
-          options.events !== undefined ? parseEventCategories(options.events) : undefined;
+          eventsValue.value !== undefined ? parseEventCategories(eventsValue.value) : undefined;
         if (eventCategories !== undefined && !eventCategories.ok) {
           if (json) {
             process.stdout.write(
@@ -3010,6 +3022,10 @@ function registerWorkflowCommands(program: Command): void {
       "With --json: emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,spend,all). stdout stays the clean payload.",
     )
     .option(
+      "--watch <categories>",
+      "Alias of --events: watch the run by emitting selected event categories as NDJSON to stderr. Takes the same categories; do not combine with --events.",
+    )
+    .option(
       "--stream",
       "Force streaming mode. Required for --events to emit reasoning and text in non-TTY contexts (CI, containers), where streaming is otherwise auto-disabled and only tool events survive.",
     )
@@ -3028,6 +3044,7 @@ function registerWorkflowCommands(program: Command): void {
           json?: boolean;
           timeout?: number;
           events?: string;
+          watch?: string;
           stream?: boolean;
           noStream?: boolean;
           schedule?: string;
@@ -3038,16 +3055,23 @@ function registerWorkflowCommands(program: Command): void {
         const isWorkflowRunCommand =
           command.name() === "run" && command.parent?.name() === "workflow";
 
+        const eventsValue = resolveEventsValue(options.events, options.watch);
+        if (!eventsValue.ok) {
+          process.stderr.write(`${eventsValue.error}\n`);
+          process.exitCode = 1;
+          return;
+        }
+
         // Only the one-shot presentation layer (json mode) can emit NDJSON
-        // events; in interactive mode --events would be silently ignored.
-        if (options.events !== undefined && !json) {
-          process.stderr.write("--events requires --json.\n");
+        // events; in interactive mode --watch/--events would be silently ignored.
+        if (eventsValue.value !== undefined && !json) {
+          process.stderr.write("--watch (alias of --events) requires --json.\n");
           process.exitCode = 1;
           return;
         }
 
         const eventCategories =
-          options.events !== undefined ? parseEventCategories(options.events) : undefined;
+          eventsValue.value !== undefined ? parseEventCategories(eventsValue.value) : undefined;
         if (eventCategories !== undefined && !eventCategories.ok) {
           process.stdout.write(
             `${JSON.stringify({ ok: false, error: eventCategories.error, costUSD: 0 })}\n`,

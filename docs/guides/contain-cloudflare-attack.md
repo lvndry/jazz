@@ -83,7 +83,7 @@ set +e
   --approval-policy low-risk \
   --park \
   --json \
-  --events subagent,tools,approval,usage \
+  --watch subagent,tools,approval,usage \
   --max-cost-usd 2.00 \
   --timeout 1200000 \
   2>"/var/log/edge-responder/$ALERT_ID.events.ndjson"

@@ -94,7 +94,7 @@ one, so you get asked to confirm rather than losing work in flight.
 ```
 
 A failed envelope still carries `costUSD`, `costKnown` and `tokenUsage`. A run
-killed from outside leaves no envelope; `--events spend` streams `run_spend` events with the
+killed from outside leaves no envelope; `--watch spend` streams `run_spend` events with the
 running total so the caller can use the last one. The chat bridges do exactly that: their daily
 spend cap counts failed, timed-out and cancelled runs, not only answered ones.
 `jazz workflow history <name>` shows the same figures per scheduled run, failed runs included.

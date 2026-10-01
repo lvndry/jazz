@@ -5,6 +5,7 @@ import {
   isReasoningEffortFlag,
   parseEventCategories,
   resolveStreamOption,
+  resolveEventsValue,
 } from "./flags";
 
 describe("parseEventCategories", () => {
@@ -88,6 +89,33 @@ describe("parseEventCategories", () => {
       expect(result.error).toContain("Invalid --events category");
     },
   );
+});
+
+describe("resolveEventsValue", () => {
+  it("passes through a lone --events value", () => {
+    expect(resolveEventsValue("tools,usage", undefined)).toEqual({
+      ok: true,
+      value: "tools,usage",
+    });
+  });
+
+  it("passes through a lone --watch value", () => {
+    expect(resolveEventsValue(undefined, "tools,usage")).toEqual({
+      ok: true,
+      value: "tools,usage",
+    });
+  });
+
+  it("returns undefined when neither is given", () => {
+    expect(resolveEventsValue(undefined, undefined)).toEqual({ ok: true, value: undefined });
+  });
+
+  it("rejects both given at once", () => {
+    const result = resolveEventsValue("tools", "usage");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("--events and --watch");
+  });
 });
 
 describe("isReasoningEffortFlag", () => {
