@@ -34,6 +34,14 @@ state together. The fullscreen bridge consumes that snapshot. A document
 replacement is one transaction; it invalidates pending stream work instead of
 clearing the screen and reprinting entries individually.
 
+The snapshot's `documentGeneration` identifies the mounted-view lifetime, separately
+from the persistent document ID. Replacing or clearing source advances this generation
+even when document and entry IDs are reused. The fullscreen bridge includes it in
+viewport identity, so a replacement starts at the live edge with a fresh unseen
+baseline. Ordinary stream appends and settlement preserve the generation and reading
+position. Rehydrating the same history retires the previous view lifetime; reading
+positions are not persisted across hydration.
+
 The classic interface is a lazy derived projection of the same source. When no
 classic view observes it, fullscreen updates do not maintain a second renderer's
 transcript. Its Markdown

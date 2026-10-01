@@ -407,6 +407,8 @@ function patchSlice<T extends object>(slice: StoreSlice<T>, patch: Partial<T>): 
 
 export interface PresentationSnapshot {
   readonly revision: number;
+  /** Mounted-view lifetime; replacements retire it even when source IDs are reused. */
+  readonly documentGeneration: number;
   readonly document: PresentationDocument;
   readonly session: SessionSnapshot;
   readonly ephemeral: EphemeralSnapshot;
@@ -467,6 +469,7 @@ export class UIStore {
     this.presentationCommitting = false;
     this.presentationSnapshot = {
       revision: ++this.presentationRevision,
+      documentGeneration: this.documentGeneration,
       document: this.document,
       session: this.session.getSnapshot(),
       ephemeral: this.ephemeral.getSnapshot(),
