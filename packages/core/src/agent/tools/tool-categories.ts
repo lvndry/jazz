@@ -100,7 +100,7 @@ export const GOALS_CATEGORY: ToolCategory = {
 };
 export const BROWSER_CATEGORY: ToolCategory = {
   id: "browser",
-  displayName: "Browser",
+  displayName: "Browser Use",
   loadTier: "deferred",
 };
 export const COMPOSITION_CATEGORY: ToolCategory = {
@@ -151,6 +151,16 @@ export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
   WORKSPACE_CATEGORY,
   MEMORY_CATEGORY,
   GOALS_CATEGORY,
+] as const;
+
+/**
+ * The categories every agent gets by default: all the internal ones, plus Browser Use.
+ * Browser is in this list but not in BUILTIN_TOOL_CATEGORIES, so it is on for new
+ * agents yet stays in the tool picker where a user can turn it off.
+ */
+export const DEFAULT_AGENT_TOOL_CATEGORIES: readonly ToolCategory[] = [
+  ...BUILTIN_TOOL_CATEGORIES,
+  BROWSER_CATEGORY,
 ] as const;
 
 /**

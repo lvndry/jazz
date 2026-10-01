@@ -33,6 +33,7 @@ import {
   defineTool,
   makeZodValidator,
 } from "../base-tool";
+import { resolveChromiumBrowser } from "../chromium-default";
 import { egressPolicyForContext, type EgressPolicy } from "../guarded-fetch";
 import { createSystemBrowserLookup, resolveBrowserExecutablePath } from "../web-app";
 import { advisePage, renderSnapshot } from "./page-hooks";
@@ -94,6 +95,23 @@ function browserSessionsFor(context: ToolExecutionContext): BrowserSessions | un
 }
 
 /**
+ * Resolve the browser to launch into a temporary profile. An explicit
+ * `PUPPETEER_EXECUTABLE_PATH` wins outright; otherwise the system default web browser
+ * (when Chromium-based), then Google Chrome. Returns `null` when nothing is drivable —
+ * `describeMissingBrowser` explains what the user can do.
+ */
+async function resolveLaunchBrowser(
+  lookup: ReturnType<typeof createSystemBrowserLookup>,
+): Promise<string | null> {
+  const explicit = await resolveBrowserExecutablePath(lookup);
+  if (explicit !== null) {
+    return explicit;
+  }
+  const candidate = await resolveChromiumBrowser((channel) => lookup.findSystemChrome(channel));
+  return candidate?.executablePath ?? null;
+}
+
+/**
  * The egress policy for one browser call: the private hosts approved for it, plus
  * `network.httpApproval` when the operator set a URL list.
  */
@@ -125,12 +143,10 @@ function withBrowser<Value>(
       try: async () => {
         const session = await sessions.obtain(async () => {
           // No endpoint set: a browser the person runs on the local DevTools port wins,
-          // and a launched Chrome is the fallback when nothing is listening.
-          // No endpoint set: a browser the person runs on the local DevTools port wins;
-          // a launched Chrome is the fallback when nothing is listening there.
+          // and a launched browser is the fallback when nothing is listening there.
           const executablePath =
             configuredEndpoint === undefined
-              ? await resolveBrowserExecutablePath(createSystemBrowserLookup())
+              ? await resolveLaunchBrowser(createSystemBrowserLookup())
               : null;
           return BrowserSession.open({
             executablePath,

@@ -72,18 +72,21 @@ from this machine.
 
 Jazz drives a browser in this order, with no setup required:
 
-1. **A browser you run on the local DevTools port** (`http://127.0.0.1:9222` by default).
-   Start Chrome with `--remote-debugging-port=9222` and the agent drives it: headed, with your
-   profile, and able to adopt tabs you already have open via `browser_adopt_tab`.
-2. **A launched Chrome or Chromium**, the same one compositions use, when nothing listens on
-   the port. Set `PUPPETEER_EXECUTABLE_PATH` to use a specific binary. The browser starts on
-   the first call, uses a fresh temporary profile, and is closed, with the profile deleted,
-   when the run ends. A run has one tab, and pop-ups are refused.
-3. **A configured endpoint**: `network.browserEndpoint` in your global config points the
-   browser tools at any running browser that speaks the Chrome DevTools Protocol, `http(s)://`
-   or `ws(s)://`. Jazz opens an isolated context in it instead of launching Chrome. Everything
-   the agent reads and types then reaches that browser's host, so point it only at a browser
-   you control.
+1. **A configured endpoint** (only if you set one): `network.browserEndpoint` in your global
+   config points the browser tools at any running browser that speaks the Chrome DevTools
+   Protocol, `http(s)://` or `ws(s)://`. Everything the agent reads and types then reaches
+   that browser's host, so point it only at a browser you control.
+2. **A browser you run on the local DevTools port** (`http://127.0.0.1:9222`). Start any
+   Chromium-based browser with `--remote-debugging-port=9222` and the agent drives it:
+   headed, with your profile, and able to adopt tabs you already have open via
+   `browser_adopt_tab`.
+3. **A launched browser**, when nothing listens on the port. Jazz launches the one you
+   actually use: your system default web browser when it is Chromium-based (Arc, Edge,
+   Opera, …), otherwise Google Chrome. Set `PUPPETEER_EXECUTABLE_PATH` to force a specific
+   binary. The browser starts on the first call, uses a fresh temporary profile, and is
+   closed, with the profile deleted, when the run ends. A run has one tab, and pop-ups are
+   refused. If no Chromium-based browser can be found at all, the tools say so and point
+   you at installing Google Chrome.
 
 For example, [Lightpanda](https://lightpanda.io) is a lightweight browser that starts in
 milliseconds. Run `lightpanda serve --host 127.0.0.1 --port 9222`, then set:

@@ -21,7 +21,9 @@
  * one every request during that call is judged by.
  */
 
+import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import puppeteer, {
@@ -35,6 +37,7 @@ import type { PageFlagId, PageStructuralSignals } from "@/core/types/plugin";
 import type { EgressPolicy } from "../guarded-fetch";
 import { readPageSignals } from "./page-signals";
 import { decideBrowserRequest } from "./request-guard";
+import { describeMissingBrowser } from "../chromium-default";
 import { buildSnapshot, type PageSnapshot } from "./snapshot";
 import {
   DEFAULT_TAB_NAME,
@@ -124,9 +127,10 @@ export type PageAction =
   | { readonly kind: "press"; readonly key: string };
 
 export const MISSING_CHROME_ERROR =
-  "The browser tools need a Chrome or Chromium install, and none was found. Install Google " +
-  "Chrome or Chromium, point PUPPETEER_EXECUTABLE_PATH at a browser binary, or set " +
-  "network.browserEndpoint to a running browser.";
+  "No browser is available: nothing listens at " +
+  DEFAULT_LOOPBACK_CDP_ENDPOINT +
+  " and no Chromium-based browser could be launched. " +
+  describeMissingBrowser();
 
 export function adoptedNavigationMessage(name: string): string {
   return `Tab "${name}" is one you adopted and stays on the page it is on. Open another tab with browser_navigate and a tab name.`;
@@ -168,6 +172,102 @@ interface Tab {
   readonly refs: RefTable;
   /** Stop guarding the page and let go of it; an owned tab's page is also closed. */
   readonly dispose: () => Promise<void>;
+}
+
+/** A DevTools port for a launched browser. Tries a handful of candidate ports in order. */
+const LAUNCH_PORTS: readonly number[] = [9331, 9332, 9333, 9334, 9335];
+
+/** Longest the run waits for a launched browser to open its DevTools port. */
+const LAUNCH_WAIT_MS = 20_000;
+
+/**
+ * Pick a free loopback port: bind to port 0 (OS-assigned) momentarily, release it, and use it.
+ * Falls back to the candidate list if the ephemeral bind races. Returns a port to launch on.
+ */
+async function acquireLoopbackPort(): Promise<number> {
+  const probe = createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      probe.once("error", reject);
+      probe.listen({ host: "127.0.0.1", port: 0 }, () => resolve());
+    });
+    const address = probe.address();
+    if (address && typeof address === "object" && address.port > 0) {
+      return address.port;
+    }
+  } finally {
+    probe.close();
+  }
+  for (const port of LAUNCH_PORTS) {
+    if (await portIsFree(port)) {
+      return port;
+    }
+  }
+  throw new Error("Could not find a free local port to launch a browser on.");
+}
+
+function portIsFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", () => resolve(false));
+    probe.once("listening", () => {
+      probe.close(() => resolve(true));
+    });
+    probe.listen({ host: "127.0.0.1", port });
+  });
+}
+
+/**
+ * Launch `executablePath` with a DevTools port and connect to it, retrying until its
+ * /json/version answers. The child is owned by this process; the returned `Browser`
+ * disconnects and the caller closes it on release.
+ */
+interface LaunchedBrowser {
+  readonly browser: Browser;
+  readonly child: import("node:child_process").ChildProcess;
+}
+
+async function connectToPort(options: {
+  executablePath: string;
+  profileDirectory: string;
+  port: number;
+}): Promise<LaunchedBrowser> {
+  const { executablePath, profileDirectory, port } = options;
+  const child = spawn(
+    executablePath,
+    [
+      "--headless=new",
+      `--remote-debugging-port=${String(port)}`,
+      `--user-data-dir=${profileDirectory}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      ...sandboxArguments(),
+      POPUP_FLAG,
+      "--disable-extensions",
+      "--mute-audio",
+    ],
+    { stdio: "ignore", detached: true },
+  );
+  child.on("error", () => undefined);
+  const deadline = Date.now() + LAUNCH_WAIT_MS;
+  let lastError: unknown = null;
+  while (Date.now() < deadline) {
+    try {
+      const browser = await puppeteer.connect({
+        browserURL: `http://127.0.0.1:${String(port)}`,
+        protocolTimeout: PROTOCOL_TIMEOUT_MS,
+      });
+      // The child outlives this call on purpose: release() closes the CDP connection and
+      // kills the child; the run's end is when the profile is removed.
+      child.unref();
+      return { browser, child };
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  child.kill("SIGKILL");
+  throw new Error(`Browser did not open a DevTools port in time: ${errorMessage(lastError)}`);
 }
 
 export class BrowserSession {
@@ -236,23 +336,27 @@ export class BrowserSession {
     });
   }
 
+  /**
+   * Launch a browser the run owns, into a temporary profile, and drive it over CDP on a
+   * loopback port. Port + connect (rather than `puppeteer.launch`'s pipe transport) is used
+   * because Chromium-based browsers that are not Google Chrome proper — Arc, Opera, Vivaldi
+   * and other Electron-packaged engines — answer a DevTools port reliably but not always the
+   * pipe handshake. The run launches its own child, so `release` closes the browser and the
+   * temporary profile is deleted with it.
+   */
   private static async launch(executablePath: string): Promise<BrowserSession> {
     const profileDirectory = await mkdtemp(path.join(os.tmpdir(), PROFILE_PREFIX));
     try {
-      const browser = await puppeteer.launch({
-        browser: "chrome",
-        executablePath,
-        headless: true,
-        userDataDir: profileDirectory,
-        protocolTimeout: PROTOCOL_TIMEOUT_MS,
-        args: [...sandboxArguments(), POPUP_FLAG, "--disable-extensions", "--mute-audio"],
-      });
+      const port = await acquireLoopbackPort();
+      const launched = await connectToPort({ executablePath, profileDirectory, port });
       return await BrowserSession.openWith({
-        newPage: () => browser.newPage(),
+        newPage: () => launched.browser.newPage(),
         userPages: undefined,
         profileDirectory,
         release: async () => {
-          await browser.close();
+          // A CDP-connected browser does not kill its child on close(), so reap it here.
+          await launched.browser.close().catch(() => undefined);
+          launched.child.kill("SIGKILL");
         },
       });
     } catch (error) {

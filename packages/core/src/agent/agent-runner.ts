@@ -104,7 +104,7 @@ import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerBrowserAdoptionTools, registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
-import { BUILTIN_TOOL_CATEGORIES } from "./tools/tool-categories";
+import { BUILTIN_TOOL_CATEGORIES, DEFAULT_AGENT_TOOL_CATEGORIES } from "./tools/tool-categories";
 import { INTERACTIVE_TOOL_NAMES } from "./tools/user-interaction";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
@@ -632,7 +632,7 @@ function initializeAgentRun(
       if (toolProfile?.categories !== undefined) return toolProfile.categories;
       // Back-compat: summarizer with no profile keeps its empty bundle.
       if (persona === "summarizer") return [];
-      return BUILTIN_TOOL_CATEGORIES.map((c) => c.id);
+      return DEFAULT_AGENT_TOOL_CATEGORIES.map((c) => c.id);
     })();
 
     const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((c) => c.id));

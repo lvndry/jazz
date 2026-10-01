@@ -33,7 +33,10 @@ import {
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
 import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell";
-import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
+import {
+  BUILTIN_TOOL_CATEGORIES,
+  DEFAULT_AGENT_TOOL_CATEGORIES,
+} from "@jazz/core/agent/tools/tool-categories";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
@@ -887,7 +890,7 @@ function handleToolsCommand(
         ? toolProfile.categories
         : agent.config.persona === "summarizer"
           ? []
-          : BUILTIN_TOOL_CATEGORIES.map((c) => c.id);
+          : DEFAULT_AGENT_TOOL_CATEGORIES.map((c) => c.id);
 
     const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((c) => c.id));
     const builtInToolNames = (yield* Effect.all(
