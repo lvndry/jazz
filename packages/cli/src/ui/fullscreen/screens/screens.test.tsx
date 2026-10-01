@@ -344,8 +344,9 @@ describe("home screen", () => {
     const drawn = await drawHome(SETTLED, TALL, { draft: "/re" });
     const descriptions = HOME_COMMANDS.map((command) => command.description);
     const menu = drawn.rows.filter((row) => descriptions.some((text) => row.includes(text)));
-    expect(menu).toHaveLength(1);
+    expect(menu).toHaveLength(2);
     expect(menu[0]).toContain("/resume");
+    expect(menu[1]).toContain("/create");
     expect(drawn.text).toContain("enter runs /resume");
     const matched = allSpans(drawn.frame).filter((span) => span.text === "re");
     expect(matched.some((span) => (span.attributes & TextAttributes.BOLD) !== 0)).toBe(true);

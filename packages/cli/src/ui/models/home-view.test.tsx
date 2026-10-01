@@ -149,7 +149,10 @@ describe("keys", () => {
   });
 
   it("slash commands run from the composer and never start a conversation", () => {
-    expect(homeCommandMatches(HOME, "/re")?.map((command) => command.name)).toEqual(["resume"]);
+    expect(homeCommandMatches(HOME, "/re")?.map((command) => command.name)).toEqual([
+      "resume",
+      "create",
+    ]);
     expect(homeIntent(HOME, at({ draft: "/re" }), { name: "return" })).toEqual({
       kind: "answer",
       value: "resume-conversation",
