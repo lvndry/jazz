@@ -47,10 +47,10 @@ A plugin can technically read files or environment variables, access the network
 terminate the process without using the host API.
 
 For that reason installation, code trust, data-egress consent, and per-agent enablement are separate
-steps. First-time trust and new consent can be granted only from a local interactive terminal.
-`--yes` skips the confirmation question but not that requirement: `jazz plugin trust` and
-`jazz plugin enable` refuse to run from a script, a pipe, or CI. Chat and unattended surfaces report
-the required local command instead.
+steps. Without `--yes`, first-time trust and new consent are granted only from a local interactive
+terminal: a headless run cannot show the confirmation prompt. `--yes` is itself the operator's
+consent, so `jazz plugin trust --yes` and `jazz plugin enable --yes` work from a script, a pipe,
+or CI. Chat and unattended surfaces report the required local command instead.
 
 ```bash
 # GitHub is the default source: no author build, pack, or release step.
