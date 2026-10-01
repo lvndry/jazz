@@ -149,7 +149,11 @@ describe("keys", () => {
   });
 
   it("slash commands run from the composer and never start a conversation", () => {
-    expect(homeCommandMatches(HOME, "/re")?.map((command) => command.name)).toEqual(["resume"]);
+    // "create" is a substring hit (c·re·ate), so it trails the prefix match, but must not displace it.
+    expect(homeCommandMatches(HOME, "/re")?.map((command) => command.name)).toEqual([
+      "resume",
+      "create",
+    ]);
     expect(homeIntent(HOME, at({ draft: "/re" }), { name: "return" })).toEqual({
       kind: "answer",
       value: "resume-conversation",
