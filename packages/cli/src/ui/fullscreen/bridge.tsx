@@ -2999,7 +2999,7 @@ export function FullscreenBridge(): React.ReactNode {
     () => ({
       header,
       blocks,
-      documentId: `${currentConversation?.conversationId ?? presentation.document.id}:${inspectedRun === undefined ? "main" : `child:${inspectedRun.id}`}`,
+      documentId: `${presentation.document.id}:${inspectedRun === undefined ? "main" : `child:${inspectedRun.id}`}`,
       runActive,
       live,
       input,
@@ -3017,7 +3017,6 @@ export function FullscreenBridge(): React.ReactNode {
       footer,
       subagentList,
       overlay,
-      currentConversation?.conversationId,
       presentation.document.id,
       inspectedRun,
     ],
