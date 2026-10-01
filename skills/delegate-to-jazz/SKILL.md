@@ -76,7 +76,8 @@ the path — keep the prompt on argv short.
 ### 4. Dispatch
 
 ```bash
-jazz run --agent <id-or-name> --approval-policy low-risk --timeout 300000 --json "<prompt>"
+jazz run --agent <id-or-name> --approval-policy low-risk --timeout 300000 \
+  --events tools,usage,spend,approval --json "<prompt>"
 ```
 
 Flag guidance:
@@ -91,6 +92,13 @@ Flag guidance:
 - `--timeout <ms>` is cheap insurance: a dead local server (llama.cpp, Ollama, vLLM)
   otherwise hangs the call far longer than the run would have taken. Set it above the
   model's expected runtime, not below.
+- `--events tools,usage,spend,approval` keeps the delegating agent in the loop
+  instead of staring at a black box: NDJSON progress lines on stderr name each tool
+  call, token usage, cumulative spend, and every approval decision, so the agent can
+  see the work is moving, notice a dead end early, and report progress to the user.
+  `--events` only takes effect together with `--json` — the one-shot layer is what
+  writes NDJSON. Use `--events all` only for debugging — it adds reasoning and text
+  deltas and floods stderr.
 - `--max-duration-ms <ms>` when the task has a deadline.
 - `--reasoning <effort>` to push a hard task onto a stronger thinking level than the
   agent's default.
@@ -98,10 +106,20 @@ Flag guidance:
   reads piped stdin when there is no positional prompt:
   `cat /tmp/task-prompt.md | jazz run --agent <id> --approval-policy low-risk --json`.
 
+This list covers the flags delegation actually needs, not the whole surface. When a flag
+behaves unexpectedly, or you need one not listed here, ask the CLI itself — `jazz help run`
+or `jazz run --help` prints every option with its description, and the Jazz docs have the
+full contract. Trust those over memory: flag names and behaviors change between releases.
+
 **Result contract:** stdout carries exactly one JSON envelope:
 `{ ok: true, answer, costUSD, tokenUsage, toolCalls }` on success, or
-`{ ok: false, error, code }` on failure. Status and progress go to stderr — ignore
-them unless the run fails.
+`{ ok: false, error, code }` on failure. With `--events` set (and `--json`), stderr
+carries NDJSON progress events, one per line: `tool_execution_start`,
+`tool_execution_complete`, `usage_update`, `run_spend`, `approval_required`,
+`approval_resolved`, plus an `error` event that is always emitted — parseable, not
+just for humans. Watch a `run_spend` line climbing toward `--max-cost-usd` and
+mention it in the report; a run that stops producing events for a long stretch is the
+first sign it is stuck, and `--timeout` is what finally kills it.
 
 ### 5. Relate the result back
 
