@@ -50,8 +50,10 @@ Jazz loads skill instructions on demand:
 
 On a name collision the more specific source wins, so a project can override a built-in skill.
 
-Jazz ships skills for research, journaling, meeting notes, email, calendar, Obsidian, and
-creating personas, workflows and skills themselves.
+Jazz ships skills for research, journaling, meeting notes, email, calendar, Obsidian,
+creating personas, workflows and skills themselves, and delegating work to other local
+Jazz agents ([delegate-to-jazz](../../skills/delegate-to-jazz/SKILL.md)) so a task can run
+on the cheaper, local, or more capable model.
 
 In an interactive terminal, `/skills` opens a searchable catalog of built-in, global,
 shared-agent, project, and plugin skills. Type to filter by name, source, or description;
