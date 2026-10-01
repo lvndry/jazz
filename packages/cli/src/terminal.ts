@@ -377,7 +377,11 @@ export class InkTerminalService implements TerminalService {
           if (promptType === "chat") {
             // Slash commands and shell escapes never reach the model's history,
             // so they are recorded here — otherwise ↑ only recalls prose.
-            store.pushInputHistory(inputValue);
+            // Secret prompts are masked in the transcript; keeping their raw
+            // value would let ↑ paste the secret back into the composer.
+            if (!isSecret) {
+              store.pushInputHistory(inputValue);
+            }
             printUserMessage(displayValue);
           } else {
             const rawMessage = `${message} ${CHALK_THEME.primary(displayValue)}`;

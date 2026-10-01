@@ -5,6 +5,7 @@ import {
   hydrateTranscriptFromHistory,
   hydrateTranscriptFromUiEntries,
   outputEntriesFromHistory,
+  resolveSessionHydration,
 } from "./hydrate-transcript";
 import type { OutputEntry } from "./types";
 
@@ -158,6 +159,47 @@ describe("hydrateInputHistoryFromMessages", () => {
     expect(sink.history).toEqual([]);
   });
 });
+
+describe("resolveSessionHydration", () => {
+  const uiEntries = [{ type: "log" as const, message: "command output" }];
+  const history = messages([{ role: "user", content: "real question" }]);
+
+  test("prefers the UI transcript when present, but recall still reads the model history", () => {
+    const plan = resolveSessionHydration(uiEntries, history);
+
+    expect(plan.transcript).toBe("ui");
+    // The plan repaints the UI entries…
+    if (plan.transcript !== "ui") throw new Error("unreachable");
+    expect(plan.entries).toBe(uiEntries);
+    // …yet recall is seeded from the model history, so ↑ still recalls the turn.
+    const sink = sinkFrom([]);
+    hydrateInputHistoryFromMessages(history, sink);
+    expect(sink.history).toEqual(["real question"]);
+  });
+
+  test("falls back to the model history when there is no UI transcript", () => {
+    expect(resolveSessionHydration(undefined, history).transcript).toBe("history");
+    expect(resolveSessionHydration([], history).transcript).toBe("history");
+  });
+
+  test("seeds nothing when the conversation is brand new", () => {
+    expect(resolveSessionHydration(undefined, []).transcript).toBe("none");
+    expect(resolveSessionHydration([], []).transcript).toBe("none");
+  });
+});
+
+function sinkFrom(history: string[]) {
+  const sink: {
+    history: string[];
+    pushInputHistory: (message: string) => void;
+    clearInputHistory: () => void;
+  } = { history, pushInputHistory: () => undefined, clearInputHistory: () => undefined };
+  sink.pushInputHistory = (message) => sink.history.push(message);
+  sink.clearInputHistory = () => {
+    sink.history.length = 0;
+  };
+  return sink;
+}
 
 describe("hydrateTranscriptFromUiEntries", () => {
   test("restores command entries without manufacturing model messages", () => {
