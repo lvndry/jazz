@@ -111,6 +111,21 @@ describe("localServerUnreachableMessage", () => {
     expect(message).not.toContain("127.0.0.1:8080");
   });
 
+  it("treats a failed Ollama Cloud request as a remote endpoint, not a server to start", () => {
+    const message = localServerUnreachableMessage("ollama", "https://ollama.com/api");
+    expect(message).toContain("https://ollama.com");
+    expect(message).toContain("remote endpoint");
+    expect(message).not.toContain("ollama serve");
+    expect(message).not.toContain("Make sure it is running");
+  });
+
+  it("still treats a local Ollama default as a server to start", () => {
+    const message = localServerUnreachableMessage("ollama");
+    expect(message).toContain("ollama serve");
+    expect(message).toContain("127.0.0.1:11434");
+    expect(message).not.toContain("remote endpoint");
+  });
+
   it("gives the start hint for any loopback server, shown without its API path", () => {
     const message = localServerUnreachableMessage("llamacpp", "http://localhost:8090/v1");
     expect(message).toContain("llama-server -m");

@@ -5,6 +5,13 @@
 
 // Ollama truncates to a small runtime context (~4096) unless num_ctx is set, so
 // agents pick from this ladder, capped to the model's real maximum.
+
+/**
+ * The host Ollama Cloud models authenticate against. The API root appends `/api`; the bare
+ * root is what diagnostics show, so a failed cloud request reads as `ollama.com`, not a
+ * server with a path the user has to start.
+ */
+export const OLLAMA_CLOUD_ROOT = "https://ollama.com";
 const OLLAMA_CONTEXT_WINDOW_LADDER = [4096, 8192, 16384, 32768, 65536, 131072] as const;
 const OLLAMA_DEFAULT_CONTEXT_WINDOW = 32768;
 

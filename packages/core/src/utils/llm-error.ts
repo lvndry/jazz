@@ -343,11 +343,13 @@ function isLoopbackUrl(url: string): boolean {
 }
 
 /**
- * Start-the-server guidance for local providers; undefined for everything else.
+ * Guidance when a provider the user runs (or that also runs remotely) does not answer.
+ * `attemptedUrl` is the base URL the failed request actually used (config, env, or default),
+ * so the message names what was tried, not what the default says.
  *
- * `attemptedUrl` is the base URL the failed request actually used (config, env, or default).
- * Without it the env var or the default is reported, which misnames a URL saved in config.
- * A loopback server gets the command to start it; a remote one can only be checked, not started.
+ * Three shapes: a remote host a provider serves from (Ollama Cloud) is a network or account
+ * problem, never a daemon to start; a non-loopback server can only be checked, not started;
+ * a loopback one gets the command to start it.
  */
 export function localServerUnreachableMessage(
   providerName: ProviderName,
@@ -360,10 +362,24 @@ export function localServerUnreachableMessage(
   const targetUrl = localServerAddress(
     attemptedUrl || process.env[local.envVar] || local.defaultUrl,
   );
+  if (isRemoteProviderHost(local.remoteHostnames, targetUrl)) {
+    return `Cannot reach ${local.name} at ${targetUrl}. This is a remote endpoint, not a local server to start: check your network connection and your ${local.name} account or API key. If the base URL was set in config, correct it with 'jazz config set llm.${providerName}.base_url <url>'.`;
+  }
   if (!isLoopbackUrl(targetUrl)) {
     return `Cannot reach the ${local.name} server at ${targetUrl}. Make sure it is running and reachable from this host.`;
   }
   return `Cannot reach the ${local.name} server (expected at ${targetUrl}). Make sure it is running — start it with:\n  ${local.startHint}\nIf it listens elsewhere, set the base URL via 'jazz config set llm.${providerName}.base_url <url>'.`;
+}
+
+/** Whether the attempted URL points at a host the provider serves from remotely. */
+function isRemoteProviderHost(remoteHosts: readonly string[] | undefined, url: string): boolean {
+  if (!remoteHosts) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return remoteHosts.some((remote) => host === remote || host.endsWith(`.${remote}`));
+  } catch {
+    return false;
+  }
 }
 
 /**

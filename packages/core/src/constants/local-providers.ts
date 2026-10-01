@@ -17,32 +17,47 @@ export const LOCAL_MODEL_PROVIDERS = [
 export type LocalServerProvider = (typeof LOCAL_MODEL_PROVIDERS)[number];
 
 // Local, user-run servers. This metadata drives the "server unreachable" diagnostics.
+// `remoteHostnames` names hosts the provider also serves from remotely (Ollama Cloud):
+// a failure against one is a network or account problem, not a daemon to start, so the
+// diagnostic must not point the user at `ollama serve`.
+interface LocalServerProviderMeta {
+  readonly name: string;
+  readonly defaultUrl: string;
+  readonly envVar: string;
+  readonly startHint: string;
+  readonly remoteHostnames: readonly string[];
+}
+
 export const LOCAL_SERVER_PROVIDERS = {
   llamacpp: {
     name: "llama.cpp",
     defaultUrl: "http://127.0.0.1:8080",
     envVar: "LLAMACPP_BASE_URL",
     startHint: "llama-server -m <model>.gguf --port 8080 --jinja",
+    remoteHostnames: [],
   },
   ollama: {
     name: "Ollama",
     defaultUrl: "http://127.0.0.1:11434",
     envVar: "OLLAMA_BASE_URL",
     startHint: "ollama serve",
+    remoteHostnames: ["ollama.com"],
   },
   sglang: {
     name: "SGLang",
     defaultUrl: "http://127.0.0.1:30000",
     envVar: "SGLANG_BASE_URL",
     startHint: "python -m sglang.launch_server --model-path <model> --port 30000",
+    remoteHostnames: [],
   },
   vllm: {
     name: "vLLM",
     defaultUrl: "http://127.0.0.1:8000",
     envVar: "VLLM_BASE_URL",
     startHint: "vllm serve <model> --port 8000",
+    remoteHostnames: [],
   },
-} as const satisfies Record<LocalServerProvider, unknown>;
+} as const satisfies Record<LocalServerProvider, LocalServerProviderMeta>;
 
 /**
  * Whether this provider serves models from the user's own machine.

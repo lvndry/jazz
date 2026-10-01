@@ -787,6 +787,51 @@ describe("AI SDK Service - Unit Tests", () => {
         }
       },
     );
+
+    it("treats a failed Ollama Cloud request as a remote endpoint, not a local server to start", async () => {
+      const attemptedUrls: string[] = [];
+      const previousKey = process.env["OLLAMA_API_KEY"];
+      process.env["OLLAMA_API_KEY"] = "test-cloud-key";
+      globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+        const url = String(input);
+        attemptedUrls.push(url);
+        throw new TypeError("fetch failed", {
+          cause: Object.assign(new Error("Connection refused"), { code: "ECONNREFUSED" }),
+        });
+      }) as typeof fetch;
+
+      try {
+        const result = await runWithTestLayers(
+          Effect.gen(function* () {
+            const llm = yield* LLMServiceTag;
+            return yield* Effect.either(
+              llm
+                .createChatCompletion("ollama", {
+                  model: "llama3.1:8b:cloud",
+                  messages: [{ role: "user", content: "Hello" }],
+                })
+                .pipe(Effect.asVoid),
+            );
+          }),
+          createTestConfigLayer({}),
+        );
+
+        expect(attemptedUrls).toContain("https://ollama.com/api/chat");
+        expect(Either.isLeft(result)).toBe(true);
+        if (Either.isLeft(result)) {
+          expect(result.left).toBeInstanceOf(LLMRequestError);
+          expect(result.left.message).toContain("https://ollama.com");
+          expect(result.left.message).toContain("remote endpoint");
+          expect(result.left.message).not.toContain("ollama serve");
+          expect(result.left.message).not.toContain("127.0.0.1:11434");
+          expect(isRetryableLLMError(result.left)).toBe(true);
+        }
+      } finally {
+        globalThis.fetch = actualFetch;
+        if (previousKey === undefined) delete process.env["OLLAMA_API_KEY"];
+        else process.env["OLLAMA_API_KEY"] = previousKey;
+      }
+    });
   });
 
   describe("Provider Authentication", () => {
