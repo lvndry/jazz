@@ -14,7 +14,7 @@ import { isRecord } from "@jazz/core/utils/is-record";
 import {
   formatToolArguments as formatToolArgumentsCore,
   formatToolResult as formatToolResultCore,
-  isFileMutationTool,
+  isDiffReceiptTool,
 } from "@jazz/core/utils/tool-formatter";
 import chalk from "chalk";
 import { Effect } from "effect";
@@ -45,7 +45,7 @@ export function formatToolArguments(
 
 export function formatToolResult(toolName: string, result: string): string {
   const formatted = formatToolResultCore(toolName, result);
-  if (!isFileMutationTool(toolName)) return formatted;
+  if (!isDiffReceiptTool(toolName)) return formatted;
   return colorizeFileMutationOutput(formatted, languageFromToolResult(result));
 }
 

@@ -8,7 +8,7 @@ import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolDisplayName as formatToolDisplayNameShared,
   fileMutationDiffPreview,
-  isFileMutationTool,
+  isDiffReceiptTool,
 } from "@jazz/core/utils/tool-formatter";
 import { computeUsageCostUSD } from "@jazz/core/utils/usage-cost";
 import chalk from "chalk";
@@ -360,7 +360,7 @@ export class CLIRenderer {
       durationMs: event.durationMs,
       classifiedRisk: event.classifiedRisk,
       diffPreview:
-        toolName !== undefined && isFileMutationTool(toolName)
+        toolName !== undefined && isDiffReceiptTool(toolName)
           ? fileMutationDiffPreview(event.result)
           : undefined,
     });

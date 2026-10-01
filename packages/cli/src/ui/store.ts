@@ -422,6 +422,7 @@ export class UIStore {
   private outputBatch: OutputEntryWithId[] = [];
   private batchFlushScheduled = false;
   private expandableDiff: ExpandableDiffPayload | null = null;
+  private pendingReceiptDiffs = new Map<string, string>();
   private modeSwitchHandler: ModeSwitchHandler | null = null;
   private sessionCostUSD = 0;
   private sessionPromptTokens = 0;
@@ -702,13 +703,88 @@ export class UIStore {
   setExpandableDiff = (fullDiff: string): void => {
     this.expandableDiff = { fullDiff, timestamp: Date.now() };
   };
-
   getExpandableDiff = (): ExpandableDiffPayload | null => {
     return this.expandableDiff;
   };
 
   clearExpandableDiff = (): void => {
     this.expandableDiff = null;
+  };
+
+  /**
+   * A write/edit receipt's full diff, held until its card is answered. The
+   * receipt itself cannot carry the text: the tool only sees the result after
+   * the approval decision, so it arrives late. Both interfaces read it when
+   * the receipt settles; nothing else may touch these ids.
+   */
+  setPendingReceiptDiff = (toolCallId: string, diffText: string): void => {
+    this.pendingReceiptDiffs.set(toolCallId, diffText);
+  };
+
+  takePendingReceiptDiff = (toolCallId: string): string | undefined => {
+    const diffText = this.pendingReceiptDiffs.get(toolCallId);
+    if (diffText === undefined) return undefined;
+    this.pendingReceiptDiffs.delete(toolCallId);
+    return diffText;
+  };
+
+  clearPendingReceiptDiff = (toolCallId: string): void => {
+    this.pendingReceiptDiffs.delete(toolCallId);
+  };
+
+  /**
+   * Ctrl+E: expand the most recent settled write/edit receipt's full diff in
+   * place (or collapse it). Walks back through older receipts when the newest
+   * is already expanded, the way Ctrl+R walks the reasoning blocks. Returns
+   * false when no receipt carries a diff to expand.
+   */
+  toggleLastReceiptDiff = (): boolean => {
+    this.flushOutputBatchNow();
+    const entries = this.output.getSnapshot().entries;
+    const candidates: { id: string; expanded: boolean }[] = [];
+    for (const entry of entries) {
+      if (entry.type !== "log") continue;
+      const receipt = entry.meta?.["toolReceipt"] as
+        { readonly app?: unknown; readonly diffText?: unknown } | undefined;
+      if (receipt === undefined || typeof receipt["app"] !== "string") continue;
+      if (typeof receipt["diffText"] !== "string" || receipt["diffText"].length === 0) continue;
+      candidates.push({ id: entry.id, expanded: entry.meta?.["expanded"] === true });
+    }
+    for (const candidate of candidates.reverse()) {
+      const expanded = !candidate.expanded;
+      const previous = this.output.getSnapshot();
+      let found = false;
+      const nextEntries = previous.entries.map((entry) => {
+        if (entry.id !== candidate.id) return entry;
+        found = true;
+        return { ...entry, meta: { ...entry.meta, expanded } };
+      });
+      if (!found) continue;
+      this.scrollback = { ...this.scrollback, staticEntries: nextEntries };
+      this.output.set({ ...previous, entries: nextEntries });
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * The newest settled write/edit receipt's full diff, for the classic
+   * scrollback to append below the transcript. Unaffected by later tool
+   * results, because the diff rides on the receipt itself.
+   */
+  latestReceiptDiffText = (): string | undefined => {
+    this.flushOutputBatchNow();
+    let latest: string | undefined;
+    for (const entry of this.output.getSnapshot().entries) {
+      if (entry.type !== "log") continue;
+      const receipt = entry.meta?.["toolReceipt"] as
+        { readonly app?: unknown; readonly diffText?: unknown } | undefined;
+      if (receipt === undefined || typeof receipt["app"] !== "string") continue;
+      if (typeof receipt["diffText"] === "string" && receipt["diffText"].length > 0) {
+        latest = receipt["diffText"];
+      }
+    }
+    return latest;
   };
 
   registerModeSwitchHandler = (handler: ModeSwitchHandler | null): void => {

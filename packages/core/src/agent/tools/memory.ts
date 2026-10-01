@@ -39,9 +39,11 @@ import {
   type MemoryEntryIdentity,
 } from "@/core/memory/source-trust";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { toError } from "@/core/utils/errors";
 import { sha256Hex } from "@/core/utils/hash";
 import { formatByteSize } from "@/core/utils/string";
+import { diffExceedsPreview } from "@/core/utils/tool-formatter";
 import { MANAGE_MEMORY_TOOL_NAME } from "../memory-recall-log";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -226,10 +228,52 @@ type ManageMemoryArgs = z.infer<typeof manageMemoryParameters>;
 interface MemoryChangeOutcome {
   readonly success: boolean;
   readonly message: string;
+  readonly diff?: string;
+  readonly wasTruncated?: boolean;
+  readonly fullDiff?: string;
 }
 
 function rejected(message: string): Effect.Effect<MemoryChangeOutcome> {
   return Effect.succeed({ success: false, message });
+}
+
+/**
+ * The patch an entry change renders under its receipt, so the call shows the
+ * old claim and the new one rather than a bare status message. Mirrors the
+ * `write_file` result: a capped colored diff, with an untruncated full patch
+ * only when the preview has to hide rows (Ctrl+O expansion).
+ */
+function memoryChangeDiff(
+  oldContent: string,
+  newContent: string,
+  path: string,
+): Pick<MemoryChangeOutcome, "diff" | "wasTruncated" | "fullDiff"> {
+  const isNew = oldContent === "";
+  const { diff, wasTruncated } = generateDiffWithMetadata(oldContent, newContent, path, {
+    isNewFile: isNew,
+    fullPatch: isNew,
+  });
+  const needsExpansion = wasTruncated || diffExceedsPreview(diff);
+  const fullDiff = needsExpansion
+    ? generateDiff(oldContent, newContent, path, {
+        isNewFile: isNew,
+        maxLines: Number.POSITIVE_INFINITY,
+        fullPatch: true,
+      })
+    : "";
+  return { diff, wasTruncated, fullDiff };
+}
+
+/** A successful mutation gains the patch of what it wrote; a rejection keeps its message. */
+function withDiff(
+  outcome: MemoryChangeOutcome,
+  oldContent: string,
+  newContent: string,
+  path: string,
+): MemoryChangeOutcome {
+  return outcome.success
+    ? { ...outcome, ...memoryChangeDiff(oldContent, newContent, path) }
+    : outcome;
 }
 
 /** The complete current entry at `path`, or why it cannot be changed through the tool. */
@@ -304,17 +348,17 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
           } satisfies ToolExecutionResult;
         }
 
-        const outcome: MemoryChangeOutcome = yield* (() => {
+        const outcome: MemoryChangeOutcome = yield* Effect.gen(function* () {
           switch (args.command) {
             case "create": {
               const unusable = describeUnusableSubject(args.subject);
               if (unusable !== undefined) {
-                return rejected(unusable);
+                return yield* rejected(unusable);
               }
               if (args.topic !== ALWAYS_SEGMENT) {
                 const unusableTopic = describeUnusableTopic(args.topic);
                 if (unusableTopic !== undefined) {
-                  return rejected(unusableTopic);
+                  return yield* rejected(unusableTopic);
                 }
               }
               const scope = args.scope ?? scopes[0] ?? DEFAULT_MEMORY_SCOPE;
@@ -323,73 +367,80 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
                 subject: args.subject,
                 ...(args.topic !== ALWAYS_SEGMENT ? { topic: args.topic } : {}),
               });
-              return memoryService.create(scopes, targetPath, formatStoredUserClaim(quote), {
+              const claim = formatStoredUserClaim(quote);
+              const created = yield* memoryService.create(scopes, targetPath, claim, {
                 ...writeContext,
                 entry: {
                   origin: context.agentId === MEMORY_EXTRACTOR_AGENT_ID ? "auto" : "user",
                 },
               });
+              return withDiff(created, "", claim, targetPath);
             }
-            case "amend":
-              return Effect.gen(function* () {
-                const currentEntry = yield* readEntryForChange(memoryService, scopes, args.path);
-                if (typeof currentEntry === "string") {
-                  return yield* rejected(currentEntry);
-                }
-                if (!quoteNamesEntry(quote, currentEntry)) {
-                  return yield* rejected(
-                    `Memory amendment rejected: the quote must name what ${args.path} is about.`,
-                  );
-                }
-                return yield* memoryService.strReplace(
-                  scopes,
-                  args.path,
-                  currentEntry.content,
-                  formatStoredUserClaim(quote),
-                  writeContext,
+            case "amend": {
+              const currentEntry = yield* readEntryForChange(memoryService, scopes, args.path);
+              if (typeof currentEntry === "string") {
+                return yield* rejected(currentEntry);
+              }
+              if (!quoteNamesEntry(quote, currentEntry)) {
+                return yield* rejected(
+                  `Memory amendment rejected: the quote must name what ${args.path} is about.`,
                 );
-              });
-            case "delete":
-              return Effect.gen(function* () {
-                const currentEntry = yield* readEntryForChange(memoryService, scopes, args.path);
-                if (typeof currentEntry === "string") {
-                  return yield* rejected(currentEntry);
-                }
-                if (!requestsMemoryChange(source, quote, "forget", currentEntry)) {
-                  return yield* rejected(
-                    "Deleting memory requires a quoted sentence that asks to forget this entry by name.",
-                  );
-                }
-                return yield* memoryService.delete(scopes, args.path);
-              });
-            case "rename":
-              return Effect.gen(function* () {
-                const currentEntry = yield* readEntryForChange(
-                  memoryService,
-                  scopes,
-                  args.old_path,
+              }
+              const claim = formatStoredUserClaim(quote);
+              const amended = yield* memoryService.strReplace(
+                scopes,
+                args.path,
+                currentEntry.content,
+                claim,
+                writeContext,
+              );
+              return withDiff(amended, currentEntry.content, claim, args.path);
+            }
+            case "delete": {
+              const currentEntry = yield* readEntryForChange(memoryService, scopes, args.path);
+              if (typeof currentEntry === "string") {
+                return yield* rejected(currentEntry);
+              }
+              if (!requestsMemoryChange(source, quote, "forget", currentEntry)) {
+                return yield* rejected(
+                  "Deleting memory requires a quoted sentence that asks to forget this entry by name.",
                 );
-                if (typeof currentEntry === "string") {
-                  return yield* rejected(currentEntry);
-                }
-                if (!requestsMemoryChange(source, quote, "rename", currentEntry)) {
-                  return yield* rejected(
-                    "Renaming memory requires a quoted sentence that asks to rename this entry by name.",
-                  );
-                }
-                return yield* memoryService.rename(
-                  scopes,
-                  args.old_path,
-                  args.new_path,
-                  writeContext,
+              }
+              const deleted = yield* memoryService.delete(scopes, args.path);
+              return withDiff(deleted, currentEntry.content, "", args.path);
+            }
+            case "rename": {
+              const currentEntry = yield* readEntryForChange(memoryService, scopes, args.old_path);
+              if (typeof currentEntry === "string") {
+                return yield* rejected(currentEntry);
+              }
+              if (!requestsMemoryChange(source, quote, "rename", currentEntry)) {
+                return yield* rejected(
+                  "Renaming memory requires a quoted sentence that asks to rename this entry by name.",
                 );
-              });
+              }
+              return yield* memoryService.rename(
+                scopes,
+                args.old_path,
+                args.new_path,
+                writeContext,
+              );
+            }
           }
-        })();
+        });
 
         return {
           success: outcome.success,
-          result: outcome.success ? { message: outcome.message } : null,
+          result: outcome.success
+            ? {
+                message: outcome.message,
+                ...(outcome.diff !== undefined ? { diff: outcome.diff } : {}),
+                ...(outcome.wasTruncated !== undefined
+                  ? { wasTruncated: outcome.wasTruncated }
+                  : {}),
+                ...(outcome.fullDiff !== undefined ? { fullDiff: outcome.fullDiff } : {}),
+              }
+            : null,
           ...(outcome.success ? {} : { error: outcome.message }),
         } satisfies ToolExecutionResult;
       }).pipe(

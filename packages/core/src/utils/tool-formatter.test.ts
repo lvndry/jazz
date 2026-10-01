@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   compactToolArguments,
-  expandableFileMutationPayload,
+  fileMutationDiffText,
   fileMutationDiffPreview,
   FILE_MUTATION_PREVIEW_CHARS,
   formatToolArguments,
@@ -209,21 +209,17 @@ describe("formatToolResult write_file / edit_file", () => {
   });
 });
 
-describe("expandableFileMutationPayload", () => {
+describe("fileMutationDiffText", () => {
   test("returns null when the diff already fits the preview", () => {
     expect(
-      expandableFileMutationPayload(
-        JSON.stringify({ diff: "short", wasTruncated: false, fullDiff: "" }),
-      ),
+      fileMutationDiffText(JSON.stringify({ diff: "short", wasTruncated: false, fullDiff: "" })),
     ).toBeNull();
   });
 
   test("prefers fullDiff when the display was truncated", () => {
     const fullDiff = "x".repeat(FILE_MUTATION_PREVIEW_CHARS + 10);
     expect(
-      expandableFileMutationPayload(
-        JSON.stringify({ diff: "preview", wasTruncated: true, fullDiff }),
-      ),
+      fileMutationDiffText(JSON.stringify({ diff: "preview", wasTruncated: true, fullDiff })),
     ).toBe(fullDiff);
   });
 });
@@ -315,11 +311,11 @@ describe("fileMutationDiffPreview", () => {
   });
 });
 
-describe("expandableFileMutationPayload line budget", () => {
+describe("fileMutationDiffText line budget", () => {
   test("is null for a diff of ten rows and set for eleven", () => {
     const rows = (count: number): string =>
       Array.from({ length: count }, (_, index) => `+line ${String(index)}`).join("\n");
-    expect(expandableFileMutationPayload(JSON.stringify({ diff: rows(10) }))).toBeNull();
-    expect(expandableFileMutationPayload(JSON.stringify({ diff: rows(11) }))).toBe(rows(11));
+    expect(fileMutationDiffText(JSON.stringify({ diff: rows(10) }))).toBeNull();
+    expect(fileMutationDiffText(JSON.stringify({ diff: rows(11) }))).toBe(rows(11));
   });
 });

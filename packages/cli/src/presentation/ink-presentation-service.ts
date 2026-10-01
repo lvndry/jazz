@@ -40,9 +40,9 @@ import { getModelsDevMetadata, getModelsDevMetadataSync } from "@jazz/core/utils
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { formatCompactCount } from "@jazz/core/utils/string";
 import {
-  expandableFileMutationPayload,
   expandableToolResultPayload,
-  isFileMutationTool,
+  fileMutationDiffText,
+  isDiffReceiptTool,
 } from "@jazz/core/utils/tool-formatter";
 import { computeUsageCostUSD, type UsageCostPricing } from "@jazz/core/utils/usage-cost";
 import chalk from "chalk";
@@ -1057,8 +1057,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   private storeExpandableDiff(toolName: string | undefined, result: string): void {
-    if (toolName !== undefined && isFileMutationTool(toolName)) {
-      const mutationPayload = expandableFileMutationPayload(result);
+    if (toolName !== undefined && isDiffReceiptTool(toolName)) {
+      const mutationPayload = fileMutationDiffText(result);
       if (mutationPayload !== null) {
         store.setExpandableDiff(mutationPayload);
       }

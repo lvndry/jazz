@@ -8,7 +8,7 @@
  * cached block layout; Transcript renders and scrolls the visible rows.
  */
 
-import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
+import { isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
 import { TextAttributes, type MouseEvent as OTMouseEvent } from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import {
@@ -1004,7 +1004,7 @@ function reasoningRows(
 function highlightedArgs(args: string, fallbackFg: string, app: string): Segment[] {
   const path = pathFromFileArgsPreview(args);
   const language = path === undefined ? undefined : sourceLanguageFromPath(path);
-  if (language === undefined && !isFileMutationTool(app)) {
+  if (language === undefined && !isDiffReceiptTool(app)) {
     return [{ text: `  ${args}`, fg: fallbackFg }];
   }
   return [{ text: "  ", fg: fallbackFg }, ...highlightCodeLine(args)];
@@ -1151,20 +1151,45 @@ function receiptRows(
           rows.push(row);
         }
       }
-      const diffRows = receiptDiffRows(block);
-      for (let index = 0; index < diffRows.length; index += 1) {
-        const diffRow = diffRows[index];
-        if (diffRow === undefined) continue;
-        rows.push({
-          key: `${block.id}:diff:${String(index)}`,
-          gutter: [rail, blankCell()],
-          content: fitTerminalSegments(
-            [{ text: `  ${diffRow.text}`, fg: roleStyle(diffRow.role).fg }],
-            geometry.content,
-          ),
-          contentWidth: geometry.content,
-          meta: [],
-        });
+      if (block.expanded === true && block.diffText !== undefined) {
+        const fullDiffLines = block.diffText.split("\n");
+        for (let index = 0; index < fullDiffLines.length; index += 1) {
+          const diffLine = fullDiffLines[index];
+          if (diffLine === undefined) continue;
+          const role = diffLine.startsWith("+")
+            ? "success"
+            : diffLine.startsWith("-")
+              ? "error"
+              : diffLine.startsWith("@@")
+                ? "secondary"
+                : "muted";
+          rows.push({
+            key: `${block.id}:difffull:${String(index)}`,
+            gutter: [rail, blankCell()],
+            content: fitTerminalSegments(
+              [{ text: `  ${diffLine}`, fg: roleStyle(role).fg }],
+              geometry.content,
+            ),
+            contentWidth: geometry.content,
+            meta: [],
+          });
+        }
+      } else {
+        const diffRows = receiptDiffRows(block);
+        for (let index = 0; index < diffRows.length; index += 1) {
+          const diffRow = diffRows[index];
+          if (diffRow === undefined) continue;
+          rows.push({
+            key: `${block.id}:diff:${String(index)}`,
+            gutter: [rail, blankCell()],
+            content: fitTerminalSegments(
+              [{ text: `  ${diffRow.text}`, fg: roleStyle(diffRow.role).fg }],
+              geometry.content,
+            ),
+            contentWidth: geometry.content,
+            meta: [],
+          });
+        }
       }
       if (block.expanded === true && block.detail !== undefined) {
         const detailLines = block.detail.split("\n");

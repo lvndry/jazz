@@ -538,11 +538,22 @@ export function App(): React.ReactElement {
   useInputHandler({
     id: "expand-diff-handler",
     // Below TEXT_INPUT so ctrl+e is end-of-line while the composer holds text and
-    // expands the diff once it is empty and ignores the key.
+    // expands the newest write/edit receipt's diff once it is empty.
     priority: InputPriority.TEXT_INPUT + 1,
     onInput: (action) => {
       if (action.type !== "expand-diff" && action.type !== "line-end") {
         return InputResults.ignored();
+      }
+
+      const receiptDiff = store.latestReceiptDiffText();
+      if (receiptDiff !== undefined) {
+        store.printOutput({
+          type: "log",
+          message: receiptDiff,
+          timestamp: new Date(),
+          meta: { expandedOutput: true },
+        });
+        return InputResults.consumed();
       }
 
       const payload = store.getExpandableDiff();

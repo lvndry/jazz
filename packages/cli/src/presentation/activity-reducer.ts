@@ -16,7 +16,7 @@
 import type { TerminalOutput } from "@jazz/core/interfaces/terminal";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import { isRecord } from "@jazz/core/utils/is-record";
-import { fileMutationDiffPreview, isFileMutationTool } from "@jazz/core/utils/tool-formatter";
+import { fileMutationDiffPreview, isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
 import { Box, Text } from "ink";
 import React from "react";
 import {
@@ -423,7 +423,7 @@ export function reduceEvent(
         result: event.result,
         formattedResult,
         diffPreview:
-          toolName !== undefined && isFileMutationTool(toolName)
+          toolName !== undefined && isDiffReceiptTool(toolName)
             ? fileMutationDiffPreview(event.result)
             : undefined,
         durationMs: event.durationMs,
