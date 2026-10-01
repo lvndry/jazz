@@ -58,3 +58,46 @@ describe("turn receipt", () => {
     );
   });
 });
+
+describe("turn decode throughput", () => {
+  test("weights output tokens by generation time and excludes prefill", () => {
+    const turn = {
+      steps: [
+        {
+          durationMs: 10000,
+          completionTokens: 100,
+          generationDurationMs: 1000,
+          tokensPerSecond: 100,
+        },
+        {
+          durationMs: 20000,
+          completionTokens: 900,
+          generationDurationMs: 9000,
+          tokensPerSecond: 100,
+        },
+      ],
+    };
+    expect(formatTurnReceipt(turn)).toBe("30.0s · 2 steps · 0 in → 1k out · 100.0 tok/s");
+  });
+
+  test("does not average per-step rates", () => {
+    const turn = {
+      steps: [
+        { durationMs: 1000, completionTokens: 10, tokensPerSecond: 10 },
+        { durationMs: 9000, completionTokens: 900, tokensPerSecond: 100 },
+      ],
+    };
+    expect(formatTurnReceipt(turn)).toContain("91.0 tok/s");
+  });
+
+  test("omits throughput when any producing step has unknown generation timing", () => {
+    expect(
+      formatTurnReceipt({
+        steps: [
+          { durationMs: 1000, completionTokens: 10, generationDurationMs: 100 },
+          { durationMs: 2000, completionTokens: 20 },
+        ],
+      }),
+    ).not.toContain("tok/s");
+  });
+});

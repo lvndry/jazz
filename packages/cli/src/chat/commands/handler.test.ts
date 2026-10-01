@@ -456,7 +456,13 @@ describe("handleSpecialCommand /rename", () => {
         {
           ...testRecord,
           conversationId: context.conversationId,
-          uiTranscript: [{ type: "log", message: "prior UI" }],
+          uiTranscript: [
+            {
+              id: "prior UI",
+              timestamp: "2026-08-01T10:00:00.000Z",
+              content: { kind: "notice" as const, tone: "log" as const, text: "prior UI" },
+            },
+          ],
         },
         tmpDir,
       ),
@@ -468,7 +474,13 @@ describe("handleSpecialCommand /rename", () => {
     const saved = await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir));
     expect(saved?.title).toBe("New  title 🪷");
     expect(saved?.messages).toEqual(testRecord.messages);
-    expect(saved?.uiTranscript).toEqual([{ type: "log", message: "prior UI" }]);
+    expect(saved?.uiTranscript).toEqual([
+      {
+        id: "prior UI",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "notice" as const, tone: "log" as const, text: "prior UI" },
+      },
+    ]);
   });
 
   test("cancelling leaves the title untouched and ephemeral rename writes no conversation", async () => {

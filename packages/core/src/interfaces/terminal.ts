@@ -1,13 +1,9 @@
-import { Context, Effect } from "effect";
-
 /**
- * Opaque Ink render payload (kept `unknown` to avoid coupling core to React types).
- * The CLI Ink terminal service can render this payload as a React node.
+ * Renderer-independent terminal reports and interactive prompt ports. Commands
+ * publish text or typed report rows; adapters own layout. Input continuations
+ * remain effects on the port and are never persisted as presentation content.
  */
-export interface TerminalInkNode {
-  readonly _tag: "ink";
-  readonly node: unknown;
-}
+import { Context, Effect } from "effect";
 
 /** How a report value reads: plain text, or one of the semantic status tones. */
 export type ReportTone = "text" | "muted" | "accent" | "success" | "warning" | "error";
@@ -80,10 +76,9 @@ export function isTerminalReport(value: unknown): value is TerminalReport {
  * Terminal output that can be written to the UI.
  *
  * - `string`: standard terminal text
- * - `TerminalInkNode`: an Ink React node (rendered only by Ink-based terminal implementations)
  * - `TerminalReport`: a command's structured answer, laid out by each terminal
  */
-export type TerminalOutput = string | TerminalInkNode | TerminalReport;
+export type TerminalOutput = string | TerminalReport;
 
 /** Stable presentation categories shared by live and persisted terminal output. */
 export const TERMINAL_OUTPUT_KINDS = [
@@ -101,13 +96,6 @@ export type TerminalOutputKind = (typeof TERMINAL_OUTPUT_KINDS)[number];
 
 export function isTerminalOutputKind(value: unknown): value is TerminalOutputKind {
   return typeof value === "string" && TERMINAL_OUTPUT_KINDS.includes(value as TerminalOutputKind);
-}
-
-/**
- * Helper to wrap an Ink React node for terminal rendering.
- */
-export function ink(node: unknown): TerminalInkNode {
-  return { _tag: "ink", node };
 }
 
 /** Where a prompt sits in a multi-step flow: every step's label, and which one this is. */

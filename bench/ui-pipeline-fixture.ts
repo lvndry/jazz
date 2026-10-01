@@ -66,9 +66,8 @@ export function seedHistory(turns: number): void {
     store.printOutput({ type: "user", message: `question ${turn}`, timestamp: new Date(0) });
     store.printOutput({
       type: "streamContent",
-      message: `${PROSE_PARAGRAPH}turn ${turn}`,
+      message: { kind: "agent", markdown: `${PROSE_PARAGRAPH}turn ${turn}` },
       timestamp: new Date(0),
-      meta: { kind: "response" },
     });
   }
   store.flushOutputBatchNow();

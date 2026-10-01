@@ -12,6 +12,8 @@ import {
   deriveConversationTitle,
   conversationLogPath,
   listConversationLogs,
+  migratePresentationLog,
+  parseConversationLog,
   parseConversationLogLine,
   readConversationLog,
   recordConversationTranscript,
@@ -205,8 +207,16 @@ describe("recordConversationTranscript", () => {
         {
           ...record([userMessage("hi")]),
           uiTranscript: [
-            { type: "user", message: "/info" },
-            { type: "log", message: "Conversation info" },
+            {
+              id: "/info",
+              timestamp: "2026-08-01T10:00:00.000Z",
+              content: { kind: "user" as const, text: "/info" },
+            },
+            {
+              id: "Conversation info",
+              timestamp: "2026-08-01T10:00:00.000Z",
+              content: { kind: "notice" as const, tone: "log" as const, text: "Conversation info" },
+            },
           ],
         },
         tmpDir,
@@ -216,8 +226,16 @@ describe("recordConversationTranscript", () => {
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(session?.messages).toEqual([userMessage("hi")]);
     expect(session?.uiTranscript).toEqual([
-      { type: "user", message: "/info" },
-      { type: "log", message: "Conversation info" },
+      {
+        id: "/info",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "user" as const, text: "/info" },
+      },
+      {
+        id: "Conversation info",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "notice" as const, tone: "log" as const, text: "Conversation info" },
+      },
     ]);
   });
 });
@@ -229,12 +247,24 @@ describe("UI scrollback growth", () => {
   /** One chat turn: about a kilobyte of messages and the same again of scrollback. */
   function turnsOfChat(turns: number) {
     const messages: ChatMessage[] = [];
-    const uiTranscript: { type: "user" | "info"; message: string }[] = [];
+    const uiTranscript: import("@jazz/core/types/presentation-content").PresentationEntry[] = [];
     for (let turn = 0; turn < turns; turn++) {
       messages.push(userMessage(`question ${turn}${TURN_PADDING}`));
       messages.push(assistantMessage(`answer ${turn}${ANSWER_PADDING}`));
-      uiTranscript.push({ type: "user", message: `question ${turn}${TURN_PADDING}` });
-      uiTranscript.push({ type: "info", message: `answer ${turn}${ANSWER_PADDING}` });
+      uiTranscript.push({
+        id: `question:${turn}`,
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "user" as const, text: `question ${turn}${TURN_PADDING}` },
+      });
+      uiTranscript.push({
+        id: `answer:${turn}`,
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: {
+          kind: "notice" as const,
+          tone: "info" as const,
+          text: `answer ${turn}${ANSWER_PADDING}`,
+        },
+      });
     }
     return { messages, uiTranscript };
   }
@@ -272,9 +302,28 @@ describe("UI scrollback growth", () => {
   });
 
   test("appends new scrollback entries and snapshots a scrollback that was cleared", async () => {
-    const first = [{ type: "user" as const, message: "hi" }];
-    const second = [...first, { type: "info" as const, message: "hello" }];
-    const cleared = [{ type: "info" as const, message: "fresh start" }];
+    const first = [
+      {
+        id: "hi",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "user" as const, text: "hi" },
+      },
+    ];
+    const second = [
+      ...first,
+      {
+        id: "hello",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "notice" as const, tone: "info" as const, text: "hello" },
+      },
+    ];
+    const cleared = [
+      {
+        id: "fresh start",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "notice" as const, tone: "info" as const, text: "fresh start" },
+      },
+    ];
     for (const uiTranscript of [first, second, cleared]) {
       await runEffect(
         recordConversationTranscript({ ...record([userMessage("hi")]), uiTranscript }, tmpDir),
@@ -292,7 +341,13 @@ describe("UI scrollback growth", () => {
   });
 
   test("an unchanged scrollback appends nothing", async () => {
-    const uiTranscript = [{ type: "user" as const, message: "hi" }];
+    const uiTranscript = [
+      {
+        id: "hi",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "user" as const, text: "hi" },
+      },
+    ];
     await runEffect(
       recordConversationTranscript({ ...record([userMessage("hi")]), uiTranscript }, tmpDir),
     );
@@ -336,7 +391,11 @@ describe("UI scrollback growth", () => {
 
     const nextScrollback = [
       ...(legacy?.uiTranscript ?? []),
-      { type: "info" as const, message: "more" },
+      {
+        id: "more",
+        timestamp: "2026-08-01T10:00:00.000Z",
+        content: { kind: "notice" as const, tone: "info" as const, text: "more" },
+      },
     ];
     await runEffect(
       recordConversationTranscript(
@@ -534,5 +593,113 @@ describe("conversation log privacy and versions", () => {
     );
     expect(append._tag).toBe("Left");
     expect(fs.readFileSync(logPath, "utf8")).toBe(newer);
+  });
+});
+
+describe("semantic presentation persistence", () => {
+  const timestamp = "2026-10-01T10:00:00.000Z";
+  const receipt = {
+    id: "receipt",
+    timestamp,
+    content: {
+      kind: "tool" as const,
+      receipt: { app: "read_file", summary: "README.md", status: "ok" as const },
+    },
+  };
+  const answer = {
+    id: "answer",
+    timestamp,
+    content: { kind: "agent" as const, markdown: "**answer**" },
+  };
+
+  test("an earlier fact change replaces the snapshot even when the last entry is unchanged", async () => {
+    await runEffect(
+      recordConversationTranscript({ ...record([]), uiTranscript: [receipt, answer] }, tmpDir),
+    );
+    const changed = {
+      ...receipt,
+      content: { kind: "tool" as const, receipt: { ...receipt.content.receipt, durationMs: 12 } },
+    };
+    await runEffect(
+      recordConversationTranscript({ ...record([]), uiTranscript: [changed, answer] }, tmpDir),
+    );
+    expect(logLines().map((line) => JSON.parse(line).type)).toEqual([
+      "conversation",
+      "ui-append",
+      "ui-transcript",
+    ]);
+    expect(
+      (await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir)))?.uiTranscript,
+    ).toEqual([changed, answer]);
+  });
+
+  test("receipt facts and throughput survive a save/read cycle", async () => {
+    const stats = {
+      id: "stats",
+      timestamp,
+      content: {
+        kind: "turn-receipt" as const,
+        steps: [
+          {
+            durationMs: 500,
+            generationDurationMs: 400,
+            completionTokens: 40,
+            tokensPerSecond: 100,
+          },
+        ],
+      },
+    };
+    await runEffect(
+      recordConversationTranscript(
+        { ...record([]), uiTranscript: [receipt, answer, stats] },
+        tmpDir,
+      ),
+    );
+    expect(
+      (await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir)))?.uiTranscript,
+    ).toEqual([receipt, answer, stats]);
+  });
+
+  test("rejects duplicate identities before creating a log", async () => {
+    await expect(
+      runEffect(
+        recordConversationTranscript({ ...record([]), uiTranscript: [receipt, receipt] }, tmpDir),
+      ),
+    ).rejects.toThrow("duplicate");
+    expect(fs.existsSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir))).toBe(false);
+  });
+
+  test("legacy migration preserves model and unreadable records, strips paint, and is idempotent", () => {
+    const header = JSON.stringify({
+      type: "conversation",
+      version: 2,
+      agentId: AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      startedAt: timestamp,
+    });
+    const message = JSON.stringify({
+      type: "message",
+      at: timestamp,
+      message: userMessage("original"),
+    });
+    const ui = JSON.stringify({
+      type: "ui-transcript",
+      at: timestamp,
+      entries: [{ type: "log", message: "\u001b[31mold receipt\u001b[0m" }],
+    });
+    const body = [header, message, "unreadable record", ui, ""].join("\n");
+    const upgraded = migratePresentationLog(body);
+    expect(upgraded).not.toBeNull();
+    if (upgraded === null) throw new Error("Migration expected");
+    expect(upgraded).toContain(message + "\nunreadable record\n");
+    expect(migratePresentationLog(upgraded)).toBeNull();
+    const uiEvent = parseConversationLog(upgraded).find((event) => event.type === "ui-transcript");
+    expect(uiEvent?.type === "ui-transcript" ? uiEvent.entries : []).toEqual([
+      {
+        id: "legacy:3:0",
+        timestamp,
+        content: { kind: "notice", tone: "log", text: "old receipt" },
+      },
+    ]);
   });
 });

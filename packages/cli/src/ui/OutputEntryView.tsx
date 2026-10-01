@@ -3,25 +3,32 @@
  * log/user/streamContent) with the icon and color for its type.
  */
 
+import { isTerminalReport } from "@jazz/core/interfaces/terminal";
 import { Box, Text } from "ink";
 import React from "react";
-import { PreWrappedText } from "./components/PreWrappedText";
 import { getGlyphs } from "./glyphs";
+import { reportAnsiText } from "./report-ansi";
+import { formatTurnReceipt } from "../presentation/turn-receipt";
+import { PreWrappedText } from "./components/PreWrappedText";
+import { markdownToAnsi } from "./markdown/ansi";
+import { interruptSummaryLines } from "./models/interrupt";
 import {
   EXPAND_DIFF_KEY,
   receiptDiffRows,
-  receiptFromMeta,
   receiptMark,
   receiptParts,
   type ToolReceipt,
 } from "./models/receipt";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
+import { store } from "./store";
 import { paintRole, paintSegments } from "./text/roles";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
+import { foldedThoughtLine } from "./turn-thought";
 import type { OutputEntryWithId, OutputType } from "./types";
 import { dimReasoningMarkdownOutput, spaceReasoningSections } from "../presentation/format-utils";
+import { wrapToWidth } from "../presentation/markdown-formatter";
+import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { getTerminalWidth } from "../utils/string-utils";
-import { markdownToAnsi } from "./markdown/ansi";
 
 // Icons and colours are read per render, so a `/theme` switch or the ASCII glyph set reaches
 // entries already in the scrollback.
@@ -147,9 +154,68 @@ export const OutputEntryView = React.memo(function OutputEntryView({
   entry: OutputEntryWithId;
   addSpacing: boolean;
 }): React.ReactElement {
-  const receipt = receiptFromMeta(entry.meta?.["toolReceipt"]);
-  if (receipt !== null) {
-    return <ReceiptLine receipt={receipt} />;
+  const { cols } = useTerminalDimensions();
+  if (typeof entry.message !== "string") {
+    const content = isTerminalReport(entry.message)
+      ? { kind: "report" as const, report: entry.message }
+      : entry.message;
+    if (content.kind === "tool") return <ReceiptLine receipt={content.receipt} />;
+    if (content.kind === "agent" || content.kind === "reasoning") {
+      const kind = content.kind === "agent" ? "response" : "reasoning";
+      const collapsed =
+        content.kind === "reasoning" &&
+        content.durationMs !== undefined &&
+        !store.isReasoningExpanded(entry.id);
+      const raw =
+        content.kind === "agent"
+          ? content.markdown
+          : collapsed
+            ? foldedThoughtLine(
+                content,
+                content.text.length > 0,
+                getGlyphs().folded,
+                ` ${getGlyphs().bullet} `,
+              )
+            : spaceReasoningSections(content.text);
+      const width = Math.max(
+        20,
+        getTerminalWidth() - PADDING_BUDGET - PADDING.content - RAIL_WIDTH,
+      );
+      const formatted = markdownToAnsi(raw, { width, syntax: "rendered" });
+      const display = kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
+      return (
+        <Box
+          marginTop={addSpacing ? 1 : 0}
+          paddingLeft={PADDING.content}
+        >
+          <PreWrappedText>{railStreamLines(display, kind)}</PreWrappedText>
+        </Box>
+      );
+    }
+    const text =
+      content.kind === "user"
+        ? content.text
+        : content.kind === "notice"
+          ? content.text
+          : content.kind === "expanded"
+            ? content.text
+            : content.kind === "header"
+              ? `${getGlyphs().note} ${content.name}${content.model === undefined ? "" : ` · ${content.provider ?? ""}/${content.model}`}`
+              : content.kind === "report"
+                ? reportAnsiText(content.report, getTerminalWidth() - PADDING_BUDGET)
+                : content.kind === "stopped"
+                  ? interruptSummaryLines(content.summary).join("\n")
+                  : (formatTurnReceipt(content) ?? "");
+    return (
+      <OutputEntryView
+        entry={{
+          ...entry,
+          type: content.kind === "user" ? "user" : content.kind === "notice" ? content.tone : "log",
+          message: text,
+        }}
+        addSpacing={addSpacing}
+      />
+    );
   }
 
   const icon = iconFor(entry.type);
@@ -160,18 +226,15 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     // markdown-aware split-point finder can operate on raw text). Format at
     // render time. For reasoning slices, post-process with the dim styling so
     // settled reasoning matches the live pending render.
-    const kind = entry.meta?.["kind"];
-    const raw =
-      kind === "reasoning"
-        ? spaceReasoningSections(entry.message as string)
-        : (entry.message as string);
+    const kind = "response";
+    const raw = entry.message;
     // Pre-wrap, same as the pending tail in App.tsx: a bare <Text wrap="wrap">
     // lets Yoga re-wrap settled slices, which degenerates into char-by-char
     // wrapping under live re-render load. Each line carries the speaker rail
     // (cyan = agent, indigo = reasoning) — the transcript's color-coded left edge.
     const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content - RAIL_WIDTH);
     const formatted = markdownToAnsi(raw, { width, syntax: "rendered" });
-    const display = kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
+    const display = formatted;
     return (
       <Box
         marginTop={addSpacing ? 1 : 0}
@@ -187,7 +250,10 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     if (entry.type === "user") {
       // Speaker rail: a brass bar down the left of everything you said.
       // The agent's reply gets a cyan rail — color IS the speaker label.
-      const userLines = entry.message.split("\n");
+      const userLines = wrapToWidth(
+        entry.message,
+        Math.max(1, cols - PADDING.page * 2 - PADDING.content - RAIL_WIDTH),
+      ).split("\n");
       return (
         <Box
           flexDirection="column"
@@ -260,26 +326,9 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     );
   }
 
-  if (entry.message._tag === "ink" && React.isValidElement(entry.message.node)) {
-    return (
-      <Box
-        marginTop={addSpacing ? 1 : 0}
-        marginBottom={1}
-        paddingLeft={PADDING.content}
-      >
-        {entry.message.node}
-      </Box>
-    );
-  }
-
   return (
-    <Box
-      marginTop={0}
-      marginBottom={0}
-    >
-      {iconFor("warn")}
-      <Text> </Text>
-      <Text color={THEME.warning}>[Unsupported UI output]</Text>
+    <Box>
+      <Text color={THEME.warning}>Unsupported output</Text>
     </Box>
   );
 });

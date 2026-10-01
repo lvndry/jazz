@@ -1,259 +1,139 @@
 /**
- * Scrollback buffer — the streaming output tier model.
- *
- * Centralizes:
- * - Append-only scrollback via <Static>: every settled entry is written to the
- *   terminal exactly once and never re-rendered.
- * - A single optional pending streaming buffer rendered as one <Text> node in
- *   Ink's live (erasable) region.
- * - Markdown-aware split-and-promote: as the pending tail grows, settled
- *   prefixes are promoted to Static at safe markdown boundaries. The live
- *   region's height stays bounded regardless of total response length.
- *
- * Design rule: the live tier holds at most one pending streaming buffer.
- * Every other entry — info/log/debug/error/warn/user/tool cards/headers/
- * metrics/cost — is settled at emit time and goes straight to Static.
- *
+ * Derived classic Ink output. Safe Markdown prefixes become append-only Static
+ * slices while one live tail remains bounded. These slices never own source
+ * text: discarding this projection leaves the authoritative document intact.
  */
-
-import { useCallback, useReducer, useRef } from "react";
+import type {
+  PresentationContent,
+  PresentationDocument,
+  PresentationEntry,
+} from "@jazz/core/types/presentation-content";
 import {
   createStreamSplitScanner,
   type StreamSplitScanner,
-} from "@/cli/presentation/markdown-split";
-import type { OutputEntry, OutputEntryWithId } from "../types";
-
-export type { OutputEntry, OutputEntryWithId };
-
+} from "../../presentation/markdown-split";
+import { outputFromEntry, projectDocumentEntries, type DocumentViewOptions } from "../document";
+import type { OutputEntryWithId } from "../types";
 export type StreamKind = "response" | "reasoning";
-
 export interface PendingStream {
   readonly id: string;
   readonly kind: StreamKind;
   readonly rawTail: string;
-  /**
-   * Split-point scanner for this pending's tail. It commits each line of
-   * `rawTail` once instead of rescanning the whole tail per delta, so it is
-   * carried with the pending it belongs to and rebuilt whenever the tail is
-   * rebased by a promotion.
-   */
   readonly splitScanner: StreamSplitScanner;
 }
 
-export interface ScrollbackState {
-  readonly staticEntries: OutputEntryWithId[];
+function sliceTextContent(content: PresentationContent, text: string): PresentationContent {
+  if (content.kind === "agent")
+    return { ...content, markdown: Buffer.from(text, "utf16le").toString("utf16le") };
+  if (content.kind === "reasoning")
+    return { ...content, text: Buffer.from(text, "utf16le").toString("utf16le") };
+  return content;
+}
+
+export interface ClassicProjection {
+  readonly entries: readonly OutputEntryWithId[];
   readonly pending: PendingStream | null;
-  /** Bumped on clear; used as the key on <Static> to force remount. */
-  readonly staticGeneration: number;
 }
 
-export type ScrollbackAction =
-  | { type: "appendStatic"; entries: readonly OutputEntryWithId[] }
-  | {
-      type: "appendStream";
-      kind: StreamKind;
-      delta: string;
-      /** Pre-allocated id for a newly-opened pending. Caller owns id generation. */
-      nextId: string;
-      /** Pre-allocated id for the streamContent entry produced when the prior
-       *  pending of a different kind is auto-finalized. */
-      finalizeId?: string;
+/** Own one instance per terminal adapter. Caches are derived and can be discarded. */
+export function createClassicProjection(): (
+  document: PresentationDocument,
+  generation?: number,
+  options?: DocumentViewOptions,
+) => ClassicProjection {
+  let activeId: string | undefined;
+  let consumed = 0;
+  let slices: OutputEntryWithId[] = [];
+  let scanner = createStreamSplitScanner();
+  const completed = new Map<
+    string,
+    { readonly source: PresentationEntry; readonly entries: readonly OutputEntryWithId[] }
+  >();
+  let generationId: string | undefined;
+  let lastGeneration = -1;
+  let emitted: OutputEntryWithId[] = [];
+  const emittedIds = new Set<string>();
+  return (document, generation = 0, options = {}) => {
+    if (generationId !== document.id || lastGeneration !== generation) {
+      lastGeneration = generation;
+      generationId = document.id;
+      completed.clear();
+      emitted = [];
+      emittedIds.clear();
+      activeId = undefined;
+      consumed = 0;
+      slices = [];
+      scanner = createStreamSplitScanner();
     }
-  | { type: "finalizeStream"; finalizeId?: string }
-  | { type: "clear" };
-
-export function initialScrollbackState(): ScrollbackState {
-  return {
-    staticEntries: [],
-    pending: null,
-    staticGeneration: 0,
-  };
-}
-
-export function reduceScrollback(
-  state: ScrollbackState,
-  action: ScrollbackAction,
-): ScrollbackState {
-  switch (action.type) {
-    case "appendStatic": {
-      if (action.entries.length === 0) return state;
-      return {
-        ...state,
-        staticEntries: [...state.staticEntries, ...action.entries],
-      };
-    }
-
-    case "appendStream": {
-      let next = state;
-
-      // Kind change → finalize prior pending first.
-      if (next.pending !== null && next.pending.kind !== action.kind) {
-        next = reduceScrollback(next, {
-          type: "finalizeStream",
-          ...(action.finalizeId !== undefined ? { finalizeId: action.finalizeId } : {}),
-        });
-      }
-
-      // Open or extend the current pending.
-      if (next.pending === null) {
-        next = {
-          ...next,
-          pending: {
-            id: action.nextId,
-            kind: action.kind,
-            rawTail: action.delta,
-            splitScanner: createStreamSplitScanner(),
-          },
+    const entries: OutputEntryWithId[] = [];
+    let pending: PendingStream | null = null;
+    for (const source of projectDocumentEntries(document, options)) {
+      const content = source.content;
+      const raw =
+        content.kind === "agent"
+          ? content.markdown
+          : content.kind === "reasoning"
+            ? content.text
+            : undefined;
+      if (source.id === document.streamingId && raw !== undefined) {
+        if (activeId !== source.id) {
+          activeId = source.id;
+          consumed = 0;
+          slices = [];
+          scanner = createStreamSplitScanner();
+        }
+        const tail = raw.slice(consumed);
+        const split = scanner.evaluate(tail);
+        if (split > 0) {
+          slices.push({
+            ...outputFromEntry(source),
+            id: `${source.id}:slice:${String(consumed)}`,
+            message: sliceTextContent(content, tail.slice(0, split)),
+          });
+          consumed += split;
+          scanner = createStreamSplitScanner();
+        }
+        entries.push(...slices);
+        pending = {
+          id: source.id,
+          kind: content.kind === "agent" ? "response" : "reasoning",
+          rawTail: raw.slice(consumed),
+          splitScanner: scanner,
         };
-      } else {
-        next = {
-          ...next,
-          pending: { ...next.pending, rawTail: next.pending.rawTail + action.delta },
-        };
+        continue;
       }
-
-      // Try split-and-promote.
-      return splitAndPromote(next);
+      const hit = completed.get(source.id);
+      if (hit?.source === source) {
+        entries.push(...hit.entries);
+        continue;
+      }
+      const projected =
+        activeId === source.id && raw !== undefined
+          ? [
+              ...slices,
+              {
+                ...outputFromEntry(source),
+                id: `${source.id}:slice:${String(consumed)}`,
+                message: sliceTextContent(content, raw.slice(consumed)),
+              },
+            ]
+          : [outputFromEntry(source)];
+      completed.set(source.id, { source, entries: projected });
+      entries.push(...projected);
+      if (activeId === source.id) activeId = undefined;
     }
-
-    case "finalizeStream": {
-      if (state.pending === null) return state;
-      const id = action.finalizeId ?? `${state.pending.id}-final`;
-      const slice: OutputEntryWithId = {
-        id,
-        type: "streamContent",
-        message: state.pending.rawTail,
-        meta: { kind: state.pending.kind },
-        timestamp: new Date(),
-      };
-      return {
-        ...state,
-        staticEntries: [...state.staticEntries, slice],
-        pending: null,
-      };
-    }
-
-    case "clear": {
-      return {
-        staticEntries: [],
-        pending: null,
-        staticGeneration: state.staticGeneration + 1,
-      };
-    }
-  }
-}
-
-/**
- * Promote any safely-splittable prefix of the pending tail to Static. No-op
- * when no safe split exists.
- */
-function splitAndPromote(state: ScrollbackState): ScrollbackState {
-  if (state.pending === null) return state;
-  let splitOffset: number;
-  try {
-    splitOffset = state.pending.splitScanner.evaluate(state.pending.rawTail);
-  } catch {
-    // Splitter threw: degrade safely, leave pending untouched.
-    return state;
-  }
-  if (splitOffset <= 0) return state;
-
-  const before = state.pending.rawTail.slice(0, splitOffset);
-  const after = state.pending.rawTail.slice(splitOffset);
-  const promoted: OutputEntryWithId = {
-    id: `${state.pending.id}-${state.staticEntries.length}`,
-    type: "streamContent",
-    message: before,
-    meta: { kind: state.pending.kind },
-    timestamp: new Date(),
-  };
-  // The tail is rebased, so every offset the scanner committed is stale.
-  const rebasedScanner = createStreamSplitScanner();
-  return {
-    ...state,
-    staticEntries: [...state.staticEntries, promoted],
-    pending: { ...state.pending, rawTail: after, splitScanner: rebasedScanner },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// React hook — thin wrapper around the pure reducer.
-// ---------------------------------------------------------------------------
-
-export interface ScrollbackHandle {
-  state: ScrollbackState;
-  /** Append a single entry or batch to the static (scrollback) tier. */
-  appendStatic: (entry: OutputEntry | readonly OutputEntry[]) => string;
-  /** Feed a raw text delta into the pending streaming buffer. */
-  appendStream: (kind: StreamKind, delta: string) => void;
-  /** Promote any open pending to Static and clear it. */
-  finalizeStream: () => void;
-  /** Reset the buffer (used by the /clear slash command). */
-  clear: () => void;
-}
-
-export function useTerminalOutputAdapter(): ScrollbackHandle {
-  const [state, dispatch] = useReducer(reduceScrollback, initialScrollbackState());
-  const counterRef = useRef(0);
-
-  const nextId = useCallback((): string => {
-    counterRef.current += 1;
-    return `output-${counterRef.current}`;
-  }, []);
-
-  const ensureIds = useCallback(
-    (input: OutputEntry | readonly OutputEntry[]): OutputEntryWithId[] => {
-      const list: readonly OutputEntry[] = Array.isArray(input) ? input : [input];
-      return list.map((entry) =>
-        entry.id != null ? (entry as OutputEntryWithId) : { ...entry, id: nextId() },
-      );
-    },
-    [nextId],
-  );
-
-  const appendStatic = useCallback(
-    (entry: OutputEntry | readonly OutputEntry[]): string => {
-      const entries = ensureIds(entry);
-      if (entries.length === 0) return "";
-      dispatch({ type: "appendStatic", entries });
-      return entries[0]!.id;
-    },
-    [ensureIds],
-  );
-
-  // Always pass both `nextId` and `finalizeId` to the reducer. The reducer
-  // ignores `finalizeId` when no kind change occurs, so the spare counter
-  // slot is occasionally wasted — but that's strictly cheaper than reading
-  // state through a useEffect-mirrored ref, which can be stale when multiple
-  // appendStream calls happen in the same React tick before the effect runs.
-  const appendStream = useCallback(
-    (kind: StreamKind, delta: string): void => {
-      if (delta.length === 0) return;
-      dispatch({
-        type: "appendStream",
-        kind,
-        delta,
-        nextId: nextId(),
-        finalizeId: nextId(),
-      });
-    },
-    [nextId],
-  );
-
-  const finalizeStream = useCallback((): void => {
-    dispatch({ type: "finalizeStream", finalizeId: nextId() });
-  }, [nextId]);
-
-  const clear = useCallback((): void => {
-    counterRef.current = 0;
-    dispatch({ type: "clear" });
-  }, []);
-
-  return {
-    state,
-    appendStatic,
-    appendStream,
-    finalizeStream,
-    clear,
+    const current = new Map(entries.map((entry) => [entry.id, entry]));
+    let changed = false;
+    const updated = emitted.map((entry) => {
+      const next = current.get(entry.id) ?? entry;
+      if (next !== entry) changed = true;
+      return next;
+    });
+    const added = entries.filter((entry) => !emittedIds.has(entry.id));
+    if (added.length > 0) {
+      for (const entry of added) emittedIds.add(entry.id);
+      emitted = [...updated, ...added];
+    } else if (changed) emitted = updated;
+    return { entries: emitted, pending };
   };
 }

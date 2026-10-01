@@ -23,8 +23,8 @@ describe("subagent runs", () => {
     run = appendToSubagentRun(run, "\nThe answer", "response");
     run = appendToSubagentRun(run, " is 42", "response");
     expect(run.entries).toEqual([
-      { kind: "reasoning", text: "Let me think" },
-      { kind: "response", text: "The answer is 42" },
+      { id: "eph-1:entry:0", kind: "reasoning", text: "Let me think" },
+      { id: "eph-1:entry:1", kind: "response", text: "The answer is 42" },
     ]);
     expect(run.activity).toBe("The answer is 42");
   });
@@ -49,6 +49,7 @@ describe("subagent runs", () => {
     run = finishSubagentTool(run, "call-1", { failed: false, summary: "81 cells", durationMs: 12 });
     expect(run.entries).toEqual([
       {
+        id: "eph-1:entry:0",
         kind: "tool",
         toolCallId: "call-1",
         name: "Read",
@@ -77,7 +78,11 @@ describe("subagent runs", () => {
       run = startSubagentTool(run, { toolCallId: String(index), name: "Read", args: "" });
     }
     expect(run.entries).toHaveLength(MAX_SUBAGENT_ENTRIES);
-    expect(run.entries[0]).toMatchObject({ toolCallId: "1" });
+    expect(run.entries[0]).toMatchObject({ id: "eph-1:entry:1", toolCallId: "1" });
+    expect(new Set(run.entries.map((entry) => entry.id)).size).toBe(MAX_SUBAGENT_ENTRIES);
+    const retained = run.entries[1]!;
+    run = startSubagentTool(run, { toolCallId: "later", name: "Read", args: "" });
+    expect(run.entries[0]).toBe(retained);
   });
 
   test("queues steering only while running, and hands it over once", () => {
@@ -187,6 +192,7 @@ describe("UIStore sub-agent runs", () => {
     store.recordSubagentToolEnd(id, "call-1", { failed: false, summary: "ok", durationMs: 4 });
     expect(store.getSubagentsSnapshot().runs[0]?.entries).toEqual([
       {
+        id: `${id}:entry:0`,
         kind: "tool",
         toolCallId: "call-1",
         name: "Read",

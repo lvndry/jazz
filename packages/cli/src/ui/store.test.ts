@@ -106,7 +106,7 @@ describe("UIStore", () => {
       expect(fullscreen).toBe(1);
     });
 
-    test("unsubscribing one tree does not silence the other", () => {
+    test("unsubscribing one tree does not silence the other", async () => {
       const s = new UIStore();
       let ink = 0;
       let fullscreen = 0;
@@ -119,9 +119,11 @@ describe("UIStore", () => {
 
       s.printOutput(entry("a"));
       s.flushOutputBatchNow();
+      await Promise.resolve();
       unsubscribeInk();
       s.printOutput(entry("b"));
       s.flushOutputBatchNow();
+      await Promise.resolve();
 
       expect(ink).toBe(1);
       expect(fullscreen).toBe(2);
@@ -386,7 +388,10 @@ describe("UIStore", () => {
       expect(s.getOutputSnapshot().entries).toHaveLength(0);
       s.settleTurnThought();
       expect(s.getOutputSnapshot().entries).toHaveLength(1);
-      expect(String(s.getOutputSnapshot().entries[0]!.message)).toContain("thought for 12.0s");
+      expect(s.getOutputSnapshot().entries[0]!.message).toMatchObject({
+        kind: "reasoning",
+        durationMs: 12000,
+      });
     });
 
     test("collapseEphemeral keeps the live tail when fullText is missing", () => {
@@ -451,7 +456,7 @@ describe("UIStore", () => {
       s.settleTurnThought();
 
       expect(s.getOutputSnapshot().entries).toHaveLength(1);
-      expect(s.getOutputSnapshot().entries[0]!.meta?.["collapsed"]).toBe(true);
+      expect(s.isReasoningExpanded(s.getOutputSnapshot().entries[0]!.id)).toBe(false);
 
       s.expandLastReasoning();
       s.expandLastReasoning(); // second call is no-op
@@ -459,9 +464,8 @@ describe("UIStore", () => {
       const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
       expect(printed[0]!.type).toBe("streamContent");
-      expect(printed[0]!.message).toContain("full reasoning body");
-      expect(printed[0]!.message).toContain("Reasoning · 1.0s");
-      expect(printed[0]!.meta?.["collapsed"]).toBe(false);
+      expect(printed[0]!.message).toMatchObject({ kind: "reasoning", text: "full reasoning body" });
+      expect(s.isReasoningExpanded(printed[0]!.id)).toBe(true);
       expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
 
@@ -478,8 +482,8 @@ describe("UIStore", () => {
 
       const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(2);
-      expect(printed[0]!.meta?.["collapsed"]).toBe(true);
-      expect(printed[1]!.message).toContain("full reasoning body");
+      expect(s.isReasoningExpanded(printed[0]!.id)).toBe(false);
+      expect(printed[1]!.message).toMatchObject({ kind: "reasoning", text: "full reasoning body" });
       expect(printed[1]!.id).not.toBe(printed[0]!.id);
       expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
@@ -500,8 +504,8 @@ describe("UIStore", () => {
 
       const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(2);
-      expect(printed[0]!.message).toContain("first block");
-      expect(printed[1]!.message).toContain("second block");
+      expect(printed[0]!.message).toMatchObject({ kind: "reasoning", text: "first block" });
+      expect(printed[1]!.message).toMatchObject({ kind: "reasoning", text: "second block" });
       expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
 
@@ -515,8 +519,8 @@ describe("UIStore", () => {
 
       const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
-      expect(printed[0]!.meta?.["collapsed"]).toBe(false);
-      expect(printed[0]!.message).toContain("live thought");
+      expect(s.isReasoningExpanded(printed[0]!.id)).toBe(true);
+      expect(printed[0]!.message).toMatchObject({ kind: "reasoning", text: "live thought" });
     });
 
     test("setCollapseReasoning(false) settles reasoning expanded without Ctrl+R", () => {
@@ -528,9 +532,8 @@ describe("UIStore", () => {
 
       const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
-      expect(printed[0]!.meta?.["collapsed"]).toBe(false);
-      expect(printed[0]!.message).toContain("the whole thought");
-      expect(printed[0]!.message).not.toContain("ctrl+r");
+      expect(s.isReasoningExpanded(printed[0]!.id)).toBe(true);
+      expect(printed[0]!.message).toMatchObject({ kind: "reasoning", text: "the whole thought" });
       expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
 
@@ -545,8 +548,8 @@ describe("UIStore", () => {
       expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
       const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
-      expect(printed[0]!.meta?.["collapsed"]).toBe(false);
-      expect(printed[0]!.message).toContain("interrupted thought");
+      expect(s.isReasoningExpanded(printed[0]!.id)).toBe(true);
+      expect(printed[0]!.message).toMatchObject({ kind: "reasoning", text: "interrupted thought" });
       expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
 

@@ -285,17 +285,10 @@ export class ChatServiceImpl implements ChatService {
       // Recall always draws from the saved model history, whichever transcript
       // repaints the screen. A fresh conversation seeds an empty list so it
       // does not leak the previous session's recall.
-      const initialUiTranscript = options?.initialUiTranscript;
-      const hydration = resolveSessionHydration(initialUiTranscript, conversationHistory);
-      switch (hydration.transcript) {
-        case "ui":
-          hydrateTranscriptFromUiEntries(hydration.entries);
-          break;
-        case "history":
-          hydrateTranscriptFromHistory(conversationHistory);
-          break;
-        case "none":
-          break;
+      if (options?.initialUiTranscript?.length) {
+        hydrateTranscriptFromUiEntries(options.initialUiTranscript, `${conversationId}:main`);
+      } else if (conversationHistory.length > 0) {
+        hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
       }
       hydrateInputHistoryFromMessages(conversationHistory);
       if (!ephemeral && conversationHistory.length > 0) {
@@ -677,7 +670,7 @@ export class ChatServiceImpl implements ChatService {
               // /compact opts out (skipTranscriptRepaint): it only shrinks the model's
               // context, and the user's scrollback stays as their record of the session.
               if (!commandResult.skipTranscriptRepaint) {
-                hydrateTranscriptFromHistory(conversationHistory);
+                hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
                 // The agent now sees a different history, so ↑ must recall it —
                 // /start recalls nothing, /resume recalls the resumed turns.
                 hydrateInputHistoryFromMessages(conversationHistory);
@@ -691,10 +684,6 @@ export class ChatServiceImpl implements ChatService {
                 // Reset logged message count when history is cleared (e.g., /start command)
                 loggedMessageCount = 0;
               }
-            }
-            if (commandResult.resetStartedAt) {
-              startedAt = new Date().toISOString();
-            }
             if (commandResult.newAutoApprovePolicy !== undefined) {
               autoApprovePolicy = commandResult.newAutoApprovePolicy;
               // Sync mode state with store for Shift+Tab toggle
@@ -1080,14 +1069,10 @@ export class ChatServiceImpl implements ChatService {
   }
 }
 
-/** Snapshot only serializable UI entries; Ink nodes remain a live-renderer concern. */
-function uiTranscriptFromStore(): ConversationUiEntry[] {
+/** Persist accepted source facts, including interrupted partial answers, without live state. */
+function uiTranscriptFromStore(): readonly ConversationUiEntry[] {
   store.flushOutputBatchNow();
-  return store
-    .getOutputSnapshot()
-    .entries.flatMap((entry) =>
-      typeof entry.message === "string" ? [{ type: entry.type, message: entry.message }] : [],
-    );
+  return store.getDocumentSnapshot().entries;
 }
 
 /**

@@ -1,14 +1,25 @@
+/** Pacer tests use one source fixture and assert absolute cursors and lifecycle guards. */
 import { describe, expect, it } from "bun:test";
-import { createStreamPacer, REVEAL_FRAME_MS, type PacerTimers } from "./stream-pacer";
+import {
+  createStreamPacer,
+  REVEAL_FRAME_MS,
+  type PacerTimers,
+  type StreamSource,
+} from "./stream-pacer";
 
-/** A clock and a frame timer the test advances by hand. */
-function manualTimers(): PacerTimers & { advance(ms: number): void; running(): boolean } {
+function manualTimers(): PacerTimers & {
+  advance(ms: number): void;
+  running(): boolean;
+  staleTick(): void;
+} {
   let now = 0;
   let tick: (() => void) | undefined;
+  let stale: (() => void) | undefined;
   return {
     now: () => now,
     every: (_intervalMs, callback) => {
       tick = callback;
+      stale = callback;
       return () => {
         tick = undefined;
       };
@@ -20,104 +31,98 @@ function manualTimers(): PacerTimers & { advance(ms: number): void; running(): b
       }
     },
     running: () => tick !== undefined,
+    staleTick: () => stale?.(),
   };
 }
-
-function recorder() {
-  const applied: string[] = [];
-  return { applied, apply: (_kind: string, delta: string) => applied.push(delta) };
+function fixture() {
+  let source: StreamSource | null = null;
+  const events: Array<{ id: string; length: number }> = [];
+  const timers = manualTimers();
+  const pacer = createStreamPacer(
+    () => source,
+    (id, length) => events.push({ id, length }),
+    timers,
+  );
+  return {
+    pacer,
+    timers,
+    events,
+    accept(id: string, text: string) {
+      if (source?.id !== id) pacer.flush();
+      source = { id, text };
+      pacer.receive();
+    },
+    replace(id: string, text: string) {
+      source = { id, text };
+    },
+    visible: () => events.at(-1)?.length ?? 0,
+  };
 }
-
 const BURST = "the model sent this whole paragraph in a single chunk ".repeat(6);
 
 describe("stream pacer", () => {
-  it("passes deltas straight through while unpaced", () => {
-    const { applied, apply } = recorder();
-    const pacer = createStreamPacer(apply, manualTimers());
-    pacer.receive("response", "hello ");
-    pacer.receive("response", "world");
-    expect(applied.join("")).toBe("hello world");
+  it("publishes an absolute cursor immediately while unpaced", () => {
+    const f = fixture();
+    f.accept("answer", "hello ");
+    f.accept("answer", "hello world");
+    expect(f.events).toEqual([
+      { id: "answer", length: 6 },
+      { id: "answer", length: 11 },
+    ]);
+    expect(f.timers.running()).toBe(false);
   });
-
-  it("switches pacing and stream kinds without replaying or losing delivered text", () => {
-    const timers = manualTimers();
-    const applied: { kind: string; text: string }[] = [];
-    const pacer = createStreamPacer((kind: string, text: string) => {
-      applied.push({ kind, text });
-    }, timers);
-    pacer.receive("reasoning", "before ");
-    expect(timers.running()).toBe(false);
-    pacer.setPaced(true);
-    pacer.receive("response", BURST);
-    expect(timers.running()).toBe(true);
-    pacer.setPaced(false);
-    expect(timers.running()).toBe(false);
-    pacer.receive("reasoning", "between ");
-    pacer.setPaced(true);
-    pacer.receive("response", BURST);
-    timers.advance(1_000);
-    pacer.end();
-    expect(timers.running()).toBe(false);
-    expect(applied.map((event) => event.text).join("")).toBe(`before ${BURST}between ${BURST}`);
-    expect(
-      applied.filter((event) => event.kind === "reasoning").map((event) => event.text),
-    ).toEqual(["before ", "between "]);
+  it("reveals a source over several frames at word boundaries", () => {
+    const f = fixture();
+    f.pacer.setPaced(true);
+    f.accept("answer", BURST);
+    expect(f.events).toHaveLength(0);
+    f.timers.advance(REVEAL_FRAME_MS * 3);
+    expect(f.visible()).toBeGreaterThan(0);
+    expect(f.visible()).toBeLessThan(BURST.length);
+    expect(/\s/.test(BURST[f.visible()] ?? " ") || /\s$/.test(BURST.slice(0, f.visible()))).toBe(
+      true,
+    );
+    f.timers.advance(1000);
+    expect(f.visible()).toBe(BURST.length);
+    expect(f.timers.running()).toBe(false);
   });
-
-  it("reveals a burst over several frames, in order, at word ends", () => {
-    const timers = manualTimers();
-    const { applied, apply } = recorder();
-    const pacer = createStreamPacer(apply, timers);
-    pacer.setPaced(true);
-    pacer.receive("response", BURST);
-    expect(applied.join("")).toBe("");
-    timers.advance(REVEAL_FRAME_MS * 3);
-    const partway = applied.join("");
-    expect(partway.length).toBeGreaterThan(0);
-    expect(partway.length).toBeLessThan(BURST.length);
-    expect(BURST.startsWith(partway)).toBe(true);
-    // The cut lands at the end of a word, never inside one.
-    expect(/\s/.test(BURST[partway.length] ?? " ") || /\s$/.test(partway)).toBe(true);
-    timers.advance(1_000);
-    expect(applied.join("")).toBe(BURST);
-    expect(timers.running()).toBe(false);
+  it("flushes before switching sources and follows the replacement identity", () => {
+    const f = fixture();
+    f.pacer.setPaced(true);
+    f.accept("thought", "weighing it up");
+    f.accept("answer", "Here");
+    expect(f.events).toEqual([{ id: "thought", length: 14 }]);
+    f.pacer.end();
+    expect(f.events.at(-1)).toEqual({ id: "answer", length: 4 });
   });
-
-  it("shows everything at once when flushed or unpaced", () => {
-    const timers = manualTimers();
-    const { applied, apply } = recorder();
-    const pacer = createStreamPacer(apply, timers);
-    pacer.setPaced(true);
-    pacer.receive("response", BURST);
-    pacer.flush();
-    expect(applied.join("")).toBe(BURST);
-    pacer.receive("response", " more");
-    pacer.setPaced(false);
-    expect(applied.join("")).toBe(`${BURST} more`);
+  it("switches between paced and immediate reveal without replaying source text", () => {
+    const f = fixture();
+    f.accept("answer", "before ");
+    f.pacer.setPaced(true);
+    f.accept("answer", `before ${BURST}`);
+    f.pacer.setPaced(false);
+    expect(f.visible()).toBe(`before ${BURST}`.length);
+    f.accept("answer", `before ${BURST} more`);
+    expect(f.visible()).toBe(`before ${BURST} more`.length);
+    expect(f.timers.running()).toBe(false);
   });
-
-  it("finishes one kind of stream before starting the next", () => {
-    const timers = manualTimers();
-    const applied: string[] = [];
-    const pacer = createStreamPacer((kind: string, delta: string) => {
-      applied.push(`${kind}:${delta}`);
-    }, timers);
-    pacer.setPaced(true);
-    pacer.receive("reasoning", "weighing it up");
-    pacer.receive("response", "Here");
-    expect(applied[0]).toBe("reasoning:weighing it up");
+  it("reset invalidates a timer callback even if cancellation was too late", () => {
+    const f = fixture();
+    f.pacer.setPaced(true);
+    f.accept("old", BURST);
+    f.pacer.reset();
+    f.replace("new", "new source");
+    f.timers.staleTick();
+    f.timers.advance(1000);
+    expect(f.events).toHaveLength(0);
   });
-
-  it("starts a new stream after end, and drops a backlog on reset", () => {
-    const timers = manualTimers();
-    const { applied, apply } = recorder();
-    const pacer = createStreamPacer(apply, timers);
-    pacer.setPaced(true);
-    pacer.receive("response", "first answer");
-    pacer.end();
-    pacer.receive("response", "second");
-    pacer.reset();
-    timers.advance(1_000);
-    expect(applied.join("|")).toBe("first answer");
+  it("a changed source getter cannot publish the old timer's cursor into a new document", () => {
+    const f = fixture();
+    f.pacer.setPaced(true);
+    f.accept("old", BURST);
+    f.replace("new", "new source");
+    f.timers.advance(REVEAL_FRAME_MS);
+    expect(f.events).toHaveLength(0);
+    expect(f.timers.running()).toBe(false);
   });
 });

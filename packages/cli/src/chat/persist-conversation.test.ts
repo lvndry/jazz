@@ -13,6 +13,7 @@ import {
   shouldSaveTurn,
   type PersistConversationInput,
 } from "./persist-conversation";
+import { UIStore } from "../ui/store";
 
 let tmpDir: string;
 
@@ -69,8 +70,16 @@ describe("shouldPersistConversation", () => {
         makeInput({
           conversationHistory: [],
           uiTranscript: [
-            { type: "user", message: "/info" },
-            { type: "log", message: "Conversation info" },
+            {
+              id: "/info",
+              timestamp: "2026-08-01T10:00:00.000Z",
+              content: { kind: "user" as const, text: "/info" },
+            },
+            {
+              id: "Conversation info",
+              timestamp: "2026-08-01T10:00:00.000Z",
+              content: { kind: "notice" as const, tone: "log" as const, text: "Conversation info" },
+            },
           ],
         }),
       ),
@@ -79,6 +88,29 @@ describe("shouldPersistConversation", () => {
 });
 
 describe("persistConversationIfNeeded", () => {
+  test("a resumed process appends new source identities and saves successfully", async () => {
+    const first = new UIStore();
+    first.printContent({ kind: "user", text: "first question" });
+    first.appendStream("response", "first answer");
+    first.finalizeStream();
+    const input = makeInput({ uiTranscript: first.getDocumentSnapshot().entries });
+    await runEffect(persistConversationIfNeeded(input, tmpDir));
+    const saved = await runEffect(loadConversation(input.agentId, input.conversationId, tmpDir));
+    if (saved?.uiTranscript === undefined) throw new Error("Initial document was not saved");
+    const resumed = new UIStore();
+    resumed.replaceDocument("conv-1:main", saved.uiTranscript);
+    resumed.printContent({ kind: "user", text: "follow-up" });
+    resumed.appendStream("response", "second answer");
+    resumed.finalizeStream();
+    const entries = resumed.getDocumentSnapshot().entries;
+    expect(new Set(entries.map((entry) => entry.id)).size).toBe(entries.length);
+    await runEffect(persistConversationIfNeeded({ ...input, uiTranscript: entries }, tmpDir));
+    expect(
+      (await runEffect(loadConversation(input.agentId, input.conversationId, tmpDir)))
+        ?.uiTranscript,
+    ).toEqual(entries);
+  });
+
   test("writes history so loadHistory returns the first-message title", async () => {
     const input = makeInput();
     await runEffect(persistConversationIfNeeded(input, tmpDir));

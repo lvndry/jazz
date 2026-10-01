@@ -1,7 +1,13 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { INK_RENDER_OPTIONS, PlainTerminalService } from "./terminal";
+import {
+  INK_RENDER_OPTIONS,
+  InkTerminalService,
+  PlainTerminalService,
+  maskSecret,
+} from "./terminal";
+import { store } from "./ui/store";
 
 describe("INK_RENDER_OPTIONS", () => {
   /**
@@ -122,5 +128,70 @@ describe("PlainTerminalService", () => {
     expect(written.stderr).toContain("error line");
     expect(written.stderr).toContain("warn line");
     expect(written.stderr).toContain("debug line");
+  });
+});
+
+/** The production terminal port must accept meaning before any width-dependent layout. */
+describe("Ink terminal semantic acceptance", () => {
+  const terminal = Object.create(InkTerminalService.prototype) as InkTerminalService;
+  test("long user source remains unchanged at different terminal widths", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+    const text = "a long user sentence with Unicode 界 and e\u0301 ".repeat(10);
+    try {
+      for (const width of [32, 120]) {
+        Object.defineProperty(process.stdout, "columns", { configurable: true, value: width });
+        store.clearOutputs();
+        Effect.runSync(terminal.user(text));
+        store.flushOutputBatchNow();
+        expect(store.getDocumentSnapshot().entries[0]?.content).toEqual({ kind: "user", text });
+      }
+    } finally {
+      if (descriptor === undefined) Reflect.deleteProperty(process.stdout, "columns");
+      else Object.defineProperty(process.stdout, "columns", descriptor);
+      store.clearOutputs();
+    }
+  });
+
+  test("secret prompt echo stores only masked text and cannot enter recall history", async () => {
+    store.clearOutputs();
+    const secret = "a-very-private-secret-that-must-never-enter-source";
+    const pending = Effect.runPromise(terminal.ask("API key:", { secret: true }));
+    await Promise.resolve();
+    store.getPromptSnapshot()!.resolve(secret);
+    expect(await pending).toBe(secret);
+    store.flushOutputBatchNow();
+    expect(store.getDocumentSnapshot().entries[0]?.content).toEqual({
+      kind: "user",
+      text: maskSecret(secret),
+    });
+    expect(JSON.stringify(store.getDocumentSnapshot())).not.toContain(secret);
+    expect(store.getInputHistory()).not.toContain(secret);
+    store.clearOutputs();
+  });
+
+  test("answered and cancelled prompts persist unwrapped words only", async () => {
+    store.clearOutputs();
+    const message = "a deliberately long prompt label ".repeat(5);
+    const answer = "a deliberately long answer ".repeat(5);
+    const pending = Effect.runPromise(terminal.ask(message, { simple: true }));
+    await Promise.resolve();
+    store.getPromptSnapshot()!.resolve(answer);
+    expect(await pending).toBe(answer);
+    store.flushOutputBatchNow();
+    expect(store.getDocumentSnapshot().entries[0]?.content).toEqual({
+      kind: "user",
+      text: `${message} ${answer}`,
+    });
+    const cancelled = Effect.runPromise(terminal.ask(message, { simple: true, cancellable: true }));
+    await Promise.resolve();
+    store.getPromptSnapshot()!.reject!();
+    expect(await cancelled).toBeUndefined();
+    store.flushOutputBatchNow();
+    expect(store.getDocumentSnapshot().entries.at(-1)?.content).toEqual({
+      kind: "notice",
+      tone: "log",
+      text: `${message} (cancelled)`,
+    });
+    store.clearOutputs();
   });
 });

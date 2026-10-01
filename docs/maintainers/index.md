@@ -22,6 +22,7 @@ Use these pages to answer two questions: where does a change belong, and which i
 ## Reference
 
 - [Interface design](./interface-design.md): the terminal's visual language, and the rules for any case it does not cover.
+- [Conversation presentation](./presentation-documents.md): source facts, renderer projections, stream identity, and history migration.
 - [Terminal rendering tests](./terminal-rendering-tests.md): native ANSI output checked against an independent terminal grid.
 - [Remote handoff snapshot](./detach-snapshots.md): what a detached conversation carries to another host, and the ownership fence around it.
 

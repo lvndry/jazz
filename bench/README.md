@@ -42,7 +42,7 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 | tool-result-clearing     | `clearToolResults` walk, BPE vs ratio                                                            | per turn on long chats      |
 | agent-prompt             | `buildSystemPrompt` cold vs cached + work-state preamble                                         | per turn / on resume        |
 | summarizer-chunking      | `chunkForSummarizer` by history length and budget                                                | per compaction              |
-| conversation-log         | parse + reduce + `outputEntriesFromHistory`                                                      | session resume              |
+| conversation-log         | parse + reduce + `presentationEntriesFromHistory`                                                      | session resume              |
 | conversation-search      | `search` over a synthetic history directory                                                      | per keystroke while open    |
 | tool-formatter           | `formatToolResult` at 1KB / 100KB / 1MB                                                          | per tool call               |
 | capped-output            | `appendCapped` fold, `decodeCapped`, `tailForModel`                                              | per stdout chunk            |

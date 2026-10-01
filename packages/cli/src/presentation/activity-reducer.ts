@@ -13,12 +13,9 @@
  * status and reasoning only.
  */
 
-import type { TerminalOutput } from "@jazz/core/interfaces/terminal";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { fileMutationDiffPreview, isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
-import { Box, Text } from "ink";
-import React from "react";
 import {
   compactToolArguments,
   formatToolArguments,
@@ -27,8 +24,7 @@ import {
 } from "./format-utils";
 import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
-import { receiptPlainText, toolReceipt } from "../ui/models/receipt";
-import { THEME } from "../ui/theme";
+import { toolReceipt } from "../ui/models/receipt";
 import type { OutputEntry } from "../ui/types";
 
 /**
@@ -57,14 +53,6 @@ export const AWAITING_LABELS: readonly string[] = [
 function pickAwaitingLabel(): string {
   const i = Math.floor(Math.random() * AWAITING_LABELS.length);
   return AWAITING_LABELS[i] ?? "is cooking";
-}
-
-function renderToolBadge(label: string): React.ReactElement {
-  return React.createElement(
-    Box,
-    { borderStyle: "round", borderColor: THEME.toolBorder, paddingX: 1 },
-    React.createElement(Text, { color: THEME.agent }, label),
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -236,11 +224,7 @@ function formatTodoSnapshotForOutput(todoSnapshot: TodoSnapshotItem[]): string {
 // reduceEvent — pure reducer
 // ---------------------------------------------------------------------------
 
-export function reduceEvent(
-  acc: ReducerAccumulator,
-  event: StreamEvent,
-  inkRender: (node: unknown) => TerminalOutput,
-): ReducerResult {
+export function reduceEvent(acc: ReducerAccumulator, event: StreamEvent): ReducerResult {
   const outputs: OutputEntry[] = [];
 
   switch (event.type) {
@@ -256,15 +240,12 @@ export function reduceEvent(
       // Agent turn header: the note glyph is Jazz's signature turn marker.
       outputs.push({
         type: "log",
-        message: inkRender(
-          React.createElement(
-            Box,
-            null,
-            React.createElement(Text, { color: THEME.agent }, `${getGlyphs().note} `),
-            React.createElement(Text, { color: THEME.agent, bold: true }, acc.agentName),
-            React.createElement(Text, { dimColor: true }, ` · ${event.provider}/${event.model}`),
-          ),
-        ),
+        message: {
+          kind: "header",
+          name: acc.agentName,
+          provider: event.provider,
+          model: event.model,
+        },
         timestamp: new Date(),
       });
 
@@ -359,7 +340,12 @@ export function reduceEvent(
       });
       outputs.push({
         type: "info",
-        message: inkRender(renderToolBadge(`Tools: ${formattedTools}`)),
+        message: {
+          kind: "notice",
+          tone: "info",
+          text: `Tools: ${formattedTools}`,
+          audience: "classic",
+        },
         timestamp: new Date(),
       });
       return { activity: null, outputs };
@@ -391,9 +377,13 @@ export function reduceEvent(
 
       outputs.push({
         type: "info",
-        message: `${displayName}${args.length > 0 ? ` ${args}` : ""}`,
+        message: {
+          kind: "notice",
+          tone: "log",
+          text: `${displayName}${args.length > 0 ? ` ${args}` : ""}`,
+          audience: "classic",
+        },
         timestamp: new Date(),
-        meta: { toolStart: true },
       });
 
       return { activity: buildToolExecutionActivity(acc), outputs };
@@ -430,13 +420,10 @@ export function reduceEvent(
         classifiedRisk: event.classifiedRisk ?? toolEntry?.classifiedRisk,
       });
 
-      // The entry holds the receipt itself; every renderer lays it out from `meta`, and the
-      // message is its words as plain text for search, copy and anything that reads text.
       outputs.push({
         type: "log",
-        message: receiptPlainText(receipt, getGlyphs(), { duration: true }),
+        message: { kind: "tool", receipt },
         timestamp: new Date(),
-        meta: { toolReceipt: receipt },
       });
 
       const activity: ActivityState =

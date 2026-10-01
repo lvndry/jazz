@@ -27,7 +27,6 @@ import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logg
 import { MCPServerManagerTag, type MCPServerManager } from "@jazz/core/interfaces/mcp-server";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
 import {
-  ink,
   TerminalServiceTag,
   type PromptStep,
   type PromptTagTone,
@@ -53,16 +52,12 @@ import { isAuthenticationRequired } from "@jazz/core/utils/mcp";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { buildModelChoices, sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
-import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
-import React from "react";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import { promptForReasoningSelection } from "@/cli/helpers/reasoning";
 import { ensureLocalProviderBaseUrl } from "@/cli/setup/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/setup/provider-api-key";
 import { configureWebSearch } from "@/cli/setup/web-search";
 import { configuredProviderNames } from "@/cli/ui/models/configured-providers";
-import { THEME } from "@/cli/ui/theme";
 import { ollamaOrigin, probeOllamaModels } from "../helpers/provider-detection";
 
 /**
@@ -236,20 +231,7 @@ export function createAgentCommand(
       );
 
       // Show spinner while discovering MCP tools
-      yield* terminal.log(
-        ink(
-          React.createElement(
-            Box,
-            {},
-            React.createElement(
-              Text,
-              { color: THEME.primary },
-              React.createElement(Spinner, { type: "dots" }),
-            ),
-            React.createElement(Text, {}, " Discovering tools from MCP servers..."),
-          ),
-        ),
-      );
+      yield* terminal.log("Discovering tools from MCP servers...");
 
       // Register tools from all selected MCP servers in parallel with timeout
       const registrationEffects = selectedServers.map((serverConfig) =>

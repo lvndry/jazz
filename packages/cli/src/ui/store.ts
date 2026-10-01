@@ -1,24 +1,33 @@
 /**
- * Global UI state store (`UIStore`) that every "island" component reads via
- * `useSyncExternalStore`, sliced by concern (output, session, prompt,
- * ephemeral, subagents) so a change in one slice doesn't re-render unrelated islands.
+ * Owns the canonical semantic presentation document and interactive state.
+ * Producers commit facts before layout; durable readers use getDocumentSnapshot.
+ * The fullscreen adapter observes coherent getPresentationSnapshot revisions,
+ * while classic Ink consumes disposable append-only projections. Prompt and
+ * approval continuations stay on the write side and never enter source content.
  */
 
 import type { LlmRetryNotice } from "@jazz/core/interfaces/presentation";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
+import type {
+  PresentationContent,
+  PresentationDocument,
+  PresentationEntry,
+} from "@jazz/core/types/presentation-content";
 import type { ToolRiskLevel } from "@jazz/core/types/tools";
-import chalk from "chalk";
 import { useSyncExternalStore } from "react";
 import { isCommandInput } from "@/cli/chat/commands/parser";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import {
-  initialScrollbackState,
-  reduceScrollback,
+  createClassicProjection,
   type PendingStream,
-  type ScrollbackState,
   type StreamKind,
 } from "./adapters/terminal-output-adapter";
-import { getGlyphs } from "./glyphs";
+import {
+  appendDocumentEntries,
+  appendDocumentStream,
+  settleDocumentStream,
+  contentFromOutput,
+} from "./document";
 import type { LocalModelHosts } from "./local-model-hosts";
 import {
   appendToSubagentRun,
@@ -33,13 +42,7 @@ import {
   type SubagentStatus,
 } from "./subagent-runs";
 import { createStreamPacer, type StreamPacer } from "./text/stream-pacer";
-import {
-  addThoughtStep,
-  foldedThoughtLine,
-  NO_THOUGHT,
-  thoughtText,
-  type TurnThought,
-} from "./turn-thought";
+import { addThoughtStep, NO_THOUGHT, thoughtText, type TurnThought } from "./turn-thought";
 import type { OutputEntry, OutputEntryWithId, PromptState } from "./types";
 
 type ModeSwitchHandler = (mode: "safe" | "yolo") => void;
@@ -83,6 +86,7 @@ export interface ExpandableReasoning {
   readonly steps?: number;
   readonly tokens?: number;
   readonly entryId?: string;
+  readonly entryIds?: readonly string[];
 }
 
 const MAX_EXPANDABLE_REASONING = 20;
@@ -377,12 +381,14 @@ class StoreSlice<T> {
 
   getSnapshot = (): T => this.snapshot;
 
-  set(next: T): void {
+  notify(): void {
+    for (const listener of this.listeners) listener();
+  }
+
+  set(next: T, notify = true): void {
     if (Object.is(this.snapshot, next)) return;
     this.snapshot = next;
-    for (const listener of this.listeners) {
-      listener();
-    }
+    if (notify) this.notify();
   }
 }
 
@@ -399,13 +405,15 @@ function patchSlice<T extends object>(slice: StoreSlice<T>, patch: Partial<T>): 
   slice.set({ ...previous, ...patch });
 }
 
-function outputFromScrollback(state: ScrollbackState): OutputSnapshot {
-  return {
-    entries: state.staticEntries,
-    pending: state.pending,
-    streaming: state.pending === null ? EMPTY_STREAM : state.pending.rawTail,
-    staticGeneration: state.staticGeneration,
-  };
+export interface PresentationSnapshot {
+  readonly revision: number;
+  readonly document: PresentationDocument;
+  readonly session: SessionSnapshot;
+  readonly ephemeral: EphemeralSnapshot;
+  readonly subagents: SubagentsSnapshot;
+  readonly expandedReasoningIds: ReadonlySet<string>;
+  readonly liveReasoningIds: ReadonlySet<string>;
+  readonly streamReveal: { readonly id: string; readonly length: number } | null;
 }
 
 export class UIStore {
@@ -415,7 +423,99 @@ export class UIStore {
   private readonly ephemeral = new StoreSlice<EphemeralSnapshot>(INITIAL_EPHEMERAL);
   private readonly subagents = new StoreSlice<SubagentsSnapshot>(INITIAL_SUBAGENTS);
 
-  private scrollback: ScrollbackState = initialScrollbackState();
+  private readonly sourceNamespace = crypto.randomUUID();
+  private document: PresentationDocument = { id: "session:0", revision: 0, entries: [] };
+  private documentGeneration = 0;
+  private classicProjection: ReturnType<typeof createClassicProjection> | undefined;
+  private classicDirty = false;
+  private classicSubscribers = 0;
+  private classicNotificationPending = false;
+  private readonly expandedReasoningIds = new Set<string>();
+  private readonly liveReasoningIds = new Set<string>();
+  private turnThoughtIds: string[] = [];
+  private readonly reasoningReplays: Array<{
+    readonly id: string;
+    readonly sourceIds: readonly string[];
+  }> = [];
+  private readonly deferredReasoningIds = new Set<string>();
+  private streamReveal: { readonly id: string; readonly length: number } | null = null;
+  private presentationRevision = 0;
+  private presentationCommitting = false;
+  private presentationCommitScheduled = false;
+  private presentationSnapshot!: PresentationSnapshot;
+  private readonly presentationListeners = new Set<() => void>();
+
+  constructor() {
+    for (const slice of [this.session, this.ephemeral, this.subagents]) {
+      slice.subscribe(this.schedulePresentationCommit);
+    }
+    this.commitPresentation();
+  }
+
+  private schedulePresentationCommit = (): void => {
+    if (this.presentationCommitScheduled || this.presentationCommitting) return;
+    this.presentationCommitScheduled = true;
+    queueMicrotask(() => {
+      if (this.presentationCommitScheduled) this.commitPresentation();
+    });
+  };
+
+  private commitPresentation = (): void => {
+    this.presentationCommitScheduled = false;
+    this.presentationCommitting = true;
+    this.doFlushBatch();
+    this.presentationCommitting = false;
+    this.presentationSnapshot = {
+      revision: ++this.presentationRevision,
+      document: this.document,
+      session: this.session.getSnapshot(),
+      ephemeral: this.ephemeral.getSnapshot(),
+      subagents: this.subagents.getSnapshot(),
+      expandedReasoningIds: new Set(this.expandedReasoningIds),
+      liveReasoningIds: new Set(this.liveReasoningIds),
+      streamReveal: this.streamReveal,
+    };
+    if (this.classicNotificationPending) {
+      this.classicNotificationPending = false;
+      if (this.classicSubscribers > 0) {
+        if (this.classicDirty) this.computeClassicProjection(true);
+        else this.output.notify();
+      }
+    }
+    for (const listener of this.presentationListeners) listener();
+  };
+
+  subscribePresentation = (listener: () => void): (() => void) => {
+    this.presentationListeners.add(listener);
+    return () => this.presentationListeners.delete(listener);
+  };
+
+  getPresentationSnapshot = (): PresentationSnapshot => this.presentationSnapshot;
+  /** Capture on presenter creation; replacing or clearing the document retires it. */
+  captureDocumentLease = (): (() => boolean) => {
+    const generation = this.documentGeneration;
+    return () => generation === this.documentGeneration;
+  };
+  getDocumentSnapshot = (): PresentationDocument => this.document;
+  isReasoningExpanded = (id: string): boolean => this.expandedReasoningIds.has(id);
+
+  /** Replace source entries as one transaction; history never reprints rendered rows. */
+  replaceDocument = (id: string, entries: readonly PresentationEntry[]): void => {
+    this.streamPacer.reset();
+    this.outputBatch = [];
+    this.resetDocumentControls();
+    this.documentGeneration += 1;
+    this.publishDocument({ id, revision: this.document.revision + 1, entries });
+    this.commitPresentation();
+  };
+
+  printContent = (content: PresentationContent, id?: string): string =>
+    this.printOutput({
+      type: "log",
+      message: content,
+      timestamp: new Date(),
+      ...(id === undefined ? {} : { id }),
+    });
   private pinnedReasoningIds = new Set<EphemeralRegionId>();
   private collapseReasoning = true;
   private pendingOutputIdCounter = 0;
@@ -446,18 +546,42 @@ export class UIStore {
    * someone watches turns it on; a screen reader, a pipe and the tests get
    * every delta the moment it arrives.
    */
-  private readonly streamPacer: StreamPacer<StreamKind> = createStreamPacer((kind, delta) => {
-    this.applyStreamDelta(kind, delta);
-  });
+  private readonly streamPacer: StreamPacer = createStreamPacer(
+    () => {
+      const entry = this.document.entries.at(-1);
+      if (entry === undefined || entry.id !== this.document.streamingId) return null;
+      return entry.content.kind === "agent"
+        ? { id: entry.id, text: entry.content.markdown }
+        : entry.content.kind === "reasoning"
+          ? { id: entry.id, text: entry.content.text }
+          : null;
+    },
+    (id, length) => {
+      if (id !== this.document.streamingId) return;
+      this.streamReveal = { id, length };
+      this.refreshClassicProjection();
+      this.schedulePresentationCommit();
+    },
+  );
   private streamPacingEnabled = false;
   /** Folded reasoning of the turn in progress, printed as one line when it settles. */
   private turnThought: TurnThought = NO_THOUGHT;
   private turnThoughtLabel = "Reasoning";
-  private turnThoughtCounter = 0;
   private readerFollowing = true;
 
-  subscribeOutput = (listener: () => void): (() => void) => this.output.subscribe(listener);
-  getOutputSnapshot = (): OutputSnapshot => this.output.getSnapshot();
+  subscribeOutput = (listener: () => void): (() => void) => {
+    this.getOutputSnapshot();
+    this.classicSubscribers += 1;
+    const unsubscribe = this.output.subscribe(listener);
+    return () => {
+      this.classicSubscribers -= 1;
+      unsubscribe();
+    };
+  };
+  getOutputSnapshot = (): OutputSnapshot => {
+    if (this.classicDirty) this.computeClassicProjection(false);
+    return this.output.getSnapshot();
+  };
 
   subscribeSession = (listener: () => void): (() => void) => this.session.subscribe(listener);
   getSessionSnapshot = (): SessionSnapshot => this.session.getSnapshot();
@@ -471,13 +595,63 @@ export class UIStore {
   subscribeSubagents = (listener: () => void): (() => void) => this.subagents.subscribe(listener);
   getSubagentsSnapshot = (): SubagentsSnapshot => this.subagents.getSnapshot();
 
-  private publishScrollback(next: ScrollbackState): void {
-    if (Object.is(next, this.scrollback)) return;
-    this.scrollback = next;
-    this.output.set(outputFromScrollback(next));
+  private publishDocument(next: PresentationDocument): void {
+    if (Object.is(next, this.document)) return;
+    this.document = next;
+    this.refreshClassicProjection();
+    this.schedulePresentationCommit();
+  }
+
+  private refreshClassicProjection(): void {
+    this.classicDirty = true;
+    if (this.classicSubscribers > 0) {
+      this.classicNotificationPending = true;
+      this.schedulePresentationCommit();
+    }
+  }
+
+  private computeClassicProjection(notify: boolean): void {
+    this.classicDirty = false;
+    this.classicProjection ??= createClassicProjection();
+    const projected = this.classicProjection(this.document, this.documentGeneration, {
+      expandedReasoningIds: this.expandedReasoningIds,
+      liveReasoningIds: this.liveReasoningIds,
+      hiddenReasoningIds: this.deferredReasoningIds,
+      streamReveal: this.streamReveal,
+    });
+    const replayEntries = this.reasoningReplays.flatMap((replay) => {
+      const sources = this.document.entries.filter(
+        (entry) => replay.sourceIds.includes(entry.id) && entry.content.kind === "reasoning",
+      );
+      const content = sources[0]?.content;
+      if (content?.kind !== "reasoning") return [];
+      return [
+        {
+          id: replay.id,
+          type: "streamContent" as const,
+          message: {
+            ...content,
+            text: sources
+              .map((entry) => (entry.content.kind === "reasoning" ? entry.content.text : ""))
+              .join("\n\n"),
+          },
+          timestamp: new Date(sources[0]!.timestamp),
+        },
+      ];
+    });
+    this.output.set(
+      {
+        ...projected,
+        entries: [...projected.entries, ...replayEntries],
+        streaming: projected.pending?.rawTail ?? "",
+        staticGeneration: this.documentGeneration,
+      },
+      notify,
+    );
   }
 
   private flushOutputBatch = (): void => {
+    if (!this.batchFlushScheduled) return;
     this.batchFlushScheduled = false;
     this.doFlushBatch();
   };
@@ -489,8 +663,15 @@ export class UIStore {
     this.streamPacer.flush();
     const batch = this.outputBatch;
     this.outputBatch = [];
-    this.publishScrollback(
-      reduceScrollback(this.scrollback, { type: "appendStatic", entries: batch }),
+    this.publishDocument(
+      appendDocumentEntries(
+        settleDocumentStream(this.document),
+        batch.map((entry) => ({
+          id: entry.id,
+          content: contentFromOutput(entry),
+          timestamp: entry.timestamp.toISOString(),
+        })),
+      ),
     );
   }
 
@@ -502,11 +683,12 @@ export class UIStore {
   }
 
   printOutput = (entry: OutputEntry): string => {
-    const id = entry.id ?? `queued-output-${++this.pendingOutputIdCounter}`;
+    const id = entry.id ?? `queued-output-${this.sourceNamespace}-${++this.pendingOutputIdCounter}`;
     const entryWithId: OutputEntryWithId = entry.id
       ? (entry as OutputEntryWithId)
       : { ...entry, id };
     this.outputBatch.push(entryWithId);
+    this.schedulePresentationCommit();
     if (!this.batchFlushScheduled) {
       this.batchFlushScheduled = true;
       queueMicrotask(this.flushOutputBatch);
@@ -515,21 +697,14 @@ export class UIStore {
   };
 
   private updateOutputEntry(id: string, patch: OutputEntry): void {
-    const previous = this.output.getSnapshot();
     let found = false;
-    const entries = previous.entries.map((entry) => {
+    const entries = this.document.entries.map((entry) => {
       if (entry.id !== id) return entry;
       found = true;
-      return {
-        ...entry,
-        ...patch,
-        id,
-        meta: { ...entry.meta, ...patch.meta },
-      };
+      return { id, content: contentFromOutput(patch), timestamp: patch.timestamp.toISOString() };
     });
-    if (!found) return;
-    this.scrollback = { ...this.scrollback, staticEntries: entries };
-    this.output.set({ ...previous, entries });
+    if (found)
+      this.publishDocument({ ...this.document, revision: this.document.revision + 1, entries });
   }
 
   setPrompt = (nextPrompt: PromptState | null): void => {
@@ -837,7 +1012,7 @@ export class UIStore {
     maxLines: number,
     agentRun?: { readonly task: string; readonly acceptsMessages: boolean },
   ): EphemeralRegionId => {
-    const id = `eph-${++this.ephemeralIdCounter}-${Date.now()}`;
+    const id = `eph-${this.sourceNamespace}-${++this.ephemeralIdCounter}`;
     const startedAt = Date.now();
     this.ephemeralRegions.set(id, {
       id,
@@ -847,6 +1022,17 @@ export class UIStore {
       tail: [],
       maxLines,
     });
+    if (kind === "reasoning") {
+      this.liveReasoningIds.add(id);
+      this.deferredReasoningIds.add(id);
+      this.printOutput({
+        id,
+        type: "streamContent",
+        message: { kind: "reasoning", text: "", label },
+        timestamp: new Date(),
+      });
+      this.flushOutputBatchNow();
+    }
     this.publishEphemeralRegions();
     if (agentRun !== undefined) {
       this.subagentRuns.set(id, openSubagentRun(id, label, startedAt, agentRun));
@@ -880,6 +1066,15 @@ export class UIStore {
     const trimmed =
       merged.length > region.maxLines ? merged.slice(merged.length - region.maxLines) : merged;
 
+    if (region.kind === "reasoning") {
+      const source = this.document.entries.find((entry) => entry.id === id)?.content;
+      const fullText = source?.kind === "reasoning" ? source.text + text : text;
+      this.updateOutputEntry(id, {
+        type: "streamContent",
+        message: { kind: "reasoning", text: fullText, label: region.label },
+        timestamp: new Date(),
+      });
+    }
     this.ephemeralRegions.set(id, { ...region, tail: trimmed });
     this.publishEphemeralRegions();
   };
@@ -896,18 +1091,35 @@ export class UIStore {
     this.publishEphemeralRegions();
     this.finishSubagentRunWith(id, summary.status ?? "completed");
 
-    const capturedText = summary.fullText?.trim() || region.tail.join("\n").trim();
+    const accepted = this.document.entries.find((entry) => entry.id === id)?.content;
+    const capturedText =
+      summary.fullText?.trim() ||
+      (accepted?.kind === "reasoning" ? accepted.text : region.tail.join("\n").trim());
     const pinned = this.pinnedReasoningIds.delete(id);
     const keepExpanded = pinned || !this.collapseReasoning;
 
     if (region.kind === "reasoning") {
+      this.liveReasoningIds.delete(id);
+      const source = this.document.entries.find((entry) => entry.id === id)?.content;
+      const text =
+        summary.fullText?.trim() || (source?.kind === "reasoning" ? source.text : capturedText);
+      this.updateOutputEntry(id, {
+        type: "streamContent",
+        message: {
+          kind: "reasoning",
+          text,
+          label: region.label,
+          durationMs: summary.durationMs,
+          ...(summary.tokens === undefined ? {} : { tokens: summary.tokens }),
+        },
+        timestamp: new Date(),
+      });
+      this.turnThoughtIds.push(id);
       if (keepExpanded && capturedText.length > 0) {
-        this.printExpandedReasoning(
-          `reasoning-${id}`,
-          region.label,
-          summary.durationMs,
-          capturedText,
-        );
+        this.expandedReasoningIds.add(id);
+        this.deferredReasoningIds.delete(id);
+        this.refreshClassicProjection();
+        this.schedulePresentationCommit();
         return;
       }
       // Folded reasoning waits for the turn to settle, so the turn gets one
@@ -926,28 +1138,10 @@ export class UIStore {
         type: "log",
         message: summary.line,
         timestamp: new Date(),
-        meta: { collapsedRegion: region.kind },
       });
       this.flushOutputBatchNow();
     }
   };
-
-  private printExpandedReasoning(
-    entryId: string,
-    label: string,
-    durationMs: number,
-    fullText: string,
-  ): void {
-    const seconds = (durationMs / 1000).toFixed(1);
-    this.printOutput({
-      id: entryId,
-      type: "streamContent",
-      message: `*${label} · ${seconds}s*\n\n${fullText}`,
-      meta: { kind: "reasoning", collapsed: false, fullText, durationMs, label },
-      timestamp: new Date(),
-    });
-    this.flushOutputBatchNow();
-  }
 
   /**
    * Print the turn's folded reasoning as one line, and make it the block ctrl+r
@@ -957,34 +1151,24 @@ export class UIStore {
   settleTurnThought = (): void => {
     const thought = this.turnThought;
     this.turnThought = NO_THOUGHT;
-    if (thought.steps === 0) return;
+    for (const id of this.turnThoughtIds) this.deferredReasoningIds.delete(id);
+    this.refreshClassicProjection();
+    if (thought.steps === 0) {
+      this.turnThoughtIds = [];
+      return;
+    }
     const fullText = thoughtText(thought);
-    const glyphs = getGlyphs();
-    const entryId = `reasoning-turn-${String(++this.turnThoughtCounter)}`;
-    this.printOutput({
-      id: entryId,
-      type: "streamContent",
-      message: chalk.dim(
-        foldedThoughtLine(thought, fullText.length > 0, glyphs.folded, ` ${glyphs.bullet} `),
-      ),
-      meta: {
-        kind: "reasoning",
-        collapsed: true,
-        fullText,
-        durationMs: thought.durationMs,
-        steps: thought.steps,
-        label: this.turnThoughtLabel,
-      },
-      timestamp: new Date(),
-    });
-    this.flushOutputBatchNow();
+    const ids = this.turnThoughtIds;
+    this.turnThoughtIds = [];
+    const entryId = ids[0];
     if (fullText.length > 0) {
       this.pushExpandableReasoning({
         fullText,
         label: this.turnThoughtLabel,
         durationMs: thought.durationMs,
         steps: thought.steps,
-        entryId,
+        ...(entryId === undefined ? {} : { entryId }),
+        entryIds: ids,
         ...(thought.tokens !== undefined && { tokens: thought.tokens }),
       });
     }
@@ -1018,18 +1202,15 @@ export class UIStore {
   /** The run was interrupted: every open region closes, and the turn's thinking settles. */
   collapseAllEphemeral = (): void => {
     for (const id of this.ephemeralRegions.keys()) this.finishSubagentRunWith(id, "interrupted");
-    for (const region of this.ephemeralRegions.values()) {
+    for (const region of Array.from(this.ephemeralRegions.values())) {
       if (region.kind !== "reasoning") continue;
-      const fullText = region.tail.join("\n").trim();
-      // Cut off before it said anything: there is no thought to account for.
-      if (fullText.length === 0) continue;
-      const durationMs = Date.now() - region.startedAt;
-      if (!this.collapseReasoning) {
-        this.printExpandedReasoning(`reasoning-${region.id}`, region.label, durationMs, fullText);
-        continue;
+      const content = this.document.entries.find((entry) => entry.id === region.id)?.content;
+      if (content?.kind === "reasoning" && content.text.trim().length > 0)
+        this.collapseEphemeral(region.id, { durationMs: Date.now() - region.startedAt });
+      else {
+        this.liveReasoningIds.delete(region.id);
+        this.deferredReasoningIds.delete(region.id);
       }
-      this.turnThought = addThoughtStep(this.turnThought, { durationMs, text: fullText });
-      this.turnThoughtLabel = region.label;
     }
     if (this.ephemeralRegions.size > 0) {
       this.ephemeralRegions.clear();
@@ -1138,27 +1319,21 @@ export class UIStore {
   expandLastReasoning = (target: "in-place" | "append" = "in-place"): boolean => {
     const value = this.expandableReasoningStack.pop();
     if (value === undefined) return this.pinOpenReasoning();
-    const seconds = (value.durationMs / 1000).toFixed(1);
-    const entry: OutputEntry = {
-      type: "streamContent",
-      message: `*${value.label} · ${seconds}s*\n\n${value.fullText}`,
-      meta: {
-        kind: "reasoning",
-        collapsed: false,
-        fullText: value.fullText,
-        durationMs: value.durationMs,
-        label: value.label,
-        ...(value.steps === undefined ? {} : { steps: value.steps }),
-      },
-      timestamp: new Date(),
-      ...(target === "in-place" && value.entryId !== undefined ? { id: value.entryId } : {}),
-    };
+    if (target === "in-place")
+      for (const id of value.entryIds ?? (value.entryId === undefined ? [] : [value.entryId]))
+        this.expandedReasoningIds.add(id);
     if (target === "in-place" && value.entryId !== undefined) {
       this.flushOutputBatchNow();
-      this.updateOutputEntry(value.entryId, entry);
+      this.refreshClassicProjection();
+      this.schedulePresentationCommit();
     } else {
-      this.printOutput(entry);
-      this.flushOutputBatchNow();
+      const id = `${value.entryId ?? "reasoning"}:expanded:${String(this.reasoningReplays.length)}`;
+      this.reasoningReplays.push({
+        id,
+        sourceIds: value.entryIds ?? (value.entryId === undefined ? [] : [value.entryId]),
+      });
+      this.expandedReasoningIds.add(id);
+      this.refreshClassicProjection();
     }
     this.setExpandableReasoning(this.expandableReasoningStack.at(-1) ?? null);
     return true;
@@ -1167,7 +1342,16 @@ export class UIStore {
   appendStream = (kind: StreamKind, delta: string): void => {
     if (delta.length === 0) return;
     this.flushOutputBatchNow();
-    this.streamPacer.receive(kind, delta);
+    const last = this.document.entries.at(-1);
+    const matching =
+      last?.id === this.document.streamingId &&
+      (kind === "response" ? last?.content.kind === "agent" : last?.content.kind === "reasoning");
+    if (!matching) {
+      this.streamPacer.flush();
+      this.streamReveal = null;
+    }
+    this.applyStreamDelta(kind, delta);
+    this.streamPacer.receive();
   };
 
   /**
@@ -1191,38 +1375,55 @@ export class UIStore {
   };
 
   private applyStreamDelta(kind: StreamKind, delta: string): void {
-    this.publishScrollback(
-      reduceScrollback(this.scrollback, {
-        type: "appendStream",
-        kind,
-        delta,
-        nextId: `queued-output-${++this.pendingOutputIdCounter}`,
-        finalizeId: `queued-output-${++this.pendingOutputIdCounter}`,
-      }),
+    const next = appendDocumentStream(
+      this.document,
+      kind,
+      delta,
+      `output-${this.sourceNamespace}-${++this.pendingOutputIdCounter}`,
+      new Date().toISOString(),
     );
+    if (next.streamingId !== undefined && this.streamReveal?.id !== next.streamingId)
+      this.streamReveal = { id: next.streamingId, length: 0 };
+    this.publishDocument(next);
   }
 
   finalizeStream = (): void => {
     this.flushOutputBatchNow();
     this.streamPacer.end();
-    this.publishScrollback(
-      reduceScrollback(this.scrollback, {
-        type: "finalizeStream",
-        finalizeId: `queued-output-${++this.pendingOutputIdCounter}`,
-      }),
-    );
+    this.streamReveal = null;
+    this.publishDocument(settleDocumentStream(this.document));
   };
 
   clearOutputs = (): void => {
     this.streamPacer.reset();
-    this.turnThought = NO_THOUGHT;
+    this.resetDocumentControls();
     this.outputBatch = [];
     this.batchFlushScheduled = false;
+    this.documentGeneration += 1;
+    this.publishDocument({
+      id: `session:${String(this.documentGeneration)}`,
+      revision: this.document.revision + 1,
+      entries: [],
+    });
+  };
+
+  private resetDocumentControls(): void {
+    this.turnThought = NO_THOUGHT;
+    this.reasoningReplays.length = 0;
+    this.classicProjection = undefined;
+    this.streamReveal = null;
     this.expandableReasoningStack = [];
     this.pinnedReasoningIds.clear();
+    this.expandedReasoningIds.clear();
+    this.liveReasoningIds.clear();
+    this.deferredReasoningIds.clear();
+    this.turnThoughtIds = [];
+    this.ephemeralRegions.clear();
+    this.publishEphemeralRegions();
+    this.subagentRuns.clear();
+    this.publishSubagentRuns();
     this.setExpandableReasoning(null);
-    this.publishScrollback(reduceScrollback(this.scrollback, { type: "clear" }));
-  };
+  }
 
   /** Publish a data-only menu. Pass the continuation here, not on the snapshot. */
   setActiveMenu = (menu: ActiveMenu | null, onComplete?: (result: PromptResult) => void): void => {
@@ -1370,5 +1571,14 @@ export function useEphemeralSlice(): EphemeralSnapshot {
     store.subscribeEphemeral,
     store.getEphemeralSnapshot,
     store.getEphemeralSnapshot,
+  );
+}
+
+/** One committed snapshot for every fullscreen region. Prompt continuations remain separate. */
+export function usePresentationSlice(): PresentationSnapshot {
+  return useSyncExternalStore(
+    store.subscribePresentation,
+    store.getPresentationSnapshot,
+    store.getPresentationSnapshot,
   );
 }
