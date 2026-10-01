@@ -7,11 +7,13 @@
  * for the configured exit signals plus `uncaughtException` and
  * `unhandledRejection`, and `createCliRenderer` wraps terminal setup in a
  * try/catch that destroys the renderer if setup throws partway. So this module
- * deliberately does not reimplement any of it; it configures it, and adds the
- * three things OpenTUI leaves to the caller: job control, restoring the terminal
- * when the process exits without a signal, and the capability decision lives in
- * `ui/terminal-capabilities.ts`, so the Ink and plain paths can make it without loading
- * OpenTUI.
+ * configures those primitives and scopes the additional resources OpenTUI
+ * leaves to the caller: job control, synchronous exit restoration, foreign
+ * stream capture, theme-ground synchronization and physical resize invalidation.
+ * Native and React mutations schedule demand frames; startup never installs a
+ * perpetual render loop. mountFullscreen returns the native renderer and its
+ * idempotent release. The capability decision lives in terminal-capabilities.ts,
+ * so Ink and plain paths can choose without loading OpenTUI.
  */
 
 import { writeSync } from "node:fs";
@@ -21,6 +23,8 @@ import { store } from "../store";
 import { REVEAL_FRAME_MS } from "../text/stream-pacer";
 import { applyTerminalPalette, groundIsPainted, onThemeChange, THEME } from "../theme";
 import type { OutputEntry } from "../types";
+import { rendererInvalidation } from "./renderer-adapter";
+import { TerminalScope } from "./terminal-scope";
 
 export interface MountedRenderer {
   readonly renderer: CliRenderer;
@@ -94,6 +98,10 @@ export function installTerminalLifecycle(
   afterResume: () => void = () => undefined,
 ): () => void {
   let released = false;
+  const scope = new TerminalScope();
+  scope.add(() => {
+    if (!renderer.isDestroyed) renderer.destroy();
+  });
 
   const onSuspend = (): void => {
     if (released || renderer.isDestroyed) return;
@@ -114,15 +122,28 @@ export function installTerminalLifecycle(
   function release(): void {
     if (released) return;
     released = true;
-    runtime.off("SIGTSTP", onSuspend);
-    runtime.off("SIGCONT", onContinue);
-    runtime.off("exit", onExit);
-    if (!renderer.isDestroyed) renderer.destroy();
+    scope.release();
   }
 
-  runtime.on("SIGTSTP", onSuspend);
-  runtime.on("SIGCONT", onContinue);
-  runtime.on("exit", onExit);
+  try {
+    for (const [event, listener] of [
+      ["SIGTSTP", onSuspend],
+      ["SIGCONT", onContinue],
+      ["exit", onExit],
+    ] as const) {
+      runtime.on(event, listener);
+      scope.add(() => {
+        runtime.off(event, listener);
+      });
+    }
+  } catch (error) {
+    try {
+      release();
+    } catch {
+      /* All resources were attempted. */
+    }
+    throw error;
+  }
 
   return release;
 }
@@ -132,39 +153,25 @@ export interface GuardedStream {
   write(chunk: unknown, encoding?: unknown, callback?: unknown): boolean;
 }
 
-/**
- * What a foreign write should show in the transcript, or null when it is pure
- * terminal control — an OSC title, a mode toggle — which paints no cells and
- * can go straight through.
- */
+/** Foreign output is transcript text, never permission to change terminal modes or cells. */
 export function transcriptTextForForeignWrite(chunk: string): string | null {
-  for (const character of stripAnsiCodes(chunk)) {
+  const plain = stripAnsiCodes(chunk).replace(/\p{Cc}/gu, (character) =>
+    character === "\n" || character === "\r" || character === "\t" ? character : "",
+  );
+  for (const character of plain) {
     const code = character.codePointAt(0) ?? 0;
     // Space and below occupy no ink; DEL occupies no column.
-    if (code > 0x20 && code !== 0x7f) return chunk.replace(/\r?\n+$/, "");
+    if (code > 0x20 && code !== 0x7f) return plain.replace(/\r?\n+$/, "");
   }
   return null;
 }
 
 /**
- * Keep the screen the renderer's alone.
- *
- * OpenTUI paints the alternate screen by diffing against its own model of what
- * is already on it, and it writes frames through a reference to the real
- * `write` captured when the renderer was constructed — never through
- * `process.stdout.write`. So anything else that writes changes the screen
- * without the model knowing, and from then on every frame skips the cells it
- * wrongly believes are already correct. That desync is what a long session
- * shows as half-rows of two different strings interleaved and a trail of stale
- * live-band rows: not leaked state (the band is clamped to LIVE_ZONE_MAX_ROWS,
- * and no single frame can hold the rows on screen), but old cells nothing ever
- * repainted. OpenTUI guards against this only in `split-footer` mode, via
- * `externalOutputMode: "capture-stdout"`, which the alternate screen refuses.
- *
- * Installed after `createCliRenderer` precisely so the renderer's captured
- * reference stays the untouched one: frames bypass this, and what arrives here
- * is by definition somebody else's output. It goes to the transcript, where it
- * is visible instead of destructive — nothing is swallowed.
+ * Capture foreign stdout/stderr while the renderer owns the terminal. Native
+ * frames and explicit renderer capabilities use the writer captured before this
+ * guard. Foreign controls, whitespace and recursive sink logging are suppressed;
+ * visible text becomes a transcript entry. This fences JavaScript stream writes,
+ * not trusted native code or children handed the terminal file descriptor.
  */
 export function guardOutput(
   renderer: Pick<CliRenderer, "isDestroyed">,
@@ -175,32 +182,36 @@ export function guardOutput(
   },
 ): () => void {
   let reentrant = false;
+  let restored = false;
 
   const guard = (stream: GuardedStream, entry: (message: string) => OutputEntry): (() => void) => {
-    const original = stream.write.bind(stream);
-    stream.write = (chunk: unknown, encoding?: unknown, callback?: unknown) => {
-      const passthrough = (): boolean => original(chunk, encoding, callback);
-      // Once the renderer is gone the screen is the shell's again and writing to
-      // it is the correct thing to do — which is what makes a crash message,
-      // printed after OpenTUI's own handlers destroy the renderer, still arrive.
-      if (reentrant || renderer.isDestroyed) return passthrough();
-
-      const line = transcriptTextForForeignWrite(typeof chunk === "string" ? chunk : String(chunk));
-      if (line === null) return passthrough();
-
-      reentrant = true;
-      try {
-        sink(entry(line));
-      } finally {
-        reentrant = false;
+    const writer: unknown = Reflect.get(stream, "write");
+    const original = writer as GuardedStream["write"];
+    const guarded = (chunk: unknown, encoding?: unknown, callback?: unknown): boolean => {
+      if (renderer.isDestroyed) return original.call(stream, chunk, encoding, callback);
+      const text =
+        typeof chunk === "string"
+          ? chunk
+          : chunk instanceof Uint8Array
+            ? Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength).toString("utf8")
+            : String(chunk);
+      const line = transcriptTextForForeignWrite(text);
+      if (!reentrant && line !== null) {
+        reentrant = true;
+        try {
+          sink(entry(line));
+        } finally {
+          reentrant = false;
+        }
       }
       const done = typeof encoding === "function" ? encoding : callback;
       if (typeof done === "function") process.nextTick(done);
       return true;
     };
+    stream.write = guarded;
 
     return () => {
-      stream.write = original;
+      if (stream.write === guarded) stream.write = original;
     };
   };
 
@@ -209,11 +220,17 @@ export function guardOutput(
     // stderr is not the rarer case it looks: the AI SDK's warning banner goes
     // through `console.error` by deliberate choice (see runtime/src/main.ts),
     // and stderr paints the alternate screen exactly as stdout does.
-    guard(streams.err, (message) => ({ type: "warn", message, timestamp: new Date() })),
   ];
+  if (streams.err !== streams.out) {
+    restore.push(
+      guard(streams.err, (message) => ({ type: "warn", message, timestamp: new Date() })),
+    );
+  }
 
   return () => {
-    for (const undo of restore) undo();
+    if (restored) return;
+    restored = true;
+    for (let index = restore.length - 1; index >= 0; index--) restore[index]?.();
   };
 }
 
@@ -224,45 +241,17 @@ export interface RepaintableRenderer {
   requestRender(): void;
 }
 
-/**
- * Repaint everything after the terminal changes size.
- *
- * `processResize` reallocates the buffers but, outside `split-footer` mode,
- * never clears them and never asks for a full repaint — so the next frame is
- * diffed against cells whose relationship to the physical screen the resize has
- * just broken. Terminals reflow or truncate their own grid, OpenTUI crops its
- * buffer, and wherever the two disagree the diff skips the cell and the old
- * glyph stays: the same desync a foreign write causes, arriving through another
- * door. It needs nobody to drag a window — a display change while the machine
- * sleeps (the lid, an external monitor, a window restored at another size) is a
- * resize the user never typed, which is why this shows up as "it was fine when
- * I left it".
- *
- * `forceFullRepaintRequested` is the flag OpenTUI sets for itself on resume and
- * on a capability response, and it is private — so this checks for it and does
- * nothing if a later version renames it. A missing repaint is the bug that is
- * already there, not a new one.
- *
- * ponytail: reaching into a private field, because the public API has no
- * "repaint everything". Drop this the day OpenTUI exposes one, or resizes with
- * the same force it resumes with.
- */
+/** Resize invalidates the physical terminal grid, including cells unchanged in native buffers. */
 export function repaintAfterResize(renderer: RepaintableRenderer): () => void {
+  const { invalidate } = rendererInvalidation(renderer);
   const onResize = (): void => {
-    forceFullRepaint(renderer);
+    invalidate();
   };
 
   renderer.on("resize", onResize);
   return () => {
     renderer.off("resize", onResize);
   };
-}
-
-function forceFullRepaint(renderer: Pick<CliRenderer, "requestRender">): void {
-  const internals = renderer as unknown as { forceFullRepaintRequested?: boolean };
-  if (typeof internals.forceFullRepaintRequested !== "boolean") return;
-  internals.forceFullRepaintRequested = true;
-  renderer.requestRender();
 }
 
 /** OSC 111: reset the terminal's default background to the one its user configured. */
@@ -308,9 +297,11 @@ export function syncTerminalGround(
   },
   runtime: Pick<LifecycleProcess, "on" | "off"> = process,
 ): GroundSync {
+  const { invalidate } = rendererInvalidation(renderer);
   let terminalBackgroundSet = false;
+  let stopped = false;
   const apply = (): void => {
-    if (renderer.isDestroyed) return;
+    if (stopped || renderer.isDestroyed) return;
     if (groundIsPainted()) {
       renderer.setBackgroundColor(THEME.background);
       write(setTerminalBackgroundSequence(THEME.background));
@@ -319,24 +310,36 @@ export function syncTerminalGround(
       renderer.setBackgroundColor("transparent");
       renderer.resetTerminalBgColor();
     }
-    forceFullRepaint(renderer);
+    invalidate();
   };
   const onExit = (): void => {
     if (terminalBackgroundSet) {
       write(RESET_TERMINAL_BACKGROUND);
     }
   };
-  const stopListening = onThemeChange(apply);
-  runtime.on("exit", onExit);
-  apply();
-  return {
-    apply,
-    stop: () => {
-      stopListening();
-      runtime.off("exit", onExit);
-      onExit();
-    },
+  const scope = new TerminalScope();
+  scope.add(onExit);
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    scope.release();
   };
+  try {
+    scope.add(onThemeChange(apply));
+    runtime.on("exit", onExit);
+    scope.add(() => {
+      runtime.off("exit", onExit);
+    });
+    apply();
+    return { apply, stop };
+  } catch (error) {
+    try {
+      stop();
+    } catch {
+      /* All resources were attempted. */
+    }
+    throw error;
+  }
 }
 
 /** How long the first frame waits for the terminal to report its colours. */
@@ -384,20 +387,28 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
     clearOnShutdown: false,
   });
 
-  await detectTerminalColors(renderer);
-  const ground = syncTerminalGround(renderer);
-  const release = installTerminalLifecycle(renderer, process, ground.apply);
-  const stopGuard = guardOutput(renderer);
-  const stopRepaint = repaintAfterResize(renderer);
-
-  renderer.start();
-  return {
-    renderer,
-    release: () => {
-      ground.stop();
-      stopRepaint();
-      stopGuard();
-      release();
-    },
+  const scope = new TerminalScope();
+  scope.add(() => {
+    if (!renderer.isDestroyed) renderer.destroy();
+  });
+  const release = (): void => {
+    scope.release();
   };
+  try {
+    scope.add(guardOutput(renderer));
+    await detectTerminalColors(renderer);
+    if (renderer.isDestroyed) throw new Error("Terminal renderer stopped during startup");
+    const ground = syncTerminalGround(renderer);
+    scope.add(ground.stop);
+    scope.add(installTerminalLifecycle(renderer, process, ground.apply));
+    scope.add(repaintAfterResize(renderer));
+    return { renderer, release };
+  } catch (error) {
+    try {
+      release();
+    } catch {
+      // Startup's original failure determines fallback; every cleanup was attempted.
+    }
+    throw error;
+  }
 }

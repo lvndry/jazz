@@ -1,0 +1,477 @@
+{
+  "version": 1,
+  "samples": 3,
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "bun": "1.4.2"
+  },
+  "results": [
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unicode 1000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 4.2723,
+      "meanMs": 4.2723,
+      "p50Ms": 4.2723,
+      "p95Ms": 4.2723,
+      "metrics": {
+        "rendererOutputBytes": 3265,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unicode 1000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 134.55,
+      "meanMs": 4.2047,
+      "p50Ms": 4.1526,
+      "p95Ms": 5.8176,
+      "metrics": {
+        "rendererOutputBytes": 125369,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unbroken 1000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 28.5958,
+      "meanMs": 28.5958,
+      "p50Ms": 28.5958,
+      "p95Ms": 28.5958,
+      "metrics": {
+        "rendererOutputBytes": 2780,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unbroken 1000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 217.3082,
+      "meanMs": 6.7909,
+      "p50Ms": 5.1925,
+      "p95Ms": 11.5927,
+      "metrics": {
+        "rendererOutputBytes": 108493,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    }
+  ],
+  "observations": [
+    {
+      "pair": 0,
+      "side": "head",
+      "rows": [
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unicode 1000 chars, 20 turns, first delta -> painted frame",
+          "iterations": 1,
+          "totalMs": 4.2723,
+          "meanMs": 4.2723,
+          "p50Ms": 4.2723,
+          "p95Ms": 4.2723,
+          "metrics": {
+            "rendererOutputBytes": 3265,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            4.2723
+          ]
+        },
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unicode 1000 chars, 20 turns, steady deltas -> painted frame",
+          "iterations": 32,
+          "totalMs": 134.55,
+          "meanMs": 4.2047,
+          "p50Ms": 4.1526,
+          "p95Ms": 5.8176,
+          "metrics": {
+            "rendererOutputBytes": 125369,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            3.9287,
+            5.8056,
+            4.9922,
+            3.5168,
+            4.764,
+            4.1181,
+            4.4352,
+            4.0232,
+            4.1526,
+            4.5268,
+            3.9405,
+            3.3996,
+            3.3796,
+            3.1904,
+            3.1683,
+            5.8176,
+            4.4177,
+            3.6224,
+            3.3275,
+            3.788,
+            3.2107,
+            3.3163,
+            3.6697,
+            3.9527,
+            5.8273,
+            4.7164,
+            4.6633,
+            4.3071,
+            4.4272,
+            4.494,
+            4.735,
+            4.9157
+          ]
+        },
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unbroken 1000 chars, 20 turns, first delta -> painted frame",
+          "iterations": 1,
+          "totalMs": 28.5958,
+          "meanMs": 28.5958,
+          "p50Ms": 28.5958,
+          "p95Ms": 28.5958,
+          "metrics": {
+            "rendererOutputBytes": 2780,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            28.5958
+          ]
+        },
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unbroken 1000 chars, 20 turns, steady deltas -> painted frame",
+          "iterations": 32,
+          "totalMs": 217.3082,
+          "meanMs": 6.7909,
+          "p50Ms": 6.2788,
+          "p95Ms": 11.5927,
+          "metrics": {
+            "rendererOutputBytes": 108493,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            11.5927,
+            5.9435,
+            9.5522,
+            7.6347,
+            8.5195,
+            6.6937,
+            8.4894,
+            6.1615,
+            6.5532,
+            6.7436,
+            7.6532,
+            5.6748,
+            5.5563,
+            16.1107,
+            6.4317,
+            4.7319,
+            5.7352,
+            5.462,
+            5.8906,
+            6.1074,
+            7.0556,
+            6.5763,
+            6.668,
+            6.2788,
+            5.7487,
+            5.6191,
+            5.0732,
+            4.8554,
+            5.1218,
+            4.6207,
+            4.7516,
+            7.701
+          ]
+        }
+      ]
+    },
+    {
+      "pair": 1,
+      "side": "head",
+      "rows": [
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unicode 1000 chars, 20 turns, first delta -> painted frame",
+          "iterations": 1,
+          "totalMs": 3.5515,
+          "meanMs": 3.5515,
+          "p50Ms": 3.5515,
+          "p95Ms": 3.5515,
+          "metrics": {
+            "rendererOutputBytes": 3265,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            3.5515
+          ]
+        },
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unicode 1000 chars, 20 turns, steady deltas -> painted frame",
+          "iterations": 32,
+          "totalMs": 131.0025,
+          "meanMs": 4.0938,
+          "p50Ms": 3.9855,
+          "p95Ms": 6.2348,
+          "metrics": {
+            "rendererOutputBytes": 125369,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            4.3473,
+            5.7698,
+            4.3362,
+            3.3219,
+            3.929,
+            4.0548,
+            3.6725,
+            3.671,
+            3.6433,
+            4.7128,
+            3.6364,
+            3.0902,
+            3.5072,
+            3.0458,
+            3.9336,
+            6.2348,
+            4.156,
+            3.8358,
+            3.5699,
+            3.6894,
+            3.5096,
+            3.641,
+            3.7593,
+            3.9855,
+            4.0828,
+            6.2563,
+            5.0769,
+            4.0548,
+            4.0539,
+            4.046,
+            4.205,
+            4.1737
+          ]
+        },
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unbroken 1000 chars, 20 turns, first delta -> painted frame",
+          "iterations": 1,
+          "totalMs": 3.4757,
+          "meanMs": 3.4757,
+          "p50Ms": 3.4757,
+          "p95Ms": 3.4757,
+          "metrics": {
+            "rendererOutputBytes": 2780,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            3.4757
+          ]
+        },
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unbroken 1000 chars, 20 turns, steady deltas -> painted frame",
+          "iterations": 32,
+          "totalMs": 136.5699,
+          "meanMs": 4.2678,
+          "p50Ms": 4.1738,
+          "p95Ms": 7.8815,
+          "metrics": {
+            "rendererOutputBytes": 108493,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            2.4543,
+            2.2375,
+            2.1573,
+            2.097,
+            2.1511,
+            2.0901,
+            2.0892,
+            2.339,
+            2.3152,
+            2.7631,
+            2.803,
+            3.0885,
+            3.0669,
+            2.9609,
+            3.248,
+            3.9098,
+            5.4063,
+            14.1399,
+            5.3985,
+            7.8815,
+            6.6469,
+            5.4998,
+            5.2867,
+            5.1103,
+            5.4931,
+            5.3154,
+            5.1003,
+            4.1738,
+            4.4721,
+            4.3708,
+            5.1978,
+            5.306
+          ]
+        }
+      ]
+    },
+    {
+      "pair": 2,
+      "side": "head",
+      "rows": [
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unicode 1000 chars, 20 turns, first delta -> painted frame",
+          "iterations": 1,
+          "totalMs": 6.4089,
+          "meanMs": 6.4089,
+          "p50Ms": 6.4089,
+          "p95Ms": 6.4089,
+          "metrics": {
+            "rendererOutputBytes": 3265,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            6.4089
+          ]
+        },
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unicode 1000 chars, 20 turns, steady deltas -> painted frame",
+          "iterations": 32,
+          "totalMs": 143.7254,
+          "meanMs": 4.4914,
+          "p50Ms": 4.4071,
+          "p95Ms": 5.7586,
+          "metrics": {
+            "rendererOutputBytes": 125369,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            4.4071,
+            4.0699,
+            3.685,
+            4.0326,
+            4.4223,
+            5.2401,
+            5.4723,
+            5.1188,
+            5.255,
+            5.271,
+            4.4741,
+            4.0098,
+            4.1248,
+            3.5108,
+            3.6905,
+            5.7586,
+            4.3194,
+            3.6344,
+            3.8815,
+            3.4471,
+            3.5683,
+            3.5451,
+            3.7016,
+            4.4205,
+            3.8759,
+            6.4071,
+            5.5439,
+            4.7642,
+            4.2073,
+            5.4954,
+            4.9753,
+            5.3957
+          ]
+        },
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unbroken 1000 chars, 20 turns, first delta -> painted frame",
+          "iterations": 1,
+          "totalMs": 32.7533,
+          "meanMs": 32.7533,
+          "p50Ms": 32.7533,
+          "p95Ms": 32.7533,
+          "metrics": {
+            "rendererOutputBytes": 2780,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            32.7533
+          ]
+        },
+        {
+          "suite": "ui-pipeline",
+          "name": "ink unbroken 1000 chars, 20 turns, steady deltas -> painted frame",
+          "iterations": 32,
+          "totalMs": 296.2915,
+          "meanMs": 9.2591,
+          "p50Ms": 5.1925,
+          "p95Ms": 21.4231,
+          "metrics": {
+            "rendererOutputBytes": 108493,
+            "historyTurns": 20,
+            "answerCharacters": 1000
+          },
+          "observedMs": [
+            21.4231,
+            15.0454,
+            9.6104,
+            4.9872,
+            4.5945,
+            5.2238,
+            4.3257,
+            4.3126,
+            4.8419,
+            4.1648,
+            4.7407,
+            5.1925,
+            4.8839,
+            4.9536,
+            10.5067,
+            4.2034,
+            3.9497,
+            3.9969,
+            4.1127,
+            4.5217,
+            6.5934,
+            10.9401,
+            7.3865,
+            6.893,
+            7.5524,
+            9.7451,
+            9.5724,
+            10.2227,
+            82.0083,
+            6.0918,
+            4.851,
+            4.8435
+          ]
+        }
+      ]
+    }
+  ]
+}

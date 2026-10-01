@@ -151,7 +151,6 @@ export async function mountPipeline(kind: RendererKind): Promise<Pipeline> {
     };
     try {
       updateForTest(() => root.render(React.createElement(FullscreenBridge)));
-      renderer.start();
       const mountedAt = performance.now();
       while (!stripAnsiCodes(output.text).includes("bench-local")) {
         await paint();

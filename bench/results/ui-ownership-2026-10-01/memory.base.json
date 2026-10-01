@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "samples": 3,
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "bun": "1.4.2"
+  },
+  "results": [
+    {
+      "suite": "conversation-memory",
+      "name": "opentui prose 100 turns, isolated child lifetime",
+      "iterations": 1,
+      "totalMs": 13843.2,
+      "meanMs": 13843.2222,
+      "p50Ms": 13843.2222,
+      "p95Ms": 13843.2222,
+      "metrics": {
+        "retainedHeapBytes": 64197133,
+        "retainedExtraMemoryBytes": 14122790,
+        "retainedCells": 1485161,
+        "postClearHeapBytes": 4806694,
+        "postCloseHeapBytes": 4467264,
+        "peakRssBytes": 917078016,
+        "baselineRssBytes": 358023168,
+        "peakRssGrowthBytes": 560660480,
+        "sampledTransientCells": 4672515,
+        "rendererOutputBytes": 1299045,
+        "turns": 100
+      }
+    },
+    {
+      "suite": "conversation-memory",
+      "name": "opentui short-paragraphs 30 turns, isolated child lifetime",
+      "iterations": 1,
+      "totalMs": 5581,
+      "meanMs": 5581.0342,
+      "p50Ms": 5581.0342,
+      "p95Ms": 5581.0342,
+      "metrics": {
+        "retainedHeapBytes": 33381404,
+        "retainedExtraMemoryBytes": 6335356,
+        "retainedCells": 781908,
+        "postClearHeapBytes": 4233399,
+        "postCloseHeapBytes": 3793306,
+        "peakRssBytes": 717930496,
+        "baselineRssBytes": 355139584,
+        "peakRssGrowthBytes": 354074624,
+        "sampledTransientCells": 4028329,
+        "rendererOutputBytes": 52508,
+        "turns": 30
+      }
+    },
+    {
+      "suite": "conversation-memory",
+      "name": "ink prose 100 turns, isolated child lifetime",
+      "iterations": 1,
+      "totalMs": 6838.5,
+      "meanMs": 6838.466,
+      "p50Ms": 6838.466,
+      "p95Ms": 6838.466,
+      "metrics": {
+        "retainedHeapBytes": 16816395,
+        "retainedExtraMemoryBytes": 14050043,
+        "retainedCells": 60213,
+        "postClearHeapBytes": 10344516,
+        "postCloseHeapBytes": 4015784,
+        "peakRssBytes": 869728256,
+        "baselineRssBytes": 355696640,
+        "peakRssGrowthBytes": 513359872,
+        "sampledTransientCells": 12845508,
+        "rendererOutputBytes": 2596598,
+        "turns": 100
+      }
+    },
+    {
+      "suite": "conversation-memory",
+      "name": "ink short-paragraphs 30 turns, isolated child lifetime",
+      "iterations": 1,
+      "totalMs": 3396.5,
+      "meanMs": 3396.4794,
+      "p50Ms": 3396.4794,
+      "p95Ms": 3396.4794,
+      "metrics": {
+        "retainedHeapBytes": 9625760,
+        "retainedExtraMemoryBytes": 8458896,
+        "retainedCells": 23705,
+        "postClearHeapBytes": 10043992,
+        "postCloseHeapBytes": 3523607,
+        "peakRssBytes": 821002240,
+        "baselineRssBytes": 358318080,
+        "peakRssGrowthBytes": 462684160,
+        "sampledTransientCells": 7550699,
+        "rendererOutputBytes": 898979,
+        "turns": 30
+      }
+    }
+  ]
+}

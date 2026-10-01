@@ -42,7 +42,7 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 | tool-result-clearing     | `clearToolResults` walk, BPE vs ratio                                                            | per turn on long chats      |
 | agent-prompt             | `buildSystemPrompt` cold vs cached + work-state preamble                                         | per turn / on resume        |
 | summarizer-chunking      | `chunkForSummarizer` by history length and budget                                                | per compaction              |
-| conversation-log         | parse + reduce + `presentationEntriesFromHistory`                                                      | session resume              |
+| conversation-log         | parse + reduce + `presentationEntriesFromHistory`                                               | session resume              |
 | conversation-search      | `search` over a synthetic history directory                                                      | per keystroke while open    |
 | tool-formatter           | `formatToolResult` at 1KB / 100KB / 1MB                                                          | per tool call               |
 | capped-output            | `appendCapped` fold, `decodeCapped`, `tailForModel`                                              | per stdout chunk            |
@@ -81,6 +81,10 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 
 ## Budgets and reproducibility
 
+[UI ownership qualification, 2026-10-01](results/ui-ownership-2026-10-01/qualification.md)
+archives matched local reports, corrected first/steady frame sampling, unresolved
+Ink relative gates, and extended-run resource limits.
+
 `run.ts --output` writes versioned reports with OS, architecture and Bun version.
 CI runs `--samples 5`, using five fresh processes per suite and retaining the median of each
 reported measurement; the odd count keeps the median a real observation, so a single
@@ -88,6 +92,11 @@ contention-hit process can no longer pull the reported number across the gate. L
 default to a single sample unless `--samples` is given. Timing percentiles remain
 percentiles within a process; a report does not pool differently warmed processes.
 Numeric `metrics` carry suite-specific observations such as retained bytes.
+UI delta workloads report the first painted delta separately from 32 sustained
+frames in smoke mode (64 in full mode). Every delta is measured; none is discarded
+as warmup. The old two-frame sample made both p50 and p95 equal its slower frame,
+mixing a cold transition with steady rendering. Both phases retain the existing
+latency gates and use identical workloads on base and head.
 Context accounting and summarizer preparation use 100 measured iterations
 after 20 warmups: p95 over only ten samples was just the maximum sample and
 proved unstable in paired runs. Fixture sizes and gate thresholds stay fixed.

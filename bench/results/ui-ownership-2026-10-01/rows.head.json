@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "samples": 3,
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "bun": "1.4.2"
+  },
+  "results": [
+    {
+      "suite": "transcript-rows",
+      "name": "cold full wrap (600 blocks)",
+      "iterations": 60,
+      "totalMs": 685.7,
+      "meanMs": 11.4282,
+      "p50Ms": 9.8881,
+      "p95Ms": 18.6691
+    },
+    {
+      "suite": "transcript-rows",
+      "name": "warm streaming tail (600 settled)",
+      "iterations": 200,
+      "totalMs": 92.3,
+      "meanMs": 0.4617,
+      "p50Ms": 0.4134,
+      "p95Ms": 0.6211
+    },
+    {
+      "suite": "transcript-rows",
+      "name": "fingerprint tax, unchanged blocks (600)",
+      "iterations": 200,
+      "totalMs": 83.4,
+      "meanMs": 0.4169,
+      "p50Ms": 0.3884,
+      "p95Ms": 0.5129
+    }
+  ]
+}

@@ -1,6 +1,11 @@
 /**
- * TerminalService implementation backed by Ink — mounts the React/Ink app and
- * routes terminal output/input through it.
+ * Implements the terminal port for fullscreen, classic Ink and plain streams.
+ *
+ * InkTerminalService accepts an optionally lazy-loaded fullscreen mount. Output
+ * publishes to the shared document; fullscreen clear/title invoke the owner's
+ * explicit capabilities. Runtime handoff mounts Ink against the same document,
+ * and cleanup releases the singleton even when renderer disposal fails.
+ * PlainTerminalService uses injected line/output streams for unattended runs.
  */
 
 import {
@@ -150,8 +155,13 @@ export class InkTerminalService implements TerminalService {
     queueMicrotask(() => {
       this.fallbackScheduled = false;
       if (this.disposed || this.inkInstance !== null) return;
-      this.fullscreen?.release();
+      const fullscreen = this.fullscreen;
       this.fullscreen = null;
+      try {
+        fullscreen?.release();
+      } catch {
+        // Runtime cleanup exhausted its resources; handoff still renders the same document.
+      }
       this.mountInk();
     });
   };
@@ -179,18 +189,17 @@ export class InkTerminalService implements TerminalService {
     store.setStreamPacing(false);
     this.unregisterRendererFallback?.();
     this.unregisterRendererFallback = null;
-    if (this.fullscreen) {
-      // Releases the alternate screen, the cursor and raw mode. Idempotent, so
-      // it is safe if a signal handler already ran.
-      this.fullscreen.release();
+    try {
+      this.fullscreen?.release();
+    } finally {
       this.fullscreen = null;
+      try {
+        this.inkInstance?.unmount();
+      } finally {
+        this.inkInstance = null;
+        instanceExists = false;
+      }
     }
-    if (this.inkInstance) {
-      this.inkInstance.unmount();
-      this.inkInstance = null;
-    }
-    // Reset singleton so a new instance can be created if needed
-    instanceExists = false;
   }
 
   // Basic Logging Methods
@@ -259,13 +268,9 @@ export class InkTerminalService implements TerminalService {
 
   clear(): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      // Clear visible screen + scrollback buffer, then reset UI state.
-      // console.clear() must come BEFORE store.clearOutputs() because
-      // the store reset changes <Static>'s React key (forcing a remount),
-      // and any content Ink already wrote to stdout needs to be erased
-      // before that remount produces new output.
-      console.clear();
+      if (!this.fullscreen) console.clear();
       store.clearOutputs();
+      this.fullscreen?.invalidate();
     });
   }
 
@@ -535,11 +540,8 @@ export class InkTerminalService implements TerminalService {
 
   setTitle(title: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
-      // Use OSC 0 sequence to set both icon name and window/tab title
-      // Format: ESC]0;title BEL
-      // \x1b is ESC, \x07 is BEL (bell)
-      // This is widely supported across modern terminals (Warp, iTerm2, WezTerm, Alacritty, etc.)
-      process.stdout.write(`\x1b]0;${title}\x07`);
+      if (this.fullscreen) this.fullscreen.setTitle(title);
+      else process.stdout.write(`\x1b]0;${title.replace(/\p{Cc}/gu, "")}\x07`);
     });
   }
 }

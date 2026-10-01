@@ -1,0 +1,882 @@
+{
+  "version": 1,
+  "samples": 3,
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "bun": "1.4.2"
+  },
+  "results": [
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui prose 1000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 35,
+      "meanMs": 34.995,
+      "p50Ms": 34.995,
+      "p95Ms": 34.995,
+      "metrics": {
+        "rendererOutputBytes": 121,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui prose 1000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 1102.8,
+      "meanMs": 34.4631,
+      "p50Ms": 33.8652,
+      "p95Ms": 39.5692,
+      "metrics": {
+        "rendererOutputBytes": 61718,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unicode 1000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 33.9,
+      "meanMs": 33.8856,
+      "p50Ms": 33.8856,
+      "p95Ms": 33.8856,
+      "metrics": {
+        "rendererOutputBytes": 121,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unicode 1000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 1085,
+      "meanMs": 33.9063,
+      "p50Ms": 33.6993,
+      "p95Ms": 34.6507,
+      "metrics": {
+        "rendererOutputBytes": 57529,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unbroken 1000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 33.2,
+      "meanMs": 33.2036,
+      "p50Ms": 33.2036,
+      "p95Ms": 33.2036,
+      "metrics": {
+        "rendererOutputBytes": 122,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unbroken 1000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 1084.6,
+      "meanMs": 33.8922,
+      "p50Ms": 33.7535,
+      "p95Ms": 36.0548,
+      "metrics": {
+        "rendererOutputBytes": 31930,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui prose 10000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 33.6,
+      "meanMs": 33.6123,
+      "p50Ms": 33.6123,
+      "p95Ms": 33.6123,
+      "metrics": {
+        "rendererOutputBytes": 7376,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui prose 10000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 1105.2,
+      "meanMs": 34.539,
+      "p50Ms": 34.6187,
+      "p95Ms": 36.237,
+      "metrics": {
+        "rendererOutputBytes": 144544,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unicode 10000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 33.6,
+      "meanMs": 33.5697,
+      "p50Ms": 33.5697,
+      "p95Ms": 33.5697,
+      "metrics": {
+        "rendererOutputBytes": 121,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unicode 10000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 1087.8,
+      "meanMs": 33.9952,
+      "p50Ms": 33.6756,
+      "p95Ms": 36.0101,
+      "metrics": {
+        "rendererOutputBytes": 12676,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unbroken 10000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 38.3,
+      "meanMs": 38.2672,
+      "p50Ms": 38.2672,
+      "p95Ms": 38.2672,
+      "metrics": {
+        "rendererOutputBytes": 121,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unbroken 10000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 1086.5,
+      "meanMs": 33.9518,
+      "p50Ms": 33.6656,
+      "p95Ms": 36.5992,
+      "metrics": {
+        "rendererOutputBytes": 10361,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui prose 50000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 32.8,
+      "meanMs": 32.7882,
+      "p50Ms": 32.7882,
+      "p95Ms": 32.7882,
+      "metrics": {
+        "rendererOutputBytes": 121,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui prose 50000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 1082.6,
+      "meanMs": 33.8303,
+      "p50Ms": 33.656,
+      "p95Ms": 37.79,
+      "metrics": {
+        "rendererOutputBytes": 62620,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unicode 50000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 33.7,
+      "meanMs": 33.7013,
+      "p50Ms": 33.7013,
+      "p95Ms": 33.7013,
+      "metrics": {
+        "rendererOutputBytes": 122,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unicode 50000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 1084.2,
+      "meanMs": 33.8799,
+      "p50Ms": 33.595,
+      "p95Ms": 37.1933,
+      "metrics": {
+        "rendererOutputBytes": 11534,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unbroken 50000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 33.7,
+      "meanMs": 33.7335,
+      "p50Ms": 33.7335,
+      "p95Ms": 33.7335,
+      "metrics": {
+        "rendererOutputBytes": 121,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui unbroken 50000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 1099.2,
+      "meanMs": 34.3489,
+      "p50Ms": 33.6134,
+      "p95Ms": 38.598,
+      "metrics": {
+        "rendererOutputBytes": 11194,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui 1000 chars, stream events + default buffer -> terminal",
+      "iterations": 2,
+      "totalMs": 203.8,
+      "meanMs": 101.9137,
+      "p50Ms": 102.9348,
+      "p95Ms": 102.9348
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui 10000 chars, stream events + default buffer -> terminal",
+      "iterations": 2,
+      "totalMs": 205.3,
+      "meanMs": 102.6535,
+      "p50Ms": 105.9154,
+      "p95Ms": 105.9154
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui 50000 chars, stream events + default buffer -> terminal",
+      "iterations": 2,
+      "totalMs": 203.6,
+      "meanMs": 101.8022,
+      "p50Ms": 102.3478,
+      "p95Ms": 102.3478
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui open fence buffer -> terminal",
+      "iterations": 2,
+      "totalMs": 4222,
+      "meanMs": 2110.9776,
+      "p50Ms": 2112.3485,
+      "p95Ms": 2112.3485
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui paced burst -> final token painted (real timers)",
+      "iterations": 2,
+      "totalMs": 342.8,
+      "meanMs": 171.4044,
+      "p50Ms": 172.9225,
+      "p95Ms": 172.9225
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "opentui viewport resize -> repainted content",
+      "iterations": 2,
+      "totalMs": 140.2,
+      "meanMs": 70.092,
+      "p50Ms": 72.8737,
+      "p95Ms": 72.8737
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink prose 1000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 2.2,
+      "meanMs": 2.1892,
+      "p50Ms": 2.1892,
+      "p95Ms": 2.1892,
+      "metrics": {
+        "rendererOutputBytes": 1480,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink prose 1000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 67.4,
+      "meanMs": 2.1048,
+      "p50Ms": 2.0168,
+      "p95Ms": 2.6666,
+      "metrics": {
+        "rendererOutputBytes": 61087,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unicode 1000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 2.2,
+      "meanMs": 2.1673,
+      "p50Ms": 2.1673,
+      "p95Ms": 2.1673,
+      "metrics": {
+        "rendererOutputBytes": 3265,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unicode 1000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 126,
+      "meanMs": 3.9366,
+      "p50Ms": 3.4853,
+      "p95Ms": 9.504,
+      "metrics": {
+        "rendererOutputBytes": 125369,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unbroken 1000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 5.5,
+      "meanMs": 5.4832,
+      "p50Ms": 5.4832,
+      "p95Ms": 5.4832,
+      "metrics": {
+        "rendererOutputBytes": 2780,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unbroken 1000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 96.8,
+      "meanMs": 3.0265,
+      "p50Ms": 2.9455,
+      "p95Ms": 5.8948,
+      "metrics": {
+        "rendererOutputBytes": 108493,
+        "historyTurns": 20,
+        "answerCharacters": 1000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink prose 10000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 3.2,
+      "meanMs": 3.2327,
+      "p50Ms": 3.2327,
+      "p95Ms": 3.2327,
+      "metrics": {
+        "rendererOutputBytes": 2403,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink prose 10000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 173.6,
+      "meanMs": 5.4259,
+      "p50Ms": 5.3721,
+      "p95Ms": 8.9708,
+      "metrics": {
+        "rendererOutputBytes": 594551,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unicode 10000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 4,
+      "meanMs": 3.9813,
+      "p50Ms": 3.9813,
+      "p95Ms": 3.9813,
+      "metrics": {
+        "rendererOutputBytes": 4980,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unicode 10000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 133.6,
+      "meanMs": 4.1753,
+      "p50Ms": 4.145,
+      "p95Ms": 6.8484,
+      "metrics": {
+        "rendererOutputBytes": 178769,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unbroken 10000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 4.2,
+      "meanMs": 4.197,
+      "p50Ms": 4.197,
+      "p95Ms": 4.197,
+      "metrics": {
+        "rendererOutputBytes": 4029,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unbroken 10000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 128.5,
+      "meanMs": 4.0144,
+      "p50Ms": 3.9794,
+      "p95Ms": 5.9489,
+      "metrics": {
+        "rendererOutputBytes": 149321,
+        "historyTurns": 20,
+        "answerCharacters": 10000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink prose 50000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 2.7,
+      "meanMs": 2.7334,
+      "p50Ms": 2.7334,
+      "p95Ms": 2.7334,
+      "metrics": {
+        "rendererOutputBytes": 1508,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink prose 50000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 87,
+      "meanMs": 2.7175,
+      "p50Ms": 2.6071,
+      "p95Ms": 4.6136,
+      "metrics": {
+        "rendererOutputBytes": 61499,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unicode 50000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 53.7,
+      "meanMs": 53.6639,
+      "p50Ms": 53.6639,
+      "p95Ms": 53.6639,
+      "metrics": {
+        "rendererOutputBytes": 224540,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unicode 50000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 277,
+      "meanMs": 8.6556,
+      "p50Ms": 5.5302,
+      "p95Ms": 34.6115,
+      "metrics": {
+        "rendererOutputBytes": 889206,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unbroken 50000 chars, 20 turns, first delta -> painted frame",
+      "iterations": 1,
+      "totalMs": 63.9,
+      "meanMs": 63.8894,
+      "p50Ms": 63.8894,
+      "p95Ms": 63.8894,
+      "metrics": {
+        "rendererOutputBytes": 170202,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink unbroken 50000 chars, 20 turns, steady deltas -> painted frame",
+      "iterations": 32,
+      "totalMs": 253.5,
+      "meanMs": 7.9213,
+      "p50Ms": 4.0657,
+      "p95Ms": 39.0138,
+      "metrics": {
+        "rendererOutputBytes": 684971,
+        "historyTurns": 20,
+        "answerCharacters": 50000
+      }
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink 1000 chars, stream events + default buffer -> terminal",
+      "iterations": 2,
+      "totalMs": 179.5,
+      "meanMs": 89.7472,
+      "p50Ms": 93.5217,
+      "p95Ms": 93.5217
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink 10000 chars, stream events + default buffer -> terminal",
+      "iterations": 2,
+      "totalMs": 198.5,
+      "meanMs": 99.2262,
+      "p50Ms": 99.5088,
+      "p95Ms": 99.5088
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink 50000 chars, stream events + default buffer -> terminal",
+      "iterations": 2,
+      "totalMs": 303.2,
+      "meanMs": 151.6071,
+      "p50Ms": 155.0252,
+      "p95Ms": 155.0252
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink open fence buffer -> terminal",
+      "iterations": 2,
+      "totalMs": 4187.2,
+      "meanMs": 2093.5938,
+      "p50Ms": 2095.1088,
+      "p95Ms": 2095.1088
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink paced burst -> final token painted (real timers)",
+      "iterations": 2,
+      "totalMs": 337.1,
+      "meanMs": 168.569,
+      "p50Ms": 169.3792,
+      "p95Ms": 169.3792
+    },
+    {
+      "suite": "ui-pipeline",
+      "name": "ink viewport resize -> repainted content",
+      "iterations": 2,
+      "totalMs": 325.6,
+      "meanMs": 162.7879,
+      "p50Ms": 163.3234,
+      "p95Ms": 163.3234
+    },
+    {
+      "suite": "conversation-memory",
+      "name": "opentui prose 100 turns, isolated child lifetime",
+      "iterations": 1,
+      "totalMs": 14131.9,
+      "meanMs": 14131.9471,
+      "p50Ms": 14131.9471,
+      "p95Ms": 14131.9471,
+      "metrics": {
+        "retainedHeapBytes": 22367486,
+        "retainedExtraMemoryBytes": 8434280,
+        "retainedCells": 260267,
+        "postClearHeapBytes": 4583258,
+        "postCloseHeapBytes": 4152124,
+        "peakRssBytes": 784629760,
+        "baselineRssBytes": 344424448,
+        "peakRssGrowthBytes": 440205312,
+        "sampledTransientCells": 5331125,
+        "rendererOutputBytes": 1312104,
+        "turns": 100
+      }
+    },
+    {
+      "suite": "conversation-memory",
+      "name": "opentui short-paragraphs 30 turns, isolated child lifetime",
+      "iterations": 1,
+      "totalMs": 6012.1,
+      "meanMs": 6012.142,
+      "p50Ms": 6012.142,
+      "p95Ms": 6012.142,
+      "metrics": {
+        "retainedHeapBytes": 21569972,
+        "retainedExtraMemoryBytes": 7635092,
+        "retainedCells": 280187,
+        "postClearHeapBytes": 3905084,
+        "postCloseHeapBytes": 3491308,
+        "peakRssBytes": 689127424,
+        "baselineRssBytes": 347340800,
+        "peakRssGrowthBytes": 341278720,
+        "sampledTransientCells": 5419785,
+        "rendererOutputBytes": 53190,
+        "turns": 30
+      }
+    },
+    {
+      "suite": "conversation-memory",
+      "name": "ink prose 100 turns, isolated child lifetime",
+      "iterations": 1,
+      "totalMs": 6536.9,
+      "meanMs": 6536.8659,
+      "p50Ms": 6536.8659,
+      "p95Ms": 6536.8659,
+      "metrics": {
+        "retainedHeapBytes": 17237131,
+        "retainedExtraMemoryBytes": 16818555,
+        "retainedCells": 5272,
+        "postClearHeapBytes": 12749298,
+        "postCloseHeapBytes": 6418792,
+        "peakRssBytes": 820871168,
+        "baselineRssBytes": 355467264,
+        "peakRssGrowthBytes": 458440704,
+        "sampledTransientCells": 16208557,
+        "rendererOutputBytes": 2664566,
+        "turns": 100
+      }
+    },
+    {
+      "suite": "conversation-memory",
+      "name": "ink short-paragraphs 30 turns, isolated child lifetime",
+      "iterations": 1,
+      "totalMs": 5133,
+      "meanMs": 5133.018,
+      "p50Ms": 5133.018,
+      "p95Ms": 5133.018,
+      "metrics": {
+        "retainedHeapBytes": 8328433,
+        "retainedExtraMemoryBytes": 8148130,
+        "retainedCells": 900,
+        "postClearHeapBytes": 10787346,
+        "postCloseHeapBytes": 4270636,
+        "peakRssBytes": 768229376,
+        "baselineRssBytes": 347783168,
+        "peakRssGrowthBytes": 420446208,
+        "sampledTransientCells": 7373166,
+        "rendererOutputBytes": 926741,
+        "turns": 30
+      }
+    },
+    {
+      "suite": "startup",
+      "name": "source --version",
+      "iterations": 2,
+      "totalMs": 136.8,
+      "meanMs": 68.4113,
+      "p50Ms": 72.8569,
+      "p95Ms": 72.8569
+    },
+    {
+      "suite": "startup",
+      "name": "compiled --version",
+      "iterations": 2,
+      "totalMs": 61.5,
+      "meanMs": 30.7729,
+      "p50Ms": 31.3218,
+      "p95Ms": 31.3218
+    },
+    {
+      "suite": "startup",
+      "name": "compiled OpenTUI fresh home -> typed draft",
+      "iterations": 2,
+      "totalMs": 2021.9,
+      "meanMs": 1010.944,
+      "p50Ms": 1016.1888,
+      "p95Ms": 1016.1888,
+      "metrics": {
+        "firstPaintP50Ms": 973.3537499999998,
+        "firstPaintP95Ms": 973.3537499999998,
+        "terminalOutputBytes": 11874
+      }
+    },
+    {
+      "suite": "startup",
+      "name": "compiled OpenTUI warm home -> typed draft",
+      "iterations": 2,
+      "totalMs": 2000.2,
+      "meanMs": 1000.1046,
+      "p50Ms": 1113.9943,
+      "p95Ms": 1113.9943,
+      "metrics": {
+        "firstPaintP50Ms": 1079.733166,
+        "firstPaintP95Ms": 1079.733166,
+        "terminalOutputBytes": 11874
+      }
+    },
+    {
+      "suite": "startup",
+      "name": "compiled Ink fresh home -> typed draft",
+      "iterations": 2,
+      "totalMs": 1200.8,
+      "meanMs": 600.4106,
+      "p50Ms": 636.4887,
+      "p95Ms": 636.4887,
+      "metrics": {
+        "firstPaintP50Ms": 577.7850419999995,
+        "firstPaintP95Ms": 577.7850419999995,
+        "terminalOutputBytes": 2304
+      }
+    },
+    {
+      "suite": "startup",
+      "name": "compiled Ink warm home -> typed draft",
+      "iterations": 2,
+      "totalMs": 1580.3,
+      "meanMs": 790.1388,
+      "p50Ms": 790.3248,
+      "p95Ms": 790.3248,
+      "metrics": {
+        "firstPaintP50Ms": 748.2827910000005,
+        "firstPaintP95Ms": 748.2827910000005,
+        "terminalOutputBytes": 2304
+      }
+    },
+    {
+      "suite": "markdown-prose",
+      "name": "parseMarkdown 500B reply",
+      "iterations": 200,
+      "totalMs": 7.2,
+      "meanMs": 0.0359,
+      "p50Ms": 0.0322,
+      "p95Ms": 0.0488
+    },
+    {
+      "suite": "markdown-prose",
+      "name": "parseMarkdown 50KB reply",
+      "iterations": 60,
+      "totalMs": 68.1,
+      "meanMs": 1.1344,
+      "p50Ms": 1.02,
+      "p95Ms": 1.7165
+    },
+    {
+      "suite": "markdown-prose",
+      "name": "parseMarkdown plain paragraph",
+      "iterations": 200,
+      "totalMs": 1.4,
+      "meanMs": 0.0071,
+      "p50Ms": 0.0045,
+      "p95Ms": 0.0091
+    },
+    {
+      "suite": "markdown-prose",
+      "name": "parseInlineMarkdown mixed marks",
+      "iterations": 200,
+      "totalMs": 1.3,
+      "meanMs": 0.0063,
+      "p50Ms": 0.0057,
+      "p95Ms": 0.0103
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "approval footprint (100 files)",
+      "iterations": 20,
+      "totalMs": 57,
+      "meanMs": 2.8521,
+      "p50Ms": 2.877,
+      "p95Ms": 3.5212
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "approval footprint (1000 files)",
+      "iterations": 20,
+      "totalMs": 471.7,
+      "meanMs": 23.5873,
+      "p50Ms": 23.6691,
+      "p95Ms": 26.38
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "approval footprint (10050 files)",
+      "iterations": 20,
+      "totalMs": 4681.6,
+      "meanMs": 234.0822,
+      "p50Ms": 229.8194,
+      "p95Ms": 301.6694
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "configuration read + validation + defaults",
+      "iterations": 20,
+      "totalMs": 9.3,
+      "meanMs": 0.4641,
+      "p50Ms": 0.4207,
+      "p95Ms": 0.6377
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "model discovery (100 models, warm metadata)",
+      "iterations": 20,
+      "totalMs": 1.9,
+      "meanMs": 0.097,
+      "p50Ms": 0.098,
+      "p95Ms": 0.1479
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "model discovery (1000 models, warm metadata)",
+      "iterations": 20,
+      "totalMs": 10.3,
+      "meanMs": 0.5149,
+      "p50Ms": 0.5149,
+      "p95Ms": 0.6474
+    }
+  ],
+  "sourceReports": [
+    "pipeline.head.json",
+    "memory.head.json",
+    "startup.head.json",
+    "markdown-prose.head.json",
+    "filesystem-config-models.head.json"
+  ]
+}

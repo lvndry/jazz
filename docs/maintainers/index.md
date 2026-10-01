@@ -25,6 +25,7 @@ Use these pages to answer two questions: where does a change belong, and which i
 - [Conversation presentation](./presentation-documents.md): source facts, renderer projections, stream identity, and history migration.
 - [Fullscreen ownership](./fullscreen-ownership.md): navigation, content anchors, bounded layout, and disposal.
 - [Terminal rendering tests](./terminal-rendering-tests.md): native ANSI output checked against an independent terminal grid.
+- [Terminal runtime](./terminal-runtime.md): output capabilities, demand frames, cleanup, and fallback.
 - [Remote handoff snapshot](./detach-snapshots.md): what a detached conversation carries to another host, and the ownership fence around it.
 
 ## Extend Jazz

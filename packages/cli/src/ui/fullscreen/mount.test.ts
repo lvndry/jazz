@@ -169,6 +169,22 @@ describe("installTerminalLifecycle", () => {
     expect(calls.resume).toBe(1);
   });
 
+  test("cleans up listeners and the renderer when lifecycle acquisition fails", () => {
+    const { listeners, runtime } = stubRuntime();
+    const { calls, renderer } = stubRenderer();
+    const failure = new Error("listener acquisition failed");
+    const failingRuntime = {
+      ...runtime,
+      on(event: string, listener: () => void) {
+        if (event === "SIGCONT") throw failure;
+        runtime.on(event, listener);
+      },
+    };
+    expect(() => installTerminalLifecycle(renderer, failingRuntime)).toThrow(failure);
+    expect(listeners.size).toBe(0);
+    expect(calls.destroy).toBe(1);
+  });
+
   test("ignores job-control signals once released", () => {
     const { listeners, runtime } = stubRuntime();
     const { calls, renderer } = stubRenderer();
@@ -214,14 +230,10 @@ describe("transcriptTextForForeignWrite", () => {
       "visit https://example.com",
     );
     // Styled text still paints — the desync does not care that it is pretty.
-    expect(transcriptTextForForeignWrite("\u001b[32mdone\u001b[39m\n")).toBe(
-      "\u001b[32mdone\u001b[39m",
-    );
+    expect(transcriptTextForForeignWrite("\u001b[32mdone\u001b[39m\n")).toBe("done");
   });
 
-  test("lets pure control sequences through untouched", () => {
-    // Setting the window title paints no cells, so intercepting it would only
-    // put `0;jazz` in the transcript and lose the title.
+  test("omits control-only writes from transcript text", () => {
     expect(transcriptTextForForeignWrite("\u001b]0;jazz\u0007")).toBeNull();
     expect(transcriptTextForForeignWrite("\u001b[?2004h")).toBeNull();
     expect(transcriptTextForForeignWrite("\n")).toBeNull();
@@ -263,14 +275,13 @@ describe("guardOutput", () => {
     ]);
   });
 
-  test("lets control sequences reach the terminal", () => {
+  test("suppresses foreign controls while the renderer owns the terminal", () => {
     const { out, entries, restore } = setup();
 
-    // The window title, and OpenTUI's own palette queries, paint no cells.
     out.write("\u001b]0;jazz\u0007");
     restore();
 
-    expect(out.written).toEqual(["\u001b]0;jazz\u0007"]);
+    expect(out.written).toEqual([]);
     expect(entries).toEqual([]);
   });
 
@@ -333,11 +344,10 @@ describe("repaintAfterResize", () => {
     expect(renderer.renders).toBe(1);
   });
 
-  test("does nothing if OpenTUI ever renames the flag", () => {
+  test("fails explicitly if the pinned repaint contract changes", () => {
     const renderer = stubRepaintRenderer("not a flag any more");
 
-    repaintAfterResize(renderer);
-    renderer.resize();
+    expect(() => repaintAfterResize(renderer)).toThrow("Unsupported OpenTUI repaint contract");
 
     expect(renderer.forceFullRepaintRequested).toBe("not a flag any more");
     expect(renderer.renders).toBe(0);
@@ -466,6 +476,43 @@ describe("syncTerminalGround", () => {
     syncTerminalGround(renderer, () => undefined, noRuntime).stop();
 
     expect(calls.backgrounds).toEqual([]);
+  });
+
+  test("detaches the theme and exit resources when its initial effect fails", () => {
+    initializeTheme({ configured: "jazz:dark", canvas: "painted" });
+    const { calls, renderer } = stubGroundRenderer();
+    const listeners = new Set<() => void>();
+    const runtime = {
+      on: (_event: string, listener: () => void) => listeners.add(listener),
+      off: (_event: string, listener: () => void) => listeners.delete(listener),
+    };
+    const failure = new Error("background writer failed");
+    expect(() =>
+      syncTerminalGround(
+        renderer,
+        () => {
+          throw failure;
+        },
+        runtime,
+      ),
+    ).toThrow(failure);
+    const painted = calls.backgrounds.length;
+    applyTheme("jazz:light");
+    expect(calls.backgrounds).toHaveLength(painted);
+    expect(listeners.size).toBe(0);
+  });
+
+  test("released ground capabilities remain inert", () => {
+    initializeTheme({ configured: "jazz:dark", canvas: "painted" });
+    const { calls, renderer } = stubGroundRenderer();
+    const writes: string[] = [];
+    const ground = syncTerminalGround(renderer, (data) => writes.push(data), noRuntime);
+    ground.stop();
+    const before = [...writes];
+    ground.stop();
+    ground.apply();
+    expect(writes).toEqual(before);
+    expect(calls.backgrounds).toHaveLength(1);
   });
 });
 

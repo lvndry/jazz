@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "samples": 3,
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "bun": "1.4.2"
+  },
+  "results": [
+    {
+      "suite": "filesystem-config-models",
+      "name": "approval footprint (100 files)",
+      "iterations": 20,
+      "totalMs": 57,
+      "meanMs": 2.8521,
+      "p50Ms": 2.877,
+      "p95Ms": 3.5212
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "approval footprint (1000 files)",
+      "iterations": 20,
+      "totalMs": 471.7,
+      "meanMs": 23.5873,
+      "p50Ms": 23.6691,
+      "p95Ms": 26.38
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "approval footprint (10050 files)",
+      "iterations": 20,
+      "totalMs": 4681.6,
+      "meanMs": 234.0822,
+      "p50Ms": 229.8194,
+      "p95Ms": 301.6694
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "configuration read + validation + defaults",
+      "iterations": 20,
+      "totalMs": 9.3,
+      "meanMs": 0.4641,
+      "p50Ms": 0.4207,
+      "p95Ms": 0.6377
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "model discovery (100 models, warm metadata)",
+      "iterations": 20,
+      "totalMs": 1.9,
+      "meanMs": 0.097,
+      "p50Ms": 0.098,
+      "p95Ms": 0.1479
+    },
+    {
+      "suite": "filesystem-config-models",
+      "name": "model discovery (1000 models, warm metadata)",
+      "iterations": 20,
+      "totalMs": 10.3,
+      "meanMs": 0.5149,
+      "p50Ms": 0.5149,
+      "p95Ms": 0.6474
+    }
+  ]
+}
