@@ -2151,28 +2151,25 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
-      // Ctrl+O expands the last truncated tool output.
-      // the key above when a long field is on the card. Ctrl+E reveals the newest
-      // write/edit receipt's full diff in place (repeat walks back through older
-      // receipts, the way Ctrl+R walks reasoning); with nothing to expand it stays
-      // end-of-line.
-      if (isCtrlLetter({ name, ctrl }, "e")) {
+      // Ctrl+E with an empty composer expands the newest write/edit receipt's full
+      // diff in place (repeat walks back through older receipts, the way Ctrl+R
+      // walks reasoning), or the last long tool output for the approval flow.
+      // With text in the composer the key falls through to end-of-line below —
+      // returning early would skip the line-motion handler further down.
+      if (isCtrlLetter({ name, ctrl }, "e") && composerRef.current.text.length === 0) {
         if (store.toggleLastReceiptDiff()) {
           return true;
         }
-        if (composerRef.current.text.length === 0 && store.getExpandableDiff() != null) {
-          const payload = store.getExpandableDiff();
-          if (payload !== null && payload !== undefined) {
-            store.printOutput({
-              type: "log",
-              message: payload.fullDiff,
-              timestamp: new Date(),
-              meta: { expandedOutput: true },
-            });
-          }
-          return true;
+        const payload = store.getExpandableDiff();
+        if (payload !== null && payload !== undefined) {
+          store.printOutput({
+            type: "log",
+            message: payload.fullDiff,
+            timestamp: new Date(),
+            meta: { expandedOutput: true },
+          });
         }
-        return false;
+        return true;
       }
 
       if (isCtrlLetter({ name, ctrl }, "o")) {

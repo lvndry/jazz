@@ -1012,7 +1012,8 @@ keys. In both, interrupting work takes a double Esc or one Ctrl+C.
 | Ctrl+C Ctrl+C                          | Leave the conversation                                                                            |
 | Shift+Tab                              | Toggle safe/yolo approval mode                                                                    |
 | Ctrl+R                                 | Expand collapsed reasoning (repeat for earlier blocks)                                            |
-| Ctrl+O                                 | Expand the last truncated diff or tool output                                                     |
+| Ctrl+E (empty input)                   | Expand the last write/edit diff in place                                                          |
+| Ctrl+O                                 | Expand the last truncated tool output                                                             |
 | Up (agent busy)                        | Recall queued messages for editing                                                                |
 | Ctrl+X (agent busy, empty input)       | Clear the message queue                                                                           |
 | Ctrl+B (tool running)                  | Move the running tool call to the background                                                      |
@@ -1045,7 +1046,8 @@ keys. In both, interrupting work takes a double Esc or one Ctrl+C.
 | Ctrl+C Ctrl+C                    | Leave the conversation                                             |
 | Shift+Tab                        | Toggle safe/yolo approval mode                                     |
 | Ctrl+R                           | Expand collapsed reasoning (repeat for earlier blocks)             |
-| Ctrl+O                           | Expand the last truncated diff or tool output                      |
+| Ctrl+E (empty input)             | Expand the last write/edit diff in place                           |
+| Ctrl+O                           | Expand the last truncated tool output                              |
 | Up (agent busy)                  | Recall queued messages for editing                                 |
 | Ctrl+X (agent busy, empty input) | Clear the message queue                                            |
 

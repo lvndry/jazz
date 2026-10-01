@@ -194,17 +194,17 @@ describe("formatToolResult write_file / edit_file", () => {
     const diff = "--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new";
     const formatted = formatToolResult("edit_file", JSON.stringify({ diff, path: "a.ts" }));
     expect(formatted).toBe(diff);
-    expect(formatted).not.toContain("ctrl+o");
+    expect(formatted).not.toContain("ctrl+e");
   });
 
-  test("truncates a long diff and points at Ctrl+O", () => {
+  test("truncates a long diff and points at Ctrl+E", () => {
     const diff = Array.from(
       { length: 40 },
       (_, index) => `+line ${String(index)} ${"y".repeat(20)}`,
     ).join("\n");
     const formatted = formatToolResult("write_file", JSON.stringify({ diff, path: "out.py" }));
     expect(formatted.length).toBeLessThan(diff.length);
-    expect(formatted).toContain("… · ctrl+o to expand");
+    expect(formatted).toContain("… · ctrl+e to expand");
     expect(formatted.startsWith(diff.slice(0, 20))).toBe(true);
   });
 });
@@ -302,10 +302,12 @@ describe("fileMutationDiffPreview", () => {
     expect(preview?.hiddenLines).toBe(15);
   });
 
-  test("shows nothing for a new-file summary or an empty diff", () => {
-    expect(
-      fileMutationDiffPreview(JSON.stringify({ diff: "+ Created file: a.ts (3 lines)" })),
-    ).toBeNull();
+  test("keeps a new-file summary so the receipt can expand to the full file", () => {
+    const preview = fileMutationDiffPreview(
+      JSON.stringify({ diff: "+ Created file: a.ts (3 lines)" }),
+    );
+    expect(preview?.lines).toEqual(["+ Created file: a.ts (3 lines)"]);
+    expect(preview?.hiddenLines).toBe(0);
     expect(fileMutationDiffPreview(JSON.stringify({ diff: "" }))).toBeNull();
     expect(fileMutationDiffPreview("not json")).toBeNull();
   });
