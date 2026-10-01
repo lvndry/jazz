@@ -685,6 +685,7 @@ export function blocksFrom(
   expandedReasoningIds: ReadonlySet<string> = new Set(),
   streamingId?: string,
   liveReasoningIds: ReadonlySet<string> = new Set(),
+  expandedReceiptIds: ReadonlySet<string> = new Set(),
 ): Block[] {
   const blocks: Block[] = [];
   let seq = 0;
@@ -714,7 +715,13 @@ export function blocksFrom(
         });
         break;
       case "tool":
-        blocks.push({ id, seq: seq++, kind: "tool", ...content.receipt });
+        blocks.push({
+          id,
+          seq: seq++,
+          kind: "tool",
+          ...content.receipt,
+          ...(expandedReceiptIds.has(id) ? { expanded: true } : {}),
+        });
         break;
       case "reasoning":
         blocks.push({
@@ -897,6 +904,7 @@ export interface TranscriptBlockSources {
   readonly expandedReasoningIds?: ReadonlySet<string>;
   readonly streamingId?: string;
   readonly liveReasoningIds?: ReadonlySet<string>;
+  readonly expandedReceiptIds?: ReadonlySet<string>;
 }
 
 export function transcriptBlocks(
@@ -912,6 +920,7 @@ export function transcriptBlocks(
       sources.expandedReasoningIds,
       sources.streamingId,
       sources.liveReasoningIds,
+      sources.expandedReceiptIds,
     ),
   );
 }
@@ -2774,6 +2783,7 @@ export function FullscreenBridge(): React.ReactNode {
               streaming,
               regions,
               expandedReasoningIds: presentation.expandedReasoningIds,
+              expandedReceiptIds: presentation.expandedReceiptIds,
               liveReasoningIds: presentation.liveReasoningIds,
               ...(presentation.document.streamingId === undefined
                 ? {}
@@ -2792,6 +2802,7 @@ export function FullscreenBridge(): React.ReactNode {
     inspectedRun,
     elapsedMs,
     presentation.expandedReasoningIds,
+    presentation.expandedReceiptIds,
     presentation.liveReasoningIds,
     presentation.document.streamingId,
   ]);

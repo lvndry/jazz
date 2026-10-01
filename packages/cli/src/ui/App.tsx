@@ -559,9 +559,8 @@ export function App(): React.ReactElement {
       if (receiptDiff !== undefined) {
         store.printOutput({
           type: "log",
-          message: receiptDiff,
+          message: { kind: "expanded", text: receiptDiff },
           timestamp: new Date(),
-          meta: { expandedOutput: true },
         });
         return InputResults.consumed();
       }
@@ -581,7 +580,7 @@ export function App(): React.ReactElement {
 
       store.printOutput({
         type: "log",
-        message: payload.fullDiff,
+        message: { kind: "expanded", text: payload.fullDiff },
         timestamp: new Date(),
       });
       store.clearExpandableDiff();

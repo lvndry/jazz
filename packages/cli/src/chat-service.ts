@@ -88,7 +88,6 @@ import {
   hydrateInputHistoryFromMessages,
   hydrateTranscriptFromHistory,
   hydrateTranscriptFromUiEntries,
-  resolveSessionHydration,
 } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { store } from "@/cli/ui/store";
@@ -684,6 +683,10 @@ export class ChatServiceImpl implements ChatService {
                 // Reset logged message count when history is cleared (e.g., /start command)
                 loggedMessageCount = 0;
               }
+            }
+            if (commandResult.resetStartedAt) {
+              startedAt = new Date().toISOString();
+            }
             if (commandResult.newAutoApprovePolicy !== undefined) {
               autoApprovePolicy = commandResult.newAutoApprovePolicy;
               // Sync mode state with store for Shift+Tab toggle

@@ -414,6 +414,7 @@ export interface PresentationSnapshot {
   readonly ephemeral: EphemeralSnapshot;
   readonly subagents: SubagentsSnapshot;
   readonly expandedReasoningIds: ReadonlySet<string>;
+  readonly expandedReceiptIds: ReadonlySet<string>;
   readonly liveReasoningIds: ReadonlySet<string>;
   readonly streamReveal: { readonly id: string; readonly length: number } | null;
 }
@@ -433,6 +434,7 @@ export class UIStore {
   private classicSubscribers = 0;
   private classicNotificationPending = false;
   private readonly expandedReasoningIds = new Set<string>();
+  private readonly expandedReceiptIds = new Set<string>();
   private readonly liveReasoningIds = new Set<string>();
   private turnThoughtIds: string[] = [];
   private readonly reasoningReplays: Array<{
@@ -475,6 +477,7 @@ export class UIStore {
       ephemeral: this.ephemeral.getSnapshot(),
       subagents: this.subagents.getSnapshot(),
       expandedReasoningIds: new Set(this.expandedReasoningIds),
+      expandedReceiptIds: new Set(this.expandedReceiptIds),
       liveReasoningIds: new Set(this.liveReasoningIds),
       streamReveal: this.streamReveal,
     };
@@ -917,29 +920,20 @@ export class UIStore {
    * false when no receipt carries a diff to expand.
    */
   toggleLastReceiptDiff = (): boolean => {
-    this.flushOutputBatchNow();
-    const entries = this.output.getSnapshot().entries;
-    const candidates: { id: string; expanded: boolean }[] = [];
-    for (const entry of entries) {
-      if (entry.type !== "log") continue;
-      const receipt = entry.meta?.["toolReceipt"] as
-        { readonly app?: unknown; readonly diffText?: unknown } | undefined;
-      if (receipt === undefined || typeof receipt["app"] !== "string") continue;
-      if (typeof receipt["diffText"] !== "string" || receipt["diffText"].length === 0) continue;
-      candidates.push({ id: entry.id, expanded: entry.meta?.["expanded"] === true });
-    }
-    for (const candidate of candidates.reverse()) {
-      const expanded = !candidate.expanded;
-      const previous = this.output.getSnapshot();
-      let found = false;
-      const nextEntries = previous.entries.map((entry) => {
-        if (entry.id !== candidate.id) return entry;
-        found = true;
-        return { ...entry, meta: { ...entry.meta, expanded } };
-      });
-      if (!found) continue;
-      this.scrollback = { ...this.scrollback, staticEntries: nextEntries };
-      this.output.set({ ...previous, entries: nextEntries });
+    const candidates = this.document.entries
+      .filter(
+        (entry) =>
+          entry.content.kind === "tool" &&
+          typeof entry.content.receipt.diffText === "string" &&
+          entry.content.receipt.diffText.length > 0,
+      )
+      .map((entry) => entry.id);
+    for (const id of candidates.reverse()) {
+      const expanded = !this.expandedReceiptIds.has(id);
+      if (expanded) this.expandedReceiptIds.add(id);
+      else this.expandedReceiptIds.delete(id);
+      this.refreshClassicProjection();
+      this.schedulePresentationCommit();
       return true;
     }
     return false;
@@ -951,15 +945,14 @@ export class UIStore {
    * results, because the diff rides on the receipt itself.
    */
   latestReceiptDiffText = (): string | undefined => {
-    this.flushOutputBatchNow();
     let latest: string | undefined;
-    for (const entry of this.output.getSnapshot().entries) {
-      if (entry.type !== "log") continue;
-      const receipt = entry.meta?.["toolReceipt"] as
-        { readonly app?: unknown; readonly diffText?: unknown } | undefined;
-      if (receipt === undefined || typeof receipt["app"] !== "string") continue;
-      if (typeof receipt["diffText"] === "string" && receipt["diffText"].length > 0) {
-        latest = receipt["diffText"];
+    for (const entry of this.document.entries) {
+      if (entry.content.kind !== "tool") continue;
+      if (
+        typeof entry.content.receipt.diffText === "string" &&
+        entry.content.receipt.diffText.length > 0
+      ) {
+        latest = entry.content.receipt.diffText;
       }
     }
     return latest;
@@ -1415,7 +1408,8 @@ export class UIStore {
     this.reasoningReplays.length = 0;
     this.classicProjection = undefined;
     this.streamReveal = null;
-    this.expandableReasoningStack = [];
+    this.expandedReasoningIds.clear();
+    this.expandedReceiptIds.clear();
     this.pinnedReasoningIds.clear();
     this.expandedReasoningIds.clear();
     this.liveReasoningIds.clear();
