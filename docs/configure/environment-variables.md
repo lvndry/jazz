@@ -215,6 +215,16 @@ Platform credentials, allowlists and addresses:
 - WhatsApp: `WHATSAPP_ALLOWED_NUMBERS`, `WHATSAPP_ALLOWED_GROUPS`,
   `WHATSAPP_REQUIRE_MENTION_IN_GROUPS`, `WHATSAPP_AUTH_DIR`, `WHATSAPP_PAIR_NUMBER`.
 
+## Test fixtures
+
+These variables are private controls for the compiled terminal test fixture. The
+normal Jazz executable does not read them.
+
+| Variable | Effect |
+| --- | --- |
+| `JAZZ_PTY_CONTROL` | Validated control-file path used by the compiled PTY qualification fixture. |
+| `JAZZ_PTY_RESULT` | Result-file path used by that fixture to report native frame captures. |
+
 ## Set by Jazz
 
 Jazz sets these for the processes it starts. Setting them yourself changes nothing useful.
