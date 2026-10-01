@@ -1,9 +1,11 @@
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, expect, test } from "bun:test";
 import {
+  hydrateInputHistoryFromMessages,
   hydrateTranscriptFromHistory,
   hydrateTranscriptFromUiEntries,
   outputEntriesFromHistory,
+  resolveSessionHydration,
 } from "./hydrate-transcript";
 import type { OutputEntry } from "./types";
 
@@ -113,6 +115,91 @@ describe("hydrateTranscriptFromHistory", () => {
     expect(printed).toEqual([]);
   });
 });
+
+describe("hydrateInputHistoryFromMessages", () => {
+  function historySink() {
+    const state = { history: [] as string[], cleared: 0 };
+    const sink = {
+      history: state.history,
+      get cleared() {
+        return state.cleared;
+      },
+      pushInputHistory: (message: string) => state.history.push(message),
+      clearInputHistory: () => {
+        state.cleared += 1;
+        state.history.length = 0;
+      },
+    };
+    return sink;
+  }
+
+  test("seeds recall from user turns, newest last, skipping non-user and continuation messages", () => {
+    const sink = historySink();
+    hydrateInputHistoryFromMessages(
+      messages([
+        { role: "system", content: "persona only" },
+        { role: "user", content: "first question" },
+        { role: "assistant", content: "first answer" },
+        { role: "user", content: "  ", kind: "continuation" },
+        { role: "user", content: "second question" },
+      ]),
+      sink,
+    );
+
+    expect(sink.cleared).toBe(1);
+    expect(sink.history).toEqual(["first question", "second question"]);
+  });
+
+  test("empty history drops whatever recall was seeded before", () => {
+    const sink = historySink();
+    sink.pushInputHistory("leftover from the previous conversation");
+
+    hydrateInputHistoryFromMessages([], sink);
+
+    expect(sink.history).toEqual([]);
+  });
+});
+
+describe("resolveSessionHydration", () => {
+  const uiEntries = [{ type: "log" as const, message: "command output" }];
+  const history = messages([{ role: "user", content: "real question" }]);
+
+  test("prefers the UI transcript when present, but recall still reads the model history", () => {
+    const plan = resolveSessionHydration(uiEntries, history);
+
+    expect(plan.transcript).toBe("ui");
+    // The plan repaints the UI entries…
+    if (plan.transcript !== "ui") throw new Error("unreachable");
+    expect(plan.entries).toBe(uiEntries);
+    // …yet recall is seeded from the model history, so ↑ still recalls the turn.
+    const sink = sinkFrom([]);
+    hydrateInputHistoryFromMessages(history, sink);
+    expect(sink.history).toEqual(["real question"]);
+  });
+
+  test("falls back to the model history when there is no UI transcript", () => {
+    expect(resolveSessionHydration(undefined, history).transcript).toBe("history");
+    expect(resolveSessionHydration([], history).transcript).toBe("history");
+  });
+
+  test("seeds nothing when the conversation is brand new", () => {
+    expect(resolveSessionHydration(undefined, []).transcript).toBe("none");
+    expect(resolveSessionHydration([], []).transcript).toBe("none");
+  });
+});
+
+function sinkFrom(history: string[]) {
+  const sink: {
+    history: string[];
+    pushInputHistory: (message: string) => void;
+    clearInputHistory: () => void;
+  } = { history, pushInputHistory: () => undefined, clearInputHistory: () => undefined };
+  sink.pushInputHistory = (message) => sink.history.push(message);
+  sink.clearInputHistory = () => {
+    sink.history.length = 0;
+  };
+  return sink;
+}
 
 describe("hydrateTranscriptFromUiEntries", () => {
   test("restores command entries without manufacturing model messages", () => {

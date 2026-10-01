@@ -926,6 +926,11 @@ export class UIStore {
 
   getInputHistory = (): readonly string[] => this.inputHistory;
 
+  /** Drops every recalled entry. Called when a different conversation hydrates. */
+  clearInputHistory = (): void => {
+    this.inputHistory = [];
+  };
+
   private pushExpandableReasoning(value: ExpandableReasoning): void {
     this.expandableReasoningStack.push(value);
     if (this.expandableReasoningStack.length > MAX_EXPANDABLE_REASONING) {

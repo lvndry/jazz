@@ -52,6 +52,29 @@ export function hydrateTranscriptFromHistory(
   target.flushOutputBatchNow();
 }
 
+/**
+ * Re-seeds ↑ recall from a chat session's persisted history.
+ *
+ * Input history lives in the store and is only appended to as the user types,
+ * so a resumed conversation would otherwise offer nothing to recall. Replaying
+ * the user turns through `pushInputHistory` restores recall as far back as the
+ * store's cap allows, newest last. Consecutive duplicates collapse in the
+ * store, the same way they do while typing. Kept separate from transcript
+ * hydration so a caller injecting a custom sink does not also mutate the
+ * global recall state.
+ */
+export function hydrateInputHistoryFromMessages(
+  messages: readonly ChatMessage[],
+  target: { pushInputHistory: (message: string) => void; clearInputHistory: () => void } = store,
+): void {
+  target.clearInputHistory();
+  for (const message of messages) {
+    if (message.role !== "user" || message.kind === "continuation") continue;
+    if (message.content.trim().length === 0) continue;
+    target.pushInputHistory(message.content);
+  }
+}
+
 /** Restore UI-only command output without feeding it back into the model. */
 export function hydrateTranscriptFromUiEntries(
   entries: readonly ConversationUiEntry[],
@@ -62,4 +85,31 @@ export function hydrateTranscriptFromUiEntries(
     target.printOutput({ ...entry, timestamp: new Date() });
   }
   target.flushOutputBatchNow();
+}
+
+/**
+ * Which transcript to repaint on session start, and what to seed ↑ recall from.
+ *
+ * Recall always draws from the saved model history — the UI transcript is
+ * command output and carries no model turns. A conversation with both a UI
+ * transcript and saved history therefore repaints the UI entries yet still
+ * recalls the history's user turns; a brand-new conversation seeds an empty
+ * list so it does not leak the previous session's recall.
+ */
+export type SessionHydrationPlan =
+  | { readonly transcript: "ui"; readonly entries: readonly ConversationUiEntry[] }
+  | { readonly transcript: "history" }
+  | { readonly transcript: "none" };
+
+export function resolveSessionHydration(
+  uiTranscript: readonly ConversationUiEntry[] | undefined,
+  history: readonly ChatMessage[],
+): SessionHydrationPlan {
+  if (uiTranscript !== undefined && uiTranscript.length > 0) {
+    return { transcript: "ui", entries: uiTranscript };
+  }
+  if (history.length > 0) {
+    return { transcript: "history" };
+  }
+  return { transcript: "none" };
 }

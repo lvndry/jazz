@@ -84,8 +84,12 @@ import {
   attachPaneStateReporting,
   detachPaneStateReporting,
 } from "@/cli/integrations/pane-state-registry";
-import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
-import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
+import {
+  hydrateInputHistoryFromMessages,
+  hydrateTranscriptFromHistory,
+  hydrateTranscriptFromUiEntries,
+  resolveSessionHydration,
+} from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { store } from "@/cli/ui/store";
 import { classifyChatInput } from "./chat/chat-input";
@@ -278,11 +282,22 @@ export class ChatServiceImpl implements ChatService {
         );
 
       yield* emitLifecycle("session-start");
-      if (options?.initialUiTranscript?.length) {
-        hydrateTranscriptFromUiEntries(options.initialUiTranscript);
-      } else if (conversationHistory.length > 0) {
-        hydrateTranscriptFromHistory(conversationHistory);
+      // Recall always draws from the saved model history, whichever transcript
+      // repaints the screen. A fresh conversation seeds an empty list so it
+      // does not leak the previous session's recall.
+      const initialUiTranscript = options?.initialUiTranscript;
+      const hydration = resolveSessionHydration(initialUiTranscript, conversationHistory);
+      switch (hydration.transcript) {
+        case "ui":
+          hydrateTranscriptFromUiEntries(hydration.entries);
+          break;
+        case "history":
+          hydrateTranscriptFromHistory(conversationHistory);
+          break;
+        case "none":
+          break;
       }
+      hydrateInputHistoryFromMessages(conversationHistory);
       if (!ephemeral && conversationHistory.length > 0) {
         yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
         yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
@@ -663,6 +678,9 @@ export class ChatServiceImpl implements ChatService {
               // context, and the user's scrollback stays as their record of the session.
               if (!commandResult.skipTranscriptRepaint) {
                 hydrateTranscriptFromHistory(conversationHistory);
+                // The agent now sees a different history, so ↑ must recall it —
+                // /start recalls nothing, /resume recalls the resumed turns.
+                hydrateInputHistoryFromMessages(conversationHistory);
               }
               if (commandResult.resendMessage !== undefined) {
                 // /retry replays the SAME conversation — clamp the session-log

@@ -96,6 +96,7 @@ function resetStoreSlices(): void {
   store.setWorkingDirectory(null);
   store.setCurrentConversation(null);
   store.clearQueue();
+  store.clearInputHistory();
   store.setModeIsYolo(false);
   store.clearModeToast();
   store.collapseAllEphemeral();
@@ -622,6 +623,49 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
     store.setPrompt(null);
     expect(frame).toContain("earlier turn");
+  });
+
+  it("walks sent messages from newest to oldest with up, then back to the draft with down", async () => {
+    store.clearInputHistory();
+    store.pushInputHistory("oldest turn");
+    store.pushInputHistory("middle turn");
+    store.pushInputHistory("newest turn");
+    const rendered = await liveComposer();
+
+    await rendered.mockInput.pressKey("ARROW_UP");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("newest turn");
+
+    await rendered.mockInput.pressKey("ARROW_UP");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("middle turn");
+
+    await rendered.mockInput.pressKey("ARROW_UP");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("oldest turn");
+
+    // Down walks back up through the entries toward the newest.
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("middle turn");
+    expect(rendered.captureCharFrame()).not.toContain("oldest turn");
+
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("newest turn");
+    expect(rendered.captureCharFrame()).not.toContain("middle turn");
+
+    // A further down clears the recall and leaves the composer empty.
+    await rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    const cleared = rendered.captureCharFrame();
+
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+    store.clearInputHistory();
+    expect(cleared).not.toContain("newest turn");
+    expect(cleared).not.toContain("middle turn");
+    expect(cleared).not.toContain("oldest turn");
   });
 
   it("queues, recalls, and clears after the chat prompt is cleared for a busy turn", async () => {
