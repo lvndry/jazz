@@ -65,6 +65,21 @@ describe("createCLIApp help path", () => {
     expect(flags).toContain("--stream");
     expect(flags).toContain("--no-stream");
     expect(flags).toContain("--events <categories>");
+    expect(flags).toContain("--watch <categories>");
+  });
+
+  it("offers --watch as the alias of --events on both `jazz run` and `workflow run`", () => {
+    const program = createCLIApp();
+    const flagsOf = (command: import("commander").Command | undefined) =>
+      command?.options.map((option) => option.flags) ?? [];
+    const run = program.commands.find((command) => command.name() === "run");
+    const workflowRun = program.commands
+      .find((command) => command.name() === "workflow")
+      ?.commands.find((command) => command.name() === "run");
+    for (const flags of [flagsOf(run), flagsOf(workflowRun)]) {
+      expect(flags).toContain("--events <categories>");
+      expect(flags).toContain("--watch <categories>");
+    }
   });
 
   it("registers one daemon status command alongside pause, resume and logs", () => {

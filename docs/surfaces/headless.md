@@ -134,7 +134,7 @@ interpret that fallback as a free run.
 | `--json`                   | Emit the single-object envelope instead of raw text.                                                                                                                                                                           |
 | `--conversation <id>`      | Stable conversation key. Loads prior history before the run, saves the updated transcript after. Omit for a stateless one-shot.                                                                                                |
 | `--approval-policy <p>`    | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**, not queued.                                                                                                                                   |
-| `--events <categories>`    | Emit NDJSON progress on stderr: `tools,reasoning,text,usage,approval,subagent,spend,all`.                                                                                                                                      |
+| `--watch <categories>`     | Watch the run: NDJSON progress on stderr: `tools,reasoning,text,usage,approval,subagent,spend,all`. Alias of `--events`; pass one or the other.                                                                                |
 | `--reasoning <effort>`     | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`. Overrides the agent's config for this run; a level the model does not accept runs at the nearest one it does, with a warning on stderr.             |
 | `--with-vision <p/m>`      | Bind the `analyze:image` companion for this run, e.g. `openrouter/inclusionai/ling-3.0-flash-vl`. Overrides the agent's config. Without a bound companion (flag or config), `analyze_media` fails loudly rather than guessing. |
 | `--with-audio <p/m>`       | Same, for the `analyze:audio` companion.                                                                                                                                                                                       |
@@ -142,7 +142,7 @@ interpret that fallback as a free run.
 | `--timeout <ms>`           | Abort the run after this many milliseconds.                                                                                                                                                                                    |
 | `--max-iterations <n>`     | Cap the agent's reasoning iterations (default 100).                                                                                                                                                                            |
 | `--input-stdin`            | Read the prompt (and, with `--ephemeral`, prior `history`) from the first stdin line as JSON. See [below](#prompt-input-argument-stdin-or-an-input-frame).                                                                     |
-| `--stream` / `--no-stream` | Force streaming on/off. Streaming auto-disables for non-TTY stdout; `--events reasoning`/`text` re-enable it on their own, since those events exist only on the streaming path.                                                |
+| `--stream` / `--no-stream` | Force streaming on/off. Streaming auto-disables for non-TTY stdout; `--watch reasoning`/`text` re-enable it on their own, since those events exist only on the streaming path.                                                 |
 
 ---
 
@@ -195,26 +195,27 @@ Without `--conversation`, each invocation is a clean slate.
 
 ---
 
-## Live progress with `--events`
+## Live progress with `--watch`
 
 For a chat bridge you usually want to show something before the final answer lands.
-`--events` streams newline-delimited JSON on stderr while stdout stays pristine.
+`--watch` (alias of `--events`, both take the same categories) streams
+newline-delimited JSON on stderr while stdout stays pristine.
 
 ```bash
-jazz run --json --stream --events tools,subagent --agent dev "audit this repo" \
+jazz run --json --stream --watch tools,subagent --agent dev "audit this repo" \
   2> >(while read -r line; do render_progress "$line"; done)
 ```
 
-| Category    | Event types emitted                                                              |
-| ----------- | -------------------------------------------------------------------------------- |
-| `tools`     | `tools_detected`, `tool_call`, `tool_execution_start`, `tool_execution_complete` |
-| `reasoning` | `thinking_start`, `thinking_chunk`, `thinking_complete`                          |
-| `text`      | `text_start`, `text_chunk`                                                       |
-| `usage`     | `stream_start`, `usage_update`, `complete`                                       |
-| `approval`  | `approval_required`, `approval_resolved`                                         |
-| `subagent`  | `subagent_start`, `subagent_complete`, `subagent_result`                         |
-| `spend`     | `run_spend`: the run's total spend so far, after each model call and tool batch  |
-| `all`       | every category above                                                             |
+| Category    | Event types emitted                                                                             |
+| ----------- | ----------------------------------------------------------------------------------------------- |
+| `tools`     | `tools_detected`, `tool_call`, `tool_execution_start`, `tool_execution_complete`                |
+| `reasoning` | `thinking_start`, `thinking_chunk`, `thinking_complete`                                         |
+| `text`      | `text_start`, `text_chunk`                                                                      |
+| `usage`     | `stream_start`, `usage_update`, `complete`                                                      |
+| `approval`  | `command_risk_classifying`, `command_risk_classified`, `approval_required`, `approval_resolved` |
+| `subagent`  | `subagent_start`, `subagent_complete`, `subagent_result`                                        |
+| `spend`     | `run_spend`: the run's total spend so far, after each model call and tool batch                 |
+| `all`       | every category above                                                                            |
 
 `error` events are **always** included regardless of what you select, so a failure can
 never be invisible on the live stream.

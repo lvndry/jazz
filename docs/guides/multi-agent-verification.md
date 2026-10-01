@@ -80,7 +80,7 @@ Create `PROPOSAL.md` with the outcome, affected behavior, constraints, migration
 jazz workflow run change-council \
   --auto-approve \
   --json \
-  --events subagent,tools,usage
+  --watch subagent,tools,usage
 ```
 
 The event stream shows each child start and finish while the final answer remains clean. Each child has isolated context and a bounded iteration budget inherited from Jazz's subagent configuration. Invalid structured output returns validation errors to the parent instead of silently becoming evidence.

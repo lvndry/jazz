@@ -83,31 +83,31 @@ memory write; plain piped stdin is treated as untrusted text.
 With `--input-stdin`, send the prompt as JSON on the first line. Subsequent lines are
 available for interactive replies.
 
-| Flag                           | Default      | Purpose                                                                                                                                                                |
-| ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--agent <id>`                 | **required** | Agent id or name                                                                                                                                                       |
-| `--json`                       | off          | Emit one JSON envelope: `{ ok, answer, costUSD, tokenUsage, toolCalls }`                                                                                               |
-| `--conversation <id>`          | none         | Stable conversation key. Loads prior history before the run, saves the transcript after, which gives stateless bridges per-chat memory                                 |
-| `--approval-policy <p>`        | none         | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**                                                                                        |
-| `--auto-approve-tools <names>` | none         | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                                          |
-| `--propose-goals`              | off          | Let the agent propose a goal for work that outlasts the run; the proposal waits for `jazz goal accept`                                                                 |
-| `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                                       |
-| `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `spend`, `all` (comma-separated)                                             |
-| `--reasoning <effort>`         | agent config | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr |
-| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning): running commands are killed and the provider request is aborted                           |
-| `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                                               |
-| `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                                    |
-| `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing                   |
-| `--max-duration-ms <ms>`       | none         | Stop once elapsed wall-clock time reaches this budget, interrupting a model call or tool in flight, with agent pressure nudges at 50/80/90%                            |
-| `--stream`                     | auto         | Force streaming. Text and reasoning event categories enable it automatically unless `--no-stream` is set                                                               |
-| `--no-stream`                  | off          | Disable streaming                                                                                                                                                      |
-| `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                                      |
-| `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                                                |
-| `--input-stdin`                | off          | Read `{"prompt": ..., "history": [...]}` from the first stdin line, keeping a relayed message off argv. `history` needs `--ephemeral`                                  |
-| `--park`                       | off          | Persist the run and exit `2` at an unanswered approval; resume it with `jazz runs approve`                                                                             |
-| `--with-vision <p/m>`          | agent config | Bind an image-analysis companion for this run                                                                                                                          |
-| `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                                          |
-| `--with-video <p/m>`           | agent config | Bind a video-analysis companion for this run                                                                                                                           |
+| Flag                           | Default      | Purpose                                                                                                                                                                                                                |
+| ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--agent <id>`                 | **required** | Agent id or name                                                                                                                                                                                                       |
+| `--json`                       | off          | Emit one JSON envelope: `{ ok, answer, costUSD, tokenUsage, toolCalls }`                                                                                                                                               |
+| `--conversation <id>`          | none         | Stable conversation key. Loads prior history before the run, saves the transcript after, which gives stateless bridges per-chat memory                                                                                 |
+| `--approval-policy <p>`        | none         | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**                                                                                                                                        |
+| `--auto-approve-tools <names>` | none         | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                                                                                          |
+| `--propose-goals`              | off          | Let the agent propose a goal for work that outlasts the run; the proposal waits for `jazz goal accept`                                                                                                                 |
+| `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                                                                                       |
+| `--watch <categories>`         | none         | Watch the run: NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `spend`, `all` (comma-separated). Alias of `--events`; pass one or the other, not both                        |
+| `--reasoning <effort>`         | agent config | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr                                                 |
+| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning): running commands are killed and the provider request is aborted. **No default**: unset, a run goes on until it finishes or a budget trips |
+| `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                                                                                               |
+| `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                                                                                    |
+| `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing                                                                   |
+| `--max-duration-ms <ms>`       | none         | Stop once elapsed wall-clock time reaches this budget, interrupting a model call or tool in flight, with agent pressure nudges at 50/80/90%                                                                            |
+| `--stream`                     | auto         | Force streaming. Text and reasoning event categories enable it automatically unless `--no-stream` is set                                                                                                               |
+| `--no-stream`                  | off          | Disable streaming                                                                                                                                                                                                      |
+| `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                                                                                      |
+| `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                                                                                                |
+| `--input-stdin`                | off          | Read `{"prompt": ..., "history": [...]}` from the first stdin line, keeping a relayed message off argv. `history` needs `--ephemeral`                                                                                  |
+| `--park`                       | off          | Persist the run and exit `2` at an unanswered approval; resume it with `jazz runs approve`                                                                                                                             |
+| `--with-vision <p/m>`          | agent config | Bind an image-analysis companion for this run                                                                                                                                                                          |
+| `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                                                                                          |
+| `--with-video <p/m>`           | agent config | Bind a video-analysis companion for this run                                                                                                                                                                           |
 
 `--max-cost-usd` and `--max-tokens` are soft checkpoints, checked between iterations.
 `--max-duration-ms` is a deadline: it interrupts the run wherever it is and still returns a
@@ -183,21 +183,21 @@ The catalog is cached under `<jazz home>/cache/workflow-registry.json` and keeps
 
 ### `jazz workflow run` flags
 
-| Flag                     | Purpose                                                                                     |
-| ------------------------ | ------------------------------------------------------------------------------------------- |
-| `--auto-approve`         | Run without the agent picker at the workflow's own `autoApprove:` policy (unset is `false`) |
-| `--agent <agentId>`      | Override the agent for this run                                                             |
-| `--max-iterations <n>`   | Override the workflow's iteration cap                                                       |
-| `--max-cost-usd <$>`     | Override the workflow's spend cap                                                           |
-| `--max-tokens <n>`       | Override the workflow's token cap                                                           |
-| `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges)                 |
-| `--json`                 | One JSON envelope on stdout; all chatter suppressed                                         |
-| `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)                         |
-| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors                       |
-| `--stream`               | Force streaming output                                                                      |
-| `--no-stream`            | Disable streaming output                                                                    |
-| `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)                    |
-| `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron)               |
+| Flag                     | Purpose                                                                                                   |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `--auto-approve`         | Run without the agent picker at the workflow's own `autoApprove:` policy (unset is `false`)               |
+| `--agent <agentId>`      | Override the agent for this run                                                                           |
+| `--max-iterations <n>`   | Override the workflow's iteration cap                                                                     |
+| `--max-cost-usd <$>`     | Override the workflow's spend cap                                                                         |
+| `--max-tokens <n>`       | Override the workflow's token cap                                                                         |
+| `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges)                               |
+| `--json`                 | One JSON envelope on stdout; all chatter suppressed                                                       |
+| `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)                                       |
+| `--watch <categories>`   | Watch the run: NDJSON progress on stderr. **Requires `--json`**: otherwise it errors. Alias of `--events` |
+| `--stream`               | Force streaming output                                                                                    |
+| `--no-stream`            | Disable streaming output                                                                                  |
+| `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)                                  |
+| `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron)                             |
 
 A workflow run that finishes without a usable answer (an empty zero-token completion, a
 non-`stop` finish with no text, or a content-filtered answer) is recorded as failed in
