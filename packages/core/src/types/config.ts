@@ -26,6 +26,11 @@ export interface NetworkConfig {
   /** HTTP requests and web fetches run automatically by default. A URL list asks outside it. */
   readonly httpApproval?: HttpApprovalPolicy;
   /**
+   * When the browser tools launch a browser, run it headed (visible window) instead of
+   * headless, so the run can be watched.
+   */
+  readonly browserHeaded?: boolean;
+  /**
    * A running browser the browser tools drive instead of launching Chrome, as an `http(s)://`
    * or `ws(s)://` DevTools URL. Page content and typed text reach that browser's host.
    */

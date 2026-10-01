@@ -13,7 +13,9 @@
  * stop auto-approving.
  */
 
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { Effect } from "effect";
 import shortuuid from "short-uuid";
 import { z } from "zod";
@@ -33,7 +35,12 @@ import {
   defineTool,
   makeZodValidator,
 } from "../base-tool";
-import { resolveChromiumBrowser } from "../chromium-default";
+import { resolveChromiumBrowser, type ChromiumCandidate } from "../chromium-default";
+import {
+  findRealProfileLayout,
+  snapshotRealProfile,
+  type RealProfileSnapshot,
+} from "./real-profile";
 import { egressPolicyForContext, type EgressPolicy } from "../guarded-fetch";
 import { createSystemBrowserLookup, resolveBrowserExecutablePath } from "../web-app";
 import { advisePage, renderSnapshot } from "./page-hooks";
@@ -102,13 +109,43 @@ function browserSessionsFor(context: ToolExecutionContext): BrowserSessions | un
  */
 async function resolveLaunchBrowser(
   lookup: ReturnType<typeof createSystemBrowserLookup>,
-): Promise<string | null> {
+): Promise<ChromiumCandidate | null> {
   const explicit = await resolveBrowserExecutablePath(lookup);
   if (explicit !== null) {
-    return explicit;
+    return { executablePath: explicit, label: "explicit (PUPPETEER_EXECUTABLE_PATH)" };
   }
-  const candidate = await resolveChromiumBrowser((channel) => lookup.findSystemChrome(channel));
-  return candidate?.executablePath ?? null;
+  return resolveChromiumBrowser((channel) => lookup.findSystemChrome(channel));
+}
+
+/**
+ * A private CoW clone of the user's real browser profile for the launch path, or `null`
+ * when the browser stores no discoverable profile or the clone fails — the run then gets a
+ * blank profile. The caller must release the snapshot with the session.
+ */
+async function snapshotForBrowser(
+  candidate: ChromiumCandidate,
+): Promise<RealProfileSnapshot | null> {
+  // Platform strategies (macOS/Linux today) return null where none fits: the run then
+  // launches on a blank profile rather than failing.
+  const layout = await findRealProfileLayout(candidate.executablePath);
+  if (layout === null) {
+    return null;
+  }
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "jazz-browser-real-"));
+  try {
+    const snapshot = await snapshotRealProfile(
+      layout.profileDirectory,
+      layout.wrapped,
+      temporaryRoot,
+    );
+    if (snapshot === null) {
+      await rm(temporaryRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
+    return snapshot;
+  } catch {
+    await rm(temporaryRoot, { recursive: true, force: true }).catch(() => undefined);
+    return null;
+  }
 }
 
 /**
@@ -143,14 +180,21 @@ function withBrowser<Value>(
       try: async () => {
         const session = await sessions.obtain(async () => {
           // No endpoint set: a browser the person runs on the local DevTools port wins,
-          // and a launched browser is the fallback when nothing is listening there.
-          const executablePath =
+          // and a launched browser is the fallback when nothing is listening there. On the
+          // launch path the agent browses on a snapshot of the user's real profile, so
+          // signed-in pages just work.
+          const launch =
             configuredEndpoint === undefined
               ? await resolveLaunchBrowser(createSystemBrowserLookup())
               : null;
+          const realProfile = launch === null ? undefined : await snapshotForBrowser(launch);
           return BrowserSession.open({
-            executablePath,
+            executablePath: launch?.executablePath ?? null,
             cdpEndpoint: configuredEndpoint,
+            realProfileDir: realProfile?.profileDirectory,
+            ...(appConfig.network?.browserHeaded === undefined
+              ? {}
+              : { headed: appConfig.network.browserHeaded }),
           });
         });
         return session.exclusive(policy, () => operation(session));

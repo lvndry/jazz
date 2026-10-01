@@ -70,6 +70,16 @@ from this machine.
 
 ## Which browser
 
+**Signed-in pages.** On the launch path (3), the browser starts on a private snapshot of
+your actual profile — a copy-on-write clone, so a multi-gigabyte profile takes a few
+seconds. Cookies and logins carry over: the agent can read pages you are signed into
+without you doing anything. The clone is private, so your live profile is never touched
+while your browser is open; it is deleted when the run ends. Works with your default
+Chromium-based browser (Google Chrome, Brave, Arc/Dia, and others). Set
+`network.browserHeaded` to `true` to watch the launched browser in a visible window
+instead of headless. If a profile cannot be found or cloned, the run falls back to a
+blank one.
+
 Jazz drives a browser in this order, with no setup required:
 
 1. **A configured endpoint** (only if you set one): `network.browserEndpoint` in your global

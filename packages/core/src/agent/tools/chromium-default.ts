@@ -41,6 +41,8 @@ const PROBE_PROFILE_MARKER = "jazz.chromium-probe";
 /** A resolved, launchable browser executable. */
 export interface ChromiumCandidate {
   readonly executablePath: string;
+  /** The macOS app bundle the binary belongs to, when known, for real-profile discovery. */
+  readonly appPath?: string;
   /** What the candidate is, for log lines and the "which browser" explanation. */
   readonly label: string;
 }
@@ -295,6 +297,7 @@ export async function resolveChromiumBrowser(
     if (executable !== null) {
       return {
         executablePath: executable,
+        appPath: defaultBundle.appPath,
         label: `default browser (${path.basename(defaultBundle.appPath, ".app")})`,
       };
     }
@@ -302,7 +305,12 @@ export async function resolveChromiumBrowser(
   for (const channel of CHROME_RELEASE_CHANNELS) {
     const chrome = await findSystemChrome(channel);
     if (chrome !== null) {
-      return { executablePath: chrome, label: "Google Chrome" };
+      const appPath = appBundleOf(chrome);
+      return {
+        executablePath: chrome,
+        ...(appPath === undefined ? {} : { appPath }),
+        label: "Google Chrome",
+      };
     }
   }
   return null;
@@ -315,6 +323,13 @@ function isExecutable(file: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** The macOS app bundle containing a browser binary, or undefined elsewhere. */
+function appBundleOf(executable: string): string | undefined {
+  const marker = "/Contents/MacOS/";
+  const index = executable.indexOf(marker);
+  return index === -1 ? undefined : executable.slice(0, index + "/Contents".length);
 }
 
 async function bundleExecutable(appPath: string): Promise<string | null> {

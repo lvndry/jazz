@@ -36,6 +36,7 @@ import puppeteer, {
 import type { PageFlagId, PageStructuralSignals } from "@/core/types/plugin";
 import type { EgressPolicy } from "../guarded-fetch";
 import { readPageSignals } from "./page-signals";
+import { stripSingletonLocks } from "./real-profile";
 import { decideBrowserRequest } from "./request-guard";
 import { describeMissingBrowser } from "../chromium-default";
 import { buildSnapshot, type PageSnapshot } from "./snapshot";
@@ -82,10 +83,18 @@ export const NOT_ADOPTED_MESSAGE = "No tab was adopted.";
 export const NO_TAB_MESSAGE = "No tab is open. Use browser_navigate to open one.";
 
 export interface BrowserSettings {
-  /** Chrome to launch, from `resolveBrowserExecutablePath`. */
+  /** The browser binary to launch when nothing else answers. */
   readonly executablePath: string | null;
   /** A running browser to drive instead of launching one: an `http(s)://` or `ws(s)://` URL. */
   readonly cdpEndpoint?: string | undefined;
+  /**
+   * A snapshot of the user's real profile to launch on (from `snapshotRealProfile`),
+   * so the agent browses as them. Only used on the launch path; when absent the run
+   * gets a blank temporary profile.
+   */
+  readonly realProfileDir?: string | undefined;
+  /** Launch with a visible window instead of headless. */
+  readonly headed?: boolean;
 }
 
 /** The DevTools port a local browser the person runs listens on. Tries this first when no `network.browserEndpoint` is set. */
@@ -231,12 +240,13 @@ async function connectToPort(options: {
   executablePath: string;
   profileDirectory: string;
   port: number;
+  headed?: boolean;
 }): Promise<LaunchedBrowser> {
-  const { executablePath, profileDirectory, port } = options;
+  const { executablePath, profileDirectory, port, headed } = options;
   const child = spawn(
     executablePath,
     [
-      "--headless=new",
+      ...(headed ? [] : ["--headless=new"]),
       `--remote-debugging-port=${String(port)}`,
       `--user-data-dir=${profileDirectory}`,
       "--no-first-run",
@@ -299,7 +309,11 @@ export class BrowserSession {
     try {
       return await BrowserSession.connect(DEFAULT_LOOPBACK_CDP_ENDPOINT);
     } catch {
-      return BrowserSession.launch(settings.executablePath);
+      return BrowserSession.launch(
+        settings.executablePath,
+        settings.realProfileDir,
+        settings.headed,
+      );
     }
   }
 
@@ -344,11 +358,22 @@ export class BrowserSession {
    * pipe handshake. The run launches its own child, so `release` closes the browser and the
    * temporary profile is deleted with it.
    */
-  private static async launch(executablePath: string): Promise<BrowserSession> {
-    const profileDirectory = await mkdtemp(path.join(os.tmpdir(), PROFILE_PREFIX));
+  private static async launch(
+    executablePath: string,
+    realProfileDir?: string,
+    headed = false,
+  ): Promise<BrowserSession> {
+    // The real-profile snapshot (when present) already lives under its own temporary root
+    // that the caller releases; otherwise the run owns a fresh blank profile directory.
+    const ownsProfile = realProfileDir === undefined;
+    const profileDirectory =
+      realProfileDir ?? (await mkdtemp(path.join(os.tmpdir(), PROFILE_PREFIX)));
     try {
+      // A cloned profile still carries the user's running browser's singleton lock, which
+      // makes the launched instance forward to it and exit: strip it before connecting.
+      await stripSingletonLocks(profileDirectory);
       const port = await acquireLoopbackPort();
-      const launched = await connectToPort({ executablePath, profileDirectory, port });
+      const launched = await connectToPort({ executablePath, profileDirectory, port, headed });
       return await BrowserSession.openWith({
         newPage: () => launched.browser.newPage(),
         userPages: undefined,
@@ -357,10 +382,15 @@ export class BrowserSession {
           // A CDP-connected browser does not kill its child on close(), so reap it here.
           await launched.browser.close().catch(() => undefined);
           launched.child.kill("SIGKILL");
+          if (ownsProfile) {
+            await rm(profileDirectory, { recursive: true, force: true });
+          }
         },
       });
     } catch (error) {
-      await rm(profileDirectory, { recursive: true, force: true });
+      if (ownsProfile) {
+        await rm(profileDirectory, { recursive: true, force: true });
+      }
       throw error;
     }
   }

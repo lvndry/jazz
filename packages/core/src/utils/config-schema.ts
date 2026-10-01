@@ -369,6 +369,7 @@ const networkShape = {
     .union([z.literal("allow"), z.array(httpUrlEntry).max(MAX_HTTP_URL_PATTERNS)])
     .exactOptional(),
   browserEndpoint: browserEndpointUrl.exactOptional(),
+  browserHeaded: z.boolean().exactOptional(),
 } satisfies SchemaShape<NetworkConfig>;
 
 const streamingShape = {
