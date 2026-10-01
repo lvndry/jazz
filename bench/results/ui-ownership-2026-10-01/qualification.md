@@ -102,7 +102,9 @@ Negative post-clear values are deltas from warmed heap, not negative heap sizes.
 compiled `--version` **31.3218 ms**, OpenTUI fresh/warm accepted draft
 **1016.1888/1113.9943 ms**, and Ink **636.4887/790.3248 ms**. These are reported
 p50 medians, not means. Parser50KB p95 is **1.7165 ms**; 10,050-file approval
-scan p95 is **301.6694 ms**. Release binary size was not remeasured in this batch.
+scan p95 is **301.6694 ms**. The final Darwin ARM64 release build passes the
+existing raw and gzip size gates: baseline 151,870,578 bytes; head 151,854,066 bytes. This is a negligible
+size change, not a size optimization claim.
 
 ## Reproduce
 
