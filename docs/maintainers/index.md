@@ -26,6 +26,7 @@ Use these pages to answer two questions: where does a change belong, and which i
 - [Fullscreen ownership](./fullscreen-ownership.md): navigation, content anchors, bounded layout, and disposal.
 - [Terminal rendering tests](./terminal-rendering-tests.md): native ANSI output checked against an independent terminal grid.
 - [Terminal runtime](./terminal-runtime.md): output capabilities, demand frames, cleanup, and fallback.
+- [UI performance qualification](./ui-performance-qualification.md): matched fresh-process latency and memory reproduction, complete observations, and unchanged gates.
 - [Remote handoff snapshot](./detach-snapshots.md): what a detached conversation carries to another host, and the ownership fence around it.
 
 ## Extend Jazz
