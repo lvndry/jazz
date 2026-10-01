@@ -79,11 +79,14 @@ export const NOT_ADOPTED_MESSAGE = "No tab was adopted.";
 export const NO_TAB_MESSAGE = "No tab is open. Use browser_navigate to open one.";
 
 export interface BrowserSettings {
-  /** Chrome to launch, from `resolveBrowserExecutablePath`. Unused when `cdpEndpoint` is set. */
+  /** Chrome to launch, from `resolveBrowserExecutablePath`. */
   readonly executablePath: string | null;
   /** A running browser to drive instead of launching one: an `http(s)://` or `ws(s)://` URL. */
   readonly cdpEndpoint?: string | undefined;
 }
+
+/** The DevTools port a local browser the person runs listens on. Tries this first when no `network.browserEndpoint` is set. */
+export const DEFAULT_LOOPBACK_CDP_ENDPOINT = "http://127.0.0.1:9222";
 
 export interface PageState {
   /** The name of the tab this state describes. */
@@ -180,25 +183,48 @@ export class BrowserSession {
 
   private constructor(private readonly engine: BrowserEngine) {}
 
-  /** Launch Chrome into a temporary profile, or connect to `settings.cdpEndpoint`. */
-  static open(settings: BrowserSettings): Promise<BrowserSession> {
+  private pendingActBinding: number | undefined;
+
+  /**
+   * Drive `settings.cdpEndpoint` when one is set. When it is not, try a browser the person
+   * runs on the local DevTools port, and only then launch Chrome into a temporary profile.
+   */
+  static async open(settings: BrowserSettings): Promise<BrowserSession> {
     if (settings.cdpEndpoint !== undefined) {
       return BrowserSession.connect(settings.cdpEndpoint);
     }
     if (settings.executablePath === null) {
-      return Promise.reject(new Error(MISSING_CHROME_ERROR));
+      throw new Error(MISSING_CHROME_ERROR);
     }
-    return BrowserSession.launch(settings.executablePath);
+    try {
+      return await BrowserSession.connect(DEFAULT_LOOPBACK_CDP_ENDPOINT);
+    } catch {
+      return BrowserSession.launch(settings.executablePath);
+    }
   }
 
   private static async connect(endpoint: string): Promise<BrowserSession> {
-    const browser = await puppeteer.connect({
-      ...(isWebSocketEndpoint(endpoint)
-        ? { browserWSEndpoint: endpoint }
-        : { browserURL: endpoint }),
-      protocolTimeout: PROTOCOL_TIMEOUT_MS,
-    });
+    const browser = await puppeteer
+      .connect({
+        ...(isWebSocketEndpoint(endpoint)
+          ? { browserWSEndpoint: endpoint }
+          : { browserURL: endpoint }),
+        protocolTimeout: PROTOCOL_TIMEOUT_MS,
+      })
+      .catch((error: unknown) => {
+        throw new Error(
+          `Could not reach a browser at ${endpoint}: ${errorMessage(error)}. ` +
+            "Run your browser with `--remote-debugging-port=9222`, install Chrome, or set " +
+            "network.browserEndpoint to a running browser.",
+        );
+      });
     const context = await browser.createBrowserContext();
+    // A browser we connect to has no --block-new-web-contents, so a popup in the run's
+    // context would be a page the request guard never installed. Close it instead of
+    // letting it issue unguarded requests.
+    context.on("page", (page: unknown) => {
+      void (page as { close: () => Promise<void> }).close().catch(() => undefined);
+    });
     return BrowserSession.openWith({
       newPage: () => context.newPage(),
       userPages: () => userPagesOf(browser),
@@ -247,6 +273,28 @@ export class BrowserSession {
     return session;
   }
 
+  /** Identity of the active tab's snapshot, so an approval can bind to the page it reviewed. */
+  actBinding(): number | undefined {
+    const name = this.tabs.active();
+    return name === undefined ? undefined : this.tabs.get(name)?.refs.pageRevision;
+  }
+
+  /** Record the snapshot the approval was shown for. */
+  bindAct(): void {
+    this.pendingActBinding = this.actBinding();
+  }
+
+  /** Reject the action if the page changed after the approval was shown. Call first inside the serialized operation. */
+  consumeActBinding(): void {
+    const bound = this.pendingActBinding;
+    this.pendingActBinding = undefined;
+    if (bound !== undefined && bound !== this.actBinding()) {
+      throw new Error(
+        "The page changed since you approved this action. Take a new browser_snapshot and approve again.",
+      );
+    }
+  }
+
   /** Whether the person can adopt one of their own tabs: only in a browser they run. */
   get canAdopt(): boolean {
     return this.engine.userPages !== undefined;
@@ -283,7 +331,16 @@ export class BrowserSession {
     const client = await page.createCDPSession();
     await client.send("Accessibility.enable");
     if (owned) {
-      await client.send("Page.setDownloadBehavior", { behavior: "deny" }).catch(() => undefined);
+      try {
+        await client.send("Page.setDownloadBehavior", { behavior: "deny" });
+      } catch (error) {
+        await page.close().catch(() => undefined);
+        throw new Error(
+          `Could not block downloads in the browser: ${errorMessage(error)}. ` +
+            "A page might otherwise write files without being asked.",
+          { cause: error },
+        );
+      }
     }
 
     const refs = new RefTable();
@@ -495,7 +552,59 @@ export class BrowserSession {
     return this.describe(name, tab);
   }
 
+  /**
+   * A submit can send a typed secret over the field's form, whose action may differ from the
+   * top-level page. Block a plaintext destination so the secret never travels over HTTP.
+   */
+  private async verifyFormDestination(ref: string): Promise<void> {
+    const name = this.tabs.active();
+    const tab = name === undefined ? undefined : this.tabs.get(name);
+    if (tab === undefined) {
+      return;
+    }
+    const backendNodeId = tab.refs.lookup(ref);
+    if (backendNodeId.kind !== "ok") {
+      return;
+    }
+    let formUrl: string | null;
+    try {
+      const resolved = (await tab.client.send("DOM.resolveNode", {
+        backendNodeId: backendNodeId.backendNodeId,
+      })) as unknown as { readonly object: string };
+      const called = (await tab.client.send("Runtime.callFunctionOn", {
+        objectId: resolved.object,
+        functionDeclaration:
+          "function () { const form = this.closest('form'); return form ? form.action : null; }",
+        returnByValue: true,
+      })) as { readonly result: { readonly value: unknown } };
+      formUrl = typeof called.result.value === "string" ? called.result.value : null;
+    } catch {
+      return;
+    }
+    if (formUrl === null) {
+      return;
+    }
+    try {
+      const destination = new URL(formUrl, tab.page.url());
+      const loopback = destination.hostname === "localhost" || destination.hostname === "127.0.0.1";
+      if (destination.protocol === "http:" && !loopback) {
+        throw new Error(
+          `This form posts to ${destination.origin}, which is not served over https, so a secret you typed ` +
+            "is not submitted there. Approve it over an https form instead.",
+        );
+      }
+    } catch (error) {
+      if (error instanceof TypeError) {
+        return;
+      }
+      throw error;
+    }
+  }
+
   async act(action: PageAction): Promise<PageState> {
+    if (action.kind === "type" && action.submit) {
+      await this.verifyFormDestination(action.ref);
+    }
     const { name, tab } = this.active();
     switch (action.kind) {
       case "click":

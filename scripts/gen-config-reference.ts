@@ -80,7 +80,7 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "network.httpApproval":
     "HTTP requests and web fetches run automatically by default, including private destinations and after untrusted content. Set a URL array to approve only matching requests automatically; every other request asks or parks. Exact HTTP(S) URLs include query strings; trailing /* grants a path prefix on the same origin. A one-call approval never changes the list. The browser tools load only matching URLs. Global config only.",
   "network.browserEndpoint":
-    "A running browser the browser tools drive instead of launching Chrome: an `http(s)://` or `ws(s)://` DevTools URL. Page content and typed text reach that browser's host. Global config only. See [Browser](../concepts/browser.md).",
+    "A running browser the browser tools drive: an `http(s)://` or `ws(s)://` DevTools URL. Without it, the tools try a browser you run on the local DevTools port (`http://127.0.0.1:9222`), then a launched Chrome. Page content and typed text reach the browser's host. Global config only. See [Browser Use](../concepts/browser-use.md).",
   "storage.type": "Storage backend. `file` is the only one Jazz implements.",
   "storage.path": "Data directory for `file` storage. Defaults to the Jazz home (`~/.jazz`).",
   "storage.connectionString":

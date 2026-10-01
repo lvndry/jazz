@@ -166,16 +166,24 @@ export function missingRefMessage(ref: string): string {
 export class RefTable {
   private refs: ReadonlyMap<string, SnapshotRef> = new Map();
   private stale = false;
+  private revision = 0;
 
-  /** Adopt the refs of a snapshot taken just now. */
+  /** Adopt the refs of a snapshot taken just now. Bumping the revision is what tells an approval apart from the page it was shown for. */
   replace(refs: ReadonlyMap<string, SnapshotRef>): void {
     this.refs = refs;
     this.stale = false;
+    this.revision += 1;
   }
 
   /** Refuse every ref until the next snapshot: the page the refs describe is gone. */
   invalidate(): void {
     this.stale = true;
+    this.revision += 1;
+  }
+
+  /** Identity of the snapshot this table holds: approvals bind to it and reject a change. */
+  get pageRevision(): number {
+    return this.revision;
   }
 
   lookup(ref: string): RefLookup {

@@ -363,23 +363,14 @@ export function registerBrowserTools(): Effect.Effect<void, Error, ToolRegistry>
 }
 
 /**
- * Registers `browser_adopt_tab`, only when `network.browserEndpoint` points at a browser the user
- * runs.
+ * Registers `browser_adopt_tab`, the tool for sharing a tab from the person's own browser.
  *
- * Config-dependent like the peer tools: a launched browser has no tabs of the user's to share,
- * and a tool the model can see is a tool it will try. Without an endpoint the tool does not
- * exist for the run.
+ * It is always available: even a run that drives the local DevTools port by default can adopt
+ * tabs the person opened. A run that launched its own headless Chrome simply has no user tabs
+ * to offer, and the approval step says so.
  */
-export function registerBrowserAdoptionTools(): Effect.Effect<
-  void,
-  Error,
-  ToolRegistry | AgentConfigService
-> {
+export function registerBrowserAdoptionTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
-    const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
-    if (appConfig.network?.browserEndpoint === undefined) {
-      return;
-    }
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(BROWSER_CATEGORY);
     const adoptTools = createBrowserAdoptTabTools();

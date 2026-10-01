@@ -2,7 +2,7 @@
 description: "Let an agent browse, read, and act on real web pages with the browser tools, and what the browser can and cannot reach."
 ---
 
-# Browser
+# Browser Use
 
 The browser tools let an agent open a page in a real headless Chrome, read it, and act on it:
 follow links, fill forms, choose options, and sign in. Use them for pages that need JavaScript or
@@ -70,16 +70,20 @@ from this machine.
 
 ## Which browser
 
-Jazz launches the Chrome or Chromium it finds on the machine, the same one compositions use. Set
-`PUPPETEER_EXECUTABLE_PATH` to use a specific binary. The browser starts on the first call, uses
-a fresh temporary profile, and is closed, with the profile deleted, when the run ends. A run has
-one tab, and pop-ups are refused.
+Jazz drives a browser in this order, with no setup required:
 
-To drive a browser that is already running, such as a remote or alternative engine that speaks
-the Chrome DevTools Protocol, set `network.browserEndpoint` in your global config to its
-`http(s)://` or `ws(s)://` URL. Jazz opens an isolated context in it instead of launching Chrome.
-Everything the agent reads and types then reaches that browser's host, so point it only at a
-browser you control.
+1. **A browser you run on the local DevTools port** (`http://127.0.0.1:9222` by default).
+   Start Chrome with `--remote-debugging-port=9222` and the agent drives it: headed, with your
+   profile, and able to adopt tabs you already have open via `browser_adopt_tab`.
+2. **A launched Chrome or Chromium**, the same one compositions use, when nothing listens on
+   the port. Set `PUPPETEER_EXECUTABLE_PATH` to use a specific binary. The browser starts on
+   the first call, uses a fresh temporary profile, and is closed, with the profile deleted,
+   when the run ends. A run has one tab, and pop-ups are refused.
+3. **A configured endpoint**: `network.browserEndpoint` in your global config points the
+   browser tools at any running browser that speaks the Chrome DevTools Protocol, `http(s)://`
+   or `ws(s)://`. Jazz opens an isolated context in it instead of launching Chrome. Everything
+   the agent reads and types then reaches that browser's host, so point it only at a browser
+   you control.
 
 For example, [Lightpanda](https://lightpanda.io) is a lightweight browser that starts in
 milliseconds. Run `lightpanda serve --host 127.0.0.1 --port 9222`, then set:

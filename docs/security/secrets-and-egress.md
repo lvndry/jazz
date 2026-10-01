@@ -100,7 +100,7 @@ CIDR entry allows those addresses behind any name. Only the global config file s
 
 ## Browser safety
 
-The [browser tools](../concepts/browser.md) give the model a real browser, whose pages run their
+The [browser tools](../concepts/browser-use.md) give the model a real browser, whose pages run their
 own scripts. Three rules bound it.
 
 - **Every request is checked, not just the first.** Navigations, images, scripts, `fetch()` calls

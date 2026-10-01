@@ -147,7 +147,7 @@ and `/compact`. `/compact` additionally shows the decisions live and names the p
 
 ## Browser page hooks
 
-Two advisory hooks serve the [browser tools](../concepts/browser.md).
+Two advisory hooks serve the [browser tools](../concepts/browser-use.md).
 
 `classify.page` runs on each `browser_snapshot`. It receives the page's origin (scheme and host,
 never the path or query), its title, up to 200 interactive elements as role and label pairs, and

@@ -1005,19 +1005,10 @@ describe("registering browser_adopt_tab", () => {
     );
   }
 
-  test("registers it, and its execute half, only when a browser endpoint is configured", async () => {
-    const names = await registeredToolNames({
-      network: { browserEndpoint: "http://127.0.0.1:9222" },
-    });
+  test("registers it, and its execute half, by default", async () => {
+    const names = await registeredToolNames({});
 
     expect(names).toContain("browser_adopt_tab");
     expect(names).toContain("execute_browser_adopt_tab");
-  });
-
-  test("leaves it out when the run launches its own browser", async () => {
-    const names = await registeredToolNames({});
-
-    expect(names).not.toContain("browser_adopt_tab");
-    expect(names).not.toContain("execute_browser_adopt_tab");
   });
 });
