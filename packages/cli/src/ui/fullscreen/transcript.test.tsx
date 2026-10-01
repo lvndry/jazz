@@ -12,13 +12,17 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
 import { renderForTest } from "./test-helpers";
 import { getGlyphs } from "../glyphs";
-import { Transcript, transcriptRows, type RenderRow, type Segment } from "./Transcript";
+import { createLayoutFixture } from "./testing/layout-fixture";
+import { Transcript } from "./Transcript";
+import type { RenderRow, Segment } from "./transcript-layout";
 import { measureFor, type Block, type Viewport } from "./types";
 import { parseInlineMarkdown } from "../markdown/inline";
 import { parseMarkdown } from "../markdown/parse";
 import { markdownRoleColor, type MarkdownRole } from "../markdown/spans";
 import { terminalCellWidth } from "../text/terminal-cells";
 import { setThemeVariant, THEME } from "../theme";
+
+const { rows: layoutRows } = createLayoutFixture();
 
 beforeAll(() => {
   process.env["JAZZ_UI_GLYPHS"] = "unicode";
@@ -158,7 +162,7 @@ function transcript(blocks: readonly Block[], viewport: Viewport, newBelow?: num
   return (
     <box style={{ width: viewport.width, height: viewport.height, flexDirection: "column" }}>
       <Transcript
-        blocks={blocks}
+        rows={layoutRows(blocks, viewport).slice(-Math.max(1, viewport.height))}
         viewport={viewport}
         focus="input"
         {...(newBelow === undefined ? {} : { newBelow })}
@@ -272,7 +276,7 @@ describe("density", () => {
   });
 
   it("opens every turn with a blank row", () => {
-    const rows = transcriptRows(SESSION, WIDE);
+    const rows = layoutRows(SESSION, WIDE);
     const agentIndex = rows.findIndex((row) => row.key.startsWith("a1:"));
     expect(agentIndex).toBeGreaterThan(0);
     expect(rows[agentIndex - 1]?.content).toHaveLength(0);
@@ -288,7 +292,7 @@ describe("table columns", () => {
       `| **Friday** | ${long} | ${long} | ${long} |`,
       `| **Saturday** | ${long} | ${long} | ${long} |`,
     ].join("\n");
-    const rows = transcriptRows([{ id: "t", seq: 0, kind: "agent", markdown }], WIDE);
+    const rows = layoutRows([{ id: "t", seq: 0, kind: "agent", markdown }], WIDE);
     const lines = rows.map((row) => row.content.map((segment) => segment.text).join(""));
     expect(lines.some((line) => line.includes("Friday"))).toBe(true);
     expect(lines.some((line) => line.includes("Saturday"))).toBe(true);
@@ -311,7 +315,7 @@ describe("the measure", () => {
   it("uses the available width for conversation text as the terminal grows", () => {
     for (const width of [80, 120, 200] as const) {
       const expected = width - 4;
-      const rows = transcriptRows(SESSION, { width, height: 34 });
+      const rows = layoutRows(SESSION, { width, height: 34 });
       const prose = rows.filter(
         (row) =>
           (row.key.startsWith("u1:") || /^a1:\d+:/.test(row.key)) && !row.key.includes(":table:"),
@@ -328,7 +332,7 @@ describe("the measure", () => {
 
   it.each([80, 120, 200])("uses the available width for tool calls at %i columns", (width) => {
     const args = "x".repeat(width - 35);
-    const rows = transcriptRows(
+    const rows = layoutRows(
       [
         {
           id: "tool-wide",
@@ -358,7 +362,7 @@ describe("the measure", () => {
   });
 
   it("gives tables and expanded output the full width instead", () => {
-    const rows = transcriptRows(SESSION, WIDE);
+    const rows = layoutRows(SESSION, WIDE);
     const table = rows.filter((row) => /:table:\d+:\d+$/.test(row.key));
     const detail = rows.filter((row) => row.key.includes(":detail:"));
     expect(table.length).toBe(4);
@@ -371,7 +375,7 @@ describe("the measure", () => {
   });
 
   it("sets a single hairline under the header and keeps one-line body rows tight", () => {
-    const rows = transcriptRows(SESSION, WIDE);
+    const rows = layoutRows(SESSION, WIDE);
     const header = rows.findIndex((row) => row.key.includes(":table:0:0"));
     const rule = rows[header + 1];
     expect(rule?.key).toContain(":table:rule");
@@ -391,7 +395,7 @@ describe("the measure", () => {
     const markdown = ["| a | b |", "| --- | --- |", `| one | ${long} |`, "| two | short |"].join(
       "\n",
     );
-    const rows = transcriptRows([{ id: "t", seq: 1, kind: "agent", markdown }], NARROW);
+    const rows = layoutRows([{ id: "t", seq: 1, kind: "agent", markdown }], NARROW);
     expect(rows.some((row) => row.key.endsWith(":table:1:gap"))).toBe(true);
   });
 
@@ -401,7 +405,7 @@ describe("the measure", () => {
       "| --- | --- |",
       "| `@jazz/core` | **agent** loop |",
     ].join("\n");
-    const rows = transcriptRows([{ id: "t", seq: 1, kind: "agent", markdown }], WIDE);
+    const rows = layoutRows([{ id: "t", seq: 1, kind: "agent", markdown }], WIDE);
     const body = rows.find((row) => row.key.includes(":table:1:0"));
     const text = body?.content.map((segment) => segment.text).join("") ?? "";
     expect(text).not.toContain("`");
@@ -415,7 +419,7 @@ describe("the measure", () => {
   });
 
   it("keeps every cell that fits the content measure", () => {
-    const rows = transcriptRows(SESSION, WIDE);
+    const rows = layoutRows(SESSION, WIDE);
     const text = rows
       .filter((row) => row.key.includes(":table:"))
       .map((row) => row.content.map((segment) => segment.text).join(""))
@@ -439,7 +443,7 @@ describe("the measure", () => {
         markdown: ["| Name | Notes |", "| --- | --- |", `| Dana | ${note} |`].join("\n"),
       },
     ];
-    const rows = transcriptRows(blocks, NARROW);
+    const rows = layoutRows(blocks, NARROW);
     const table = rows.filter((row) => row.key.includes(":table:"));
     const text = table
       .map((row) => row.content.map((segment) => segment.text).join(""))
@@ -464,7 +468,7 @@ describe("the measure", () => {
         markdown: "\n\nThe diagrams directory was created.\n\n",
       },
     ];
-    const rows = transcriptRows(blocks, NARROW).filter((row) => row.key.startsWith("a:"));
+    const rows = layoutRows(blocks, NARROW).filter((row) => row.key.startsWith("a:"));
     const first = rows[0];
     expect(first?.gutter[0]?.text).toBe(getGlyphs().diamond);
     expect(first?.content.map((segment) => segment.text).join("")).toContain("diagrams directory");
@@ -481,7 +485,7 @@ describe("the measure", () => {
         markdown: ["| Hello | Notes |", "| --- | --- |", `| Hello | ${long} |`].join("\n"),
       },
     ];
-    const text = transcriptRows(blocks, NARROW)
+    const text = layoutRows(blocks, NARROW)
       .filter((row) => row.key.includes(":table:"))
       .map((row) => row.content.map((segment) => segment.text).join(""))
       .join("\n");
@@ -504,7 +508,7 @@ describe("the measure", () => {
         ].join("\n"),
       },
     ];
-    const text = transcriptRows(blocks, NARROW)
+    const text = layoutRows(blocks, NARROW)
       .filter((row) => row.key.includes(":table:"))
       .map((row) => row.content.map((segment) => segment.text).join(""))
       .join("\n");
@@ -551,9 +555,9 @@ describe("tool receipts", () => {
       status: "ok",
     }));
     const viewport = { width: 80, height: 24 };
-    const before = transcriptRows(calls.slice(0, 12), viewport);
-    const grown = transcriptRows(calls, viewport);
-    const after = transcriptRows(
+    const before = layoutRows(calls.slice(0, 12), viewport);
+    const grown = layoutRows(calls, viewport);
+    const after = layoutRows(
       [
         ...calls.slice(0, 12),
         { id: "answer", seq: 24, kind: "agent", markdown: "Still working." },
@@ -614,7 +618,7 @@ describe("tool receipts", () => {
         reason,
       },
     ];
-    const text = transcriptRows(blocks, NARROW)
+    const text = layoutRows(blocks, NARROW)
       .map((row) => row.content.map((segment) => segment.text).join(""))
       .join("\n");
 
@@ -638,7 +642,7 @@ describe("tool receipts", () => {
         remedyKey: "/mcp reconnect slack",
       },
     ];
-    const rows = transcriptRows(blocks, WIDE);
+    const rows = layoutRows(blocks, WIDE);
     const text = rows.map((row) => row.content.map((segment) => segment.text).join("")).join("\n");
     expect(text).toContain("token expired");
     expect(text).toContain("nothing was sent");
@@ -671,7 +675,7 @@ describe("tool receipts", () => {
         status: "ok",
       },
     ];
-    const rows = transcriptRows(blocks, NARROW);
+    const rows = layoutRows(blocks, NARROW);
     const text = rows.flatMap((row) => row.content.map((segment) => segment.text)).join("");
     expect(rows).toHaveLength(1);
     expect(text).toStartWith("view_memory");
@@ -713,7 +717,7 @@ describe("reasoning is subordinate by geometry", () => {
   ];
 
   it("uses the available width for indented, dim reasoning", async () => {
-    const rows = transcriptRows(expanded, WIDE);
+    const rows = layoutRows(expanded, WIDE);
     const widest = Math.max(
       ...rows.map((row) => row.content.reduce((total, seg) => total + [...seg.text].length, 0)),
     );
@@ -732,7 +736,7 @@ describe("reasoning is subordinate by geometry", () => {
       { id: "r1", seq: 1, kind: "reasoning", collapsed: false, text: "first thought" },
       { id: "r2", seq: 2, kind: "reasoning", collapsed: false, text: "second thought" },
     ];
-    const rows = transcriptRows(blocks, WIDE);
+    const rows = layoutRows(blocks, WIDE);
     const second = rows.findIndex((row) => row.key === "r2:label");
     expect(second).toBeGreaterThan(0);
     expect(rows[second - 1]?.key).toBe("gap:r2");
@@ -749,7 +753,7 @@ describe("reasoning is subordinate by geometry", () => {
         text: "**Reviewing tests**\nConsidering bun test flags.\n**Finding failures**\nMany passed.",
       },
     ];
-    const rows = transcriptRows(blocks, WIDE);
+    const rows = layoutRows(blocks, WIDE);
     const glyphs = getGlyphs();
     const texts = rows.map((row) =>
       row.content
@@ -771,7 +775,7 @@ describe("notices and dividers", () => {
       { id: "n", seq: 1, kind: "notice", text: "context is 82% full", tone: "warn" },
       { id: "d", seq: 2, kind: "divider", label: "resumed" },
     ];
-    const rows = transcriptRows(blocks, WIDE);
+    const rows = layoutRows(blocks, WIDE);
     expect(rows.find((row) => row.key.startsWith("n:"))?.gutter[0]?.text).toBe(getGlyphs().warn);
     expect(rows.find((row) => row.key.startsWith("d:"))?.contentWidth).toBe(
       measureFor(WIDE.width).prose,
@@ -788,7 +792,7 @@ describe("notices and dividers", () => {
       { id: "r", seq: 2, kind: "notice", text: "9.7s · 2 steps", tone: "receipt" },
       { id: "a", seq: 3, kind: "agent", markdown: "Done." },
     ];
-    const rows = transcriptRows(blocks, WIDE);
+    const rows = layoutRows(blocks, WIDE);
     const agentMarker = rows.find((row) => row.key.startsWith("a:"))?.gutter[0]?.text;
     for (const prefix of ["n:", "r:"]) {
       const marker = rows.find((row) => row.key.startsWith(prefix))?.gutter[0]?.text;
@@ -816,7 +820,7 @@ describe("command reports", () => {
   };
 
   it("speak in jazz's voice: an empty gutter, the name bold in its own column", () => {
-    const rows = transcriptRows([contextReport], WIDE);
+    const rows = layoutRows([contextReport], WIDE);
     for (const row of rows) {
       expect(row.gutter[0]?.text.trim()).toBe("");
     }
@@ -827,7 +831,7 @@ describe("command reports", () => {
   });
 
   it("hang every row after the first under the value column", () => {
-    const texts = transcriptRows([contextReport], WIDE).map((row) =>
+    const texts = layoutRows([contextReport], WIDE).map((row) =>
       row.content.map((segment) => segment.text).join(""),
     );
     const valueColumn = texts[0]?.indexOf("82k") ?? -1;
@@ -837,7 +841,7 @@ describe("command reports", () => {
   });
 
   it("right-align a run of numbers, so their last digits share a column", () => {
-    const texts = transcriptRows([contextReport], WIDE).map((row) =>
+    const texts = layoutRows([contextReport], WIDE).map((row) =>
       row.content.map((segment) => segment.text).join(""),
     );
     const system = texts.find((text) => text.includes("system")) ?? "";
@@ -852,7 +856,7 @@ describe("command reports", () => {
       kind: "report",
       report: commandReport("help", [{ kind: "text", text: "word ".repeat(60).trim() }]),
     };
-    const rows = transcriptRows([long], WIDE);
+    const rows = layoutRows([long], WIDE);
     expect(rows.length).toBeGreaterThan(1);
     for (const row of rows) {
       const text = row.content.map((segment) => segment.text).join("");
@@ -876,7 +880,7 @@ describe("denied receipts", () => {
         status: "denied",
       },
     ];
-    const rows = transcriptRows(blocks, WIDE);
+    const rows = layoutRows(blocks, WIDE);
     const text = rows.flatMap((row) => row.content.map((segment) => segment.text)).join("");
     expect(rows).toHaveLength(1);
     expect(text).toBe("write_file  path: /tmp/hello.txt  denied");
@@ -892,7 +896,7 @@ describe("colour is state, not speaker", () => {
     // The user's panel bar is the one speaker-coloured cell; the rail is not.
     expect(colorOf(spans, getGlyphs().bandBar)).toBe(THEME.primary.toUpperCase());
 
-    const rows = transcriptRows(SESSION, WIDE);
+    const rows = layoutRows(SESSION, WIDE);
     const continuation = rows.find(
       (row) => row.key.startsWith("a1:") && row.gutter[0]?.text === " ",
     );
@@ -906,7 +910,7 @@ describe("colour is state, not speaker", () => {
       const blocks: readonly Block[] = [
         { id: "u", seq: 1, kind: "user", text: message, at: "14:32" },
       ];
-      const rows = transcriptRows(blocks, viewport).filter((row) => row.key.startsWith("u:"));
+      const rows = layoutRows(blocks, viewport).filter((row) => row.key.startsWith("u:"));
 
       expect(rows.length).toBeGreaterThan(3);
       expect(rows[0]?.content).toEqual([]);
@@ -975,8 +979,8 @@ describe("lanes", () => {
         state: "running",
       },
     ];
-    const rows = transcriptRows(lanes, WIDE);
-    const plain = transcriptRows([{ id: "u", seq: 1, kind: "user", text: "hello" }], WIDE);
+    const rows = layoutRows(lanes, WIDE);
+    const plain = layoutRows([{ id: "u", seq: 1, kind: "user", text: "hello" }], WIDE);
 
     // Only the lane label and its gap reduce the available text cells.
     expect(rows[0]?.contentWidth).toBe((plain[0]?.contentWidth ?? 0) - "lane 1".length - 2);
@@ -1040,7 +1044,7 @@ describe("parenthesis ordered lists", () => {
     expect(texts.find((text) => text.includes("Cloves"))).toContain("1)");
     expect(texts.find((text) => text.includes("Garlic"))).toContain("2)");
 
-    const rows = transcriptRows([{ id: "a", seq: 1, kind: "agent", markdown }], WIDE);
+    const rows = layoutRows([{ id: "a", seq: 1, kind: "agent", markdown }], WIDE);
     const heading = rowText(rows, "a").find((line) => line.includes("low downside"));
     const cloves = rowText(rows, "a").find((line) => line.includes("Cloves"));
     expect(heading).toBeDefined();
@@ -1211,7 +1215,7 @@ describe("inline emphasis", () => {
         markdown: `**${"urgent ".repeat(20).trim()}**`,
       },
     ];
-    const rows = transcriptRows(blocks, NARROW).filter((row) => row.key.startsWith("a:"));
+    const rows = layoutRows(blocks, NARROW).filter((row) => row.key.startsWith("a:"));
     expect(rows.length).toBeGreaterThan(1);
     for (const row of rows) {
       for (const segment of row.content) {
@@ -1250,7 +1254,7 @@ describe("inline emphasis", () => {
   });
 
   it("keeps quoted emphasis on the quote colour", () => {
-    const rows = transcriptRows(
+    const rows = layoutRows(
       [{ id: "a", seq: 1, kind: "agent", markdown: "> a **warning** and *aside*" }],
       WIDE,
     );
@@ -1265,7 +1269,7 @@ describe("inline emphasis", () => {
   });
 
   it("highlights a fenced body with the three syntax roles", () => {
-    const rows = transcriptRows(
+    const rows = layoutRows(
       [
         {
           id: "a",
@@ -1283,7 +1287,7 @@ describe("inline emphasis", () => {
   });
 
   it("paints an expanded patch as a unified diff", () => {
-    const rows = transcriptRows(
+    const rows = layoutRows(
       [
         {
           id: "t",
@@ -1306,7 +1310,7 @@ describe("inline emphasis", () => {
   });
 
   it("paints expanded write/edit bodies with the syntax roles", () => {
-    const rows = transcriptRows(
+    const rows = layoutRows(
       [
         {
           id: "t",
@@ -1331,16 +1335,16 @@ describe("inline emphasis", () => {
 
 describe("wrap depends on width, not height", () => {
   it("produces the same rows when only viewport height changes", () => {
-    const tall = transcriptRows(SESSION, { width: 120, height: 34 });
-    const short = transcriptRows(SESSION, { width: 120, height: 8 });
+    const tall = layoutRows(SESSION, { width: 120, height: 34 });
+    const short = layoutRows(SESSION, { width: 120, height: 8 });
     expect(short).toEqual(tall);
   });
 });
 
 describe("wrap cache", () => {
   it("returns the same row array by reference when blocks and width are unchanged", () => {
-    const first = transcriptRows(SESSION, WIDE);
-    const second = transcriptRows(SESSION, WIDE);
+    const first = layoutRows(SESSION, WIDE);
+    const second = layoutRows(SESSION, WIDE);
     expect(second).toBe(first);
     expect(second).toEqual(first);
   });
@@ -1352,11 +1356,11 @@ describe("wrap cache", () => {
     const expanded: readonly Block[] = [
       { id: "r", seq: 1, kind: "reasoning", collapsed: false, text: "secret plan" },
     ];
-    const hidden = transcriptRows(collapsed, WIDE);
-    const shown = transcriptRows(expanded, WIDE);
+    const hidden = layoutRows(collapsed, WIDE);
+    const shown = layoutRows(expanded, WIDE);
     expect(shown).not.toBe(hidden);
     expect(shown).not.toEqual(hidden);
-    expect(transcriptRows(collapsed, WIDE)).toEqual(hidden);
+    expect(layoutRows(collapsed, WIDE)).toEqual(hidden);
   });
 
   it("busts the cache when tool expand or detail changes", () => {
@@ -1368,11 +1372,11 @@ describe("wrap cache", () => {
       summary: "wrote note",
       status: "ok",
     };
-    const collapsed = transcriptRows([base], WIDE);
-    const expanded = transcriptRows([{ ...base, expanded: true, detail: "full output" }], WIDE);
+    const collapsed = layoutRows([base], WIDE);
+    const expanded = layoutRows([{ ...base, expanded: true, detail: "full output" }], WIDE);
     expect(expanded).not.toBe(collapsed);
     expect(expanded).not.toEqual(collapsed);
-    const rewritten = transcriptRows([{ ...base, expanded: true, detail: "other output" }], WIDE);
+    const rewritten = layoutRows([{ ...base, expanded: true, detail: "other output" }], WIDE);
     expect(rewritten).not.toEqual(expanded);
   });
 
@@ -1380,7 +1384,7 @@ describe("wrap cache", () => {
     // Breathing rows are cheap and built per frame; every wrapped row should
     // come straight back out of the cache.
     const wrapped = (blocks: readonly Block[]): RenderRow[] =>
-      transcriptRows(blocks, WIDE).filter((row) => !row.key.startsWith("gap:"));
+      layoutRows(blocks, WIDE).filter((row) => !row.key.startsWith("gap:"));
     const first = wrapped([...SESSION]);
     const second = wrapped([...SESSION]);
     expect(second.length).toBe(first.length);
@@ -1407,19 +1411,19 @@ describe("wrap cache", () => {
       summary: "wrote note",
       status: "ok",
     };
-    const alone = transcriptRows([read], WIDE);
-    const paired = transcriptRows([read, write], WIDE);
+    const alone = layoutRows([read], WIDE);
+    const paired = layoutRows([read, write], WIDE);
     expect(paired).not.toEqual(alone);
-    expect(transcriptRows([read], WIDE)).toEqual(alone);
+    expect(layoutRows([read], WIDE)).toEqual(alone);
   });
 
   it("reuses settled block rows while a streaming tail misses", () => {
     const user: Block = { id: "u", seq: 1, kind: "user", text: "hello" };
-    const first = transcriptRows(
+    const first = layoutRows(
       [user, { id: "a", seq: 2, kind: "agent", markdown: "hel", streaming: true }],
       WIDE,
     );
-    const second = transcriptRows(
+    const second = layoutRows(
       [user, { id: "a", seq: 2, kind: "agent", markdown: "hello", streaming: true }],
       WIDE,
     );
@@ -1434,19 +1438,19 @@ describe("wrap cache", () => {
   });
 
   it("invalidates wrapped rows when width changes", () => {
-    const wide = transcriptRows(SESSION, WIDE);
-    const narrow = transcriptRows(SESSION, NARROW);
+    const wide = layoutRows(SESSION, WIDE);
+    const narrow = layoutRows(SESSION, NARROW);
     expect(narrow).not.toBe(wide);
     expect(narrow).not.toEqual(wide);
-    expect(transcriptRows(SESSION, WIDE)).toEqual(wide);
+    expect(layoutRows(SESSION, WIDE)).toEqual(wide);
   });
 
   it("invalidates wrapped rows when the theme variant switches", () => {
     const blocks: readonly Block[] = [{ id: "u", seq: 1, kind: "user", text: "hello" }];
-    const dark = transcriptRows(blocks, WIDE);
+    const dark = layoutRows(blocks, WIDE);
     try {
       setThemeVariant("light");
-      const light = transcriptRows(blocks, WIDE);
+      const light = layoutRows(blocks, WIDE);
       expect(light).not.toBe(dark);
       const darkColors = dark.flatMap((row) => row.content.map((segment) => segment.fg));
       const lightColors = light.flatMap((row) => row.content.map((segment) => segment.fg));
@@ -1511,7 +1515,7 @@ function agent(markdown: string): readonly Block[] {
 
 describe("headings", () => {
   it("sets a heading as weight alone, with no glyph beside the speaker marker", () => {
-    const rows = transcriptRows(agent("# Jazz\n\nAn agent harness."), WIDE);
+    const rows = layoutRows(agent("# Jazz\n\nAn agent harness."), WIDE);
     const heading = rows.find((row) => contentText(row).includes("Jazz"));
     expect(contentText(heading)).toBe("Jazz");
     expect(heading?.gutter[0]?.text).toBe(getGlyphs().diamond);
@@ -1523,7 +1527,7 @@ describe("headings", () => {
   });
 
   it("ranks levels by weight and underline, never by hue", () => {
-    const rows = transcriptRows(agent("# One\n\n## Two\n\n### Three"), WIDE);
+    const rows = layoutRows(agent("# One\n\n## Two\n\n### Three"), WIDE);
     const style = (text: string): RenderRow["content"][number] | undefined =>
       rows.find((row) => contentText(row) === text)?.content[0];
     expect(style("One")).toMatchObject({ bold: true, underline: true, fg: THEME.selected });
@@ -1539,8 +1543,8 @@ describe("headings", () => {
   });
 
   it("opens a mid-answer heading with one breathing row, and none at the start", () => {
-    const rows = transcriptRows(agent("## Start\nIntro line.\n## Next\nMore."), WIDE).filter(
-      (row) => row.key.startsWith("a:"),
+    const rows = layoutRows(agent("## Start\nIntro line.\n## Next\nMore."), WIDE).filter((row) =>
+      row.key.startsWith("a:"),
     );
     expect(contentText(rows[0])).toBe("Start");
     const next = rows.findIndex((row) => contentText(row) === "Next");
@@ -1554,9 +1558,7 @@ describe("lists", () => {
 
   it("hangs wrapped rows under the text, not under the marker", () => {
     for (const markdown of [`- ${long}`, `1. ${long}`, `  - ${long}`, `10) ${long}`]) {
-      const rows = transcriptRows(agent(markdown), NARROW).filter((row) =>
-        row.key.startsWith("a:"),
-      );
+      const rows = layoutRows(agent(markdown), NARROW).filter((row) => row.key.startsWith("a:"));
       expect(rows.length).toBeGreaterThan(1);
       const first = contentText(rows[0]);
       const textStart = first.indexOf("item0");
@@ -1568,7 +1570,7 @@ describe("lists", () => {
   });
 
   it("keeps ordered numbers and marks bullets with the muted glyph", () => {
-    const rows = transcriptRows(agent("1. first\n2. second\n- loose"), WIDE);
+    const rows = layoutRows(agent("1. first\n2. second\n- loose"), WIDE);
     const texts = rows.map(contentText);
     expect(texts.some((text) => text.trim() === "1. first")).toBe(true);
     expect(texts.some((text) => text.trim() === "2. second")).toBe(true);
@@ -1587,7 +1589,7 @@ describe("lists", () => {
   });
 
   it("nests by two cells a level and still hangs", () => {
-    const rows = transcriptRows(agent(`- top\n  - ${long}`), NARROW);
+    const rows = layoutRows(agent(`- top\n  - ${long}`), NARROW);
     const top = rows.find((row) => contentText(row).includes("top"));
     const nested = rows.findIndex((row) => contentText(row).includes("item0"));
     expect(contentText(rows[nested]).indexOf(getGlyphs().bullet)).toBe(
@@ -1604,7 +1606,7 @@ describe("code fences", () => {
     "Install it:\n\n```bash\ncurl -fsSL https://example.com/install.sh | bash\njazz\n```\n\nDone.";
 
   it("paints a band with padding rows and the language flush right on the top row", () => {
-    const rows = transcriptRows(agent(markdown), WIDE).filter((row) => row.key.startsWith("a:"));
+    const rows = layoutRows(agent(markdown), WIDE).filter((row) => row.key.startsWith("a:"));
     const band = rows.filter((row) => row.backgroundColor !== undefined);
     expect(band).toHaveLength(4);
     for (const row of band) {
@@ -1621,7 +1623,7 @@ describe("code fences", () => {
   });
 
   it("sets the band off with one breathing row on each side", () => {
-    const rows = transcriptRows(agent(markdown), WIDE).filter((row) => row.key.startsWith("a:"));
+    const rows = layoutRows(agent(markdown), WIDE).filter((row) => row.key.startsWith("a:"));
     const first = rows.findIndex((row) => row.backgroundColor !== undefined);
     const last =
       rows.length - 1 - [...rows].reverse().findIndex((row) => row.backgroundColor !== undefined);
@@ -1633,7 +1635,7 @@ describe("code fences", () => {
 
   it("fits a long code line within the available width", () => {
     const wide = "x".repeat(WIDE.width - 5);
-    const rows = transcriptRows(agent(`\`\`\`\n${wide}\n\`\`\``), WIDE);
+    const rows = layoutRows(agent(`\`\`\`\n${wide}\n\`\`\``), WIDE);
     const band = rows.filter((row) => row.backgroundColor !== undefined);
     expect(band[0]?.contentWidth).toBe(WIDE.width - 4);
   });
@@ -1641,14 +1643,14 @@ describe("code fences", () => {
   it("strips a list item's indentation from a fence opened inside it", () => {
     const nested =
       "1. Install:\n\n   ```bash\n   curl -fsSL https://example.com | bash\n     indented\n   ```";
-    const rows = transcriptRows(agent(nested), WIDE);
+    const rows = layoutRows(agent(nested), WIDE);
     const texts = rows.filter((row) => row.backgroundColor !== undefined).map(contentText);
     expect(texts).toContain("curl -fsSL https://example.com | bash");
     expect(texts).toContain("  indented");
   });
 
   it("does not colour a URL in a shell fence as a comment", () => {
-    const rows = transcriptRows(agent(markdown), WIDE);
+    const rows = layoutRows(agent(markdown), WIDE);
     const curl = rows.find((row) => contentText(row).startsWith("curl"));
     expect(curl?.content.some((segment) => segment.fg === THEME.muted)).toBe(false);
   });

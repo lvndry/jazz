@@ -11,10 +11,12 @@
  * A real language server is not on the table for the same reason: it would
  * leave the row model. Fences and expanded bodies carry comment and string
  * state across lines so a `/*` that opens on one row still paints the next.
+ * Deferred layout supplies a captured palette to keep retained geometry/theme
+ * epochs coherent; immediate output uses the current theme by default.
  */
 
 import chalk from "chalk";
-import { THEME } from "../theme";
+import { THEME, type ThemeColors } from "../theme";
 
 export interface SyntaxSpan {
   readonly text: string;
@@ -277,22 +279,25 @@ export function looksLikeUnifiedDiff(language: string, lines: readonly string[])
   return evidenceIsDiff(lines.reduce(addDiffEvidence, NO_DIFF_EVIDENCE));
 }
 
-export function highlightDiffLine(line: string): readonly SyntaxSpan[] {
+export function highlightDiffLine(
+  line: string,
+  palette: Readonly<ThemeColors> = THEME,
+): readonly SyntaxSpan[] {
   if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ")) {
-    return [{ text: line, fg: THEME.secondary }];
+    return [{ text: line, fg: palette.secondary }];
   }
   if (line.startsWith("@@")) {
-    return [{ text: line, fg: THEME.muted }];
+    return [{ text: line, fg: palette.muted }];
   }
   const marker = line[0];
   if (marker === "+" || marker === "-" || marker === " ") {
     const markerFg =
-      marker === "+" ? THEME.success : marker === "-" ? THEME.error : THEME.secondary;
+      marker === "+" ? palette.success : marker === "-" ? palette.error : palette.secondary;
     const body = line.slice(1);
     if (body.length === 0) return [{ text: marker, fg: markerFg }];
-    return [{ text: marker, fg: markerFg }, ...highlightCodeLine(body)];
+    return [{ text: marker, fg: markerFg }, ...highlightCodeLine(body, "", palette)];
   }
-  return highlightCodeLine(line);
+  return highlightCodeLine(line, "", palette);
 }
 
 function isIdentifierStart(character: string): boolean {
@@ -303,11 +308,11 @@ function isIdentifierPart(character: string): boolean {
   return /[A-Za-z0-9_$]/.test(character);
 }
 
-function identifierColor(word: string): string {
-  if (KEYWORDS.has(word)) return THEME.syntaxStructure;
-  if (LITERALS.has(word)) return THEME.syntaxValue;
-  if (/^[A-Z]/.test(word)) return THEME.syntaxType;
-  return THEME.selected;
+function identifierColor(word: string, palette: Readonly<ThemeColors>): string {
+  if (KEYWORDS.has(word)) return palette.syntaxStructure;
+  if (LITERALS.has(word)) return palette.syntaxValue;
+  if (/^[A-Z]/.test(word)) return palette.syntaxType;
+  return palette.selected;
 }
 
 function pushSpan(spans: SyntaxSpan[], text: string, fg: string): void {
@@ -368,9 +373,10 @@ function paintCodeLine(
   incoming: LexerMode,
   rules: LexicalRules,
   explicitLanguage: boolean,
+  palette: Readonly<ThemeColors>,
 ): { readonly spans: readonly SyntaxSpan[]; readonly mode: LexerMode } {
   if (!rules.tokens) {
-    return { spans: [{ text: line, fg: THEME.selected }], mode: CODE_MODE };
+    return { spans: [{ text: line, fg: palette.selected }], mode: CODE_MODE };
   }
   const spans: SyntaxSpan[] = [];
   let index = 0;
@@ -379,7 +385,7 @@ function paintCodeLine(
   while (index < line.length) {
     if (mode.kind === "blockComment") {
       const scanned = scanBlockCommentEnd(line, index);
-      pushSpan(spans, line.slice(index, scanned.end), THEME.muted);
+      pushSpan(spans, line.slice(index, scanned.end), palette.muted);
       index = scanned.end;
       if (!scanned.closed) break;
       mode = CODE_MODE;
@@ -388,7 +394,7 @@ function paintCodeLine(
 
     if (mode.kind === "string") {
       const scanned = scanStringEnd(line, index, mode.quote);
-      pushSpan(spans, line.slice(index, scanned.end), THEME.syntaxValue);
+      pushSpan(spans, line.slice(index, scanned.end), palette.syntaxValue);
       index = scanned.end;
       if (!scanned.closed) break;
       mode = CODE_MODE;
@@ -406,20 +412,20 @@ function paintCodeLine(
       next === "/" &&
       (explicitLanguage || atTokenStart(line, index))
     ) {
-      pushSpan(spans, line.slice(index), THEME.muted);
+      pushSpan(spans, line.slice(index), palette.muted);
       break;
     }
     if (rules.hashComments && character === "#" && atTokenStart(line, index)) {
-      pushSpan(spans, line.slice(index), THEME.muted);
+      pushSpan(spans, line.slice(index), palette.muted);
       break;
     }
     if (rules.dashComments && character === "-" && next === "-" && atTokenStart(line, index)) {
-      pushSpan(spans, line.slice(index), THEME.muted);
+      pushSpan(spans, line.slice(index), palette.muted);
       break;
     }
     if (rules.slashComments && character === "/" && next === "*") {
       const scanned = scanBlockCommentEnd(line, index + 2);
-      pushSpan(spans, line.slice(index, scanned.end), THEME.muted);
+      pushSpan(spans, line.slice(index, scanned.end), palette.muted);
       index = scanned.end;
       if (!scanned.closed) {
         mode = { kind: "blockComment" };
@@ -437,11 +443,11 @@ function paintCodeLine(
         rules.shortSingleQuotes &&
         (!scanned.closed || scanned.end - index > SHORT_QUOTE_REACH)
       ) {
-        pushSpan(spans, character, THEME.secondary);
+        pushSpan(spans, character, palette.secondary);
         index += 1;
         continue;
       }
-      pushSpan(spans, line.slice(index, scanned.end), THEME.syntaxValue);
+      pushSpan(spans, line.slice(index, scanned.end), palette.syntaxValue);
       index = scanned.end;
       if (!scanned.closed) {
         mode = { kind: "string", quote: character };
@@ -453,7 +459,7 @@ function paintCodeLine(
     if (/[0-9]/.test(character)) {
       let end = index + 1;
       while (end < line.length && /[0-9_.]/.test(line[end] ?? "")) end += 1;
-      pushSpan(spans, line.slice(index, end), THEME.syntaxValue);
+      pushSpan(spans, line.slice(index, end), palette.syntaxValue);
       index = end;
       continue;
     }
@@ -462,38 +468,48 @@ function paintCodeLine(
       let end = index + 1;
       while (end < line.length && isIdentifierPart(line[end] ?? "")) end += 1;
       const word = line.slice(index, end);
-      pushSpan(spans, word, identifierColor(word));
+      pushSpan(spans, word, identifierColor(word, palette));
       index = end;
       continue;
     }
 
-    pushSpan(spans, character, THEME.secondary);
+    pushSpan(spans, character, palette.secondary);
     index += 1;
   }
 
   return {
-    spans: spans.length > 0 ? spans : [{ text: line, fg: THEME.selected }],
+    spans: spans.length > 0 ? spans : [{ text: line, fg: palette.selected }],
     mode,
   };
 }
 
-export function highlightCodeLine(line: string, language = ""): readonly SyntaxSpan[] {
-  return paintCodeLine(line, CODE_MODE, lexicalRules(language), fenceLanguage(language) !== "")
-    .spans;
+export function highlightCodeLine(
+  line: string,
+  language = "",
+  palette: Readonly<ThemeColors> = THEME,
+): readonly SyntaxSpan[] {
+  return paintCodeLine(
+    line,
+    CODE_MODE,
+    lexicalRules(language),
+    fenceLanguage(language) !== "",
+    palette,
+  ).spans;
 }
 
 export function highlightFenceLines(
   language: string,
   lines: readonly string[],
+  palette: Readonly<ThemeColors> = THEME,
 ): readonly (readonly SyntaxSpan[])[] {
   if (looksLikeUnifiedDiff(language, lines)) {
-    return lines.map((line) => highlightDiffLine(line));
+    return lines.map((line) => highlightDiffLine(line, palette));
   }
   const rules = lexicalRules(language);
   const explicitLanguage = fenceLanguage(language) !== "";
   let mode: LexerMode = CODE_MODE;
   return lines.map((line) => {
-    const painted = paintCodeLine(line, mode, rules, explicitLanguage);
+    const painted = paintCodeLine(line, mode, rules, explicitLanguage, palette);
     mode = painted.mode;
     return painted.spans;
   });
@@ -525,6 +541,7 @@ export function continueFenceHighlight(
   previous: FenceHighlight | undefined,
   language: string,
   lines: readonly string[],
+  palette: Readonly<ThemeColors> = THEME,
 ): FenceHighlight {
   const resumable =
     previous !== undefined &&
@@ -538,7 +555,7 @@ export function continueFenceHighlight(
   const settledCount = Math.max(0, lines.length - 1);
   for (let index = settledCode.length; index < settledCount; index += 1) {
     const line = lines[index] ?? "";
-    const painted = paintCodeLine(line, mode, rules, explicitLanguage);
+    const painted = paintCodeLine(line, mode, rules, explicitLanguage, palette);
     mode = painted.mode;
     evidence = addDiffEvidence(evidence, line);
     settledCode.push(painted.spans);
@@ -551,7 +568,7 @@ export function continueFenceHighlight(
   const settledDiff = resumable && diff ? previous.settledDiff.slice() : [];
   if (diff) {
     for (let index = settledDiff.length; index < settledCount; index += 1) {
-      settledDiff.push(highlightDiffLine(lines[index] ?? ""));
+      settledDiff.push(highlightDiffLine(lines[index] ?? "", palette));
     }
   }
   const settled = diff ? settledDiff : settledCode;
@@ -560,7 +577,9 @@ export function continueFenceHighlight(
       ? settled
       : [
           ...settled,
-          diff ? highlightDiffLine(last) : paintCodeLine(last, mode, rules, explicitLanguage).spans,
+          diff
+            ? highlightDiffLine(last, palette)
+            : paintCodeLine(last, mode, rules, explicitLanguage, palette).spans,
         ];
   return { language, spans, settledCode, settledDiff, modeAfterSettled: mode, evidence };
 }

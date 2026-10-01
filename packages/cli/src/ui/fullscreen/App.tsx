@@ -19,7 +19,15 @@ import {
   useTerminalDimensions,
 } from "@opentui/react";
 import { Effect } from "effect";
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useLayoutEffect,
+} from "react";
 import { getGlyphs } from "../glyphs";
 import { groundPaint, THEME } from "../theme";
 import { useAutoScrollOnDrag } from "./auto-scroll-selection";
@@ -57,7 +65,8 @@ import { ThemePicker, themePickerLayout } from "./overlays/ThemePicker";
 import { computePeerNotice } from "./peer-notice";
 import { SubagentList, subagentListRows } from "./SubagentList";
 import { useThemeRevision } from "./theme-revision";
-import { Transcript, type TranscriptHandle } from "./Transcript";
+import { Transcript } from "./Transcript";
+import { createTranscriptLayout } from "./transcript-layout";
 import { allocateRegions, wheelScrollDelta } from "./transcript-window";
 import {
   MIN_HEIGHT,
@@ -67,6 +76,7 @@ import {
   type ViewModel,
   type Viewport,
 } from "./types";
+import { useViewportController } from "./viewport-controller";
 import { clipTerminalCells } from "../text/terminal-cells";
 
 /**
@@ -262,11 +272,6 @@ function renderOverlay(
   }
 }
 
-export function reuseViewport(width: number, height: number, previous: Viewport): Viewport {
-  if (previous.width === width && previous.height === height) return previous;
-  return { width, height };
-}
-
 function AppView({
   view,
   submitCount = 0,
@@ -276,41 +281,102 @@ function AppView({
   onWatchingLiveEdgeChange,
   overrideContent,
 }: AppProps): React.ReactNode {
-  useThemeRevision();
+  const themeRevision = useThemeRevision();
   const { width, height } = useTerminalDimensions();
   const renderer = useRenderer();
   const rendererRef = useRef(renderer);
-  rendererRef.current = renderer;
   const [focus, setFocus] = useState<Focus>("input");
   const focusRef = useRef<Focus>("input");
-  const transcriptRef = useRef<TranscriptHandle | null>(null);
-  const [followLive, setFollowLive] = useState(true);
-  const prevFollowLiveRef = useRef(true);
-  const seenRowsRef = useRef(0);
-  const [newBelow, setNewBelow] = useState<number | undefined>(view.newBelow);
   const armedAt = useRef<number | undefined>(undefined);
   const [copyNotice, setCopyNotice] = useState<string | undefined>(undefined);
   const copyNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [peerNotice, setPeerNotice] = useState<string | undefined>(undefined);
   const peerNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // `useKeyboard` registers its callback once, so it captures the props and
-  // state setters from the render that happened to be first. Those setters can
-  // belong to an instance React has since discarded, in which case the update is
-  // silently dropped — the updater function is never even invoked. Calling
-  // through a ref that every render refreshes means the handler is always the
-  // live one.
-  const onKeyRef = useRef<AppProps["onKey"]>(undefined);
-  const onPasteRef = useRef<AppProps["onPaste"]>(undefined);
+  const onKeyRef = useRef(onKey);
+  const onPasteRef = useRef(onPaste);
   const onActionRef = useRef(onAction);
   const viewRef = useRef(view);
-  onKeyRef.current = onKey;
-  onPasteRef.current = onPaste;
-  onActionRef.current = onAction;
-  viewRef.current = view;
+  useLayoutEffect(() => {
+    rendererRef.current = renderer;
+    onKeyRef.current = onKey;
+    onPasteRef.current = onPaste;
+    onActionRef.current = onAction;
+    viewRef.current = view;
+  }, [renderer, onKey, onPaste, onAction, view]);
 
   const overlayOpen = view.overlay !== undefined;
-  const watchingLiveEdge = followLive && !overlayOpen;
+  const viewport = useMemo(() => ({ width, height }), [width, height]);
+  const composerMeta =
+    view.header.reasoning === undefined
+      ? view.header.model
+      : `${view.header.model} ${getGlyphs().bullet} ${view.header.reasoning}`;
+  const inputModel = useMemo(
+    () => ({
+      ...view.input,
+      disabled: view.input.disabled || overlayOpen,
+      ...(view.input.meta === undefined ? { meta: composerMeta } : {}),
+    }),
+    [view.input, overlayOpen, composerMeta],
+  );
+  const inputFocused = focus === "input" && !overlayOpen;
+  // One allocation, shared by every region. Computing the transcript's
+  // share here and letting the others size themselves independently is how
+  // the rows stopped adding up to more than the terminal has.
+  const subagentRows = subagentListRows(view.subagents, viewport).length;
+  const regions = allocateRegions({
+    viewport,
+    live: view.live,
+    input: inputModel,
+    inputFocused,
+    subagentRows,
+  });
+  // The transcript's box keeps its full height so the composer and footer stay where they are;
+  // with a card open, only the rows drawn in it shrink, so the last one sits above the card.
+  const visibleCount =
+    view.overlay === undefined
+      ? regions.transcript
+      : allocateRegions({
+          viewport,
+          live: view.live,
+          input: inputModel,
+          inputFocused,
+          subagentRows,
+          overlayRows: overlayRows(view.overlay, viewport),
+        }).transcript;
+
+  const layout = useMemo(() => createTranscriptLayout(), [view.documentId]);
+  const glyphs = getGlyphs();
+  const index = useMemo(
+    () => layout.update(view.blocks, { width, glyphs, themeRevision, colors: THEME }),
+    [layout, view.blocks, width, glyphs, themeRevision],
+  );
+  useEffect(() => () => layout.dispose(), [layout]);
+  const transcriptOccluded =
+    overlayOpen || overrideContent !== undefined || width < MIN_WIDTH || height < MIN_HEIGHT;
+  const viewportInput = useMemo(
+    () => ({
+      documentId: view.documentId,
+      index,
+      visibleCount,
+      width,
+      occluded: transcriptOccluded,
+      submitCount,
+    }),
+    [view.documentId, index, visibleCount, width, transcriptOccluded, submitCount],
+  );
+  const controller = useViewportController(viewportInput);
+  const navigationRef = useRef(controller);
+  useLayoutEffect(() => {
+    navigationRef.current = controller;
+  }, [controller]);
+  const watchingLiveEdge = controller.snapshot.watchingLiveEdge;
+  const newBelow = controller.snapshot.newBelow;
+  useLayoutEffect(() => {
+    focusRef.current = "input";
+    setFocus("input");
+  }, [view.documentId]);
+
   useEffect(() => {
     onWatchingLiveEdgeChange?.(watchingLiveEdge);
   }, [watchingLiveEdge, onWatchingLiveEdgeChange]);
@@ -333,7 +399,7 @@ function AppView({
         armedAt.current = undefined;
         break;
       case "scroll-transcript":
-        setFollowLive(transcriptRef.current?.scrollBy(action.delta, action.unit) ?? true);
+        navigationRef.current.scrollBy(action.delta, action.unit);
         break;
       default:
         break;
@@ -341,21 +407,12 @@ function AppView({
     onActionRef.current(action);
   }, []);
 
-  const handleReachedBottom = useCallback(() => {
-    // Re-engage auto-follow: landing at the bottom is the reader saying they
-    // want the live edge again, so wheel/paging back down must re-arm follow,
-    // not just clear the hint.
-    seenRowsRef.current = transcriptRef.current?.rowCount() ?? 0;
-    setFollowLive(true);
-    setNewBelow(undefined);
-  }, []);
-
   const scrollTranscriptByWheel = useCallback(
     (direction: string, delta: number): void => {
       const amount = wheelScrollDelta(direction, delta);
       if (amount === null) return;
       if (focusRef.current !== "transcript") dispatch({ type: "focus-transcript" });
-      setFollowLive(transcriptRef.current?.scrollBy(amount, "line") ?? true);
+      navigationRef.current.scrollBy(amount, "line");
     },
     [dispatch],
   );
@@ -416,30 +473,6 @@ function AppView({
   useEffect(() => {
     if (view.runActive !== true) armedAt.current = undefined;
   }, [view.runActive]);
-
-  useEffect(() => {
-    if (submitCount > 0) {
-      setFollowLive(true);
-    }
-  }, [submitCount]);
-
-  // "N new below" hint, measured in rendered rows, not blocks: a streaming
-  // answer grows one block in place, so a block diff stays zero for the whole
-  // answer and the drift goes unannounced. The baseline freezes the moment
-  // follow turns off and never moves until the reader re-arms it at the bottom.
-  useEffect(() => {
-    const wasFollowing = prevFollowLiveRef.current;
-    prevFollowLiveRef.current = followLive;
-    if (followLive) {
-      seenRowsRef.current = transcriptRef.current?.rowCount() ?? 0;
-      if (wasFollowing) return;
-      setNewBelow(undefined);
-      return;
-    }
-    if (wasFollowing) seenRowsRef.current = transcriptRef.current?.rowCount() ?? 0;
-    const added = (transcriptRef.current?.rowCount() ?? 0) - seenRowsRef.current;
-    setNewBelow(added > 0 ? added : undefined);
-  }, [followLive, view, view.blocks.length]);
 
   useKeyboard((key) => {
     const currentView = viewRef.current;
@@ -588,28 +621,14 @@ function AppView({
     void copyText(textFromSelection(selection), rendererRef.current).then(announceCopy);
   });
 
-  const visibleCountRef = useRef(0);
   const { onMouseDrag, onMouseDragEnd } = useAutoScrollOnDrag(
-    transcriptRef,
+    controller.scrollBy,
     2,
-    visibleCountRef.current,
+    visibleCount,
+    !overlayOpen && overrideContent === undefined && width >= MIN_WIDTH && height >= MIN_HEIGHT,
+    view.documentId,
   );
 
-  const viewportRef = useRef<Viewport>({ width, height });
-  viewportRef.current = reuseViewport(width, height, viewportRef.current);
-  const viewport = viewportRef.current;
-  const composerMeta =
-    view.header.reasoning === undefined
-      ? view.header.model
-      : `${view.header.model} ${getGlyphs().bullet} ${view.header.reasoning}`;
-  const inputModel = useMemo(
-    () => ({
-      ...view.input,
-      disabled: view.input.disabled || overlayOpen,
-      ...(view.input.meta === undefined ? { meta: composerMeta } : {}),
-    }),
-    [view.input, overlayOpen, composerMeta],
-  );
   const overlayKind = view.overlay?.kind;
   const footerHints = useMemo(
     () =>
@@ -654,33 +673,6 @@ function AppView({
     );
   }
 
-  const inputFocused = focus === "input" && !overlayOpen;
-  // One allocation, shared by every region. Computing the transcript's
-  // share here and letting the others size themselves independently is how
-  // the rows stopped adding up to more than the terminal has.
-  const subagentRows = subagentListRows(view.subagents, viewport).length;
-  const regions = allocateRegions({
-    viewport,
-    live: view.live,
-    input: inputModel,
-    inputFocused,
-    subagentRows,
-  });
-  // The transcript's box keeps its full height so the composer and footer stay where they are;
-  // with a card open, only the rows drawn in it shrink, so the last one sits above the card.
-  const visibleCount =
-    view.overlay === undefined
-      ? regions.transcript
-      : allocateRegions({
-          viewport,
-          live: view.live,
-          input: inputModel,
-          inputFocused,
-          subagentRows,
-          overlayRows: overlayRows(view.overlay, viewport),
-        }).transcript;
-  visibleCountRef.current = visibleCount;
-
   return (
     <box
       style={{ width, height, flexDirection: "column", backgroundColor: groundPaint() }}
@@ -691,7 +683,8 @@ function AppView({
       }}
       onMouseDrag={(event) => {
         if (overlayOpen) return;
-        setFollowLive(false);
+        dispatch({ type: "focus-transcript" });
+        controller.detach();
         onMouseDrag(event);
       }}
       onMouseDragEnd={() => {
@@ -718,13 +711,10 @@ function AppView({
         }}
       >
         <Transcript
-          ref={transcriptRef}
-          blocks={view.blocks}
+          rows={controller.snapshot.rows}
           viewport={viewport}
           focus={focus}
           visibleCount={visibleCount}
-          followLive={followLive && !overlayOpen}
-          onReachedBottom={handleReachedBottom}
           {...(newBelow === undefined ? {} : { newBelow })}
         />
       </box>

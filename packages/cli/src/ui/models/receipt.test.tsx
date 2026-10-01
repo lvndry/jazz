@@ -4,10 +4,12 @@ import { reduceEvent, createAccumulator } from "../../presentation/activity-redu
 import { CLIRenderer } from "../../presentation/cli-renderer";
 import { stripAnsiCodes } from "../../utils/string-utils";
 import { blocksFrom } from "../fullscreen/bridge";
-import { transcriptRows } from "../fullscreen/Transcript";
+import { createLayoutFixture } from "../fullscreen/testing/layout-fixture";
 import { getGlyphs } from "../glyphs";
 import { OutputEntryView } from "../OutputEntryView";
 import { receiptParts, receiptPlainText, summaryRestatesReason, toolReceipt } from "./receipt";
+
+const { rows: layoutRows } = createLayoutFixture();
 
 const glyphs = getGlyphs();
 
@@ -106,7 +108,7 @@ describe("the same receipt on fullscreen, Ink and plain output", () => {
     }
 
     const blocks = blocksFrom([{ ...entry, id: "e1" }], "", []);
-    const fullscreen = transcriptRows(blocks, { width: 120, height: 30 })
+    const fullscreen = layoutRows(blocks, { width: 120, height: 30 })
       .map((row) => row.content.map((segment) => segment.text).join(""))
       .join("\n");
 

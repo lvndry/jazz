@@ -6,6 +6,39 @@ description: "Why the Jazz harness is built the way it is: the reasoning behind 
 
 This page explains _why_ the harness is built this way, and what each choice gives up.
 
+## Conversation source and viewport ownership
+
+Conversation presentation uses one semantic source document and separate view
+state. A response keeps its ID during streaming and settlement; a reader's
+position refers to displayed content instead of a distance from the bottom.
+Layouts retain compact geometry and bounded painted-row caches. Terminal output
+must be verified independently from the renderer's intended buffer.
+
+The alternatives were to continue compensating bottom offsets for every kind of
+row change, or to give the native scrollbox the full conversation. Offset fixes
+cannot identify the text a person was reading. Native viewport culling alone
+does not bound retained historical children or layout work. Jazz keeps explicit
+content anchoring and bounded realization, at the cost of maintaining a semantic
+row index. Very large individual blocks still need temporary wrapping.
+
+The source research was pinned on October 1, 2026:
+
+- [OpenCode normalized messages and parts](https://github.com/anomalyco/opencode/blob/0112a92c416f5ad833d96e7a8308441f0a875d94/packages/tui/src/context/sync.tsx)
+  informed stable identity and batched publication. Its inspected latest-100
+  fullscreen collection was not evidence for unlimited retained history.
+- [Hermes virtual-history reconciliation](https://github.com/NousResearch/hermes-agent/blob/234badf4012af380d23c91eae55d045a69c69ffb/ui-tui/src/hooks/useVirtualHistory.ts)
+  distinguishes geometry changing above the reader from arriving content.
+- [Pi viewport ownership](https://github.com/earendil-works/pi/blob/a4715ec9bffbfcb8a32a1a4100dcfd06c12c93e4/packages/tui/src/components/scroll-view.ts)
+  and its [independent terminal oracle](https://github.com/earendil-works/pi/blob/a4715ec9bffbfcb8a32a1a4100dcfd06c12c93e4/packages/tui/test/virtual-terminal.ts)
+  informed one navigation owner and testing emitted bytes.
+- [Codex terminal invalidation](https://github.com/openai/codex/blob/444da310e108da16aaeb18fd790b0ac464f08aca/codex-rs/tui/src/custom_terminal.rs)
+  demonstrates why forced repaint must repair blank physical cells too.
+
+These are implementation references, not claims that an upstream application
+has no rendering defects. See [Conversation presentation](./presentation-documents.md)
+for the implemented contracts and [Terminal rendering tests](./terminal-rendering-tests.md)
+for evidence at the output boundary.
+
 ---
 
 ## Map

@@ -1,71 +1,70 @@
+/**
+ * Selection-edge scrolling through the shell's single viewport navigation port.
+ * Dragging starts one bounded timer; drag-end, document/geometry changes that
+ * disable selection, and unmount cancel it. The timer never owns scroll/follow
+ * state or talks directly to a renderer/Transcript instance.
+ */
 import type { MouseEvent as OTMouseEvent } from "@opentui/core";
-import { useCallback, useRef } from "react";
-import type { TranscriptHandle } from "./Transcript";
+import { useCallback, useLayoutEffect, useRef } from "react";
 
 const AUTO_SCROLL_INTERVAL_MS = 50;
 const EDGE_THRESHOLD_ROWS = 2;
-const SCROLL_SPEED_SLOW = 1;
-const SCROLL_SPEED_FAST = 3;
-
-interface ScrollOnDragState {
-  timer: ReturnType<typeof setInterval> | undefined;
-  lastY: number;
-}
 
 export function useAutoScrollOnDrag(
-  transcriptRef: React.RefObject<TranscriptHandle | null>,
+  scrollBy: (delta: number, unit?: "line" | "page" | "end") => void,
   transcriptTop: number,
   transcriptHeight: number,
+  enabled: boolean,
+  documentId: string,
 ): {
   onMouseDrag: (event: OTMouseEvent) => void;
   onMouseDragEnd: () => void;
 } {
-  const transcriptTopRef = useRef(transcriptTop);
-  const transcriptHeightRef = useRef(transcriptHeight);
-  transcriptTopRef.current = transcriptTop;
-  transcriptHeightRef.current = transcriptHeight;
-
-  const state = useRef<ScrollOnDragState>({ timer: undefined, lastY: 0 });
-
-  const scrollTick = useCallback(() => {
-    const focusY = state.current.lastY;
-    const top = transcriptTopRef.current;
-    const height = transcriptHeightRef.current;
-    if (height <= 0) return;
-    const bottom = top + height - 1;
-
-    if (focusY < top + EDGE_THRESHOLD_ROWS) {
-      const distance = top + EDGE_THRESHOLD_ROWS - focusY;
-      const speed = distance > EDGE_THRESHOLD_ROWS ? SCROLL_SPEED_FAST : SCROLL_SPEED_SLOW;
-      transcriptRef.current?.scrollBy(-speed, "line");
-    } else if (focusY > bottom - EDGE_THRESHOLD_ROWS) {
-      const distance = focusY - (bottom - EDGE_THRESHOLD_ROWS);
-      const speed = distance > EDGE_THRESHOLD_ROWS ? SCROLL_SPEED_FAST : SCROLL_SPEED_SLOW;
-      transcriptRef.current?.scrollBy(speed, "line");
-    }
-  }, [transcriptRef]);
-
-  const stopTimer = useCallback(() => {
-    if (state.current.timer !== undefined) {
-      clearInterval(state.current.timer);
-      state.current.timer = undefined;
-    }
+  const committed = useRef({ scrollBy, transcriptTop, transcriptHeight, enabled });
+  useLayoutEffect(() => {
+    committed.current = { scrollBy, transcriptTop, transcriptHeight, enabled };
+  }, [scrollBy, transcriptTop, transcriptHeight, enabled]);
+  const state = useRef<{ timer: ReturnType<typeof setInterval> | undefined; lastY: number }>({
+    timer: undefined,
+    lastY: 0,
+  });
+  const stop = useCallback(() => {
+    if (state.current.timer !== undefined) clearInterval(state.current.timer);
+    state.current.timer = undefined;
   }, []);
-
+  useLayoutEffect(() => stop, [stop, documentId]);
+  useLayoutEffect(() => {
+    if (!enabled) stop();
+  }, [enabled, stop]);
+  const tick = useCallback(() => {
+    const {
+      scrollBy: navigate,
+      transcriptTop: top,
+      transcriptHeight: height,
+      enabled: active,
+    } = committed.current;
+    if (!active || height <= 0) {
+      stop();
+      return;
+    }
+    const y = state.current.lastY;
+    const bottom = top + height - 1;
+    if (y < top + EDGE_THRESHOLD_ROWS) {
+      navigate(-(top + EDGE_THRESHOLD_ROWS - y > EDGE_THRESHOLD_ROWS ? 3 : 1), "line");
+    } else if (y > bottom - EDGE_THRESHOLD_ROWS) {
+      navigate(y - bottom + EDGE_THRESHOLD_ROWS > EDGE_THRESHOLD_ROWS ? 3 : 1, "line");
+    }
+  }, [stop]);
   const onMouseDrag = useCallback(
     (event: OTMouseEvent) => {
+      if (!committed.current.enabled) return;
       state.current.lastY = event.y;
       if (state.current.timer === undefined) {
-        scrollTick();
-        state.current.timer = setInterval(scrollTick, AUTO_SCROLL_INTERVAL_MS);
+        state.current.timer = setInterval(tick, AUTO_SCROLL_INTERVAL_MS);
+        tick();
       }
     },
-    [scrollTick],
+    [tick],
   );
-
-  const onMouseDragEnd = useCallback(() => {
-    stopTimer();
-  }, [stopTimer]);
-
-  return { onMouseDrag, onMouseDragEnd };
+  return { onMouseDrag, onMouseDragEnd: stop };
 }

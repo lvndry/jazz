@@ -447,6 +447,13 @@ OSC 52 where the terminal supports it.
 Submitting a chat message returns the transcript to the live edge, so the sent
 message stays visible even if the reader had scrolled up to inspect earlier turns.
 
+Wheel navigation and Page Up hold a content position while new output arrives.
+Earlier reasoning expanding, temporary live rows disappearing, or wrapping after
+a resize must preserve that position. End resumes following new output. Main and
+inspected child conversations keep independent reading positions. An open card
+can temporarily cover the transcript without changing the person's follow
+intent; navigating history changes that intent explicitly.
+
 ### Headless
 
 Every state carries a word. `ok`, `failed`, `running`, `asking`, `renew`,
@@ -469,9 +476,14 @@ a second copy of the answer or updating reveal state. Switching pacing off
 flushes any backlog before discarding it; switching it on starts with the next
 delta, so text already delivered is never replayed.
 
-Transcript wrapping caches reuse settled blocks during streaming. Clearing the
-transcript releases cached streaming prefixes; unmounting its view releases the
-last row snapshot as well, so a closed conversation cannot keep its text alive.
+Transcript layout owns a compact row index and bounded caches for its active
+document. Painting asks for the selected window instead of rebuilding a flat
+array of every historical row. Width, glyphs and palette invalidate derived
+geometry; switching documents and unmounting dispose their layout instances.
+Large individual blocks can still require temporary full-block wrapping.
+
+See [Conversation presentation](./presentation-documents.md) for source ownership,
+stream reveal, turn throughput and saved-history migration.
 
 ---
 

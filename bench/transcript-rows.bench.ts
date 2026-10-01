@@ -3,9 +3,21 @@
 // the fingerprint tax paid even when nothing changed.
 import { settledBlocks, PROSE_PARAGRAPH } from "./corpus";
 import { bench, report } from "./harness";
-import { transcriptRows } from "../packages/cli/src/ui/fullscreen/Transcript";
+import { createTranscriptLayout } from "../packages/cli/src/ui/fullscreen/transcript-layout";
 import type { Block } from "../packages/cli/src/ui/fullscreen/types";
-import { setThemeVariant } from "../packages/cli/src/ui/theme";
+import { getGlyphs } from "../packages/cli/src/ui/glyphs";
+import { setThemeVariant, getThemeRevision, THEME } from "../packages/cli/src/ui/theme";
+
+const layout = createTranscriptLayout();
+function frame(blocks: readonly Block[]): void {
+  const index = layout.update(blocks, {
+    width: VIEWPORT.width,
+    glyphs: getGlyphs(),
+    themeRevision: getThemeRevision(),
+    colors: THEME,
+  });
+  index.window(Math.max(0, index.length - VIEWPORT.height), VIEWPORT.height);
+}
 
 const VIEWPORT = { width: 120, height: 40 };
 const TURNS = Number(process.env["BENCH_TURNS"] ?? 200);
@@ -34,22 +46,22 @@ const results = [
     `cold full wrap (${String(TURNS * 3)} blocks)`,
     (iteration) => {
       setThemeVariant(iteration % 2 === 0 ? "dark" : "light");
-      transcriptRows(settled, VIEWPORT);
+      frame(settled);
     },
     { iterations: 60, warmupIterations: 4 },
   ),
 ];
 
 setThemeVariant("dark");
-transcriptRows(settled, VIEWPORT);
+frame(settled);
 results.push(
   bench(`warm streaming tail (${String(TURNS * 3)} settled)`, (iteration) => {
-    transcriptRows(streamingTails[iteration % streamingTails.length] ?? settled, VIEWPORT);
+    frame(streamingTails[iteration % streamingTails.length] ?? settled);
   }),
   // Fresh array of the same block objects: the whole-transcript memo misses,
   // so this measures the per-frame fingerprint walk that survives the cache.
   bench(`fingerprint tax, unchanged blocks (${String(TURNS * 3)})`, () => {
-    transcriptRows([...settled], VIEWPORT);
+    frame([...settled]);
   }),
 );
 
