@@ -72,7 +72,7 @@ Prefer these to reading files:
 - **[The JSON envelope](../surfaces/headless.md)**: `jazz run --json` prints exactly one object,
   on success and on failure, with `ok`, `answer`, `costUSD`, `costKnown`, `tokenUsage`,
   `toolCalls`, and `artifacts`. This is the integration surface.
-- **[Event streams](../surfaces/headless.md#live-progress-with---events)**: NDJSON on stderr while
+- **[Event streams](../surfaces/headless.md#live-progress-with---watch)**: NDJSON on stderr while
   stdout stays clean, so a wrapper can show progress without parsing output.
 - **[The daemon's HTTP API](../concepts/daemon.md)**: start a run, poll it, answer what it parked
   on, from another process or machine.
@@ -81,7 +81,7 @@ Prefer these to reading files:
 ## Where things are written, and when
 
 A run's transcript is saved when the run finishes, not incrementally, so reading `history/`
-mid-run tells you nothing about the turn in flight. Use the daemon or `--events` for that.
+mid-run tells you nothing about the turn in flight. Use the daemon or `--watch` for that.
 
 Telemetry is the exception: it is written as events happen, whether or not you export anywhere.
 See [observability](../configure/observability.md).

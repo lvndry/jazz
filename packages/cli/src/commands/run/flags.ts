@@ -82,6 +82,25 @@ export function parseEventCategories(
 }
 
 /**
+ * Merge the `--events` and `--watch` flags, which select the same event categories but
+ * are spelled differently because `--watch` reads better at the point of delegation.
+ * Commander exposes each as its own option, so exactly one must win; both given is a
+ * typo, and folding it to `undefined` would silently drop the request.
+ */
+export function resolveEventsValue(
+  events: string | undefined,
+  watch: string | undefined,
+): { ok: true; value: string | undefined } | { ok: false; error: string } {
+  if (events !== undefined && watch !== undefined) {
+    return {
+      ok: false,
+      error: "--events and --watch are the same option; pass one or the other.",
+    };
+  }
+  return { ok: true, value: events ?? watch };
+}
+
+/**
  * Do the selected event types only exist on the streaming path?
  *
  * Reasoning and text deltas are produced by the streaming stream-processor; the batch
