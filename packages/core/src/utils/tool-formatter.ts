@@ -38,6 +38,15 @@ export function isFileMutationTool(toolName: string): boolean {
 }
 
 /**
+ * A tool whose receipt renders a `diff`/`fullDiff` under its line: the file
+ * mutation tools plus `manage_memory`, which rewrites one small entry per call
+ * and diffs the old claim against the new one.
+ */
+export function isDiffReceiptTool(toolName: string): boolean {
+  return isFileMutationTool(toolName) || toolName === "manage_memory";
+}
+
+/**
  * Collapse a write/edit body to a single-line preview. Newlines become spaces
  * so the live zone and receipt stay one row.
  */
@@ -117,6 +126,10 @@ export function diffExceedsPreview(diff: string): boolean {
 /**
  * The first rows of a write/edit result's diff for its receipt, without the `---`/`+++`
  * headers (the path is already on the receipt). Null when the result holds no diff to show.
+ *
+ * A created file keeps its one-line `+ Created file:` summary as the preview: there is no
+ * old content to diff against, so that line is the only thing on screen that says what
+ * happened, and the expand key reveals the whole file underneath it.
  */
 export function fileMutationDiffPreview(
   result: string,
@@ -134,7 +147,6 @@ export function fileMutationDiffPreview(
         : "";
   const body = diffBodyLines(source);
   if (body.length === 0) return null;
-  if (body.length === 1 && body[0]?.startsWith("+ Created file:") === true) return null;
   const truncatedInResult =
     record["wasTruncated"] === true && !(typeof fullDiff === "string" && fullDiff.length > 0);
   const hidden = Math.max(0, body.length - maxLines);
@@ -145,10 +157,13 @@ export function fileMutationDiffPreview(
 }
 
 /**
- * Full write/edit payload for the expand key. Returns null when the receipt's
- * diff preview already shows everything.
+ * The full write/edit diff, what the expand key reveals behind the receipt's preview.
+ * Prefers `fullDiff` (the untruncated patch) and falls back to `diff`.
+ * Null when the result holds no diff, or when the receipt's preview already shows
+ * everything, so a small edit has nothing to expand. Plain text — the diff generator
+ * tints its output, renderers that color by the `+`/`-` prefix strip it first.
  */
-export function expandableFileMutationPayload(result: string): string | null {
+export function fileMutationDiffText(result: string): string | null {
   const record = parseFileMutationResult(result);
   if (record === null) return null;
   const fullDiff = record["fullDiff"];
@@ -164,10 +179,11 @@ export function expandableFileMutationPayload(result: string): string | null {
   if (!wasTruncated && !diffExceedsPreview(payload)) return null;
   if (payload.length > MAX_EXPANDABLE_CHARS) {
     return (
-      payload.slice(0, MAX_EXPANDABLE_CHARS).trimEnd() + "\n… output capped at 100k characters"
+      stripSgr(payload).slice(0, MAX_EXPANDABLE_CHARS).trimEnd() +
+      "\n… output capped at 100k characters"
     );
   }
-  return payload;
+  return stripSgr(payload);
 }
 
 type FormatStyle = "plain" | "colored";

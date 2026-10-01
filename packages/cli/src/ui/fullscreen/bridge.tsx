@@ -18,7 +18,7 @@ import type { Suggestion } from "@jazz/core/interfaces/presentation";
 import { isTerminalReport, type ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { isHttpApprovalTool } from "@jazz/core/utils/http-approval";
-import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
+import { isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { stripAnsiCodes, terminalHyperlinksToMarkdown } from "@/cli/utils/string-utils";
@@ -793,7 +793,13 @@ export function blocksFrom(
 
     const receipt = receiptFromMeta(entry.meta?.["toolReceipt"]);
     if (receipt !== null) {
-      blocks.push({ id, seq: seq++, kind: "tool", ...receipt });
+      blocks.push({
+        id,
+        seq: seq++,
+        kind: "tool",
+        ...receipt,
+        ...(entry.meta?.["expanded"] === true ? { expanded: true } : {}),
+      });
       continue;
     }
 
@@ -1077,7 +1083,7 @@ function liveToolsFrom(activity: ActivityState, now: number): LiveTool[] {
     } else if (args !== undefined && args.length > 0) {
       operation = nameRest.length > 0 ? `${nameRest} ${args}` : args;
     }
-    const language = isFileMutationTool(tool.toolName)
+    const language = isDiffReceiptTool(tool.toolName)
       ? (sourceLanguageFromPath(pathFromFileArgsPreview(args ?? "") ?? "") ?? "code")
       : args === undefined
         ? undefined
@@ -2145,15 +2151,31 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
-      // Ctrl+O expands the last truncated tool output. Approval already claimed
-      // the key above when a long field is on the card. Ctrl+E does the same while
-      // the composer is empty and something can expand; otherwise it stays end-of-line.
-      if (
-        isCtrlLetter({ name, ctrl }, "o") ||
-        (isCtrlLetter({ name, ctrl }, "e") &&
-          composerRef.current.text.length === 0 &&
-          store.getExpandableDiff() != null)
-      ) {
+      // Ctrl+O expands the last truncated tool output.
+      // the key above when a long field is on the card. Ctrl+E reveals the newest
+      // write/edit receipt's full diff in place (repeat walks back through older
+      // receipts, the way Ctrl+R walks reasoning); with nothing to expand it stays
+      // end-of-line.
+      if (isCtrlLetter({ name, ctrl }, "e")) {
+        if (store.toggleLastReceiptDiff()) {
+          return true;
+        }
+        if (composerRef.current.text.length === 0 && store.getExpandableDiff() != null) {
+          const payload = store.getExpandableDiff();
+          if (payload !== null && payload !== undefined) {
+            store.printOutput({
+              type: "log",
+              message: payload.fullDiff,
+              timestamp: new Date(),
+              meta: { expandedOutput: true },
+            });
+          }
+          return true;
+        }
+        return false;
+      }
+
+      if (isCtrlLetter({ name, ctrl }, "o")) {
         const payload = store.getExpandableDiff();
         if (payload === null || payload === undefined) {
           store.printOutput({

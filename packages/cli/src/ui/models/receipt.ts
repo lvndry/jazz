@@ -5,6 +5,7 @@
  * denial or a failure states the same facts on every surface.
  */
 
+import { fileMutationDiffText, isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { declinedOutcome, failureOutcome } from "./failure";
 import { isRejectedResult, receiptOutcome } from "./receipt-outcome";
@@ -43,6 +44,8 @@ export interface ToolReceipt {
   readonly classifiedRisk?: string;
   /** A write_file / edit_file diff, shown under the receipt line. */
   readonly diffPreview?: ReceiptDiffPreview;
+  /** The full write/edit diff behind the preview; what the expand key reveals in place. */
+  readonly diffText?: string;
 }
 
 export interface ToolReceiptInput {
@@ -154,6 +157,10 @@ export function toolReceipt(input: ToolReceiptInput): ToolReceipt {
       ? failureOutcome(input.toolName, reason)
       : undefined;
   const diffPreview = failed ? undefined : (input.diffPreview ?? undefined);
+  const diffText =
+    failed || input.toolName === undefined
+      ? undefined
+      : (isDiffReceiptTool(input.toolName) && fileMutationDiffText(input.result)) || undefined;
   const argsPreview = input.argsPreview?.trim();
   // The diff replaces the content snippet the arguments carry after the path.
   const args =
@@ -180,6 +187,7 @@ export function toolReceipt(input: ToolReceiptInput): ToolReceipt {
     ...(outputPreview !== undefined && outputPreview.length > 0 ? { outputPreview } : {}),
     ...(input.classifiedRisk === undefined ? {} : { classifiedRisk: input.classifiedRisk }),
     ...(diffPreview === undefined ? {} : { diffPreview }),
+    ...(diffText === undefined ? {} : { diffText }),
   };
 }
 
@@ -210,6 +218,7 @@ export function receiptFromMeta(candidate: unknown): ToolReceipt | null {
     ...text("detail"),
     ...text("outputPreview"),
     ...text("classifiedRisk"),
+    ...text("diffText"),
     ...diffPreviewFromMeta(record["diffPreview"]),
   };
 }
