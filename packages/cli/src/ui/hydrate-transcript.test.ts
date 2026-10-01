@@ -1,6 +1,7 @@
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, expect, test } from "bun:test";
 import {
+  hydrateInputHistoryFromMessages,
   hydrateTranscriptFromHistory,
   hydrateTranscriptFromUiEntries,
   outputEntriesFromHistory,
@@ -111,6 +112,50 @@ describe("hydrateTranscriptFromHistory", () => {
 
     expect(cleared).toBe(true);
     expect(printed).toEqual([]);
+  });
+});
+
+describe("hydrateInputHistoryFromMessages", () => {
+  function historySink() {
+    const state = { history: [] as string[], cleared: 0 };
+    const sink = {
+      history: state.history,
+      get cleared() {
+        return state.cleared;
+      },
+      pushInputHistory: (message: string) => state.history.push(message),
+      clearInputHistory: () => {
+        state.cleared += 1;
+        state.history.length = 0;
+      },
+    };
+    return sink;
+  }
+
+  test("seeds recall from user turns, newest last, skipping non-user and continuation messages", () => {
+    const sink = historySink();
+    hydrateInputHistoryFromMessages(
+      messages([
+        { role: "system", content: "persona only" },
+        { role: "user", content: "first question" },
+        { role: "assistant", content: "first answer" },
+        { role: "user", content: "  ", kind: "continuation" },
+        { role: "user", content: "second question" },
+      ]),
+      sink,
+    );
+
+    expect(sink.cleared).toBe(1);
+    expect(sink.history).toEqual(["first question", "second question"]);
+  });
+
+  test("empty history drops whatever recall was seeded before", () => {
+    const sink = historySink();
+    sink.pushInputHistory("leftover from the previous conversation");
+
+    hydrateInputHistoryFromMessages([], sink);
+
+    expect(sink.history).toEqual([]);
   });
 });
 

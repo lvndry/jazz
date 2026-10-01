@@ -50,6 +50,28 @@ export function hydrateTranscriptFromHistory(
     target.printOutput(entry);
   }
   target.flushOutputBatchNow();
+  hydrateInputHistoryFromMessages(messages);
+}
+
+/**
+ * Re-seeds ↑ recall from a chat session's persisted history.
+ *
+ * Input history lives in the store and is only appended to as the user types,
+ * so a resumed conversation would offer nothing to recall. Replaying the user
+ * turns through `pushInputHistory` restores recall as far back as the store's
+ * cap allows, newest last. Consecutive duplicates collapse in the store, the
+ * same way they do while typing.
+ */
+export function hydrateInputHistoryFromMessages(
+  messages: readonly ChatMessage[],
+  target: { pushInputHistory: (message: string) => void; clearInputHistory: () => void } = store,
+): void {
+  target.clearInputHistory();
+  for (const message of messages) {
+    if (message.role !== "user" || message.kind === "continuation") continue;
+    if (message.content.trim().length === 0) continue;
+    target.pushInputHistory(message.content);
+  }
 }
 
 /** Restore UI-only command output without feeding it back into the model. */

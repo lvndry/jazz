@@ -84,6 +84,7 @@ import {
   attachPaneStateReporting,
   detachPaneStateReporting,
 } from "@/cli/integrations/pane-state-registry";
+import { hydrateInputHistoryFromMessages } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { hydrateTranscriptFromUiEntries } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
@@ -279,9 +280,14 @@ export class ChatServiceImpl implements ChatService {
 
       yield* emitLifecycle("session-start");
       if (options?.initialUiTranscript?.length) {
+        // UI-only command output has no user turns to recall, so recall starts clean.
         hydrateTranscriptFromUiEntries(options.initialUiTranscript);
+        hydrateInputHistoryFromMessages([]);
       } else if (conversationHistory.length > 0) {
         hydrateTranscriptFromHistory(conversationHistory);
+      } else {
+        // A brand-new conversation starts with no recall, not the previous one's.
+        hydrateInputHistoryFromMessages([]);
       }
       if (!ephemeral && conversationHistory.length > 0) {
         yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);

@@ -375,6 +375,8 @@ export class InkTerminalService implements TerminalService {
           // prompts (API key entry, named fields, etc.) the label is genuine
           // scrollback context, so keep it.
           if (promptType === "chat") {
+            // Slash commands and shell escapes never reach the model's history,
+            // so they are recorded here — otherwise ↑ only recalls prose.
             store.pushInputHistory(inputValue);
             printUserMessage(displayValue);
           } else {
