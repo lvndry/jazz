@@ -123,6 +123,7 @@
     "@types/qrcode-terminal": "^0.12.2",
     "@types/react": "^19.3.0",
     "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "@xterm/headless": "^6.0.0",
     "ai": "^7.0.107",
     "bun-types": "^1.4.2",
     "chalk": "^6.0.0",
