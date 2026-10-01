@@ -50,6 +50,32 @@ describe("UIStore", () => {
   // -------------------------------------------------------------------------
 
   describe("subscribe slices", () => {
+    test("publishes replacement generations coherently while stream revisions keep their lifetime", async () => {
+      const s = new UIStore();
+      const observed: Array<{ generation: number; documentId: string }> = [];
+      s.subscribePresentation(() => {
+        const snapshot = s.getPresentationSnapshot();
+        observed.push({
+          generation: snapshot.documentGeneration,
+          documentId: snapshot.document.id,
+        });
+      });
+      expect(s.getPresentationSnapshot().documentGeneration).toBe(0);
+      s.replaceDocument("same-source-id", []);
+      expect(observed.at(-1)).toEqual({ generation: 1, documentId: "same-source-id" });
+      s.appendStream("response", "accepted text");
+      await Promise.resolve();
+      expect(s.getPresentationSnapshot().documentGeneration).toBe(1);
+      s.finalizeStream();
+      await Promise.resolve();
+      expect(s.getPresentationSnapshot().documentGeneration).toBe(1);
+      s.replaceDocument("same-source-id", []);
+      expect(observed.at(-1)).toEqual({ generation: 2, documentId: "same-source-id" });
+      s.clearOutputs();
+      await Promise.resolve();
+      expect(observed.at(-1)).toEqual({ generation: 3, documentId: "session:3" });
+    });
+
     test("output subscribe is multicast — both trees see the same snapshot", async () => {
       const s = new UIStore();
       const ink: OutputEntry[][] = [];
