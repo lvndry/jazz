@@ -19,11 +19,13 @@ export type SubagentStatus = "running" | "completed" | "failed" | "interrupted";
 export type SubagentChannel = "reasoning" | "response" | "note" | "tail";
 
 export interface SubagentTextEntry {
+  readonly id: string;
   readonly kind: "reasoning" | "response" | "note" | "steer";
   readonly text: string;
 }
 
 export interface SubagentToolEntry {
+  readonly id: string;
   readonly kind: "tool";
   readonly toolCallId: string;
   readonly name: string;
@@ -46,6 +48,7 @@ export interface SubagentRun {
   readonly endedAt?: number;
   readonly status: SubagentStatus;
   readonly entries: readonly SubagentEntry[];
+  readonly nextEntrySequence: number;
   /** Newest non-blank line of output, for the one-row list summary. */
   readonly activity: string;
   /** Messages the user sent that the sub-agent's loop has not picked up yet. */
@@ -73,6 +76,7 @@ export function openSubagentRun(
     startedAt,
     status: "running",
     entries: [],
+    nextEntrySequence: 0,
     activity: "",
     pendingMessages: [],
   };
@@ -99,10 +103,16 @@ function lastNonBlankLine(text: string): string | undefined {
   return undefined;
 }
 
-function withEntry(run: SubagentRun, entry: SubagentEntry, activity: string): SubagentRun {
-  const entries = [...run.entries, entry];
+type NewSubagentEntry = Omit<SubagentTextEntry, "id"> | Omit<SubagentToolEntry, "id">;
+
+function withEntry(run: SubagentRun, entry: NewSubagentEntry, activity: string): SubagentRun {
+  const entries = [
+    ...run.entries,
+    { ...entry, id: `${run.id}:entry:${String(run.nextEntrySequence)}` },
+  ];
   return {
     ...run,
+    nextEntrySequence: run.nextEntrySequence + 1,
     activity,
     entries:
       entries.length > MAX_SUBAGENT_ENTRIES
@@ -131,7 +141,7 @@ export function appendToSubagentRun(
     return {
       ...run,
       activity: (summarizes ? lastNonBlankLine(merged) : undefined) ?? run.activity,
-      entries: [...run.entries.slice(0, -1), { kind: channel, text: merged }],
+      entries: [...run.entries.slice(0, -1), { ...last, text: merged }],
     };
   }
   const opening = text.replace(/^\n+/, "");

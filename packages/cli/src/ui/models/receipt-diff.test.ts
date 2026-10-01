@@ -1,5 +1,6 @@
+import { presentationEntrySchema } from "@jazz/core/types/presentation-content-schema";
 import { describe, expect, test } from "bun:test";
-import { receiptDiffRows, receiptFromMeta, toolReceipt } from "./receipt";
+import { receiptDiffRows, toolReceipt } from "./receipt";
 
 const diffPreview = { lines: ["@@ -1 +1 @@", "-old", "+new", " same"], hiddenLines: 3 };
 
@@ -39,8 +40,19 @@ describe("file mutation receipt diff", () => {
     expect(receiptDiffRows(whole)).toEqual([{ text: "+a", role: "success" }]);
   });
 
-  test("survives the round trip through output metadata", () => {
-    expect(receiptFromMeta(JSON.parse(JSON.stringify(receipt)))?.diffPreview).toEqual(diffPreview);
+  test("survives the validated semantic history round trip", () => {
+    const entry = presentationEntrySchema.parse(
+      JSON.parse(
+        JSON.stringify({
+          id: "tool-1",
+          timestamp: "2026-01-01T00:00:00.000Z",
+          content: { kind: "tool", receipt },
+        }),
+      ),
+    );
+    expect(entry.content.kind === "tool" ? entry.content.receipt.diffPreview : undefined).toEqual(
+      diffPreview,
+    );
   });
 
   test("a failed call shows no diff", () => {

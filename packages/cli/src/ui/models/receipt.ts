@@ -5,6 +5,7 @@
  * denial or a failure states the same facts on every surface.
  */
 
+import type { ReceiptDiffPreview } from "@jazz/core/types/presentation-content";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { declinedOutcome, failureOutcome } from "./failure";
 import { isRejectedResult, receiptOutcome } from "./receipt-outcome";
@@ -12,38 +13,9 @@ import type { GlyphSet } from "../glyphs";
 import { formatPreciseDuration } from "../text/format";
 import type { RoleSegment, TextRole } from "../text/roles";
 
-/** The first rows of a file mutation's diff, and how many more the expand key reveals. */
-export interface ReceiptDiffPreview {
-  readonly lines: readonly string[];
-  readonly hiddenLines: number;
-}
-
-export type ReceiptStatus = "ok" | "failed" | "denied";
-
-export interface ToolReceipt {
-  /** The tool's name; empty for an expanded block that stands in for a receipt. */
-  readonly app: string;
-  /** The outcome phrase (`300 lines`, `12 entries`); empty when the call failed. */
-  readonly summary: string;
-  readonly status: ReceiptStatus;
-  /** Compact argument preview (`README.md 1–300`). */
-  readonly args?: string;
-  readonly durationMs?: number;
-  /** Why a failed call failed, in the executor's words. */
-  readonly reason?: string;
-  /** What a failed or declined call did not do. */
-  readonly notDone?: string;
-  /** The command that fixes a failure, such as `/mcp reconnect slack`. */
-  readonly remedyKey?: string;
-  /** The full result as plain text, behind the expand key. */
-  readonly detail?: string;
-  /** A short preview of command output, shown inline in the transcript. */
-  readonly outputPreview?: string;
-  /** The command-risk classifier's verdict, when it decided this call. */
-  readonly classifiedRisk?: string;
-  /** A write_file / edit_file diff, shown under the receipt line. */
-  readonly diffPreview?: ReceiptDiffPreview;
-}
+export type { ReceiptDiffPreview } from "@jazz/core/types/presentation-content";
+export type ToolReceipt = import("@jazz/core/types/presentation-content").ToolReceiptFacts;
+export type ReceiptStatus = ToolReceipt["status"];
 
 export interface ToolReceiptInput {
   readonly toolName: string | undefined;
@@ -181,54 +153,6 @@ export function toolReceipt(input: ToolReceiptInput): ToolReceipt {
     ...(input.classifiedRisk === undefined ? {} : { classifiedRisk: input.classifiedRisk }),
     ...(diffPreview === undefined ? {} : { diffPreview }),
   };
-}
-
-function isStatus(value: unknown): value is ReceiptStatus {
-  return value === "ok" || value === "failed" || value === "denied";
-}
-
-/** A receipt read back out of an output entry's metadata, or null when it holds none. */
-export function receiptFromMeta(candidate: unknown): ToolReceipt | null {
-  if (candidate === null || typeof candidate !== "object") {
-    return null;
-  }
-  const record = candidate as Record<string, unknown>;
-  if (typeof record["app"] !== "string" || typeof record["summary"] !== "string") {
-    return null;
-  }
-  const text = (key: string): { readonly [field: string]: string } =>
-    typeof record[key] === "string" ? { [key]: record[key] } : {};
-  return {
-    app: record["app"],
-    summary: record["summary"],
-    status: isStatus(record["status"]) ? record["status"] : "ok",
-    ...(typeof record["durationMs"] === "number" ? { durationMs: record["durationMs"] } : {}),
-    ...text("args"),
-    ...text("reason"),
-    ...text("notDone"),
-    ...text("remedyKey"),
-    ...text("detail"),
-    ...text("outputPreview"),
-    ...text("classifiedRisk"),
-    ...diffPreviewFromMeta(record["diffPreview"]),
-  };
-}
-
-function diffPreviewFromMeta(candidate: unknown): { readonly diffPreview?: ReceiptDiffPreview } {
-  if (candidate === null || typeof candidate !== "object") {
-    return {};
-  }
-  const record = candidate as Record<string, unknown>;
-  const lines = record["lines"];
-  const hiddenLines = record["hiddenLines"];
-  if (
-    !Array.isArray(lines) ||
-    !lines.every((line) => typeof line === "string") ||
-    typeof hiddenLines !== "number"
-  ) {
-    return {};
-  }
-  return { diffPreview: { lines: lines, hiddenLines } };
 }
 
 /** The key that opens the whole diff behind a receipt's preview. */

@@ -279,9 +279,9 @@ export class ChatServiceImpl implements ChatService {
 
       yield* emitLifecycle("session-start");
       if (options?.initialUiTranscript?.length) {
-        hydrateTranscriptFromUiEntries(options.initialUiTranscript);
+        hydrateTranscriptFromUiEntries(options.initialUiTranscript, `${conversationId}:main`);
       } else if (conversationHistory.length > 0) {
-        hydrateTranscriptFromHistory(conversationHistory);
+        hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
       }
       if (!ephemeral && conversationHistory.length > 0) {
         yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
@@ -662,7 +662,7 @@ export class ChatServiceImpl implements ChatService {
               // /compact opts out (skipTranscriptRepaint): it only shrinks the model's
               // context, and the user's scrollback stays as their record of the session.
               if (!commandResult.skipTranscriptRepaint) {
-                hydrateTranscriptFromHistory(conversationHistory);
+                hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
               }
               if (commandResult.resendMessage !== undefined) {
                 // /retry replays the SAME conversation — clamp the session-log
@@ -1062,14 +1062,10 @@ export class ChatServiceImpl implements ChatService {
   }
 }
 
-/** Snapshot only serializable UI entries; Ink nodes remain a live-renderer concern. */
-function uiTranscriptFromStore(): ConversationUiEntry[] {
+/** Persist accepted source facts, including interrupted partial answers, without live state. */
+function uiTranscriptFromStore(): readonly ConversationUiEntry[] {
   store.flushOutputBatchNow();
-  return store
-    .getOutputSnapshot()
-    .entries.flatMap((entry) =>
-      typeof entry.message === "string" ? [{ type: entry.type, message: entry.message }] : [],
-    );
+  return store.getDocumentSnapshot().entries;
 }
 
 /**

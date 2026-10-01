@@ -18,7 +18,7 @@ function runFrames(start: RevealState, fromMs: number, frames: number): RevealSt
   const states: RevealState[] = [];
   let state = start;
   for (let frame = 1; frame <= frames; frame += 1) {
-    state = stepReveal(state, fromMs + frame * FRAME_MS);
+    state = stepReveal(state, PROSE, fromMs + frame * FRAME_MS);
     states.push(state);
   }
   return states;
@@ -29,7 +29,7 @@ const PROSE =
 
 describe("stream reveal", () => {
   it("turns one burst into a flow of several frames instead of one jump", () => {
-    const state = receiveTarget(initialReveal(0), PROSE, 0);
+    const state = receiveTarget(initialReveal(0), PROSE.length, 0);
     const frames = runFrames(state, 0, 30);
     const lengths = frames.map((frame) => frame.shown);
     const firstFull = lengths.findIndex((length) => length === PROSE.length);
@@ -40,8 +40,12 @@ describe("stream reveal", () => {
   });
 
   it("never holds a character back longer than the lag bound", () => {
-    const state = receiveTarget(initialReveal(0), "x".repeat(20_000), 0);
-    const late = stepReveal(stepReveal(state, FRAME_MS), MAX_LAG_MS);
+    const state = receiveTarget(initialReveal(0), 20_000, 0);
+    const late = stepReveal(
+      stepReveal(state, "x".repeat(20_000), FRAME_MS),
+      "x".repeat(20_000),
+      MAX_LAG_MS,
+    );
     expect(late.shown).toBe(20_000);
   });
 
@@ -53,8 +57,8 @@ describe("stream reveal", () => {
     for (let frame = 0; frame < 120; frame += 1) {
       now += FRAME_MS;
       target += word;
-      state = receiveTarget(state, target, now);
-      state = stepReveal(state, now);
+      state = receiveTarget(state, target.length, now);
+      state = stepReveal(state, target, now);
     }
     const backlog = target.length - state.shown;
     const arrivalPerMs = word.length / FRAME_MS;
@@ -63,9 +67,9 @@ describe("stream reveal", () => {
   });
 
   it("stops at the end of a word, never inside one", () => {
-    const state = receiveTarget(initialReveal(0), PROSE, 0);
+    const state = receiveTarget(initialReveal(0), PROSE.length, 0);
     for (const frame of runFrames(state, 0, 12)) {
-      const text = revealedText(frame);
+      const text = revealedText(frame, PROSE);
       if (frame.shown > 0 && frame.shown < PROSE.length) {
         const boundary = `${PROSE.charAt(frame.shown - 1)}${PROSE.charAt(frame.shown)}`;
         expect(boundary).toMatch(/\s/);
@@ -91,24 +95,24 @@ describe("stream reveal", () => {
   });
 
   it("starts over for a new turn and flushes on demand", () => {
-    let state = receiveTarget(initialReveal(0), PROSE, 0);
-    state = stepReveal(state, FRAME_MS);
+    let state = receiveTarget(initialReveal(0), PROSE.length, 0);
+    state = stepReveal(state, PROSE, FRAME_MS);
     expect(isRevealing(state)).toBe(true);
     const flushed = flushReveal(state, FRAME_MS * 2);
-    expect(revealedText(flushed)).toBe(PROSE);
+    expect(revealedText(flushed, PROSE)).toBe(PROSE);
     expect(isRevealing(flushed)).toBe(false);
 
-    const next = receiveTarget(flushed, "A new answer", FRAME_MS * 3);
+    const next = receiveTarget(initialReveal(FRAME_MS * 3), "A new answer".length, FRAME_MS * 3);
     expect(next.shown).toBe(0);
-    expect(receiveTarget(next, "", FRAME_MS * 4).shown).toBe(0);
+    expect(receiveTarget(next, 0, FRAME_MS * 4).shown).toBe(0);
   });
 
   it("does not count idle time as reveal time when a paused stream resumes", () => {
-    let state = receiveTarget(initialReveal(0), "Hello ", 0);
-    state = stepReveal(state, 2_000);
+    let state = receiveTarget(initialReveal(0), "Hello ".length, 0);
+    state = stepReveal(state, "Hello ", 2_000);
     expect(isRevealing(state)).toBe(false);
-    state = receiveTarget(state, `Hello ${PROSE}`, 10_000);
-    state = stepReveal(state, 10_000 + FRAME_MS);
+    state = receiveTarget(state, `Hello ${PROSE}`.length, 10_000);
+    state = stepReveal(state, `Hello ${PROSE}`, 10_000 + FRAME_MS);
     expect(state.shown).toBeLessThan(`Hello ${PROSE}`.length);
   });
 });

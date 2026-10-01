@@ -1,65 +1,56 @@
 /**
- * Replays a chat session's persisted message history into the scrollback
- * store, so resuming a conversation shows prior turns instead of starting
- * from a blank transcript.
+ * Restores conversation presentation as one atomic document transaction. Saved
+ * semantic entries retain source identity and facts; message-only history gets
+ * deterministic IDs and source Markdown without replaying terminal output.
+ * Model continuation nudges, tool protocol messages, and system prompts are not
+ * conversation presentation and never become visible user turns.
  */
-
-import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
 import type { ChatMessage } from "@jazz/core/types/message";
+import type { PresentationEntry } from "@jazz/core/types/presentation-content";
 import { store } from "./store";
-import type { OutputEntry } from "./types";
 
 export interface TranscriptSink {
-  readonly clearOutputs: () => void;
-  readonly printOutput: (entry: OutputEntry) => string;
-  readonly flushOutputBatchNow: () => void;
+  readonly replaceDocument: (id: string, entries: readonly PresentationEntry[]) => void;
 }
 
-export function outputEntriesFromHistory(messages: readonly ChatMessage[]): OutputEntry[] {
-  const entries: OutputEntry[] = [];
-  const timestamp = new Date();
-
-  for (const message of messages) {
-    if (message.role !== "user" && message.role !== "assistant") {
+/** Derive source entries only when a conversation has no saved semantic document. */
+export function presentationEntriesFromHistory(
+  messages: readonly ChatMessage[],
+  documentId: string,
+): PresentationEntry[] {
+  const entries: PresentationEntry[] = [];
+  for (const [index, message] of messages.entries()) {
+    if (
+      (message.role !== "user" && message.role !== "assistant") ||
+      message.kind === "continuation" ||
+      message.content.trim().length === 0
+    )
       continue;
-    }
-    // Compaction's "continue the task" nudge is addressed to the model. Painted as a
-    // user turn, it reads as something the user typed.
-    if (message.kind === "continuation") {
-      continue;
-    }
-    if (message.content.trim().length === 0) {
-      continue;
-    }
     entries.push({
-      type: message.role === "user" ? "user" : "streamContent",
-      message: message.content,
-      timestamp,
+      id: `${documentId}:message:${index}`,
+      timestamp: new Date(0).toISOString(),
+      content:
+        message.role === "user"
+          ? { kind: "user", text: message.content }
+          : { kind: "agent", markdown: message.content },
     });
   }
-
   return entries;
 }
 
 export function hydrateTranscriptFromHistory(
   messages: readonly ChatMessage[],
+  documentId: string,
   target: TranscriptSink = store,
 ): void {
-  target.clearOutputs();
-  for (const entry of outputEntriesFromHistory(messages)) {
-    target.printOutput(entry);
-  }
-  target.flushOutputBatchNow();
+  target.replaceDocument(documentId, presentationEntriesFromHistory(messages, documentId));
 }
 
-/** Restore UI-only command output without feeding it back into the model. */
+/** Restore UI-only facts without manufacturing model-facing messages or live streams. */
 export function hydrateTranscriptFromUiEntries(
-  entries: readonly ConversationUiEntry[],
+  entries: readonly PresentationEntry[],
+  documentId: string,
   target: TranscriptSink = store,
 ): void {
-  target.clearOutputs();
-  for (const entry of entries) {
-    target.printOutput({ ...entry, timestamp: new Date() });
-  }
-  target.flushOutputBatchNow();
+  target.replaceDocument(documentId, entries);
 }

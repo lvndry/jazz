@@ -8,7 +8,6 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ink } from "@jazz/core/interfaces/terminal";
 import { RGBA } from "@opentui/core";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
@@ -194,16 +193,19 @@ describe("fullscreen bridge", () => {
 
   it("hydrates a resumed conversation into the visible transcript", async () => {
     const text = await frame(() => {
-      hydrateTranscriptFromHistory([
-        { role: "system", content: "You are a helpful agent." },
-        {
-          role: "system",
-          content: "Resuming conversation from 8/22/2026, 2:00:00 PM: Standup notes",
-        },
-        { role: "user", content: "Summarize yesterday's standup" },
-        { role: "assistant", content: "The team shipped the resume fix." },
-        { role: "tool", content: '{"ok":true}', tool_call_id: "call-1" },
-      ]);
+      hydrateTranscriptFromHistory(
+        [
+          { role: "system", content: "You are a helpful agent." },
+          {
+            role: "system",
+            content: "Resuming conversation from 8/22/2026, 2:00:00 PM: Standup notes",
+          },
+          { role: "user", content: "Summarize yesterday's standup" },
+          { role: "assistant", content: "The team shipped the resume fix." },
+          { role: "tool", content: '{"ok":true}', tool_call_id: "call-1" },
+        ],
+        "test-main",
+      );
     });
     expect(text).toContain("Summarize yesterday's standup");
     expect(text).toContain("The team shipped the resume fix.");
@@ -214,10 +216,13 @@ describe("fullscreen bridge", () => {
 
   it("keeps a restored transcript when the next user turn is printed", async () => {
     const text = await frame(() => {
-      hydrateTranscriptFromHistory([
-        { role: "user", content: "prior question" },
-        { role: "assistant", content: "prior answer" },
-      ]);
+      hydrateTranscriptFromHistory(
+        [
+          { role: "user", content: "prior question" },
+          { role: "assistant", content: "prior answer" },
+        ],
+        "test-main",
+      );
       store.printOutput({ type: "user", message: "follow up", timestamp: new Date() });
     });
     expect(text).toContain("prior question");
@@ -242,8 +247,8 @@ describe("fullscreen bridge", () => {
     // The model emits prose in chunks. A block per chunk would make the
     // transcript unscrollable and the markdown unparseable.
     const text = await frame(() => {
-      store.printOutput({ type: "streamContent", message: "Half a ", timestamp: new Date() });
-      store.printOutput({ type: "streamContent", message: "sentence.", timestamp: new Date() });
+      store.appendStream("response", "Half a ");
+      store.appendStream("response", "sentence.");
     });
     expect(text).toContain("Half a sentence.");
   });
@@ -445,16 +450,16 @@ describe("fullscreen bridge", () => {
     const text = await frame(() => {
       store.printOutput({
         type: "log",
-        message: "ignored-ansi-rendering",
-        timestamp: new Date(),
-        meta: {
-          toolReceipt: {
+        message: {
+          kind: "tool",
+          receipt: {
             app: "gmail",
             summary: "4 flagged of 26",
             status: "ok",
             durationMs: 1_900,
           },
         },
+        timestamp: new Date(),
       });
     });
     expect(text).toContain("gmail");
@@ -467,16 +472,16 @@ describe("fullscreen bridge", () => {
     const text = await frame(() => {
       store.printOutput({
         type: "log",
-        message: "ignored",
-        timestamp: new Date(),
-        meta: {
-          toolReceipt: {
+        message: {
+          kind: "tool",
+          receipt: {
             app: "slack",
             summary: "could not read",
             status: "failed",
             reason: "read-only connection",
           },
         },
+        timestamp: new Date(),
       });
     });
     expect(text).toContain("slack");
@@ -772,7 +777,8 @@ describe("fullscreen bridge", () => {
 
     expect(interrupted).toBe(1);
     // The stop is settled as one summary, taken the moment the keys were pressed.
-    const stopped = store.getOutputSnapshot().entries.at(-1)?.meta?.["stoppedSummary"];
+    const stoppedContent = store.getDocumentSnapshot().entries.at(-1)?.content;
+    const stopped = stoppedContent?.kind === "stopped" ? stoppedContent.summary : undefined;
     expect(stopped).toMatchObject({ done: ["nothing was changed"], notDone: [] });
     expect(rendered.captureCharFrame()).toContain("stopped by you after");
     store.setInterruptHandler(null);
@@ -2873,17 +2879,10 @@ describe("fullscreen bridge", () => {
     expect(frame).not.toContain("bar");
   });
   it("shows the real answer when a response completes without streaming a chunk", async () => {
-    // A short, fast reply is the common way to hit this: the provider returns
-    // the whole answer before any text_chunk event fires, so
-    // ink-presentation-service.ts's non-streaming path wraps it in an Ink
-    // element instead of a plain string. `String()` on that element is where
-    // "[object Object]" came from. The fix carries the real text alongside it
-    // in `meta.plainText`, which the bridge now prefers.
     const text = await frame(() => {
       store.printOutput({
         type: "log",
-        message: { _tag: "ink", node: { anything: "not renderable outside Ink" } } as never,
-        meta: { plainText: "I'm doing well, thanks for asking!" },
+        message: { kind: "agent", markdown: "I'm doing well, thanks for asking!" },
         timestamp: new Date(),
       });
     });
@@ -2891,17 +2890,15 @@ describe("fullscreen bridge", () => {
     expect(text).not.toContain("[object Object]");
   });
 
-  it("never renders [object Object], even with no plainText fallback available", async () => {
-    // The defensive floor: textOf() must never call String() on a non-string
-    // message, because no object shape in this codebase has a meaningful
-    // default toString(). Silence is the correct degradation, not garbage.
+  it("renders structured notices without object coercion", async () => {
     const text = await frame(() => {
       store.printOutput({
         type: "log",
-        message: { _tag: "ink", node: {} } as never,
+        message: { kind: "notice", tone: "info", text: "Account ready" },
         timestamp: new Date(),
       });
     });
+    expect(text).toContain("Account ready");
     expect(text).not.toContain("[object Object]");
   });
   /** Types a literal string into a live composer, one real keypress each. */
@@ -3104,12 +3101,12 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("A styled answer and a coloured tail");
   });
 
-  it("keeps streamed deltas clean when the formatter has styled them", async () => {
+  it("formats semantic streamed Markdown only inside the painter", async () => {
     const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
     updateForTest(() => {
-      store.appendStream("response", chalk.bold("bold start "));
-      store.appendStream("response", chalk.dim("dim finish"));
+      store.appendStream("response", "**bold start** ");
+      store.appendStream("response", "dim finish");
     });
     const text = await frameWhen(rendered, (candidate) => candidate.includes("dim finish"));
     rendered.renderer.destroy();
@@ -3284,7 +3281,7 @@ describe("fullscreen bridge", () => {
           success: true,
         },
       ]) {
-        const { outputs } = reduceEvent(accumulator, event, ink);
+        const { outputs } = reduceEvent(accumulator, event);
         for (const entry of outputs) store.printOutput(entry);
       }
     }
@@ -3321,7 +3318,7 @@ describe("fullscreen bridge", () => {
             success: true,
           },
         ]) {
-          const { outputs } = reduceEvent(accumulator, event, ink);
+          const { outputs } = reduceEvent(accumulator, event);
           for (const entry of outputs) store.printOutput(entry);
         }
       });

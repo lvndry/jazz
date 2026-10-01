@@ -1,7 +1,7 @@
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
-import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import { report, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { envVarForSecretPath, isSecretPath, redactSecretValues } from "@jazz/core/secrets/registry";
 import { type CapAgent, listCapAgents, resolveCapAgentKey } from "@jazz/core/spend/caps";
 import type { LoggingConfig } from "@jazz/core/types/config";
@@ -16,8 +16,6 @@ import {
 } from "@jazz/core/utils/config-schema";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
-import React from "react";
-import { ConfigCard } from "../ui/ConfigCard";
 
 /**
  * CLI commands for configuration management
@@ -49,15 +47,7 @@ export function listConfigCommand(
       : "Secrets are redacted. Pass --reveal to print them.";
 
     if (process.stdout.isTTY) {
-      yield* terminal.log(
-        ink(
-          React.createElement(ConfigCard, {
-            title: "Current configuration",
-            note,
-            json,
-          }),
-        ),
-      );
+      yield* terminal.log(report("configuration", [{ kind: "text", text: json }], note));
       return;
     }
 

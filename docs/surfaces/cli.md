@@ -38,6 +38,11 @@ Review the last five commits. Explain the behavior changes and flag anything ris
 Jazz shows the response and tool activity as the agent works. Ask follow-up questions in
 the same conversation; the agent keeps the earlier context.
 
+The closing turn summary shows time, model steps, input and output tokens, and
+cost. When generation timing is available it also shows `N tok/s`: output tokens
+per second of model generation, excluding tool work and time before the first
+token. The same summary remains available after resume.
+
 ## Give it files
 
 Type `@` to choose a file, or name it directly. Relative paths use the directory where

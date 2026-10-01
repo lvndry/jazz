@@ -9,16 +9,7 @@
 import { formatCompactCount } from "@jazz/core/utils/string";
 import { formatCost, formatPreciseDuration } from "../ui/text/format";
 
-export interface StepStats {
-  readonly durationMs: number;
-  readonly promptTokens?: number;
-  readonly completionTokens?: number;
-  /** A bare token count, for a provider that reports no prompt/completion split. */
-  readonly totalTokens?: number;
-  readonly cacheReadTokens?: number;
-  readonly costUSD?: number;
-  readonly tokensPerSecond?: number;
-}
+export type StepStats = import("@jazz/core/types/presentation-content").PresentationStepStats;
 
 export interface TurnTotals {
   readonly steps: readonly StepStats[];
@@ -54,6 +45,28 @@ function tokenPart(
   return `${formatCompactCount(promptTokens ?? 0)} in → ${formatCompactCount(completionTokens ?? 0)} out`;
 }
 
+/** Decode throughput weighted by measured generation time, never by step count. */
+export function turnTokensPerSecond(turn: TurnTotals): number | undefined {
+  let tokens = 0;
+  let durationMs = 0;
+  for (const step of turn.steps) {
+    const count = step.completionTokens;
+    if (count === undefined || !Number.isFinite(count) || count < 0) return undefined;
+    if (count === 0) continue;
+    const measured =
+      step.generationDurationMs ??
+      (step.tokensPerSecond !== undefined &&
+      Number.isFinite(step.tokensPerSecond) &&
+      step.tokensPerSecond > 0
+        ? (count / step.tokensPerSecond) * 1000
+        : undefined);
+    if (measured === undefined || !Number.isFinite(measured) || measured <= 0) return undefined;
+    tokens += count;
+    durationMs += measured;
+  }
+  return tokens > 0 && durationMs > 0 ? (tokens / durationMs) * 1000 : undefined;
+}
+
 /** The one-row receipt that closes a turn, or undefined when there is nothing to say. */
 export function formatTurnReceipt(turn: TurnTotals): string | undefined {
   const { steps } = turn;
@@ -80,6 +93,8 @@ export function formatTurnReceipt(turn: TurnTotals): string | undefined {
       parts.push(`${formatCompactCount(totalTokens)} tok`);
     }
   }
+  const throughput = turnTokensPerSecond(turn);
+  if (throughput !== undefined) parts.push(`${throughput.toFixed(1)} tok/s`);
   const cost = sum(steps, (step) => step.costUSD);
   if (cost !== undefined) {
     parts.push(formatCost(cost));

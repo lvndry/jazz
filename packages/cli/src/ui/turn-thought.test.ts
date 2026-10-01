@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { stripAnsiCodes } from "@/cli/utils/string-utils";
+import { contentFromOutput } from "./document";
 import { UIStore } from "./store";
 import {
   addThoughtStep,
@@ -37,7 +37,9 @@ describe("the store prints one thought line per turn", () => {
     store.collapseEphemeral(region, { durationMs, fullText: text });
   };
   const thoughtEntries = (store: UIStore) =>
-    store.getOutputSnapshot().entries.filter((entry) => entry.meta?.["kind"] === "reasoning");
+    store
+      .getOutputSnapshot()
+      .entries.filter((entry) => contentFromOutput(entry).kind === "reasoning");
 
   it("holds each step until the turn settles, then prints them as one line", () => {
     const store = new UIStore();
@@ -49,11 +51,12 @@ describe("the store prints one thought line per turn", () => {
     store.settleTurnThought();
     const entries = thoughtEntries(store);
     expect(entries).toHaveLength(1);
-    expect(stripAnsiCodes(String(entries[0]?.message))).toContain(
-      "thought for 4.1s across 2 steps",
-    );
-    expect(entries[0]?.meta?.["steps"]).toBe(2);
-    expect(entries[0]?.meta?.["fullText"]).toBe("weighing the calendars\n\nranking the threads");
+    expect(entries[0]?.message).toMatchObject({
+      kind: "reasoning",
+      durationMs: 4100,
+      steps: 2,
+      text: "weighing the calendars\n\nranking the threads",
+    });
   });
 
   it("makes the whole turn the block ctrl+r opens", () => {
@@ -63,8 +66,10 @@ describe("the store prints one thought line per turn", () => {
     store.settleTurnThought();
     expect(store.expandLastReasoning("append")).toBe(true);
     const opened = thoughtEntries(store).at(-1);
-    expect(opened?.meta?.["collapsed"]).toBe(false);
-    expect(opened?.meta?.["fullText"]).toBe("one\n\ntwo");
+    expect(opened).toBeDefined();
+    expect(store.isReasoningExpanded(opened!.id)).toBe(true);
+    expect(opened?.message).toMatchObject({ kind: "reasoning", text: "one\n\ntwo" });
+    expect(store.getDocumentSnapshot().entries).toHaveLength(2);
   });
 
   it("prints nothing for a turn that did not think", () => {
@@ -83,6 +88,6 @@ describe("the store prints one thought line per turn", () => {
     const entries = thoughtEntries(store);
     expect(entries).toHaveLength(1);
     // The region cut off before it said anything adds no step.
-    expect(entries[0]?.meta?.["steps"]).toBe(2);
+    expect(entries[0]?.message).toMatchObject({ steps: 2 });
   });
 });

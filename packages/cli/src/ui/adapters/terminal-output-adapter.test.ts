@@ -1,190 +1,123 @@
+/** Proves classic Static promotion is a disposable, lossless document projection. */
+import type { PresentationDocument } from "@jazz/core/types/presentation-content";
 import { describe, expect, test } from "bun:test";
-import {
-  initialScrollbackState,
-  reduceScrollback,
-  type OutputEntryWithId,
-} from "./terminal-output-adapter";
+import { appendDocumentStream, settleDocumentStream } from "../document";
+import { createClassicProjection, type ClassicProjection } from "./terminal-output-adapter";
 
-function entry(id: string, message: string): OutputEntryWithId {
-  return { id, type: "log", message, timestamp: new Date() };
+const at = "2026-01-01T00:00:00.000Z";
+const initial = (): PresentationDocument => ({ id: "document", revision: 0, entries: [] });
+function text(projected: ClassicProjection): string {
+  return (
+    projected.entries
+      .map((entry) =>
+        typeof entry.message !== "string" &&
+        "kind" in entry.message &&
+        entry.message.kind === "agent"
+          ? entry.message.markdown
+          : "",
+      )
+      .join("") + (projected.pending?.rawTail ?? "")
+  );
 }
 
-describe("scrollback reducer", () => {
-  test("appendStatic adds to staticEntries in order", () => {
-    let state = initialScrollbackState();
-    const a1 = entry("1", "first");
-    const a2 = entry("2", "second");
-    state = reduceScrollback(state, { type: "appendStatic", entries: [a1] });
-    state = reduceScrollback(state, { type: "appendStatic", entries: [a2] });
-    expect(state.staticEntries).toEqual([a1, a2]);
-    expect(state.pending).toBeNull();
-  });
-
-  test("appendStatic with empty entries returns the same state instance", () => {
-    const state = initialScrollbackState();
-    const next = reduceScrollback(state, { type: "appendStatic", entries: [] });
-    expect(next).toBe(state);
-  });
-
-  test("appendStream opens a pending of the requested kind", () => {
-    let state = initialScrollbackState();
-    state = reduceScrollback(state, {
-      type: "appendStream",
+describe("classic output projection", () => {
+  test("opens and settles the same source identity without editing source", () => {
+    const project = createClassicProjection();
+    let document = appendDocumentStream(initial(), "response", "hello ", "answer", at);
+    expect(project(document).pending).toMatchObject({
+      id: "answer",
       kind: "response",
-      delta: "hello ",
-      nextId: "p1",
+      rawTail: "hello ",
     });
-    expect(state.pending).not.toBeNull();
-    expect(state.pending!.kind).toBe("response");
-    expect(state.pending!.rawTail).toBe("hello ");
-    expect(state.staticEntries.length).toBe(0);
+    document = appendDocumentStream(document, "response", "world", "unused", at);
+    expect(text(project(document))).toBe("hello world");
+    const source = document.entries;
+    document = settleDocumentStream(document);
+    const settled = project(document);
+    expect(settled.pending).toBeNull();
+    expect(document.entries).toBe(source);
+    expect(document.entries[0]?.id).toBe("answer");
+    expect(text(settled)).toBe("hello world");
   });
 
-  test("same-kind appends concatenate raw tail", () => {
-    let state = initialScrollbackState();
-    state = reduceScrollback(state, {
-      type: "appendStream",
-      kind: "response",
-      delta: "hello ",
-      nextId: "p1",
-    });
-    state = reduceScrollback(state, {
-      type: "appendStream",
-      kind: "response",
-      delta: "world",
-      nextId: "p2",
-    });
-    expect(state.pending!.rawTail).toBe("hello world");
-    // ID shouldn't change while the same pending is active.
-    expect(state.pending!.id).toBe("p1");
+  test("kind changes settle the prior source without inventing a new identity", () => {
+    const project = createClassicProjection();
+    let document = appendDocumentStream(initial(), "reasoning", "thinking", "thought", at);
+    project(document);
+    document = appendDocumentStream(document, "response", "answer", "answer", at);
+    const next = project(document);
+    expect(next.entries[0]?.message).toMatchObject({ kind: "reasoning", text: "thinking" });
+    expect(next.entries[0]?.id).toStartWith("thought");
+    expect(next.pending).toMatchObject({ id: "answer", kind: "response", rawTail: "answer" });
+    expect(document.entries.map((entry) => entry.id)).toEqual(["thought", "answer"]);
   });
 
-  test("kind change finalizes prior pending and opens new", () => {
-    let state = initialScrollbackState();
-    state = reduceScrollback(state, {
-      type: "appendStream",
-      kind: "reasoning",
-      delta: "thinking…",
-      nextId: "p1",
-    });
-    state = reduceScrollback(state, {
-      type: "appendStream",
-      kind: "response",
-      delta: "answer",
-      nextId: "p2",
-      finalizeId: "p1-finalized",
-    });
-    // Prior pending finalized into Static as one streamContent entry.
-    expect(state.staticEntries.length).toBe(1);
-    expect(state.staticEntries[0]!.type).toBe("streamContent");
-    expect(state.staticEntries[0]!.message).toContain("thinking");
-    expect(state.staticEntries[0]!.id).toBe("p1-finalized");
-    expect(state.staticEntries[0]!.meta).toEqual({ kind: "reasoning" });
-    // New pending is open with the response kind.
-    expect(state.pending!.kind).toBe("response");
-    expect(state.pending!.rawTail).toBe("answer");
+  test("same document replacement invalidates promotion offsets and caches", () => {
+    const project = createClassicProjection();
+    const old = appendDocumentStream(
+      initial(),
+      "response",
+      "Old paragraph.\n\n" + "x".repeat(500),
+      "answer",
+      at,
+    );
+    expect(project(old, 0).entries).toHaveLength(1);
+    const replacement = appendDocumentStream(initial(), "response", "new", "answer", at);
+    expect(text(project(replacement, 1))).toBe("new");
+    expect(project(replacement, 1).entries).toHaveLength(0);
   });
 
-  test("finalizeStream empties pending and appends one streamContent to Static", () => {
-    let state = initialScrollbackState();
-    state = reduceScrollback(state, {
-      type: "appendStream",
-      kind: "response",
-      delta: "complete answer",
-      nextId: "p1",
-    });
-    state = reduceScrollback(state, { type: "finalizeStream", finalizeId: "p1-final" });
-    expect(state.pending).toBeNull();
-    expect(state.staticEntries.length).toBe(1);
-    expect(state.staticEntries[0]!.type).toBe("streamContent");
-    expect(state.staticEntries[0]!.message).toContain("complete answer");
-    expect(state.staticEntries[0]!.id).toBe("p1-final");
-    expect(state.staticEntries[0]!.meta).toEqual({ kind: "response" });
-  });
-
-  test("finalizeStream on null pending is a no-op", () => {
-    const state = initialScrollbackState();
-    const next = reduceScrollback(state, { type: "finalizeStream" });
-    expect(next).toBe(state);
-  });
-
-  test("clear empties both arrays and bumps staticGeneration", () => {
-    let state = initialScrollbackState();
-    state = reduceScrollback(state, { type: "appendStatic", entries: [entry("1", "x")] });
-    state = reduceScrollback(state, {
-      type: "appendStream",
-      kind: "response",
-      delta: "y",
-      nextId: "p1",
-    });
-    const before = state.staticGeneration;
-    state = reduceScrollback(state, { type: "clear" });
-    expect(state.staticEntries).toEqual([]);
-    expect(state.pending).toBeNull();
-    expect(state.staticGeneration).toBe(before + 1);
-  });
-
-  test("appendStream with split-and-promote moves settled prefix to Static", () => {
-    let state = initialScrollbackState();
-    // Make a chunk large enough to escape SOFT_TAIL with a paragraph break inside.
-    const chunk = "Settled paragraph one.\n\n" + "x".repeat(500); // far exceeds SOFT_TAIL=256
-    state = reduceScrollback(state, {
-      type: "appendStream",
-      kind: "response",
-      delta: chunk,
-      nextId: "p1",
-    });
-    // The settled prefix should be in Static (one streamContent).
-    expect(state.staticEntries.length).toBe(1);
-    expect(state.staticEntries[0]!.message).toContain("Settled paragraph one");
-    // The pending tail keeps the in-flight chunk.
-    expect(state.pending).not.toBeNull();
-    expect(state.pending!.rawTail.startsWith("xxx")).toBe(true);
-  });
-
-  test("regression guard: 1000 same-kind chunks produce O(paragraphs) Static entries", () => {
-    let state = initialScrollbackState();
-    for (let i = 0; i < 1000; i++) {
-      state = reduceScrollback(state, {
-        type: "appendStream",
-        kind: "response",
-        delta: `paragraph ${i} body text. ` + "y".repeat(50) + "\n\n",
-        nextId: `p${i}`,
-      });
-    }
-    state = reduceScrollback(state, { type: "finalizeStream", finalizeId: "final" });
-    // Each chunk's \n\n eventually becomes a paragraph promotion. After
-    // SOFT_TAIL (256 chars / ~3-4 chunks) of warm-up, every subsequent chunk
-    // contributes a promotion. Final finalizeStream adds one more for the tail.
-    // Expect roughly 990–1001 entries — at least 500 to confirm the splitter
-    // is actively running (not promoting once and then stalling).
-    expect(state.staticEntries.length).toBeGreaterThanOrEqual(500);
-    expect(state.staticEntries.length).toBeLessThanOrEqual(1001);
-    expect(state.pending).toBeNull();
-  });
-
-  test("one-char deltas promote losslessly through the incremental splitter", () => {
-    const document =
-      "# Title\n\nIntro paragraph with two sentences. Here is the second.\n\n" +
-      "- first item\n- second item\n\nProse after the list.\n\n" +
-      "```ts\nconst value = 1;\n```\n\n" +
-      "Closing paragraph with `inline code` and [a link](http://example.com).\n\n" +
+  test("one-character provider deltas promote Markdown losslessly", () => {
+    const full =
+      "# Title\n\nIntro paragraph.\n\n- first item\n- second item\n\nProse after the list.\n\n```ts\nconst value = 1;\n```\n\nClosing paragraph with [a link](https://example.com).\n\n" +
       "z".repeat(400);
-
-    let state = initialScrollbackState();
-    for (const character of document) {
-      state = reduceScrollback(state, {
-        type: "appendStream",
-        kind: "response",
-        delta: character,
-        nextId: "p1",
-      });
+    const project = createClassicProjection();
+    let document = initial();
+    let projected = project(document);
+    for (const character of full) {
+      document = appendDocumentStream(document, "response", character, "answer", at);
+      projected = project(document);
+      expect(text(projected)).toBe(full.slice(0, text(projected).length));
     }
-    const streamedText = state.staticEntries
-      .map((entry) => entry.message)
-      .concat(state.pending?.rawTail ?? "")
-      .join("");
-    expect(streamedText).toBe(document);
-    expect(state.staticEntries.length).toBeGreaterThan(3);
+    expect(text(projected)).toBe(full);
+    expect(projected.entries.length).toBeGreaterThan(3);
+    expect(document.entries).toHaveLength(1);
+    expect(text(project(settleDocumentStream(document)))).toBe(full);
+  });
+
+  test("thousands of deltas allocate slices per paragraph, not per token", () => {
+    const project = createClassicProjection();
+    let document = initial();
+    for (let index = 0; index < 1000; index++) {
+      document = appendDocumentStream(
+        document,
+        "response",
+        `paragraph ${String(index)} body. ${"y".repeat(50)}\n\n`,
+        "answer",
+        at,
+      );
+      project(document);
+    }
+    const settled = project(settleDocumentStream(document));
+    expect(settled.entries.length).toBeGreaterThanOrEqual(500);
+    expect(settled.entries.length).toBeLessThanOrEqual(1001);
+    expect(new Set(settled.entries.map((entry) => entry.id)).size).toBe(settled.entries.length);
+  });
+
+  test("reveal prefixes change the projection but never the accepted source", () => {
+    const project = createClassicProjection();
+    const document = appendDocumentStream(initial(), "response", "accepted answer", "answer", at);
+    expect(text(project(document, 0, { streamReveal: { id: "answer", length: 8 } }))).toBe(
+      "accepted",
+    );
+    expect(document.entries[0]?.content).toEqual({ kind: "agent", markdown: "accepted answer" });
+    expect(text(createClassicProjection()(document))).toBe("accepted answer");
+  });
+  test("promoted copies preserve exact UTF-16 code units including unpaired surrogates", () => {
+    const project = createClassicProjection();
+    const full = "an unpaired high \ud800 and low \udc00 surrogate.\n\n" + "tail ".repeat(100);
+    const source = appendDocumentStream(initial(), "response", full, "answer", at);
+    expect(text(project(source))).toBe(full);
+    expect(text(project(settleDocumentStream(source)))).toBe(full);
   });
 });

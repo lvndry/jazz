@@ -24,7 +24,7 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import type { MCPServerManager } from "@jazz/core/interfaces/mcp-server";
 import { MCPServerManagerTag } from "@jazz/core/interfaces/mcp-server";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
-import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
 import type { Agent, AgentConfig, LLMProvider, ToolCategory } from "@jazz/core/types";
 import type { WebSearchProviderName } from "@jazz/core/types/config";
@@ -46,9 +46,6 @@ import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { buildModelChoices, sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { toPascalCase } from "@jazz/core/utils/string";
 import { Effect } from "effect";
-import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
-import React from "react";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import {
   describeReasoningAdjustment,
@@ -58,7 +55,6 @@ import {
 import { ensureLocalProviderBaseUrl } from "@/cli/setup/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/setup/provider-api-key";
 import { configureWebSearch } from "@/cli/setup/web-search";
-import { THEME } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 
 /**
@@ -254,20 +250,7 @@ export function editAgentCommand(
         const enabledServers = allServers.filter((server) => server.enabled !== false);
 
         if (enabledServers.length > 0) {
-          yield* terminal.log(
-            ink(
-              React.createElement(
-                Box,
-                {},
-                React.createElement(
-                  Text,
-                  { color: THEME.primary },
-                  React.createElement(Spinner, { type: "dots" }),
-                ),
-                React.createElement(Text, {}, " Discovering tools from MCP servers..."),
-              ),
-            ),
-          );
+          yield* terminal.log("Discovering tools from MCP servers...");
 
           // Discover and register tools from all enabled MCP servers
           const discoveryEffects = enabledServers.map((serverConfig) =>

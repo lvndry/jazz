@@ -5,8 +5,6 @@ import { bench, report } from "./harness";
 import { createAccumulator, reduceEvent } from "../packages/cli/src/presentation/activity-reducer";
 import type { StreamEvent } from "../packages/core/src/types/streaming";
 
-const stubInk = (node: unknown): string => `[ink:${typeof node}]`;
-
 function recordedRun(chunkCount: number): StreamEvent[] {
   const events: StreamEvent[] = [{ type: "text_start" }];
   let accumulated = "";
@@ -30,7 +28,7 @@ const results = [
     () => {
       const accumulator = createAccumulator("bench-agent");
       for (const event of run) {
-        reduceEvent(accumulator, event, stubInk);
+        reduceEvent(accumulator, event);
       }
     },
     { iterations: 60 },

@@ -28,10 +28,10 @@ import {
   findLastSafeSplitPoint,
   MAX_PENDING_TAIL,
 } from "../packages/cli/src/presentation/markdown-split";
-import {
-  initialScrollbackState,
-  reduceScrollback,
-} from "../packages/cli/src/ui/adapters/terminal-output-adapter";
+import { createClassicProjection } from "../packages/cli/src/ui/adapters/terminal-output-adapter";
+
+import { appendDocumentStream } from "../packages/cli/src/ui/document";
+import type { PresentationDocument } from "../packages/core/src/types/presentation-content";
 
 /** Provider deltas are small; this is roughly one token's worth of chars. */
 const DELTA_CHARS = 40;
@@ -139,19 +139,21 @@ const results = [
     { iterations: 20, warmupIterations: 2 },
   ),
   bench(
-    "reduceScrollback fold, 3k deltas",
+    "document + classic projection, 3k deltas",
     () => {
-      let state = initialScrollbackState();
+      let document: PresentationDocument = { id: "benchmark", revision: 0, entries: [] };
+      const project = createClassicProjection();
       let deltaIndex = 0;
       for (const delta of deltas) {
         deltaIndex += 1;
-        state = reduceScrollback(state, {
-          type: "appendStream",
-          kind: "response",
+        document = appendDocumentStream(
+          document,
+          "response",
           delta,
-          nextId: `pending-${String(deltaIndex)}`,
-          finalizeId: `finalized-${String(deltaIndex)}`,
-        });
+          `pending-${String(deltaIndex)}`,
+          "2026-01-01T00:00:00.000Z",
+        );
+        project(document);
       }
     },
     { iterations: 20, warmupIterations: 2 },

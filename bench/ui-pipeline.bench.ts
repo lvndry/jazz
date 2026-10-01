@@ -67,7 +67,7 @@ for (const kind of ["opentui", "ink"] satisfies RendererKind[]) {
   const pipeline = await mountPipeline(kind);
   try {
     for (const size of [1_000, 10_000, 50_000]) {
-      const renderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
+      let renderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
       try {
         results.push(
           await benchAsync(
@@ -78,6 +78,7 @@ for (const kind of ["opentui", "ink"] satisfies RendererKind[]) {
               pipeline.mutate(() => {
                 Effect.runSync(renderer.reset());
                 store.clearOutputs();
+                renderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
                 Effect.runSync(
                   renderer.handleEvent({
                     type: "stream_start",
@@ -105,7 +106,7 @@ for (const kind of ["opentui", "ink"] satisfies RendererKind[]) {
         pipeline.mutate(() => Effect.runSync(renderer.reset()));
       }
     }
-    const fenceRenderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
+    let fenceRenderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
     try {
       results.push(
         await benchAsync(
@@ -116,6 +117,7 @@ for (const kind of ["opentui", "ink"] satisfies RendererKind[]) {
             pipeline.mutate(() => {
               Effect.runSync(fenceRenderer.reset());
               store.clearOutputs();
+              fenceRenderer = new InkStreamingRenderer("bench-local", false, DEFAULT_DISPLAY_CONFIG);
               Effect.runSync(
                 fenceRenderer.handleEvent({
                   type: "stream_start",

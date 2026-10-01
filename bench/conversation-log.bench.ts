@@ -7,7 +7,7 @@ import {
   parseConversationLog,
   reduceConversationLog,
 } from "../packages/adapters/src/history/conversation-log";
-import { outputEntriesFromHistory } from "../packages/cli/src/ui/hydrate-transcript";
+import { presentationEntriesFromHistory } from "../packages/cli/src/ui/hydrate-transcript";
 
 const smallLog = conversationLogContent(50);
 const largeLog = conversationLogContent(5_000);
@@ -30,8 +30,8 @@ const results = [
   }),
   // The last leg of resume: reduced history becomes scrollback entries. The
   // store write itself is `store-writes`; this is the mapping in front of it.
-  bench("outputEntriesFromHistory, 5000 messages", () => {
-    outputEntriesFromHistory(largeMessages);
+  bench("presentationEntriesFromHistory, 5000 messages", () => {
+    presentationEntriesFromHistory(largeMessages, "bench:main");
   }),
 ];
 

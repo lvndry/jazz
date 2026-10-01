@@ -414,6 +414,8 @@ export type Overlay =
 export type Focus = "input" | "transcript";
 
 export interface ViewModel {
+  /** Conversation/child identity for source and view lifecycle. */
+  readonly documentId: string;
   readonly header: HeaderModel;
   readonly blocks: readonly Block[];
   readonly live: LiveModel;

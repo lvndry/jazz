@@ -1,27 +1,20 @@
 /** @jsxImportSource @opentui/react */
 /**
- * Drives the fullscreen interface from the live UI store.
- *
- * The store is a process singleton write port. Both this tree and the Ink
- * islands subscribe to the same Object.is-stable slices via
- * useSyncExternalStore. This module is the only place where live state becomes
- * a `ViewModel`, which is what keeps every region a pure function of data.
- *
- * The mapping is deliberately lossy in one direction. The store speaks in
- * output entries and activity phases, which are a log; the interface speaks in
- * blocks, which are a document. Turning the first into the second is what makes
- * scroll anchoring, collapse and copy-out possible at all.
+ * Projects the canonical semantic document and one coherent live snapshot into
+ * the fullscreen ViewModel. Content facts keep source identity; this adapter
+ * chooses blocks, collapse state, and the visible reveal prefix. Composer and
+ * secret drafts remain local to the interaction rather than durable content.
+ * Prompt callbacks stay on their separate input port.
  */
 
 import { search, type SearchHit } from "@jazz/adapters/history/conversation-search";
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
-import { isTerminalReport, type ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
+import { type ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { isHttpApprovalTool } from "@jazz/core/utils/http-approval";
 import { isFileMutationTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { stripAnsiCodes, terminalHyperlinksToMarkdown } from "@/cli/utils/string-utils";
 import { filterCommandsByPrefix, slashCommandQuery } from "@jazz/cli/chat/commands";
 import packageJson from "../../../../../package.json";
 import type { ActivityState, TodoSnapshotItem } from "../activity-state";
@@ -68,6 +61,7 @@ import { TODO_WINDOW_ROWS } from "./LiveZone";
 import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
 import { themePickerTarget } from "./theme-picker-keys";
+import { foldTurn } from "./turn-fold";
 import {
   LIVE_ZONE_MAX_ROWS,
   type ApprovalChoice,
@@ -85,18 +79,14 @@ import {
   type ThemePickerRow,
   type ViewModel,
 } from "./types";
+import { formatTurnReceipt } from "../../presentation/turn-receipt";
+import { contentFromOutput, outputFromEntry, projectDocumentEntries } from "../document";
 import { agentDetailsBodyHeight, agentDetailsRows } from "../models/agent-details";
 import { approvalFacts, diffLanguage } from "../models/approval";
 import { approvalTitle } from "../models/approval";
 import { homeIntent } from "../models/home-view";
-import {
-  interruptSummary,
-  type InterruptSnapshot,
-  type InterruptSummary,
-  type ReceiptFacts,
-} from "../models/interrupt";
+import { interruptSummary, type InterruptSnapshot, type ReceiptFacts } from "../models/interrupt";
 import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
-import { receiptFromMeta } from "../models/receipt";
 import { RETRY_BAND_ROWS, retryBand } from "../models/retry";
 import { settledPlan } from "../models/todo";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
@@ -107,11 +97,8 @@ import { filterSkills, skillDetailRows } from "../skill-browser";
 import { skillDetailBodyRows, skillListRows } from "../skill-browser";
 import {
   store,
-  useEphemeralSlice,
-  useOutputSlice,
+  usePresentationSlice,
   usePromptSlice,
-  useSessionSlice,
-  useSubagentsSlice,
   type EphemeralRegion,
   type PendingApproval,
 } from "../store";
@@ -132,7 +119,6 @@ import { AgentPicker, filterAgents, listRowsFor } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
 import { MenuScreen } from "./screens/Menu";
 import { SkillBrowser } from "./screens/SkillBrowser";
-import { foldTurn } from "./turn-fold";
 
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
 const SUBAGENT_NOTICE_MS = 2500;
@@ -691,140 +677,72 @@ function currentTurnReceipts(blocks: readonly Block[]): ReceiptFacts[] {
   );
 }
 
-function stoppedOf(entry: OutputEntry): InterruptSummary | null {
-  const candidate = entry.meta?.["stoppedSummary"];
-  if (candidate === null || typeof candidate !== "object") return null;
-  const record = candidate as Record<string, unknown>;
-  const strings = (value: unknown): readonly string[] =>
-    Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-  if (typeof record["elapsedMs"] !== "number") return null;
-  return {
-    elapsedMs: record["elapsedMs"],
-    done: strings(record["done"]),
-    notDone: strings(record["notDone"]),
-  };
-}
-
-/**
- * `OutputEntry.message` is typed `string | TerminalInkNode` — the second half
- * is an opaque wrapper (`{ _tag: "ink", node: <a React element> }`) that only
- * an Ink-based terminal knows how to render. It reaches here whenever a
- * response completes without ever streaming a chunk — a short, fast reply is
- * the common case — so it is not an edge case to shrug off.
- *
- * `String()` on that object is where "[object Object]" came from: a plain
- * object's default stringification, applied to a React element. The real fix
- * is at the source, which now attaches the same text as `meta.plainText`
- * (checked in `blocksFrom` before this function ever runs). This is the
- * defensive floor for anything that does not: never stringify an object,
- * because there is no object shape in this codebase whose default
- * `toString()` is meaningful to a reader.
- */
-function textOf(message: unknown): string {
-  if (typeof message === "string") return message;
-  if (message !== null && typeof message === "object" && "text" in message) {
-    const text = (message as { text?: unknown }).text;
-    if (typeof text === "string") return text;
-  }
-  return "";
-}
-
-/**
- * Strips the styling another renderer already applied.
- *
- * The presentation service styles its strings with chalk before they reach the
- * store — the reasoning summary is `chalk.dim(chalk.italic(...))`, tool results
- * arrive pre-rendered, markdown comes back with colour already baked in. Those
- * escapes are instructions to a terminal, not characters, so rendering them
- * into a composited frame puts `\u001b[2m` on screen as cells and lets the
- * terminal eat the ones that follow — which is what turned "Reasoning" into
- * "easoning".
- *
- * Stripping rather than parsing is the right call here, and not just the easy
- * one: this interface decides colour from its own semantic tokens, six of them,
- * each answering one question. Inheriting another renderer's palette would
- * defeat that by construction.
- *
- * Worth knowing why this was invisible for so long: `chalk.level` is 0 under
- * `bun test`, so chalk emits no escapes and every one of these strings arrives
- * clean in a test while arriving styled in production. `bridge.test.tsx` now
- * forces truecolor for exactly that reason.
- */
-function plainOf(message: unknown): string {
-  return stripAnsiCodes(textOf(message));
-}
-
-/**
- * Agent prose is re-parsed as markdown by the transcript, so its terminal
- * hyperlinks go back to `[label](url)` before the strip — stripped as escapes,
- * the label survives and the URL it pointed to is gone.
- */
-function agentMarkdownOf(text: string): string {
-  return stripAnsiCodes(terminalHyperlinksToMarkdown(text));
-}
-
-/**
- * Output entries become blocks. Consecutive stream chunks are one agent turn
- * rather than one block each: the model emits prose in pieces, and a block per
- * piece would make the transcript unscrollable and the markdown unparseable.
- */
+/** Project semantic source entries into fullscreen document blocks. */
 export function blocksFrom(
   entries: readonly OutputEntry[],
   streaming: string,
   regions: readonly EphemeralRegion[],
+  expandedReasoningIds: ReadonlySet<string> = new Set(),
+  streamingId?: string,
+  liveReasoningIds: ReadonlySet<string> = new Set(),
 ): Block[] {
   const blocks: Block[] = [];
   let seq = 0;
-
-  for (const entry of entries) {
-    const id = entry.id ?? `b${String(seq)}`;
-
-    // A receipt is read before anything looks at the entry's text, because a
-    // receipt has no text: the activity reducer puts the structured form in
-    // `meta.toolReceipt` and leaves `message` as the Ink node it built for the
-    // other renderer. Behind the empty-text guard below, every settled tool
-    // call was therefore skipped in silence, and the transcript showed nothing
-    // at all between the question and the answer.
-    const stopped = stoppedOf(entry);
-    if (stopped !== null) {
-      blocks.push({ id, seq: seq++, kind: "stopped", ...stopped });
-      continue;
-    }
-
-    const receipt = receiptFromMeta(entry.meta?.["toolReceipt"]);
-    if (receipt !== null) {
-      blocks.push({ id, seq: seq++, kind: "tool", ...receipt });
-      continue;
-    }
-
-    if (
-      entry.meta?.["toolStart"] === true ||
-      entry.meta?.["agentHeader"] === true ||
-      entry.meta?.["approvalEcho"] === true ||
-      // The live zone draws a scheduled retry as a band with a countdown; this line is
-      // the same notice for the classic interface.
-      entry.meta?.["retryNotice"] === true ||
-      entry.meta?.["interruptNotice"] === true ||
-      // Reasoning that returned no text collapses to a bare duration line; there
-      // is no thought to show, and the turn receipt already carries the time.
-      entry.meta?.["collapsedRegion"] === "reasoning"
-    ) {
-      continue;
-    }
-
-    const agentMarkdown = entry.meta?.["agentMarkdown"];
-    if (typeof agentMarkdown === "string" && agentMarkdown.trim().length > 0) {
-      blocks.push({ id, seq: seq++, kind: "agent", markdown: agentMarkdownOf(agentMarkdown) });
-      continue;
-    }
-
-    if (entry.meta?.["expandedOutput"] === true) {
-      const expanded = stripAnsiCodes(
-        typeof entry.meta["plainText"] === "string"
-          ? entry.meta["plainText"]
-          : plainOf(entry.message),
-      );
-      if (expanded.trim().length > 0) {
+  const sourceEntries = entries.map((entry, index) => ({
+    id: entry.id ?? `entry:${String(index)}`,
+    content: contentFromOutput(entry),
+    timestamp: entry.timestamp.toISOString(),
+  }));
+  for (const source of projectDocumentEntries(
+    { id: "projection", revision: 0, entries: sourceEntries },
+    { expandedReasoningIds, liveReasoningIds },
+  )) {
+    const entry = outputFromEntry(source);
+    const id = source.id;
+    const content = contentFromOutput(entry);
+    switch (content.kind) {
+      case "user":
+        blocks.push({ id, seq: seq++, kind: "user", text: content.text });
+        break;
+      case "agent":
+        blocks.push({
+          id,
+          seq: seq++,
+          kind: "agent",
+          markdown: content.markdown,
+          ...(id === streamingId ? { streaming: true } : {}),
+        });
+        break;
+      case "tool":
+        blocks.push({ id, seq: seq++, kind: "tool", ...content.receipt });
+        break;
+      case "reasoning":
+        blocks.push({
+          id,
+          seq: seq++,
+          kind: "reasoning",
+          text: content.text,
+          collapsed: content.durationMs !== undefined && !expandedReasoningIds.has(id),
+          ...(content.durationMs === undefined ? {} : { durationMs: content.durationMs }),
+          ...(content.steps === undefined ? {} : { steps: content.steps }),
+          ...(content.tokens === undefined ? {} : { tokens: content.tokens }),
+          ...(id === streamingId || liveReasoningIds.has(id) ? { live: true } : {}),
+          ...(content.text.trim().length === 0 ? { readable: false } : {}),
+        });
+        break;
+      case "report":
+        blocks.push({ id, seq: seq++, kind: "report", report: content.report });
+        break;
+      case "stopped":
+        blocks.push({ id, seq: seq++, kind: "stopped", ...content.summary });
+        break;
+      case "turn-receipt": {
+        const text = formatTurnReceipt(content);
+        if (text !== undefined)
+          blocks.push({ id, seq: seq++, kind: "notice", text, tone: "receipt" });
+        break;
+      }
+      case "expanded":
         blocks.push({
           id,
           seq: seq++,
@@ -833,95 +751,35 @@ export function blocksFrom(
           summary: "",
           status: "ok",
           expanded: true,
-          detail: expanded,
+          detail: content.text,
         });
-      }
-      continue;
+        break;
+      case "notice":
+        if (content.audience !== "classic" && content.text.trim().length > 0)
+          blocks.push({
+            id,
+            seq: seq++,
+            kind: "notice",
+            text: content.text,
+            tone: content.tone === "warn" ? "warn" : content.tone === "error" ? "error" : "info",
+          });
+        break;
+      case "header":
+        break;
     }
-
-    const commandReport = entry.meta?.["report"];
-    if (isTerminalReport(commandReport)) {
-      blocks.push({ id, seq: seq++, kind: "report", report: commandReport });
-      continue;
-    }
-
-    const plainText = entry.meta?.["plainText"];
-    const source = typeof plainText === "string" ? plainText : textOf(entry.message);
-    const text = stripAnsiCodes(source);
-    if (text.trim().length === 0) continue;
-
-    if (entry.type === "user") {
-      blocks.push({ id, seq: seq++, kind: "user", text });
-      continue;
-    }
-
-    // Reasoning re-emitted by Ctrl+R arrives as `streamContent` so the Ink tree
-    // can stream it in. Merging it into the preceding agent block the way
-    // ordinary prose is merged would graft the model's private thinking onto
-    // the end of its answer with no seam between them, so `meta.kind` decides
-    // which of the two this is.
-    if (entry.type === "streamContent" && entry.meta?.["kind"] === "reasoning") {
-      const collapsed = entry.meta["collapsed"] === true;
-      const fullText = entry.meta["fullText"];
-      const durationMs = entry.meta["durationMs"];
-      const steps = entry.meta["steps"];
-      const readable = typeof fullText === "string" && fullText.trim().length > 0;
-      blocks.push({
-        id,
-        seq: seq++,
-        kind: "reasoning",
-        text: collapsed ? "" : readable ? fullText : text,
-        collapsed,
-        ...(collapsed && !readable ? { readable: false } : {}),
-        ...(typeof durationMs === "number" ? { durationMs } : {}),
-        ...(typeof steps === "number" ? { steps } : {}),
-      });
-      continue;
-    }
-    if (entry.type === "streamContent") {
-      const markdown = agentMarkdownOf(source);
-      const last = blocks.at(-1);
-      if (last?.kind === "agent") {
-        blocks[blocks.length - 1] = { ...last, markdown: `${last.markdown}${markdown}` };
-        continue;
-      }
-      blocks.push({ id, seq: seq++, kind: "agent", markdown });
-      continue;
-    }
-
-    const tone =
-      entry.meta?.["turnReceipt"] === true
-        ? "receipt"
-        : entry.type === "error"
-          ? "error"
-          : entry.type === "warn"
-            ? "warn"
-            : "info";
-    blocks.push({ id, seq: seq++, kind: "notice", text: text.replace(/^\n+|\n+$/g, ""), tone });
   }
-
-  // The turn still being written, appended live so prose streams in place.
-  const streamingMarkdown = agentMarkdownOf(streaming);
-  if (streamingMarkdown.trim().length > 0) {
+  if (streaming.trim().length > 0)
     blocks.push({
-      id: "streaming",
+      id: streamingId ?? "streaming",
       seq: seq++,
       kind: "agent",
-      markdown: streamingMarkdown,
+      markdown: streaming,
       streaming: true,
     });
-  }
-
-  // Open regions last, because they are the work happening now and everything
-  // above them has already settled.
-  //
-  // These were subscribed and then dropped: `regions` reached this component
-  // and appeared only in a dependency array, so extended thinking and every
-  // delegated subagent showed a spinner and nothing else for their whole
-  // duration. The blocks that render them were already built.
   let lane = 0;
   for (const region of regions) {
-    if (region.kind === "reasoning") {
+    if (region.kind === "reasoning" && entries.some((entry) => entry.id === region.id)) continue;
+    if (region.kind === "reasoning")
       blocks.push({
         id: region.id,
         seq: seq++,
@@ -930,21 +788,16 @@ export function blocksFrom(
         collapsed: false,
         live: true,
       });
-      continue;
-    }
-    // A lane's header is who it is and what it is doing right now, which is the
-    // region's newest line. `result` stays unset while it runs: that field
-    // draws the lane-closing glyph, and a lane that is still open has not
-    // closed.
-    blocks.push({
-      id: region.id,
-      seq: seq++,
-      kind: "lane",
-      name: region.label,
-      ask: region.tail.at(-1) ?? "",
-      lane: lane++,
-      state: "running",
-    });
+    else
+      blocks.push({
+        id: region.id,
+        seq: seq++,
+        kind: "lane",
+        name: region.label,
+        ask: region.tail.at(-1) ?? "",
+        lane: lane++,
+        state: "running",
+      });
   }
   return foldTurn(blocks);
 }
@@ -1041,6 +894,9 @@ export interface TranscriptBlockSources {
   readonly outputs: readonly OutputEntry[];
   readonly streaming: string;
   readonly regions: readonly EphemeralRegion[];
+  readonly expandedReasoningIds?: ReadonlySet<string>;
+  readonly streamingId?: string;
+  readonly liveReasoningIds?: ReadonlySet<string>;
 }
 
 export function transcriptBlocks(
@@ -1049,7 +905,14 @@ export function transcriptBlocks(
 ): readonly Block[] {
   return shareUnchangedBlocks(
     previous,
-    blocksFrom(sources.outputs, sources.streaming, sources.regions),
+    blocksFrom(
+      sources.outputs,
+      sources.streaming,
+      sources.regions,
+      sources.expandedReasoningIds,
+      sources.streamingId,
+      sources.liveReasoningIds,
+    ),
   );
 }
 
@@ -1172,12 +1035,18 @@ function approvalFrom(
 export function FullscreenBridge(): React.ReactNode {
   const { width, height } = useTerminalDimensions();
   const viewport = { width, height };
-  const output = useOutputSlice();
-  const session = useSessionSlice();
+  const presentation = usePresentationSlice();
+  const session = presentation.session;
   const promptSlice = usePromptSlice();
-  const ephemeral = useEphemeralSlice();
-  const outputs = output.entries;
-  const streaming = output.streaming;
+  const ephemeral = presentation.ephemeral;
+  const outputs = useMemo(
+    () =>
+      projectDocumentEntries(presentation.document, {
+        streamReveal: presentation.streamReveal,
+      }).map(outputFromEntry),
+    [presentation.document, presentation.streamReveal],
+  );
+  const streaming = "";
   const activity = session.activity;
   const stats = session.runStats;
   const queue = promptSlice.messageQueue;
@@ -1187,7 +1056,7 @@ export function FullscreenBridge(): React.ReactNode {
   busyRef.current = busy;
   const isYolo = session.isYolo;
   const regions = ephemeral.regions;
-  const subagentRuns = useSubagentsSlice().runs;
+  const subagentRuns = presentation.subagents.runs;
   const subagentRunsRef = useRef(subagentRuns);
   subagentRunsRef.current = subagentRuns;
   // Null while the composer has the keyboard; otherwise the highlighted row.
@@ -1335,9 +1204,11 @@ export function FullscreenBridge(): React.ReactNode {
     if (context === null || startedAt === null) return;
     store.printOutput({
       type: "log",
-      message: "",
+      message: {
+        kind: "stopped",
+        summary: interruptSummary({ ...context, elapsedMs: Date.now() - startedAt }),
+      },
       timestamp: new Date(),
-      meta: { stoppedSummary: interruptSummary({ ...context, elapsedMs: Date.now() - startedAt }) },
     });
   }, []);
   const background = useRef(session.backgroundHandler);
@@ -1452,7 +1323,7 @@ export function FullscreenBridge(): React.ReactNode {
     activity.phase === "tool-execution" ||
     activity.phase === "awaiting" ||
     activity.phase === "thinking";
-  const runActive = busy || streaming.length > 0 || running;
+  const runActive = busy || presentation.document.streamingId !== undefined || running;
   useEffect(() => {
     if (!runActive) disarmQuit();
   }, [runActive, disarmQuit]);
@@ -2164,9 +2035,8 @@ export function FullscreenBridge(): React.ReactNode {
         } else {
           store.printOutput({
             type: "log",
-            message: payload.fullDiff,
+            message: { kind: "expanded", text: payload.fullDiff },
             timestamp: new Date(),
-            meta: { expandedOutput: true },
           });
         }
         return true;
@@ -2886,12 +2756,33 @@ export function FullscreenBridge(): React.ReactNode {
   const blocks = useMemo(() => {
     const next =
       inspectedRun === undefined
-        ? transcriptBlocks({ outputs, streaming, regions }, previousBlocks.current)
+        ? transcriptBlocks(
+            {
+              outputs,
+              streaming,
+              regions,
+              expandedReasoningIds: presentation.expandedReasoningIds,
+              liveReasoningIds: presentation.liveReasoningIds,
+              ...(presentation.document.streamingId === undefined
+                ? {}
+                : { streamingId: presentation.document.streamingId }),
+            },
+            previousBlocks.current,
+          )
         : shareUnchangedBlocks(previousBlocks.current, subagentBlocks(inspectedRun, Date.now()));
     previousBlocks.current = next;
     return next;
     // elapsedMs ticks the open sub-agent's heading clock.
-  }, [outputs, streaming, regions, inspectedRun, elapsedMs]);
+  }, [
+    outputs,
+    streaming,
+    regions,
+    inspectedRun,
+    elapsedMs,
+    presentation.expandedReasoningIds,
+    presentation.liveReasoningIds,
+    presentation.document.streamingId,
+  ]);
 
   stopContextRef.current = {
     receipts: currentTurnReceipts(blocks),
@@ -3096,6 +2987,7 @@ export function FullscreenBridge(): React.ReactNode {
     () => ({
       header,
       blocks,
+      documentId: `${currentConversation?.conversationId ?? presentation.document.id}:${inspectedRun === undefined ? "main" : `child:${inspectedRun.id}`}`,
       runActive,
       live,
       input,
@@ -3104,7 +2996,19 @@ export function FullscreenBridge(): React.ReactNode {
       ...(overlay === undefined ? {} : { overlay }),
       focus: "input",
     }),
-    [header, blocks, runActive, live, input, footer, subagentList, overlay],
+    [
+      header,
+      blocks,
+      runActive,
+      live,
+      input,
+      footer,
+      subagentList,
+      overlay,
+      currentConversation?.conversationId,
+      presentation.document.id,
+      inspectedRun,
+    ],
   );
 
   // A menu the app is waiting on gets the real screen. The wizard publishes it
