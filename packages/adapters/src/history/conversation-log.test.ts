@@ -1,9 +1,11 @@
+/** Exercises append-only history, strict semantic UI recovery, and explicit version 2 migration. */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { presentationEntrySchema } from "@jazz/core/types/presentation-content-schema";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import {
@@ -17,6 +19,7 @@ import {
   parseConversationLogLine,
   readConversationLog,
   recordConversationTranscript,
+  reduceConversationLog,
 } from "./conversation-log";
 
 let tmpDir: string;
@@ -412,7 +415,15 @@ describe("UI scrollback growth", () => {
   });
 
   test("collapsing keeps every non-UI line, unreadable ones included", () => {
+    const header = JSON.stringify({
+      type: "conversation",
+      version: 2,
+      agentId: AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      startedAt: "2026-08-01T10:00:00.000Z",
+    });
     const content = [
+      header,
       '{"type":"ui-transcript","at":"t","entries":[]}',
       "not json",
       '{"type":"ui-append","at":"t","entries":[]}',
@@ -421,6 +432,7 @@ describe("UI scrollback growth", () => {
     ].join("\n");
     expect(collapseSupersededUiEvents(content)).toBe(
       [
+        header,
         "not json",
         '{"type":"ui-transcript","at":"t","entries":[{"type":"user","message":"x"}]}',
         "",
@@ -546,6 +558,50 @@ describe("parseConversationLogLine", () => {
       message: { role: "user", content: "hi" },
     });
   });
+
+  test("legacy decoding requires an explicit version 2 context and preserves record identity", () => {
+    const line = JSON.stringify({
+      type: "ui-transcript",
+      at: "2026-08-01T10:00:00.000Z",
+      entries: [{ type: "user", message: "old question" }],
+    });
+    expect(parseConversationLogLine(line)).toBeNull();
+    expect(parseConversationLogLine(line, 7, 1)).toBeNull();
+    expect(parseConversationLogLine(line, 7, 3)).toBeNull();
+    expect(parseConversationLogLine(line, 7, 2)).toEqual({
+      type: "ui-transcript",
+      at: "2026-08-01T10:00:00.000Z",
+      entries: [
+        {
+          id: "legacy:7:0",
+          timestamp: "2026-08-01T10:00:00.000Z",
+          content: { kind: "user", text: "old question" },
+        },
+      ],
+    });
+  });
+
+  test("legacy timestamps become schema-valid ISO instants", () => {
+    for (const [at, timestamp] of [
+      ["2026-01-01", "2026-01-01T00:00:00.000Z"],
+      ["2026-01-01T01:00:00+01:00", "2026-01-01T00:00:00.000Z"],
+      ["unreadable date", "1970-01-01T00:00:00.000Z"],
+    ] as const) {
+      const event = parseConversationLogLine(
+        JSON.stringify({
+          type: "ui-transcript",
+          at,
+          entries: [{ type: "user", message: "old question" }],
+        }),
+        7,
+        2,
+      );
+      expect(event?.type).toBe("ui-transcript");
+      if (event?.type !== "ui-transcript") throw new Error("Legacy UI event expected");
+      expect(event.entries[0]?.timestamp).toBe(timestamp);
+      expect(presentationEntrySchema.safeParse(event.entries[0]).success).toBe(true);
+    }
+  });
 });
 
 describe("deriveConversationTitle", () => {
@@ -611,6 +667,110 @@ describe("semantic presentation persistence", () => {
     timestamp,
     content: { kind: "agent" as const, markdown: "**answer**" },
   };
+
+  function boundaryHistory(...events: readonly unknown[]) {
+    return reduceConversationLog(
+      parseConversationLog(
+        [
+          {
+            type: "conversation",
+            version: 3,
+            agentId: AGENT_ID,
+            conversationId: CONVERSATION_ID,
+            startedAt: timestamp,
+          },
+          { type: "message", at: timestamp, message: userMessage("model-facing text") },
+          { type: "ui-transcript", at: timestamp, entries: [receipt] },
+          ...events,
+        ]
+          .map((event) => JSON.stringify(event))
+          .join("\n"),
+      ),
+    );
+  }
+
+  test("rejects a whole snapshot with duplicate source IDs and preserves valid history", () => {
+    const history = boundaryHistory({
+      type: "ui-transcript",
+      at: timestamp,
+      entries: [answer, answer],
+    });
+    expect(history?.uiTranscript).toEqual([receipt]);
+    expect(history?.messages).toEqual([userMessage("model-facing text")]);
+  });
+
+  test("rejects a whole append that republishes an existing source ID", () => {
+    const history = boundaryHistory({
+      type: "ui-append",
+      at: timestamp,
+      entries: [answer, receipt],
+    });
+    expect(history?.uiTranscript).toEqual([receipt]);
+    expect(history?.messages).toEqual([userMessage("model-facing text")]);
+  });
+
+  test("rejects duplicate IDs within an append without reserving IDs from the rejected batch", () => {
+    const history = boundaryHistory(
+      { type: "ui-append", at: timestamp, entries: [answer, answer] },
+      { type: "ui-append", at: timestamp, entries: [answer] },
+    );
+    expect(history?.uiTranscript).toEqual([receipt, answer]);
+  });
+
+  test("a malformed entry rejects its whole UI batch without losing later model messages", () => {
+    for (const type of ["ui-transcript", "ui-append"]) {
+      const history = boundaryHistory(
+        {
+          type,
+          at: timestamp,
+          entries: [
+            answer,
+            {
+              ...answer,
+              id: "invalid",
+              content: { ...answer.content, viewport: 12 },
+            },
+          ],
+        },
+        { type: "message", at: timestamp, message: assistantMessage("still model-facing") },
+        { type: "ui-append", at: timestamp, entries: [answer] },
+      );
+      expect(history?.uiTranscript).toEqual([receipt, answer]);
+      expect(history?.messages).toEqual([
+        userMessage("model-facing text"),
+        assistantMessage("still model-facing"),
+      ]);
+    }
+  });
+
+  test("does not reinterpret malformed semantic facts as legacy text", () => {
+    const history = boundaryHistory({
+      type: "ui-transcript",
+      at: timestamp,
+      entries: [{ ...answer, type: "user", message: "invented legacy text" }],
+    });
+    expect(history?.uiTranscript).toEqual([receipt]);
+    expect(
+      parseConversationLogLine(
+        JSON.stringify({
+          type: "ui-transcript",
+          at: timestamp,
+          entries: [{ ...answer, type: "user", message: "invented legacy text" }],
+        }),
+        3,
+        2,
+      ),
+    ).toBeNull();
+  });
+
+  test("a version 3 header refuses legacy text records", () => {
+    const history = boundaryHistory({
+      type: "ui-transcript",
+      at: timestamp,
+      entries: [{ type: "user", message: "legacy under version 3" }],
+    });
+    expect(history?.uiTranscript).toEqual([receipt]);
+  });
 
   test("an earlier fact change replaces the snapshot even when the last entry is unchanged", async () => {
     await runEffect(

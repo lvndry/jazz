@@ -238,10 +238,13 @@ function optionalString(value: unknown): string | undefined {
  *
  * A truncated final line from a killed process lands here as a JSON syntax error; treating
  * it as "no event" is what keeps one bad write from poisoning the whole log.
+ * UI batches are atomic: an invalid entry or duplicate ID rejects the event.
+ * Standalone calls use version 3; only an explicit version 2 context decodes legacy text.
  */
 export function parseConversationLogLine(
   line: string,
   recordIndex = 0,
+  version = CONVERSATION_LOG_VERSION,
 ): ConversationLogEvent | null {
   const trimmed = line.trim();
   if (trimmed.length === 0) return null;
@@ -299,30 +302,71 @@ export function parseConversationLogLine(
     case "ui-append": {
       const entries = parsed["entries"];
       if (!Array.isArray(entries)) return null;
-      const accepted = entries.flatMap((entry, index): ConversationUiEntry[] => {
+      const accepted: ConversationUiEntry[] = [];
+      const ids = new Set<string>();
+      for (const [index, entry] of entries.entries()) {
         const validated = presentationEntrySchema.safeParse(entry);
-        if (validated.success) return [validated.data];
-        if (!isRecordObject(entry) || typeof entry["message"] !== "string") return [];
-        const type = entry["type"];
-        if (!isTerminalOutputKind(type)) return [];
-        // Older logs contain rendered text, not recoverable receipt facts.
-        const text = Bun.stripANSI(entry["message"]);
-        return [
-          {
+        let source: ConversationUiEntry;
+        if (validated.success) {
+          source = validated.data;
+        } else {
+          if (
+            version !== 2 ||
+            !isRecordObject(entry) ||
+            Object.keys(entry).some((key) => key !== "type" && key !== "message") ||
+            typeof entry["message"] !== "string" ||
+            !isTerminalOutputKind(entry["type"])
+          )
+            return null;
+          const type = entry["type"];
+          const text = Bun.stripANSI(entry["message"]);
+          source = {
             id: `legacy:${recordIndex}:${index}`,
-            timestamp: Number.isNaN(Date.parse(at)) ? new Date(0).toISOString() : at,
+            timestamp: Number.isNaN(Date.parse(at))
+              ? new Date(0).toISOString()
+              : new Date(at).toISOString(),
             content:
               type === "user"
                 ? { kind: "user", text }
                 : { kind: "notice", text, tone: type === "streamContent" ? "log" : type },
-          },
-        ];
-      });
+          };
+        }
+        if (ids.has(source.id)) return null;
+        ids.add(source.id);
+        accepted.push(source);
+      }
       return { type: parsed["type"], at, entries: accepted };
     }
     default:
       return null;
   }
+}
+
+/** Accept all IDs or leave the current set unchanged when any entry conflicts. */
+function acceptUiEntryIds(entries: readonly ConversationUiEntry[], ids: Set<string>): boolean {
+  const added = new Set<string>();
+  for (const entry of entries) {
+    if (ids.has(entry.id) || added.has(entry.id)) return false;
+    added.add(entry.id);
+  }
+  for (const id of added) ids.add(id);
+  return true;
+}
+
+/** Retain line positions while applying the header version and atomic UI identity boundary. */
+function parseConversationLogRecords(lines: readonly string[]): (ConversationLogEvent | null)[] {
+  let version = CONVERSATION_LOG_VERSION;
+  let uiIds = new Set<string>();
+  return lines.map((line, index) => {
+    const event = parseConversationLogLine(line, index, version);
+    if (event?.type === "conversation") version = event.version;
+    if (event?.type === "ui-transcript" || event?.type === "ui-append") {
+      const nextIds = event.type === "ui-transcript" ? new Set<string>() : uiIds;
+      if (!acceptUiEntryIds(event.entries, nextIds)) return null;
+      uiIds = nextIds;
+    }
+    return event;
+  });
 }
 
 /** First line of the first user message, used when a conversation has no title. */
@@ -350,6 +394,7 @@ export function reduceConversationLog(
   let endedAt: string | null = null;
   let messages: ChatMessage[] = [];
   let uiTranscript: ConversationUiEntry[] = [];
+  let uiIds = new Set<string>();
 
   for (const event of events) {
     switch (event.type) {
@@ -367,10 +412,15 @@ export function reduceConversationLog(
       case "rewrite":
         messages = [];
         break;
-      case "ui-transcript":
+      case "ui-transcript": {
+        const nextIds = new Set<string>();
+        if (!acceptUiEntryIds(event.entries, nextIds)) break;
+        uiIds = nextIds;
         uiTranscript = [...event.entries];
         break;
+      }
       case "ui-append":
+        if (!acceptUiEntryIds(event.entries, uiIds)) break;
         uiTranscript.push(...event.entries);
         break;
     }
@@ -458,12 +508,7 @@ function requireReadableLogVersion(
 
 /** Parses a log body into events, skipping lines a crash left unreadable. */
 export function parseConversationLog(content: string): ConversationLogEvent[] {
-  const events: ConversationLogEvent[] = [];
-  for (const [index, line] of content.split("\n").entries()) {
-    const event = parseConversationLogLine(line, index);
-    if (event) events.push(event);
-  }
-  return events;
+  return parseConversationLogRecords(content.split("\n")).filter((event) => event !== null);
 }
 
 /** Reads a whole conversation log and folds it into a conversation. */
@@ -735,7 +780,7 @@ interface LoadedAppendState {
  */
 export function collapseSupersededUiEvents(content: string): string | null {
   const lines = content.split("\n");
-  const events = lines.map((line, index) => parseConversationLogLine(line, index));
+  const events = parseConversationLogRecords(lines);
   let lastSnapshot = -1;
   events.forEach((event, index) => {
     if (event?.type === "ui-transcript") {
@@ -756,7 +801,7 @@ export function collapseSupersededUiEvents(content: string): string | null {
 /** Upgrade text-only UI records once; unknown and model-facing lines retain their bytes. */
 export function migratePresentationLog(content: string): string | null {
   const lines = content.split("\n");
-  const events = lines.map((line, index) => parseConversationLogLine(line, index));
+  const events = parseConversationLogRecords(lines);
   const header = events.find((event) => event?.type === "conversation");
   if (header?.type !== "conversation" || header.version >= CONVERSATION_LOG_VERSION) return null;
   return lines
