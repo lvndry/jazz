@@ -42,16 +42,20 @@ npm install --global typescript-language-server typescript@6
       "id": "typescript",
       "command": "typescript-language-server",
       "args": ["--stdio"],
-      "extensions": [".ts", ".tsx"],
-      "languageId": "typescript",
+      "extensions": {
+        ".ts": "typescript",
+        ".tsx": "typescriptreact"
+      },
       "rootMarkers": ["tsconfig.json", "package.json"]
     },
     {
       "id": "javascript",
       "command": "typescript-language-server",
       "args": ["--stdio"],
-      "extensions": [".js", ".jsx"],
-      "languageId": "javascript",
+      "extensions": {
+        ".js": "javascript",
+        ".jsx": "javascriptreact"
+      },
       "rootMarkers": ["jsconfig.json", "package.json"]
     }
   ]
@@ -74,8 +78,7 @@ npm install --global pyright
       "id": "python",
       "command": "pyright-langserver",
       "args": ["--stdio"],
-      "extensions": [".py"],
-      "languageId": "python",
+      "extensions": { ".py": "python" },
       "rootMarkers": [
         "pyrightconfig.json",
         "pyproject.toml",
@@ -88,7 +91,7 @@ npm install --global pyright
 }
 ```
 
-Two alternatives, same `extensions`, `languageId`, and `rootMarkers` as above:
+Two alternatives, same `extensions` and `rootMarkers` as above:
 
 - [`python-lsp-server`](https://github.com/python-lsp/python-lsp-server) — `pip install
 python-lsp-server`, then `command: "pylsp"` with `args: []`.
@@ -107,8 +110,7 @@ Install [`rust-analyzer`](https://rust-analyzer.github.io/book/installation.html
       "id": "rust",
       "command": "rust-analyzer",
       "args": [],
-      "extensions": [".rs"],
-      "languageId": "rust",
+      "extensions": { ".rs": "rust" },
       "rootMarkers": ["Cargo.toml"]
     }
   ]
@@ -130,8 +132,7 @@ go install golang.org/x/tools/gopls@latest
       "id": "go",
       "command": "gopls",
       "args": [],
-      "extensions": [".go"],
-      "languageId": "go",
+      "extensions": { ".go": "go" },
       "rootMarkers": ["go.work", "go.mod"]
     }
   ]
@@ -140,17 +141,19 @@ go install golang.org/x/tools/gopls@latest
 
 The fields mean:
 
-| Field         | Meaning                                                                                    |
-| ------------- | ------------------------------------------------------------------------------------------ |
-| `id`          | A name for this configuration entry.                                                       |
-| `command`     | The executable Jazz starts. It must be available on Jazz's `PATH`, or be an absolute path. |
-| `args`        | Command arguments as an array, such as `["--stdio"]` when the server requires it.          |
-| `extensions`  | File extensions handled by this entry, including the leading dot.                          |
-| `languageId`  | The LSP language identifier sent when Jazz opens a file.                                   |
-| `rootMarkers` | Filenames used to find the project root while walking up from a file or current directory. |
+| Field         | Meaning                                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `id`          | A name for this configuration entry.                                                                                 |
+| `command`     | The executable Jazz starts. It must be available on Jazz's `PATH`, or be an absolute path.                           |
+| `args`        | Command arguments as an array, such as `["--stdio"]` when the server requires it.                                    |
+| `extensions`  | File extensions handled by this entry (with the leading dot), each mapped to the LSP language ID Jazz opens it with. |
+| `rootMarkers` | Filenames used to find the project root while walking up from a file or current directory.                           |
 
-The server must speak LSP 3.17 over standard input and output. Jazz chooses the first entry whose
-`extensions` contains the file's extension. At the beginning of a run it starts configured servers
+Each extension is bound to exactly one language ID, because a file's language determines how the
+server parses it: the React dialects (`.tsx`, `.jsx`) must open as `typescriptreact` /
+`javascriptreact`, never as plain `typescript` or `javascript`. A legacy top-level `languageId` is
+rejected at load time with a message that names the replacement. Jazz chooses the first entry whose
+`extensions` names the file's extension. At the beginning of a run it starts configured servers
 whose root markers identify the active project. If a matching file is read or changed later, Jazz
 starts its server then and supplies diagnostics on the next model request. A new configuration is
 read on the next request; changing the executable starts a new server, while an old idle server

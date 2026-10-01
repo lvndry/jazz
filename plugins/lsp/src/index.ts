@@ -96,7 +96,7 @@ const plugin: JazzPluginModule = {
       try {
         lines.push(...(await activateWorkspace(input.cwd, context.signal)).map(failureLine));
         const configured = await loadServers();
-        const extensions = new Set(configured.flatMap((server) => server.extensions));
+        const extensions = new Set(configured.flatMap((server) => Object.keys(server.extensions)));
         for (const file of input.files) {
           if (!extensions.has(extname(file.path))) continue;
           trackedFiles.delete(file.path);
