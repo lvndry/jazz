@@ -347,6 +347,7 @@ describe("home screen", () => {
     const menu = drawn.rows.filter((row) => descriptions.some((text) => row.includes(text)));
     expect(menu).toHaveLength(2);
     expect(menu[0]).toContain("/resume");
+    expect(menu[1]).toContain("/create");
     expect(drawn.text).toContain("enter runs /resume");
     const matched = allSpans(drawn.frame).filter((span) => span.text === "re");
     expect(matched.some((span) => (span.attributes & TextAttributes.BOLD) !== 0)).toBe(true);
