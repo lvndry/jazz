@@ -21,6 +21,8 @@ Pipeline base then head ran serially; focused runs alternated base/head in three
 fresh-process pairs. Root avoided heavy checks during those runs. This is a
 local machine measurement, not a calibrated idle-host or cross-platform study.
 
+The raw per-run JSONs named below stay local in
+`bench/results/ui-ownership-2026-10-01/` (gitignored); filenames are shown as-is.
 The corrected pipeline suite, runner, harness, corpus and memory worker were
 byte-identical between checkouts. SHA-256 of the corrected pipeline suite is
 `2b9986f1213eceff0161ee03535197be728bd09809f75bef3e80a9641fabcd6f`.
@@ -37,14 +39,14 @@ process, so its reported p95 is not a strong tail estimate.
 
 ## Gate evidence
 
-| Check                                | Result               | Evidence                                                                                                                                     |
-| ------------------------------------ | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Combined head absolute smoke budgets | Pass, 68 rows        | [absolute.head.json](../results/ui-ownership-2026-10-01/absolute.head.json)                                                                  |
-| Transcript row comparison            | Pass                 | [base](../results/ui-ownership-2026-10-01/rows.base.json), [head](../results/ui-ownership-2026-10-01/rows.head.json)                         |
-| Corrected pipeline comparison        | Fail, 3 metric gates | [base](../results/ui-ownership-2026-10-01/pipeline.base.json), [head](../results/ui-ownership-2026-10-01/pipeline.head.json)                 |
-| Earlier memory lifetime comparison   | Fail, Ink30 p50/p95  | [base](../results/ui-ownership-2026-10-01/memory.base.json), [head](../results/ui-ownership-2026-10-01/memory.head.json)                     |
-| Focused Ink30 lifetime comparison    | Pass                 | [base](../results/ui-ownership-2026-10-01/focused-memory.base.json), [head](../results/ui-ownership-2026-10-01/focused-memory.head.json)     |
-| Focused pipeline comparison          | Fail, 4 metric gates | [base](../results/ui-ownership-2026-10-01/focused-pipeline.base.json), [head](../results/ui-ownership-2026-10-01/focused-pipeline.head.json) |
+| Check                                | Result               | Evidence                                                   |
+| ------------------------------------ | -------------------- | ---------------------------------------------------------- |
+| Combined head absolute smoke budgets | Pass, 68 rows        | `absolute.head.json`                                       |
+| Transcript row comparison            | Pass                 | `rows.base.json`, `rows.head.json`                         |
+| Corrected pipeline comparison        | Fail, 3 metric gates | `pipeline.base.json`, `pipeline.head.json`                 |
+| Earlier memory lifetime comparison   | Fail, Ink30 p50/p95  | `memory.base.json`, `memory.head.json`                     |
+| Focused Ink30 lifetime comparison    | Pass                 | `focused-memory.base.json`, `focused-memory.head.json`     |
+| Focused pipeline comparison          | Fail, 4 metric gates | `focused-pipeline.base.json`, `focused-pipeline.head.json` |
 
 The full corrected pipeline failure is unicode1k steady p95 **6.0564 → 9.5040 ms**
 and unbroken1k first p50/p95 **2.6758 → 5.4832 ms**. In the focused three pairs,
@@ -64,8 +66,8 @@ source-retention safeguards were unchanged.
 A single instrumented pair records publication, presentation projection, React
 layout/commit completion, native render, stdout writes and flush completion.
 It overlapped root's final checks and is **ordering evidence only**, not another
-performance qualification: [base](../results/ui-ownership-2026-10-01/phase-diagnostic.base.json),
-[head](../results/ui-ownership-2026-10-01/phase-diagnostic.head.json). Source snapshots are retained as
+performance qualification: `phase-diagnostic.base.json`,
+`phase-diagnostic.head.json`. Source snapshots are retained as
 [focused runner](focused-runner.ts.txt) and [phase observer](phase-observer.ts.txt).
 
 Before each measured marker becomes visible, both revisions show exactly one
@@ -92,13 +94,13 @@ OpenTUI100 prose retained heap falls **64.2 → 22.4 MB** and peak RSS
 cells increase **4,672,515 → 5,331,125**. Smoke runs meet the 1 GiB RSS and
 64 MiB post-clear heap ceilings.
 
-The separate [extended report](../results/ui-ownership-2026-10-01/memory.head-500.json) is **one sample**, excluded
+The separate `memory.head-500.json` is **one sample**, excluded
 from `absolute.head.json`. OpenTUI500 prose peaks at **1,198,325,760 bytes** and
 OpenTUI100 stress at **1,250,263,040 bytes**, both above the smoke ceiling.
 Bounded layout caches do not make total history/native memory constant.
 Negative post-clear values are deltas from warmed heap, not negative heap sizes.
 
-[Startup](../results/ui-ownership-2026-10-01/startup.head.json) medians are source `--version` **72.8569 ms**,
+`startup.head.json` medians are source `--version` **72.8569 ms**,
 compiled `--version` **31.3218 ms**, OpenTUI fresh/warm accepted draft
 **1016.1888/1113.9943 ms**, and Ink **636.4887/790.3248 ms**. These are reported
 p50 medians, not means. Parser50KB p95 is **1.7165 ms**; 10,050-file approval

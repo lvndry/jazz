@@ -1411,10 +1411,10 @@ export class UIStore {
     this.expandedReasoningIds.clear();
     this.expandedReceiptIds.clear();
     this.pinnedReasoningIds.clear();
-    this.expandedReasoningIds.clear();
     this.liveReasoningIds.clear();
     this.deferredReasoningIds.clear();
     this.turnThoughtIds = [];
+    this.expandableReasoningStack.length = 0;
     this.ephemeralRegions.clear();
     this.publishEphemeralRegions();
     this.subagentRuns.clear();

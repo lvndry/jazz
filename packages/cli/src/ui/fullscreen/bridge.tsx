@@ -208,7 +208,7 @@ const EMPTY_PROMPT_CONTROLS: PromptControlsState = {
 
 function useSynchronizedState<State>(
   initialState: State,
-): readonly [State, React.MutableRefObject<State>, (update: React.SetStateAction<State>) => void] {
+): readonly [State, React.RefObject<State>, (update: React.SetStateAction<State>) => void] {
   const [state, setState] = useState(initialState);
   const stateRef = useRef(initialState);
   const updateState = useCallback((update: React.SetStateAction<State>): void => {

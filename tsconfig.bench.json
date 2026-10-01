@@ -1,6 +1,13 @@
 {
   "extends": "./tsconfig.base.json",
-  "files": [],
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": ".tsbuild/bench",
+    "module": "preserve",
+    "composite": true,
+    "declaration": true,
+    "tsBuildInfoFile": ".tsbuildinfo.bench"
+  },
   "references": [
     { "path": "./packages/plugin-sdk" },
     { "path": "./packages/core" },
@@ -13,8 +20,8 @@
     { "path": "./packages/imessage-bot" },
     { "path": "./packages/photon-bot" },
     { "path": "./packages/telegram-bot" },
-    { "path": "./packages/whatsapp-bot" },
-        { "path": "./tsconfig.build.json" },
-    { "path": "./tsconfig.bench.json" }
-  ]
+    { "path": "./packages/whatsapp-bot" }
+  ],
+  "include": ["bench/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }
