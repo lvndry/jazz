@@ -80,11 +80,18 @@ messages.
 UI records now store `{ id, content, timestamp }`. Strict schemas validate
 content variants, report rows, dates, numeric statistics, and allowed fields at
 the storage boundary. Duplicate source IDs are rejected before a save creates a
-log. Source facts are immutable; fingerprint caching relies on that contract.
+log. Readers accept a UI event as one batch: an invalid entry, repeated ID within
+the batch, or append ID already in the current document rejects the whole event.
+The previous valid UI document and model-facing messages remain available.
+Source facts are immutable; fingerprint caching relies on that contract.
 
 Version 2 UI records contain rendered `{ type, message }` text. They cannot
 recover original receipt facts. Readers restore user entries as user text and
-other output as historical notices, stripping terminal styling. The next save
+other output as historical notices, stripping terminal styling. Legacy decoding
+requires a version 2 header; standalone line parsing defaults to strict version 3.
+A malformed semantic entry is never reinterpreted as legacy text. Parseable
+legacy timestamps become ISO instants; unreadable timestamps use the Unix epoch.
+The next save
 atomically upgrades their header and UI records while preserving model-facing
 and unreadable records. IDs assigned during migration survive later compaction
 of superseded UI snapshots. Repeating the upgrade is a no-op.
