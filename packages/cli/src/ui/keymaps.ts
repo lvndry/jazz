@@ -39,7 +39,8 @@ const RUN_BINDINGS: readonly KeyBinding[] = [
   { keys: "Ctrl+C Ctrl+C", action: "Leave the conversation" },
   { keys: "Shift+Tab", action: "Toggle safe/yolo approval mode" },
   { keys: "Ctrl+R", action: "Expand collapsed reasoning (repeat for earlier blocks)" },
-  { keys: "Ctrl+O", action: "Expand the last truncated diff or tool output" },
+  { keys: "Ctrl+E", action: "Expand the last write/edit diff in place", when: "empty input" },
+  { keys: "Ctrl+O", action: "Expand the last truncated tool output" },
   { keys: "Up", action: "Recall queued messages for editing", when: "agent busy" },
   { keys: "Ctrl+X", action: "Clear the message queue", when: "agent busy, empty input" },
 ];

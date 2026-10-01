@@ -20,7 +20,7 @@ export const FILE_MUTATION_PREVIEW_CHARS = 150;
 /** Diff rows a settled write_file / edit_file receipt shows under its line. */
 export const FILE_MUTATION_PREVIEW_LINES = 10;
 
-const FILE_MUTATION_EXPAND_HINT = "… · ctrl+o to expand";
+const FILE_MUTATION_EXPAND_HINT = "… · ctrl+e to expand";
 const ESC = "\u001b";
 const SGR_PATTERN = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
 

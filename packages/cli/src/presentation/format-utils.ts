@@ -49,7 +49,7 @@ export function formatToolResult(toolName: string, result: string): string {
   return colorizeFileMutationOutput(formatted, languageFromToolResult(result));
 }
 
-const FILE_MUTATION_EXPAND_HINT = "… · ctrl+o to expand";
+const FILE_MUTATION_EXPAND_HINT = "… · ctrl+e to expand";
 
 function languageFromToolResult(result: string): string | undefined {
   try {
