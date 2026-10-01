@@ -81,6 +81,10 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 
 ## Budgets and reproducibility
 
+[UI ownership qualification, 2026-10-01](results/ui-ownership-2026-10-01/qualification.md)
+archives matched local reports, corrected first/steady frame sampling, unresolved
+Ink relative gates, and extended-run resource limits.
+
 `run.ts --output` writes versioned reports with OS, architecture and Bun version.
 CI runs `--samples 5`, using five fresh processes per suite and retaining the median of each
 reported measurement; the odd count keeps the median a real observation, so a single

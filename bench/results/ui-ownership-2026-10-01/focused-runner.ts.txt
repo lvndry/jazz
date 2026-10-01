@@ -1,0 +1,113 @@
+/**
+ * Requalify exact failing Ink workloads in alternating, isolated base/head workers.
+ * Run with Bun and BASE_CHECKOUT / HEAD_CHECKOUT / QUALIFICATION_OUTPUT set.
+ * Pipeline workers retain every observed first/steady delta duration. Memory
+ * workers invoke the unchanged conversation-memory --worker and include its GC,
+ * lifetime and source-retention observations in the measured child wall time.
+ */
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+interface BenchRow {
+  readonly suite: string;
+  readonly name: string;
+  readonly iterations: number;
+  readonly totalMs: number;
+  readonly meanMs: number;
+  readonly p50Ms: number;
+  readonly p95Ms: number;
+  readonly metrics: Readonly<Record<string, number>>;
+  readonly observedMs?: readonly number[];
+}
+const workerMode = process.argv[2] === "--pipeline-worker";
+const round = (value: number): number => Number(value.toFixed(4));
+const median = (values: readonly number[]): number => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
+const summary = (name: string, durations: readonly number[], metrics: Readonly<Record<string, number>>): BenchRow => {
+  const sorted = [...durations].sort((a, b) => a - b);
+  const totalMs = durations.reduce((sum, duration) => sum + duration, 0);
+  return { suite: "ui-pipeline", name, iterations: durations.length, totalMs: round(totalMs),
+    meanMs: round(totalMs / durations.length), p50Ms: round(sorted[Math.floor(sorted.length * .5)] ?? 0),
+    p95Ms: round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * .95))] ?? 0), metrics,
+    observedMs: durations.map(round) };
+};
+
+if (workerMode) {
+  const checkout = process.argv[3];
+  if (!checkout) throw new Error("Pipeline worker requires a checkout");
+  const fixture = await import(join(checkout, "bench/ui-pipeline-fixture.ts"));
+  const { store } = await import(join(checkout, "packages/cli/src/ui/store.ts"));
+  const rows: BenchRow[] = [];
+  for (const shape of ["unicode", "unbroken"] as const) {
+    const pipeline = await fixture.mountPipeline("ink");
+    try {
+      const text = shape === "unicode" ? "界 e\u0301 👨‍👩‍👧‍👦 words ".repeat(Math.ceil(1_000 / 23)).slice(0, 1_000) : "x".repeat(1_000);
+      pipeline.mutate(() => { fixture.seedHistory(20); store.appendStream("response", `${text}\nreadyMARK `); });
+      await fixture.awaitPaint(pipeline, "readyMARK");
+      for (const phase of [
+        { name: "first delta", marker: "firstDeltaMARK", iterations: 1 },
+        { name: "steady deltas", marker: "steadyDeltaMARK", iterations: 32 },
+      ]) {
+        const bytesBefore = pipeline.outputBytes();
+        const durations: number[] = [];
+        for (let iteration = 0; iteration < phase.iterations; iteration++) {
+          const started = performance.now();
+          const marker = `${phase.marker}${iteration}`;
+          pipeline.mutate(() => store.appendStream("response", `\n${marker} words `));
+          await fixture.awaitPaint(pipeline, marker);
+          durations.push(performance.now() - started);
+        }
+        rows.push(summary(`ink ${shape} 1000 chars, 20 turns, ${phase.name} -> painted frame`, durations,
+          { rendererOutputBytes: pipeline.outputBytes() - bytesBefore, historyTurns: 20, answerCharacters: 1_000 }));
+      }
+    } finally { await pipeline.close(); }
+  }
+  console.log(JSON.stringify(rows));
+} else {
+  const base = process.env["BASE_CHECKOUT"];
+  const head = process.env["HEAD_CHECKOUT"];
+  const output = process.env["QUALIFICATION_OUTPUT"];
+  if (!base || !head || !output) throw new Error("Missing qualification paths");
+  const mode = process.argv[2];
+  if (mode !== "pipeline" && mode !== "memory") throw new Error("Expected pipeline or memory mode");
+  const observations: { readonly pair: number; readonly side: "base" | "head"; readonly rows: readonly BenchRow[] }[] = [];
+  for (let pair = 0; pair < 3; pair++) {
+    for (const side of ["base", "head"] as const) {
+      const checkout = side === "base" ? base : head;
+      const home = await mkdtemp(join(tmpdir(), "jazz-focused-qualification-"));
+      try {
+        const started = performance.now();
+        const child = Bun.spawn(mode === "pipeline"
+          ? [process.execPath, import.meta.path, "--pipeline-worker", checkout]
+          : [process.execPath, join(checkout, "bench/conversation-memory.bench.ts"), "--worker", "ink", "30", "short-paragraphs"],
+          { cwd: checkout, stdout: "pipe", stderr: "pipe", stdin: "ignore", timeout: 120_000,
+            env: { ...process.env, JAZZ_HOME: home, JAZZ_OFFLINE: "1", JAZZ_DISABLE_KEYRING: "1", JAZZ_UI_GLYPHS: "unicode" } });
+        const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+        const wallMs = round(performance.now() - started);
+        if (code !== 0) throw new Error(`Focused ${mode} ${side} worker failed (${code}): ${stderr.slice(-1000)}`);
+        const value = JSON.parse(stdout.trim());
+        const rows: readonly BenchRow[] = mode === "pipeline" ? value : [{
+          suite: "conversation-memory", name: "ink short-paragraphs 30 turns, isolated child lifetime", iterations: 1,
+          totalMs: wallMs, meanMs: wallMs, p50Ms: wallMs, p95Ms: wallMs, metrics: value }];
+        observations.push({ pair, side, rows });
+        console.log(`${mode} pair ${pair + 1} ${side}: ${mode === "memory" ? wallMs.toFixed(1) : rows.map((row) => `${row.name.includes("unicode") ? "unicode" : "unbroken"}/${row.iterations} p95=${row.p95Ms.toFixed(3)}`).join(", ")} ms`);
+      } finally { await rm(home, { recursive: true, force: true }); }
+    }
+  }
+  for (const side of ["base", "head"] as const) {
+    const samples = observations.filter((sample) => sample.side === side);
+    const names = samples[0]?.rows.map((row) => row.name) ?? [];
+    const results = names.map((name) => {
+      const rows = samples.flatMap((sample) => sample.rows.filter((row) => row.name === name));
+      const first = rows[0];
+      if (!first || rows.length !== 3) throw new Error("Incomplete focused observations");
+      const { observedMs: _frames, ...row } = first;
+      return { ...row, totalMs: median(rows.map((sample) => sample.totalMs)), meanMs: median(rows.map((sample) => sample.meanMs)),
+        p50Ms: median(rows.map((sample) => sample.p50Ms)), p95Ms: median(rows.map((sample) => sample.p95Ms)),
+        metrics: Object.fromEntries(Object.keys(first.metrics).map((key) => [key, median(rows.map((sample) => sample.metrics[key] ?? 0))])) };
+    });
+    await Bun.write(`${output}.${side}.json`, JSON.stringify({ version: 1, samples: 3,
+      runtime: { platform: process.platform, arch: process.arch, bun: Bun.version }, results,
+      observations: samples }, null, 2) + "\n");
+  }
+}
