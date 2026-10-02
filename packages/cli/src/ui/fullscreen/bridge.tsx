@@ -84,6 +84,11 @@ import { contentFromOutput, outputFromEntry, projectDocumentEntries } from "../d
 import { agentDetailsBodyHeight, agentDetailsRows } from "../models/agent-details";
 import { approvalFacts, diffLanguage } from "../models/approval";
 import { approvalTitle } from "../models/approval";
+import {
+  describeBackgroundCheck,
+  describeBackgroundTiming,
+  formatBackgroundWork,
+} from "../models/background-work";
 import { homeIntent } from "../models/home-view";
 import { interruptSummary, type InterruptSnapshot, type ReceiptFacts } from "../models/interrupt";
 import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
@@ -1068,6 +1073,9 @@ export function FullscreenBridge(): React.ReactNode {
   const subagentRuns = presentation.subagents.runs;
   const subagentRunsRef = useRef(subagentRuns);
   subagentRunsRef.current = subagentRuns;
+  const backgroundItemsNow = session.backgroundItems;
+  const backgroundItemsRef = useRef(backgroundItemsNow);
+  backgroundItemsRef.current = backgroundItemsNow;
   // Null while the composer has the keyboard; otherwise the highlighted row.
   const [agentCursor, agentCursorRef, setAgentCursor] = useSynchronizedState<number | null>(null);
   // The sub-agent whose log is standing in for the conversation, if any.
@@ -1270,11 +1278,11 @@ export function FullscreenBridge(): React.ReactNode {
 
   // A new turn prunes the finished runs, and with them whatever was open or highlighted.
   useEffect(() => {
-    if (subagentRuns.length === 0) setAgentCursor(null);
+    if (subagentRuns.length === 0 && backgroundItemsNow.length === 0) setAgentCursor(null);
     if (inspectedId !== null && !subagentRuns.some((run) => run.id === inspectedId)) {
       setInspectedId(null);
     }
-  }, [subagentRuns, inspectedId, setAgentCursor, setInspectedId]);
+  }, [subagentRuns, backgroundItemsNow, inspectedId, setAgentCursor, setInspectedId]);
 
   useEffect(() => {
     return () => {
@@ -2420,9 +2428,11 @@ export function FullscreenBridge(): React.ReactNode {
       // past the first row) hands it back. Any other key returns to the composer
       // and is handled there, so typing never needs a key to leave the list first.
       const runsNow = subagentRunsRef.current;
+      const waitsNow = backgroundItemsRef.current;
+      const rowCount = runsNow.length + waitsNow.length;
       const cursor = agentCursorRef.current;
       if (cursor !== null) {
-        const lastRow = runsNow.length - 1;
+        const lastRow = rowCount - 1;
         if (lastRow < 0) {
           setAgentCursor(null);
         } else {
@@ -2440,6 +2450,16 @@ export function FullscreenBridge(): React.ReactNode {
             if (chosen !== undefined) inspectSubagent(chosen.id);
             return true;
           }
+          if (name === "x" && !ctrl && cursor >= runsNow.length) {
+            const chosenWait = waitsNow[Math.min(cursor, lastRow) - runsNow.length];
+            if (chosenWait !== undefined) {
+              store.cancelBackgroundItem(chosenWait.batchId);
+              if (rowCount === 1) {
+                setAgentCursor(null);
+              }
+            }
+            return true;
+          }
           setAgentCursor(null);
           if (name === "escape") return true;
         }
@@ -2448,7 +2468,7 @@ export function FullscreenBridge(): React.ReactNode {
         inspectSubagent(null);
         return true;
       }
-      if (name === "down" && runsNow.length > 0 && composerRef.current.text.length === 0) {
+      if (name === "down" && rowCount > 0 && composerRef.current.text.length === 0) {
         const firstRunning = runsNow.findIndex((run) => run.status === "running");
         setAgentCursor(firstRunning < 0 ? 0 : firstRunning);
         return true;
@@ -2815,15 +2835,21 @@ export function FullscreenBridge(): React.ReactNode {
   };
 
   const subagentList = useMemo<SubagentListModel | undefined>(() => {
-    if (subagentRuns.length === 0) return undefined;
+    if (subagentRuns.length === 0 && backgroundItemsNow.length === 0) return undefined;
     const now = Date.now();
     return {
       items: subagentRuns.map((run) => subagentListItem(run, now)),
+      waits: backgroundItemsNow.map((item) => ({
+        id: item.batchId,
+        label: item.description,
+        detail: describeBackgroundCheck(item),
+        timing: describeBackgroundTiming(item, now),
+      })),
       ...(agentCursor === null ? {} : { selected: agentCursor }),
       ...(inspectedId === null ? {} : { inspecting: inspectedId }),
     };
     // elapsedMs ticks the per-row clocks.
-  }, [subagentRuns, agentCursor, inspectedId, elapsedMs]);
+  }, [subagentRuns, backgroundItemsNow, agentCursor, inspectedId, elapsedMs]);
 
   const header = useMemo<HeaderModel>(() => {
     const localHost = hostForModel(stats.provider, stats.model, stats.localModelHosts);
@@ -2943,6 +2969,8 @@ export function FullscreenBridge(): React.ReactNode {
     inspectedSteerable,
   ]);
 
+  const backgroundLabel = formatBackgroundWork(session.backgroundItems);
+
   const footer = useMemo<FooterModel>(
     () => ({
       mode: isYolo ? "yolo" : "safe",
@@ -2950,12 +2978,15 @@ export function FullscreenBridge(): React.ReactNode {
         prompt !== null && hiddenPromptKeys(prompt) !== undefined
           ? prompt.message.split(", ")
           : agentCursor !== null
-            ? ["up down to choose", "enter to open", "esc to close"]
+            ? agentCursor >= subagentRuns.length
+              ? ["up down to choose", "x to cancel", "esc to close"]
+              : ["up down to choose", "enter to open", "esc to close"]
             : inspectedRun !== undefined
               ? inspectedSteerable
                 ? ["enter to send", "pgup to scroll", "esc back to main"]
                 : ["pgup to scroll", "esc back to main"]
               : [],
+      ...(backgroundLabel === undefined ? {} : { background: backgroundLabel }),
       ...(subagentNotice === undefined ? {} : { notice: subagentNotice }),
       ...(stats.promptTokens === undefined && stats.completionTokens === undefined
         ? {}
@@ -2974,9 +3005,11 @@ export function FullscreenBridge(): React.ReactNode {
       stats.costUSD,
       elapsedMs,
       agentCursor,
+      subagentRuns.length,
       inspectedRun,
       inspectedSteerable,
       subagentNotice,
+      backgroundLabel,
     ],
   );
 

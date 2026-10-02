@@ -6,7 +6,7 @@
  *   safe ∙ enter to send ∙ up for history   20k in ∙ 40k out ∙ $0.18 ∙ 4:12
  *
  * The hints are a priority queue, not a fixed strip: at a narrow width the row
- * gives up the least useful thing rather than wrapping. Mode and spend never
+ * gives up the least useful thing rather than wrapping. Mode, background work and spend never
  * drop — the first because acting without knowing the mode is how you get a
  * surprise, the second because a spend you cannot see is a spend you cannot
  * stop. Spend is billed input/output tokens plus USD when known, preferring a provider-reported
@@ -74,14 +74,19 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
       ? undefined
       : { text: formatElapsed(model.elapsedMs), fg: THEME.muted };
 
+  const background =
+    model.background !== undefined && model.background.length > 0 ? model.background : undefined;
   const notice = model.notice !== undefined && model.notice.length > 0 ? model.notice : undefined;
   let hints = notice === undefined ? [...model.hints] : [];
   let keepElapsed = elapsed !== undefined;
 
   const leftWidth = (): number => {
     const noticeWidth = notice === undefined ? 0 : separatorWidth + terminalCellWidth(notice);
+    const backgroundWidth =
+      background === undefined ? 0 : separatorWidth + terminalCellWidth(background);
     return (
       terminalSegmentsWidth(mode) +
+      backgroundWidth +
       noticeWidth +
       hints.reduce((total, hint) => total + separatorWidth + terminalCellWidth(hint), 0)
     );
@@ -105,6 +110,10 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
   while (total() > viewport.width && hints.length > 0) hints = hints.slice(0, -1);
 
   const left: FooterSegment[] = [...mode];
+  if (background !== undefined) {
+    left.push({ text: separator, fg: THEME.muted });
+    left.push({ text: background, fg: THEME.primary });
+  }
   if (notice !== undefined) {
     left.push({ text: separator, fg: THEME.muted });
     left.push({ text: notice, fg: THEME.primary });

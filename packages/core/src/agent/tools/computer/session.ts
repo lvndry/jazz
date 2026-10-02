@@ -508,18 +508,25 @@ export class ComputerSession {
     if (appClass === "refused") {
       throw new Error(describeRefusal(bundleId));
     }
-    const windows = (await this.settings.driver.listWindows(app.pid)).filter(
-      (window) => window.onScreen && !window.minimized,
-    );
+    const allWindows = await this.settings.driver.listWindows(app.pid);
+    const windows = allWindows.filter((window) => window.onScreen && !window.minimized);
     const window =
       input.windowId === undefined
         ? windows[0]
-        : windows.find((candidate) => candidate.windowId === input.windowId);
+        : // An explicitly requested window is honored even when the driver reports it off-screen:
+          // the operator or the model chose it, and it may be on another Space (e.g. the operator's
+          // terminal is full-screen, which is its own Space).
+          allWindows.find((candidate) => candidate.windowId === input.windowId);
     if (window === undefined) {
+      const offScreen = allWindows.filter((candidate) => !candidate.minimized).length > 0;
       throw new Error(
-        input.windowId === undefined
-          ? `${app.name} has no visible window to observe.`
-          : `${app.name} has no visible window ${String(input.windowId)}. Use computer_apps to list its windows.`,
+        input.windowId === undefined && offScreen
+          ? `${app.name} has a window that is not on the current Space (it may be behind another desktop; ` +
+              "a full-screen terminal is its own Space). Bring the app to the front, e.g. with " +
+              "computer_foreground or `open -a`, then observe again. computer_apps lists what is on this Space."
+          : input.windowId === undefined
+            ? `${app.name} has no visible window to observe.`
+            : `${app.name} has no visible window ${String(input.windowId)}. Use computer_apps to list its windows.`,
       );
     }
 

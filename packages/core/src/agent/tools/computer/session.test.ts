@@ -581,3 +581,46 @@ describe("ComputerSessions", () => {
     await expect(sessions.obtain(open)).rejects.toThrow("Computer use for this run has ended.");
   });
 });
+
+describe("observe across Spaces", () => {
+  test("an explicitly requested window is observed even when off-screen (another Space)", async () => {
+    const offScreen = mailApp({
+      windows: [
+        {
+          windowId: 9,
+          title: "Inbox",
+          elements: [{ role: "AXButton", label: "Send" }],
+          onScreen: false,
+        },
+      ],
+    });
+    const started = start([offScreen], ["com.apple.mail"]);
+    try {
+      const observation = await started.session.observe({ windowId: 9, screenshot: false }, []);
+      expect(observation.target).toEqual({ pid: 101, windowId: 9 });
+    } finally {
+      await started.session.close();
+    }
+  });
+
+  test("the error says the window may be on another Space when only off-screen windows exist", async () => {
+    const offScreen = mailApp({
+      windows: [
+        {
+          windowId: 9,
+          title: "Inbox",
+          elements: [{ role: "AXButton", label: "Send" }],
+          onScreen: false,
+        },
+      ],
+    });
+    const started = start([offScreen], ["com.apple.mail"]);
+    try {
+      await expect(started.session.observe({ screenshot: false }, [])).rejects.toThrow(
+        /not on the current Space/,
+      );
+    } finally {
+      await started.session.close();
+    }
+  });
+});

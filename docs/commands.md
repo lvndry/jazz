@@ -967,6 +967,7 @@ shows every form of one command. The table below is generated from the same list
 | `/goal [objective\|pause\|resume\|clear\|list\|accept\|decline]`                     | Keep working toward an objective, turn after turn, in this conversation. See [Goals in chat](#goals-in-chat). |
 | `/help [command]`                                                                    | Show available commands and shortcuts.                                                                        |
 | `/loop <every> <prompt>\|cron\|list\|approve\|reject\|answer\|pause\|resume\|cancel` | Rerun a prompt on a schedule in the background. See [Loops in chat](#loops-in-chat).                          |
+| `/waits [list\|cancel <number>]`                                                     | List what is waiting in the background, or cancel one.                                                        |
 | `/memory [forget <path>]`                                                            | Show what this agent has remembered about you, or forget one file.                                            |
 | `/limit [turns\|usd\|tokens <value>\|clear]`                                         | Set a session turn, cost, or token limit (applied immediately).                                               |
 | `/mcp [reconnect <server>]`                                                          | Show MCP servers, or reconnect one.                                                                           |

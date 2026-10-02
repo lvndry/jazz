@@ -29,6 +29,7 @@ import {
   contentFromOutput,
 } from "./document";
 import type { LocalModelHosts } from "./local-model-hosts";
+import { sameBackgroundItems, type BackgroundItem } from "./models/background-work";
 import {
   appendToSubagentRun,
   finishSubagentRun,
@@ -59,6 +60,7 @@ const EMPTY_REGIONS: readonly EphemeralRegion[] = [];
 const EMPTY_SUBAGENT_RUNS: readonly SubagentRun[] = [];
 const EMPTY_CONNECTORS: ReadonlyMap<string, ConnectorStatus> = new Map();
 const EMPTY_RUN_STATS: RunStats = {};
+const EMPTY_BACKGROUND_ITEMS: readonly BackgroundItem[] = [];
 
 interface ExpandableDiffPayload {
   readonly fullDiff: string;
@@ -293,6 +295,8 @@ export interface SessionSnapshot {
   readonly currentConversation: CurrentConversation | null;
   readonly chatBusy: boolean;
   readonly isYolo: boolean;
+  /** Waits and jobs still running for this conversation once the turn has ended. */
+  readonly backgroundItems: readonly BackgroundItem[];
   readonly connectors: ReadonlyMap<string, ConnectorStatus>;
   readonly interruptHandler: (() => void) | null;
   /** Ctrl+B: detach the in-flight tool call into the background instead of killing it. */
@@ -340,6 +344,7 @@ const INITIAL_SESSION: SessionSnapshot = {
   currentConversation: null,
   chatBusy: false,
   isYolo: false,
+  backgroundItems: EMPTY_BACKGROUND_ITEMS,
   connectors: EMPTY_CONNECTORS,
   interruptHandler: null,
   backgroundHandler: null,
@@ -544,6 +549,7 @@ export class UIStore {
   // run so Esc Esc always cancels the complete run tree.
   private interruptHandlerStack: Array<() => void> = [];
   private backgroundHandlerStack: Array<() => void> = [];
+  private cancelBackgroundHandler: ((batchId: string) => void) | null = null;
   private promptContinuation: ((result: PromptResult) => void) | null = null;
   private rendererFallbackHandler: (() => void) | null = null;
   /**
@@ -985,6 +991,22 @@ export class UIStore {
   };
 
   getModeIsYolo = (): boolean => this.session.getSnapshot().isYolo;
+
+  setBackgroundItems = (backgroundItems: readonly BackgroundItem[]): void => {
+    if (sameBackgroundItems(this.session.getSnapshot().backgroundItems, backgroundItems)) {
+      return;
+    }
+    patchSlice(this.session, { backgroundItems });
+  };
+
+  /** Registered by the chat for its lifetime; stops one pending wait or job by batch id. */
+  setBackgroundCancelHandler = (handler: ((batchId: string) => void) | null): void => {
+    this.cancelBackgroundHandler = handler;
+  };
+
+  cancelBackgroundItem = (batchId: string): void => {
+    this.cancelBackgroundHandler?.(batchId);
+  };
 
   showModeToast = (message: string): void => {
     patchSlice(this.session, { modeToast: message });

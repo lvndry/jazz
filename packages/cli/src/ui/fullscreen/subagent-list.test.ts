@@ -75,3 +75,32 @@ describe("subagent blocks", () => {
     expect(blocks[2]).toMatchObject({ app: "read_file", args: "board.txt", summary: "running" });
   });
 });
+
+describe("pending waits in the list", () => {
+  const waits = [
+    { id: "a", label: "CI run", detail: "every 30s: gh run view 1", timing: "gives up in 4m" },
+    { id: "b", label: "Deploy", detail: "every 10s: curl health", timing: "gives up in 1m" },
+  ];
+
+  test("collapse to one header line until the list has the keyboard", () => {
+    const rows = rowText({ items: [], waits });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain("2 pending waits");
+    expect(rows[0]).toContain("down to manage");
+  });
+
+  test("open one row per wait when the cursor is on a wait", () => {
+    const rows = rowText({ items: [item(1, "completed")], waits, selected: 2 });
+    expect(rows).toHaveLength(4);
+    expect(rows[1]).toContain("2 pending waits");
+    expect(rows[1]).toContain("x to cancel");
+    expect(rows[3]).toContain("> Deploy");
+    expect(rows[3]).toContain("gives up in 1m");
+  });
+
+  test("a cursor on a sub-agent leaves the waits collapsed", () => {
+    const rows = rowText({ items: [item(1)], waits, selected: 0 });
+    expect(rows.filter((row) => row.includes("pending wait"))).toHaveLength(1);
+    expect(rows.some((row) => row.includes("CI run"))).toBe(false);
+  });
+});

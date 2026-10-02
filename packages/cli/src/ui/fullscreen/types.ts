@@ -242,13 +242,24 @@ export interface SubagentListItem {
   readonly elapsedMs: number;
 }
 
+/** A pending wait or queued job, listed after the sub-agents. */
+export interface WaitListItem {
+  readonly id: string;
+  readonly label: string;
+  /** What it re-runs, e.g. `every 30s: gh run view 1`. */
+  readonly detail: string;
+  /** `gives up in 4m 12s`. */
+  readonly timing: string;
+}
+
 /**
- * This turn's sub-agents, listed under the composer. `selected` is set only while
- * the list has the keyboard; `inspecting` names the one whose log fills the
- * transcript.
+ * This turn's sub-agents and pending waits, listed under the composer. `selected` is
+ * set only while the list has the keyboard and counts the sub-agents first, then the
+ * waits; `inspecting` names the sub-agent whose log fills the transcript.
  */
 export interface SubagentListModel {
   readonly items: readonly SubagentListItem[];
+  readonly waits?: readonly WaitListItem[];
   readonly selected?: number;
   readonly inspecting?: string;
 }
@@ -311,6 +322,8 @@ export interface FooterModel {
   readonly completionTokens?: number;
   readonly costUsd?: number;
   readonly elapsedMs?: number;
+  /** Waits and jobs still running in the background, e.g. `watching 2`. */
+  readonly background?: string;
 }
 
 // ─── Overlays ────────────────────────────────────────────────────────────────

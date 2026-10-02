@@ -44,6 +44,7 @@ export type CommandType =
   | "limit"
   | "goal"
   | "loop"
+  | "waits"
   | "runSkill"
   | "runMcpPrompt"
   | "runPluginCommand"

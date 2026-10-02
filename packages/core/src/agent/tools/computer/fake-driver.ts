@@ -32,6 +32,8 @@ export interface FakeApp {
     readonly windowId: number;
     readonly title: string;
     readonly elements: readonly FakeElement[];
+    /** Defaults to true; set false to simulate a window on another Space. */
+    readonly onScreen?: boolean;
   }[];
   readonly running?: boolean;
 }
@@ -102,7 +104,7 @@ export class FakeDriver implements ComputerDriver {
         pid,
         appName: app.name,
         title: window.title,
-        onScreen: true,
+        onScreen: window.onScreen ?? true,
         minimized: false,
         bounds: { x: 0, y: 0, width: 800, height: 600 },
       }));

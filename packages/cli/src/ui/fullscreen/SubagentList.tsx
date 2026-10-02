@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
 /**
- * This turn's sub-agents, under the composer.
+ * This turn's sub-agents and pending waits, under the composer.
  *
  *   3 subagents running                                      down to manage
  *     ▝ Sudoku race: Haiku  ∙ read_file board.txt                    12s
@@ -11,7 +11,8 @@
  * The header is always there while the turn has delegated work, so the way in is
  * never hidden. The per-agent rows show while anything is still running, or while
  * the list has the keyboard: once every agent has finished, one row saying so is
- * all the room it earns until someone asks to look.
+ * all the room it earns until someone asks to look. Pending waits follow, one row
+ * until the list has the keyboard.
  */
 
 import { memo, useEffect, useState, type ReactNode } from "react";
@@ -58,7 +59,7 @@ function headerText(items: readonly SubagentListItem[]): string {
 
 function showsItems(model: SubagentListModel): boolean {
   return (
-    model.selected !== undefined ||
+    (model.selected !== undefined && model.selected < model.items.length) ||
     model.inspecting !== undefined ||
     model.items.some((item) => item.status === "running")
   );
@@ -69,24 +70,18 @@ function visibleWindow(model: SubagentListModel): { start: number; end: number }
   const count = model.items.length;
   if (count <= SUBAGENT_LIST_MAX_ITEMS) return { start: 0, end: count };
   const slots = SUBAGENT_LIST_MAX_ITEMS - 1;
-  const focus = model.selected ?? 0;
+  const focus = Math.min(model.selected ?? 0, count - 1);
   const start = Math.max(0, Math.min(focus - slots + 1, count - slots));
   return { start, end: start + slots };
 }
 
-/**
- * The rows the band draws, each exactly the viewport's width. Pure and exported
- * because the band's height feeds the layout arithmetic before anything renders.
- */
-export function subagentListRows(
-  model: SubagentListModel | undefined,
-  viewport: Viewport,
-  glyphs: GlyphSet = getGlyphs(),
-  tick = 0,
+function agentRows(
+  model: SubagentListModel,
+  width: number,
+  glyphs: GlyphSet,
+  tick: number,
 ): readonly LiveRow[] {
-  if (model === undefined || model.items.length === 0) return [];
-  const width = Math.max(1, viewport.width);
-  const focused = model.selected !== undefined;
+  const focused = model.selected !== undefined && model.selected < model.items.length;
   const rows: LiveRow[] = [
     alignRow(
       "subagents:header",
@@ -147,6 +142,73 @@ export function subagentListRows(
     );
   }
   return rows;
+}
+
+/**
+ * Pending waits sit under the sub-agents. Collapsed to one line until the list has
+ * the keyboard, because a wait that is simply running has nothing to say.
+ */
+function waitRows(model: SubagentListModel, width: number, glyphs: GlyphSet): readonly LiveRow[] {
+  const waits = model.waits ?? [];
+  if (waits.length === 0) return [];
+  const offset = model.items.length;
+  const focused = model.selected !== undefined && model.selected >= offset;
+  const noun = waits.length === 1 ? "wait" : "waits";
+  const rows: LiveRow[] = [
+    alignRow(
+      "waits:header",
+      [
+        { text: " ", fg: THEME.muted },
+        {
+          text: `${String(waits.length)} pending ${noun}`,
+          fg: focused ? THEME.secondary : THEME.muted,
+        },
+      ],
+      [{ text: focused ? "x to cancel" : "down to manage", fg: THEME.muted }],
+      width,
+    ),
+  ];
+  if (!focused) return rows;
+
+  for (const [index, wait] of waits.entries()) {
+    const selected = model.selected === offset + index;
+    rows.push(
+      alignRow(
+        `waits:${wait.id}`,
+        [
+          { text: " ", fg: THEME.muted },
+          selected
+            ? { text: glyphs.promptCursor, fg: THEME.primary }
+            : { text: " ", fg: THEME.muted },
+          { text: " ", fg: THEME.muted },
+          { text: wait.label, fg: selected ? THEME.selected : THEME.secondary },
+          { text: ` ${glyphs.bullet} `, fg: THEME.muted },
+          { text: wait.detail, fg: THEME.muted },
+        ],
+        [{ text: wait.timing, fg: THEME.muted }],
+        width,
+      ),
+    );
+  }
+  return rows;
+}
+
+/**
+ * The rows the band draws, each exactly the viewport's width. Pure and exported
+ * because the band's height feeds the layout arithmetic before anything renders.
+ */
+export function subagentListRows(
+  model: SubagentListModel | undefined,
+  viewport: Viewport,
+  glyphs: GlyphSet = getGlyphs(),
+  tick = 0,
+): readonly LiveRow[] {
+  if (model === undefined) return [];
+  const width = Math.max(1, viewport.width);
+  return [
+    ...(model.items.length === 0 ? [] : agentRows(model, width, glyphs, tick)),
+    ...waitRows(model, width, glyphs),
+  ];
 }
 
 export interface SubagentListProps {
