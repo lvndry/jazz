@@ -230,8 +230,13 @@ export const tasks: EvalTask[] = [
     prompt: `Draft a short email inviting my friend Alex to dinner on Friday at 7.${DRAFT_ONLY}`,
     memoryScopes: ["personal"],
     entries: [SIGNATURE_ENTRY, { ...FRIENDS_ENTRY, scope: "friends" }],
-    required: [{ name: "email signature", phrase: EMAIL_SIGNATURE }],
-    forbidden: [FRIENDS_OPENER],
+    // Shared memory: the friends entry lives in a second scope, but every
+    // scope on disk is visible to every agent, so it injects here too.
+    required: [
+      { name: "email signature", phrase: EMAIL_SIGNATURE },
+      { name: "cross-scope friends opener", phrase: FRIENDS_OPENER },
+    ],
+    forbidden: [COOKING_SIGN_OFF],
   }),
   recallTask({
     id: "personalization-recall-completeness",
