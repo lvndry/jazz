@@ -13,6 +13,7 @@ import { createSanitizedEnv } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
 import {
   actionCall,
+  actionCapabilities,
   type CuaToolCall,
   listAppsCall,
   listWindowsCall,
@@ -64,9 +65,15 @@ export class CuaDriver implements ComputerDriver {
     private readonly client: Client,
     readonly version: string | null,
     readonly pid: number | null,
+    private readonly supportedKinds: readonly string[],
   ) {}
 
-  /** Start the driver and confirm it offers every tool computer use needs. */
+  /** The extended action kinds this driver build serves. */
+  capabilities(): Promise<readonly string[]> {
+    return Promise.resolve(this.supportedKinds);
+  }
+
+  /** Start the driver, confirm it offers the required tools, and record which extended kinds it serves. */
   static async open(settings: CuaDriverSettings): Promise<CuaDriver> {
     const transport = new StdioClientTransport({
       command: settings.executablePath,
@@ -76,7 +83,8 @@ export class CuaDriver implements ComputerDriver {
     const client = new Client({ name: CLIENT_NAME, version: CLIENT_VERSION }, { capabilities: {} });
     try {
       await client.connect(transport, { timeout: CONNECT_TIMEOUT_MS });
-      const offered = new Set((await client.listTools()).tools.map((tool) => tool.name));
+      const tools = (await client.listTools()).tools.map((tool) => tool.name);
+      const offered = new Set(tools);
       const missing = REQUIRED_CUA_TOOLS.filter((name) => !offered.has(name));
       if (missing.length > 0) {
         throw new DriverError(
@@ -89,7 +97,12 @@ export class CuaDriver implements ComputerDriver {
         ? error
         : new DriverError(`Could not start the computer-use driver: ${toError(error).message}`);
     }
-    return new CuaDriver(client, client.getServerVersion()?.version ?? null, transport.pid);
+    return new CuaDriver(
+      client,
+      client.getServerVersion()?.version ?? null,
+      transport.pid,
+      actionCapabilities((await client.listTools()).tools.map((tool) => tool.name)),
+    );
   }
 
   private async call(toolCall: CuaToolCall): Promise<Record<string, unknown>> {
