@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { InvalidArgumentError } from "commander";
-import { parseDurationMs, parsePositiveFloat, parsePositiveInt } from "./option-parsers";
+import {
+  parseDurationMs,
+  parseIterationCap,
+  parsePositiveFloat,
+  parsePositiveInt,
+} from "./option-parsers";
 
 describe("parsePositiveInt", () => {
   const parse = parsePositiveInt("--timeout");
@@ -20,11 +25,28 @@ describe("parsePositiveInt", () => {
     expect(() => parse("-3")).toThrow("--timeout must be a positive integer");
     expect(() => parse("abc")).toThrow("--timeout must be a positive integer");
   });
+});
 
-  it("uses the provided label in the error message", () => {
-    expect(() => parsePositiveInt("--max-iterations")("x")).toThrow(
-      "--max-iterations must be a positive integer",
+describe("parseIterationCap", () => {
+  const parse = parseIterationCap("--max-iterations");
+
+  it("parses positive integers and 0 (unlimited)", () => {
+    expect(parse("500")).toBe(500);
+    expect(parse("1")).toBe(1);
+    expect(parse("0")).toBe(0);
+  });
+
+  it("throws on negatives, fractions, and non-numeric input", () => {
+    expect(() => parse("-3")).toThrow("--max-iterations must be a whole number of 0 or more");
+    expect(() => parse("1.5")).toThrow("--max-iterations must be a whole number of 0 or more");
+    expect(() => parse("abc")).toThrow("--max-iterations must be a whole number of 0 or more");
+  });
+
+  it("refuses values beyond MAX_SAFE_INTEGER instead of silently clamping", () => {
+    expect(() => parse("9007199254740992")).toThrow(
+      "--max-iterations must be at most 9007199254740991",
     );
+    expect(parse("9007199254740991")).toBe(9007199254740991);
   });
 });
 

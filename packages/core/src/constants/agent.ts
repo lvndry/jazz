@@ -13,6 +13,22 @@ export const DEFAULT_MAX_ITERATIONS = 100;
  */
 export const DEFAULT_MAX_SUBAGENT_ITERATIONS = 30;
 
+/**
+ * Normalize a requested iteration cap to the value the loop actually uses: 0 means
+ * "unlimited" and becomes Infinity, a positive whole number is floored, and undefined
+ * falls back to the provided default. The CLI flag, config.json, and the /settings wizard
+ * all accept 0; this is where that rule holds, so they cannot disagree.
+ */
+export function resolveIterationCap(requested: number | undefined, fallback: number): number {
+  if (requested === undefined) {
+    return Math.max(1, Math.floor(fallback));
+  }
+  if (requested === 0 || !Number.isFinite(requested)) {
+    return Infinity;
+  }
+  return Math.max(1, Math.floor(requested));
+}
+
 /** Maximum number of tools that can execute concurrently */
 export const MAX_CONCURRENT_TOOLS = 10;
 

@@ -17,6 +17,7 @@ import {
 import { failEnvelope } from "@jazz/cli/helpers/json-output";
 import {
   parseDurationMs,
+  parseIterationCap,
   parsePositiveFloat,
   parsePositiveInt,
 } from "@jazz/cli/utils/option-parsers";
@@ -182,13 +183,13 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--max-iterations <n>",
-      "Maximum agent reasoning iterations for this run",
-      parsePositiveInt("--max-iterations"),
+      "Maximum agent reasoning iterations for this run (0 = unlimited; default unlimited in a terminal, 100 unattended)",
+      parseIterationCap("--max-iterations"),
     )
     .option(
       "--max-subagent-iterations <n>",
-      "Maximum iterations for sub-agent runs started by this run (default 30 unattended, unlimited in a terminal)",
-      parsePositiveInt("--max-subagent-iterations"),
+      "Maximum iterations for sub-agent runs started by this run (0 = unlimited; default 30 unattended, unlimited in a terminal)",
+      parseIterationCap("--max-subagent-iterations"),
     )
     .option(
       "--max-cost-usd <dollars>",
@@ -562,13 +563,13 @@ function registerAgentCommands(program: Command): void {
     .option("--no-stream", "Disable streaming mode")
     .option(
       "--max-iterations <n>",
-      "Maximum agent reasoning iterations per turn (default unlimited in a terminal, 100 unattended)",
-      parsePositiveInt("--max-iterations"),
+      "Maximum agent reasoning iterations per turn (0 = unlimited; default unlimited in a terminal, 100 unattended)",
+      parseIterationCap("--max-iterations"),
     )
     .option(
       "--max-subagent-iterations <n>",
-      "Maximum iterations for sub-agent runs (default unlimited in a terminal, 30 unattended)",
-      parsePositiveInt("--max-subagent-iterations"),
+      "Maximum iterations for sub-agent runs (0 = unlimited; default unlimited in a terminal, 30 unattended)",
+      parseIterationCap("--max-subagent-iterations"),
     )
     .option(
       "--ephemeral",
@@ -2996,8 +2997,8 @@ function registerWorkflowCommands(program: Command): void {
     .option("--agent <agentId>", "Agent ID or name to use for this workflow run")
     .option(
       "--max-iterations <n>",
-      "Maximum agent reasoning iterations (overrides the workflow's own setting)",
-      parsePositiveInt("--max-iterations"),
+      "Maximum agent reasoning iterations (0 = unlimited; overrides the workflow's own setting)",
+      parseIterationCap("--max-iterations"),
     )
     .option(
       "--max-cost-usd <dollars>",

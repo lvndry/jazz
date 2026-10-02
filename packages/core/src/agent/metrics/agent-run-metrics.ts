@@ -135,6 +135,10 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     telemetryParent,
   } = context;
 
+  // Restored runs may carry 0 (the stored form of unlimited); normalize it back to the
+  // runtime representation so percentage-of-cap math in the loop is valid again.
+  const iterationsCap = maxIterations === 0 ? Infinity : maxIterations;
+
   return {
     runId: randomUUID(),
     ...(telemetryParent ? { telemetryParent } : {}),
@@ -147,7 +151,7 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     ...(provider ? { provider } : {}),
     ...(model ? { model } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
-    maxIterations,
+    maxIterations: iterationsCap,
     maxCostUSD,
     startedAt: new Date(),
     totalPromptTokens: 0,
