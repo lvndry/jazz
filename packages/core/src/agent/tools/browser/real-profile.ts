@@ -202,7 +202,7 @@ export async function snapshotRealProfile(
     await mkdir(temporaryRoot, { recursive: true });
   }
   try {
-    await cpShell(sourceProfile, profileDirectory);
+    await copyTree(sourceProfile, profileDirectory);
     await pruneCaches(profileDirectory);
     return {
       profileDirectory: temporaryRoot,
@@ -216,13 +216,32 @@ export async function snapshotRealProfile(
   }
 }
 
-/** `cp -c -R` (CoW on APFS; a plain full copy elsewhere), as a promise. */
-function cpShell(source: string, destination: string): Promise<void> {
+/**
+ * Copy a profile tree. On APFS (`darwin`) a `cp -c` clones the blocks, so a multi-gigabyte
+ * profile is a matter of seconds; `cp -c` is a BSD flag, so every other platform gets a
+ * plain `cp -R` full copy. The failure of the preferred form never fails the snapshot: it
+ * falls back to the full copy before giving up.
+ */
+async function copyTree(source: string, destination: string): Promise<void> {
+  const forms: string[][] = process.platform === "darwin" ? [["-c", "-R"], ["-R"]] : [["-R"]];
+  let lastError: unknown;
+  for (const args of forms) {
+    try {
+      await cpShell("cp", [...args, source, destination]);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("profile copy failed");
+}
+
+function cpShell(binary: string, args: readonly string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn("cp", ["-c", "-R", source, destination], { stdio: "ignore" });
+    const child = spawn(binary, [...args], { stdio: "ignore" });
     child.once("error", reject);
     child.once("close", (code) =>
-      code === 0 ? resolve() : reject(new Error(`cp exited ${String(code)}`)),
+      code === 0 ? resolve() : reject(new Error(`${binary} exited ${String(code)}`)),
     );
   });
 }
