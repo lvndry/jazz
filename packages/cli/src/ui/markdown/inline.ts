@@ -335,12 +335,12 @@ function parseInline(text: string, marks: InlineMarks, context: InlineContext): 
       const target = link.url.length > 0 ? { link: link.url } : {};
       if (context.syntax === "hybrid") {
         spans.push({ text: "[", role: "muted" });
-        spans.push({ text: link.label, role: "link", underline: true, ...target });
+        spans.push({ text: link.label, role: "link", ...marks, underline: true, ...target });
         spans.push({ text: "](", role: "muted" });
         spans.push({ text: link.url, role: "muted", ...target });
         spans.push({ text: ")", role: "muted" });
       } else if (link.label.length > 0) {
-        spans.push({ text: link.label, role: "link", underline: true, ...target });
+        spans.push({ text: link.label, role: "link", ...marks, underline: true, ...target });
       }
       index = link.end;
       continue;

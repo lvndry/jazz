@@ -3,6 +3,7 @@ import chalk from "chalk";
 import { stripAnsiCodes } from "../../utils/string-utils";
 import { GLYPHS } from "../glyphs";
 import { markdownToAnsi, type AnsiMarkdownOptions } from "./ansi";
+import { parseInlineMarkdown } from "./inline";
 
 const WIDTH = 88;
 const glyphs = GLYPHS.unicode;
@@ -116,6 +117,19 @@ describe("markdownToAnsi", () => {
     } finally {
       chalk.level = 0;
     }
+  });
+
+  it("preserves emphasis marks on Markdown link labels", () => {
+    const spans = parseInlineMarkdown("**[jazz](https://jazz.sh)**", "text");
+    expect(spans).toEqual([
+      {
+        text: "jazz",
+        role: "link",
+        bold: true,
+        underline: true,
+        link: "https://jazz.sh",
+      },
+    ]);
   });
 
   it("never emits a hyperlink escape when hyperlinks are off", () => {
