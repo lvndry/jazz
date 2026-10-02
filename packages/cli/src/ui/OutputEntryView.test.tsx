@@ -70,7 +70,7 @@ describe("OutputEntryView, tool receipts", () => {
     );
 
     expect(output).toContain(stdout.slice(0, 20));
-    expect(output).toContain("ctrl+e to expand");
+    expect(output).toContain("ctrl+o to expand");
   });
 });
 

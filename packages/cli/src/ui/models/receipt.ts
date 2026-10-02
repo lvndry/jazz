@@ -164,6 +164,16 @@ export function toolReceipt(input: ToolReceiptInput): ToolReceipt {
 /** The key that opens the whole diff behind a receipt's preview. */
 export const EXPAND_DIFF_KEY = "ctrl+e";
 
+/** The key that expands truncated tool output. */
+export const EXPAND_OUTPUT_KEY = "ctrl+o";
+
+/** Selects the shortcut displayed for a preview, matching the key that expands its full content. */
+export function outputPreviewExpandKey(app: string): string {
+  return app === "execute_command" || app === "execute_execute_command"
+    ? EXPAND_OUTPUT_KEY
+    : EXPAND_DIFF_KEY;
+}
+
 export interface ReceiptDiffRow {
   readonly text: string;
   readonly role: TextRole;

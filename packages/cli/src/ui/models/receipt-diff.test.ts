@@ -1,8 +1,17 @@
 import { presentationEntrySchema } from "@jazz/core/types/presentation-content-schema";
 import { describe, expect, test } from "bun:test";
-import { receiptDiffRows, toolReceipt } from "./receipt";
+import { outputPreviewExpandKey, receiptDiffRows, toolReceipt } from "./receipt";
 
 const diffPreview = { lines: ["@@ -1 +1 @@", "-old", "+new", " same"], hiddenLines: 3 };
+
+describe("tool output expansion keys", () => {
+  test("uses Ctrl+O for command output and Ctrl+E for file diffs", () => {
+    expect(outputPreviewExpandKey("execute_command")).toBe("ctrl+o");
+    expect(outputPreviewExpandKey("execute_execute_command")).toBe("ctrl+o");
+    expect(outputPreviewExpandKey("edit_file")).toBe("ctrl+e");
+    expect(outputPreviewExpandKey("write_file")).toBe("ctrl+e");
+  });
+});
 
 describe("file mutation receipt diff", () => {
   const receipt = toolReceipt({
