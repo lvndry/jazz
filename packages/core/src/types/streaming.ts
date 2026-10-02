@@ -151,6 +151,8 @@ export type StreamEvent =
       toolName: string;
       approved: boolean;
       auto: boolean;
+      /** The user chose "always approve" for this tool or command. */
+      always?: boolean;
     }
 
   // Sub-agent lifecycle (delegated spawn_subagent runs)

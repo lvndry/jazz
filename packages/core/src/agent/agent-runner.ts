@@ -1014,9 +1014,14 @@ export function runRecordBoundary(options: AgentRunnerOptions): RunRecordBoundar
 export function createNestedRunExecutor(
   parent: TelemetryTraceParent,
   parentMetrics: AgentRunMetrics,
+  approvals: Pick<
+    AgentRunnerOptions,
+    "autoApprovedTools" | "autoApprovedCommands" | "onAutoApproveTool" | "onAutoApproveCommand"
+  > = {},
 ): RecursiveRunner {
   return (options) =>
     AgentRunner.runRecursive({
+      ...approvals,
       ...options,
       telemetryParent: parent,
       onRunSpend: (spend) => recordSideSpend(parentMetrics, spend),
@@ -1161,6 +1166,20 @@ export class AgentRunner {
               runContext.runMetrics.telemetryParent?.sessionId ?? runContext.actualConversationId,
           },
           runContext.runMetrics,
+          {
+            ...(runContext.context.autoApprovedTools
+              ? { autoApprovedTools: runContext.context.autoApprovedTools }
+              : {}),
+            ...(runContext.context.autoApprovedCommands
+              ? { autoApprovedCommands: runContext.context.autoApprovedCommands }
+              : {}),
+            ...(runContext.context.onAutoApproveTool
+              ? { onAutoApproveTool: runContext.context.onAutoApproveTool }
+              : {}),
+            ...(runContext.context.onAutoApproveCommand
+              ? { onAutoApproveCommand: runContext.context.onAutoApproveCommand }
+              : {}),
+          },
         );
 
         const execute = shouldStream

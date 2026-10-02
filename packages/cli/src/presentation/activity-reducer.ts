@@ -462,6 +462,18 @@ export function reduceEvent(acc: ReducerAccumulator, event: StreamEvent): Reduce
       if (!event.approved && !acc.activeTools.has(event.toolCallId)) {
         acc.activeTools.set(event.toolCallId, { toolName: event.toolName, startedAt: Date.now() });
       }
+      if (!event.auto) {
+        const verdict = !event.approved
+          ? `✗ Rejected ${event.toolName}`
+          : event.always
+            ? `✓ Always approved ${event.toolName}`
+            : `✓ Approved ${event.toolName}`;
+        outputs.push({
+          type: "info",
+          message: { kind: "notice", tone: event.approved ? "info" : "warn", text: verdict },
+          timestamp: new Date(),
+        });
+      }
       return { activity: null, outputs };
     }
 
