@@ -95,6 +95,8 @@ export interface BrowserSettings {
   readonly realProfileDir?: string | undefined;
   /** Launch with a visible window instead of headless. */
   readonly headed?: boolean;
+  /** One line describing which browser and profile this session drives, for the first tool result. */
+  readonly summary?: string;
 }
 
 /** The DevTools port a local browser the person runs listens on. Tries this first when no `browser.endpoint` is set. */
@@ -291,7 +293,10 @@ export class BrowserSession {
   private closed = false;
   private flagged: { readonly url: string; readonly flags: readonly PageFlagId[] } | undefined;
 
-  private constructor(private readonly engine: BrowserEngine) {}
+  private constructor(
+    private readonly engine: BrowserEngine,
+    private readonly summary: string | undefined,
+  ) {}
 
   private pendingActBinding: number | undefined;
 
@@ -301,23 +306,27 @@ export class BrowserSession {
    */
   static async open(settings: BrowserSettings): Promise<BrowserSession> {
     if (settings.cdpEndpoint !== undefined) {
-      return BrowserSession.connect(settings.cdpEndpoint);
+      return BrowserSession.connect(settings.cdpEndpoint, settings.summary);
     }
     if (settings.executablePath === null) {
       throw new Error(MISSING_CHROME_ERROR);
     }
     try {
-      return await BrowserSession.connect(DEFAULT_LOOPBACK_CDP_ENDPOINT);
+      return await BrowserSession.connect(DEFAULT_LOOPBACK_CDP_ENDPOINT, settings.summary);
     } catch {
       return BrowserSession.launch(
         settings.executablePath,
         settings.realProfileDir,
         settings.headed,
+        settings.summary,
       );
     }
   }
 
-  private static async connect(endpoint: string): Promise<BrowserSession> {
+  private static async connect(
+    endpoint: string,
+    summary: string | undefined,
+  ): Promise<BrowserSession> {
     const browser = await puppeteer
       .connect({
         ...(isWebSocketEndpoint(endpoint)
@@ -339,15 +348,18 @@ export class BrowserSession {
     context.on("page", (page: unknown) => {
       void (page as { close: () => Promise<void> }).close().catch(() => undefined);
     });
-    return BrowserSession.openWith({
-      newPage: () => context.newPage(),
-      userPages: () => userPagesOf(browser),
-      profileDirectory: undefined,
-      release: async () => {
-        await context.close().catch(() => undefined);
-        await browser.disconnect();
+    return BrowserSession.openWith(
+      {
+        newPage: () => context.newPage(),
+        userPages: () => userPagesOf(browser),
+        profileDirectory: undefined,
+        release: async () => {
+          await context.close().catch(() => undefined);
+          await browser.disconnect();
+        },
       },
-    });
+      summary,
+    );
   }
 
   /**
@@ -362,6 +374,7 @@ export class BrowserSession {
     executablePath: string,
     realProfileDir?: string,
     headed = false,
+    summary?: string,
   ): Promise<BrowserSession> {
     // The real-profile snapshot (when present) already lives under its own temporary root
     // that the caller releases; otherwise the run owns a fresh blank profile directory.
@@ -374,19 +387,22 @@ export class BrowserSession {
       await stripSingletonLocks(profileDirectory);
       const port = await acquireLoopbackPort();
       const launched = await connectToPort({ executablePath, profileDirectory, port, headed });
-      return await BrowserSession.openWith({
-        newPage: () => launched.browser.newPage(),
-        userPages: undefined,
-        profileDirectory,
-        release: async () => {
-          // A CDP-connected browser does not kill its child on close(), so reap it here.
-          await launched.browser.close().catch(() => undefined);
-          launched.child.kill("SIGKILL");
-          if (ownsProfile) {
-            await rm(profileDirectory, { recursive: true, force: true });
-          }
+      return await BrowserSession.openWith(
+        {
+          newPage: () => launched.browser.newPage(),
+          userPages: undefined,
+          profileDirectory,
+          release: async () => {
+            // A CDP-connected browser does not kill its child on close(), so reap it here.
+            await launched.browser.close().catch(() => undefined);
+            launched.child.kill("SIGKILL");
+            if (ownsProfile) {
+              await rm(profileDirectory, { recursive: true, force: true });
+            }
+          },
         },
-      });
+        summary,
+      );
     } catch (error) {
       if (ownsProfile) {
         await rm(profileDirectory, { recursive: true, force: true });
@@ -396,8 +412,8 @@ export class BrowserSession {
   }
 
   /** A session over `engine`, opened on its first tab. */
-  static async openWith(engine: BrowserEngine): Promise<BrowserSession> {
-    const session = new BrowserSession(engine);
+  static async openWith(engine: BrowserEngine, summary?: string): Promise<BrowserSession> {
+    const session = new BrowserSession(engine, summary);
     try {
       await session.openOwnedTab(DEFAULT_TAB_NAME);
     } catch (error) {
@@ -405,6 +421,11 @@ export class BrowserSession {
       throw error;
     }
     return session;
+  }
+
+  /** One line describing which browser and profile this session drives, for the first tool result. */
+  get launchSummary(): string | undefined {
+    return this.summary;
   }
 
   /** Identity of the active tab's snapshot, so an approval can bind to the page it reviewed. */

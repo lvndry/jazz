@@ -42,7 +42,7 @@ import {
   type RealProfileSnapshot,
 } from "./real-profile";
 import { egressPolicyForContext, type EgressPolicy } from "../guarded-fetch";
-import { createSystemBrowserLookup, resolveBrowserExecutablePath } from "../web-app";
+import { createSystemBrowserLookup } from "../web-app";
 import { advisePage, renderSnapshot } from "./page-hooks";
 import { combineFlags, describeFlags } from "./page-signals";
 import {
@@ -110,9 +110,12 @@ function browserSessionsFor(context: ToolExecutionContext): BrowserSessions | un
 async function resolveLaunchBrowser(
   lookup: ReturnType<typeof createSystemBrowserLookup>,
 ): Promise<ChromiumCandidate | null> {
-  const explicit = await resolveBrowserExecutablePath(lookup);
-  if (explicit !== null) {
-    return { executablePath: explicit, label: "explicit (PUPPETEER_EXECUTABLE_PATH)" };
+  // Order matters: an explicit PUPPETEER_EXECUTABLE_PATH wins, then the user's default
+  // browser, and only then a plain Chrome channel — otherwise an installed Chrome always
+  // shadows a non-Chrome default (e.g. Arc/Dia).
+  const envPath = lookup.configuredExecutablePath?.trim();
+  if (envPath !== undefined && envPath.length > 0) {
+    return { executablePath: envPath, label: "explicit (PUPPETEER_EXECUTABLE_PATH)" };
   }
   return resolveChromiumBrowser((channel) => lookup.findSystemChrome(channel));
 }
@@ -188,6 +191,14 @@ function withBrowser<Value>(
               ? await resolveLaunchBrowser(createSystemBrowserLookup())
               : null;
           const realProfile = launch === null ? undefined : await snapshotForBrowser(launch);
+          const summary =
+            configuredEndpoint === undefined && launch !== null
+              ? `Browser: ${launch.label} (${launch.executablePath}). Profile: ${
+                  realProfile === null
+                    ? "temporary (no logins)"
+                    : "snapshot of your real profile (signed in where you are)"
+                }.`
+              : undefined;
           return BrowserSession.open({
             executablePath: launch?.executablePath ?? null,
             cdpEndpoint: configuredEndpoint,
@@ -195,6 +206,7 @@ function withBrowser<Value>(
             ...(appConfig.browser?.headless === undefined
               ? {}
               : { headed: !appConfig.browser.headless }),
+            ...(summary === undefined ? {} : { summary }),
           });
         });
         return session.exclusive(policy, () => operation(session));
@@ -242,10 +254,14 @@ export function createBrowserNavigateTool(): Tool<AgentConfigService> {
     egress: true,
     hidden: false,
     handler: (args, context) =>
-      withBrowser(context, (session) => session.navigate(args.url, args.tab)).pipe(
-        Effect.map((state) => pageResult(state, BROWSER_NAVIGATE_TOOL_NAME)),
-        Effect.catchAll(toFailure),
-      ),
+      withBrowser(context, async (session) => {
+        const state = await session.navigate(args.url, args.tab);
+        return pageResult(
+          state,
+          BROWSER_NAVIGATE_TOOL_NAME,
+          session.launchSummary === undefined ? "" : `\n${session.launchSummary}`,
+        );
+      }).pipe(Effect.catchAll(toFailure)),
     createSummary: (result) => (result.success ? "Opened a page in the browser" : undefined),
   });
 }
