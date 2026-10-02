@@ -103,6 +103,13 @@ describe("who_is_here", () => {
     if (result.success) expect(result.result).toContain("nobody is working here");
   });
 
+  it("drops a finished run: its final entry is terminal even though it is fresh", async () => {
+    const result = await runTool([
+      entry({ runId: "j".repeat(8), state: "completed", updatedAt: ago(500) }),
+    ]);
+    if (result.success) expect(result.result).toContain("nobody is working here");
+  });
+
   it("does not report the caller's own heartbeat", async () => {
     const result = await runTool([
       entry({ runId: "f".repeat(8), pid: process.pid, host: hostname() }),

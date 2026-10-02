@@ -56,11 +56,19 @@ function bandOf(entry: OccupancyEntry, now: number): OccupancyBand {
 }
 
 /**
- * Presence: still heartbeating AND the process alive. A finished run stops heartbeating, so
- * nothing here is "here" in the memory sense — a stale entry and a dead pid both drop.
+ * Presence: still heartbeating AND the process alive AND the run not already over. A
+ * finished run stops heartbeating, but its *final* entry is written by the still-live
+ * process, so terminal states drop on their own rather than lingering as fresh
+ * "present" entries; a stale entry and a dead pid both drop too.
  */
-function isPresent(owner: OccupancyOwnerStatus, updatedAt: string, now: number): boolean {
+function isPresent(
+  entry: Pick<OccupancyEntry, "state">,
+  owner: OccupancyOwnerStatus,
+  updatedAt: string,
+  now: number,
+): boolean {
   if (owner === "gone") return false;
+  if (entry.state !== "working" && entry.state !== "input-required") return false;
   const updated = Date.parse(updatedAt);
   return !Number.isNaN(updated) && now - updated <= OCCUPANCY_FRESH_WINDOW_MS;
 }
@@ -188,7 +196,7 @@ export function createWhoIsHereTool(): Tool<OccupancyService | FileSystemContext
           // One process check per entry: it is the presence gate and the reported owner
           // state, and `ps` is a sync spawn, so it is not something to do twice.
           const owner = localOwnerStatus({ pid: entry.pid, host: entry.host });
-          if (!isPresent(owner, entry.updatedAt, now)) continue;
+          if (!isPresent(entry, owner, entry.updatedAt, now)) continue;
           present.push({
             entry,
             band: bandOf(entry, now),

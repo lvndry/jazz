@@ -240,7 +240,6 @@ export function registerWorkspaceTools(): Effect.Effect<void, Error, ToolRegistr
     yield* registerTool(createViewWorkspaceTool());
     yield* registerTool(createManageWorkspaceTool());
     yield* registerTool(createWhoIsHereTool());
-    yield* registerTool(createManageWorkspaceTool());
   });
 }
 
