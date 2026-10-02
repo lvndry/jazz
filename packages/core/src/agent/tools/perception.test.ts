@@ -497,3 +497,100 @@ describe("what a generation companion came back with", () => {
     expect(outcome.error).toContain("no image file");
   });
 });
+
+describe("companion failure recovery", () => {
+  const analyzeArgs = () => ({
+    modality: "image",
+    task: "describe",
+    mediaPaths: [join(directory, "shot.png")],
+    _selectedOptionId: "openai/gpt-vision",
+  });
+
+  function runExecute(options: { canPrompt: boolean; searchAnswer?: string }) {
+    const searchPrompts: string[] = [];
+    const terminal = {
+      search: (message: string) => {
+        searchPrompts.push(message);
+        return Effect.succeed(options.searchAnswer);
+      },
+    } as unknown as TerminalService;
+    const tool = createPerceptionTools().find(
+      (candidate) => candidate.name === "execute_analyze_media",
+    )!;
+    const layer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, silentLogger),
+      Layer.succeed(PresentationServiceTag, makePresentation(options.canPrompt)),
+      Layer.succeed(LLMServiceTag, makeLlmService()),
+      Layer.succeed(TerminalServiceTag, terminal),
+    );
+    const outcome = Effect.runPromise(
+      tool.execute(analyzeArgs(), makeContext()).pipe(Effect.provide(layer)) as Effect.Effect<
+        ToolExecutionResult,
+        Error,
+        never
+      >,
+    ) as Promise<ProposalOutcome>;
+    return { outcome, searchPrompts };
+  }
+
+  function stubRunner(failuresBeforeSuccess: number) {
+    const modelsRun: string[] = [];
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((runOptions) => {
+      modelsRun.push(
+        `${runOptions.agent.config.llm.provider}/${runOptions.agent.config.llm.model}`,
+      );
+      if (modelsRun.length <= failuresBeforeSuccess) {
+        return Effect.fail(new Error("402 insufficient credits"));
+      }
+      return Effect.succeed({
+        content: "a cat",
+        conversationId: runOptions.conversationId ?? "child",
+      });
+    });
+    return { modelsRun, spy };
+  }
+
+  it("offers the remaining models after a failure and runs the one the person picks", async () => {
+    const { modelsRun, spy } = stubRunner(1);
+    try {
+      const { outcome, searchPrompts } = runExecute({
+        canPrompt: true,
+        searchAnswer: "ollama/gemma4:12b",
+      });
+      const result = await outcome;
+      expect(result.success).toBe(true);
+      expect(result.result).toBe("a cat");
+      expect(modelsRun).toEqual(["openai/gpt-vision", "ollama/gemma4:12b"]);
+      expect(searchPrompts[0]).toContain("openai/gpt-vision failed: 402 insufficient credits");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("ends with an actionable error when the person declines another model", async () => {
+    const { modelsRun, spy } = stubRunner(5);
+    try {
+      const { outcome } = runExecute({ canPrompt: true, searchAnswer: "__cancel__" });
+      const result = await outcome;
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("openai/gpt-vision failed: 402 insufficient credits");
+      expect(result.error).toContain("analyze_media again reopens the model picker");
+      expect(modelsRun).toEqual(["openai/gpt-vision"]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("never prompts in an unattended session and points at the companion binding", async () => {
+    const { spy } = stubRunner(5);
+    try {
+      const { outcome, searchPrompts } = runExecute({ canPrompt: false });
+      const result = await outcome;
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('companions["analyze:image"]');
+      expect(searchPrompts).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
