@@ -5,7 +5,7 @@ import { drainAgentJobs } from "@jazz/daemon/job-worker";
 import { Effect } from "effect";
 
 /**
- * Internal, invoked by the detached worker `enqueue_batch` starts: drain this agent's due jobs.
+ * Internal, invoked by the detached worker `run_background_jobs` starts: drain this agent's due jobs.
  *
  * Agent-scoped rather than batch-scoped so two batches enqueued seconds apart do not start two
  * workers racing for the same lease — the first drains both, the second finds nothing and exits.

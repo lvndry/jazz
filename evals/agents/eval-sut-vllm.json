@@ -37,9 +37,9 @@
       "cancel_reminder"
     ],
     "deniedTools": [
-      "enqueue_batch",
-      "list_jobs",
-      "cancel_batch",
+      "run_background_jobs",
+      "list_background_jobs",
+      "cancel_background_jobs",
       "analyze_media",
       "generate_media"
     ]

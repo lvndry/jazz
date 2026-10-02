@@ -11,7 +11,7 @@ export const MAX_ACTIVE_BATCHES_PER_AGENT = 5;
 /** Maximum length, in characters, of a single job's shell command. */
 export const JOB_COMMAND_MAX_LENGTH = 4000;
 
-/** Maximum length, in characters, of a batch's reason (shown via list_jobs, not sent to the model). */
+/** Maximum length, in characters, of a batch's reason (shown via list_background_jobs, not sent to the model). */
 export const JOB_REASON_MAX_LENGTH = 300;
 
 export const DEFAULT_CONCURRENCY_CAP = 3;
@@ -38,7 +38,7 @@ export const JOB_LEASE_TIMEOUT_MS = DEFAULT_JOB_TIMEOUT_MS + 2 * 60 * 1000;
 export const WORKER_POOL_SIZE = 4;
 
 /**
- * How long a delivered batch stays readable by `list_jobs` with its id after it leaves the
+ * How long a delivered batch stays readable by `list_background_jobs` with its id after it leaves the
  * active directory. Long enough for the resumed agent, or a person, to look at the results.
  */
 export const ARCHIVED_BATCH_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;

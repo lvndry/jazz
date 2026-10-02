@@ -285,7 +285,7 @@ export class JobQueueServiceImpl implements JobQueueService {
               success: false,
               message:
                 `You already have ${activeCount} active job batches, the maximum of ` +
-                `${MAX_ACTIVE_BATCHES_PER_AGENT}. Wait for one to finish or cancel_batch one before enqueueing another.`,
+                `${MAX_ACTIVE_BATCHES_PER_AGENT}. Wait for one to finish or cancel_background_jobs one before enqueueing another.`,
             } satisfies EnqueueBatchOutcome;
           }
 

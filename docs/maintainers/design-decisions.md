@@ -226,7 +226,7 @@ the model once.
 **Alternatives rejected.** Keeping a mode where the spawn call blocks until the child answers: it
 saves one model call when a single child is started and awaited at once, but it is a second
 concept for agents and people, and a blocked parent cannot steer. Running children as daemon jobs
-that wake the parent later, the way `enqueue_batch` does: that needs the parent's budget,
+that wake the parent later, the way `run_background_jobs` does: that needs the parent's budget,
 approvals, egress state and cancellation carried across processes. Goals and loops already cover
 work that outlives a turn.
 

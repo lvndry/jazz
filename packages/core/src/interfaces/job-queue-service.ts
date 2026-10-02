@@ -69,7 +69,7 @@ export interface JobBatchRecord {
   readonly workingDir: string;
   readonly concurrencyCap: number;
   readonly backoff: JobBackoffPolicy;
-  /** Why the agent enqueued this batch, shown via list_jobs — not sent to the model. */
+  /** Why the agent enqueued this batch, shown via list_background_jobs — not sent to the model. */
   readonly reason: string;
   readonly createdAt: number;
   /** Epoch ms once every job is terminal (succeeded, failed, or cancelled); null while active. */

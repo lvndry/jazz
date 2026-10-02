@@ -211,7 +211,7 @@ longer recognized:
   `sinceByte` read redacts the appended text together with the lines before the offset, and an
   offset inside a line holding a secret returns that whole line redacted.
 - `execute_command` and `wait_for` redact stdout and stderr before capping them at 256 KB, with
-  16 KB of lookahead past the cap, so a key block that crosses the cap is recognized. `list_jobs`
+  16 KB of lookahead past the cap, so a key block that crosses the cap is recognized. `list_background_jobs`
   redacts a job's output before it keeps the tail.
 - `grep` and `edit_file`'s `replace_pattern` match against the redacted text. A file holding a
   secret is searched again through its redacted form, in every output mode, so a pattern probing a

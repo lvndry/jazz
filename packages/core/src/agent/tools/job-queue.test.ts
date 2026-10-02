@@ -80,7 +80,7 @@ function listJobs() {
   );
 }
 
-describe("list_jobs", () => {
+describe("list_background_jobs", () => {
   /**
    * The regression: the tool returned status and exit code only, so an agent asking what its
    * background jobs found got back proof they ran and nothing about what they saw.

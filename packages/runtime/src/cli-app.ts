@@ -2515,7 +2515,7 @@ function registerPendingWorkCommands(program: Command): void {
   }
 }
 
-/** Register `jazz job run` — internal, invoked by the detached worker `enqueue_batch` starts. */
+/** Register `jazz job run` — internal, invoked by the detached worker `run_background_jobs` starts. */
 function registerJobCommand(program: Command): void {
   const jobCommand = program
     .command("job", { hidden: true })

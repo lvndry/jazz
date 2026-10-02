@@ -99,7 +99,7 @@ const enqueueBatchParameters = z
       .string()
       .min(1)
       .max(JOB_REASON_MAX_LENGTH)
-      .describe("What this batch is for; shown to the person in list_jobs."),
+      .describe("What this batch is for; shown to the person in list_background_jobs."),
   })
   .strict();
 
@@ -111,7 +111,7 @@ export function createJobQueueTools(): {
   readonly cancelBatch: Tool<JobQueueToolDeps>;
 } {
   const enqueueBatch = defineApprovalTool<JobQueueToolDeps, EnqueueBatchArgs>({
-    name: "enqueue_batch",
+    name: "run_background_jobs",
     disclosure: "private",
     summary:
       "Run shell commands in the background and get woken with what they printed — monitor or " +
@@ -120,7 +120,7 @@ export function createJobQueueTools(): {
       `${JOB_TIMEOUT_MINUTES} minutes.`,
 
     description:
-      "Run independent shell commands in the background while you keep working. Returns a batchId at once; you are woken with each job's status and output when every job finishes or exhausts its retries. Call list_jobs only when the user asks for progress. Put commands that depend on each other's output in one job.\n\n" +
+      "Run independent shell commands in the background while you keep working. Returns a batchId at once; you are woken with each job's status and output when every job finishes or exhausts its retries. Call list_background_jobs only when the user asks for progress. Put commands that depend on each other's output in one job.\n\n" +
       `Each job is killed at ${JOB_TIMEOUT_MINUTES} minutes: bound long-running commands ` +
       "(`timeout 60 tail -f app.log`).",
     parameters: enqueueBatchParameters,
@@ -155,7 +155,8 @@ These commands will run unattended, without further approval, until every job fi
           return {
             success: false,
             result: null,
-            error: "No conversation to resume — enqueue_batch is unavailable in this context.",
+            error:
+              "No conversation to resume — run_background_jobs is unavailable in this context.",
           } satisfies ToolExecutionResult;
         }
 
@@ -230,12 +231,12 @@ These commands will run unattended, without further approval, until every job fi
         .string()
         .min(1)
         .optional()
-        .describe("Batch id from enqueue_batch; omit for all active batches."),
+        .describe("Batch id from run_background_jobs; omit for all active batches."),
     })
     .strict();
 
   const listJobs = defineTool<JobQueueToolDeps, z.infer<typeof listJobsParameters>>({
-    name: "list_jobs",
+    name: "list_background_jobs",
     disclosure: "internal",
     summary:
       "Check on background jobs already started: each batch's progress, every job's status, and " +
@@ -287,14 +288,15 @@ These commands will run unattended, without further approval, until every job fi
 
   const cancelBatchParameters = z
     .object({
-      batchId: z.string().min(1).describe("Batch id from list_jobs."),
+      batchId: z.string().min(1).describe("Batch id from list_background_jobs."),
     })
     .strict();
 
   const cancelBatch = defineTool<JobQueueToolDeps, z.infer<typeof cancelBatchParameters>>({
-    name: "cancel_batch",
+    name: "cancel_background_jobs",
     disclosure: "internal",
-    summary: "Cancel a job batch's pending jobs by id (get the id from list_jobs first).",
+    summary:
+      "Cancel a job batch's pending jobs by id (get the id from list_background_jobs first).",
     description: "Cancel a job batch's jobs that haven't started; running jobs finish.",
     parameters: cancelBatchParameters,
     riskLevel: "low-risk",
