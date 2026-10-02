@@ -34,6 +34,7 @@ import {
   sliceTerminalCells,
   terminalCellWidth,
   terminalSegmentsWidth,
+  wrapTerminalCells,
 } from "../text/terminal-cells";
 import { wrapStyledSpans } from "../text/wrap";
 import { THEME as CURRENT_THEME, type ThemeColors } from "../theme";
@@ -807,6 +808,27 @@ export function createTranscriptLayout(
    * at least the prose measure wide, so it squares with the paragraph around it,
    * and grows toward the full content width only for longer lines.
    */
+  const sameSyntaxStyle = (previous: SyntaxSpan, current: SyntaxSpan): boolean =>
+    previous.fg === current.fg;
+
+  /**
+   * The painted surface rows one source line occupies. A long line is word-
+   * wrapped so code cannot run off the edge and be lost: one row per wrapped
+   * fragment, each the full band width.
+   */
+  function fenceCodeRows(
+    baseKey: string,
+    spans: readonly SyntaxSpan[],
+    layout: FenceLayout,
+    gutter: readonly Segment[],
+  ): RenderRow[] {
+    return wrapStyledSpans(
+      spans.map((span) => ({ text: span.text, fg: span.fg })),
+      layout.inner,
+      sameSyntaxStyle,
+    ).map((line, index) => fenceSurface(`${baseKey}:${String(index)}`, line, layout.width, gutter));
+  }
+
   function fenceRows(
     language: string,
     lines: readonly string[],
@@ -823,14 +845,7 @@ export function createTranscriptLayout(
     for (let lineIndex = 0; lineIndex < painted.length; lineIndex += 1) {
       const spans = painted[lineIndex];
       if (spans === undefined) continue;
-      rows.push(
-        fenceSurface(
-          `${key}:${String(lineIndex)}`,
-          fitTerminalSegments([...spans], layout.inner),
-          layout.width,
-          gutterFor(),
-        ),
-      );
+      rows.push(...fenceCodeRows(`${key}:${String(lineIndex)}`, spans, layout, gutterFor()));
     }
     rows.push(fenceSurface(`${key}:fence:bottom`, [], layout.width, gutterFor()));
     return rows;
@@ -839,7 +854,7 @@ export function createTranscriptLayout(
   /**
    * The fence a streaming answer is writing into. It has no blank line outside
    * itself to settle at, so without this every reveal frame would re-highlight
-   * and re-fit its whole body. Settled lines keep their highlight and their row;
+   * and re-wrap its whole body. Settled lines keep their highlight and their row;
    * rows are rebuilt only when a longer line widens the band.
    */
   interface OpenFenceCache {
@@ -850,7 +865,7 @@ export function createTranscriptLayout(
     readonly longestSettled: number;
     readonly measuredLines: number;
     readonly layout: FenceLayout;
-    /** Rows for the settled lines, laid out at `layout`, all spans from `highlight`. */
+    /** Rows for the settled lines, wrapped to `layout`, all spans from `highlight`. */
     readonly settledRows: readonly RenderRow[];
     /** The settled spans the rows were built from, so a diff reclassification rebuilds them. */
     readonly settledSpans: readonly (readonly SyntaxSpan[])[];
@@ -887,21 +902,21 @@ export function createTranscriptLayout(
     const top = fenceLabelRow(language, layout, key, gutterFor());
     const rail = gutterFor();
     const settledSpans = highlight.spans.slice(0, settledCount);
+    // Reuse the cached wrapped rows only when the band width is unchanged and the
+    // settled spans are still identical: a wrap depends only on layout.inner and the
+    // span text, so neither having moved means the rows still hold. The rows cover
+    // the cached `measuredLines` spans, so new lines start there, not after the rows.
     const reuse =
       resumed &&
       previous.layout.width === layout.width &&
       previous.layout.inner === layout.inner &&
-      previous.settledRows.length <= settledCount &&
+      previous.settledRows.length > 0 &&
       previous.settledSpans.every((spans, index) => spans === settledSpans[index]);
+    const start = reuse ? previous.measuredLines : 0;
     const settledRows = reuse ? previous.settledRows.slice() : [];
-    for (let index = settledRows.length; index < settledCount; index += 1) {
+    for (let index = start; index < settledCount; index += 1) {
       settledRows.push(
-        fenceSurface(
-          `${key}:${String(index)}`,
-          fitTerminalSegments([...(settledSpans[index] ?? [])], layout.inner),
-          layout.width,
-          rail,
-        ),
+        ...fenceCodeRows(`${key}:${String(index)}`, settledSpans[index] ?? [], layout, rail),
       );
     }
     openFenceCache =
@@ -922,10 +937,10 @@ export function createTranscriptLayout(
     const rows: RenderRow[] = [top, ...settledRows];
     if (lines.length > 0) {
       rows.push(
-        fenceSurface(
+        ...fenceCodeRows(
           `${key}:${String(lines.length - 1)}`,
-          fitTerminalSegments([...(highlight.spans[lines.length - 1] ?? [])], layout.inner),
-          layout.width,
+          highlight.spans[lines.length - 1] ?? [],
+          layout,
           rail,
         ),
       );
@@ -1179,32 +1194,38 @@ export function createTranscriptLayout(
                 : diffLine.startsWith("@@")
                   ? "secondary"
                   : "muted";
-            rows.push({
-              key: `${block.id}:difffull:${String(index)}`,
-              gutter: [rail, blankCell()],
-              content: fitTerminalSegments(
-                [{ text: `  ${diffLine}`, fg: roleStyle(role, palette).fg }],
-                geometry.content,
-              ),
-              contentWidth: geometry.content,
-              meta: [],
-            });
+            // Word-wrap the stored text to the content width: a diff line can
+            // carry a full user quote and must not be clipped to one row.
+            const wrapped = wrapTerminalCells(`  ${diffLine}`, geometry.content);
+            for (let wrapIndex = 0; wrapIndex < wrapped.length; wrapIndex += 1) {
+              const line = wrapped[wrapIndex];
+              if (line === undefined) continue;
+              rows.push({
+                key: `${block.id}:difffull:${String(index)}:${String(wrapIndex)}`,
+                gutter: [rail, blankCell()],
+                content: [{ text: line, fg: roleStyle(role, palette).fg }],
+                contentWidth: geometry.content,
+                meta: [],
+              });
+            }
           }
         } else {
           const diffRows = receiptDiffRows(block);
           for (let index = 0; index < diffRows.length; index += 1) {
             const diffRow = diffRows[index];
             if (diffRow === undefined) continue;
-            rows.push({
-              key: `${block.id}:diff:${String(index)}`,
-              gutter: [rail, blankCell()],
-              content: fitTerminalSegments(
-                [{ text: `  ${diffRow.text}`, fg: roleStyle(diffRow.role, palette).fg }],
-                geometry.content,
-              ),
-              contentWidth: geometry.content,
-              meta: [],
-            });
+            const wrapped = wrapTerminalCells(`  ${diffRow.text}`, geometry.content);
+            for (let wrapIndex = 0; wrapIndex < wrapped.length; wrapIndex += 1) {
+              const line = wrapped[wrapIndex];
+              if (line === undefined) continue;
+              rows.push({
+                key: `${block.id}:diff:${String(index)}:${String(wrapIndex)}`,
+                gutter: [rail, blankCell()],
+                content: [{ text: line, fg: roleStyle(diffRow.role, palette).fg }],
+                contentWidth: geometry.content,
+                meta: [],
+              });
+            }
           }
         }
         if (block.expanded === true && block.detail !== undefined) {
@@ -1371,20 +1392,27 @@ export function createTranscriptLayout(
       },
     ];
     const listed = (label: string, items: readonly string[]): void => {
+      const measure = Math.max(1, geometry.prose - STOPPED_LABEL.length);
+      const indent: Segment = { text: " ".repeat(STOPPED_LABEL.length), fg: palette.muted };
       items.forEach((item, index) => {
-        const content: Segment[] = [
-          { text: (index === 0 ? label : "").padEnd(STOPPED_LABEL.length), fg: palette.muted },
-          ...fitTerminalSegments(
-            [{ text: item, fg: palette.selected }],
-            Math.max(1, geometry.prose - STOPPED_LABEL.length),
-          ),
-        ];
-        rows.push({
-          key: `${block.id}:${label}:${String(index)}`,
-          gutter: [railCell(palette.border), blankCell()],
-          content,
-          contentWidth: geometry.prose,
-          meta: [],
+        wrapTerminalCells(item, measure).forEach((line, wrapIndex) => {
+          const content: Segment[] =
+            wrapIndex === 0
+              ? [
+                  {
+                    text: (index === 0 ? label : "").padEnd(STOPPED_LABEL.length),
+                    fg: palette.muted,
+                  },
+                  { text: line, fg: palette.selected },
+                ]
+              : [indent, { text: line, fg: palette.selected }];
+          rows.push({
+            key: `${block.id}:${label}:${String(index)}:${String(wrapIndex)}`,
+            gutter: [railCell(palette.border), blankCell()],
+            content,
+            contentWidth: geometry.prose,
+            meta: [],
+          });
         });
       });
     };
@@ -1429,22 +1457,32 @@ export function createTranscriptLayout(
       },
     ];
     const contentWidth = widthWithMetadata(geometry, meta);
-
+    const askIndent = 2 + terminalCellWidth(block.name);
+    const askRows = wrapTerminalCells(block.ask, Math.max(1, contentWidth - askIndent));
     const rows: RenderRow[] = [
       {
         key: `${block.id}:0`,
         gutter: [marker, tag],
-        content: fitTerminalSegments(
-          [
-            { text: block.name, fg: palette.secondary },
-            { text: `  ${block.ask}`, fg: palette.muted },
-          ],
-          contentWidth,
-        ),
+        content: [
+          { text: block.name, fg: palette.secondary },
+          { text: `  ${askRows[0] ?? ""}`, fg: palette.muted },
+        ],
         contentWidth,
         meta,
       },
     ];
+    askRows.slice(1).forEach((line, wrapIndex) => {
+      rows.push({
+        key: `${block.id}:ask:${String(wrapIndex + 1)}`,
+        gutter: [blankCell(), blankCell()],
+        content: [
+          { text: " ".repeat(askIndent), fg: palette.muted },
+          { text: line, fg: palette.muted },
+        ],
+        contentWidth,
+        meta,
+      });
+    });
 
     if (block.result !== undefined) {
       const lines = wrap([{ text: block.result, fg: palette.secondary }], geometry.prose - 2);

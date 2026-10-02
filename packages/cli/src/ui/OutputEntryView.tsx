@@ -125,7 +125,7 @@ function ReceiptLine({ receipt }: { receipt: ToolReceipt }): React.ReactElement 
       {diffRows.map((row, index) => (
         <Text
           key={index}
-          wrap="truncate-end"
+          wrap="wrap"
         >
           {"  "}
           {paintRole(row.role, row.text)}

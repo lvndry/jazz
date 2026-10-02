@@ -156,7 +156,7 @@ describe("a streaming answer renders incrementally", () => {
     const before = layoutRows(streamingBlock(`${opening}const`), VIEWPORT);
     const after = layoutRows(streamingBlock(`${opening}const next`), VIEWPORT);
     const rowFor = (rows: readonly RenderRow[]): RenderRow | undefined =>
-      rows.find((row) => row.key === "answer:0:3");
+      rows.find((row) => row.key === "answer:0:3" || row.key.startsWith("answer:0:3:"));
     expect(rowFor(after)).toBeDefined();
     expect(rowFor(after)).toBe(rowFor(before));
   });

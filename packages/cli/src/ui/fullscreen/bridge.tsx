@@ -87,7 +87,7 @@ import { approvalTitle } from "../models/approval";
 import { homeIntent } from "../models/home-view";
 import { interruptSummary, type InterruptSnapshot, type ReceiptFacts } from "../models/interrupt";
 import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
-import { RETRY_BAND_ROWS, retryBand } from "../models/retry";
+import { retryBand, retryBandHeight } from "../models/retry";
 import { settledPlan } from "../models/todo";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
 import { initialChoiceIndex } from "../prompt-core/picker-adapter";
@@ -1381,7 +1381,7 @@ export function FullscreenBridge(): React.ReactNode {
   const neededRows = Math.min(
     LIVE_ZONE_MAX_ROWS,
     tools.length +
-      (retryNotice === null ? 0 : RETRY_BAND_ROWS) +
+      (retryNotice === null ? 0 : retryBandHeight(retryBand(retryNotice, Date.now()), width)) +
       (waitingNow ? 1 : 0) +
       (step === undefined ? 0 : 1) +
       (todoList.length > 0 ? 1 + Math.min(todoList.length, TODO_WINDOW_ROWS) : 0),
