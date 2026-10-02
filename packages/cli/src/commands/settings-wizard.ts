@@ -279,7 +279,7 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
     {
       label: "Browser Use",
       value: "browser",
-      hint: config.browser?.headless === false ? "headed" : "headless",
+      hint: config.browser?.headless === false ? "headless: false" : "headless: true",
     },
     { label: "Back", value: "back" },
   ];
@@ -1166,22 +1166,22 @@ function configureBrowser() {
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
     const current = (yield* configService.appConfig).browser?.headless ?? true;
-    const selection = yield* terminal.select<"headless" | "headed">(
-      "When Jazz launches a browser for the Browser Use tools, how should it appear?",
+    const selection = yield* terminal.select<"true" | "false">(
+      "browser.headless — run launched browsers without a visible window?",
       {
-        default: current ? "headless" : "headed",
+        default: current ? "true" : "false",
         choices: [
-          { name: "Headless — no visible window (default)", value: "headless" },
-          { name: "Headed — open a visible window so you can watch the run", value: "headed" },
+          { name: "true — headless, no visible window (default)", value: "true" },
+          { name: "false — open a visible window so you can watch the run", value: "false" },
         ],
       },
     );
     if (selection === undefined) return;
-    yield* configService.set("browser.headless", selection === "headless");
+    yield* configService.set("browser.headless", selection === "true");
     yield* terminal.success(
-      selection === "headed"
-        ? "Launched browsers open in a visible window."
-        : "Launched browsers run headless, without a visible window.",
+      selection === "true"
+        ? "Launched browsers run headless, without a visible window."
+        : "Launched browsers open in a visible window.",
     );
     yield* terminal.log("");
   });
