@@ -307,7 +307,9 @@ export function isInsufficientBalanceError(error: unknown): boolean {
   const data = error.data as { error?: { code?: unknown; type?: unknown } };
   const code = data.error?.code;
   const type = data.error?.type;
-  return QUOTA_EXHAUSTED_CODES.has(String(code)) || QUOTA_EXHAUSTED_CODES.has(String(type));
+  return [code, type].some(
+    (field) => typeof field === "string" && QUOTA_EXHAUSTED_CODES.has(field),
+  );
 }
 
 function isProviderAuthFailure(statusCode: number | undefined, message: string): boolean {

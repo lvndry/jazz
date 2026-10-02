@@ -371,6 +371,23 @@ describe("convertToLLMError - out-of-credits 429 vs plain rate limit", () => {
     expect(isRetryableLLMError(converted)).toBe(false);
   });
 
+  it("keeps a 429 retryable when its code or type is not a string", () => {
+    const hostile = { toString: 1 };
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "Rate limit reached",
+        url: "https://api.openai.com/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+        data: { error: { code: hostile, type: hostile } },
+      }),
+      "openai",
+    );
+    expect(converted).toBeInstanceOf(LLMRateLimitError);
+    expect(isRetryableLLMError(converted)).toBe(true);
+  });
+
   it("keeps a plain rate_limit_exceeded 429 retryable", () => {
     const converted = convertToLLMError(
       new APICallError({
