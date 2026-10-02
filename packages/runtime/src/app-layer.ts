@@ -24,6 +24,7 @@ import {
 import { createMCPServerManagerLayer } from "@jazz/adapters/mcp/mcp-server-manager";
 import { createMemoryServiceLayer } from "@jazz/adapters/memory-service";
 import { NotificationServiceLayer } from "@jazz/adapters/notification";
+import { createOccupancyServiceLayer } from "@jazz/adapters/occupancy";
 import { createPeerLedgerServiceLayer } from "@jazz/adapters/peers/ledger";
 import { createPeerTokenServiceLayer } from "@jazz/adapters/peers/token";
 import { createPersonaRegistryServiceLayer } from "@jazz/adapters/persona-registry-service";
@@ -257,6 +258,7 @@ export function createAppLayer(
   const fileSystemLayer = NodeFileSystem.layer;
   const configLayer = createConfigLayer(debug, configPath).pipe(Layer.provide(fileSystemLayer));
   const jazzStateLayer = createJazzStateServiceLayer();
+  const occupancyLayer = createOccupancyServiceLayer();
   const loggerLayer = createLoggerLayer();
 
   const logFormatLayer = Layer.effectDiscard(
@@ -381,6 +383,7 @@ export function createAppLayer(
     terminalLayer,
     storageLayer,
     jazzStateLayer,
+    occupancyLayer,
     llmLayer,
     toolRegistryLayer,
     shellLayer,

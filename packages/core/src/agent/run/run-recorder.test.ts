@@ -1,8 +1,11 @@
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
 import { describe, expect, it } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Exit, Layer } from "effect";
+import { OccupancyServiceTag, type OccupancyService } from "@/core/interfaces/occupancy";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
+import type { OccupancyEntry } from "@/core/types/occupancy";
+import { ToolActivityTracker } from "./tool-activity";
 import type { AgentResponse } from "../types";
 import { RunParkRequested } from "./park-signal";
 import { withRunRecording, type RunRecordingInput } from "./run-recorder";
@@ -175,5 +178,110 @@ describe("withRunRecording", () => {
     expect((completed?.activeDurationMs ?? 0) + 60).toBeLessThan(
       Date.now() - Date.parse(parked?.createdAt ?? new Date().toISOString()),
     );
+  });
+});
+
+function recordOccupancy(): {
+  layer: Layer.Layer<OccupancyService, never>;
+  entries: OccupancyEntry[];
+} {
+  const entries: OccupancyEntry[] = [];
+  const layer = Layer.succeed(OccupancyServiceTag, {
+    record: (entry: OccupancyEntry) =>
+      Effect.sync(() => {
+        entries.push(entry);
+      }),
+    list: () => Effect.succeed(entries),
+  });
+  return { layer, entries };
+}
+
+describe("withRunRecording occupancy heartbeat", () => {
+  it("writes an entry with the activity record and a final terminal state", async () => {
+    const store = new InMemoryRunStore();
+    const { layer, entries } = recordOccupancy();
+    const tracker = new ToolActivityTracker();
+    tracker.record({
+      toolName: "write_file",
+      riskLevel: "low-risk",
+      path: "src/a.ts",
+      at: new Date().toISOString(),
+    });
+
+    const exit = await Effect.runPromiseExit(
+      withRunRecording(
+        {
+          ...INPUT,
+          workingDirectory: "/work/repo",
+          agentName: "Assistant",
+          toolActivity: tracker,
+        },
+        Effect.succeed(response("Done")),
+      ).pipe(Effect.provide(Layer.merge(Layer.succeed(RunStoreTag, store), layer))),
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+    const first = entries[0]!;
+    expect(first).toMatchObject({
+      runId: RUN_ID,
+      workingDirectory: "/work/repo",
+      agentName: "Assistant",
+      lastMutatingTool: "write_file",
+      lastMutatingPath: "src/a.ts",
+    });
+    expect(first.state).toBe("working");
+    expect(entries.at(-1)!.state).toBe("completed");
+  });
+
+  it("writes a failed terminal entry when the run fails, and the failure still propagates", async () => {
+    const store = new InMemoryRunStore();
+    const { layer, entries } = recordOccupancy();
+    const exit = await Effect.runPromiseExit(
+      withRunRecording(INPUT, Effect.fail(new Error("model said no"))).pipe(
+        Effect.provide(Layer.merge(Layer.succeed(RunStoreTag, store), layer)),
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(entries.at(-1)!.state).toBe("failed");
+  });
+
+  it("still completes when the occupancy service fails, best-effort end to end", async () => {
+    const store = new InMemoryRunStore();
+    // The service's type promises no failures; cast to prove the recorder still swallows
+    // one if a future implementation breaks that promise.
+    const failing = Layer.succeed(OccupancyServiceTag, {
+      record: (() =>
+        Effect.fail(new Error("disk said no"))) as unknown as OccupancyService["record"],
+      list: (() => Effect.fail(new Error("disk said no"))) as unknown as OccupancyService["list"],
+    });
+    const result = await Effect.runPromise(
+      withRunRecording(INPUT, Effect.succeed(response("ok"))).pipe(
+        Effect.provide(Layer.merge(Layer.succeed(RunStoreTag, store), failing)),
+      ),
+    );
+    expect(result).toMatchObject({ content: "ok" });
+  });
+
+  it("heartbeats with no run store in the layer, since a terminal run still occupies the directory", async () => {
+    const { layer, entries } = recordOccupancy();
+    const exit = await Effect.runPromiseExit(
+      withRunRecording(INPUT, Effect.succeed(response("Done"))).pipe(Effect.provide(layer)),
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+    expect(entries.at(-1)!.state).toBe("completed");
+  });
+
+  it("writes a failed terminal entry with no store, and the failure still propagates", async () => {
+    const { layer, entries } = recordOccupancy();
+    const exit = await Effect.runPromiseExit(
+      withRunRecording(INPUT, Effect.fail(new Error("model said no"))).pipe(Effect.provide(layer)),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(entries.at(-1)!.state).toBe("failed");
   });
 });

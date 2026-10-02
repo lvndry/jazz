@@ -96,6 +96,7 @@ import {
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
+import { ToolActivityTracker } from "./run/tool-activity";
 import { runToolDenials } from "./tools/agent-tool-resolution";
 import { BrowserSessions } from "./tools/browser/session";
 import { resolveCommandRisk } from "./tools/command-risk";
@@ -852,9 +853,15 @@ function initializeAgentRun(
           : () => options.autoApprovePolicy as AutoApprovePolicy
         : undefined;
 
+    // One activity record per run, shared with sub-agents by reference: a child editing
+    // files is the parent run writing, and that is what a collision check needs to see.
+    const toolActivity = new ToolActivityTracker();
+
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
+      runId: runMetrics.runId,
       memorySources,
+      toolActivity,
       telemetryTraceParent: {
         topRunId: runMetrics.telemetryParent?.topRunId ?? runMetrics.runId,
         parentRunId: runMetrics.runId,
@@ -1237,6 +1244,8 @@ export class AgentRunner {
                 ? runContext.context.maxSubagentIterations
                 : 0,
             workingDirectory: yield* resolveAgentWorkingDirectory(options.agent.id, options),
+            agentName: options.agent.name,
+            toolActivity: runContext.context.toolActivity,
             boundary: runRecordBoundary(options),
           },
           executeRecordingTaint,

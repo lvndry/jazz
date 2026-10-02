@@ -5,6 +5,7 @@
  */
 import type { Effect } from "effect";
 import type z from "zod";
+import type { ToolActivityTracker } from "@/core/agent/run/tool-activity";
 import type { SubagentSupervisor } from "@/core/agent/subagents/supervisor";
 import type { BrowserSessions } from "@/core/agent/tools/browser/session";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -370,6 +371,12 @@ export interface ToolCategory {
 export interface ToolExecutionContext {
   readonly agentId: string;
   /**
+   * The run this call executes in, when known. Run-aware tools (e.g. `who_is_here`) use it
+   * to tell the caller apart from sibling runs in the same process; callers that never set
+   * it fall back to process-level identity.
+   */
+  readonly runId?: string | undefined;
+  /**
    * Private addresses approved for this call only, on top of the global
    * `network.allowPrivateHosts`. Set by the executor after a person or the run's policy approved a
    * call whose URL reaches them.
@@ -450,6 +457,12 @@ export interface ToolExecutionContext {
    * Shared with sub-agents by reference.
    */
   readonly browserSessions?: BrowserSessions;
+  /**
+   * This run's directory-occupancy activity record. The tool executor feeds it each call's
+   * resolved risk level; the run's heartbeat reads it. Shared with sub-agents by reference
+   * so a child editing files shows up in the parent run's occupancy entry.
+   */
+  readonly toolActivity?: ToolActivityTracker;
   /** The individual call currently executing. Set on a per-call context copy. */
   readonly toolCallId?: string;
   /**

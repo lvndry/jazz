@@ -23,6 +23,7 @@ import type { LLMService } from "./llm";
 import type { LoggerService } from "./logger";
 import type { MCPServerManager } from "./mcp-server";
 import type { MemoryService } from "./memory-service";
+import type { OccupancyService } from "./occupancy";
 import type { PeerLedgerService, PeerTokenService } from "./peers";
 import type { PresentationService } from "./presentation";
 import type { ReminderService } from "./reminder-service";
@@ -90,6 +91,7 @@ export type ToolRequirements =
   | ReminderService
   | WakeTriggerService
   | JobQueueService
+  | OccupancyService
   | PeerLedgerService
   | PeerTokenService
   | GoalStoreTag

@@ -23,6 +23,7 @@ import { LoggerServiceTag } from "../../interfaces/logger";
 import type { MCPServerManager } from "../../interfaces/mcp-server";
 import { MCPServerManagerTag } from "../../interfaces/mcp-server";
 import { type MemoryService, MemoryServiceTag } from "../../interfaces/memory-service";
+import { OccupancyServiceTag } from "../../interfaces/occupancy";
 import { PeerLedgerServiceTag, PeerTokenServiceTag } from "../../interfaces/peers";
 import type { PresentationService, StreamingRenderer } from "../../interfaces/presentation";
 import { PresentationServiceTag } from "../../interfaces/presentation";
@@ -125,6 +126,7 @@ function makeTestLayer(services: {
     Layer.succeed(JobQueueServiceTag, {} as any),
     Layer.succeed(ReminderServiceTag, emptyReminders),
     Layer.succeed(GoalStoreTag, {} as any),
+    Layer.succeed(OccupancyServiceTag, {} as any),
     Layer.succeed(PeerLedgerServiceTag, {} as any),
     Layer.succeed(PeerTokenServiceTag, {} as any),
   );

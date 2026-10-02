@@ -491,6 +491,24 @@ export class ToolExecutor {
       const toolStartTime = Date.now();
       let telemetryToolName = "unknown";
 
+      // Feed the run's occupancy tracker as a call's side effect begins. The post-approval
+      // path refines the level with the classified risk once it has it. Rejected and
+      // timed-out calls still count: the model aimed a mutating call at the tree.
+      const recordActivity = (
+        toolName: string,
+        riskLevel: ToolRiskLevel,
+        callArgs: Record<string, unknown>,
+      ) => {
+        if (context.toolActivity === undefined) return;
+        const rawPath = callArgs["path"] ?? callArgs["source"] ?? callArgs["destination"];
+        context.toolActivity.record({
+          toolName,
+          riskLevel,
+          ...(typeof rawPath === "string" && rawPath.length > 0 ? { path: rawPath } : {}),
+          at: new Date().toISOString(),
+        });
+      };
+
       try {
         const parsedArguments = parseToolCallArguments(toolCall);
         if (!parsedArguments.ok) {
@@ -595,6 +613,11 @@ export class ToolExecutor {
           // after approval, below.
           if (!isApprovalTool && (taintVerdict === undefined || taintVerdict.approved)) {
             ledger?.markStarted(toolCall.id);
+            recordActivity(
+              name,
+              toolMeta?.resolveRiskLevel?.(args) ?? toolMeta?.riskLevel ?? "unknown",
+              args,
+            );
           }
           // Pass the pre-fetched timeout to avoid a redundant getTool lookup.
           result =
@@ -927,6 +950,9 @@ export class ToolExecutor {
             // Execute the actual tool. allowHiddenExecute is required: executeTool refuses
             // hidden tools unless the post-approval path opts in.
             ledger?.markStarted(toolCall.id);
+            // The refined level: for `execute_command` this is the classified risk, not the
+            // tool's declared one — exactly the cut the approval policy just used.
+            recordActivity(approvalResult.executeToolName, riskLevel, executeArgs);
             result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
               ...context,
               allowHiddenExecute: true,

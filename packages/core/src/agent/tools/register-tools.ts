@@ -27,6 +27,7 @@ import { createHttpRequestTool } from "./http";
 import { createJobQueueTools } from "./job-queue";
 import { createEndLoopTool } from "./loop";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory";
+import { createWhoIsHereTool } from "./occupancy";
 import { createAskPeerTool, createRequestClarificationTool } from "./peer";
 import { createPerceptionTools } from "./perception";
 import {
@@ -236,9 +237,9 @@ export function registerWorkspaceTools(): Effect.Effect<void, Error, ToolRegistr
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(WORKSPACE_CATEGORY);
-
     yield* registerTool(createViewWorkspaceTool());
     yield* registerTool(createManageWorkspaceTool());
+    yield* registerTool(createWhoIsHereTool());
   });
 }
 
