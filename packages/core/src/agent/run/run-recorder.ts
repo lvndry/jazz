@@ -38,6 +38,7 @@ export interface RunRecordingInput {
   readonly approvalPolicy?: AutoApprovePolicy;
   readonly autoApprovedTools?: readonly string[];
   readonly maxIterations?: number;
+  readonly maxSubagentIterations?: number;
   readonly workingDirectory?: string;
   readonly boundary?: RunRecordBoundary;
 }

@@ -32,7 +32,9 @@ export function parsePositiveInt(label: string) {
 /**
  * Build a Commander option parser for iteration-cap flags: a whole number of 0 or more, where
  * 0 means unlimited. Distinguishes "0" (a valid, meaningful value) from "" (an empty
- * string), which is rejected.
+ * string), which is rejected. Values beyond Number.MAX_SAFE_INTEGER are refused at parse
+ * time instead of silently degrading — parseInt keeps returning a finite number past the
+ * 2^53 edge, so the floor() downstream would clamp one to a huge, meaningless cap.
  *
  * @param label - The flag name used in the error message (e.g. "--max-iterations").
  */
@@ -43,7 +45,13 @@ export function parseIterationCap(label: string) {
         `${label} must be a whole number of 0 or more, where 0 means unlimited (got "${raw}").`,
       );
     }
-    return Number.parseInt(raw, 10);
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value)) {
+      throw new InvalidArgumentError(
+        `${label} must be at most ${String(Number.MAX_SAFE_INTEGER)} (got "${raw}").`,
+      );
+    }
+    return value;
   };
 }
 

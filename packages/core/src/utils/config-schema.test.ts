@@ -270,7 +270,7 @@ describe("parseConfigFile", () => {
     );
     expect(expectations).toEqual({
       maxRetries: "a whole number of 0 or more",
-      maxIterations: "a whole number greater than 0, or 0 for unlimited",
+      maxIterations: "a whole number of 0 or more, where 0 means unlimited",
       maxCostUSD: "a number greater than 0",
       maxTokens: "a whole number greater than 0",
       "llm.streamIdleTimeoutMs": "a whole number greater than 0",

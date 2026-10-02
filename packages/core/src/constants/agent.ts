@@ -14,11 +14,10 @@ export const DEFAULT_MAX_ITERATIONS = 100;
 export const DEFAULT_MAX_SUBAGENT_ITERATIONS = 30;
 
 /**
- * Normalize a requested iteration cap (flag, config, or run context) to the value the loop
- * actually uses: 0 means "unlimited" and becomes Infinity, a positive whole number is
- * floored, and undefined falls back to the provided default. Every surface that accepts a
- * cap — CLI flags, config.json, the /settings wizard, sub-agent spawn — goes through this
- * so "0 means unlimited" holds in one place.
+ * Normalize a requested iteration cap to the value the loop actually uses: 0 means
+ * "unlimited" and becomes Infinity, a positive whole number is floored, and undefined
+ * falls back to the provided default. The CLI flag, config.json, and the /settings wizard
+ * all accept 0; this is where that rule holds, so they cannot disagree.
  */
 export function resolveIterationCap(requested: number | undefined, fallback: number): number {
   if (requested === undefined) {

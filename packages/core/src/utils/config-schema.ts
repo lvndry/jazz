@@ -143,8 +143,8 @@ function described<T extends z.ZodType>(schema: T, expected: string): T {
 
 const wholeNumber = described(z.int().nonnegative(), "a whole number of 0 or more");
 const iterationCap = described(
-  z.union([z.int().positive(), z.literal(0)]),
-  "a whole number greater than 0, or 0 for unlimited",
+  z.int().nonnegative(),
+  "a whole number of 0 or more, where 0 means unlimited",
 );
 const positiveWholeNumber = described(z.int().positive(), "a whole number greater than 0");
 const names = z.array(z.string());

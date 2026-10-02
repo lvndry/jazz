@@ -41,6 +41,13 @@ describe("parseIterationCap", () => {
     expect(() => parse("1.5")).toThrow("--max-iterations must be a whole number of 0 or more");
     expect(() => parse("abc")).toThrow("--max-iterations must be a whole number of 0 or more");
   });
+
+  it("refuses values beyond MAX_SAFE_INTEGER instead of silently clamping", () => {
+    expect(() => parse("9007199254740992")).toThrow(
+      "--max-iterations must be at most 9007199254740991",
+    );
+    expect(parse("9007199254740991")).toBe(9007199254740991);
+  });
 });
 
 describe("parsePositiveFloat", () => {

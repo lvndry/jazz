@@ -1208,15 +1208,15 @@ export class AgentRunner {
             ...(options.autoApprovedTools !== undefined
               ? { autoApprovedTools: options.autoApprovedTools }
               : {}),
-            // Infinity (an attended unlimited run) is not JSON-serializable; a resumed segment
-            // recomputes the same attended default, so the record only keeps a real cap. An
-            // explicit --max-subagent-iterations is always finite and must survive resume.
-            ...(Number.isFinite(runContext.maxIterations)
-              ? { maxIterations: runContext.maxIterations }
-              : {}),
-            ...(Number.isFinite(runContext.context.maxSubagentIterations)
-              ? { maxSubagentIterations: runContext.context.maxSubagentIterations }
-              : {}),
+            // Infinity (an attended unlimited run) is not JSON-serializable; the record stores
+            // 0 for it — the same "unlimited" value every other surface accepts — and resume
+            // and metrics restore it. An explicit finite cap is stored as-is.
+            maxIterations: Number.isFinite(runContext.maxIterations) ? runContext.maxIterations : 0,
+            maxSubagentIterations:
+              typeof runContext.context.maxSubagentIterations === "number" &&
+              Number.isFinite(runContext.context.maxSubagentIterations)
+                ? runContext.context.maxSubagentIterations
+                : 0,
             workingDirectory: yield* resolveAgentWorkingDirectory(options.agent.id, options),
             boundary: runRecordBoundary(options),
           },
