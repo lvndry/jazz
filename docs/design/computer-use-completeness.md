@@ -1,5 +1,5 @@
 ---
-description: The plan for completing computer use in one PR: full action vocabulary, consent on first reach, captureAfter and wait, and the scenario suite.
+description: "The plan for completing computer use in one PR: full action vocabulary, consent on first reach, captureAfter and wait, and the scenario suite."
 ---
 
 # Computer use: from phase 1 to complete
