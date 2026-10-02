@@ -13,6 +13,11 @@ describe("parseRunLimitInput", () => {
     expect(parseRunLimitInput("500")).toEqual({ kind: "limit", iterations: 500 });
   });
 
+  it("reads 0 and the word unlimited as unlimited", () => {
+    expect(parseRunLimitInput("0")).toEqual({ kind: "unlimited" });
+    expect(parseRunLimitInput("UNLIMITED")).toEqual({ kind: "unlimited" });
+  });
+
   it("treats empty and the default words as the default", () => {
     expect(parseRunLimitInput("")).toEqual({ kind: "default" });
     expect(parseRunLimitInput("  ")).toEqual({ kind: "default" });
@@ -20,22 +25,23 @@ describe("parseRunLimitInput", () => {
     expect(parseRunLimitInput("NONE")).toEqual({ kind: "default" });
   });
 
-  it("refuses zero, negatives, fractions and words with a reason", () => {
-    for (const raw of ["0", "-3", "1.5", "many", "12abc", "$5"]) {
+  it("refuses negatives, fractions and words with a reason", () => {
+    for (const raw of ["-3", "1.5", "many", "12abc", "$5"]) {
       expect(parseRunLimitInput(raw).kind, raw).toBe("invalid");
     }
   });
 });
 
 describe("describeRunLimit", () => {
-  it("renders the default for an unset limit and the number otherwise", () => {
+  it("renders the default for an unset limit, unlimited for 0, and the number otherwise", () => {
     expect(describeRunLimit(undefined)).toBe("default");
+    expect(describeRunLimit(0)).toBe("unlimited");
     expect(describeRunLimit(120)).toBe("120");
   });
 });
 
 describe("applyRunLimit", () => {
-  it("writes a limit, and removes the key for the default", async () => {
+  it("writes a limit or 0 for unlimited, and removes the key for the default", async () => {
     const sets: Array<[string, number | undefined]> = [];
     const configService = {
       set: <A>(key: string, value: A) =>
@@ -45,10 +51,12 @@ describe("applyRunLimit", () => {
     await Effect.runPromise(
       applyRunLimit(configService, "maxIterations", { kind: "limit", iterations: 60 }),
     );
+    await Effect.runPromise(applyRunLimit(configService, "maxIterations", { kind: "unlimited" }));
     await Effect.runPromise(applyRunLimit(configService, "maxIterations", { kind: "default" }));
 
     expect(sets).toEqual([
       ["maxIterations", 60],
+      ["maxIterations", 0],
       ["maxIterations", undefined],
     ]);
   });

@@ -12,6 +12,7 @@ import {
   DEFAULT_MAX_LLM_RETRIES,
   DEFAULT_MAX_SUBAGENT_DEPTH,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
+  resolveIterationCap,
 } from "@/core/constants/agent";
 import { isLocalServerProvider, isZeroCostLocalModel } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
@@ -489,17 +490,13 @@ function initializeAgentRun(
           .pipe(Effect.catchAll(() => Effect.succeed(null)))
       : null;
     const toolProfile = resolvedPersona?.toolProfile;
-
     // Attended terminal runs are unlimited by default (a person can `continue`); unattended
     // runs fall back to DEFAULT_MAX_ITERATIONS. An explicit --max-iterations or config value
-    // always wins, even on a TTY — the cap is a default, not a wall.
-    const resolvedMaxIterations = Math.max(
-      1,
-      Math.floor(
-        options.maxIterations ??
-          appConfig.maxIterations ??
-          (attended ? Infinity : DEFAULT_MAX_ITERATIONS),
-      ),
+    // always wins, even on a TTY — the cap is a default, not a wall. 0 means unlimited
+    // on every surface; resolveIterationCap is where that rule lives.
+    const resolvedMaxIterations = resolveIterationCap(
+      options.maxIterations ?? appConfig.maxIterations,
+      attended ? Infinity : DEFAULT_MAX_ITERATIONS,
     );
     // No default ceiling for either — unset at both the call site and app config means
     // uncapped, unlike maxIterations which always falls back to DEFAULT_MAX_ITERATIONS.
@@ -927,14 +924,11 @@ function initializeAgentRun(
         0,
         Math.floor(appConfig.maxSubagentDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH),
       ),
-      maxSubagentIterations:
-        options.maxSubagentIterations !== undefined
-          ? Math.max(1, Math.floor(options.maxSubagentIterations))
-          : appConfig.maxSubagentIterations !== undefined
-            ? Math.max(1, Math.floor(appConfig.maxSubagentIterations))
-            : attended
-              ? Infinity
-              : DEFAULT_MAX_SUBAGENT_ITERATIONS,
+      // 0 means unlimited for sub-agents too; the fallback is the attended/unattended default.
+      maxSubagentIterations: resolveIterationCap(
+        options.maxSubagentIterations ?? appConfig.maxSubagentIterations,
+        attended ? Infinity : DEFAULT_MAX_SUBAGENT_ITERATIONS,
+      ),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??

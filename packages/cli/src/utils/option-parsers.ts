@@ -30,6 +30,24 @@ export function parsePositiveInt(label: string) {
 }
 
 /**
+ * Build a Commander option parser for iteration-cap flags: a whole number of 0 or more, where
+ * 0 means unlimited. Distinguishes "0" (a valid, meaningful value) from "" (an empty
+ * string), which is rejected.
+ *
+ * @param label - The flag name used in the error message (e.g. "--max-iterations").
+ */
+export function parseIterationCap(label: string) {
+  return (raw: string): number => {
+    if (!/^\d+$/.test(raw)) {
+      throw new InvalidArgumentError(
+        `${label} must be a whole number of 0 or more, where 0 means unlimited (got "${raw}").`,
+      );
+    }
+    return Number.parseInt(raw, 10);
+  };
+}
+
+/**
  * Build a Commander option parser that accepts only positive (fractional) numbers, for
  * dollar-amount flags like --max-cost-usd where "20" or "0.20" both make sense but "20s"
  * or a negative amount do not.

@@ -172,9 +172,9 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
   maxSubagentDepth:
     "How many levels of sub-agents may nest. Defaults to 3; 0 turns delegation off.",
   maxIterations:
-    "Model rounds per top-level run. Unset: unlimited in a terminal, 100 when unattended; `--max-iterations` wins. A user-visible warning fires at 50/70/90% of the cap.",
+    "Model rounds per top-level run. 0 = unlimited. Unset: unlimited in a terminal, 100 when unattended; `--max-iterations` wins. A user-visible warning fires at 50/70/90% of the cap.",
   maxSubagentIterations:
-    "Model rounds per sub-agent run. Unset: unlimited under an attended run, 30 when unattended; `--max-subagent-iterations` wins.",
+    "Model rounds per sub-agent run. 0 = unlimited. Unset: unlimited under an attended run, 30 when unattended; `--max-subagent-iterations` wins.",
   maxCostUSD:
     "Spend ceiling per run, in US dollars. Unset means no ceiling; `--max-cost-usd` wins. See [Budgets](../concepts/budgets.md).",
   maxTokens: "Token ceiling per run. Unset means no ceiling; `--max-tokens` wins.",

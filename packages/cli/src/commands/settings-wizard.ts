@@ -1148,9 +1148,13 @@ function configureRunLimits() {
         continue;
       }
       yield* applyRunLimit(configService, setting.key, parsed);
-      yield* terminal.success(
-        `${setting.label}: ${parsed.kind === "limit" ? describeRunLimit(parsed.iterations) : "default"}.`,
-      );
+      const shown =
+        parsed.kind === "default"
+          ? "default"
+          : parsed.kind === "unlimited"
+            ? "unlimited"
+            : describeRunLimit(parsed.iterations);
+      yield* terminal.success(`${setting.label}: ${shown}.`);
       yield* terminal.log("");
     }
   });

@@ -142,6 +142,10 @@ function described<T extends z.ZodType>(schema: T, expected: string): T {
 }
 
 const wholeNumber = described(z.int().nonnegative(), "a whole number of 0 or more");
+const iterationCap = described(
+  z.union([z.int().positive(), z.literal(0)]),
+  "a whole number greater than 0, or 0 for unlimited",
+);
 const positiveWholeNumber = described(z.int().positive(), "a whole number greater than 0");
 const names = z.array(z.string());
 
@@ -644,8 +648,8 @@ const configFileShape = {
   maxRetries: wholeNumber.exactOptional(),
   editor: text.exactOptional(),
   maxSubagentDepth: wholeNumber.exactOptional(),
-  maxIterations: positiveWholeNumber.exactOptional(),
-  maxSubagentIterations: positiveWholeNumber.exactOptional(),
+  maxIterations: iterationCap.exactOptional(),
+  maxSubagentIterations: iterationCap.exactOptional(),
   maxCostUSD: described(z.number().positive(), "a number greater than 0").exactOptional(),
   maxTokens: positiveWholeNumber.exactOptional(),
   maxDurationMs: positiveWholeNumber.exactOptional(),
