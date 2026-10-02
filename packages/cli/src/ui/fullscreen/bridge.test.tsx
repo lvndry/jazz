@@ -673,6 +673,35 @@ describe("fullscreen bridge", () => {
     expect(cleared).not.toContain("oldest turn");
   });
 
+  it("recalls sent messages with up while a busy turn runs and the queue is empty", async () => {
+    store.clearInputHistory();
+    store.pushInputHistory("earlier turn");
+    store.pushInputHistory("newest turn");
+    const rendered = await liveComposer();
+    updateForTest(() => {
+      store.setChatBusy(true);
+      store.setPrompt(null);
+    });
+    await rendered.flush();
+
+    rendered.mockInput.pressKey("ARROW_UP");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("newest turn");
+
+    rendered.mockInput.pressKey("ARROW_UP");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("earlier turn");
+
+    rendered.mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("newest turn");
+
+    rendered.renderer.destroy();
+    store.setChatBusy(false);
+    store.setPrompt(null);
+    store.clearInputHistory();
+  });
+
   it("queues, recalls, and clears after the chat prompt is cleared for a busy turn", async () => {
     const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();

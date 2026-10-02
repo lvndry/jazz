@@ -2589,7 +2589,7 @@ export function FullscreenBridge(): React.ReactNode {
         store.clearQueue();
         return true;
       }
-      if (!busyRef.current && (name === "up" || name === "down")) {
+      if (name === "up" || name === "down") {
         const recalledHistory = store.getInputHistory();
         if (recalledHistory.length > 0) {
           const current = composerRef.current;
