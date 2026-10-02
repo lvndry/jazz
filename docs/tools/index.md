@@ -191,9 +191,20 @@ Memory tools are in the built-in bundle. Deny `manage_memory` to prevent writes.
 | ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
 | `view_scratchpad`   | `read-only` | none          | View your durable scratchpad: drafts, research dumps and intermediate artifacts too large for memory. |
 | `manage_scratchpad` | `read-only` | none          | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…      |
-| `who_is_here`       | `read-only` | none          | Check which other jazz agents are working in a directory right now — presence, and who is writing.    |
 
 ### Reminders
+
+### Occupancy
+
+`who_is_here` reads the shared occupancy file at `$JAZZ_HOME/occupancy.json` and answers a
+very specific question: who is present in this directory right now, and who is actively
+writing here. Presence comes from fresh heartbeat entries plus a live process, so a finished
+or crashed run drops out after the heartbeat window instead of lingering forever. The answer
+is read-only and machine-local; it does not contact the network.
+
+| Tool          | Risk        | Approval pair | What it does                                                                                                                                     |
+| ------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `who_is_here` | `read-only` | none          | Check which other jazz agents are working in a directory right now — who is present, who is writing, and whether the directory is the same repo. |
 
 Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them. See [Reminders](../concepts/starting-runs.md).
 
