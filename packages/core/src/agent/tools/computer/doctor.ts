@@ -82,15 +82,15 @@ export async function runDoctor(dependencies: DoctorDependencies): Promise<Docto
 
   const state = await (dependencies.readState ?? readComputerState)();
   if (state.acknowledgement === undefined) {
-    add("acknowledgement", "attention", "Not acknowledged. Run `jazz computer acknowledge`.");
+    add("driver pin", "ok", "The first successful computer session will pin this driver build.");
   } else if (state.acknowledgement.driverSha256 !== sha256) {
     add(
-      "acknowledgement",
+      "driver pin",
       "attention",
-      "The driver changed since you acknowledged it. Run `jazz computer acknowledge` again.",
+      "The driver changed since its first use. Approve computer_acknowledge_driver in the chat to use the new build.",
     );
   } else {
-    add("acknowledgement", "ok", "The driver is the build you acknowledged.");
+    add("driver pin", "ok", "The driver matches the pinned build.");
   }
 
   const grants = activeGrants(state, (dependencies.now ?? Date.now)());

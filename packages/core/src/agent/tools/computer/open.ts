@@ -1,8 +1,8 @@
 /**
  * Starting a computer session: every check that must hold before a driver process exists.
  *
- * In order: this machine is supported, the operator acknowledged computer use and the driver is
- * the acknowledged build, and no other run holds the desktop. Only then does the driver start.
+ * In order: this machine is supported, the installed driver matches any existing pin, and no
+ * other run holds the desktop. The first successful session records the driver's pin.
  * No apps need to be granted: the agent asks for each app on its first reach, and an active
  * grant is only a way for the operator to pre-authorize. Anything that fails stops here with a
  * message the operator can act on, and nothing is left running or locked.
@@ -14,7 +14,13 @@ import { acquireComputerLock, clearStopRequest, writeSessionInfo } from "./contr
 import { CuaDriver } from "./cua-driver";
 import type { ComputerDriver } from "./driver";
 import { checkDriverPin, computerUseSupported, UNSUPPORTED_PLATFORM_MESSAGE } from "./driver-pin";
-import { computerDirectory, readComputerState, type ComputerState } from "./grants";
+import {
+  computerDirectory,
+  readComputerState,
+  updateComputerState,
+  withAcknowledgement,
+  type ComputerState,
+} from "./grants";
 import { ComputerSession } from "./session";
 
 /** Deepest process ancestry followed when finding the terminal Jazz runs in. */
@@ -56,6 +62,7 @@ export function processAncestry(pid: number = process.pid): ReadonlySet<number> 
 
 export interface OpenComputerSessionOptions {
   readonly agentId: string;
+  readonly pinDriver?: (executablePath: string, sha256: string) => Promise<void>;
   readonly conversationId: string | undefined;
   readonly announce: (message: string) => void;
   readonly openDriver?: (executablePath: string) => Promise<ComputerDriver>;
@@ -84,6 +91,22 @@ export async function openComputerSession(
     driver = await (options.openDriver ?? ((executablePath) => CuaDriver.open({ executablePath })))(
       pin.executablePath,
     );
+    if (state.acknowledgement === undefined) {
+      await (
+        options.pinDriver ??
+        (async (executablePath, sha256) => {
+          await updateComputerState((current) =>
+            current.acknowledgement === undefined
+              ? withAcknowledgement(current, {
+                  acknowledgedAt: Date.now(),
+                  driverPath: executablePath,
+                  driverSha256: sha256,
+                })
+              : current,
+          );
+        })
+      )(pin.executablePath, pin.sha256);
+    }
     const session = new ComputerSession({
       driver,
       releaseLock,

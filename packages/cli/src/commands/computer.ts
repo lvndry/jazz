@@ -1,26 +1,19 @@
 /**
  * Operator commands for computer use (experimental).
  *
- * The commands that give an agent reach over the desktop (`acknowledge`, `grant`) and the one
- * that enumerates what is running (`apps`) refuse to run inside a process a Jazz agent started.
- * The rest only narrow or report, so anyone may run them: `revoke`, `stop`, `list`, `log`,
- * `doctor`.
+ * The command that gives an agent reach over the desktop (`grant`) and the one that enumerates
+ * what is running (`apps`) refuse to run inside a process a Jazz agent started. The rest only
+ * narrow or report, so anyone may run them: `revoke`, `stop`, `list`, `log`, `doctor`.
+ * Enabling the computer tools authorizes their use; the first successful session pins the
+ * driver build by digest, and a changed build gets an in-chat approval.
  */
 
-import { createInterface } from "node:readline/promises";
 import { classifyApp, describeRefusal } from "@jazz/core/agent/tools/computer/app-policy";
 import { requestStop } from "@jazz/core/agent/tools/computer/control";
 import { CuaDriver } from "@jazz/core/agent/tools/computer/cua-driver";
 import { runDoctor } from "@jazz/core/agent/tools/computer/doctor";
 import type { ComputerDriver } from "@jazz/core/agent/tools/computer/driver";
-import {
-  checkDriverPin,
-  computerUseSupported,
-  DRIVER_MISSING_MESSAGE,
-  hashFileSha256,
-  resolveDriverExecutable,
-  UNSUPPORTED_PLATFORM_MESSAGE,
-} from "@jazz/core/agent/tools/computer/driver-pin";
+import { checkDriverPin } from "@jazz/core/agent/tools/computer/driver-pin";
 import {
   activeGrants,
   type ComputerGrant,
@@ -28,7 +21,6 @@ import {
   DEFAULT_GRANT_IDLE_TIMEOUT_MS,
   readComputerState,
   updateComputerState,
-  withAcknowledgement,
   withGrant,
   withoutGrant,
 } from "@jazz/core/agent/tools/computer/grants";
@@ -49,19 +41,6 @@ const DRIVER_DOCTOR_TIMEOUT_MS = 15_000;
 
 /** Ledger entries `jazz computer log` shows unless told otherwise. */
 const DEFAULT_LOG_LIMIT = 20;
-
-const EXPERIMENTAL_NOTICE =
-  "Computer use is experimental. It may change or break between releases.";
-
-const ACKNOWLEDGEMENT_TEXT = [
-  EXPERIMENTAL_NOTICE,
-  "",
-  "Acknowledging means you understand that:",
-  "  - an agent you enable it for can read and act in the apps you grant, on this computer;",
-  "  - screenshots and on-screen text are sent to your model provider;",
-  "  - nothing here is an operating-system sandbox; it limits what Jazz does, not what an app can do;",
-  "  - it runs only in a terminal conversation while you watch, and `jazz computer stop` ends it.",
-].join("\n");
 
 function refuseWhenAgentStarted(decision: string): boolean {
   if (!isAgentStartedProcess()) {
@@ -96,60 +75,6 @@ function withinRange(
   return milliseconds;
 }
 
-async function confirm(question: string): Promise<boolean> {
-  if (process.stdin.isTTY !== true) {
-    return false;
-  }
-  const lines = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    return (await lines.question(question)).trim().toLowerCase() === "yes";
-  } finally {
-    lines.close();
-  }
-}
-
-/** Record that you understand what computer use does, and pin the driver build you acknowledged. */
-export function acknowledgeCommand(options: { readonly yes: boolean }) {
-  return Effect.gen(function* () {
-    if (refuseWhenAgentStarted("Acknowledging computer use")) {
-      return;
-    }
-    if (!computerUseSupported()) {
-      fail(UNSUPPORTED_PLATFORM_MESSAGE);
-      return;
-    }
-    const executablePath = yield* Effect.promise(() => resolveDriverExecutable());
-    if (executablePath === undefined) {
-      fail(DRIVER_MISSING_MESSAGE);
-      return;
-    }
-    const sha256 = yield* Effect.promise(() => hashFileSha256(executablePath));
-    process.stdout.write(
-      `${ACKNOWLEDGEMENT_TEXT}\n\nDriver: ${executablePath}\nSHA-256: ${sha256}\n\n`,
-    );
-    const accepted =
-      options.yes || (yield* Effect.promise(() => confirm("Type yes to acknowledge: ")));
-    if (!accepted) {
-      fail(
-        options.yes
-          ? "Not acknowledged."
-          : "Not acknowledged. Run this in a terminal and type yes, or pass --yes.",
-      );
-      return;
-    }
-    yield* Effect.promise(() =>
-      updateComputerState((state) =>
-        withAcknowledgement(state, {
-          acknowledgedAt: Date.now(),
-          driverPath: executablePath,
-          driverSha256: sha256,
-        }),
-      ),
-    );
-    process.stdout.write("Acknowledged. Grant an app with: jazz computer grant <bundle-id>\n");
-  });
-}
-
 export interface GrantOptions {
   readonly expiresMs?: number | undefined;
   readonly idleMs?: number | undefined;
@@ -161,11 +86,6 @@ export interface GrantOptions {
 export function grantCommand(bundleId: string, options: GrantOptions) {
   return Effect.gen(function* () {
     if (refuseWhenAgentStarted("Granting an app")) {
-      return;
-    }
-    const state = yield* Effect.promise(() => readComputerState());
-    if (state.acknowledgement === undefined) {
-      fail("Run `jazz computer acknowledge` first.");
       return;
     }
     const appClass = classifyApp(bundleId);
@@ -216,15 +136,15 @@ export function revokeCommand(bundleId: string) {
   });
 }
 
-/** Show the acknowledgement and every grant. */
+/** Show the pinned driver (if used) and every grant. */
 export function listGrantsCommand() {
   return Effect.gen(function* () {
     const state = yield* Effect.promise(() => readComputerState());
     const now = Date.now();
     process.stdout.write(
       state.acknowledgement === undefined
-        ? "Not acknowledged. Run: jazz computer acknowledge\n"
-        : `Acknowledged ${new Date(state.acknowledgement.acknowledgedAt).toLocaleString()}; driver ${state.acknowledgement.driverPath}\n`,
+        ? "No driver pinned yet. The first successful computer session pins the installed build.\n"
+        : `Pinned ${new Date(state.acknowledgement.acknowledgedAt).toLocaleString()}; driver ${state.acknowledgement.driverPath}\n`,
     );
     if (state.grants.length === 0) {
       process.stdout.write("No apps are granted.\n");

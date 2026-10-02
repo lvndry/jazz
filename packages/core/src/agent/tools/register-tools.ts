@@ -19,6 +19,7 @@ import {
   createBrowserTabsTool,
 } from "./browser/browser-tools";
 import {
+  createComputerAcknowledgeDriverTool,
   createComputerAppsTool,
   createComputerEndTool,
   createComputerForegroundTools,
@@ -410,6 +411,7 @@ export function registerComputerTools(): Effect.Effect<void, Error, ToolRegistry
       createComputerHandoffTools(),
       createComputerGrantAppTool(),
       createComputerInstallDriverTool(),
+      createComputerAcknowledgeDriverTool(),
     ]) {
       yield* registerTool(pair.approval);
       yield* registerTool(pair.execute);

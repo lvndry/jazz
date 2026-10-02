@@ -33,13 +33,14 @@ import {
 import { toolKnownSecrets } from "../tool-secrets";
 import { classifyApp, describeRefusal } from "./app-policy";
 import { DRIVER_INSTALL_COMMAND, installDriver } from "./driver-install";
-import { NOT_ACKNOWLEDGED_MESSAGE } from "./driver-pin";
+import { hashFileSha256, resolveDriverExecutable } from "./driver-pin";
 import {
   DEFAULT_GRANT_EXPIRY_MS,
   DEFAULT_GRANT_IDLE_TIMEOUT_MS,
   type ComputerGrant,
   readComputerState,
   updateComputerState,
+  withAcknowledgement,
   withGrant,
 } from "./grants";
 import { firstReachMessage, rejectionMessageFor } from "./messages";
@@ -55,6 +56,7 @@ import {
 import {
   COMPUTER_APPS_TOOL_NAME,
   COMPUTER_GRANT_APP_TOOL_NAME,
+  COMPUTER_ACKNOWLEDGE_DRIVER_TOOL_NAME,
   COMPUTER_INSTALL_DRIVER_TOOL_NAME,
   COMPUTER_END_TOOL_NAME,
   COMPUTER_FOREGROUND_TOOL_NAME,
@@ -96,19 +98,12 @@ const PERMISSIONS_UNBLOCK_HINT =
   "but stale: `tccutil reset ScreenCapture com.trycua.driver && cua-driver permissions grant`. " +
   "Retry after it completes.";
 
-const NOT_ACKNOWLEDGED_UNBLOCK_HINT =
-  " (In the chat, the model can ask you to approve computer_install_driver, and the driver's own " +
-  "`cua-driver permissions status` reports the state.)";
-
 function withUnblockHint(message: string): string {
   if (
     /permission|accessibility|screen recording|tcc|capture/i.test(message) &&
     !message.includes("Unblock:")
   ) {
     return `${message}${PERMISSIONS_UNBLOCK_HINT}`;
-  }
-  if (message.includes(NOT_ACKNOWLEDGED_MESSAGE)) {
-    return `${message}${NOT_ACKNOWLEDGED_UNBLOCK_HINT}`;
   }
   return message;
 }
@@ -871,10 +866,9 @@ export function createComputerInstallDriverTool(): ApprovalToolPair<AgentConfigS
     disclosure: "private",
     summary: "Install the cua-driver binary on this machine (experimental).",
     description:
-      "Install the computer-use driver (cua-driver) on this machine. Use it when a computer tool reports the " +
-      "driver is missing. Approval shows the exact command it runs. After installing, the machine still needs a " +
-      "one-time acknowledgment: `jazz computer acknowledge` in your own terminal (it pins the installed build " +
-      "by digest).",
+      "Install the computer-use driver (cua-driver) when a computer tool reports it missing. " +
+      "Approval shows the exact command. After installation, retry the computer tool; its first " +
+      "successful session pins the installed build automatically.",
     tags: ["computer", "desktop", "install", "driver"],
     parameters: installDriverParameters,
     validate: makeZodValidator(installDriverParameters),
@@ -895,9 +889,83 @@ export function createComputerInstallDriverTool(): ApprovalToolPair<AgentConfigS
         const path = yield* Effect.promise(() => installDriver());
         return {
           success: true,
-          result:
-            `Installed the driver at ${path}. Run \`jazz computer acknowledge\` in your own terminal once, ` +
-            "to pin this exact build by digest, then retry the computer tool.",
+          result: `Installed the driver at ${path}. Retry the computer tool; its first successful session pins this build automatically.`,
+        } satisfies ToolExecutionResult;
+      }).pipe(Effect.catchAll(toFailure)),
+  });
+}
+
+const acknowledgeDriverParameters = z.object({}).strict();
+
+/**
+ * Approve a changed driver build in chat. Enabling the computer tools authorizes their use, and
+ * the first successful session pins the build; this tool only pins a build that changed later.
+ */
+export function createComputerAcknowledgeDriverTool(): ApprovalToolPair<AgentConfigService> {
+  return defineApprovalTool<AgentConfigService, Record<string, never>>({
+    name: COMPUTER_ACKNOWLEDGE_DRIVER_TOOL_NAME,
+    disclosure: "private",
+    summary: "Approve a changed computer driver build on this machine (experimental).",
+    description:
+      "Approve the driver build when the installed binary changed since its first use. The " +
+      "approval shows the previous and new SHA-256. Enabling computer tools already authorizes " +
+      "their use, and the first successful session pins the build on its own.",
+    tags: ["computer", "desktop", "acknowledge", "driver"],
+    parameters: acknowledgeDriverParameters,
+    validate: makeZodValidator(acknowledgeDriverParameters),
+    riskLevel: "high-risk",
+    approvalMessage: () =>
+      Effect.gen(function* () {
+        const state = yield* Effect.promise(() => readComputerState());
+        if (state.acknowledgement === undefined) {
+          return yield* Effect.fail(
+            new Error("No driver build is pinned yet. Retry the computer tool instead."),
+          );
+        }
+        const executablePath = yield* Effect.promise(() => resolveDriverExecutable());
+        if (executablePath === undefined) {
+          return yield* Effect.fail(
+            new Error("No computer-use driver was found. Call computer_install_driver first."),
+          );
+        }
+        const sha256 = yield* Effect.promise(() => hashFileSha256(executablePath));
+        return {
+          message:
+            "The computer-use driver changed since its first use. Approve the new build?\n\n" +
+            `Pinned: ${state.acknowledgement.driverSha256}\n` +
+            `Found: ${executablePath} (SHA-256 ${sha256})\n\n` +
+            "Approving pins the new build and unblocks computer use; declining keeps the pinned one.",
+          alwaysAsk: true,
+        } as const;
+      }),
+    approvalErrorMessage: "Approving a changed driver build is your decision.",
+    handler: () =>
+      Effect.gen(function* () {
+        const state = yield* Effect.promise(() => readComputerState());
+        if (state.acknowledgement === undefined) {
+          return yield* Effect.fail(
+            new Error("No driver build is pinned yet. Retry the computer tool instead."),
+          );
+        }
+        const executablePath = yield* Effect.promise(() => resolveDriverExecutable());
+        if (executablePath === undefined) {
+          return yield* Effect.fail(
+            new Error("No computer-use driver was found. Call computer_install_driver first."),
+          );
+        }
+        const sha256 = yield* Effect.promise(() => hashFileSha256(executablePath));
+        yield* Effect.promise(() =>
+          updateComputerState((current) =>
+            withAcknowledgement(current, {
+              acknowledgedAt: Date.now(),
+              driverPath: executablePath,
+              driverSha256: sha256,
+            }),
+          ),
+        );
+        return {
+          success: true,
+          result: `Pinned the driver build ${executablePath} (SHA-256 ${sha256.slice(0, 12)}...). Retry the computer tool.`,
         } satisfies ToolExecutionResult;
       }).pipe(Effect.catchAll(toFailure)),
   });

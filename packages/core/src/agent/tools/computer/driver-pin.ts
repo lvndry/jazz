@@ -1,10 +1,6 @@
 /**
- * Finding the driver, and pinning the build the operator acknowledged.
- *
- * `jazz computer acknowledge` records the SHA-256 of the driver executable it resolved. Every
- * session resolves the driver again and compares: a binary that changed since, whether updated
- * or swapped, is refused until the operator acknowledges it again. The hash covers the
- * `cua-driver` executable Jazz launches, not a separate daemon app it may hand work to.
+ * Resolve and hash the desktop driver. First use pins the successfully started build; later
+ * sessions refuse changed binaries until the operator approves the new build in conversation.
  */
 
 import { createHash } from "node:crypto";
@@ -82,33 +78,24 @@ export const DRIVER_MISSING_MESSAGE =
   `  1. Let the agent install it: call the computer_install_driver tool and approve the command it shows.\n` +
   `  2. Install it in your own terminal: ${DRIVER_INSTALL_COMMAND}\n` +
   `  3. Point at an existing build: export ${DRIVER_PATH_ENV}=/path/to/cua-driver\n` +
-  "Then run `jazz computer acknowledge` once (in your own terminal) to pin the installed build.";
+  "After installing, retry the computer tool. Its first successful session pins the driver build.";
 
-export const NOT_ACKNOWLEDGED_MESSAGE =
-  "Computer use has not been acknowledged on this machine. Run `jazz computer acknowledge` in your own terminal.";
-
-/**
- * Whether the driver on this machine is the build the operator acknowledged. A run never
- * proceeds on a driver that was not acknowledged, or that differs from the one that was.
- */
+/** Resolve the binary before starting a session and reject changes to an existing pin. */
 export async function checkDriverPin(
   acknowledgement: ComputerAcknowledgement | undefined,
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<DriverPinCheck> {
-  if (acknowledgement === undefined) {
-    return { ok: false, reason: NOT_ACKNOWLEDGED_MESSAGE };
-  }
   const executablePath = await resolveDriverExecutable(environment);
   if (executablePath === undefined) {
     return { ok: false, reason: DRIVER_MISSING_MESSAGE };
   }
   const sha256 = await hashFileSha256(executablePath);
-  if (sha256 !== acknowledgement.driverSha256) {
+  if (acknowledgement !== undefined && sha256 !== acknowledgement.driverSha256) {
     return {
       ok: false,
       reason:
-        `The driver at ${executablePath} changed since you acknowledged it. ` +
-        "If you updated it, run `jazz computer acknowledge` again.",
+        `The driver at ${executablePath} changed since its first use. ` +
+        "Call computer_acknowledge_driver in this conversation to approve the new build.",
     };
   }
   return { ok: true, executablePath, sha256 };

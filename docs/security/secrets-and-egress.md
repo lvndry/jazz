@@ -158,8 +158,9 @@ are experimental and run on macOS with Apple Silicon only. Five rules bound them
   read, and editors and Finder take clicks but no typing. The class is fixed by the app and a
   grant cannot raise it. Grants are read again before every action, so a revoke or an expiry
   takes effect on the next one.
-- **Only you can grant.** `jazz computer acknowledge` and `jazz computer grant` refuse to run in
-  a process a Jazz agent started, no tool grants, and the agent's file tools ask about every
+- **Enabling authorizes computer use; app grants require consent.** Turning on the computer
+  tools authorizes the capability. The agent can request an app grant in chat for your approval;
+  `jazz computer grant` runs from your own terminal. The agent's file tools ask about every
   change under `$JAZZ_HOME/computer` under every policy. An agent with shell approval under the
   `high-risk` policy can still edit that state, as it can any other Jazz state.
 - **Only a person watching.** The tools exist only in a terminal conversation. A script, a
@@ -174,8 +175,9 @@ are experimental and run on macOS with Apple Silicon only. Five rules bound them
 - **You can stop it.** `jazz computer stop` ends the run at its next action and stops the driver
   at once. One run holds the desktop at a time, and a crashed run releases it.
 
-The driver is pinned: `jazz computer acknowledge` records the SHA-256 of the `cua-driver`
-executable, and a session refuses to start if that file changed. The driver runs in its
+The first successful session pins the SHA-256 of the `cua-driver` executable. When the binary
+changes, Jazz blocks computer use and offers in-chat approval for the new build. A missing driver
+can be installed through an in-chat `computer_install_driver` approval. The driver runs in its
 promptless standard mode with no manifest inherited from your shell.
 
 What this does not cover:

@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { createEgressTaint, taintedEgressNeedsApproval } from "@/core/agent/execution/egress-taint";
@@ -14,6 +17,7 @@ import {
 } from "@/core/secrets/user-secrets";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import {
+  createComputerAcknowledgeDriverTool,
   createComputerAppsTool,
   createComputerEndTool,
   createComputerForegroundTools,
@@ -26,7 +30,9 @@ import {
   createComputerWaitTool,
 } from "./computer-tools";
 import { requestStop } from "./control";
+import { DRIVER_PATH_ENV } from "./driver-pin";
 import { mailApp } from "./fake-driver";
+import { readComputerState, updateComputerState, withAcknowledgement } from "./grants";
 import { ledgerPath } from "./ledger";
 import { createToolRegistryLayer } from "../tool-registry";
 import { ComputerSessions } from "./session";
@@ -46,6 +52,7 @@ const wait = createComputerWaitTool();
 const end = createComputerEndTool();
 const grantApp = createComputerGrantAppTool();
 const installDriver = createComputerInstallDriverTool();
+const acknowledgeDriver = createComputerAcknowledgeDriverTool();
 
 const stores: UserSecretStore[] = [];
 
@@ -98,6 +105,7 @@ describe("declarations", () => {
     handoff.approval,
     grantApp.approval,
     installDriver.approval,
+    acknowledgeDriver.approval,
   ].map(asTool);
 
   test("give each tool the risk tier that matches what it can do", () => {
@@ -111,6 +119,7 @@ describe("declarations", () => {
       computer_foreground: "high-risk",
       computer_handoff: "low-risk",
       computer_grant_app: "low-risk",
+      computer_acknowledge_driver: "high-risk",
       computer_install_driver: "high-risk",
     });
   });
@@ -126,6 +135,7 @@ describe("declarations", () => {
       computer_foreground: true,
       computer_handoff: false,
       computer_grant_app: false,
+      computer_acknowledge_driver: false,
       computer_install_driver: false,
     });
   });
@@ -149,13 +159,13 @@ describe("declarations", () => {
   test("register exactly the names the attended-run gate removes", () => {
     const registered = [
       ...visible.map((tool) => tool.name),
-      ...[pointer, input, foreground, handoff, grantApp, installDriver].map(
+      ...[pointer, input, foreground, handoff, grantApp, installDriver, acknowledgeDriver].map(
         (pair) => pair.execute.name,
       ),
     ].sort();
     expect(registered).toEqual([...COMPUTER_TOOL_NAMES].sort());
     expect(
-      [pointer, input, foreground, handoff, grantApp, installDriver].every(
+      [pointer, input, foreground, handoff, grantApp, installDriver, acknowledgeDriver].every(
         (pair) => pair.execute.hidden === true,
       ),
     ).toBe(true);
@@ -589,6 +599,104 @@ describe("ending and stopping", () => {
   });
 });
 
+describe("approving a changed driver build in the chat", () => {
+  const fakeServer = path.join(import.meta.dir, "fake-cua-server.ts");
+
+  function executableStub(content: string): string {
+    const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "acknowledge-driver-")));
+    const file = path.join(directory, "cua-driver");
+    writeFileSync(file, content);
+    chmodSync(file, 0o755);
+    return file;
+  }
+
+  /** A driver that answers the MCP handshake, so the capability probe in the ask is fast. */
+  function fakeServerDriver(): string {
+    return executableStub(`#!/bin/sh\nexec ${process.execPath} ${fakeServer}\n`);
+  }
+
+  function withDriver(driver: string | undefined, test: () => Promise<void>): Promise<void> {
+    const previousPath = process.env["PATH"];
+    const previousDriver = process.env[DRIVER_PATH_ENV];
+    const restore = () => {
+      if (previousPath === undefined) {
+        delete process.env["PATH"];
+      } else {
+        process.env["PATH"] = previousPath;
+      }
+      if (previousDriver === undefined) {
+        delete process.env[DRIVER_PATH_ENV];
+      } else {
+        process.env[DRIVER_PATH_ENV] = previousDriver;
+      }
+    };
+    return Effect.gen(function* () {
+      process.env["PATH"] = tmpdir();
+      if (driver === undefined) {
+        delete process.env[DRIVER_PATH_ENV];
+      } else {
+        process.env[DRIVER_PATH_ENV] = driver;
+      }
+      try {
+        yield* Effect.promise(test);
+      } finally {
+        restore();
+      }
+    }).pipe(Effect.runPromise);
+  }
+
+  test("a changed build asks in chat and shows both digests", async () => {
+    const file = fakeServerDriver();
+    await withDriver(file, async () => {
+      const started = startSession([mailApp()], []);
+      const { context } = await contextFor(started);
+      const first = await run(asTool(acknowledgeDriver.execute), {}, context);
+      expect(first.success).toBe(false);
+      expect(first.error).toContain("No driver build is pinned yet");
+
+      await updateComputerState((state) =>
+        withAcknowledgement(state, {
+          acknowledgedAt: 1,
+          driverPath: file,
+          driverSha256: "0".repeat(64),
+        }),
+      );
+      const result = await run(asTool(acknowledgeDriver.approval), {}, context);
+      expect(result.success).toBe(false);
+      const proposal = result.result as Record<string, unknown>;
+      expect(proposal["approvalRequired"]).toBe(true);
+      expect(proposal["alwaysAsk"]).toBe(true);
+      const message = String(proposal["message"]);
+      expect(message).toContain(file);
+      expect(message).toContain("0".repeat(64));
+      expect(message).toContain("Found:");
+      const executed = await run(asTool(acknowledgeDriver.execute), {}, context);
+      expect(executed.success).toBe(true);
+      expect((await readComputerState()).acknowledgement).toMatchObject({
+        driverPath: file,
+        driverSha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
+      });
+    });
+  });
+
+  test("missing driver does not replace an existing pin", async () => {
+    await updateComputerState((state) =>
+      withAcknowledgement(state, {
+        acknowledgedAt: 1,
+        driverPath: "/missing",
+        driverSha256: "0".repeat(64),
+      }),
+    );
+    await withDriver(undefined, async () => {
+      const started = startSession([mailApp()], []);
+      const { context } = await contextFor(started);
+      const executed = await run(asTool(acknowledgeDriver.execute), {}, context);
+      expect(executed.success).toBe(false);
+      expect(executed.error).toContain("No computer-use driver was found");
+      expect((await readComputerState()).acknowledgement?.driverSha256).toBe("0".repeat(64));
+    });
+  });
+});
 describe("through the tool registry", () => {
   const quietLogger = {
     debug: () => Effect.void,

@@ -263,20 +263,24 @@ See [Detach hosts](./security/detach-hosts.md) for the host checks and credentia
 at and act in desktop apps you grant. It runs on macOS with Apple Silicon only, and these
 commands may change or break between releases.
 
-| Command                            | Purpose                                                                     |
-| ---------------------------------- | --------------------------------------------------------------------------- |
-| `jazz computer acknowledge`        | Record that you understand computer use, and pin the driver build you trust |
-| `jazz computer grant <bundle-id>`  | Let agents act in one app for a limited time                                |
-| `jazz computer revoke <bundle-id>` | Take back an app's grant, effective on the agent's next action              |
-| `jazz computer list`               | Show the acknowledgement and every grant                                    |
-| `jazz computer apps`               | List running apps with their bundle ids and the class each would get        |
-| `jazz computer stop`               | Stop the run that is using the computer                                     |
-| `jazz computer log`                | Show what computer use did, newest first                                    |
-| `jazz computer doctor`             | Check that this machine and the driver are ready                            |
+| Command                            | Purpose                                                              |
+| ---------------------------------- | -------------------------------------------------------------------- |
+| `jazz computer grant <bundle-id>`  | Let agents act in one app for a limited time                         |
+| `jazz computer revoke <bundle-id>` | Take back an app's grant, effective on the agent's next action       |
+| `jazz computer list`               | Show the pinned driver (if used) and every grant                     |
+| `jazz computer apps`               | List running apps with their bundle ids and the class each would get |
+| `jazz computer stop`               | Stop the run that is using the computer                              |
+| `jazz computer log`                | Show what computer use did, newest first                             |
+| `jazz computer doctor`             | Check that this machine and the driver are ready                     |
 
-`acknowledge`, `grant`, and `apps` refuse to run inside a process a Jazz agent started, so an
-agent cannot give itself reach. `doctor` exits 0 when ready, 1 when something needs attention,
-and 2 when computer use cannot run here.
+Enabling computer tools authorizes their use. The first successful session pins the driver's
+digest. If that build later changes, the agent offers in-chat approval for the new build. A
+missing driver can be installed through an in-chat `computer_install_driver` approval. See
+[computer use](./concepts/computer-use.md).
+
+`grant` and `apps` refuse to run inside a process a Jazz agent started, so an agent cannot give
+itself reach. `doctor` exits 0 when ready, 1 when something needs attention, and 2 when
+computer use cannot run here.
 
 ## `jazz detach`
 
@@ -808,7 +812,6 @@ options still accept [global options](#global-options) and `-h, --help`.
 | `jazz plugin secret status` | `--json`                        | Emit JSON                                                                                                                                                                                                   |
 | `jazz config get`           | `--reveal`                      | Print secret values in full                                                                                                                                                                                 |
 | `jazz config show`          | `--reveal`                      | Print secret values in full                                                                                                                                                                                 |
-| `jazz computer acknowledge` | `--yes`                         | Acknowledge without the typed confirmation                                                                                                                                                                  |
 | `jazz computer grant`       | `--expires <duration>`          | How long the grant lasts, such as 8h (default 8h, at most 7d)                                                                                                                                               |
 | `jazz computer grant`       | `--idle <duration>`             | End a run's access after this long without an action (default 30m)                                                                                                                                          |
 | `jazz computer grant`       | `--foreground`                  | Let Jazz bring the app to the front, for apps the background tools cannot drive                                                                                                                             |

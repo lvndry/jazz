@@ -82,11 +82,9 @@ describe("runDoctor", () => {
     expect(statusOf(report, "driver")).toBe("blocked");
   });
 
-  test("asks for attention, exit code 1, when computer use was never acknowledged", async () => {
+  test("first use needs no separate driver acknowledgment", async () => {
     const report = await runDoctor(ready({ readState: async () => ({ version: 1, grants: [] }) }));
-
-    expect(report.exitCode).toBe(1);
-    expect(statusOf(report, "acknowledgement")).toBe("attention");
+    expect(statusOf(report, "driver pin")).toBe("ok");
     expect(statusOf(report, "grants")).toBe("attention");
   });
 
@@ -94,9 +92,7 @@ describe("runDoctor", () => {
     const report = await runDoctor(ready({ hashExecutable: async () => "b".repeat(64) }));
 
     expect(report.exitCode).toBe(1);
-    expect(report.checks.find((check) => check.name === "acknowledgement")?.detail).toContain(
-      "changed",
-    );
+    expect(report.checks.find((check) => check.name === "driver pin")?.detail).toContain("changed");
   });
 
   test("ignores an expired grant", async () => {

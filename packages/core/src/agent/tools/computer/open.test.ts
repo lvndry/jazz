@@ -4,12 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "bun:test";
 import { acquireComputerLock, LOCK_HELD_MESSAGE, readSessionInfo } from "./control";
-import {
-  DRIVER_COMMAND,
-  DRIVER_PATH_ENV,
-  NOT_ACKNOWLEDGED_MESSAGE,
-  UNSUPPORTED_PLATFORM_MESSAGE,
-} from "./driver-pin";
+import { DRIVER_COMMAND, DRIVER_PATH_ENV, UNSUPPORTED_PLATFORM_MESSAGE } from "./driver-pin";
 import { FakeDriver, mailApp } from "./fake-driver";
 import type { ComputerGrant, ComputerState } from "./grants";
 import { openComputerSession, processAncestry, SESSION_STARTED_MESSAGE } from "./open";
@@ -88,12 +83,37 @@ describe("openComputerSession", () => {
     await expect(openComputerSession(value)).rejects.toThrow(UNSUPPORTED_PLATFORM_MESSAGE);
   });
 
-  test("refuses until the operator has acknowledged computer use", async () => {
+  test("first successful session pins the driver without separate acknowledgement", async () => {
     const driver = installDriver("driver");
     const state: ComputerState = { version: 1, grants: [grant(Date.now())] };
-    const { value } = options(driver, state);
+    let pinned: { path: string; sha256: string } | undefined;
+    const { value } = options(driver, state, {
+      pinDriver: async (driverPath, sha256) => {
+        pinned = { path: driverPath, sha256 };
+      },
+    });
+    const session = await openComputerSession(value);
+    expect(pinned).toEqual({ path: driver.file, sha256: driver.sha256 });
+    await session.close();
+  });
 
-    await expect(openComputerSession(value)).rejects.toThrow(NOT_ACKNOWLEDGED_MESSAGE);
+  test("failed driver start does not create a pin", async () => {
+    const driver = installDriver("driver");
+    let pinned = false;
+    const { value } = options(
+      driver,
+      { version: 1, grants: [] },
+      {
+        openDriver: async () => {
+          throw new Error("driver failed");
+        },
+        pinDriver: async () => {
+          pinned = true;
+        },
+      },
+    );
+    await expect(openComputerSession(value)).rejects.toThrow("driver failed");
+    expect(pinned).toBe(false);
   });
 
   test("refuses a driver that changed since it was acknowledged", async () => {
@@ -102,7 +122,7 @@ describe("openComputerSession", () => {
     const state = stateWith(acknowledged, [grant(Date.now())]);
     const { value } = options(installed, state);
 
-    await expect(openComputerSession(value)).rejects.toThrow("changed since you acknowledged it");
+    await expect(openComputerSession(value)).rejects.toThrow("changed since its first use");
   });
   test("opens with no grant: consent is asked on the first reach of each app", async () => {
     const driver = installDriver("driver");

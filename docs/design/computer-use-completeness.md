@@ -28,15 +28,15 @@ The acceptance bar, each checkable from a terminal with the driver installed:
    call (`captureAfter`), and `computer_wait` lets the agent block until the screen
    settles or a bounded timeout — no blind re-observe round trips.
 4. **Capability honesty.** The tools advertise only what the pinned driver actually
-   supports; a driver that lacks a kind fails with a named code, and `jazz computer
-doctor` reports which kinds are available.
+   supports; a driver that lacks a kind fails with a named code, and `jazz computer doctor`
+   reports which kinds are available.
 5. **The four CI checks pass**, including the computer suite (today: 8 stale tests + 1
    `test:typecheck` error on the branch tip).
 
 Out of scope, stated so the PR stays one story: Jev decision hooks (risk-of-action,
 screen-changed verdict) — separate follow-up, the seam (`classifyPage`-style advisory
-hook on `ToolExecutionContext`) is not touched by this PR; Windows/Linux; `jazz computer
-status` command; batched multi-action arrays (OpenAI-style `actions[]`) — `captureAfter`
+hook on `ToolExecutionContext`) is not touched by this PR; Windows/Linux; the computer status output
+command; batched multi-action arrays (OpenAI-style `actions[]`) — `captureAfter`
 delivers the same economics without the approval-semantics problem (an approval covers
 one describable action, not a list).
 
@@ -47,8 +47,8 @@ Everything depends on it: `ComputerDriver.act` takes one `DriverAction`
 tool call. Two options:
 
 - **A. New kinds are added to the existing `cua-driver` binary.** Requires a driver
-  release (it is external and hash-pinned by `driver-pin.ts`). Acknowledgement then
-  re-runs, and every machine must upgrade the binary before the new actions exist.
+  release (it is external and hash-pinned by `driver-pin.ts`). An already-pinned build
+  changing requires in-chat approval; every machine must upgrade before the new actions exist.
 - **B. Capability negotiation.** The contract gains a `capabilities` handshake (the
   driver already exposes `version`, `driver.ts:145`). `CuaDriver.open` records which
   kinds it can serve; the session exposes them; each new tool kind is _registered_
@@ -188,22 +188,23 @@ and ref retirement; the idle limit is observed not to lapse during a legal `wait
 ### WS4 — Driver release + pin + doctor (make it runnable)
 
 1. `cua-driver` release with the §2 kinds and the capability handshake; the pinned
-   binary is published wherever the driver ships from (confirm with `jazz computer
-doctor`'s current install instructions, `doctor.ts`).
+   binary is published wherever the driver ships from (confirm with `jazz computer doctor`'s
+   current install instructions, `doctor.ts`).
 2. `jazz computer doctor` gains a **capabilities** section: which kinds the installed
    driver serves, and a plain sentence per missing kind ("drag: not supported by this
    driver build").
-3. `jazz computer acknowledge` output lists capabilities too, so the operator
-   acknowledges _what_ the binary can do, not just its hash.
-4. Migration note in `docs/concepts/computer-use.md`: existing acknowledgements must
-   re-run after the driver upgrade (the pin is the whole point).
+3. Enabling computer tools authorizes their use. The first successful session pins the driver's
+   digest. When the binary changes, the in-chat `computer_acknowledge_driver` approval shows
+   the new digest; driver installation also uses an in-chat approval.
+4. Migration note in `docs/concepts/computer-use.md`: an existing pin must be re-approved
+   after the driver upgrade (the pin is the whole point).
 
 ### WS5 — Docs, counts, cleanup
 
 1. `docs/concepts/computer-use.md`: full action vocabulary table, first-reach consent
    flow, `captureAfter`/`computer_wait`, capability honesty.
 2. `docs/tools/index.md`: re-count (the docs test enforces it); the `private` row gains
-   `computer_wait` — nothing else new, the vocabulary lives in existing tools.
+   `computer_wait` and `computer_acknowledge_driver`; the action vocabulary lives in existing tools.
 3. Delete `NO_GRANTS_MESSAGE` and any dead code it freed; no `@deprecated` shims, per
    AGENTS.md.
 
@@ -235,7 +236,7 @@ One PR, five commits, each green:
    must exist before this lands; if the driver release slips, this commit ships the
    contract + capability gate and the new kinds advertise themselves as unsupported)
 3. `feat(computer-use): captureAfter and computer_wait` — WS3
-4. `chore(computer-use): driver capabilities in doctor and acknowledge` — WS4.2–4
+4. `chore(computer-use): driver capabilities in doctor and changed-build approval` — WS4.2–4
 5. `docs(computer-use): complete capability and first-reach consent` — WS5
 
 Squash-merge into `main`. PR title: `feat(computer-use): complete action vocabulary,

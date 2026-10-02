@@ -769,17 +769,6 @@ function registerComputerCommands(program: Command): void {
   const run = (loadEffect: () => Promise<CliCommandEffect>) =>
     runCliAction(loadEffect, cliRuntimeOptions(program), { skipCatchUp: true });
   computer
-    .command("acknowledge")
-    .description("(experimental) Record that you understand computer use and pin the driver build")
-    .option("--yes", "Acknowledge without the typed confirmation")
-    .action((options: { yes?: boolean }) =>
-      run(() =>
-        import("@jazz/cli/commands/computer").then((mod) =>
-          mod.acknowledgeCommand({ yes: options.yes === true }),
-        ),
-      ),
-    );
-  computer
     .command("grant <bundle-id>")
     .description("(experimental) Let agents act in one app for a limited time")
     .option(

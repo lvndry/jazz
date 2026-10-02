@@ -10,7 +10,6 @@ import {
   DRIVER_MISSING_MESSAGE,
   DRIVER_PATH_ENV,
   hashFileSha256,
-  NOT_ACKNOWLEDGED_MESSAGE,
   resolveDriverExecutable,
 } from "./driver-pin";
 
@@ -89,9 +88,11 @@ describe("checkDriverPin", () => {
     };
   }
 
-  test("refuses when computer use was never acknowledged", async () => {
-    const check = await checkDriverPin(undefined, {});
-    expect(check).toEqual({ ok: false, reason: NOT_ACKNOWLEDGED_MESSAGE });
+  test("accepts an installed driver before its first pin", async () => {
+    const directory = scratchDirectory();
+    const file = executableIn(directory, DRIVER_COMMAND, "build one");
+    const check = await checkDriverPin(undefined, { PATH: directory });
+    expect(check).toMatchObject({ ok: true, executablePath: file });
   });
 
   test("refuses when the driver is gone", async () => {
@@ -115,6 +116,6 @@ describe("checkDriverPin", () => {
     const check = await checkDriverPin(acknowledgement(file, "build one"), { PATH: directory });
 
     expect(check.ok).toBe(false);
-    expect(check.ok === false && check.reason).toContain("changed since you acknowledged it");
+    expect(check.ok === false && check.reason).toContain("changed since its first use");
   });
 });

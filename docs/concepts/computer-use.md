@@ -19,30 +19,7 @@ Computer use needs a desktop driver, `cua-driver`, installed on your Mac. Jazz f
 `PATH`, or at the path in `JAZZ_COMPUTER_DRIVER`. The driver needs two macOS permissions,
 Accessibility and Screen Recording, granted to it in System Settings under Privacy & Security.
 
-1. Check the machine and the driver:
-
-   ```bash
-   jazz computer doctor
-   ```
-
-   It exits 0 when ready, 1 when something needs attention, and 2 when computer use cannot run
-   here. It names the permission to grant when the driver cannot read the desktop.
-
-2. Acknowledge what computer use does. Jazz records the driver build you trust, and refuses to
-   run a driver that changes afterwards until you acknowledge it again:
-
-   ```bash
-   jazz computer acknowledge
-   ```
-
-3. Find an app's bundle id, then grant it for a limited time:
-
-   ```bash
-   jazz computer apps
-   jazz computer grant com.apple.Notes --expires 2h
-   ```
-
-4. Turn the tools on for an agent. Run `jazz agent edit <agent>` and enable **Computer use
+1. Turn the tools on for an agent. Run `jazz agent edit <agent>` and enable **Computer use
    (experimental)**, or add the tool names to the agent's `config.tools`:
 
    ```json
@@ -59,9 +36,22 @@ Accessibility and Screen Recording, granted to it in System Settings under Priva
    }
    ```
 
-The tools load on demand, so enabling them adds nothing to a turn that never uses the desktop.
-Only you can acknowledge and grant: those commands refuse to run inside a process an agent
-started, and the agent has no tool that grants.
+2. Check the machine and the driver with `jazz computer doctor`. It exits 0 when ready, 1 when
+   something needs attention, and 2 when computer use cannot run here. If the driver is missing,
+   the agent can offer `computer_install_driver`; you approve its installation in the conversation.
+   Grant Accessibility and Screen Recording to the driver in System Settings under Privacy & Security.
+
+3. Ask the agent to use an app. It can request `computer_grant_app` for that app in chat;
+   approve the grant there. To see bundle ids yourself, run `jazz computer apps`. After the
+   first successful session has pinned the driver, you can also grant an app in the terminal:
+
+   ```bash
+   jazz computer grant com.apple.Notes --expires 2h
+   ```
+
+Enabling the tools authorizes computer use. The first successful session pins the driver's
+SHA-256 digest. If that binary later changes, Jazz stops before starting it and offers an
+in-chat approval for the new build. The tools load on demand when the agent uses the desktop.
 
 ## How the agent uses it
 

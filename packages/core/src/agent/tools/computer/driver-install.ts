@@ -1,10 +1,9 @@
 /**
  * Installing the driver from inside a conversation.
  *
- * The driver is external and hash-pinned: installing it is a change to what binary the machine
- * will run, so the in-conversation offer runs this under an approval that shows the exact
- * command. After a successful install the operator still acknowledges the build
- * (`jazz computer acknowledge`), which pins it by digest.
+ * The driver is external: the in-conversation offer runs its install command only after an
+ * approval showing the exact command. The first successful computer session then pins the
+ * installed driver's digest.
  */
 
 import { spawn } from "node:child_process";
