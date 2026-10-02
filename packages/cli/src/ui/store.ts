@@ -870,6 +870,11 @@ export class UIStore {
     return requested;
   };
 
+  /**
+   * A turn starting or ending also ends any retry wait: the notice is cleared only by the
+   * model streaming again, so a turn that failed or was cancelled while retrying would
+   * otherwise bring its old countdown back on the next send.
+   */
   setChatBusy = (busy: boolean): void => {
     // A new turn starts the list over. Finished sub-agents stay readable between
     // turns, but the list is "this run's sub-agents", not the session's.
@@ -878,6 +883,7 @@ export class UIStore {
     patchSlice(this.session, {
       chatBusy: busy,
       busySince: busy ? (snapshot.busySince ?? Date.now()) : null,
+      retryNotice: null,
     });
   };
 

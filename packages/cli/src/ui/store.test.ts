@@ -729,6 +729,34 @@ describe("UIStore", () => {
       expect(s.getChatBusySnapshot()).toBe(false);
     });
 
+    test("a turn ending mid-retry does not bring its countdown back on the next send", () => {
+      const s = new UIStore();
+      s.setChatBusy(true);
+      s.setRetryNotice({
+        agentName: "agent",
+        reason: "rate limit",
+        detail: "",
+        attempt: 7,
+        maxAttempts: 10,
+        retryInMs: 30_000,
+        retryAt: Date.now() + 30_000,
+      });
+      s.setChatBusy(false);
+      expect(s.getSessionSnapshot().retryNotice).toBeNull();
+
+      s.setRetryNotice({
+        agentName: "agent",
+        reason: "rate limit",
+        detail: "",
+        attempt: 7,
+        maxAttempts: 10,
+        retryInMs: 30_000,
+        retryAt: Date.now() + 30_000,
+      });
+      s.setChatBusy(true);
+      expect(s.getSessionSnapshot().retryNotice).toBeNull();
+    });
+
     test("session subscribers are notified on change but not on no-op", () => {
       const s = new UIStore();
       const seen: boolean[] = [];
