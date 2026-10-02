@@ -314,6 +314,14 @@ export class OneShotPresentationService implements PresentationService {
     return this.eventsActive;
   }
 
+  /**
+   * Only when questions land on a real tty — a person there can type `continue`.
+   * Event-protocol runs can answer prompts but nobody sits at their stdin.
+   */
+  canContinueRun(): boolean {
+    return this.askMode === "tty";
+  }
+
   private emitNdjson(payload: Record<string, unknown>): void {
     process.stderr.write(`${JSON.stringify(payload, truncateLongStrings)}\n`);
   }

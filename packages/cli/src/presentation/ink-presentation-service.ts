@@ -1807,6 +1807,11 @@ export class InkPresentationService implements PresentationService {
     return true;
   }
 
+  /** The chat TUI renders to a terminal whose person can type `continue`. */
+  canContinueRun(): boolean {
+    return true;
+  }
+
   signalToolExecutionStarted(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       // If there's a pending signal callback, invoke it to allow the next

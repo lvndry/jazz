@@ -140,6 +140,7 @@ export interface RunAgentOnceOptions {
   readonly companions?: Partial<Record<CompanionRole, `${string}/${string}`>> | undefined;
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
+  readonly maxSubagentIterations?: number | undefined;
   readonly maxCostUSD?: number | undefined;
   readonly maxTokens?: number | undefined;
   readonly maxDurationMs?: number | undefined;
@@ -464,6 +465,9 @@ export function runAgentOnceCommand(
         : {}),
       ...(options.proposeGoals === true ? { offersGoalProposals: true } : {}),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
+      ...(options.maxSubagentIterations != null
+        ? { maxSubagentIterations: options.maxSubagentIterations }
+        : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.maxCostUSD != null ? { maxCostUSD: options.maxCostUSD } : {}),
       ...(options.maxTokens != null ? { maxTokens: options.maxTokens } : {}),

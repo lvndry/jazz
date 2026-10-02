@@ -452,6 +452,18 @@ still `/compact` on your own terms, narrow the task, or raise the ceiling before
 summarizer decides what to keep. `ContextWindowManager` owns both decisions. `usage()`
 returns the current tokens, the budget, and both flags from a single count.
 
+### The iteration budget gets the same treatment
+
+An iteration cap stops a run the same way a dead provider does, so it also warns before
+it fires. On a bounded run, crossing 50%, 70%, or 90% of `maxIterations` fires
+`onIterationPressure` once per threshold: `iteration budget 70% used (70/100) - run stops
+at the limit, type 'continue' to keep it going`, followed by `onIterationLimit` at the
+cap. The ramp is user-visible only — the model already receives ephemeral
+`[ITERATION WARNING: …]` / `[ITERATION CRITICAL: …]` lines via `buildBudgetPressureMessage`
+at 70% and 90%, and sub-agent runs (`internal`) are skipped so a delegation fan-out does
+not spam the parent conversation. A run with no cap (`Infinity`, the attended default)
+never warns: there is no limit to warn about.
+
 ---
 
 ## Working state outlives the context window

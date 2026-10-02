@@ -1,9 +1,15 @@
-/** Default iteration budget for a top-level run, when neither --max-iterations nor config sets one */
+/**
+ * Default iteration budget for a top-level run when neither --max-iterations nor config sets one.
+ * Bounds unattended runs (headless, scripts, GitHub Actions). An attended terminal conversation
+ * — where a person can type `continue` and the loop can run as long as the work needs — is
+ * unlimited by default; this constant only stops runs nobody is watching.
+ */
 export const DEFAULT_MAX_ITERATIONS = 100;
 
 /**
- * Default iteration budget for a sub-agent run. Far below a top-level run's:
- * a sub-agent answers one scoped task, and every level gets a fresh budget.
+ * Default iteration budget for a sub-agent run on an unattended parent. Far below a top-level
+ * run's: a sub-agent answers one scoped task, and every level gets a fresh budget. On an
+ * attended terminal conversation the budget is unlimited, like the top-level run.
  */
 export const DEFAULT_MAX_SUBAGENT_ITERATIONS = 30;
 

@@ -57,6 +57,11 @@ export class CLIPresentationService implements PresentationService {
     return this.interactive;
   }
 
+  /** A piped or CI session has the same confirm/ask fallbacks, so it also cannot be continued. */
+  canContinueRun(): boolean {
+    return this.interactive;
+  }
+
   /**
    * Get or create a singleton CLI renderer for formatting operations
    * This is used for non-streaming formatting methods

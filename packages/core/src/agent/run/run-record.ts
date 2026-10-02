@@ -41,6 +41,8 @@ export interface RunRecord {
   readonly autoApprovedTools?: readonly string[];
   /** The run's iteration cap, which a resumed run keeps rather than falling back to the default. */
   readonly maxIterations?: number;
+  /** The run's sub-agent iteration cap, restored exactly like maxIterations on resume. */
+  readonly maxSubagentIterations?: number;
   /** Where the run worked, restored on resume instead of the resuming process's directory. */
   readonly workingDirectory?: string;
   /**
@@ -81,6 +83,7 @@ export function createRunRecord(input: {
   readonly now: Date;
   readonly approvalPolicy?: AutoApprovePolicy;
   readonly autoApprovedTools?: readonly string[];
+  readonly maxSubagentIterations?: number;
   readonly maxIterations?: number;
   readonly workingDirectory?: string;
   readonly boundary?: RunRecordBoundary;
@@ -99,6 +102,9 @@ export function createRunRecord(input: {
       ? { autoApprovedTools: input.autoApprovedTools }
       : {}),
     ...(input.maxIterations !== undefined ? { maxIterations: input.maxIterations } : {}),
+    ...(input.maxSubagentIterations !== undefined
+      ? { maxSubagentIterations: input.maxSubagentIterations }
+      : {}),
     ...(input.workingDirectory !== undefined ? { workingDirectory: input.workingDirectory } : {}),
     ...(input.boundary !== undefined && Object.keys(input.boundary).length > 0
       ? { boundary: input.boundary }

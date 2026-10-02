@@ -434,6 +434,15 @@ function initializeAgentRun(
     const skillService = yield* SkillServiceTag;
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
+    // A person at the terminal can type `continue` after a run stops; a headless, piped, or
+    // event-protocol run cannot, so only attended runs skip their default iteration cap.
+    // canContinueRun (not canPromptForApproval) is the signal: an approval can be answered
+    // by a chat bridge that still has no human to continue the run. A presentation that
+    // does not report the capability is treated as unattended — the safe reading, because
+    // an unattended run keeps its cap while an attended one runs unlimited.
+    const presentationService = yield* Effect.serviceOption(PresentationServiceTag);
+    const attended =
+      Option.isSome(presentationService) && presentationService.value.canContinueRun?.() === true;
 
     const actualConversationId = conversationId || generateConversationId();
     const history: ChatMessage[] =
@@ -481,9 +490,16 @@ function initializeAgentRun(
       : null;
     const toolProfile = resolvedPersona?.toolProfile;
 
+    // Attended terminal runs are unlimited by default (a person can `continue`); unattended
+    // runs fall back to DEFAULT_MAX_ITERATIONS. An explicit --max-iterations or config value
+    // always wins, even on a TTY — the cap is a default, not a wall.
     const resolvedMaxIterations = Math.max(
       1,
-      Math.floor(options.maxIterations ?? appConfig.maxIterations ?? DEFAULT_MAX_ITERATIONS),
+      Math.floor(
+        options.maxIterations ??
+          appConfig.maxIterations ??
+          (attended ? Infinity : DEFAULT_MAX_ITERATIONS),
+      ),
     );
     // No default ceiling for either — unset at both the call site and app config means
     // uncapped, unlike maxIterations which always falls back to DEFAULT_MAX_ITERATIONS.
@@ -911,10 +927,14 @@ function initializeAgentRun(
         0,
         Math.floor(appConfig.maxSubagentDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH),
       ),
-      maxSubagentIterations: Math.max(
-        1,
-        Math.floor(appConfig.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS),
-      ),
+      maxSubagentIterations:
+        options.maxSubagentIterations !== undefined
+          ? Math.max(1, Math.floor(options.maxSubagentIterations))
+          : appConfig.maxSubagentIterations !== undefined
+            ? Math.max(1, Math.floor(appConfig.maxSubagentIterations))
+            : attended
+              ? Infinity
+              : DEFAULT_MAX_SUBAGENT_ITERATIONS,
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??
@@ -1194,8 +1214,14 @@ export class AgentRunner {
             ...(options.autoApprovedTools !== undefined
               ? { autoApprovedTools: options.autoApprovedTools }
               : {}),
-            ...(options.maxIterations !== undefined
-              ? { maxIterations: options.maxIterations }
+            // Infinity (an attended unlimited run) is not JSON-serializable; a resumed segment
+            // recomputes the same attended default, so the record only keeps a real cap. An
+            // explicit --max-subagent-iterations is always finite and must survive resume.
+            ...(Number.isFinite(runContext.maxIterations)
+              ? { maxIterations: runContext.maxIterations }
+              : {}),
+            ...(Number.isFinite(runContext.context.maxSubagentIterations)
+              ? { maxSubagentIterations: runContext.context.maxSubagentIterations }
               : {}),
             workingDirectory: yield* resolveAgentWorkingDirectory(options.agent.id, options),
             boundary: runRecordBoundary(options),

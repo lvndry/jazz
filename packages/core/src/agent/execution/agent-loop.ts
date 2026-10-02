@@ -281,6 +281,8 @@ interface LoopState {
   recentToolCalls: TrackedToolCall[];
   iterationsUsed: number;
   contextPressureWarned: boolean;
+  /** Iteration-budget pressure thresholds (50/70/90%) already warned, once each. */
+  iterationPressureWarned: number[];
   toolCompactionAnnounced: boolean;
   /** Repetition nudges already sent; a repeat after one stops the run. */
   meltdownNudges: number;
@@ -1974,6 +1976,7 @@ export function executeAgentLoop(
           recentToolCalls: [],
           iterationsUsed: 0,
           contextPressureWarned: false,
+          iterationPressureWarned: [],
           toolCompactionAnnounced: false,
           meltdownNudges: 0,
           compactionStuckWarned: false,
@@ -2060,6 +2063,19 @@ export function executeAgentLoop(
 
         for (let i = 0; i < maxIterations && !interrupted && !stalled; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
+          // Iteration-budget pressure warnings: 50%, 70%, 90% — user-visible, once each.
+          // The model already gets its own ephemeral nudges via buildBudgetPressureMessage;
+          // this tells the person watching the run how much headroom is left.
+          if (Number.isFinite(maxIterations)) {
+            const pct = (i + 1) / maxIterations;
+            const threshold = pct >= 0.9 ? 90 : pct >= 0.7 ? 70 : pct >= 0.5 ? 50 : null;
+            if (threshold !== null && !state.iterationPressureWarned.includes(threshold)) {
+              state.iterationPressureWarned.push(threshold);
+              if (!options.internal) {
+                yield* observer.onIterationPressure(agent.name, i + 1, maxIterations);
+              }
+            }
+          }
           try {
             const iteration = runIteration(state, i, deps).pipe(
               Effect.tapError((error) =>

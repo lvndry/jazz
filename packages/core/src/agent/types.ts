@@ -126,6 +126,12 @@ export interface AgentRunnerOptions {
    */
   readonly maxIterations?: number;
   /**
+   * Maximum iterations for sub-agent runs started by this run. If not specified, falls back
+   * to `maxSubagentIterations` in app config, then unlimited in a terminal conversation or
+   * `DEFAULT_MAX_SUBAGENT_ITERATIONS` when unattended.
+   */
+  readonly maxSubagentIterations?: number;
+  /**
    * Per-run spend ceiling in USD (own tokens plus any sub-agent spend). Checked between
    * iterations, not preemptively mid-call — a run can overshoot by at most one iteration's
    * cost before stopping. Skipped entirely when cost is unknown (e.g. an unpriced local
