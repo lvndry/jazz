@@ -21,11 +21,11 @@ import { ThinkingRenderer } from "./thinking-renderer";
 import { getGlyphs } from "../ui/glyphs";
 import { markdownToAnsi } from "../ui/markdown/ansi";
 import {
+  outputPreviewExpandKey,
   receiptDiffRows,
   receiptMark,
   receiptParts,
   toolReceipt,
-  EXPAND_DIFF_KEY,
 } from "../ui/models/receipt";
 import { formatCost, formatPreciseDuration } from "../ui/text/format";
 import { paintRole, paintSegments } from "../ui/text/roles";
@@ -373,7 +373,7 @@ export class CLIRenderer {
       receipt.outputPreview !== undefined && receipt.outputPreview.trim().length > 0
         ? `\n   ${chalk.dim(receipt.outputPreview)}${
             receipt.detail !== undefined && receipt.detail.trim() !== receipt.outputPreview.trim()
-              ? chalk.dim(` · ${EXPAND_DIFF_KEY} to expand`)
+              ? chalk.dim(` · ${outputPreviewExpandKey(receipt.app)} to expand`)
               : ""
           }`
         : "";

@@ -13,7 +13,7 @@ import { PreWrappedText } from "./components/PreWrappedText";
 import { markdownToAnsi } from "./markdown/ansi";
 import { interruptSummaryLines } from "./models/interrupt";
 import {
-  EXPAND_DIFF_KEY,
+  outputPreviewExpandKey,
   receiptDiffRows,
   receiptMark,
   receiptParts,
@@ -101,7 +101,7 @@ function ReceiptLine({ receipt }: { receipt: ToolReceipt }): React.ReactElement 
     previewText.length > 0 &&
     receipt.detail !== undefined &&
     receipt.detail.trim() !== preview
-      ? ` · ${EXPAND_DIFF_KEY} to expand`
+      ? ` · ${outputPreviewExpandKey(receipt.app)} to expand`
       : "";
   return (
     <Box

@@ -16,7 +16,7 @@ import { parseMarkdown, type MarkdownBlock } from "../markdown/parse";
 import { markdownRoleColor, type MarkdownSpan } from "../markdown/spans";
 import { layoutTable } from "../markdown/table";
 import { stoppedHeading } from "../models/interrupt";
-import { EXPAND_DIFF_KEY, receiptDiffRows, receiptParts } from "../models/receipt";
+import { outputPreviewExpandKey, receiptDiffRows, receiptParts } from "../models/receipt";
 import { reportLines, type ReportSegment } from "../report-layout";
 import { formatPreciseDuration } from "../text/format";
 import { roleStyle, type RoleSegment, type TextRole } from "../text/roles";
@@ -1101,7 +1101,7 @@ export function createTranscriptLayout(
     const hint =
       expanded || block.detail === undefined || block.detail.trim() === preview
         ? ""
-        : ` · ${EXPAND_DIFF_KEY} to expand`;
+        : ` · ${outputPreviewExpandKey(block.app)} to expand`;
     return [
       {
         key: `${block.id}:preview`,
