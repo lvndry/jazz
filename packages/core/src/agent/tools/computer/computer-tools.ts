@@ -48,6 +48,7 @@ import {
   COMPUTER_HANDOFF_TOOL_NAME,
   COMPUTER_INPUT_TOOL_NAME,
   COMPUTER_OBSERVE_TOOL_NAME,
+  COMPUTER_WAIT_TOOL_NAME,
   COMPUTER_POINTER_TOOL_NAME,
 } from "./tool-names";
 
@@ -60,6 +61,11 @@ const MAX_MODIFIERS = 4;
 const DEFAULT_SCROLL_AMOUNT = 3;
 
 const NOTIFICATION_TITLE = "Jazz · computer use (experimental)";
+
+const DEFAULT_WAIT_TIMEOUT_MS = 5000;
+const MAX_WAIT_TIMEOUT_MS = 30_000;
+const DEFAULT_WAIT_POLL_MS = 500;
+const MAX_WAIT_POLL_MS = 2000;
 
 const OBSERVE_HINT = "Observe the window to see the result.";
 
@@ -248,6 +254,77 @@ export function createComputerObserveTool(): Tool<AgentConfigService> {
   });
 }
 
+const waitParameters = z
+  .object({
+    timeoutMs: z
+      .number()
+      .int()
+      .min(250)
+      .max(MAX_WAIT_TIMEOUT_MS)
+      .optional()
+      .describe(
+        `Milliseconds to wait, ${String(250)} to ${String(MAX_WAIT_TIMEOUT_MS)} (default ${String(DEFAULT_WAIT_TIMEOUT_MS)}).`,
+      ),
+    pollMs: z
+      .number()
+      .int()
+      .min(100)
+      .max(MAX_WAIT_POLL_MS)
+      .optional()
+      .describe(
+        `Milliseconds between window reads, ${String(100)} to ${String(MAX_WAIT_POLL_MS)} (default ${String(DEFAULT_WAIT_POLL_MS)}).`,
+      ),
+    until: z
+      .enum(["settled", "changed"])
+      .optional()
+      .describe(
+        "settled: two identical reads (default). changed: the window differs from the first read.",
+      ),
+  })
+  .strict();
+
+type WaitArgs = z.infer<typeof waitParameters>;
+
+export function createComputerWaitTool(): Tool<AgentConfigService> {
+  return defineTool<AgentConfigService, WaitArgs>({
+    name: COMPUTER_WAIT_TOOL_NAME,
+    disclosure: "private",
+    summary:
+      "Wait until the last observed window settles or changes, then return a fresh observation (experimental).",
+    description:
+      "Watch the window you last looked at or acted on. Waits until its outline stops changing " +
+      "(settled) or changes from what it last showed (changed), then returns a fresh observation. " +
+      "Use it instead of observing again right after an action that makes the window busy, such as " +
+      "opening a document or loading a page.",
+    tags: ["computer", "desktop", "read", "wait"],
+    parameters: waitParameters,
+    validate: makeZodValidator(waitParameters),
+    riskLevel: "read-only",
+    hidden: false,
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const report = yield* withComputer(context, (session) =>
+          session.wait({
+            timeoutMs: args.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS,
+            pollMs: args.pollMs ?? DEFAULT_WAIT_POLL_MS,
+            until: args.until ?? "settled",
+          }),
+        );
+        const verdict =
+          report.outcome === "timeout"
+            ? "The window had not settled or changed before the time ran out."
+            : `The window ${report.outcome === "settled" ? "settled" : "changed"}.`;
+        const observation = report.observation;
+        return {
+          success: true,
+          result: `${verdict}\nobservation: c${String(observation.generation)}\n${observation.text}`,
+          untrusted: untrusted(`${COMPUTER_WAIT_TOOL_NAME} ${observation.appName}`),
+        } satisfies ToolExecutionResult;
+      }).pipe(Effect.catchAll(toFailure)),
+    createSummary: (result) => (result.success ? "Waited on a window" : undefined),
+  });
+}
+
 const baseActionFields = {
   ref: z
     .string()
@@ -288,6 +365,12 @@ const baseActionFields = {
     .max(MAX_MODIFIERS)
     .optional()
     .describe("Modifier keys held with the key: cmd, ctrl, option, shift."),
+  captureAfter: z
+    .boolean()
+    .optional()
+    .describe(
+      "Also return a fresh observation of the window after the action, so the result and new refs come in one reply.",
+    ),
 };
 
 type ActionName = "click" | "click_point" | "scroll" | "type" | "key";
@@ -303,6 +386,7 @@ interface ActionArgs {
   readonly text?: string | undefined;
   readonly key?: string | undefined;
   readonly modifiers?: readonly string[] | undefined;
+  readonly captureAfter?: boolean | undefined;
 }
 
 const REQUIRED_FIELDS: Readonly<Record<ActionName, readonly (keyof ActionArgs)[]>> = {
@@ -457,6 +541,15 @@ function approveAction(args: ActionArgs, context: ToolExecutionContext, foregrou
 function reportResult(report: ActionReport, source: string): ToolExecutionResult {
   const lead = `${report.app}: ${report.effect}`;
   const detail = [report.summary, report.hint].filter((part): part is string => part !== null);
+  if (report.observation !== undefined) {
+    const observation = report.observation;
+    return {
+      success: report.effect !== "refused",
+      result: `${lead}\n${detail.join("\n") || "Done."}\nobservation: c${String(observation.generation)}\n${observation.text}`,
+      ...(report.effect === "refused" ? { error: `${report.app} refused the action.` } : {}),
+      untrusted: untrusted(source),
+    };
+  }
   const note =
     report.effect === "suspected_noop"
       ? "The driver saw no change. Observe the window to check, and try a screenshot and a pixel click if the control is not in the outline."
@@ -487,7 +580,7 @@ function performAction(
       if (pending !== undefined) {
         session.approveForRun(pending.bundleId, pending.appName);
       }
-      return await session.perform(input, known);
+      return await session.perform(input, known, args.captureAfter === true);
     });
     return reportResult(report, source);
   }).pipe(Effect.catchAll(toFailure));

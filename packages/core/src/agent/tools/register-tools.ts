@@ -25,6 +25,7 @@ import {
   createComputerHandoffTools,
   createComputerInputTools,
   createComputerObserveTool,
+  createComputerWaitTool,
   createComputerPointerTools,
 } from "./computer/computer-tools";
 import { createContextInfoTool, createGetTimeTool, createRetrieveToolResultTool } from "./context";
@@ -397,6 +398,7 @@ export function registerComputerTools(): Effect.Effect<void, Error, ToolRegistry
 
     yield* registerTool(createComputerAppsTool());
     yield* registerTool(createComputerObserveTool());
+    yield* registerTool(createComputerWaitTool());
     yield* registerTool(createComputerEndTool());
     for (const pair of [
       createComputerPointerTools(),

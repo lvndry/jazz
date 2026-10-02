@@ -50,6 +50,8 @@ export class FakeDriver implements ComputerDriver {
   };
   failNextActionWith: DriverError | undefined;
   beforeAct: (() => Promise<void>) | undefined;
+  /** Runs before every window read, so a test can make the window change over time. */
+  mutate: (() => void) | undefined;
   screenshotWidth = 800;
   screenshotHeight = 600;
 
@@ -109,6 +111,7 @@ export class FakeDriver implements ComputerDriver {
 
   windowState(target: WindowTarget, options: WindowStateOptions): Promise<DriverWindowState> {
     this.stateRequests.push({ target, options });
+    this.mutate?.();
     return this.settle(() => {
       const app = this.find(target.pid);
       const window = app.windows.find((candidate) => candidate.windowId === target.windowId);
