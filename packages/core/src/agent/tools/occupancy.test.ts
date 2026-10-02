@@ -5,6 +5,7 @@ import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import { OccupancyServiceTag, type OccupancyService } from "@/core/interfaces/occupancy";
 import type { OccupancyEntry } from "@/core/types/occupancy";
 import type { ToolExecutionContext } from "@/core/types/tools";
+import { currentProcessOwner } from "@jazz/core/utils/process";
 import { createWhoIsHereTool } from "./occupancy";
 
 const NOW = new Date();
@@ -44,12 +45,14 @@ function cwdLayer(cwd: string) {
   });
 }
 
-const CONTEXT = { agentId: "assistant" } satisfies ToolExecutionContext;
-
-function runTool(entries: readonly OccupancyEntry[], cwd = "/work/repo") {
+function runTool(
+  entries: readonly OccupancyEntry[],
+  cwd = "/work/repo",
+  context: ToolExecutionContext = { agentId: "assistant" },
+) {
   return Effect.runPromise(
     createWhoIsHereTool()
-      .execute({}, CONTEXT)
+      .execute({}, context)
       .pipe(Effect.provide(Layer.merge(occupancyLayer(entries), cwdLayer(cwd)))),
   );
 }
@@ -108,6 +111,21 @@ describe("who_is_here", () => {
       entry({ runId: "j".repeat(8), state: "completed", updatedAt: ago(500) }),
     ]);
     if (result.success) expect(result.result).toContain("nobody is working here");
+  });
+
+  it("hides only the caller's own run: a sibling run in the same process stays visible", async () => {
+    const myRun = "f".repeat(8);
+    const { pid, host } = currentProcessOwner();
+    const sibling = entry({ runId: "0".repeat(8), pid, host });
+    const myself = entry({ runId: myRun, pid, host, agentName: "Me" });
+    const result = await runTool([sibling, myself], "/work/repo", {
+      agentId: "assistant",
+      runId: myRun,
+    });
+    if (result.success) {
+      expect(result.result).toContain(sibling.agentName);
+      expect(result.result).not.toContain('agent "Me"');
+    }
   });
 
   it("does not report the caller's own heartbeat", async () => {

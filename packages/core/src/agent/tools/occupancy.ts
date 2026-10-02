@@ -187,12 +187,20 @@ export function createWhoIsHereTool(): Tool<OccupancyService | FileSystemContext
         const entries = yield* occupancy.list();
         const now = Date.now();
 
-        const self = currentProcessOwner();
         const present: OccupiedDirectory[] = [];
         for (const entry of entries) {
-          // Drop ourselves: a terminal asking "who is here" does not want its own
-          // heartbeat reported back as an occupant.
-          if (entry.pid === self.pid && entry.host === self.host) continue;
+          // Drop only this run: a run asking "who is here" does not want its own heartbeat
+          // reported back, but a sibling run in the same process (daemon, run + sub-agent)
+          // is exactly who the question is about, so it stays. Callers without a runId
+          // (older contexts, direct test harnesses) fall back to process-level identity.
+          const self =
+            context.runId !== undefined
+              ? { match: (e: OccupancyEntry) => e.runId === context.runId }
+              : (() => {
+                  const { pid, host } = currentProcessOwner();
+                  return { match: (e: OccupancyEntry) => e.pid === pid && e.host === host };
+                })();
+          if (self.match(entry)) continue;
           // One process check per entry: it is the presence gate and the reported owner
           // state, and `ps` is a sync spawn, so it is not something to do twice.
           const owner = localOwnerStatus({ pid: entry.pid, host: entry.host });

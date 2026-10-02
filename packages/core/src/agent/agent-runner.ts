@@ -859,6 +859,7 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
+      runId: runMetrics.runId,
       memorySources,
       toolActivity,
       telemetryTraceParent: {
