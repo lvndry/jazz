@@ -86,23 +86,32 @@ elements: 14
 ```
 
 `computer_pointer` clicks a ref, clicks a pixel of the observation's screenshot, or scrolls.
-`computer_input` types into a ref or presses a named key or shortcut. After the window changes,
-the agent observes again. A new observation retires the refs of the earlier one, and acting
-through a retired ref is an error, not a click on whatever moved into its place.
+`computer_input` types into a ref or presses a named key or shortcut. Any of the action tools
+can ask for the after-state with `captureAfter`: the result then carries a fresh observation of
+the window, so the effect and the new refs arrive in the same reply.
+`computer_wait` watches the window the agent last looked at or acted on until it settles (two
+identical reads) or changes, and returns a fresh observation. It replaces the observe-again
+round trip after an action that makes the window busy, such as opening a document or loading a
+page.
+
+After the window changes, the agent observes again or waits for it to settle. A new observation
+retires the refs of the earlier one, and acting through a retired ref is an error, not a click
+on whatever moved into its place.
 
 `computer_observe` with `screenshot` saves a PNG of the window and returns its path. The agent
 passes the path to `analyze_media`, so a model that cannot see images can still use it. Jazz
 keeps the latest five screenshots and deletes them all when the run ends.
 
-| Tool                  | Risk        | What it does                                                          |
-| --------------------- | ----------- | --------------------------------------------------------------------- |
-| `computer_apps`       | `read-only` | List the granted apps, what each allows, and their windows.           |
-| `computer_observe`    | `read-only` | Read one window as an outline with refs, and optionally a screenshot. |
-| `computer_pointer`    | `low-risk`  | Click or scroll in the background.                                    |
-| `computer_input`      | `high-risk` | Type text or press a named key or shortcut.                           |
-| `computer_foreground` | `high-risk` | Bring the app to the front, then act. Needs a foreground grant.       |
-| `computer_handoff`    | `low-risk`  | Pause and ask you to do a step yourself. Always asks.                 |
-| `computer_end`        | `read-only` | Stop, delete the screenshots, and release the desktop.                |
+| Tool                  | Risk        | What it does                                                                |
+| --------------------- | ----------- | --------------------------------------------------------------------------- |
+| `computer_apps`       | `read-only` | List the granted apps, what each allows, and their windows.                 |
+| `computer_observe`    | `read-only` | Read one window as an outline with refs, and optionally a screenshot.       |
+| `computer_wait`       | `read-only` | Wait until the last observed window settles or changes, then read it again. |
+| `computer_pointer`    | `low-risk`  | Click or scroll in the background.                                          |
+| `computer_input`      | `high-risk` | Type text or press a named key or shortcut.                                 |
+| `computer_foreground` | `high-risk` | Bring the app to the front, then act. Needs a foreground grant.             |
+| `computer_handoff`    | `low-risk`  | Pause and ask you to do a step yourself. Always asks.                       |
+| `computer_end`        | `read-only` | Stop, delete the screenshots, and release the desktop.                      |
 
 See the [tool inventory](../tools/index.md#computer-use-experimental) for disclosure and approval
 pairs.

@@ -18,10 +18,10 @@ and the [security model](../security/index.md).
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
 | **Agent-facing tools**                                                  | **71** |
-| Hidden `execute_*` counterparts (the second half of each approval pair) | 19     |
-| Total registered                                                        | 83     |
-| `read-only`                                                             | 37     |
-| `low-risk`                                                              | 15     |
+| Hidden `execute_*` counterparts (the second half of each approval pair) | 16     |
+| Total registered                                                        | 87     |
+| `read-only`                                                             | 38     |
+| `low-risk`                                                              | 17     |
 | `high-risk`                                                             | 13     |
 | `unknown`                                                               | 3      |
 
@@ -62,11 +62,11 @@ machine; disclosure asks how freely its answer can be shared. The two do not cor
 `read_file` is read-only and can reveal anything, `get_time` is read-only and reveals
 nothing, `write_file` changes the machine and reveals nothing at all.
 
-| Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `report_goal_cycle`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cancel_wait_for`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`, `who_is_here`                                                                                                                                                                                                                                                                                               |
-| `private`  | `computer_apps`, `computer_end`, `computer_foreground`, `computer_handoff`, `computer_input`, `computer_observe`, `computer_pointer`, `your own material: file contents, memory, schedule, transcript` |
+| Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `report_goal_cycle`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cancel_wait_for`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `ask_user_secret`, `browser_act`, `browser_back`, `browser_close`, `browser_navigate`, `browser_screenshot`, `browser_snapshot`, `browser_tabs`, `cancel_reminder`, `computer_apps`, `computer_end`, `computer_foreground`, `computer_handoff`, `computer_input`, `computer_observe`, `computer_pointer`, `computer_wait`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_subagents`, `list_todos`, `manage_memory`, `manage_scratchpad`, `manage_todos`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `steer_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for`, `wait_subagents` |
 
 A tool spanning two levels takes the more sensitive one. `edit_file` writes, but its approval
 message carries a diff of your file, so it is `private`. `http_request` can reach
@@ -183,24 +183,15 @@ Memory tools are in the built-in bundle. Deny `manage_memory` to prevent writes.
 
 ### Workspace
 
+Scratchpad tools are in the built-in bundle. Use them for working drafts, research material,
+and intermediate files that should persist across conversations.
+
 | Tool                | Risk        | Approval pair | What it does                                                                                          |
 | ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
 | `view_scratchpad`   | `read-only` | none          | View your durable scratchpad: drafts, research dumps and intermediate artifacts too large for memory. |
 | `manage_scratchpad` | `read-only` | none          | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…      |
 
 ### Reminders
-
-### Occupancy
-
-`who_is_here` reads the shared occupancy file at `$JAZZ_HOME/occupancy.json` and answers a
-very specific question: who is present in this directory right now, and who is actively
-writing here. Presence comes from fresh heartbeat entries plus a live process, so a finished
-or crashed run drops out after the heartbeat window instead of lingering forever. The answer
-is read-only and machine-local; it does not contact the network.
-
-| Tool          | Risk        | Approval pair | What it does                                                                                                                                     |
-| ------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `who_is_here` | `read-only` | none          | Check which other jazz agents are working in a directory right now — who is present, who is writing, and whether the directory is the same repo. |
 
 Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them. See [Reminders](../concepts/starting-runs.md).
 
@@ -347,15 +338,16 @@ Enable [Computer use](../concepts/computer-use.md) per agent to look at and act 
 you grant. It is experimental, runs on macOS with Apple Silicon only, and exists only in a
 terminal conversation with you watching. The tools load on demand and are off by default.
 
-| Tool                  | Risk        | Approval pair                 | What it does                                                                                                    |
-| --------------------- | ----------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `computer_apps`       | `read-only` | none                          | List the apps you granted, what each allows, and their visible windows.                                         |
-| `computer_observe`    | `read-only` | none                          | Read one window of a granted app as a text outline with refs, and optionally save a screenshot.                 |
-| `computer_pointer`    | `low-risk`  | `execute_computer_pointer`    | Click an element or pixel, or scroll, in the background without moving your cursor.                             |
-| `computer_input`      | `high-risk` | `execute_computer_input`      | Type into an element or press a named key or shortcut. A typed secret is entered only after you approve.        |
-| `computer_foreground` | `high-risk` | `execute_computer_foreground` | Bring a granted app to the front, then click, scroll, type or press a key. The app needs a foreground grant.    |
-| `computer_handoff`    | `low-risk`  | `execute_computer_handoff`    | Pause and ask you to do a step yourself, such as signing in. Always asks, and clears every earlier observation. |
-| `computer_end`        | `read-only` | none                          | Stop using the computer: close the driver, delete this run's screenshots, and release the desktop.              |
+| Tool                  | Risk        | Approval pair                 | What it does                                                                                                     |
+| --------------------- | ----------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `computer_apps`       | `read-only` | none                          | List the apps you granted, what each allows, and their visible windows.                                          |
+| `computer_observe`    | `read-only` | none                          | Read one window of a granted app as a text outline with refs, and optionally save a screenshot.                  |
+| `computer_pointer`    | `low-risk`  | `execute_computer_pointer`    | Click an element or pixel, or scroll, in the background without moving your cursor.                              |
+| `computer_wait`       | `read-only` | none                          | Wait until the last observed window settles or changes, then return a fresh observation. No action is performed. |
+| `computer_input`      | `high-risk` | `execute_computer_input`      | Type into an element or press a named key or shortcut. A typed secret is entered only after you approve.         |
+| `computer_foreground` | `high-risk` | `execute_computer_foreground` | Bring a granted app to the front, then click, scroll, type or press a key. The app needs a foreground grant.     |
+| `computer_handoff`    | `low-risk`  | `execute_computer_handoff`    | Pause and ask you to do a step yourself, such as signing in. Always asks, and clears every earlier observation.  |
+| `computer_end`        | `read-only` | none                          | Stop using the computer: close the driver, delete this run's screenshots, and release the desktop.               |
 
 ---
 

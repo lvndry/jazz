@@ -5,6 +5,7 @@
 
 export const COMPUTER_APPS_TOOL_NAME = "computer_apps";
 export const COMPUTER_OBSERVE_TOOL_NAME = "computer_observe";
+export const COMPUTER_WAIT_TOOL_NAME = "computer_wait";
 export const COMPUTER_POINTER_TOOL_NAME = "computer_pointer";
 export const COMPUTER_INPUT_TOOL_NAME = "computer_input";
 export const COMPUTER_FOREGROUND_TOOL_NAME = "computer_foreground";
@@ -15,6 +16,7 @@ export const COMPUTER_END_TOOL_NAME = "computer_end";
 export const COMPUTER_TOOL_NAMES: readonly string[] = [
   COMPUTER_APPS_TOOL_NAME,
   COMPUTER_OBSERVE_TOOL_NAME,
+  COMPUTER_WAIT_TOOL_NAME,
   COMPUTER_POINTER_TOOL_NAME,
   COMPUTER_INPUT_TOOL_NAME,
   COMPUTER_FOREGROUND_TOOL_NAME,

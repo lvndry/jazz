@@ -18,6 +18,7 @@ import { stateDirectoryMode } from "@/core/utils/private-mode";
 import { RunScopedResource } from "../run-scoped-resource";
 import {
   type ActionKind,
+  type AppTier,
   blockedKeyReason,
   blockedTextReason,
   classifyApp,
@@ -31,9 +32,11 @@ import {
   type ComputerDriver,
   type DeliveryMode,
   type DriverApp,
+  type DriverWindowState,
   type DriverWindow,
   type MouseButton,
   type ScrollDirection,
+  type WindowTarget,
   STALE_ELEMENT_CODE,
   DriverError,
 } from "./driver";
@@ -188,6 +191,27 @@ export interface ActionReport {
   readonly effect: ActionEffect;
   readonly summary: string | null;
   readonly hint: string | null;
+  /** A fresh look at the action's window, when the caller asked for it (captureAfter). */
+  readonly observation?: Observation | undefined;
+}
+
+export interface WaitOptions {
+  readonly timeoutMs: number;
+  readonly pollMs: number;
+  readonly until: "settled" | "changed";
+}
+
+export interface WaitReport {
+  readonly outcome: "settled" | "changed" | "timeout";
+  readonly observation: Observation;
+}
+
+/** The window this session last looked at or acted on, the one computer_wait watches. */
+interface LastTarget {
+  readonly target: WindowTarget;
+  readonly bundleId: string;
+  readonly appName: string;
+  readonly appClass: AppTier;
 }
 
 export interface ComputerSessionSettings {
@@ -264,6 +288,7 @@ export class ComputerSession {
   /** Apps approved by the person the first time this run reached them, bundleId to name. */
   private readonly approvedThisRun = new Map<string, string>();
   private supportedKinds: readonly string[] | undefined;
+  private lastTarget: LastTarget | undefined;
 
   constructor(private readonly settings: ComputerSessionSettings) {
     this.startedAt = this.now();
@@ -471,28 +496,11 @@ export class ComputerSession {
       await mkdir(this.settings.capturesDirectory, { recursive: true, mode: stateDirectoryMode() });
     }
     const target = { pid: window.pid, windowId: window.windowId };
-    const state = await this.settings.driver.windowState(target, {
+    this.lastTarget = { target, bundleId, appName: app.name, appClass };
+    const observation = await this.nextObservation(target, {
       ...(screenshotPath === undefined ? {} : { screenshotPath }),
       ...(input.query === undefined ? {} : { query: input.query }),
-      maxElements: MAX_OBSERVED_ELEMENTS,
-      maxDepth: MAX_OBSERVED_DEPTH,
     });
-
-    this.generation += 1;
-    const observation = buildObservation({
-      generation: this.generation,
-      state,
-      bundleId,
-      tier: appClass,
-    });
-    const previous = this.latestByWindow.get(observation.windowKey);
-    if (previous !== undefined) {
-      this.retire(previous);
-    }
-    this.latestByWindow.set(observation.windowKey, observation);
-    this.byGeneration.set(observation.generation, observation);
-    await this.retainCapture(observation.screenshot?.path);
-    this.lastActionAt = this.now();
     await this.ledger({
       bundleId,
       app: app.name,
@@ -629,7 +637,11 @@ export class ComputerSession {
   }
 
   /** Perform one action through the checks, record it, and report what the driver confirmed. */
-  async perform(action: ActionInput, known: readonly KnownSecret[]): Promise<ActionReport> {
+  async perform(
+    action: ActionInput,
+    known: readonly KnownSecret[],
+    captureAfter?: boolean,
+  ): Promise<ActionReport> {
     const grants = await this.assertActive();
     const kind = kindOf(action);
     const { observation, element } = this.locate(action);
@@ -660,11 +672,20 @@ export class ComputerSession {
       const result = await this.settings.driver.act(driverAction);
       this.lastActionAt = this.now();
       await record(result.effect === "refused" ? "refused" : "ok", result.effect);
+      this.lastTarget = {
+        target: observation.target,
+        bundleId: observation.bundleId,
+        appName: observation.appName,
+        appClass: observation.tier,
+      };
+      const next =
+        captureAfter === true ? await this.nextObservation(observation.target) : undefined;
       return {
         app: observation.appName,
         effect: result.effect,
         summary: result.summary,
         hint: result.hint ?? result.errorCode,
+        ...(next === undefined ? {} : { observation: next }),
       };
     } catch (error) {
       const stopped =
@@ -683,6 +704,125 @@ export class ComputerSession {
       }
       throw error;
     }
+  }
+
+  /**
+   * Wait on the last observed or acted window until its element outline settles (two
+   * identical reads) or changes from the first read, or the time runs out. Runs inside the
+   * session's exclusive queue via the tools, refreshes lastActionAt on every poll so the
+   * idle limit cannot lapse mid-wait, and returns a fresh observation so the wait replaces
+   * an observe round trip. Screenshot bytes are not part of the comparison: cursors and
+   * animations make byte equality flaky.
+   */
+  async wait(options: WaitOptions): Promise<WaitReport> {
+    const last = this.lastTarget;
+    if (last === undefined) {
+      throw new Error("Observe a window first.");
+    }
+    await this.assertActive();
+    this.lastActionAt = this.now();
+    // The deadline is real wall-clock time: the polls sleep in real time, and the injected
+    // clock serves the idle limit, not the timer.
+    const deadline = Date.now() + options.timeoutMs;
+    let previous: string | undefined;
+    let baseline: string | undefined;
+    let state: DriverWindowState | undefined;
+    for (;;) {
+      if (await stopRequestedSince(this.startedAt)) {
+        throw new ComputerStoppedError();
+      }
+      state = await this.windowStillThere(last);
+      const outline = state.elements
+        .slice(0, MAX_OBSERVED_ELEMENTS)
+        .map((element) => `${String(element.index)} ${element.role} ${element.label ?? ""}`)
+        .join("\n");
+      this.lastActionAt = this.now();
+      if (baseline === undefined) {
+        baseline = outline;
+      }
+      const reached =
+        options.until === "settled"
+          ? previous !== undefined && outline === previous
+          : outline !== baseline;
+      previous = outline;
+      if (reached) {
+        return {
+          outcome: options.until,
+          observation: await this.nextObservationFrom(state),
+        };
+      }
+      if (Date.now() + options.pollMs > deadline) {
+        break;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, options.pollMs));
+    }
+    const finalState = state ?? (await this.windowStillThere(last));
+    return { outcome: "timeout", observation: await this.nextObservationFrom(finalState) };
+  }
+
+  /**
+   * Read a window the wait is on. A window that closed or moved to another app while the
+   * wait ran fails with the same error acting on it would.
+   */
+  private async windowStillThere(last: LastTarget): Promise<DriverWindowState> {
+    const running = await this.settings.driver.listApps();
+    const live = running.find(
+      (app) => app.pid === last.target.pid && app.running && app.bundleId === last.bundleId,
+    );
+    if (live === undefined || this.settings.ancestorPids.has(live.pid)) {
+      throw new Error(`That window no longer belongs to ${last.appName}. Observe again.`);
+    }
+    try {
+      return await this.settings.driver.windowState(last.target, {
+        maxElements: MAX_OBSERVED_ELEMENTS,
+        maxDepth: MAX_OBSERVED_DEPTH,
+      });
+    } catch (error) {
+      throw new Error(`That window no longer belongs to ${last.appName}. Observe again.`, {
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Re-read one window's state and register it as the latest observation for that window:
+   * a new generation, the previous observation's refs retired, the maps and the idle clock
+   * refreshed. observe and captureAfter share this path, so their refs behave identically.
+   */
+  private async nextObservation(
+    target: WindowTarget,
+    options: { screenshotPath?: string; query?: string } = {},
+  ): Promise<Observation> {
+    const state = await this.settings.driver.windowState(target, {
+      ...(options.screenshotPath === undefined ? {} : { screenshotPath: options.screenshotPath }),
+      ...(options.query === undefined ? {} : { query: options.query }),
+      maxElements: MAX_OBSERVED_ELEMENTS,
+      maxDepth: MAX_OBSERVED_DEPTH,
+    });
+    return this.nextObservationFrom(state);
+  }
+
+  private async nextObservationFrom(state: DriverWindowState): Promise<Observation> {
+    const last = this.lastTarget;
+    if (last === undefined) {
+      throw new Error("Observe a window first.");
+    }
+    this.generation += 1;
+    const observation = buildObservation({
+      generation: this.generation,
+      state,
+      bundleId: last.bundleId,
+      tier: last.appClass,
+    });
+    const previous = this.latestByWindow.get(observation.windowKey);
+    if (previous !== undefined) {
+      this.retire(previous);
+    }
+    this.latestByWindow.set(observation.windowKey, observation);
+    this.byGeneration.set(observation.generation, observation);
+    await this.retainCapture(observation.screenshot?.path);
+    this.lastActionAt = this.now();
+    return observation;
   }
 
   private locate(action: ActionInput): {

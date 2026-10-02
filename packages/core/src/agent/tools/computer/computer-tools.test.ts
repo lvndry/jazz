@@ -21,6 +21,7 @@ import {
   createComputerInputTools,
   createComputerObserveTool,
   createComputerPointerTools,
+  createComputerWaitTool,
 } from "./computer-tools";
 import { requestStop } from "./control";
 import { mailApp } from "./fake-driver";
@@ -39,6 +40,7 @@ const foreground = createComputerForegroundTools();
 const handoff = createComputerHandoffTools();
 const apps = createComputerAppsTool();
 const observe = createComputerObserveTool();
+const wait = createComputerWaitTool();
 const end = createComputerEndTool();
 
 const stores: UserSecretStore[] = [];
@@ -85,6 +87,7 @@ describe("declarations", () => {
     apps,
     observe,
     end,
+    wait,
     pointer.approval,
     input.approval,
     foreground.approval,
@@ -95,6 +98,7 @@ describe("declarations", () => {
     expect(Object.fromEntries(visible.map((tool) => [tool.name, tool.riskLevel]))).toEqual({
       computer_apps: "read-only",
       computer_observe: "read-only",
+      computer_wait: "read-only",
       computer_end: "read-only",
       computer_pointer: "low-risk",
       computer_input: "high-risk",
@@ -107,6 +111,7 @@ describe("declarations", () => {
     expect(Object.fromEntries(visible.map((tool) => [tool.name, tool.egress]))).toEqual({
       computer_apps: false,
       computer_observe: false,
+      computer_wait: false,
       computer_end: false,
       computer_pointer: true,
       computer_input: true,
