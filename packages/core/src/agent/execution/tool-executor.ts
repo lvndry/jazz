@@ -433,6 +433,7 @@ export class ToolExecutor {
           toolName: name,
           approved: outcome.approved,
           auto: false,
+          ...(outcome.approved && outcome.alwaysApproveTool ? { always: true } : {}),
         });
       }
       if (
@@ -852,6 +853,9 @@ export class ToolExecutor {
               toolName: name,
               approved: outcome.approved,
               auto: isAutoApproved,
+              ...(outcome.approved && (outcome.alwaysApproveTool || outcome.alwaysApproveCommand)
+                ? { always: true }
+                : {}),
             });
           }
 
