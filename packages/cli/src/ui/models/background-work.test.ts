@@ -2,12 +2,13 @@ import type { JobBatchRecord, JobRecord } from "@jazz/core/interfaces/job-queue-
 import { describe, expect, test } from "bun:test";
 import {
   backgroundItems,
+  describeBackgroundCheck,
   describeBackgroundTiming,
   formatBackgroundWork,
   sameBackgroundItems,
 } from "./background-work";
 
-function job(poll: boolean): JobRecord {
+function job(poll: boolean, overrides: Partial<JobRecord> = {}): JobRecord {
   return {
     id: "job-1",
     command: "true",
@@ -22,6 +23,7 @@ function job(poll: boolean): JobRecord {
     lastError: null,
     createdAt: 0,
     updatedAt: 0,
+    ...overrides,
   };
 }
 
@@ -66,6 +68,45 @@ describe("backgroundItems", () => {
       "conversation-1",
     );
     expect(items).toEqual([]);
+  });
+});
+
+describe("batch progress", () => {
+  const jobs = [
+    job(false, { id: "a", command: "build", status: "succeeded" }),
+    job(false, {
+      id: "b",
+      command: "lint",
+      status: "failed",
+      result: { stdout: "", stderr: "warn\nconnection refused\n", exitCode: 2 },
+    }),
+    job(false, { id: "c", command: "test", status: "running" }),
+    job(false, { id: "d", command: "deploy", status: "pending" }),
+  ];
+
+  test("counts finished and failed jobs and names the one running", () => {
+    const [item] = backgroundItems([batch({ poll: false, jobs })], "conversation-1");
+    expect(item?.progress).toBe("1 of 4 done · 1 failed");
+    expect(item?.current).toBe("test");
+    expect(item?.failure).toBe("exit 2: connection refused");
+    expect(item && describeBackgroundCheck(item)).toBe(
+      "1 of 4 done · 1 failed · test · exit 2: connection refused",
+    );
+  });
+
+  test("a single untouched job shows its command", () => {
+    const [item] = backgroundItems([batch({ poll: false })], "conversation-1");
+    expect(item?.progress).toBe("");
+    expect(item && describeBackgroundCheck(item)).toBe("true");
+  });
+
+  test("a change in progress is a change in the list", () => {
+    const before = backgroundItems([batch({ poll: false, jobs })], "conversation-1");
+    const advanced = jobs.map((entry) =>
+      entry.id === "c" ? { ...entry, status: "succeeded" as const } : entry,
+    );
+    const after = backgroundItems([batch({ poll: false, jobs: advanced })], "conversation-1");
+    expect(sameBackgroundItems(before, after)).toBe(false);
   });
 });
 

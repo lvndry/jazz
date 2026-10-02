@@ -21,6 +21,57 @@ export interface BackgroundItem {
   readonly intervalMs?: number;
   /** Watches only: epoch ms after which the wait gives up. */
   readonly expiresAt?: number;
+  /** How far along it is (`3 of 8 done · 1 failed`); empty before anything has finished. */
+  readonly progress: string;
+  /** The command a running job is on now, so a row says what it is doing. */
+  readonly current?: string;
+  /** The end of the first failed job's output, so a row says why. */
+  readonly failure?: string;
+}
+
+/** Longest failure excerpt a row carries; the full output stays in the batch record. */
+const FAILURE_EXCERPT_MAX_LENGTH = 80;
+
+function lastLine(text: string): string {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const line = lines[lines.length - 1] ?? "";
+  return line.length > FAILURE_EXCERPT_MAX_LENGTH
+    ? `${line.slice(0, FAILURE_EXCERPT_MAX_LENGTH - 1)}…`
+    : line;
+}
+
+function jobProgress(
+  batch: JobBatchRecord,
+): Pick<BackgroundItem, "progress" | "current" | "failure"> {
+  const total = batch.jobs.length;
+  const done = batch.jobs.filter((job) => job.status === "succeeded").length;
+  const failedJobs = batch.jobs.filter((job) => job.status === "failed");
+  const running = batch.jobs.find((job) => job.status === "running");
+  const parts: string[] = [];
+  if (total > 1 || done > 0 || failedJobs.length > 0) {
+    parts.push(`${String(done)} of ${String(total)} done`);
+  }
+  if (failedJobs.length > 0) {
+    parts.push(`${String(failedJobs.length)} failed`);
+  }
+  const failedJob = failedJobs[0];
+  const failureText =
+    failedJob === undefined
+      ? ""
+      : lastLine(failedJob.result?.stderr ?? "") ||
+        lastLine(failedJob.result?.stdout ?? "") ||
+        failedJob.lastError ||
+        "";
+  return {
+    progress: parts.join(" · "),
+    ...(running === undefined ? {} : { current: running.command }),
+    ...(failedJob === undefined || failureText.length === 0
+      ? {}
+      : { failure: `exit ${String(failedJob.result?.exitCode ?? "?")}: ${failureText}` }),
+  };
 }
 
 export interface BackgroundWork {
@@ -47,6 +98,7 @@ export function backgroundItems(
       description: batch.reason.length > 0 ? batch.reason : command,
       command,
       startedAt: batch.createdAt,
+      ...(poll === undefined ? jobProgress(batch) : { progress: "" }),
       ...(poll === undefined
         ? {}
         : { intervalMs: poll.intervalMs, expiresAt: batch.createdAt + poll.timeoutMs }),
@@ -61,7 +113,13 @@ export function sameBackgroundItems(
 ): boolean {
   return (
     left.length === right.length &&
-    left.every((item, index) => item.batchId === right[index]?.batchId)
+    left.every(
+      (item, index) =>
+        item.batchId === right[index]?.batchId &&
+        item.progress === right[index]?.progress &&
+        item.current === right[index]?.current &&
+        item.failure === right[index]?.failure,
+    )
   );
 }
 
@@ -94,10 +152,18 @@ export function describeBackgroundTiming(item: BackgroundItem, now: number): str
   return `running ${formatElapsed(Math.max(0, now - item.startedAt))}`;
 }
 
-/** The interval and command a watch re-runs, for a row's second line. */
+/** A row's detail: what a watch re-runs, or how far a batch of jobs has got and what failed. */
 export function describeBackgroundCheck(item: BackgroundItem): string {
-  if (item.intervalMs === undefined) {
-    return item.command;
+  if (item.intervalMs !== undefined) {
+    return `every ${formatElapsed(item.intervalMs)}: ${item.command}`;
   }
-  return `every ${formatElapsed(item.intervalMs)}: ${item.command}`;
+  const parts = [item.progress];
+  if (item.current !== undefined) {
+    parts.push(item.current);
+  }
+  if (item.failure !== undefined) {
+    parts.push(item.failure);
+  }
+  const text = parts.filter((part) => part.length > 0).join(" · ");
+  return text.length > 0 ? text : item.command;
 }
