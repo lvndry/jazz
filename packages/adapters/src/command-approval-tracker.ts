@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { toError } from "@jazz/core/utils/errors";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
+import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
@@ -23,6 +24,24 @@ export interface CommandApprovalRecord {
 }
 
 export type CommandApprovals = Record<string, CommandApprovalRecord>;
+
+/**
+ * On-disk shape of the approvals file: the record stamped with a `schemaVersion` so a future
+ * format change can migrate instead of guessing. A file written before versioning is a bare
+ * record, which `parse` reads unchanged; the next write stores it stamped.
+ */
+const COMMAND_APPROVALS_KIND: StateFileKind<CommandApprovals> = {
+  noun: "command approvals",
+  schemaVersion: 1,
+  parse: (document) => {
+    const { schemaVersion: _schemaVersion, ...data } = document as Record<string, unknown>;
+    if (typeof data !== "object" || data === null || Array.isArray(data)) {
+      return { ok: false, error: "expected a command approvals record" };
+    }
+    return { ok: true, content: data as unknown as CommandApprovals };
+  },
+  serialize: (data) => ({ ...data }),
+};
 
 /** Initial number of sessions before first promotion prompt */
 export const INITIAL_PROMOTION_THRESHOLD = 3;
@@ -59,19 +78,15 @@ export function loadCommandApprovals(): Effect.Effect<
 
     if (content === "") return {};
 
-    try {
-      const data = JSON.parse(content) as CommandApprovals;
-      return data && typeof data === "object" ? data : {};
-    } catch {
-      return {};
-    }
+    const decoded = decodeStateFile(content, "command-approvals.json", COMMAND_APPROVALS_KIND);
+    return decoded.status === "ok" ? decoded.content : {};
   });
 }
 
 export function saveCommandApprovals(
   data: CommandApprovals,
 ): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  return writeFileStringAtomic(getApprovalsPath(), JSON.stringify(data, null, 2));
+  return writeFileStringAtomic(getApprovalsPath(), encodeStateFile(COMMAND_APPROVALS_KIND, data));
 }
 
 /**

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
@@ -49,10 +49,18 @@ describe("claiming a webhook delivery", () => {
     expect(await claim("gh", [])).toBe("fresh");
   });
 
-  it("survives a restart, since the record is on disk", async () => {
+  it("survives a restart, since the record is on disk and stamped with a schema version", async () => {
     await claim("gh", ["delivery:1"]);
     const record = JSON.parse(await readFile(path.join(directory, "gh.json"), "utf8"));
-    expect(record).toEqual(["delivery:1"]);
+    expect(record).toEqual({ schemaVersion: 1, keys: ["delivery:1"] });
+  });
+
+  it("reads a claim file written before versioning and re-stamps it on the next claim", async () => {
+    await writeFile(path.join(directory, "gh.json"), JSON.stringify(["delivery:1"]));
+    expect(await claim("gh", ["delivery:1"])).toBe("duplicate");
+    expect(await claim("gh", ["delivery:2"])).toBe("fresh");
+    const record = JSON.parse(await readFile(path.join(directory, "gh.json"), "utf8"));
+    expect(record).toEqual({ schemaVersion: 1, keys: ["delivery:1", "delivery:2"] });
   });
 
   it("remembers only the most recent deliveries", async () => {

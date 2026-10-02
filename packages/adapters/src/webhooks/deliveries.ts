@@ -21,6 +21,7 @@ import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { toError } from "@jazz/core/utils/errors";
 import { getWebhookDeliveriesDirectory } from "@jazz/core/utils/paths";
+import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect } from "effect";
@@ -35,6 +36,24 @@ export const MAX_REMEMBERED_DELIVERIES = 1000;
 
 export type DeliveryClaim = "fresh" | "duplicate";
 
+/**
+ * On-disk shape of one webhook's claim file: the delivery keys stamped with a `schemaVersion`
+ * so a future format change can migrate instead of guessing. A file written before versioning
+ * is a bare array, which `parse` reads unchanged; the next write stores it stamped. The keys
+ * are nested under `keys` because the envelope is an object, and the record is a list.
+ */
+const DELIVERIES_KIND: StateFileKind<readonly string[]> = {
+  noun: "delivery keys",
+  schemaVersion: 1,
+  parse: (document) => {
+    const raw = Array.isArray(document) ? document : (document as { keys?: unknown }).keys;
+    const keys = Array.isArray(raw)
+      ? raw.filter((key): key is string => typeof key === "string")
+      : [];
+    return { ok: true, content: keys };
+  },
+  serialize: (keys) => ({ keys: [...keys] }),
+};
 function ledgerPath(directory: string, webhookName: string): string {
   return path.join(directory, `${storageSafeSegment(webhookName)}.json`);
 }
@@ -42,8 +61,8 @@ function ledgerPath(directory: string, webhookName: string): string {
 function readClaimed(fs: FileSystem.FileSystem, filePath: string) {
   return fs.readFileString(filePath).pipe(
     Effect.map((raw): readonly string[] => {
-      const parsed: unknown = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((key) => typeof key === "string") : [];
+      const decoded = decodeStateFile(raw, "delivery claim file", DELIVERIES_KIND);
+      return decoded.status === "ok" ? decoded.content : [];
     }),
     Effect.catchAll(() => Effect.succeed<readonly string[]>([])),
   );
@@ -85,7 +104,7 @@ function claimUnderLock(fs: FileSystem.FileSystem, filePath: string, keys: reado
       return "duplicate" as const;
     }
     const kept = [...claimed, ...keys].slice(-MAX_REMEMBERED_DELIVERIES);
-    yield* writeFileStringAtomic(filePath, JSON.stringify(kept), {
+    yield* writeFileStringAtomic(filePath, encodeStateFile(DELIVERIES_KIND, kept), {
       mode: DELIVERIES_FILE_MODE,
     });
     return "fresh" as const;

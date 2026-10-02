@@ -14,6 +14,7 @@
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { toError } from "@jazz/core/utils/errors";
+import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
@@ -58,14 +59,8 @@ function isSentenceKeyList(value: unknown): value is readonly string[] {
   );
 }
 
-function parseLedger(raw: string): SourceLedger {
-  const parsed: unknown = JSON.parse(raw);
-  if (typeof parsed !== "object" || parsed === null) {
-    throw new UnreadableLedger();
-  }
-  const { sentenceKeysByPath, revokedSentenceKeys } = parsed as Partial<
-    Record<keyof SourceLedger, unknown>
-  >;
+function validateLedgerDocument(document: Record<string, unknown>): SourceLedger {
+  const { schemaVersion: _schemaVersion, sentenceKeysByPath, revokedSentenceKeys } = document;
   if (
     typeof sentenceKeysByPath !== "object" ||
     sentenceKeysByPath === null ||
@@ -84,6 +79,27 @@ function parseLedger(raw: string): SourceLedger {
   };
 }
 
+/**
+ * The on-disk shape of the ledger: the record stamped with a `schemaVersion` so a future
+ * format change can migrate instead of guessing. A file written before versioning is a bare
+ * record, which `parse` reads unchanged; the next write stores it stamped.
+ */
+const SOURCE_LEDGER_KIND: StateFileKind<SourceLedger> = {
+  noun: "memory source ledger",
+  schemaVersion: 1,
+  parse: (document) => {
+    if (typeof document !== "object" || document === null || Array.isArray(document)) {
+      return { ok: false, error: "expected a memory source ledger record" };
+    }
+    try {
+      return { ok: true, content: validateLedgerDocument(document as Record<string, unknown>) };
+    } catch {
+      return { ok: false, error: "expected a memory source ledger record" };
+    }
+  },
+  serialize: (ledger) => ({ ...ledger }),
+};
+
 /** Read a missing ledger as empty and fail with `UnreadableLedger` for a malformed one. */
 function readLedger(
   fs: FileSystem.FileSystem,
@@ -96,7 +112,8 @@ function readLedger(
       return EMPTY_LEDGER;
     }
     const raw = yield* fs.readFileString(file).pipe(Effect.mapError(toError));
-    return yield* Effect.try({ try: () => parseLedger(raw), catch: () => new UnreadableLedger() });
+    const decoded = decodeStateFile(raw, file, SOURCE_LEDGER_KIND);
+    return decoded.status === "ok" ? decoded.content : yield* Effect.fail(new UnreadableLedger());
   });
 }
 
@@ -108,7 +125,7 @@ function writeLedger(memoryDirectory: string, ledger: SourceLedger): Effect.Effe
   const revokedSentenceKeys = ledger.revokedSentenceKeys.slice(-MAX_REVOKED_SENTENCE_KEYS);
   return writeFileStringAtomic(
     ledgerPath(memoryDirectory),
-    `${JSON.stringify({ ...ledger, revokedSentenceKeys })}\n`,
+    encodeStateFile(SOURCE_LEDGER_KIND, { ...ledger, revokedSentenceKeys }),
   );
 }
 
