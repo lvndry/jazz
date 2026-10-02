@@ -722,11 +722,11 @@ export class ToolExecutor {
                   context.autoApprovedCommands,
                 )));
 
-          // A picker-style request is never auto-approved, under any policy including
-          // yolo: there is nothing to approve until somebody picked a row. The
-          // companion-bound path skips approval inside the tool itself instead.
+          // A picker-style request is never auto-approved, including when a queued
+          // approval re-checks the policy after another tool changed it.
           const hasSelectionOptions = (approvalResult.options?.length ?? 0) > 0;
-          const isAutoApproved = !hasSelectionOptions && checkAutoApproved();
+          const canAutoApprove = () => !hasSelectionOptions && checkAutoApproved();
+          const isAutoApproved = canAutoApprove();
 
           if (classifiedRisk !== undefined && displayConfig.showToolExecution) {
             if (renderer) {
@@ -815,7 +815,7 @@ export class ToolExecutor {
             ...(hasSelectionOptions ? { options: approvalResult.options } : {}),
             riskLevel,
             ...(taintWarning === undefined ? {} : { warning: taintWarning }),
-            isAutoApproved: checkAutoApproved,
+            isAutoApproved: canAutoApprove,
           };
 
           // A resumed run already carries the answer a person gave in another process.
