@@ -700,13 +700,15 @@ See [Configuration](./configure/jazz.md).
 
 ## `jazz memory`
 
-| Command                              | Purpose                                                       |
-| ------------------------------------ | ------------------------------------------------------------- |
-| `jazz memory list <agent>`           | List durable memory files available to an agent               |
-| `jazz memory show <agent> <path>`    | Print one memory file as the agent reads it                   |
-| `jazz memory forget <agent> <path>`  | Permanently delete one memory file                            |
-| `jazz memory explain <agent> <path>` | Show provenance and recent opportunity receipts for one entry |
-| `jazz memory recall`                 | Report memory consultation; `--surface <name>` filters it     |
+Memory is shared by every agent, so these commands address scopes and paths directly.
+
+| Command                      | Purpose                                                       |
+| ---------------------------- | ------------------------------------------------------------- |
+| `jazz memory list [scope]`   | List every scope on disk, or every file in one scope          |
+| `jazz memory show <path>`    | Print one memory file as the agents read it                   |
+| `jazz memory forget <path>`  | Permanently delete one memory file                            |
+| `jazz memory explain <path>` | Show provenance and recent opportunity receipts for one entry |
+| `jazz memory recall`         | Report memory consultation; `--surface <name>` filters it     |
 
 Conversation history and current working state are separate. See [Conversations, working state, and memory](./concepts/conversations-and-memory.md).
 

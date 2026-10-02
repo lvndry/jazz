@@ -1,5 +1,5 @@
 /**
- * `jazz memory` — see and control what an agent has written down about you.
+ * `jazz memory` — see and control what Jazz has written down about you.
  *
  * Memory is the one store Jazz keeps that is *about a person* and cannot be
  * re-derived from anything: a preference, an allergy, a relative's name. That
@@ -8,55 +8,80 @@
  * documented failure mode of every auto-writing memory system is that users
  * are fine with memory right up until they discover what it holds.
  *
- * Deliberately operating on the real files: the artifact listed and edited here
- * is byte-for-byte the one the agent reads back, so nothing shown is a
+ * Memory is shared by every agent and partitioned into scopes, which are
+ * topics rather than ownership: `personal`, `finance`, the name of a project.
+ * The commands here therefore operate on scopes and paths directly — there is
+ * no agent to name, because there is no per-agent view to select.
+ *
+ * Deliberately operating on the real files: the artifact listed and edited
+ * here is byte-for-byte the one the agents read back, so nothing shown is a
  * regenerated summary that might differ from what actually reaches the model.
  */
 
-import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import {
   DEFAULT_RECEIPT_READ_LIMIT,
   MAX_RECEIPTS_PER_ENTRY,
   readMemoryOpportunityReceipts,
 } from "@jazz/core/agent/memory-opportunity-receipts";
 import { readMemoryRecalls, summarizeMemoryRecalls } from "@jazz/core/agent/memory-recall-log";
-import { effectiveMemoryScopes } from "@jazz/core/constants/memory";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { splitScopeAndRest } from "@jazz/core/memory/entry-path";
 import { CLIError } from "@jazz/core/types/errors";
 import { Effect } from "effect";
-function resolveScopes(agent: {
-  readonly id: string;
-  readonly config: { readonly memoryScopes?: readonly string[] | undefined };
-}): readonly string[] {
-  return effectiveMemoryScopes(agent.config.memoryScopes);
-}
 
-/** `jazz memory list <agent>` — every file the agent can read, with provenance. */
-export function listMemoryCommand(identifier: string) {
+/** `jazz memory list [scope]` — every scope on disk, or every file in one scope. */
+export function listMemoryCommand(scope?: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const memoryService = yield* MemoryServiceTag;
-    const agent = yield* getAgentByIdentifier(identifier);
-    const scopes = resolveScopes(agent);
 
-    const outcome = yield* memoryService.view(scopes, "");
-    if (outcome.kind !== "directory") {
-      yield* terminal.info("Nothing saved yet.");
+    if (scope === undefined) {
+      const outcome = yield* memoryService.view("");
+      if (outcome.kind !== "directory") {
+        yield* terminal.info("Nothing saved yet.");
+        return;
+      }
+      if (outcome.entries.length === 0) {
+        yield* terminal.info("Nothing saved yet. Scopes appear here as agents write them.");
+        return;
+      }
+      yield* terminal.log("Memory scopes (shared by all agents):\n");
+      // The root view is a recursive tree, so each top-level scope directory
+      // is the entries' first path segment; count the files nested under it.
+      const scopes = outcome.entries
+        .filter((entry) => entry.kind === "directory")
+        .map((entry) => entry.name.replace(/\/$/, ""))
+        .filter((name) => name.indexOf("/") === -1);
+      for (const scopeName of scopes) {
+        const count = outcome.entries.filter(
+          (entry) => entry.kind === "file" && entry.name.startsWith(`${scopeName}/`),
+        ).length;
+        yield* terminal.log(`  ${scopeName}${count > 0 ? `  (${count} file(s))` : "  (empty)"}`);
+      }
+      yield* terminal.log("\nDrill in with: jazz memory list <scope>");
       return;
     }
 
+    const normalized = scope.replace(/\/$/, "");
+    const outcome = yield* memoryService.view(normalized);
+    if (outcome.kind === "not_found") {
+      yield* terminal.info(`No such scope: ${normalized}`);
+      return;
+    }
+    if (outcome.kind !== "directory") {
+      yield* terminal.info(`${normalized} is a file. Use: jazz memory show ${normalized}`);
+      return;
+    }
     const files = outcome.entries.filter((entry) => entry.kind === "file");
     if (files.length === 0) {
-      yield* terminal.info(`${agent.name} has saved nothing yet. Scopes: ${scopes.join(", ")}.`);
+      yield* terminal.info(`Scope ${normalized} has no files yet.`);
       return;
     }
-
-    yield* terminal.log(`Memory for ${agent.name} (${outcome.path}):\n`);
+    yield* terminal.log(`Memory in ${normalized}:\n`);
     for (const file of files) {
       const provenance = yield* memoryService
-        .provenance(scopes, file.name)
+        .provenance(`${normalized}/${file.name}`)
         .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
       const written =
         provenance === undefined
@@ -64,19 +89,17 @@ export function listMemoryCommand(identifier: string) {
           : `  updated ${provenance.updatedAt.slice(0, 10)}, ${provenance.writeCount} write(s)`;
       yield* terminal.log(`  ${file.name}${written}`);
     }
-    yield* terminal.log(`\nRead one with: jazz memory show ${identifier} <path>`);
+    yield* terminal.log(`\nRead one with: jazz memory show ${normalized}/<path>`);
   });
 }
 
-/** `jazz memory show <agent> <path>` — the exact bytes the agent reads back. */
-export function showMemoryCommand(identifier: string, memoryPath: string) {
+/** `jazz memory show <path>` — the exact bytes every agent reads back. */
+export function showMemoryCommand(memoryPath: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const memoryService = yield* MemoryServiceTag;
-    const agent = yield* getAgentByIdentifier(identifier);
-    const scopes = resolveScopes(agent);
 
-    const outcome = yield* memoryService.view(scopes, memoryPath);
+    const outcome = yield* memoryService.view(memoryPath);
     if (outcome.kind === "not_found" || outcome.kind === "too_large") {
       return yield* Effect.fail(new CLIError({ command: "memory", message: outcome.message }));
     }
@@ -88,7 +111,7 @@ export function showMemoryCommand(identifier: string, memoryPath: string) {
     }
 
     const provenance = yield* memoryService
-      .provenance(scopes, memoryPath)
+      .provenance(memoryPath)
       .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
     if (provenance !== undefined) {
       yield* terminal.log(
@@ -100,15 +123,13 @@ export function showMemoryCommand(identifier: string, memoryPath: string) {
   });
 }
 
-/** `jazz memory forget <agent> <path>` — delete one file for good. */
-export function forgetMemoryCommand(identifier: string, memoryPath: string) {
+/** `jazz memory forget <path>` — delete one file for good. */
+export function forgetMemoryCommand(memoryPath: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const memoryService = yield* MemoryServiceTag;
-    const agent = yield* getAgentByIdentifier(identifier);
-    const scopes = resolveScopes(agent);
 
-    const outcome = yield* memoryService.delete(scopes, memoryPath);
+    const outcome = yield* memoryService.delete(memoryPath);
     if (!outcome.success) {
       return yield* Effect.fail(new CLIError({ command: "memory", message: outcome.message }));
     }
@@ -116,14 +137,12 @@ export function forgetMemoryCommand(identifier: string, memoryPath: string) {
   });
 }
 
-/** `jazz memory explain <agent> <path>` — show stored entry provenance. */
-export function explainMemoryCommand(identifier: string, memoryPath: string) {
+/** `jazz memory explain <path>` — show stored entry provenance. */
+export function explainMemoryCommand(memoryPath: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const memoryService = yield* MemoryServiceTag;
-    const agent = yield* getAgentByIdentifier(identifier);
-    const scopes = resolveScopes(agent);
-    const provenance = yield* memoryService.provenance(scopes, memoryPath);
+    const provenance = yield* memoryService.provenance(memoryPath);
     if (provenance === undefined) {
       return yield* Effect.fail(
         new CLIError({ command: "memory explain", message: `No provenance for ${memoryPath}` }),
@@ -136,7 +155,6 @@ export function explainMemoryCommand(identifier: string, memoryPath: string) {
     yield* terminal.log(`Writes: ${provenance.writeCount}`);
     if (provenance.entryId !== undefined) {
       const entryId = provenance.entryId;
-      yield* terminal.log(`Entry ID: ${entryId}`);
       const { scope } = splitScopeAndRest(memoryPath);
       const receipts = yield* readMemoryOpportunityReceipts(
         scope ?? "",

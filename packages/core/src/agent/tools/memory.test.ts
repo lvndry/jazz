@@ -34,7 +34,7 @@ describe("view_memory", () => {
     const tool = createViewMemoryTool();
     expect(tool.riskLevel).toBe("read-only");
     const service: Partial<MemoryService> = {
-      view: (_scopes, path) =>
+      view: (path) =>
         Effect.succeed(
           path === ""
             ? { kind: "directory", path: "/", entries: [] }
@@ -118,9 +118,9 @@ describe("manage_memory", () => {
       ),
     );
     expect(result.success).toBe(true);
-    expect(calls[0]?.[1]).toBe("personal/when/food/favorite-fruit.md");
-    expect(calls[0]?.[2]).toBe('The user said: "My favorite fruit is banana."\n');
-    expect(calls[0]?.[3]).toMatchObject({
+    expect(calls[0]?.[0]).toBe("personal/when/food/favorite-fruit.md");
+    expect(calls[0]?.[1]).toBe('The user said: "My favorite fruit is banana."\n');
+    expect(calls[0]?.[2]).toMatchObject({
       quotedSentenceKeys: quotedSentenceKeys(
         { id: "user:1", text: "My favorite fruit is banana." },
         "My favorite fruit is banana.",
@@ -152,7 +152,7 @@ describe("manage_memory", () => {
       ),
     );
     expect(result.success).toBe(true);
-    expect(calls[0]?.[1]).toBe("personal/always/reply-length.md");
+    expect(calls[0]?.[0]).toBe("personal/always/reply-length.md");
   });
 
   test("rejects tool claims and forged source refs before calling storage", async () => {
@@ -265,8 +265,8 @@ describe("manage_memory", () => {
       ),
     );
     expect(result.success).toBe(true);
-    expect(replacement?.[2]).toBe('The user said: "My favorite fruit is banana."\n');
-    expect(replacement?.[3]).toBe('The user said: "Actually, my favorite fruit is mango."\n');
+    expect(replacement?.[1]).toBe('The user said: "My favorite fruit is banana."\n');
+    expect(replacement?.[2]).toBe('The user said: "Actually, my favorite fruit is mango."\n');
   });
 
   const fruitEntryView = {
@@ -369,7 +369,7 @@ describe("manage_memory", () => {
   test("records extractor writes as automatic and direct writes as the user's", async () => {
     const origins: unknown[] = [];
     const service: Partial<MemoryService> = {
-      create: (_scopes, _path, _text, writeContext) => {
+      create: (_path, _text, writeContext) => {
         origins.push(writeContext?.entry?.origin);
         return Effect.succeed({ success: true, message: "created" });
       },

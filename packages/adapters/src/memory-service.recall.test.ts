@@ -36,8 +36,6 @@ function makeService(): MemoryServiceImpl {
     receiptsDirectory: path.join(tmpDir, ".memory-receipts"),
   });
 }
-
-const scopes = ["personal"];
 const writeContext = { agentId: "agent-1" } as const;
 
 function writeByHand(relativePath: string, content: string) {
@@ -50,9 +48,9 @@ describe("standingEntries", () => {
   test("returns always/ entries", async () => {
     const service = makeService();
     await runEffect(
-      service.create(scopes, "personal/always/auto-open.md", "auto-open the render", writeContext),
+      service.create("personal/always/auto-open.md", "auto-open the render", writeContext),
     );
-    expect(await runEffect(service.standingEntries(scopes))).toEqual([
+    expect(await runEffect(service.standingEntries())).toEqual([
       {
         path: "personal/always/auto-open.md",
         scope: "personal",
@@ -65,25 +63,25 @@ describe("standingEntries", () => {
   test("does not return topic-scoped entries", async () => {
     const service = makeService();
     await runEffect(
-      service.create(scopes, "personal/when/moodboard/scale.md", "artboards scale", writeContext),
+      service.create("personal/when/moodboard/scale.md", "artboards scale", writeContext),
     );
-    expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
+    expect(await runEffect(service.standingEntries())).toEqual([]);
   });
 
   test("ignores topic entries even when always/ entries also exist", async () => {
     const service = makeService();
-    await runEffect(service.create(scopes, "personal/always/a.md", "always", writeContext));
+    await runEffect(service.create("personal/always/a.md", "always", writeContext));
     for (const topic of ["moodboard", "invoicing", "travel"]) {
       writeByHand(`when/${topic}/x.md`, `${topic} entry`);
     }
-    const entries = await runEffect(service.standingEntries(scopes));
+    const entries = await runEffect(service.standingEntries());
     expect(entries.map((entry) => entry.summary)).toEqual(["always"]);
   });
 
   test("an entry created by hand is returned", async () => {
     const service = makeService();
     writeByHand("always/by-hand.md", "written in an editor\nmore detail\n");
-    expect(await runEffect(service.standingEntries(scopes))).toEqual([
+    expect(await runEffect(service.standingEntries())).toEqual([
       {
         path: "personal/always/by-hand.md",
         scope: "personal",
@@ -95,9 +93,9 @@ describe("standingEntries", () => {
 
   test("an entry deleted by hand stops being returned", async () => {
     const service = makeService();
-    await runEffect(service.create(scopes, "personal/always/gone.md", "temporary", writeContext));
+    await runEffect(service.create("personal/always/gone.md", "temporary", writeContext));
     fs.rmSync(path.join(tmpDir, "personal", "always", "gone.md"));
-    expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
+    expect(await runEffect(service.standingEntries())).toEqual([]);
   });
 
   test("does not inject files reached through memory symlinks", async () => {
@@ -107,58 +105,55 @@ describe("standingEntries", () => {
     fs.mkdirSync(path.join(tmpDir, "personal", "always"), { recursive: true });
     fs.symlinkSync(outsideFile, path.join(tmpDir, "personal", "always", "linked.md"));
 
-    expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
+    expect(await runEffect(service.standingEntries())).toEqual([]);
   });
 
   test("survives a corrupt sidecar", async () => {
     const service = makeService();
-    await runEffect(service.create(scopes, "personal/always/a.md", "still here", writeContext));
+    await runEffect(service.create("personal/always/a.md", "still here", writeContext));
     fs.writeFileSync(path.join(tmpDir, "personal", ".provenance.json"), "{not json");
-    expect(
-      (await runEffect(service.standingEntries(scopes))).map((entry) => entry.summary),
-    ).toEqual(["still here"]);
+    expect((await runEffect(service.standingEntries())).map((entry) => entry.summary)).toEqual([
+      "still here",
+    ]);
   });
 
   test("skips an entry with no readable first line", async () => {
     const service = makeService();
     writeByHand("always/blank.md", "   \n\n");
-    expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
+    expect(await runEffect(service.standingEntries())).toEqual([]);
   });
 
   test("takes the first non-empty line as the summary", async () => {
     const service = makeService();
     writeByHand("always/headed.md", "\n# Auto-open renders\n\nlonger explanation\n");
-    expect(
-      (await runEffect(service.standingEntries(scopes))).map((entry) => entry.summary),
-    ).toEqual(["Auto-open renders"]);
+    expect((await runEffect(service.standingEntries())).map((entry) => entry.summary)).toEqual([
+      "Auto-open renders",
+    ]);
   });
 
   test("returns entries sorted by filename", async () => {
     const service = makeService();
     writeByHand("always/z-last.md", "last");
     writeByHand("always/a-first.md", "first");
-    const summaries = (await runEffect(service.standingEntries(scopes))).map(
-      (entry) => entry.summary,
-    );
+    const summaries = (await runEffect(service.standingEntries())).map((entry) => entry.summary);
     expect(summaries).toEqual(["first", "last"]);
   });
 
   test("spans multiple scopes", async () => {
     const service = makeService();
-    const multiScopes = ["personal", "work"];
     fs.mkdirSync(path.join(tmpDir, "work", "always"), { recursive: true });
     fs.writeFileSync(path.join(tmpDir, "work", "always", "note.md"), "work note");
     writeByHand("always/home.md", "home note");
-    const entries = await runEffect(service.standingEntries(multiScopes));
+    const entries = await runEffect(service.standingEntries());
     expect(entries.map((entry) => entry.summary)).toEqual(["home note", "work note"]);
   });
 
   test("returns conditional entries with scope and topic", async () => {
     const service = makeService();
     await runEffect(
-      service.create(scopes, "personal/when/colleagues/tone.md", "Be professional", writeContext),
+      service.create("personal/when/colleagues/tone.md", "Be professional", writeContext),
     );
-    expect(await runEffect(service.conditionalEntries(scopes))).toEqual([
+    expect(await runEffect(service.conditionalEntries())).toEqual([
       {
         path: "personal/when/colleagues/tone.md",
         scope: "personal",
@@ -176,20 +171,20 @@ describe("standingEntries", () => {
     fs.mkdirSync(path.join(tmpDir, "personal", "when"), { recursive: true });
     fs.symlinkSync(outsideTopic, path.join(tmpDir, "personal", "when", "food"));
 
-    expect(await runEffect(service.conditionalEntries(scopes))).toEqual([]);
+    expect(await runEffect(service.conditionalEntries())).toEqual([]);
   });
 });
 
 describe("snapshotEntries", () => {
   test("skips a linked scope without reading or writing its provenance", async () => {
     const service = makeService();
-    const outside = path.join(tmpDir, "outside-scope");
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-memory-linked-receipts-"));
     fs.mkdirSync(path.join(outside, "always"), { recursive: true });
     fs.writeFileSync(path.join(outside, "always", "note.md"), "external instruction");
     fs.writeFileSync(path.join(outside, ".provenance.json"), "{invalid json");
     fs.symlinkSync(outside, path.join(tmpDir, "personal"));
 
-    expect(await runEffect(service.snapshotEntries(scopes))).toEqual({
+    expect(await runEffect(service.snapshotEntries())).toEqual({
       entries: [],
       unreadableScopes: [],
     });
@@ -203,13 +198,10 @@ describe("snapshotEntries", () => {
       receiptsDirectory,
     });
     expect(
-      (
-        await runEffect(
-          service.create(scopes, "personal/when/food/fruit.md", "banana", writeContext),
-        )
-      ).success,
+      (await runEffect(service.create("personal/when/food/fruit.md", "banana", writeContext)))
+        .success,
     ).toBe(true);
-    const { entries } = await runEffect(service.snapshotEntries(scopes));
+    const { entries } = await runEffect(service.snapshotEntries());
     const entryId = entries[0]?.entryId ?? "";
     const messages = [{ role: "user" as const, content: "shopping list" }];
     const tickets = await runEffect(
@@ -225,22 +217,18 @@ describe("snapshotEntries", () => {
     const receiptsFor = () =>
       runEffect(readMemoryOpportunityReceipts("personal", entryId, 5, receiptsDirectory));
     expect(await receiptsFor()).toHaveLength(1);
-    expect((await runEffect(service.delete(scopes, "personal/when/food/fruit.md"))).success).toBe(
-      true,
-    );
+    expect((await runEffect(service.delete("personal/when/food/fruit.md"))).success).toBe(true);
     expect(await receiptsFor()).toEqual([]);
   });
 
   test("assigns a stable ID to a hand-edited file, preserves it on rename, and versions edits", async () => {
     const service = makeService();
     writeByHand("when/shopping/fruit.md", "My favorite fruit is banana");
-    const first = (await runEffect(service.snapshotEntries(scopes))).entries[0];
+    const first = (await runEffect(service.snapshotEntries())).entries[0];
     expect(first?.entryId).toMatch(/^[a-f0-9-]{36}$/);
     expect(first?.topic).toBe("shopping");
-    expect(
-      (await runEffect(service.provenance(scopes, first?.path ?? "")))?.lastViewedAt,
-    ).toBeUndefined();
-    const second = (await runEffect(service.snapshotEntries(scopes))).entries[0];
+    expect((await runEffect(service.provenance(first?.path ?? "")))?.lastViewedAt).toBeUndefined();
+    const second = (await runEffect(service.snapshotEntries())).entries[0];
     expect(second?.entryId).toBe(first?.entryId);
     expect(second?.entryContentHash).toBe(first?.entryContentHash);
 
@@ -248,7 +236,6 @@ describe("snapshotEntries", () => {
       (
         await runEffect(
           service.rename(
-            scopes,
             "personal/when/shopping/fruit.md",
             "personal/when/food/fruit.md",
             writeContext,
@@ -256,29 +243,26 @@ describe("snapshotEntries", () => {
         )
       ).success,
     ).toBe(true);
-    const renamed = (await runEffect(service.snapshotEntries(scopes))).entries[0];
+    const renamed = (await runEffect(service.snapshotEntries())).entries[0];
     expect(renamed?.entryId).toBe(first?.entryId);
     expect(renamed?.path).toBe("personal/when/food/fruit.md");
     expect(
-      (
-        await runEffect(
-          service.strReplace(scopes, renamed?.path ?? "", "banana", "mango", writeContext),
-        )
-      ).success,
+      (await runEffect(service.strReplace(renamed?.path ?? "", "banana", "mango", writeContext)))
+        .success,
     ).toBe(true);
-    const updated = (await runEffect(service.snapshotEntries(scopes))).entries[0];
+    const updated = (await runEffect(service.snapshotEntries())).entries[0];
     expect(updated?.entryId).toBe(first?.entryId);
     expect(updated?.entryContentHash).not.toBe(first?.entryContentHash);
   });
 
-  test("includes eligible unshown files only from allowed scopes", async () => {
+  test("snapshots eligible unshown files from every scope on disk", async () => {
     const service = makeService();
     writeByHand("when/shopping/fruit.md", "banana");
     fs.mkdirSync(path.join(tmpDir, "work", "when", "shopping"), { recursive: true });
     fs.writeFileSync(path.join(tmpDir, "work", "when", "shopping", "private.md"), "secret");
-    expect(
-      (await runEffect(service.snapshotEntries(scopes))).entries.map((entry) => entry.path),
-    ).toEqual(["personal/when/shopping/fruit.md"]);
+    expect((await runEffect(service.snapshotEntries())).entries.map((entry) => entry.path)).toEqual(
+      ["personal/when/shopping/fruit.md", "work/when/shopping/private.md"],
+    );
   });
 });
 
@@ -294,11 +278,11 @@ describe("a memory base reached through a symlink", () => {
       receiptsDirectory: path.join(tmpDir, "receipts"),
     });
 
-    const root = await runEffect(service.view(scopes, ""));
+    const root = await runEffect(service.view(""));
     expect(root.kind === "directory" ? root.entries.map((entry) => entry.name) : []).toContain(
       "personal/always/tone.md",
     );
-    const { entries } = await runEffect(service.snapshotEntries(scopes));
+    const { entries } = await runEffect(service.snapshotEntries());
     expect(entries.map((entry) => entry.path)).toEqual(["personal/always/tone.md"]);
   });
 });
@@ -313,7 +297,7 @@ describe("snapshotEntries with an unreadable scope", () => {
     fs.mkdirSync(path.join(tmpDir, ".memory-receipts", "work"), { recursive: true });
     fs.mkdirSync(path.join(tmpDir, ".memory-receipts", "work", ".epoch"));
 
-    const snapshot = await runEffect(service.snapshotEntries(["personal", "work"]));
+    const snapshot = await runEffect(service.snapshotEntries());
     expect(snapshot.entries.map((entry) => entry.path)).toEqual(["personal/always/tone.md"]);
     expect(snapshot.unreadableScopes).toEqual(["work"]);
   });

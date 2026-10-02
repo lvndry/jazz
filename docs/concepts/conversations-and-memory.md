@@ -101,13 +101,12 @@ You can edit or delete these files directly.
 
 ### Sharing memory between agents
 
-The default scope is `"personal"` — shared by every agent unless overridden with `memoryScopes`
-in the agent config. A preference like "concise replies" follows the person across their
-terminal agent, their Telegram bot, and their CI reviewer, because all three read the same
-scope.
-
-Scopes are an allowlist. An agent can only read and write the scopes it is configured for. Two
-agents that should share durable context share a scope; two agents that should not, don't.
+Memory is shared by every agent. A scope is a topic, not an ownership boundary: every agent can
+read and write every scope, and any agent can create a new scope when a conversation calls for
+one, so a lesson learned with one agent is immediately available to all of them. A preference
+like "concise replies" in `personal` follows the person across their terminal agent, their
+Telegram bot, and their CI reviewer. Scopes are discovered from the memory directory — what
+exists is what is visible — and `jazz memory list` shows the whole landscape.
 
 ### Recalling memory
 
@@ -146,11 +145,11 @@ candidate fact it weighs:
   such as a preference for concise replies. Everything else is filed under a topic in `when/`
   named for the situation it applies to, so a favorite fruit can inform a shopping list without
   entering unrelated requests.
-- **Which scope?** The agent's first scope, unless you say the preference applies to everything
-  you do.
+- **Which scope?** `personal` by default, or a topic scope when the fact clearly belongs to one
+  situation, project, or domain.
 - **Is it worth the cost of being wrong?** Every `always` entry is injected into every future
-  turn of every agent that shares the scope, so when the agent is unsure a fact is durable, it
-  does not save it. You can still ask it to remember something explicitly.
+  turn of every agent, so when the agent is unsure a fact is durable, it does not save it. You
+  can still ask it to remember something explicitly.
 
 How consistently an agent follows this depends on the model.
 
@@ -180,18 +179,21 @@ review their original conversation history.
 
 ### CLI access
 
-Replace `assistant` with your agent's name:
+Memory is shared by every agent, so the commands address scopes and paths directly — there is no
+agent argument to select a per-agent view:
 
 ```bash
-jazz memory list assistant
-jazz memory show assistant personal/always/concise-replies.md
-jazz memory explain assistant personal/always/concise-replies.md
-jazz memory forget assistant personal/always/concise-replies.md
+jazz memory list
+jazz memory list personal
+jazz memory show personal/always/concise-replies.md
+jazz memory explain personal/always/concise-replies.md
+jazz memory forget personal/always/concise-replies.md
 ```
 
-`show` prints the saved entry. `explain` shows its provenance and recent records of whether
-it was available to model requests; those records do not prove the model used it successfully.
-`forget` deletes the entry. Shared-scope changes affect every agent using that scope.
+`list` with no argument shows every scope on disk; `list <scope>` drills in. `show` prints the
+saved entry. `explain` shows its provenance and recent records of whether it was available to
+model requests; those records do not prove the model used it successfully. `forget` deletes the
+entry. Because scopes are shared, a change here affects every agent.
 
 ## Choosing what to keep
 
@@ -205,4 +207,4 @@ it was available to model requests; those records do not prove the model used it
 - [Why memory works this way](./memory-design.md): the design choices behind what Jazz learns
 - [Context management](./context-management.md): how history is summarized and findings survive
 - [Lexicon](./lexicon.md): the precise word for each of these
-- [Agents](./agents.md): `memoryScopes` and the rest of the configuration
+- [Agents](./agents.md): the rest of the agent configuration

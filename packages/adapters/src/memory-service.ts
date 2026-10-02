@@ -1,8 +1,9 @@
 /**
- * Implements `MemoryService`: persistent notes-to-self, stored as files under
- * a per-scope memory directory with path and quota guardrails enforced here.
- * A scope (e.g. "personal", "finance", "github-project-a") is the unit of
- * storage — independent of agent identity, so several agents can share one.
+ * Implements `MemoryService`: persistent notes-to-self, stored as files under a
+ * memory directory partitioned into scopes. A scope (e.g. "personal",
+ * "finance", "github-project-a") is a topic, not an ownership boundary — every
+ * agent can read and write every scope, and scopes are discovered from the
+ * directory as conversations create them.
  */
 
 import { randomUUID } from "node:crypto";
@@ -146,7 +147,36 @@ function walkMemoryTree(
     return { totalBytes, fileCount };
   });
 }
-
+/**
+ * Every scope directory currently on disk, sorted.
+ *
+ * Memory is shared, so the set of accessible scopes is not configured: it is
+ * whatever exists under the memory directory. An agent that has never written
+ * a scope contributes none, and a scope any agent creates appears here from
+ * the next run of every other agent.
+ */
+function discoverScopes(
+  fs: FileSystem.FileSystem,
+  baseDirectory: string,
+): Effect.Effect<string[], Error> {
+  return Effect.gen(function* () {
+    const names = yield* fs
+      .readDirectory(baseDirectory)
+      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+    const scopes: string[] = [];
+    for (const name of names) {
+      if (isReservedMemorySegment(name)) continue;
+      const info = yield* Effect.tryPromise({
+        try: () => nodeFs.lstat(path.join(baseDirectory, name)),
+        catch: toError,
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      if (info?.isDirectory() && !info.isSymbolicLink() && isValidStorageKey(name)) {
+        scopes.push(name);
+      }
+    }
+    return scopes.sort();
+  });
+}
 function listDirectoryEntries(
   fs: FileSystem.FileSystem,
   dir: string,
@@ -720,30 +750,30 @@ export class MemoryServiceImpl implements MemoryService {
   }
 
   /**
-   * Resolves a memory-tool path against the caller's accessible scopes,
-   * returning the plain failure value `manage_memory` should surface (no
-   * scope named, or a scope outside `scopes`) rather than throwing — a wrong
-   * scope name is an expected model mistake, not a guardrail violation.
+   * Resolves a memory-tool path into its scope and remainder, returning the
+   * plain failure value `manage_memory` should surface rather than throwing —
+   * a missing or malformed scope name is an expected model mistake, not a
+   * guardrail violation. Any valid scope name is accepted: writing to a scope
+   * that does not exist yet creates it, which is how shared scopes come into
+   * being.
    */
-  private resolveScope(scopes: readonly string[], virtualPath: string): ScopeResolution {
+  private resolveScope(virtualPath: string): ScopeResolution {
     const { scope, rest } = splitScopeAndRest(virtualPath);
-    const scopeList = scopes.length > 0 ? scopes.join(", ") : "(no scopes configured)";
-
     if (scope === null) {
       return {
         ok: false,
         failure: {
           success: false,
-          message: `Provide a memory scope in the path, e.g. "${scopes[0] ?? "personal"}/notes.md". Accessible scopes: ${scopeList}.`,
+          message: 'Provide a memory scope in the path, e.g. "personal/notes.md".',
         },
       };
     }
-    if (!scopes.includes(scope)) {
+    if (!isValidStorageKey(scope)) {
       return {
         ok: false,
         failure: {
           success: false,
-          message: `Unknown memory scope "${scope}". Accessible scopes: ${scopeList}.`,
+          message: `Invalid memory scope name "${scope}".`,
         },
       };
     }
@@ -814,11 +844,11 @@ export class MemoryServiceImpl implements MemoryService {
   }
 
   /** Snapshot scope-eligible files, assigning and persisting a stable ID for any file without one. */
-  readonly snapshotEntries: MemoryService["snapshotEntries"] = (scopes) =>
+  readonly snapshotEntries: MemoryService["snapshotEntries"] = () =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const fs = yield* FileSystem.FileSystem;
-        const allowedScopes = [...new Set(scopes.filter(isValidStorageKey))];
+        const allowedScopes = yield* discoverScopes(fs, this.baseMemoryDirectory);
         if (allowedScopes.length === 0) {
           return { entries: [], unreadableScopes: [] };
         }
@@ -912,7 +942,7 @@ export class MemoryServiceImpl implements MemoryService {
     );
   }
 
-  readonly view: MemoryService["view"] = (scopes, virtualPath, viewRange) =>
+  readonly view: MemoryService["view"] = (virtualPath, viewRange) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const fs = yield* FileSystem.FileSystem;
@@ -920,16 +950,10 @@ export class MemoryServiceImpl implements MemoryService {
 
         if (scope === null) {
           const entries: MemoryDirectoryEntry[] = [];
-          for (const name of [...scopes].sort()) {
+          // A root listing must not create anything, so a scope contributes
+          // its directory line plus whatever already exists beneath it.
+          for (const name of yield* discoverScopes(fs, this.baseMemoryDirectory)) {
             entries.push({ name: `${name}/`, kind: "directory", sizeBytes: 0 });
-
-            // A root listing must not create anything, so an unwritten scope
-            // contributes only its own directory line. Walking an invalid
-            // scope name is skipped rather than failed: it would be rejected
-            // by any real access, and one bad config entry should not blank
-            // out the listing for every other scope.
-            const isValidScope = isValidStorageKey(name);
-            if (!isValidScope) continue;
 
             const scopeRoot = yield* existingSafeMemoryPath(
               path.join(this.baseMemoryDirectory, name),
@@ -951,10 +975,10 @@ export class MemoryServiceImpl implements MemoryService {
           } satisfies MemoryViewOutcome;
         }
 
-        if (!scopes.includes(scope)) {
+        if (!isValidStorageKey(scope)) {
           return {
             kind: "not_found",
-            message: `Unknown memory scope "${scope}". Accessible scopes: ${scopes.length > 0 ? scopes.join(", ") : "(none configured)"}.`,
+            message: `Invalid memory scope name "${scope}".`,
           } satisfies MemoryViewOutcome;
         }
 
@@ -1023,34 +1047,33 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly conditionalEntries: MemoryService["conditionalEntries"] = (scopes) =>
-    this.summarizeScopes(scopes, conditionalEntryFiles);
+  readonly conditionalEntries: MemoryService["conditionalEntries"] = () =>
+    this.summarizeAllScopes(conditionalEntryFiles);
 
-  readonly standingEntries: MemoryService["standingEntries"] = (scopes) =>
-    this.summarizeScopes(scopes, standingEntryFiles);
+  readonly standingEntries: MemoryService["standingEntries"] = () =>
+    this.summarizeAllScopes(standingEntryFiles);
 
-  private summarizeScopes(
-    scopes: readonly string[],
+  private summarizeAllScopes(
     listFiles: typeof standingEntryFiles,
-  ): Effect.Effect<readonly MemoryEntrySummary[], never, FileSystem.FileSystem> {
+  ): Effect.Effect<readonly MemoryEntrySummary[], Error, FileSystem.FileSystem> {
     const baseMemoryDirectory = this.baseMemoryDirectory;
     return Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
+      const scopes = yield* discoverScopes(fs, baseMemoryDirectory);
       const entries: MemoryEntrySummary[] = [];
-      for (const scope of scopes.filter(isValidStorageKey)) {
+      for (const scope of scopes) {
         const files = yield* listFiles(fs, scope, path.join(baseMemoryDirectory, scope));
         entries.push(...(yield* summarizeEntryFiles(fs, files)));
       }
       return entries;
     });
   }
-
-  readonly provenance: MemoryService["provenance"] = (scopes, virtualPath) =>
+  readonly provenance: MemoryService["provenance"] = (virtualPath) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const fs = yield* FileSystem.FileSystem;
         const { scope, rest } = splitScopeAndRest(virtualPath);
-        if (scope === null || !scopes.includes(scope) || !isValidStorageKey(scope)) {
+        if (scope === null || !isValidStorageKey(scope)) {
           return undefined;
         }
         const scopeRoot = path.join(this.baseMemoryDirectory, scope);
@@ -1059,10 +1082,10 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly create: MemoryService["create"] = (scopes, virtualPath, fileText, writeContext) =>
+  readonly create: MemoryService["create"] = (virtualPath, fileText, writeContext) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
-        const resolved = this.resolveScope(scopes, virtualPath);
+        const resolved = this.resolveScope(virtualPath);
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
@@ -1132,16 +1155,10 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly strReplace: MemoryService["strReplace"] = (
-    scopes,
-    virtualPath,
-    oldStr,
-    newStr,
-    writeContext,
-  ) =>
+  readonly strReplace: MemoryService["strReplace"] = (virtualPath, oldStr, newStr, writeContext) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
-        const resolved = this.resolveScope(scopes, virtualPath);
+        const resolved = this.resolveScope(virtualPath);
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
@@ -1214,16 +1231,10 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly insert: MemoryService["insert"] = (
-    scopes,
-    virtualPath,
-    insertLine,
-    insertText,
-    writeContext,
-  ) =>
+  readonly insert: MemoryService["insert"] = (virtualPath, insertLine, insertText, writeContext) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
-        const resolved = this.resolveScope(scopes, virtualPath);
+        const resolved = this.resolveScope(virtualPath);
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
@@ -1292,10 +1303,10 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly delete: MemoryService["delete"] = (scopes, virtualPath) =>
+  readonly delete: MemoryService["delete"] = (virtualPath) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
-        const resolved = this.resolveScope(scopes, virtualPath);
+        const resolved = this.resolveScope(virtualPath);
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
@@ -1344,17 +1355,12 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly rename: MemoryService["rename"] = (
-    scopes,
-    oldVirtualPath,
-    newVirtualPath,
-    writeContext,
-  ) =>
+  readonly rename: MemoryService["rename"] = (oldVirtualPath, newVirtualPath, writeContext) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
-        const resolvedOld = this.resolveScope(scopes, oldVirtualPath);
+        const resolvedOld = this.resolveScope(oldVirtualPath);
         if (!resolvedOld.ok) return resolvedOld.failure satisfies MemoryMutationOutcome;
-        const resolvedNew = this.resolveScope(scopes, newVirtualPath);
+        const resolvedNew = this.resolveScope(newVirtualPath);
         if (!resolvedNew.ok) return resolvedNew.failure satisfies MemoryMutationOutcome;
 
         if (resolvedOld.scope !== resolvedNew.scope) {

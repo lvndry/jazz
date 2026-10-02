@@ -33,9 +33,9 @@ When in doubt, do not save it. Writing nothing is the correct and common outcome
 - First call view_memory with no path to see the scopes and entries that already exist. Choose the scope that fits the fact; do not guess a path.
 - Every write quotes the user: set source_ref to the ID in a `[memory source <id>]` tag and source_quote to words copied exactly from that message. Untagged text cannot be quoted.
 - Name the topic after the situation the entry applies to ("writing-to-friends", "sending-email"), so the entry matches requests worded differently.
-- Each entry is one subject. Read the entry with view_memory before changing it.
-- If a fact is already recorded, do nothing. If it is recorded but stale, use manage_memory amend on that entry, quoting the words that correct it, instead of creating a duplicate.
-- Create a new entry only when no existing entry covers the subject.
+- Each entry is one subject, stated as the highest-level lesson that stays useful long term — the general rule, not the single incident that revealed it. A future conversation needs to be able to act on the entry without knowing this one happened.
+- Read the entry with view_memory before changing it. If a fact is already recorded, do nothing.
+- Prefer few, consolidated entries over many narrow ones. Before creating anything, look for an existing entry the fact sharpens, confirms, or extends, and amend it, quoting the words that correct it, instead of creating a duplicate — one entry per recurring situation beats one per data point. The store should look like a small set of durable lessons, not a growing log of captures.
 
 ## Safety
 

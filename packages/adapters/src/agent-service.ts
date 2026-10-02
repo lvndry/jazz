@@ -25,7 +25,6 @@ import { type Agent, type AgentConfig, type CustomToolDefinition } from "@jazz/c
 import { COMPANION_ROLES, isCompanionRole } from "@jazz/core/types/llm";
 import { isReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import { isValidStorageKey } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 import shortuuid from "short-uuid";
 
@@ -519,41 +518,6 @@ export class AgentServiceImpl implements AgentService {
                 field: "config.deniedTools",
                 message: "Each deniedTools entry must be a non-empty string",
                 suggestion: "Remove blank entries so every denial names a tool.",
-              }),
-            );
-          }
-        }
-      }
-
-      if (config.memoryScopes !== undefined && config.memoryScopes !== null) {
-        if (!Array.isArray(config.memoryScopes)) {
-          return yield* Effect.fail(
-            new AgentConfigurationError({
-              agentId: "unknown",
-              field: "config.memoryScopes",
-              message: "memoryScopes must be provided as an array of scope names",
-              suggestion: 'Supply an array of non-empty scope names, e.g. ["work"].',
-            }),
-          );
-        }
-        for (const scope of config.memoryScopes as readonly string[]) {
-          if (typeof scope !== "string" || scope.trim().length === 0) {
-            return yield* Effect.fail(
-              new AgentConfigurationError({
-                agentId: "unknown",
-                field: "config.memoryScopes",
-                message: "Each memoryScopes entry must be a non-empty string",
-                suggestion: "Remove blank entries so every scope has a name.",
-              }),
-            );
-          }
-          if (!isValidStorageKey(scope)) {
-            return yield* Effect.fail(
-              new AgentConfigurationError({
-                agentId: "unknown",
-                field: "config.memoryScopes",
-                message: `Invalid memory scope name: "${scope}"`,
-                suggestion: "Use 1–64 letters, digits, underscores, or hyphens.",
               }),
             );
           }
