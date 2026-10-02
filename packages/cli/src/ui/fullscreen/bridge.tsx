@@ -2589,10 +2589,6 @@ export function FullscreenBridge(): React.ReactNode {
         store.clearQueue();
         return true;
       }
-      // Queue recall above already took the busy-plus-queued case, so history
-      // is the right memory in every remaining state: while a turn runs with an
-      // empty queue, up is the way back to what was sent; gating it on !busy
-      // made up do nothing during the wait, which is exactly when it is pressed.
       if (name === "up" || name === "down") {
         const recalledHistory = store.getInputHistory();
         if (recalledHistory.length > 0) {
