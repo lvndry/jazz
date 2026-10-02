@@ -317,7 +317,7 @@ project, and streaming plus tool-calling plus reasoning quirks get reimplemented
 
 **Cost accepted.** Jazz is bounded by what the SDK normalizes, and inherits its bugs.
 Provider-specific behavior that leaks through (reasoning-effort semantics especially) is
-normalized in `services/llm/reasoning/`. AI SDK's internal retries are turned off
+normalized in `adapters/src/llm/reasoning/`. AI SDK's internal retries are turned off
 (`AI_SDK_MAX_RETRIES = 0`) so Jazz owns retry policy via Effect rather than having two
 retry loops fighting.
 

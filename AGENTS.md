@@ -103,7 +103,10 @@ Prefer clean breaks to compatibility shims. When you rename or restructure,
 update every usage and delete the old path in the same change. No `@deprecated`
 aliases, no back-compat shims, no dead code left behind.
 
-`core/` imports nothing from `services/`.
+Core publishes standalone: `packages/core/` production code imports nothing from
+`@jazz/adapters` or `@jazz/cli` (its tests may). `packages/daemon/` imports nothing
+below it. Both boundaries are enforced by `eslint.config.mjs` and
+`scripts/package-layering.test.ts`; see [architecture](docs/maintainers/architecture.md).
 
 Jazz executes real actions on a user's machine. Security is load-bearing.
 Validate external input at the boundary. Never log secrets. New tools declare

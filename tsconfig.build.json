@@ -4,18 +4,25 @@
     "rootDir": ".",
     "outDir": ".tsbuild/scripts",
     "module": "preserve",
-    "emitDeclarationOnly": true,
     "composite": true,
     "declaration": true,
+    "emitDeclarationOnly": true,
     "tsBuildInfoFile": ".tsbuildinfo.scripts"
   },
+  "references": [
+    { "path": "./packages/plugin-sdk" },
+    { "path": "./packages/core" },
+    { "path": "./packages/adapters" },
+    { "path": "./packages/cli" }
+  ],
   "include": [
     "scripts/**/*.ts",
     "package.json",
     "packages/cli/src/ui/theme.ts",
     "packages/cli/src/ui/glyphs.ts",
     "packages/cli/src/ui/themes/*.ts",
+    "packages/cli/src/ui/themes/*.json",
     "packages/cli/src/ui/themes/builtin/*.json"
   ],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "exclude": ["node_modules", "dist"]
 }

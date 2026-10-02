@@ -132,6 +132,37 @@ export default [
   },
   {
     /**
+     * Core publishes standalone and declares no workspace dependencies: its production code
+     * depends on `@jazz/adapters` and `@jazz/cli` only in tests, where those packages provide
+     * the Layers that satisfy core's contracts. `scripts/package-layering.test.ts` checks the
+     * same boundary without the linter.
+     */
+    files: ["packages/core/src/**/*.{ts,tsx}"],
+    ignores: ["packages/core/src/**/*.test.ts", "packages/core/src/**/*.test.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "@jazz/adapters",
+                "@jazz/adapters/*",
+                "@jazz/cli",
+                "@jazz/cli/*",
+                "@/adapters/*",
+                "@/cli/*",
+              ],
+              message:
+                "core is published standalone: production code may not import from @jazz/adapters or @jazz/cli (tests may). Move the shared piece into core, or the dependency up into adapters.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    /**
      * Every package's source, and every test and benchmark below, is linted in the one TypeScript
      * program `tsconfig.eslint.json` describes. A program per package tsconfig would load each
      * dependency's sources again (cli alone pulls in core, adapters and daemon), so typed lint

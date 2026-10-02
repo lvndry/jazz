@@ -4,7 +4,9 @@
  * Every package except the daemon itself and the packages that compose it (`cli`, `runtime`,
  * the Astro `website`) is daemon-free: no source or test file imports `@jazz/daemon`, and no
  * package.json declares it. A new package lands on the daemon-free side unless it is added to
- * `DAEMON_CONSUMERS`. `eslint.config.mjs` enforces the same rule per import as you edit.
+ * `DAEMON_CONSUMERS`. Core is stricter still: it publishes standalone, so its production code
+ * never imports `@jazz/adapters` or `@jazz/cli` — tests may, to supply the Layers that satisfy
+ * core's contracts. `eslint.config.mjs` enforces both rules per import as you edit.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -18,6 +20,9 @@ const PACKAGES_ROOT = path.join(import.meta.dir, "..", "packages");
 const DAEMON_CONSUMERS = new Set(["daemon", "cli", "runtime", "website"]);
 
 const DAEMON_SPECIFIER = /^(@jazz\/daemon(\/|$)|@\/daemon\/)/;
+
+/** Core's production code may not reach into the packages above it; its tests may. */
+const CORE_FORBIDDEN_SPECIFIER = /^(@jazz\/(adapters|cli)(\/|$)|@\/(adapters|cli)\/)/;
 
 function sourceFiles(directory: string): string[] {
   const found: string[] = [];
@@ -74,6 +79,23 @@ describe("package layering", () => {
         (field) => manifest[field]?.["@jazz/daemon"] !== undefined,
       );
     });
+    expect(offending).toEqual([]);
+  });
+
+  it("keeps @jazz/adapters and @jazz/cli out of core's production imports", () => {
+    const offending: string[] = [];
+    const sourceRoot = path.join(PACKAGES_ROOT, "core", "src");
+    for (const file of sourceFiles(sourceRoot)) {
+      if (/\.test\.tsx?$/.test(file)) {
+        continue;
+      }
+      const imports = ts.preProcessFile(readFileSync(file, "utf8"), true, true).importedFiles;
+      for (const imported of imports) {
+        if (CORE_FORBIDDEN_SPECIFIER.test(imported.fileName)) {
+          offending.push(`${path.relative(PACKAGES_ROOT, file)} imports ${imported.fileName}`);
+        }
+      }
+    }
     expect(offending).toEqual([]);
   });
 });
