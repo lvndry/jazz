@@ -106,10 +106,7 @@ export const BROWSER_CATEGORY: ToolCategory = {
 export const COMPUTER_CATEGORY: ToolCategory = {
   id: "computer",
   displayName: "Computer use (experimental)",
-  // Eager on purpose: the attended-run gate already withholds every computer tool from runs
-  // nobody is watching, so deferring could only add a search_tools round trip in the exact runs
-  // where a human is actively driving the agent.
-  loadTier: "eager",
+  loadTier: "deferred",
 };
 export const COMPOSITION_CATEGORY: ToolCategory = {
   id: "composition",
