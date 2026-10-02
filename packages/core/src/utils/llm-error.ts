@@ -279,6 +279,16 @@ export function isBillingOrPlanError(message: string): boolean {
 }
 
 /**
+ * Error codes that mean the account's allowance is spent: OpenAI's `insufficient_quota`, and the
+ * `usage_limit_reached` a ChatGPT subscription returns once its plan window is used up (it
+ * resets hours later, so retrying within a turn cannot succeed).
+ */
+const QUOTA_EXHAUSTED_CODES: ReadonlySet<string> = new Set([
+  "insufficient_quota",
+  "usage_limit_reached",
+]);
+
+/**
  * A 429 that means "out of credits/quota" rather than "too many requests right now".
  *
  * Providers use the same HTTP status for both a throttle (retry with backoff) and an exhausted
@@ -297,7 +307,7 @@ export function isInsufficientBalanceError(error: unknown): boolean {
   const data = error.data as { error?: { code?: unknown; type?: unknown } };
   const code = data.error?.code;
   const type = data.error?.type;
-  return code === "insufficient_quota" || type === "insufficient_quota";
+  return QUOTA_EXHAUSTED_CODES.has(String(code)) || QUOTA_EXHAUSTED_CODES.has(String(type));
 }
 
 function isProviderAuthFailure(statusCode: number | undefined, message: string): boolean {
@@ -437,9 +447,12 @@ export function parseRetryAfterMs(
     const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === name);
     return entry?.[1];
   };
-  const milliseconds = Number(lookup("retry-after-ms"));
-  if (Number.isFinite(milliseconds) && milliseconds >= 0) {
-    return milliseconds;
+  const rawMilliseconds = lookup("retry-after-ms")?.trim();
+  if (rawMilliseconds !== undefined && rawMilliseconds !== "") {
+    const milliseconds = Number(rawMilliseconds);
+    if (Number.isFinite(milliseconds) && milliseconds >= 0) {
+      return milliseconds;
+    }
   }
   const raw = lookup("retry-after")?.trim();
   if (raw === undefined || raw === "") {

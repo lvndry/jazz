@@ -353,6 +353,24 @@ describe("convertToLLMError - out-of-credits 429 vs plain rate limit", () => {
     expect(isRetryableLLMError(converted)).toBe(false);
   });
 
+  it("marks a ChatGPT usage_limit_reached 429 as permanent and non-retryable", () => {
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "The usage limit has been reached",
+        url: "https://chatgpt.com/backend-api/codex/responses",
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: false,
+        data: {
+          error: { message: "The usage limit has been reached", code: "usage_limit_reached" },
+        },
+      }),
+      "chatgpt",
+    );
+    expect((converted as LLMRateLimitError).permanent).toBe(true);
+    expect(isRetryableLLMError(converted)).toBe(false);
+  });
+
   it("keeps a plain rate_limit_exceeded 429 retryable", () => {
     const converted = convertToLLMError(
       new APICallError({
@@ -403,6 +421,8 @@ describe("Retry-After", () => {
 
   it("ignores an absent or unreadable header", () => {
     expect(parseRetryAfterMs(undefined)).toBeUndefined();
+    expect(parseRetryAfterMs({ "retry-after-ms": "" })).toBeUndefined();
+    expect(parseRetryAfterMs({ "retry-after-ms": "  ", "retry-after": "4" })).toBe(4_000);
     expect(parseRetryAfterMs({ "retry-after": "soon" })).toBeUndefined();
   });
 
