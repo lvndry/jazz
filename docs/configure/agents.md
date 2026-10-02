@@ -93,8 +93,7 @@ jazz agent chat reviewer
       "analyze:image": "provider/vision-model",
       "analyze:audio": "provider/audio-model",
       "generate:image": "provider/image-generation-model"
-    },
-    "memoryScopes": ["incident-briefing"]
+    }
   }
 }
 ```
@@ -158,10 +157,10 @@ explicit. A command-backed webhook is useful when the HTTP endpoint itself is th
 ## Memory
 
 `memoryScopes` controls which long-term memory namespaces the agent can read and write. The default
-is `["personal"]` — a single shared scope so that preferences follow the person across agents.
-Override it when an agent should see project-specific or role-specific memory instead.
-Conversation history remains separate.
-
+Memory is shared by every agent. A scope is a topic — `personal` by default, or a project or
+role scope when the context calls for one — and every agent reads and writes every scope, so a
+lesson learned with one agent is available to all of them. See
+[Conversations, working state, and memory](../concepts/conversations-and-memory.md).
 The memory tools (`view_memory`, `manage_memory`) are part of every agent's built-in bundle, like
 the scratchpad, so they cannot be unticked in `jazz agent create`. To keep an agent from writing
 memory, deny `manage_memory` with `deniedTools`, or run it with `jazz run --ephemeral`.

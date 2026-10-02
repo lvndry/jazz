@@ -8,21 +8,21 @@ This page explains how Jazz stays provider-agnostic, and what it does about the
 places providers genuinely differ.
 
 Source:
-[`services/llm/ai-sdk-service.ts`](../../packages/adapters/src/llm/ai-sdk-service.ts) ·
-[`services/llm/reasoning/`](../../packages/adapters/src/llm/reasoning/) ·
+[`adapters/src/llm/ai-sdk-service.ts`](../../packages/adapters/src/llm/ai-sdk-service.ts) ·
+[`adapters/src/llm/reasoning/`](../../packages/adapters/src/llm/reasoning/) ·
 [`core/utils/models-dev.ts`](../../packages/core/src/utils/models-dev.ts)
 
 ---
 
 ## One port, 23 providers
 
-`core/` defines an `LLMService` interface. `services/llm/ai-sdk-service.ts` is the only
+`core/` defines an `LLMService` interface. `adapters/src/llm/ai-sdk-service.ts` is the only
 implementation, and it delegates to the Vercel AI SDK.
 
 ```mermaid
 flowchart TB
     CORE["<b>core/interfaces/llm.ts</b><br/>LLMService port<br/><i>the agent loop only knows this</i>"]
-    IMPL["<b>services/llm/ai-sdk-service.ts</b><br/>the single adapter"]
+    IMPL["<b>adapters/src/llm/ai-sdk-service.ts</b><br/>the single adapter"]
     SDK["Vercel AI SDK"]
 
     subgraph cloud["Cloud"]

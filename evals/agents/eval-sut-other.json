@@ -1,6 +1,6 @@
 {
-  "id": "eval-sut-lsp",
-  "name": "eval-sut-lsp",
+  "id": "eval-sut-other",
+  "name": "eval-sut-other",
   "model": "openrouter/openrouter/free",
   "config": {
     "persona": "default",

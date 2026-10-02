@@ -391,8 +391,6 @@ export interface ToolExecutionContext {
   readonly memorySources?: readonly MemorySource[];
   /** Trace context inherited by a child agent invoked from this tool. */
   readonly telemetryTraceParent?: TelemetryTraceParent;
-  /** Memory scopes available to this run. */
-  readonly memoryScopes?: readonly string[];
   readonly conversationId?: string;
   readonly model?: string;
   /**

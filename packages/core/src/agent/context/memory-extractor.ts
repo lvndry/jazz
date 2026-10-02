@@ -70,11 +70,11 @@ const MAX_ORIGINAL_USER_TEXT_CHARS = QUOTES_SHOWN_PER_MESSAGE * MAX_SOURCE_QUOTE
  * Build the throwaway agent that scans a transcript for memory-worthy facts.
  *
  * Mirrors `buildSummarizerAgent`: the parent's window pins (`numCtx`,
- * `maxContextTokens`) are dropped when the extractor runs a different model, but
- * the parent's `config.memoryScopes` rides along via the spread so writes land
- * in the parent's scopes. The id stays `"memory-extractor"` rather than the
- * parent's, so provenance marks these writes as auto-extracted rather than
- * user-directed.
+ * `maxContextTokens`) are dropped when the extractor runs a different model,
+ * while the rest of the parent config rides along via the spread. Memory is
+ * shared, so its writes reach every agent the same way the parent's do. The
+ * id stays `"memory-extractor"` rather than the parent's, so provenance marks
+ * these writes as auto-extracted rather than user-directed.
  */
 function buildMemoryExtractorAgent(
   parentAgent: Agent,

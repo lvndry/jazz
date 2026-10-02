@@ -165,9 +165,9 @@ In your app bootstrap (e.g., `src/main.ts`) you compose layers. Example snippet:
 
 ```ts
 import { Layer } from "effect";
-import { createConfigLayer } from "./services/config"; // provides AgentConfigServiceTag
-import { createLoggerLayer } from "./services/logger";
-import { createHTTPFeatureFlagLayer } from "./services/feature-flag/http";
+import { createConfigLayer } from "@jazz/adapters/config"; // provides AgentConfigServiceTag
+import { createLoggerLayer } from "@jazz/adapters/logger";
+import { createHTTPFeatureFlagLayer } from "@jazz/adapters/feature-flag";
 
 function createAppLayer() {
   const configLayer = createConfigLayer(); // provides AgentConfigServiceTag

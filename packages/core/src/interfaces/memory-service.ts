@@ -1,9 +1,11 @@
 /**
  * Service contract for `MemoryService` — file-backed memory exposed as a
  * virtual filesystem the agent mutates via tool calls, partitioned into
- * named scopes (e.g. "personal", "finance", "github-project-a") rather than
- * one silo per agent. Several agents can share a scope; a single agent can
- * hold several scopes.
+ * named scopes (e.g. "personal", "finance", "github-project-a").
+ *
+ * Memory is shared: every agent can read and write every scope. Scopes are
+ * topics that agents create as a conversation calls for them, discovered
+ * from the memory directory rather than configured per agent.
  */
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
@@ -98,51 +100,46 @@ export interface MemoryWriteContext {
    */
   readonly entry?: MemoryEntryMetadata;
 }
-
 /**
- * File-backed memory an agent manages via tool calls (view/create/str_replace/
- * insert/delete/rename), partitioned into named scopes rather than one silo
- * per agent.
+ * File-backed memory every agent manages via tool calls
+ * (view/create/str_replace/insert/delete/rename), partitioned into named
+ * scopes. All scopes are visible and writable by every agent; a scope is a
+ * topic any agent can create as a conversation calls for it.
  *
- * Every method takes `scopes`: the caller's full set of accessible scope
- * names (from `AgentConfig.memoryScopes`, or `[agentId]` for a caller with no
- * configured scopes). `virtualPath`'s first path segment selects which of
- * those scopes the call targets (e.g. `"personal/preferences.md"`); an empty
- * or root `virtualPath` on `view` lists the accessible scopes themselves
- * rather than any one scope's files. A `virtualPath` naming a scope outside
- * `scopes` is treated as not found — scopes are a strict allowlist, not a
- * namespace the caller can address freely.
+ * `virtualPath`'s first path segment selects the scope the call targets
+ * (e.g. `"personal/preferences.md"`); an empty or root `virtualPath` on
+ * `view` lists every scope on disk. A scope name that does not exist yet is
+ * created on the write path and simply not found on the read path.
  */
 export interface MemoryService {
-  /** Snapshot scope-eligible entries, assigning and persisting a stable ID for any file without one. */
-  readonly snapshotEntries: (
-    scopes: readonly string[],
-  ) => Effect.Effect<MemorySnapshot, Error, FileSystem.FileSystem>;
+  /** Snapshot entries in every scope on disk, assigning and persisting a stable ID for any file without one. */
+  readonly snapshotEntries: () => Effect.Effect<MemorySnapshot, Error, FileSystem.FileSystem>;
   readonly view: (
-    scopes: readonly string[],
     virtualPath: string,
     viewRange?: readonly [number, number],
   ) => Effect.Effect<MemoryViewOutcome, Error, FileSystem.FileSystem>;
 
-  /** All files under `always/` in the accessible scopes. */
-  readonly standingEntries: (
-    scopes: readonly string[],
-  ) => Effect.Effect<readonly MemoryEntrySummary[], Error, FileSystem.FileSystem>;
+  /** All files under `always/` in every scope on disk. */
+  readonly standingEntries: () => Effect.Effect<
+    readonly MemoryEntrySummary[],
+    Error,
+    FileSystem.FileSystem
+  >;
 
-  /** Files under `when/<topic>/` in the accessible scopes. */
-  readonly conditionalEntries: (
-    scopes: readonly string[],
-  ) => Effect.Effect<readonly MemoryEntrySummary[], Error, FileSystem.FileSystem>;
+  /** All files under `when/<topic>/` in every scope on disk. */
+  readonly conditionalEntries: () => Effect.Effect<
+    readonly MemoryEntrySummary[],
+    Error,
+    FileSystem.FileSystem
+  >;
 
   readonly create: (
-    scopes: readonly string[],
     virtualPath: string,
     fileText: string,
     writeContext: MemoryWriteContext,
   ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
 
   readonly strReplace: (
-    scopes: readonly string[],
     virtualPath: string,
     oldStr: string,
     newStr: string | undefined,
@@ -150,7 +147,6 @@ export interface MemoryService {
   ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
 
   readonly insert: (
-    scopes: readonly string[],
     virtualPath: string,
     insertLine: number,
     insertText: string,
@@ -158,7 +154,6 @@ export interface MemoryService {
   ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
 
   readonly delete: (
-    scopes: readonly string[],
     virtualPath: string,
   ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
 
@@ -167,12 +162,10 @@ export interface MemoryService {
    * a file written before provenance tracking, or edited outside Jazz.
    */
   readonly provenance: (
-    scopes: readonly string[],
     virtualPath: string,
   ) => Effect.Effect<MemoryFileProvenance | undefined, Error, FileSystem.FileSystem>;
 
   readonly rename: (
-    scopes: readonly string[],
     oldVirtualPath: string,
     newVirtualPath: string,
     writeContext: MemoryWriteContext,

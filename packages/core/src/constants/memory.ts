@@ -20,22 +20,13 @@ export const MEMORY_VIEW_TRUNCATE_CHARS = 20_000;
 export const MEMORY_VIEW_MAX_LINES = 999_999;
 
 /**
- * Scope every agent writes to when none is configured.
+ * Default topic scope for memory entries the model does not file elsewhere.
  *
- * Memory belongs to the person, not to whichever agent happens to run. A
- * preference like "concise replies" should follow the user across agents, so
- * the default is one shared scope rather than one silo per agent id.
+ * Scopes are topics any agent can create, not ownership boundaries — every
+ * agent reads and writes every scope. "personal" is simply the bucket
+ * preferences land in when no other topic is named.
  */
 export const DEFAULT_MEMORY_SCOPE = "personal";
-
-/** Resolve the scopes a caller may use when configuration omits or empties them. */
-export function effectiveMemoryScopes(
-  scopes: readonly string[] | null | undefined,
-): readonly string[] {
-  return scopes !== undefined && scopes !== null && scopes.length > 0
-    ? scopes
-    : [DEFAULT_MEMORY_SCOPE];
-}
 /**
  * Agent id the compaction-time extraction pass runs under.
  *

@@ -599,59 +599,55 @@ function registerAgentCommands(program: Command): void {
 }
 
 /**
- * Register `jazz memory` — the operator's view of what an agent has written
- * down about them, plus the measured rate at which runs actually consult it.
+ * Register `jazz memory` — the operator's view of what the agents have written
+ * down, plus the measured rate at which runs actually consult it.
+ *
+ * Memory is shared by every agent, so the commands address scopes and paths
+ * directly: there is no agent argument to select a per-agent view.
  */
 function registerMemoryCommands(program: Command): void {
   const memoryCommand = program
     .command("memory")
-    .description("Inspect and control what an agent remembers");
+    .description("Inspect and control what the agents remember");
 
   memoryCommand
-    .command("list <agent>")
-    .description("List every memory file an agent can read")
-    .action((agent: string) =>
+    .command("list [scope]")
+    .description("List every memory scope on disk, or every file in one scope")
+    .action((scope?: string) =>
       runCliAction(
-        () => import("@jazz/cli/commands/memory").then((mod) => mod.listMemoryCommand(agent)),
+        () => import("@jazz/cli/commands/memory").then((mod) => mod.listMemoryCommand(scope)),
         cliRuntimeOptions(program),
       ),
     );
 
   memoryCommand
-    .command("show <agent> <path>")
-    .description("Print one memory file exactly as the agent reads it")
-    .action((agent: string, memoryPath: string) =>
+    .command("show <path>")
+    .description("Print one memory file exactly as the agents read it")
+    .action((memoryPath: string) =>
       runCliAction(
-        () =>
-          import("@jazz/cli/commands/memory").then((mod) =>
-            mod.showMemoryCommand(agent, memoryPath),
-          ),
+        () => import("@jazz/cli/commands/memory").then((mod) => mod.showMemoryCommand(memoryPath)),
         cliRuntimeOptions(program),
       ),
     );
 
   memoryCommand
-    .command("forget <agent> <path>")
+    .command("forget <path>")
     .description("Delete one memory file permanently")
-    .action((agent: string, memoryPath: string) =>
+    .action((memoryPath: string) =>
       runCliAction(
         () =>
-          import("@jazz/cli/commands/memory").then((mod) =>
-            mod.forgetMemoryCommand(agent, memoryPath),
-          ),
+          import("@jazz/cli/commands/memory").then((mod) => mod.forgetMemoryCommand(memoryPath)),
         cliRuntimeOptions(program),
       ),
     );
 
   memoryCommand
-    .command("explain <agent> <path>")
+    .command("explain <path>")
     .description("Show stored provenance for a memory entry")
-    .action((agent: string, memoryPath: string) =>
+    .action((memoryPath: string) =>
       runCliAction(
         () =>
-          import("@jazz/cli/commands/memory").then((mod) =>
-            mod.explainMemoryCommand(agent, memoryPath),
-          ),
+          import("@jazz/cli/commands/memory").then((mod) => mod.explainMemoryCommand(memoryPath)),
         cliRuntimeOptions(program),
       ),
     );

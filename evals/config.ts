@@ -35,7 +35,9 @@ export const EVAL_CONFIG: EvalConfig = {
 export const ALLOWED_OPENAI_EVAL_MODELS = ["gpt-5.4-nano", "gpt-5.4-mini"] as const;
 
 export function isAllowedEvalModel(provider: string, model: string): boolean {
-  if (provider === "openrouter" && model.endsWith(":free")) {
+  // `openrouter/free` is the zero-cost free-tier auto-router; like the `:free`
+  // models it can't rack up a bill, so it is permitted alongside them.
+  if (provider === "openrouter" && (model.endsWith(":free") || model === "openrouter/free")) {
     return true;
   }
   if (
