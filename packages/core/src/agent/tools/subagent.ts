@@ -357,7 +357,12 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
           ...(context.toolCallId ? { parentToolCallId: context.toolCallId } : {}),
         },
       }),
+      // Each level gets a fresh budget of the same size, so a child's own children are capped
+      // identically to this child rather than falling back to the attended default.
       maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
+      ...(context.maxSubagentIterations !== undefined
+        ? { maxSubagentIterations: context.maxSubagentIterations }
+        : {}),
       ...(remainingBudget.maxDurationMs !== undefined
         ? { maxDurationMs: remainingBudget.maxDurationMs }
         : {}),

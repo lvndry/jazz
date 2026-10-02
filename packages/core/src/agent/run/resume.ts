@@ -293,6 +293,9 @@ export function resumeRun(options: ResumeRunOptions) {
       parkWhenUnattended: true,
       ...(record.approvalPolicy !== undefined ? { autoApprovePolicy: record.approvalPolicy } : {}),
       ...(record.maxIterations !== undefined ? { maxIterations: record.maxIterations } : {}),
+      ...(record.maxSubagentIterations !== undefined
+        ? { maxSubagentIterations: record.maxSubagentIterations }
+        : {}),
       ...(options.autoApprovePolicy !== undefined
         ? { autoApprovePolicy: options.autoApprovePolicy }
         : {}),

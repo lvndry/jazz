@@ -434,13 +434,15 @@ function initializeAgentRun(
     const skillService = yield* SkillServiceTag;
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
-    // A person watching a run can type `continue` — one nobody is watching cannot. Only
-    // attended runs skip their default iteration cap; the presentation service reports
-    // interactivity, so TTY chat and `jazz run` are both covered, and headless runs are not.
+    // A person at the terminal can type `continue` after a run stops; a headless, piped, or
+    // event-protocol run cannot, so only attended runs skip their default iteration cap.
+    // canContinueRun (not canPromptForApproval) is the signal: an approval can be answered
+    // by a chat bridge that still has no human to continue the run. A presentation that
+    // does not report the capability is treated as unattended — the safe reading, because
+    // an unattended run keeps its cap while an attended one runs unlimited.
     const presentationService = yield* Effect.serviceOption(PresentationServiceTag);
     const attended =
-      Option.isSome(presentationService) &&
-      presentationService.value.canPromptForApproval?.() === true;
+      Option.isSome(presentationService) && presentationService.value.canContinueRun?.() === true;
 
     const actualConversationId = conversationId || generateConversationId();
     const history: ChatMessage[] =
@@ -1213,9 +1215,13 @@ export class AgentRunner {
               ? { autoApprovedTools: options.autoApprovedTools }
               : {}),
             // Infinity (an attended unlimited run) is not JSON-serializable; a resumed segment
-            // recomputes the same attended default, so the record only keeps a real cap.
+            // recomputes the same attended default, so the record only keeps a real cap. An
+            // explicit --max-subagent-iterations is always finite and must survive resume.
             ...(Number.isFinite(runContext.maxIterations)
               ? { maxIterations: runContext.maxIterations }
+              : {}),
+            ...(Number.isFinite(runContext.context.maxSubagentIterations)
+              ? { maxSubagentIterations: runContext.context.maxSubagentIterations }
               : {}),
             workingDirectory: yield* resolveAgentWorkingDirectory(options.agent.id, options),
             boundary: runRecordBoundary(options),

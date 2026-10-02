@@ -351,6 +351,18 @@ export interface PresentationService {
    */
   readonly canPromptForApproval?: () => boolean;
 
+  /**
+   * Whether a person is at this run's terminal and can resume a stopped run
+   * by typing `continue`.
+   *
+   * This is a different capability than canPromptForApproval: a chat bridge or an
+   * event-protocol consumer can answer an approval prompt but cannot continue a
+   * parked run, so a presentation that omits this is treated as unattended —
+   * the safe reading, because an unattended run keeps its iteration cap while an
+   * attended one runs unlimited.
+   */
+  readonly canContinueRun?: () => boolean;
+
   readonly signalToolExecutionStarted: () => Effect.Effect<void, never>;
 
   /**
