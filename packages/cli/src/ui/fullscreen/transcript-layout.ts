@@ -34,6 +34,7 @@ import {
   sliceTerminalCells,
   terminalCellWidth,
   terminalSegmentsWidth,
+  wrapTerminalCells,
 } from "../text/terminal-cells";
 import { wrapStyledSpans } from "../text/wrap";
 import { THEME as CURRENT_THEME, type ThemeColors } from "../theme";
@@ -1179,32 +1180,38 @@ export function createTranscriptLayout(
                 : diffLine.startsWith("@@")
                   ? "secondary"
                   : "muted";
-            rows.push({
-              key: `${block.id}:difffull:${String(index)}`,
-              gutter: [rail, blankCell()],
-              content: fitTerminalSegments(
-                [{ text: `  ${diffLine}`, fg: roleStyle(role, palette).fg }],
-                geometry.content,
-              ),
-              contentWidth: geometry.content,
-              meta: [],
-            });
+            // Word-wrap the stored text to the content width: a diff line can
+            // carry a full user quote and must not be clipped to one row.
+            const wrapped = wrapTerminalCells(`  ${diffLine}`, geometry.content);
+            for (let wrapIndex = 0; wrapIndex < wrapped.length; wrapIndex += 1) {
+              const line = wrapped[wrapIndex];
+              if (line === undefined) continue;
+              rows.push({
+                key: `${block.id}:difffull:${String(index)}:${String(wrapIndex)}`,
+                gutter: [rail, blankCell()],
+                content: [{ text: line, fg: roleStyle(role, palette).fg }],
+                contentWidth: geometry.content,
+                meta: [],
+              });
+            }
           }
         } else {
           const diffRows = receiptDiffRows(block);
           for (let index = 0; index < diffRows.length; index += 1) {
             const diffRow = diffRows[index];
             if (diffRow === undefined) continue;
-            rows.push({
-              key: `${block.id}:diff:${String(index)}`,
-              gutter: [rail, blankCell()],
-              content: fitTerminalSegments(
-                [{ text: `  ${diffRow.text}`, fg: roleStyle(diffRow.role, palette).fg }],
-                geometry.content,
-              ),
-              contentWidth: geometry.content,
-              meta: [],
-            });
+            const wrapped = wrapTerminalCells(`  ${diffRow.text}`, geometry.content);
+            for (let wrapIndex = 0; wrapIndex < wrapped.length; wrapIndex += 1) {
+              const line = wrapped[wrapIndex];
+              if (line === undefined) continue;
+              rows.push({
+                key: `${block.id}:diff:${String(index)}:${String(wrapIndex)}`,
+                gutter: [rail, blankCell()],
+                content: [{ text: line, fg: roleStyle(diffRow.role, palette).fg }],
+                contentWidth: geometry.content,
+                meta: [],
+              });
+            }
           }
         }
         if (block.expanded === true && block.detail !== undefined) {
