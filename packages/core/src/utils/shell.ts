@@ -178,8 +178,10 @@ export function execCommandWithStdin(
       resume(Effect.fail(err));
     });
 
-    // Write content to stdin
+    // The command may exit before reading stdin; the resulting EPIPE is the
+    // exit code, reported by "close", so the stdin stream stays silent.
     if (child.stdin) {
+      child.stdin.on("error", () => undefined);
       child.stdin.write(stdin);
       child.stdin.end();
     }
@@ -242,6 +244,7 @@ export function execCommandWithStdinCapturingOutput(
     });
 
     if (child.stdin) {
+      child.stdin.on("error", () => undefined);
       child.stdin.write(stdin);
       child.stdin.end();
     }
