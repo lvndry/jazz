@@ -16,6 +16,8 @@ import {
 } from "@jazz/core/constants/local-providers";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
+import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
+import { JazzStateServiceTag } from "@jazz/core/interfaces/jazz-state";
 import type { ChoicePreviewLine, TerminalService } from "@jazz/core/interfaces/terminal";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
@@ -27,6 +29,7 @@ import type {
   TerminalNotificationSetting,
   WebSearchProviderName,
 } from "@jazz/core/types/config";
+import type { Agent } from "@jazz/core/types/index";
 import type { ColorProfile, OutputMode } from "@jazz/core/types/output";
 import { isRecord } from "@jazz/core/utils/is-record";
 import {
@@ -36,6 +39,15 @@ import {
 } from "@jazz/core/utils/provider-model";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
+import {
+  confirmAndDeleteAgent,
+  localHostUrlFor,
+  modelMetadataFor,
+  showAgentActions,
+  showAgentDetails,
+  showAgentList,
+} from "./agent-menu";
+import { editAgentCommand } from "./edit-agent";
 import { addPrivateHost, applyPrivateHosts, removePrivateHost } from "./private-hosts";
 import {
   applySpendLimit,
@@ -66,6 +78,7 @@ type SettingsMenuAction =
   | "spend-limits"
   | "private-hosts"
   | "http-approval"
+  | "agents"
   | "back";
 
 /**
@@ -114,6 +127,10 @@ export function settingsWizardCommand() {
           yield* configurePrivateHosts();
           break;
         }
+        case "agents": {
+          yield* manageAgents();
+          break;
+        }
         case "http-approval": {
           yield* configureHttpApproval();
           break;
@@ -122,6 +139,72 @@ export function settingsWizardCommand() {
           stayInMenu = false;
           break;
         }
+      }
+    }
+  });
+}
+
+/**
+ * The Settings' Agents entry: the same agent list and per-agent menu the `/agents`
+ * command opens (agent-menu.ts), so "Edit" runs the exact same `editAgentCommand`
+ * wizard. No "Start a conversation" here — settings is about configuration.
+ */
+function manageAgents() {
+  return Effect.gen(function* () {
+    const agentService = yield* AgentServiceTag;
+    const jazzState = yield* JazzStateServiceTag;
+    const terminal = yield* TerminalServiceTag;
+    const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
+      Effect.map((value) => (typeof value === "string" ? value : null)),
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
+    let listedAgents = yield* agentService.listAgents().pipe(
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          yield* terminal.error(`Could not read your agents: ${String(error)}`);
+          return [] as Agent[];
+        }),
+      ),
+    );
+    if (listedAgents.length === 0) {
+      yield* terminal.error("No agents found. Create one with `jazz agent create`.");
+      return;
+    }
+    let previouslyOpenedId: string | undefined;
+    while (true) {
+      const selectedAgent = yield* showAgentList(listedAgents, lastUsedAgentId, previouslyOpenedId);
+      if (selectedAgent === null) break;
+      previouslyOpenedId = selectedAgent.id;
+      const action = yield* showAgentActions(selectedAgent, "Back to agents", { withStart: false });
+      switch (action) {
+        case "details":
+          yield* showAgentDetails(
+            selectedAgent,
+            yield* modelMetadataFor(selectedAgent),
+            yield* localHostUrlFor(selectedAgent),
+          );
+          break;
+        case "edit":
+          yield* editAgentCommand(selectedAgent.id).pipe(
+            Effect.catchAll((error) =>
+              terminal.error(`${selectedAgent.name} was not changed: ${String(error)}`),
+            ),
+          );
+          listedAgents = yield* agentService
+            .listAgents()
+            .pipe(Effect.catchAll(() => Effect.succeed(listedAgents)));
+          break;
+        case "delete": {
+          const deleted = yield* confirmAndDeleteAgent(selectedAgent);
+          if (deleted) {
+            listedAgents = listedAgents.filter((agent) => agent.id !== selectedAgent.id);
+            previouslyOpenedId = undefined;
+          }
+          break;
+        }
+        case "start":
+        case "back":
+          break;
       }
     }
   });
@@ -187,6 +270,7 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
           ? "allow all"
           : `${String(config.network.httpApproval.length)} URL grants`,
     },
+    { label: "Agents", value: "agents", hint: "edit model, tools, persona, name" },
     { label: "Back", value: "back" },
   ];
 }

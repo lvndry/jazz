@@ -9,7 +9,7 @@ describe("parseSpecialCommand", () => {
     expect(parseSpecialCommand("/rename")).toEqual({ type: "rename", args: [] });
     expect(parseSpecialCommand("/new")).toEqual({ type: "start", args: [] });
     expect(parseSpecialCommand("/create")).toEqual({ type: "create", args: [] });
-    expect(parseSpecialCommand("/start")).toEqual({ type: "start", args: [] });
+    expect(parseSpecialCommand("/start")).toEqual({ type: "unknown", args: ["start"] });
   });
   describe("recognized commands", () => {
     it("should parse /new as a fresh conversation command", () => {
@@ -309,7 +309,7 @@ describe("CHAT_COMMANDS registry", () => {
   it("advertises /new as the canonical fresh-conversation command", () => {
     const command = CHAT_COMMANDS.find((entry) => entry.type === "start");
     expect(command?.name).toBe("new");
-    expect(command?.aliases).toEqual(["start"]);
+    expect(command?.aliases).toBeUndefined();
   });
 
   it("gives every command and alias a unique name", () => {

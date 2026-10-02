@@ -22,6 +22,8 @@ import {
 } from "@jazz/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
+import type { JazzStateService } from "@jazz/core/interfaces/jazz-state";
+import { JazzStateServiceTag } from "@jazz/core/interfaces/jazz-state";
 import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@jazz/core/interfaces/mcp-server";
@@ -53,6 +55,7 @@ import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { buildModelChoices, sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
+import { modelUsage, recordModelUsage } from "@/cli/helpers/model-recency";
 import { promptForReasoningSelection } from "@/cli/helpers/reasoning";
 import { ensureLocalProviderBaseUrl } from "@/cli/setup/local-provider-url";
 import { ensureProviderApiKey } from "@/cli/setup/provider-api-key";
@@ -139,12 +142,14 @@ export function createAgentCommand(
   | MCPServerManager
   | LoggerService
   | PersonaService
+  | JazzStateService
 > {
   return Effect.gen(function* () {
     yield* requireInteractiveTerminal(
       "jazz agent create",
       "Run `jazz agent create` in a terminal, or write the agent as JSON to $JAZZ_HOME/agents/<id>.json (normally ~/.jazz/agents/). See docs/configure/agents.md for the fields.",
     );
+    const jazzState = yield* JazzStateServiceTag;
     const terminal = yield* TerminalServiceTag;
 
     const llmService = yield* LLMServiceTag;
@@ -175,6 +180,7 @@ export function createAgentCommand(
     }
 
     const actingToolCounts = yield* countActingTools(toolRegistry, toolsByCategory);
+    const lastUsedModels = yield* modelUsage();
 
     const agentAnswers = yield* Effect.tryPromise({
       try: () =>
@@ -192,6 +198,8 @@ export function createAgentCommand(
               : { initialProvider: options.initialProvider }),
             existingAgentNames,
             actingToolCounts,
+            ...(lastUsedModels.size === 0 ? {} : { lastUsedModels }),
+            jazzState,
           },
         ),
       catch: (error) =>
@@ -437,6 +445,10 @@ export interface AgentInfoPromptOptions {
   readonly initialProvider?: ProviderName;
   /** Names already taken, so the prefilled name is free and a clash is caught on the spot. */
   readonly existingAgentNames?: readonly string[];
+  /** Last-picked millisecond per model, so the model step leads with recent picks. */
+  readonly lastUsedModels?: ReadonlyMap<string, number>;
+  /** Records model picks for recency ordering; omitted by callers without state. */
+  readonly jazzState?: JazzStateService;
   /** Tools per category that can change something, from the tool registry. */
   readonly actingToolCounts?: ReadonlyMap<string, number>;
 }
@@ -713,12 +725,15 @@ export async function promptForAgentInfo(
             ),
           );
         }
-
         const result = await Effect.runPromise(
           terminal.search<string>(
             `Which ${formatProviderDisplayName(state.llmProvider!)} model? Context, then price in / out per million tokens.`,
             {
-              choices: buildModelChoices(state.llmProvider!, state.providerInfo!.supportedModels),
+              choices: buildModelChoices(
+                state.llmProvider!,
+                state.providerInfo!.supportedModels,
+                options.lastUsedModels,
+              ),
               placeholder: "Type to filter models",
               step: stepperAt("model"),
             },
@@ -731,6 +746,13 @@ export async function promptForAgentInfo(
         }
 
         state.llmModel = result;
+        if (options.jazzState !== undefined) {
+          await Effect.runPromise(
+            recordModelUsage(state.llmProvider!, result).pipe(
+              Effect.provideService(JazzStateServiceTag, options.jazzState),
+            ),
+          );
+        }
 
         if (state.llmProvider === "ollama" && isOllamaCloudModel(result)) {
           const providerDisplayName =

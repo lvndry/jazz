@@ -1,6 +1,7 @@
 /**
  * Sort order for provider and model pickers: pinned providers/models (e.g.
- * OpenRouter's router meta-models) surface above the rest of the catalog.
+ * OpenRouter's router meta-models) surface above the rest of the catalog, and
+ * a provider's models lead with the ones the user picked most recently.
  */
 import type { ModelInfo } from "@/core/types/llm";
 import { trimNumber } from "@/core/utils/model-capabilities";
@@ -93,22 +94,41 @@ function pinnedModelRank(providerId: string, modelId: string): number {
 }
 
 /**
- * Order a provider's models for the picker: pinned entry points first, everything else in the
- * order the catalog supplied.
+ * Order a provider's models for the picker: pinned entry points first, then models by how
+ * recently the user picked them (most recent first), then the order the catalog supplied.
+ * `lastUsedMs` maps a model to an epoch millisecond; unknown models have no recency.
  */
 export function sortModelsForPicker<T>(
   providerId: string,
   models: readonly T[],
   getId: (model: T) => string,
+  lastUsedMs?: ReadonlyMap<string, number>,
 ): T[] {
   return [...models].sort((left, right) => {
     const leftRank = pinnedModelRank(providerId, getId(left));
     const rightRank = pinnedModelRank(providerId, getId(right));
-    if (leftRank === rightRank) {
-      return 0;
+    if (leftRank !== rightRank) {
+      return leftRank < rightRank ? -1 : 1;
     }
-    return leftRank < rightRank ? -1 : 1;
+    const leftAt = modelLastUsedAt(providerId, getId(left), lastUsedMs) ?? -1;
+    const rightAt = modelLastUsedAt(providerId, getId(right), lastUsedMs) ?? -1;
+    if (leftAt !== rightAt) {
+      return rightAt - leftAt;
+    }
+    return 0;
   });
+}
+
+/** When a model was last picked, or undefined; also matches the id alone, so a rename keeps it. */
+function modelLastUsedAt(
+  providerId: string,
+  modelId: string,
+  lastUsedMs?: ReadonlyMap<string, number>,
+): number | undefined {
+  if (lastUsedMs === undefined) {
+    return undefined;
+  }
+  return lastUsedMs.get(`${providerId}/${modelId}`) ?? lastUsedMs.get(modelId);
 }
 
 export interface ModelPickerChoice {
@@ -149,12 +169,14 @@ export function modelCapabilityWords(model: ModelInfo): string[] {
  *
  * Single source for every model list (create-agent, edit-agent, future surfaces) so the
  * row shape — display name plus capability/price line — cannot drift between wizards.
+ * `lastUsedMs` orders picked models by most recent use; see `sortModelsForPicker`.
  */
 export function buildModelChoices(
   providerId: string,
   models: readonly ModelInfo[],
+  lastUsedMs?: ReadonlyMap<string, number>,
 ): ModelPickerChoice[] {
-  return sortModelsForPicker(providerId, models, (model) => model.id).map((model) => {
+  return sortModelsForPicker(providerId, models, (model) => model.id, lastUsedMs).map((model) => {
     const context =
       model.contextWindow === undefined ? "" : formatCompactCount(model.contextWindow);
     const words = modelCapabilityWords(model);
