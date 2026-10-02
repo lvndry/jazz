@@ -1,12 +1,12 @@
 {
   "id": "eval-sut-other",
   "name": "eval-sut-other",
-  "model": "openrouter/qwen/qwen3-next-80b-a3b-instruct:free",
+  "model": "openrouter/openrouter/free",
   "config": {
     "persona": "default",
     "llm": {
       "provider": "openrouter",
-      "model": "qwen/qwen3-next-80b-a3b-instruct:free",
+      "model": "openrouter/free",
       "reasoning": "medium"
     },
     "tools": [
