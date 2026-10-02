@@ -23,7 +23,9 @@ import {
 } from "@jazz/core/agent/run/answer-outcome";
 import { classifyRunError } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse } from "@jazz/core/agent/types";
+import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { enqueueNotification, notifyTargets } from "@jazz/core/notify/outbox";
 import type { SpendSource } from "@jazz/core/spend/sources";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
@@ -196,6 +198,30 @@ export function turnDeliveryOutcome(outcome: TurnOutcome): DeliveryOutcome {
 }
 
 /**
+ * Tell the person a turn ended without delivering its item. A failed run is reported by the run's
+ * own accounting; the endings that reach no run exit (an approval that could not be saved, an
+ * answer that never came) would otherwise leave a wake trigger or batch failed in silence, and
+ * nothing may be running to retry it. One notice per item, however often it is retried.
+ */
+function notifyTurnNotDelivered(turn: UnattendedTurn, error: string) {
+  return Effect.gen(function* () {
+    const config = yield* AgentConfigServiceTag;
+    const appConfig = yield* config.appConfig;
+    yield* enqueueNotification(
+      notifyTargets(appConfig),
+      {
+        kind: "unattended-failed",
+        source: TURN_SPEND_SOURCES[turn.source],
+        name: turn.sourceId,
+        agentId: turn.agentId,
+        error,
+      },
+      { dedupeKey: `undelivered:${turn.source}:${turn.agentId}:${turn.sourceId}` },
+    );
+  }).pipe(Effect.ignore);
+}
+
+/**
  * Run one unattended turn and report whether it delivered the item that caused it. A missing
  * agent fails without retrying, since there is nothing to resume into.
  */
@@ -283,6 +309,10 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
         );
         break;
     }
-    return turnDeliveryOutcome(outcome);
+    const delivery = turnDeliveryOutcome(outcome);
+    if (!delivery.delivered && outcome.kind !== "failed") {
+      yield* notifyTurnNotDelivered(turn, delivery.error);
+    }
+    return delivery;
   });
 }

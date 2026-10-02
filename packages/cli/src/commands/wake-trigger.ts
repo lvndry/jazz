@@ -1,3 +1,4 @@
+import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { claimWakeTrigger } from "@jazz/adapters/wake-trigger-service";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
@@ -17,6 +18,8 @@ import { Effect } from "effect";
  *
  * The turn runs with the file run store, because a run that needs an approval nobody can give
  * parks itself there; without it the park is unsaved and the trigger fails as unresumable.
+ * The notify outbox is drained before exiting, since no daemon may be running to send what the
+ * turn queued (a parked approval, a failed delivery).
  */
 export function fireWakeTriggerCommand(options: { agent: string; id: string }) {
   return Effect.gen(function* () {
@@ -33,5 +36,8 @@ export function fireWakeTriggerCommand(options: { agent: string; id: string }) {
     yield* osScheduler
       .cancelFire(options.agent, options.id, trigger?.osSchedulerJobId)
       .pipe(Effect.catchAll(() => Effect.void));
-  }).pipe(Effect.provide(makeFileRunStoreLayer()));
+  }).pipe(
+    Effect.ensuring(drainNotifyOutbox().pipe(Effect.ignore)),
+    Effect.provide(makeFileRunStoreLayer()),
+  );
 }

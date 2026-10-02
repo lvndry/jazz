@@ -17,8 +17,10 @@ import {
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { RunParkRequested } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse } from "@jazz/core/agent/types";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
+import { OUTBOX_FILE_KIND, outboxDirectory, outboxFilePath } from "@jazz/core/notify/outbox";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
@@ -95,6 +97,9 @@ describe("unattended answer delivery", () => {
     const services = Layer.mergeAll(
       NodeFileSystem.layer,
       Layer.succeed(LoggerServiceTag, logger),
+      Layer.succeed(AgentConfigServiceTag, {
+        appConfig: Effect.succeed({}),
+      } as unknown as AgentConfigService),
       Layer.succeed(AgentServiceTag, {
         getAgent: () => Effect.succeed(agent),
       } as unknown as AgentService),
@@ -179,6 +184,54 @@ describe("unattended answer delivery", () => {
     const { outcome, remaining } = await deliver();
     expect(outcome).toEqual({ delivered: true });
     expect(remaining).toEqual([]);
+  });
+
+  async function queuedNotices() {
+    const items = await Effect.runPromise(
+      readStateFile(outboxFilePath(outboxDirectory(home), "desktop"), OUTBOX_FILE_KIND, {
+        onCorrupt: "fail",
+      }),
+    );
+    return (items ?? []).map((item) => item.event);
+  }
+
+  it("tells the person when a run's approval could not be saved", async () => {
+    runner.mockImplementation(() =>
+      Effect.fail(new RunParkRequested({ pending: { kind: "tool-approval" } as never })),
+    );
+    const { outcome } = await deliver();
+    expect(outcome).toMatchObject({ delivered: false });
+    expect(await queuedNotices()).toEqual([
+      expect.objectContaining({
+        kind: "unattended-failed",
+        source: "wake-trigger",
+        name: "wake",
+        agentId: agent.id,
+      }),
+    ]);
+  });
+
+  it("queues no notice for a parked run, which is announced as waiting", async () => {
+    runner.mockImplementation(() =>
+      Effect.fail(
+        new RunParkRequested({
+          runId: "parked-run",
+          pending: {
+            kind: "tool-approval",
+            request: {
+              toolCallId: "call-1",
+              toolName: "execute_command",
+              message: "Command: git status",
+              executeToolName: "execute_execute_command",
+              executeArgs: {},
+            },
+          },
+          messages: [],
+        }),
+      ),
+    );
+    await deliver();
+    expect(await queuedNotices()).toEqual([]);
   });
 
   it("keeps a persisted approval park delivered without restarting the turn", async () => {

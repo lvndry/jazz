@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { WAKE_TRIGGER_STORE } from "@jazz/adapters/wake-trigger-service";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
@@ -84,6 +85,9 @@ describe("fireWakeTriggerCommand", () => {
     const services = Layer.mergeAll(
       NodeFileSystem.layer,
       Layer.succeed(LoggerServiceTag, logger),
+      Layer.succeed(AgentConfigServiceTag, {
+        appConfig: Effect.succeed({}),
+      } as unknown as AgentConfigService),
       Layer.succeed(AgentServiceTag, {
         getAgent: () => Effect.succeed(agent),
       } as unknown as AgentService),

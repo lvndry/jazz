@@ -1,3 +1,4 @@
+import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { drainAgentJobs } from "@jazz/daemon/job-worker";
@@ -15,5 +16,8 @@ export function runJobsCommand(options: { agent: string }) {
     const logger = yield* LoggerServiceTag;
     yield* logger.info("Draining background jobs");
     yield* drainAgentJobs(options.agent);
-  }).pipe(Effect.provide(makeFileRunStoreLayer()));
+  }).pipe(
+    Effect.ensuring(drainNotifyOutbox().pipe(Effect.ignore)),
+    Effect.provide(makeFileRunStoreLayer()),
+  );
 }
