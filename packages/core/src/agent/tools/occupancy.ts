@@ -59,10 +59,10 @@ function bandOf(entry: OccupancyEntry, now: number): OccupancyBand {
  * Presence: still heartbeating AND the process alive. A finished run stops heartbeating, so
  * nothing here is "here" in the memory sense — a stale entry and a dead pid both drop.
  */
-function isPresent(entry: OccupancyEntry, now: number): boolean {
-  const updated = Date.parse(entry.updatedAt);
-  if (Number.isNaN(updated) || now - updated > OCCUPANCY_FRESH_WINDOW_MS) return false;
-  return localOwnerStatus({ pid: entry.pid, host: entry.host }) !== "gone";
+function isPresent(owner: OccupancyOwnerStatus, updatedAt: string, now: number): boolean {
+  if (owner === "gone") return false;
+  const updated = Date.parse(updatedAt);
+  return !Number.isNaN(updated) && now - updated <= OCCUPANCY_FRESH_WINDOW_MS;
 }
 
 function describeEntry(entry: OccupancyEntry, band: OccupancyBand, now: number): string {
@@ -82,10 +82,7 @@ function describeEntry(entry: OccupancyEntry, band: OccupancyBand, now: number):
 
 function occupantLine(o: OccupiedDirectory, now: number, indent: string, extra: string): string {
   const marker = o.band === "writing" ? "●" : "○";
-  const detail =
-    o.band === "writing"
-      ? describeEntry(o.entry, o.band, now)
-      : describeEntry(o.entry, o.band, now);
+  const detail = describeEntry(o.entry, o.band, now);
   const state = o.entry.state === "input-required" ? " · waiting on approval" : "";
   const prompt = o.entry.promptExcerpt !== undefined ? ` · "${o.entry.promptExcerpt}"` : "";
   return `${indent}${marker} agent "${o.entry.agentName}" (${o.entry.runId.slice(0, 8)})${extra} — ${detail}${state}${prompt}`;
@@ -188,17 +185,19 @@ export function createWhoIsHereTool(): Tool<OccupancyService | FileSystemContext
           // Drop ourselves: a terminal asking "who is here" does not want its own
           // heartbeat reported back as an occupant.
           if (entry.pid === self.pid && entry.host === self.host) continue;
-          if (!isPresent(entry, now)) continue;
+          // One process check per entry: it is the presence gate and the reported owner
+          // state, and `ps` is a sync spawn, so it is not something to do twice.
+          const owner = localOwnerStatus({ pid: entry.pid, host: entry.host });
+          if (!isPresent(owner, entry.updatedAt, now)) continue;
           present.push({
             entry,
             band: bandOf(entry, now),
-            owner: localOwnerStatus({ pid: entry.pid, host: entry.host }),
+            owner,
           });
         }
 
         const inTree = present.filter((o) => sameDirectoryTree(o.entry.workingDirectory, cwd));
         const rest = present.filter((o) => !sameDirectoryTree(o.entry.workingDirectory, cwd));
-
         // Same-repo detection is live: ask git for the common dir of each outside
         // occupant and compare with the queried directory's. A few git calls, one second
         // timeout each, and a directory that is not a repo just sorts to "elsewhere".

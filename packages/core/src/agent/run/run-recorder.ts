@@ -1,16 +1,20 @@
 /**
  * @fileoverview Records a run's lifecycle around the effect that performs it.
  *
- * Kept apart from the runner because the runner is already the busiest file in the agent
- * core, and because the recording is genuinely optional: no `RunStore` in the layer means
- * every function here is a pass-through. That is the terminal's configuration — it holds
- * one process open for the whole run and has nobody to answer a question from outside.
+ * Two duties, two independent switches:
  *
- * Alongside the store, the recorder keeps the shared occupancy file fresh: a heartbeat fiber
- * writes this run's entry every few seconds for the run's lifetime, and one final entry goes
- * out on every exit path. Other jazz processes on the machine read that file to answer
- * "is someone working in this directory right now" — a question the run store cannot answer
- * across terminals, because each terminal's store is its own.
+ * - The run store is process-private. A store in the layer means every transition is
+ *   recorded, and none means the store parts are a pass-through. That is the terminal's
+ *   configuration — it holds one process open for the whole run and has nobody to answer a
+ *   question from outside.
+ * - The occupancy heartbeat does not need a store. It is the machine-wide "who is working
+ *   where" signal, and a terminal chat still occupies a directory, so it heartbeats too.
+ *
+ * The recorder keeps the shared occupancy file fresh: a heartbeat fiber writes this run's
+ * entry every few seconds for the run's lifetime, and one final entry goes out on every exit
+ * path. Other jazz processes on the machine read that file to answer "is someone working in
+ * this directory right now" — a question the run store cannot answer across terminals,
+ * because each terminal's store is its own.
  */
 
 import { Duration, Effect, Fiber, Option } from "effect";
@@ -127,10 +131,15 @@ export function withRunRecording<E, R>(
 ): Effect.Effect<AgentResponse, E | Error, R> {
   return Effect.gen(function* () {
     const storeOption = yield* Effect.serviceOption(RunStoreTag);
-    if (input.internal || Option.isNone(storeOption)) {
+
+    if (input.internal) {
       return yield* effect;
     }
-    const store = storeOption.value;
+
+    // The run store is process-private; the occupancy file is the machine's, and a terminal
+    // chat (no store) still occupies the directory. Each duty checks its own service, so a
+    // missing one is a pass-through for that duty only.
+    const store = Option.isSome(storeOption) ? storeOption.value : undefined;
     const activeStartedAt = Date.now();
 
     // --- Occupancy heartbeat ---------------------------------------------------------
@@ -204,6 +213,25 @@ export function withRunRecording<E, R>(
       heartbeatState.state = state;
       return writeOccupancy();
     };
+
+    if (store === undefined) {
+      // No run store (terminal chat): nothing to persist, but the occupancy report is the
+      // only thing other processes see of this run, so it gets a final entry on exit too.
+      const withFinalOccupancy = Effect.gen(function* () {
+        const result = yield* effect;
+        yield* writeFinalOccupancy("completed");
+        return result;
+      }).pipe(
+        Effect.catchAll((error) =>
+          Effect.gen(function* () {
+            yield* writeFinalOccupancy(isRunParkRequested(error) ? "input-required" : "failed");
+            return yield* Effect.fail(error);
+          }),
+        ),
+        Effect.ensuring(stopHeartbeat),
+      );
+      return yield* withFinalOccupancy;
+    }
 
     const withCost = (record: RunRecord): RunRecord => {
       const costUSD = input.costSoFarUSD?.();

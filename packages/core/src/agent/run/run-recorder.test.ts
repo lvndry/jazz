@@ -263,4 +263,25 @@ describe("withRunRecording occupancy heartbeat", () => {
     );
     expect(result).toMatchObject({ content: "ok" });
   });
+
+  it("heartbeats with no run store in the layer, since a terminal run still occupies the directory", async () => {
+    const { layer, entries } = recordOccupancy();
+    const exit = await Effect.runPromiseExit(
+      withRunRecording(INPUT, Effect.succeed(response("Done"))).pipe(Effect.provide(layer)),
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(entries.length).toBeGreaterThanOrEqual(1);
+    expect(entries.at(-1)!.state).toBe("completed");
+  });
+
+  it("writes a failed terminal entry with no store, and the failure still propagates", async () => {
+    const { layer, entries } = recordOccupancy();
+    const exit = await Effect.runPromiseExit(
+      withRunRecording(INPUT, Effect.fail(new Error("model said no"))).pipe(Effect.provide(layer)),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(entries.at(-1)!.state).toBe("failed");
+  });
 });
