@@ -304,6 +304,11 @@ export interface ApprovalRequest {
   readonly impact?: string;
   /** The argument a person may rewrite before approving. See {@link ApprovalRequiredResult.editableArg}. */
   readonly editableArg?: string;
+  /**
+   * The message the model receives when the person declines, in place of the generic
+   * rejection text. See {@link ApprovalRequiredResult.rejectionMessage}.
+   */
+  readonly rejectionMessage?: string;
   /** The risk class of the call being approved, when the tool declares one. */
   readonly riskLevel?: ToolRiskLevel;
   /**

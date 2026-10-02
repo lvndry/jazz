@@ -341,6 +341,6 @@ real a11y gaps, focus fights, timing.
    pattern). The tier-1 scenarios above double as its A/B anchor when it lands.
 2. Windows/Linux (the `ComputerDriver` interface is already platform-neutral; the
    refusal and pin machinery ports directly).
-3. `jazz computer status` (backed by `readSessionInfo`, `control.ts:58`).
+3. A CLI status subcommand under `computer` (backed by `readSessionInfo`, `control.ts:58`).
 4. Batched `actions[]` — revisit only if `captureAfter` proves insufficient for
    long-press-free workflows, because it complicates one-approval-per-action.

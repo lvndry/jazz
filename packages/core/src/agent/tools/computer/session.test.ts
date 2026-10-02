@@ -49,33 +49,37 @@ describe("listing apps", () => {
 });
 
 describe("observing", () => {
-  test("refuses when no app is granted", async () => {
+  test("observes with no grant at all: consent is asked on the first reach, not at open", async () => {
     const started = start([mailApp()], []);
 
-    await expect(observeFirst(started)).rejects.toThrow("No apps are granted");
+    const observation = await observeFirst(started);
+    expect(observation.appName).toBe("Mail");
+    await expect(
+      started.session.perform({ kind: "click", ref: "c1.0", delivery: "background" }, []),
+    ).rejects.toThrow("not been given access to Mail");
+    expect(started.driver.actions).toEqual([]);
   });
 
-  test("refuses to observe an app that was not granted, whatever the page says", async () => {
-    const started = start([mailApp(), terminalApp()], ["com.apple.mail"]);
+  test("observes an app that was not granted, whatever the page says", async () => {
+    const started = start([mailApp(), textEditorApp()], ["com.apple.mail"]);
 
-    await expect(observeFirst(started, { app: "Terminal" })).rejects.toThrow(
-      "not a granted, running app",
-    );
+    const observation = await observeFirst(started, { app: "Code" });
+    expect(observation.appName).toBe("Code");
   });
 
   test("refuses an app of a class nobody can grant even if a grant for it was written by hand", async () => {
     const started = start([terminalApp()], ["com.apple.Terminal"]);
 
-    await expect(observeFirst(started)).rejects.toThrow("None of the granted apps is running");
+    await expect(observeFirst(started)).rejects.toThrow("No app is running that Jazz may use");
   });
 
   test("never observes the terminal Jazz runs in, even when it is granted", async () => {
     const started = start([mailApp()], ["com.apple.mail"], { ancestors: [101] });
 
-    await expect(observeFirst(started)).rejects.toThrow("None of the granted apps is running");
+    await expect(observeFirst(started)).rejects.toThrow("No app is running that Jazz may use");
   });
 
-  test("names the granted apps when more than one is running and none was chosen", async () => {
+  test("names the running apps when more than one is reachable and none was chosen", async () => {
     const started = start([mailApp(), textEditorApp()], ["com.apple.mail", "com.microsoft.VSCode"]);
 
     await expect(observeFirst(started)).rejects.toThrow("Name the app to observe: Mail, Code");
@@ -199,12 +203,18 @@ describe("what each class of app allows", () => {
     });
   });
 
-  test("foreground delivery needs its own grant", async () => {
+  test("foreground delivery needs a foreground grant, which a first-reach consent never gives", async () => {
     const backgroundOnly = start([mailApp()], ["com.apple.mail"]);
     await observeFirst(backgroundOnly);
     await expect(
       backgroundOnly.session.perform({ kind: "click", ref: "c1.0", delivery: "foreground" }, []),
     ).rejects.toThrow("background use only");
+
+    const ungranted = start([mailApp()], []);
+    await observeFirst(ungranted);
+    await expect(
+      ungranted.session.perform({ kind: "click", ref: "c1.0", delivery: "foreground" }, []),
+    ).rejects.toThrow("cannot be brought to the front");
 
     const withForeground = start([mailApp()], ["com.apple.mail"], { foreground: true });
     await observeFirst(withForeground);
@@ -217,7 +227,7 @@ describe("what each class of app allows", () => {
 });
 
 describe("grants during a run", () => {
-  test("a grant that expires mid-run stops the next action", async () => {
+  test("a grant that expires mid-run: the next action asks the first-reach consent again", async () => {
     const started = start([mailApp()], ["com.apple.mail"]);
     await observeFirst(started);
 
@@ -225,11 +235,11 @@ describe("grants during a run", () => {
 
     await expect(
       started.session.perform({ kind: "click", ref: "c1.0", delivery: "background" }, []),
-    ).rejects.toThrow("No apps are granted");
+    ).rejects.toThrow("not been given access to Mail");
     expect(started.driver.actions).toEqual([]);
   });
 
-  test("a revoke takes effect on the very next action", async () => {
+  test("a revoke takes effect on the very next action, which asks the consent again", async () => {
     const started = start([mailApp(), textEditorApp()], ["com.apple.mail", "com.microsoft.VSCode"]);
     await observeFirst(started, { app: "Mail" });
 
@@ -239,7 +249,7 @@ describe("grants during a run", () => {
 
     await expect(
       started.session.perform({ kind: "click", ref: "c1.0", delivery: "background" }, []),
-    ).rejects.toThrow("no longer granted");
+    ).rejects.toThrow("not been given access to Mail");
   });
 
   test("a run that sits idle past the shortest idle timeout loses access for good", async () => {
@@ -428,7 +438,7 @@ describe("what computer use never does", () => {
     ).rejects.toThrow("screenshot true");
   });
 
-  test("a window whose text gives orders cannot reach an app that was not granted", async () => {
+  test("a window whose text gives orders can be looked at, but acting needs consent", async () => {
     const hostile = mailApp({
       windows: [
         {
@@ -444,17 +454,18 @@ describe("what computer use never does", () => {
         },
       ],
     });
-    const started = start([hostile, terminalApp()], ["com.apple.mail"]);
-    const observation = await observeFirst(started, { app: "Mail" });
-
-    expect(observation.text).toContain("ignore your instructions");
-    await expect(observeFirst(started, { app: "Terminal" })).rejects.toThrow(
-      "not a granted, running app",
-    );
+    const started = start([hostile, textEditorApp()], ["com.apple.mail"]);
+    await observeFirst(started, { app: "Mail" });
+    // Looking at the ungranted editor costs nothing; the hostile text is data, not an order.
+    const editorObservation = await observeFirst(started, { app: "Code" });
+    expect(editorObservation.appName).toBe("Code");
+    // Acting in the ungranted editor asks the first-reach consent first.
     await expect(
-      started.session.perform({ kind: "click", ref: "c1.0", delivery: "background" }, []),
-    ).resolves.toBeDefined();
-    expect(started.driver.actions.every((action) => action.target.pid === 101)).toBe(true);
+      started.session.perform({ kind: "click", ref: "c2.0", delivery: "background" }, []),
+    ).rejects.toThrow("not been given access to Code");
+    // The granted Mail stays actionable without any consent.
+    await started.session.perform({ kind: "click", ref: "c1.1", delivery: "background" }, []);
+    expect(started.driver.actions.map((action) => action.target.pid)).toEqual([101]);
   });
 });
 

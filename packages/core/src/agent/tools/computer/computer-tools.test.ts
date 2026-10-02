@@ -161,6 +161,17 @@ describe("reading", () => {
     expect(result.untrusted).toEqual({ kind: "external", source: "computer_apps" });
   });
 
+  test("with no grant, lists the running apps the run may still reach with a consent", async () => {
+    const { context } = await contextFor(startSession([mailApp()], []));
+
+    const result = await run(asTool(apps), {}, context);
+
+    expect(result.success).toBe(true);
+    const text = String(result.result);
+    expect(text).toContain("Apps you may still reach");
+    expect(text).toContain("Mail (com.apple.mail): full");
+  });
+
   test("observes a window: its id, its refs, and untrusted provenance naming the app", async () => {
     const { context } = await contextFor(startSession([mailApp()], ["com.apple.mail"]));
 
@@ -173,13 +184,13 @@ describe("reading", () => {
     expect(result.untrusted).toEqual({ kind: "external", source: "computer_observe Mail" });
   });
 
-  test("explains a missing grant instead of failing opaquely", async () => {
+  test("observes with no grant at all: the refusal moved to the first action", async () => {
     const { context } = await contextFor(startSession([mailApp()], []));
 
     const result = await run(asTool(observe), {}, context);
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("No apps are granted");
+    expect(result.success).toBe(true);
+    expect(String(result.result)).toContain("observation: c1");
   });
 
   test("works only inside an agent run", async () => {
@@ -208,6 +219,71 @@ describe("reading", () => {
 
     expect(gate("low-risk")).toBe(true);
     expect(gate("high-risk")).toBe(false);
+  });
+});
+
+describe("consent on first reach", () => {
+  test("the first action on an ungranted app asks for consent naming the app, and never acts", async () => {
+    const started = startSession([mailApp()], []);
+    const { context } = await contextFor(started);
+    await run(asTool(observe), {}, context);
+
+    const result = await run(asTool(pointer.approval), { action: "click", ref: "c1.0" }, context);
+
+    expect(result.success).toBe(false);
+    const message = String((result.result as Record<string, unknown>)["message"]);
+    expect(message).toContain("Mail");
+    expect(message).toContain("com.apple.mail");
+    expect((result.result as Record<string, unknown>)["rejectionMessage"]).toContain(
+      "You declined access to Mail",
+    );
+    expect(started.driver.actions).toEqual([]);
+  });
+
+  test("once consented for the run, the next actions on the same app do not ask again", async () => {
+    const started = startSession([mailApp()], []);
+    const { context } = await contextFor(started);
+    await run(asTool(observe), {}, context);
+    started.session.approveForRun("com.apple.mail", "Mail");
+
+    const first = await run(asTool(pointer.execute), { action: "click", ref: "c1.0" }, context);
+    expect(first.success).toBe(true);
+    // Same app, second action: still proposed through the normal approval path (it always
+    // proposes), but with no consent ask — the run already holds the consent.
+    const second = await run(asTool(pointer.approval), { action: "click", ref: "c1.0" }, context);
+    expect(second.success).toBe(false);
+    const secondResult = second.result as Record<string, unknown>;
+    expect(String(secondResult["message"])).not.toContain("com.apple.mail");
+    expect(secondResult["rejectionMessage"]).toBeUndefined();
+    // The approval half only proposes — the single driver action is the one pointer.execute made.
+    expect(started.driver.actions).toHaveLength(1);
+  });
+
+  test("consent is run-scoped: a fresh session asks again, because the map lives in the session", async () => {
+    const started = startSession([mailApp()], []);
+    const { context } = await contextFor(started);
+    await run(asTool(observe), {}, context);
+    const first = await run(asTool(pointer.approval), { action: "click", ref: "c1.0" }, context);
+    expect(first.success).toBe(false);
+
+    // A brand-new session object: its in-memory consent map is empty, so it asks again even
+    // though nothing on disk changed.
+    const started2 = startSession([mailApp()], []);
+    const { context: context2 } = await contextFor(started2);
+    await run(asTool(observe), {}, context2);
+    const second = await run(asTool(pointer.approval), { action: "click", ref: "c1.0" }, context2);
+    expect(second.success).toBe(false);
+    expect(String((second.result as Record<string, unknown>)["message"])).toContain("Mail");
+  });
+
+  test("the consent ask is alwaysAsk: it is put to a person under every auto-approve policy", async () => {
+    const started = startSession([mailApp()], []);
+    const { context } = await contextFor(started);
+    await run(asTool(observe), {}, context);
+
+    const result = await run(asTool(pointer.approval), { action: "click", ref: "c1.0" }, context);
+
+    expect((result.result as Record<string, unknown>)["alwaysAsk"]).toBe(true);
   });
 });
 
