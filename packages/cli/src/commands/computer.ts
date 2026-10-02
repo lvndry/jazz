@@ -124,8 +124,20 @@ export function acknowledgeCommand(options: { readonly yes: boolean }) {
       return;
     }
     const sha256 = yield* Effect.promise(() => hashFileSha256(executablePath));
+    const kinds = yield* Effect.promise(async () => {
+      const driver = await CuaDriver.open({ executablePath });
+      try {
+        return await driver.capabilities();
+      } finally {
+        await driver.close().catch(() => undefined);
+      }
+    });
+    const capabilityLines = [
+      "Capabilities:",
+      ...(kinds.length === 0 ? ["  (core actions only)"] : kinds.map((kind) => `  ${kind}`)),
+    ];
     process.stdout.write(
-      `${ACKNOWLEDGEMENT_TEXT}\n\nDriver: ${executablePath}\nSHA-256: ${sha256}\n\n`,
+      `${ACKNOWLEDGEMENT_TEXT}\n\nDriver: ${executablePath}\nSHA-256: ${sha256}\n${capabilityLines.join("\n")}\n\n`,
     );
     const accepted =
       options.yes || (yield* Effect.promise(() => confirm("Type yes to acknowledge: ")));

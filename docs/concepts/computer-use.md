@@ -35,6 +35,10 @@ Accessibility and Screen Recording, granted to it in System Settings under Priva
    jazz computer acknowledge
    ```
 
+   Acknowledging lists the actions the driver build serves, so you acknowledge what the binary
+   can do, not only its hash. When the driver is upgraded, the hash changes and the
+   acknowledgement stops covering it: re-run it.
+
 3. Find an app's bundle id, then grant it for a limited time:
 
    ```bash
@@ -115,6 +119,25 @@ keeps the latest five screenshots and deletes them all when the run ends.
 
 See the [tool inventory](../tools/index.md#computer-use-experimental) for disclosure and approval
 pairs.
+
+## The full action vocabulary
+
+| Action       | Through            | What it is                                           |
+| ------------ | ------------------ | ---------------------------------------------------- |
+| Click        | `computer_pointer` | Left click on a ref or a pixel of the screenshot     |
+| Double click | `computer_pointer` | Two quick clicks on a ref                            |
+| Triple click | `computer_pointer` | Three quick clicks, to select a line or paragraph    |
+| Drag         | `computer_pointer` | From a ref or a pixel, to a ref or a pixel           |
+| Hover        | `computer_pointer` | Move the pointer to a ref or a pixel, press nothing  |
+| Scroll       | `computer_pointer` | Up, down, left, or right by a number of lines        |
+| Type         | `computer_input`   | Type text into a ref                                 |
+| Set value    | `computer_input`   | Replace a control's value in one action              |
+| Key          | `computer_input`   | Press a named key or a shortcut, optionally repeated |
+| Hold key     | `computer_input`   | Hold a key for a given time                          |
+
+Not every driver build serves every action. A build that lacks one still starts and serves the
+rest; the missing action fails with a named error the agent can read, and `jazz computer doctor`
+lists what the installed build does and does not serve.
 
 ## What each app allows
 

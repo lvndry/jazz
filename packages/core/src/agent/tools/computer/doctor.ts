@@ -7,6 +7,7 @@
  * (an unsupported machine, no driver, or a driver that will not start).
  */
 
+import { EXTENDED_ACTION_CAPABILITIES } from "./cua-contract";
 import type { ComputerDriver } from "./driver";
 import {
   computerUseSupported,
@@ -129,6 +130,22 @@ export async function runDoctor(dependencies: DoctorDependencies): Promise<Docto
         "attention",
         PERMISSION_PATTERN.test(message) ? `${message} ${PERMISSION_HINT}` : message,
       );
+    }
+    try {
+      const supported = await driver.capabilities();
+      const missing = EXTENDED_ACTION_CAPABILITIES.filter(
+        (capability) => !supported.includes(capability.kind),
+      ).map((capability) => capability.kind);
+      add(
+        "capabilities",
+        missing.length === 0 ? "ok" : "attention",
+        missing.length === 0
+          ? "The driver serves every extended action (double/triple click, drag, hover, set value)."
+          : `Not supported by this driver build: ${missing.join(", ")}. Other actions still work.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      add("capabilities", "attention", message);
     }
   } finally {
     await driver.close().catch(() => undefined);

@@ -55,7 +55,27 @@ describe("runDoctor", () => {
       "ok",
       "ok",
       "ok",
+      "ok",
     ]);
+  });
+
+  test("lists the capabilities the installed driver build serves", async () => {
+    const report = await runDoctor(ready());
+    expect(statusOf(report, "capabilities")).toBe("ok");
+  });
+
+  test("flags the extended actions a driver build does not serve", async () => {
+    const report = await runDoctor(
+      ready({
+        openDriver: async () => new FakeDriver([mailApp()], ["double_click", "triple_click"]),
+      }),
+    );
+    expect(report.exitCode).toBe(1);
+    expect(statusOf(report, "capabilities")).toBe("attention");
+    const detail = report.checks.find((check) => check.name === "capabilities")?.detail ?? "";
+    expect(detail).toContain("drag");
+    expect(detail).toContain("hover");
+    expect(detail).toContain("set_value");
   });
 
   test("blocks an unsupported machine before looking for the driver", async () => {
