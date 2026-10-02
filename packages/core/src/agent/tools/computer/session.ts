@@ -26,11 +26,13 @@ import {
 } from "./app-policy";
 import { clearSessionInfo, clearStopRequest, stopRequestedSince } from "./control";
 import {
+  CAPABILITY_UNSUPPORTED_CODE,
   type ActionEffect,
   type ComputerDriver,
   type DeliveryMode,
   type DriverApp,
   type DriverWindow,
+  type MouseButton,
   type ScrollDirection,
   STALE_ELEMENT_CODE,
   DriverError,
@@ -58,6 +60,8 @@ const MAX_RETAINED_CAPTURES = 5;
 
 /** Most lines one scroll moves. */
 export const MAX_SCROLL_AMOUNT = 20;
+const MAX_HOLD_MS = 30_000;
+const MAX_KEY_REPEAT = 100;
 
 const OBSERVATION_ID_PATTERN = /^c(\d+)$/;
 
@@ -98,9 +102,44 @@ export interface ObserveInput {
 }
 
 export type ActionInput =
-  | { readonly kind: "click"; readonly ref: string; readonly delivery: DeliveryMode }
+  | {
+      readonly kind: "click";
+      readonly ref: string;
+      readonly button?: MouseButton;
+      readonly delivery: DeliveryMode;
+    }
   | {
       readonly kind: "click_point";
+      readonly observation: string;
+      readonly x: number;
+      readonly y: number;
+      readonly button?: MouseButton;
+      readonly delivery: DeliveryMode;
+    }
+  | { readonly kind: "double_click"; readonly ref: string; readonly delivery: DeliveryMode }
+  | { readonly kind: "triple_click"; readonly ref: string; readonly delivery: DeliveryMode }
+  | {
+      readonly kind: "drag";
+      readonly fromRef: string;
+      readonly toRef: string;
+      readonly delivery: DeliveryMode;
+    }
+  | {
+      readonly kind: "drag_points";
+      readonly observation: string;
+      readonly fromX: number;
+      readonly fromY: number;
+      readonly toX: number;
+      readonly toY: number;
+      readonly delivery: DeliveryMode;
+    }
+  | {
+      readonly kind: "hover";
+      readonly ref: string;
+      readonly delivery: DeliveryMode;
+    }
+  | {
+      readonly kind: "hover_point";
       readonly observation: string;
       readonly x: number;
       readonly y: number;
@@ -121,10 +160,26 @@ export type ActionInput =
       readonly secretPlaceholderGiven: boolean;
     }
   | {
+      readonly kind: "set_value";
+      readonly ref: string;
+      readonly text: string;
+      readonly delivery: DeliveryMode;
+      readonly secretPlaceholderGiven: boolean;
+    }
+  | {
       readonly kind: "key";
       readonly observation: string;
       readonly key: string;
       readonly modifiers: readonly string[];
+      readonly repeat?: number;
+      readonly delivery: DeliveryMode;
+    }
+  | {
+      readonly kind: "hold_key";
+      readonly observation: string;
+      readonly key: string;
+      readonly modifiers: readonly string[];
+      readonly durationMs: number;
       readonly delivery: DeliveryMode;
     };
 
@@ -151,12 +206,20 @@ function kindOf(action: ActionInput): ActionKind {
   switch (action.kind) {
     case "click":
     case "click_point":
+    case "double_click":
+    case "triple_click":
+    case "drag":
+    case "drag_points":
+    case "hover":
+    case "hover_point":
       return "click";
     case "scroll":
       return "scroll";
     case "type":
+    case "set_value":
       return "type";
     case "key":
+    case "hold_key":
       return "key";
   }
 }
@@ -200,6 +263,7 @@ export class ComputerSession {
   private queue: Promise<unknown> = Promise.resolve();
   /** Apps approved by the person the first time this run reached them, bundleId to name. */
   private readonly approvedThisRun = new Map<string, string>();
+  private supportedKinds: readonly string[] | undefined;
 
   constructor(private readonly settings: ComputerSessionSettings) {
     this.startedAt = this.now();
@@ -592,6 +656,7 @@ export class ComputerSession {
       await this.authorize(observation, kind, action.delivery, grants);
       this.refuseForbidden(action, element);
       const driverAction = this.toDriverAction(action, observation, element);
+      await this.ensureCapability(driverAction.kind);
       const result = await this.settings.driver.act(driverAction);
       this.lastActionAt = this.now();
       await record(result.effect === "refused" ? "refused" : "ok", result.effect);
@@ -628,15 +693,25 @@ export class ComputerSession {
       case "click":
       case "type":
       case "scroll":
+      case "set_value":
         return this.resolveRef(action.ref);
+      case "double_click":
+      case "triple_click":
+      case "hover":
+        return this.resolveRef(action.ref);
+      case "drag":
+        return this.resolveRef(action.fromRef);
       case "click_point":
+      case "drag_points":
+      case "hover_point":
       case "key":
+      case "hold_key":
         return { observation: this.observationById(action.observation), element: undefined };
     }
   }
 
   private refuseForbidden(action: ActionInput, element: ObservedElement | undefined): void {
-    if (action.kind === "type") {
+    if (action.kind === "type" || action.kind === "set_value") {
       const reason = blockedTextReason(action.text);
       if (reason !== undefined) {
         throw new Error(reason);
@@ -647,16 +722,26 @@ export class ComputerSession {
         );
       }
     }
-    if (action.kind === "key") {
+    if (action.kind === "key" || action.kind === "hold_key") {
       const reason = blockedKeyReason([...action.modifiers, action.key]);
       if (reason !== undefined) {
         throw new Error(reason);
       }
-      if (typesCharacter(action.key, action.modifiers)) {
+      if (action.kind === "key" && typesCharacter(action.key, action.modifiers)) {
         throw new Error(
           "Use computer_input type to enter text. Key presses are for named keys and shortcuts.",
         );
       }
+    }
+    if (action.kind === "hold_key" && (action.durationMs < 1 || action.durationMs > MAX_HOLD_MS)) {
+      throw new Error(`Hold duration must be between 1 and ${String(MAX_HOLD_MS)} milliseconds.`);
+    }
+    if (
+      action.kind === "key" &&
+      action.repeat !== undefined &&
+      (action.repeat < 1 || action.repeat > MAX_KEY_REPEAT)
+    ) {
+      throw new Error(`Repeat must be between 1 and ${String(MAX_KEY_REPEAT)}.`);
     }
     if (action.kind === "scroll" && (action.amount < 1 || action.amount > MAX_SCROLL_AMOUNT)) {
       throw new Error(`Scroll amount must be between 1 and ${String(MAX_SCROLL_AMOUNT)}.`);
@@ -675,6 +760,75 @@ export class ComputerSession {
           kind: "click",
           target,
           elementToken: requireElement(element).token,
+          ...(action.button === undefined ? {} : { button: action.button }),
+          delivery: action.delivery,
+        };
+      case "double_click":
+        return {
+          kind: "double_click",
+          target,
+          elementToken: requireElement(element).token,
+          delivery: action.delivery,
+        };
+      case "triple_click":
+        return {
+          kind: "triple_click",
+          target,
+          elementToken: requireElement(element).token,
+          delivery: action.delivery,
+        };
+      case "drag":
+        return {
+          kind: "drag",
+          target,
+          fromElement: requireElement(element).token,
+          toElement: this.resolveRef(action.toRef).element.token,
+          delivery: action.delivery,
+        };
+      case "hover":
+        return {
+          kind: "hover",
+          target,
+          elementToken: requireElement(element).token,
+          delivery: action.delivery,
+        };
+      case "drag_points": {
+        const screenshot = observation.screenshot;
+        if (screenshot === undefined) {
+          throw new Error("Observe the window with screenshot true before dragging by pixel.");
+        }
+        for (const [name, x, y] of [
+          ["from", action.fromX, action.fromY],
+          ["to", action.toX, action.toY],
+        ] as const) {
+          if (x < 0 || y < 0 || x >= screenshot.width || y >= screenshot.height) {
+            throw new Error(
+              `The ${name} point is outside the screenshot (${String(screenshot.width)}x${String(screenshot.height)} px).`,
+            );
+          }
+        }
+        return {
+          kind: "drag",
+          target,
+          fromPoint: { x: action.fromX, y: action.fromY },
+          toPoint: { x: action.toX, y: action.toY },
+          delivery: action.delivery,
+        };
+      }
+      case "hover_point":
+        return {
+          kind: "hover",
+          target,
+          x: action.x,
+          y: action.y,
+          delivery: action.delivery,
+        };
+      case "set_value":
+        return {
+          kind: "set_value",
+          target,
+          elementToken: requireElement(element).token,
+          text: action.text,
           delivery: action.delivery,
         };
       case "type":
@@ -691,6 +845,16 @@ export class ComputerSession {
           target,
           key: action.key,
           modifiers: action.modifiers,
+          ...(action.repeat === undefined ? {} : { repeat: action.repeat }),
+          delivery: action.delivery,
+        };
+      case "hold_key":
+        return {
+          kind: "hold_key",
+          target,
+          key: action.key,
+          modifiers: action.modifiers,
+          durationMs: action.durationMs,
           delivery: action.delivery,
         };
       case "click_point": {
@@ -708,7 +872,14 @@ export class ComputerSession {
             `That point is outside the screenshot (${String(screenshot.width)}x${String(screenshot.height)} px).`,
           );
         }
-        return { kind: "click_point", target, x: action.x, y: action.y, delivery: action.delivery };
+        return {
+          kind: "click_point",
+          target,
+          x: action.x,
+          y: action.y,
+          ...(action.button === undefined ? {} : { button: action.button }),
+          delivery: action.delivery,
+        };
       }
       case "scroll": {
         const point =
@@ -730,6 +901,31 @@ export class ComputerSession {
           delivery: action.delivery,
         };
       }
+    }
+  }
+
+  /**
+   * Confirm this driver build serves the action kind before spending the round trip; a missing
+   * kind is a named failure the tool layer turns into a one-line message.
+   */
+  private async ensureCapability(kind: string): Promise<void> {
+    if (
+      kind === "click" ||
+      kind === "click_point" ||
+      kind === "scroll" ||
+      kind === "type" ||
+      kind === "key"
+    ) {
+      return;
+    }
+    if (this.supportedKinds === undefined) {
+      this.supportedKinds = await this.settings.driver.capabilities();
+    }
+    if (!this.supportedKinds.includes(kind)) {
+      throw new DriverError(
+        `This driver build (${this.settings.driver.version ?? "unknown"}) cannot ${kind}. Upgrade the driver to use it.`,
+        CAPABILITY_UNSUPPORTED_CODE,
+      );
     }
   }
 

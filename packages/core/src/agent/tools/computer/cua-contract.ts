@@ -40,13 +40,51 @@ export const CUA_TOOL_NAMES = {
   listWindows: "list_windows",
   windowState: "get_window_state",
   click: "click",
+  doubleClick: "double_click",
+  tripleClick: "triple_click",
+  drag: "drag",
+  move: "move",
   typeText: "type_text",
+  setValue: "set_value",
   pressKey: "press_key",
   scroll: "scroll",
 } as const;
 
 /** The tools a driver must advertise for computer use to work. */
-export const REQUIRED_CUA_TOOLS: readonly string[] = Object.values(CUA_TOOL_NAMES);
+/**
+ * The tools every driver build must offer: the observation machinery and the minimal action
+ * vocabulary. Extended kinds are advertised separately through {@link actionCapabilities}; a
+ * driver that lacks them still starts and simply reports a smaller capability set.
+ */
+export const REQUIRED_CUA_TOOLS: readonly string[] = [
+  CUA_TOOL_NAMES.listApps,
+  CUA_TOOL_NAMES.listWindows,
+  CUA_TOOL_NAMES.windowState,
+  CUA_TOOL_NAMES.click,
+  CUA_TOOL_NAMES.typeText,
+  CUA_TOOL_NAMES.pressKey,
+  CUA_TOOL_NAMES.scroll,
+];
+
+/**
+ * One extended action kind and the driver tools that back it. `click` and its `button` argument
+ * are required machinery, not an advertised capability.
+ */
+export const EXTENDED_ACTION_CAPABILITIES = [
+  { kind: "double_click", tools: [CUA_TOOL_NAMES.doubleClick] },
+  { kind: "triple_click", tools: [CUA_TOOL_NAMES.tripleClick] },
+  { kind: "drag", tools: [CUA_TOOL_NAMES.drag] },
+  { kind: "hover", tools: [CUA_TOOL_NAMES.move] },
+  { kind: "set_value", tools: [CUA_TOOL_NAMES.setValue] },
+] as const;
+
+/** The extended action kinds a driver offers, derived from the tools it advertises. */
+export function actionCapabilities(offered: readonly string[]): readonly string[] {
+  const offeredSet = new Set(offered);
+  return EXTENDED_ACTION_CAPABILITIES.filter((capability) =>
+    capability.tools.every((tool) => offeredSet.has(tool)),
+  ).map((capability) => capability.kind);
+}
 
 /** Time the driver may spend walking one window's accessibility tree, in milliseconds. */
 export const ACCESSIBILITY_WALK_TIMEOUT_MS = 3_000;
@@ -95,6 +133,7 @@ export function actionCall(action: DriverAction): CuaToolCall {
         arguments: {
           target: windowTarget(action.target),
           element_token: action.elementToken,
+          ...(action.button === undefined ? {} : { button: action.button }),
           delivery_mode: action.delivery,
         },
       };
@@ -105,6 +144,49 @@ export function actionCall(action: DriverAction): CuaToolCall {
           target: windowTarget(action.target),
           x: action.x,
           y: action.y,
+          ...(action.button === undefined ? {} : { button: action.button }),
+          delivery_mode: action.delivery,
+        },
+      };
+    case "double_click":
+      return {
+        name: CUA_TOOL_NAMES.doubleClick,
+        arguments: {
+          target: windowTarget(action.target),
+          element_token: action.elementToken,
+          delivery_mode: action.delivery,
+        },
+      };
+    case "triple_click":
+      return {
+        name: CUA_TOOL_NAMES.tripleClick,
+        arguments: {
+          target: windowTarget(action.target),
+          element_token: action.elementToken,
+          delivery_mode: action.delivery,
+        },
+      };
+    case "drag": {
+      const args: Record<string, unknown> = { target: windowTarget(action.target) };
+      if ("fromElement" in action) {
+        args["from_element_token"] = action.fromElement;
+        args["to_element_token"] = action.toElement;
+      } else {
+        args["from_x"] = action.fromPoint.x;
+        args["from_y"] = action.fromPoint.y;
+        args["to_x"] = action.toPoint.x;
+        args["to_y"] = action.toPoint.y;
+      }
+      args["delivery_mode"] = action.delivery;
+      return { name: CUA_TOOL_NAMES.drag, arguments: args };
+    }
+    case "hover":
+      return {
+        name: CUA_TOOL_NAMES.move,
+        arguments: {
+          target: windowTarget(action.target),
+          ...(action.elementToken !== undefined ? { element_token: action.elementToken } : {}),
+          ...(action.elementToken === undefined ? { x: action.x, y: action.y } : {}),
           delivery_mode: action.delivery,
         },
       };
@@ -132,6 +214,17 @@ export function actionCall(action: DriverAction): CuaToolCall {
           delivery_mode: action.delivery,
         },
       };
+    case "set_value":
+      return {
+        name: CUA_TOOL_NAMES.setValue,
+        arguments: {
+          pid: action.target.pid,
+          window_id: action.target.windowId,
+          element_token: action.elementToken,
+          text: action.text,
+          delivery_mode: action.delivery,
+        },
+      };
     case "key":
       return {
         name: CUA_TOOL_NAMES.pressKey,
@@ -139,6 +232,18 @@ export function actionCall(action: DriverAction): CuaToolCall {
           pid: action.target.pid,
           key: action.key,
           modifiers: action.modifiers,
+          ...(action.repeat === undefined ? {} : { count: action.repeat }),
+          delivery_mode: action.delivery,
+        },
+      };
+    case "hold_key":
+      return {
+        name: CUA_TOOL_NAMES.pressKey,
+        arguments: {
+          pid: action.target.pid,
+          key: action.key,
+          modifiers: action.modifiers,
+          duration_ms: action.durationMs,
           delivery_mode: action.delivery,
         },
       };

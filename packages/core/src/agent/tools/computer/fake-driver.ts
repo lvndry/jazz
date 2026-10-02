@@ -53,7 +53,16 @@ export class FakeDriver implements ComputerDriver {
   screenshotWidth = 800;
   screenshotHeight = 600;
 
-  constructor(public apps: readonly FakeApp[]) {}
+  constructor(
+    public apps: readonly FakeApp[],
+    readonly capabilitiesList: readonly string[] = [
+      "double_click",
+      "triple_click",
+      "drag",
+      "hover",
+      "set_value",
+    ],
+  ) {}
 
   private settle<Value>(operation: () => Value): Promise<Value> {
     try {
@@ -133,6 +142,10 @@ export class FakeDriver implements ComputerDriver {
         windowBounds: { x: 0, y: 0, width: 800, height: 600 },
       };
     });
+  }
+
+  capabilities(): Promise<readonly string[]> {
+    return Promise.resolve(this.capabilitiesList);
   }
 
   async act(action: DriverAction): Promise<DriverActionResult> {

@@ -70,43 +70,75 @@ export type DeliveryMode = "background" | "foreground";
 
 export type ScrollDirection = "up" | "down" | "left" | "right";
 
+export type MouseButton = "left" | "right" | "middle";
+
+/** The one window or element a driver action acts in. */
+type ActionTarget = { readonly target: WindowTarget; readonly delivery: DeliveryMode };
+
+/**
+ * Every primitive computer use can ask a driver to perform. `elementToken` is the opaque handle of
+ * an element from a window state; the driver rejects it when the element is out of date.
+ */
 export type DriverAction =
-  | {
+  | (ActionTarget & {
       readonly kind: "click";
-      readonly target: WindowTarget;
       readonly elementToken: string;
-      readonly delivery: DeliveryMode;
-    }
-  | {
+      readonly button?: MouseButton;
+    })
+  | (ActionTarget & {
       readonly kind: "click_point";
-      readonly target: WindowTarget;
       readonly x: number;
       readonly y: number;
-      readonly delivery: DeliveryMode;
-    }
-  | {
+      readonly button?: MouseButton;
+    })
+  | (ActionTarget & { readonly kind: "double_click"; readonly elementToken: string })
+  | (ActionTarget & { readonly kind: "triple_click"; readonly elementToken: string })
+  | ((
+      | {
+          readonly fromElement: string;
+          readonly toElement: string;
+        }
+      | {
+          readonly fromPoint: { readonly x: number; readonly y: number };
+          readonly toPoint: { readonly x: number; readonly y: number };
+        }
+    ) &
+      ActionTarget & { readonly kind: "drag" })
+  | (ActionTarget & {
+      readonly kind: "hover";
+      readonly elementToken?: string;
+      readonly x?: number;
+      readonly y?: number;
+    })
+  | (ActionTarget & {
       readonly kind: "scroll";
-      readonly target: WindowTarget;
       readonly x: number;
       readonly y: number;
       readonly direction: ScrollDirection;
       readonly amount: number;
-      readonly delivery: DeliveryMode;
-    }
-  | {
+    })
+  | (ActionTarget & {
       readonly kind: "type";
-      readonly target: WindowTarget;
       readonly elementToken: string;
       readonly text: string;
-      readonly delivery: DeliveryMode;
-    }
-  | {
+    })
+  | (ActionTarget & {
+      readonly kind: "set_value";
+      readonly elementToken: string;
+      readonly text: string;
+    })
+  | (ActionTarget & {
       readonly kind: "key";
-      readonly target: WindowTarget;
       readonly key: string;
       readonly modifiers: readonly string[];
-      readonly delivery: DeliveryMode;
-    };
+      readonly repeat?: number;
+    })
+  | (ActionTarget & {
+      readonly kind: "hold_key";
+      readonly key: string;
+      readonly modifiers: readonly string[];
+      readonly durationMs: number;
+    });
 
 /** How far the driver could confirm that an action did what was asked. */
 export type ActionEffect = "confirmed" | "partial" | "unverifiable" | "suspected_noop" | "refused";
@@ -140,11 +172,19 @@ export class DriverError extends Error {
 /** Raised when the driver reports that the element handle no longer matches the window. */
 export const STALE_ELEMENT_CODE = "stale_element_token";
 
+/** Raised when the driver build cannot serve an action kind at all. */
+export const CAPABILITY_UNSUPPORTED_CODE = "capability_unsupported";
+
 export interface ComputerDriver {
   /** The driver's own version string, when it reports one. */
   readonly version: string | null;
   /** The operating-system pid of the driver process, for stopping it from outside the run. */
   readonly pid: number | null;
+  /**
+   * The action kinds this driver build serves. Checked before an action reaches the driver so a
+   * missing kind fails with a named error instead of a driver round trip.
+   */
+  capabilities(): Promise<readonly string[]>;
   listApps(): Promise<readonly DriverApp[]>;
   listWindows(pid: number): Promise<readonly DriverWindow[]>;
   windowState(target: WindowTarget, options: WindowStateOptions): Promise<DriverWindowState>;
