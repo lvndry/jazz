@@ -1452,6 +1452,13 @@ function runIteration(
     }
 
     const contextUsage = runContextWindowManager.usage(state.currentMessages);
+    if (!options.internal) {
+      yield* observer.onContextUsage(
+        agent.name,
+        contextUsage.currentTokens,
+        contextUsage.budgetTokens,
+      );
+    }
     if (contextUsage.shouldWarn && !contextUsage.shouldCompact && !state.contextPressureWarned) {
       state.contextPressureWarned = true;
       yield* logger.info("Context window filling up", {

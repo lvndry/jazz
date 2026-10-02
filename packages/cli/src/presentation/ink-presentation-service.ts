@@ -1267,6 +1267,16 @@ export class InkPresentationService implements PresentationService {
     return Effect.void;
   }
 
+  presentContextUsage(
+    _agentName: string,
+    tokensUsed: number,
+    budgetTokens: number,
+  ): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.updateRunStats({ tokensInContext: tokensUsed, maxContextTokens: budgetTokens });
+    });
+  }
+
   presentInterrupted(_agentName: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
       // The fullscreen transcript settles the stop as its own block, snapshotted when the

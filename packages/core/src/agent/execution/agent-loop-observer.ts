@@ -66,6 +66,12 @@ export interface AgentLoopObserver {
    * backstop firing, which means compaction could not bring the run under budget.
    */
   onHistoryTrimmed(agentName: string, messagesRemoved: number): Effect.Effect<void, never, never>;
+  /** The loop's token estimate for the next request, published every iteration. */
+  onContextUsage(
+    agentName: string,
+    tokensUsed: number,
+    budgetTokens: number,
+  ): Effect.Effect<void, never, never>;
   /** The conversation passed the warn threshold; compaction has not run yet. */
   onContextPressure(
     agentName: string,
@@ -161,6 +167,8 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
         agentName,
         `context still over budget after compacting — dropped ${messagesRemoved} older message(s) without summarizing them`,
       ),
+    onContextUsage: (agentName, tokensUsed, budgetTokens) =>
+      presentation.presentContextUsage?.(agentName, tokensUsed, budgetTokens) ?? Effect.void,
     onContextPressure: (agentName, percentUsed, budgetTokens) =>
       presentation.presentWarning(
         agentName,

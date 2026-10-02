@@ -74,6 +74,26 @@ describe("makeDefaultObserver", () => {
     expect(calls[0]).toContain("context 72% full of 128,000 tokens");
   });
 
+  it("forwards the loop's token estimate to the presentation meter", async () => {
+    const received: Array<[number, number]> = [];
+    const { service } = recordingPresentation();
+    const observer = makeDefaultObserver({
+      ...service,
+      presentContextUsage: (_agentName, tokensUsed, budgetTokens) =>
+        Effect.sync(() => {
+          received.push([tokensUsed, budgetTokens]);
+        }),
+    });
+    await Effect.runPromise(observer.onContextUsage("Agent", 186_000, 262_144));
+    expect(received).toEqual([[186_000, 262_144]]);
+  });
+
+  it("ignores context usage on a presentation without a meter", async () => {
+    const { service, calls } = recordingPresentation();
+    await Effect.runPromise(makeDefaultObserver(service).onContextUsage("Agent", 1, 2));
+    expect(calls).toEqual([]);
+  });
+
   it("warns with the percentage used and budget on iteration pressure", async () => {
     const { service, calls } = recordingPresentation();
     await Effect.runPromise(makeDefaultObserver(service).onIterationPressure("Agent", 50, 100));

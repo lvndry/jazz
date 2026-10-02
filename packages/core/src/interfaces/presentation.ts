@@ -134,6 +134,17 @@ export interface PresentationService {
    */
   readonly presentInterrupted?: (agentName: string) => Effect.Effect<void, never>;
 
+  /**
+   * The loop's own estimate of the window, published each iteration before the next request,
+   * so a meter shows the figure that drives the warning and compaction. Optional: surfaces
+   * without a meter ignore it.
+   */
+  readonly presentContextUsage?: (
+    agentName: string,
+    tokensUsed: number,
+    budgetTokens: number,
+  ) => Effect.Effect<void, never>;
+
   /** Present an agent response, optionally inside its delegated run's detail log. */
   readonly presentAgentResponse: (
     agentName: string,

@@ -176,6 +176,7 @@ function recordingObserver() {
       Effect.sync(() => void calls.push(`context-window-unknown:${name}`)),
     onHistoryTrimmed: (name: string, messagesRemoved: number) =>
       Effect.sync(() => void calls.push(`history-trimmed:${name}:${messagesRemoved}`)),
+    onContextUsage: () => Effect.void,
     onContextPressure: (name: string, percentUsed: number) =>
       Effect.sync(() => void calls.push(`context-pressure:${name}:${percentUsed}`)),
     onToolResultsCompacted: (
