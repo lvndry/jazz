@@ -94,7 +94,7 @@ describe("pending waits in the list", () => {
     expect(rows).toHaveLength(4);
     expect(rows[1]).toContain("2 pending waits");
     expect(rows[1]).toContain("x to cancel");
-    expect(rows[3]).toContain("> Deploy");
+    expect(rows[3]).toContain(`${getGlyphs().promptCursor} Deploy`);
     expect(rows[3]).toContain("gives up in 1m");
   });
 
