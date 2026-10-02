@@ -357,8 +357,6 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
           ...(context.toolCallId ? { parentToolCallId: context.toolCallId } : {}),
         },
       }),
-      // The runner always sets maxSubagentIterations (Infinity on an attended run, where the
-      // child is likewise unlimited); the fallback covers test harnesses without a runner.
       maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
       ...(remainingBudget.maxDurationMs !== undefined
         ? { maxDurationMs: remainingBudget.maxDurationMs }
@@ -635,7 +633,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "spawn_subagent",
       companionTools: ["wait_subagents", "list_subagents", "steer_subagent"],
       disclosure: "private",
-      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, a 30-minute timeout and a bounded iteration budget (30 on an unattended run, more or unlimited when the parent is a live terminal conversation); at most ${String(MAX_LIVE_SUBAGENTS)} run at once and nesting stops at depth 3.`,
+      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, a 30-minute timeout; at most ${String(MAX_LIVE_SUBAGENTS)} run at once and nesting stops at depth 3.`,
       parameters: spawnSubagentSchema,
       hidden: false,
       // Spawning grants nothing: the child holds at most this run's tools under this run's
