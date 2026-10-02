@@ -44,6 +44,7 @@ import {
   FileSystemContextServiceTag,
   type FileSystemContextService,
 } from "@jazz/core/interfaces/fs";
+import { type JazzStateService } from "@jazz/core/interfaces/jazz-state";
 import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import {
@@ -177,6 +178,7 @@ export function handleSpecialCommand(
   | MCPServerManager
   | FileSystem.FileSystem
   | PersonaService
+  | JazzStateService
 > {
   const { agent, conversationId, conversationHistory } = context;
 
