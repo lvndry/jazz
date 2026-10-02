@@ -1,7 +1,7 @@
 /**
  * Execute parsed chat commands through shared application services. handleSpecialCommand
  * returns explicit session changes for the chat loop to apply; title edits persist before
- * reporting success, agent creation leaves the active conversation in place, and /start
+ * reporting success, agent creation leaves the active conversation in place, and /new
  * requests a fresh conversation after saving the current one. Local command output stays in
  * the UI transcript rather than being inserted into model context unless a command opts in.
  */
@@ -33,7 +33,10 @@ import {
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
 import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell";
-import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
+import {
+  BUILTIN_TOOL_CATEGORIES,
+  DEFAULT_AGENT_TOOL_CATEGORIES,
+} from "@jazz/core/agent/tools/tool-categories";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
@@ -44,6 +47,7 @@ import {
   FileSystemContextServiceTag,
   type FileSystemContextService,
 } from "@jazz/core/interfaces/fs";
+import { type JazzStateService } from "@jazz/core/interfaces/jazz-state";
 import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import {
@@ -177,6 +181,7 @@ export function handleSpecialCommand(
   | MCPServerManager
   | FileSystem.FileSystem
   | PersonaService
+  | JazzStateService
 > {
   const { agent, conversationId, conversationHistory } = context;
 
@@ -885,7 +890,7 @@ function handleToolsCommand(
         ? toolProfile.categories
         : agent.config.persona === "summarizer"
           ? []
-          : BUILTIN_TOOL_CATEGORIES.map((c) => c.id);
+          : DEFAULT_AGENT_TOOL_CATEGORIES.map((c) => c.id);
 
     const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((c) => c.id));
     const builtInToolNames = (yield* Effect.all(

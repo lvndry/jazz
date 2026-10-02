@@ -146,7 +146,11 @@ export function createEgressTaint(history: readonly ChatMessage[] = []): EgressT
 export const FIXED_ENDPOINT_EGRESS_TOOLS: ReadonlySet<string> = new Set(["web_search"]);
 
 /** Built-in URL tools that only ever issue a GET, so their arguments carry no method. */
-const GET_ONLY_URL_TOOLS: ReadonlySet<string> = new Set(["web_fetch", "read_pdf"]);
+const GET_ONLY_URL_TOOLS: ReadonlySet<string> = new Set([
+  "web_fetch",
+  "read_pdf",
+  "browser_navigate",
+]);
 
 /**
  * The HTTP method a built-in URL tool will send, uppercased, or undefined when the tool does not
@@ -177,7 +181,9 @@ function describeRequest(toolName: string, args: Record<string, unknown>, url: s
 /** The URL of a call that sends nothing but that URL, or undefined for any other call. */
 function plainGetUrl(toolName: string, args: Record<string, unknown>): string | undefined {
   const url = args["url"];
-  return toolName === "read_pdf" && typeof url === "string" ? url : undefined;
+  return (toolName === "read_pdf" || toolName === "browser_navigate") && typeof url === "string"
+    ? url
+    : undefined;
 }
 
 function urlSpellings(url: string): readonly string[] {

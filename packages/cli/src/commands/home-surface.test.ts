@@ -26,7 +26,6 @@ describe("buildHome", () => {
     expect(home.agents[0]?.lastUsed).toBe("2h ago");
     expect(home.agents[1]?.lastUsed).toBeUndefined();
     expect(home.commands.map((command) => command.name)).toEqual([
-      "start",
       "new",
       "create",
       "resume",

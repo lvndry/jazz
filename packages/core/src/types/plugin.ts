@@ -13,6 +13,14 @@ export const MAX_PLUGIN_IDENTIFIER_LENGTH = 128;
 export const MAX_COMMAND_RISK_COMMAND_CHARS = 4_000;
 export const MAX_POLICY_ABSTENTION_REASON_CHARS = 512;
 export const DEFAULT_PLUGIN_HOOK_TIMEOUT_MS = 2_000;
+/**
+ * Bounds on what a page hook receives. A page hook sees element labels and metadata, never the
+ * page body, so these keep the request small and the exposure to the destination minimal.
+ */
+export const MAX_PAGE_ELEMENTS = 200;
+export const MAX_PAGE_LABEL_CHARS = 120;
+export const MAX_PAGE_TITLE_CHARS = 200;
+export const MAX_ROUTE_REQUEST_CHARS = 2_000;
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
@@ -71,11 +79,66 @@ export type CompactToolsOutcome =
   | { readonly status: "answered"; readonly decisions: readonly CompactToolsDecision[] }
   | { readonly status: "abstained"; readonly reason: string };
 
+/** What a page classification can say about the current page. A flag only adds scrutiny. */
+export type PageFlagId = "credential-entry" | "payment" | "captcha" | "agent-directed-instructions";
+
+export interface PageElementSummary {
+  readonly ref: string;
+  readonly role: string;
+  readonly label: string;
+}
+
+/** Facts the browser read from the page structure itself, not from its text. */
+export interface PageStructuralSignals {
+  readonly passwordField: boolean;
+  readonly paymentField: boolean;
+}
+
+export interface ClassifyPageInput {
+  /** Scheme and host only: never a path, query, or fragment. */
+  readonly origin: string;
+  readonly title: string;
+  readonly elements: readonly PageElementSummary[];
+  readonly signals: PageStructuralSignals;
+}
+
+export interface PageFlagProbability {
+  readonly flag: PageFlagId;
+  readonly probability: number;
+}
+
+export type ClassifyPageOutcome =
+  | { readonly status: "answered"; readonly flags: readonly PageFlagProbability[] }
+  | { readonly status: "abstained"; readonly reason: string };
+
+export interface RouteSnapshotInput {
+  readonly requestText: string;
+  readonly origin: string;
+  readonly elements: readonly PageElementSummary[];
+}
+
+export interface SnapshotRouteDistribution {
+  readonly elements: readonly { readonly ref: string; readonly probability: number }[];
+  readonly noElementProbability: number;
+}
+
+export type RouteSnapshotOutcome =
+  | { readonly status: "answered"; readonly distribution: SnapshotRouteDistribution }
+  | { readonly status: "abstained"; readonly reason: string };
+
 export interface AdvisoryHookContracts {
   readonly "route.skills": { readonly input: SkillRouteInput; readonly output: SkillRouteOutcome };
   readonly "compact.tools": {
     readonly input: CompactToolsInput;
     readonly output: CompactToolsOutcome;
+  };
+  readonly "classify.page": {
+    readonly input: ClassifyPageInput;
+    readonly output: ClassifyPageOutcome;
+  };
+  readonly "route.snapshot": {
+    readonly input: RouteSnapshotInput;
+    readonly output: RouteSnapshotOutcome;
   };
 }
 

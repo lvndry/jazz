@@ -33,7 +33,7 @@ import type { PersonaToolProfile } from "@/core/types/persona";
 import { PROPOSE_GOAL_TOOL_NAME } from "./goal";
 import { REPORT_GOAL_CYCLE_TOOL_NAME } from "./goal-report";
 import { END_LOOP_TOOL_NAME } from "./loop";
-import { BUILTIN_TOOL_CATEGORIES } from "./tool-categories";
+import { BUILTIN_TOOL_CATEGORIES, DEFAULT_AGENT_TOOL_CATEGORIES } from "./tool-categories";
 
 /**
  * Every tool withheld from this agent, from either scope that can withhold one.
@@ -104,7 +104,7 @@ export function resolveAgentToolNames(
         ? toolProfile.categories
         : agent.config.persona === "summarizer"
           ? []
-          : BUILTIN_TOOL_CATEGORIES.map((category) => category.id);
+          : DEFAULT_AGENT_TOOL_CATEGORIES.map((category) => category.id);
 
     const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((category) => category.id));
     const builtInToolNames = (yield* Effect.all(

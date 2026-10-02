@@ -117,8 +117,8 @@ describe("keys", () => {
     });
   });
 
-  it("/start answers with its command, leaving the agent to be picked", () => {
-    expect(homeIntent(HOME, at({ agentId: "luna", draft: "/start" }), { name: "return" })).toEqual({
+  it("/new answers with its command, leaving the agent to be picked", () => {
+    expect(homeIntent(HOME, at({ agentId: "luna", draft: "/new" }), { name: "return" })).toEqual({
       kind: "answer",
       value: "start-conversation",
     });

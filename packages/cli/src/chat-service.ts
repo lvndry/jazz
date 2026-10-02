@@ -671,7 +671,7 @@ export class ChatServiceImpl implements ChatService {
               if (!commandResult.skipTranscriptRepaint) {
                 hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
                 // The agent now sees a different history, so ↑ must recall it —
-                // /start recalls nothing, /resume recalls the resumed turns.
+                // /new recalls nothing, /resume recalls the resumed turns.
                 hydrateInputHistoryFromMessages(conversationHistory);
               }
               if (commandResult.resendMessage !== undefined) {
@@ -680,7 +680,7 @@ export class ChatServiceImpl implements ChatService {
                 // entire pre-retry history as duplicate events).
                 loggedMessageCount = Math.min(loggedMessageCount, conversationHistory.length);
               } else {
-                // Reset logged message count when history is cleared (e.g., /start command)
+                // Reset logged message count when history is cleared (e.g., /new command)
                 loggedMessageCount = 0;
               }
             }

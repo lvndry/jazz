@@ -11,6 +11,7 @@ import {
   PluginRuntimeError,
   type AdvisoryHookHandler,
   type AdvisoryHookId,
+  type ClassifyPageOutcome,
   type CommandRiskOutcome,
   type CompactToolsOutcome,
   type DecisionBatchResult,
@@ -33,6 +34,7 @@ import {
   type PluginToolResult,
   type PluginToolPreparation,
   type JsonValue,
+  type RouteSnapshotOutcome,
   type SkillRouteOutcome,
   type WorkspaceContextHandler,
   type WorkspaceContextInput,
@@ -42,11 +44,15 @@ import { toError } from "@/core/utils/errors";
 import {
   validateDecisionRequest,
   validateDecisionResult,
+  validateClassifyPageInput,
+  validateClassifyPageOutcome,
   validateCommandRiskInput,
   validateCommandRiskOutcome,
   validateCompactToolsInput,
   validateCompactToolsOutcome,
   validatePluginManifest,
+  validateRouteSnapshotInput,
+  validateRouteSnapshotOutcome,
   validateSkillRouteDistribution,
   validateSkillRouteInput,
 } from "./validation";
@@ -105,6 +111,14 @@ const toolError = (message: string): PluginToolResult => ({ content: message, is
 const abstainedRoute = (reason: string): SkillRouteOutcome => ({ status: "abstained", reason });
 const abstainedPolicy = (reason: string): CommandRiskOutcome => ({ status: "abstained", reason });
 const abstainedCompact = (reason: string): CompactToolsOutcome => ({ status: "abstained", reason });
+const abstainedClassifyPage = (reason: string): ClassifyPageOutcome => ({
+  status: "abstained",
+  reason,
+});
+const abstainedRouteSnapshot = (reason: string): RouteSnapshotOutcome => ({
+  status: "abstained",
+  reason,
+});
 
 function abstainedBatch(
   providerId: string,
@@ -416,6 +430,47 @@ export function createPluginSession(
             } catch (error) {
               options.reportFailure?.(registration.pluginId, toError(error).message);
               return abstainedCompact("plugin handler failed");
+            }
+          }),
+        runClassifyPage: (rawInput) =>
+          Effect.promise(async () => {
+            if (closed) return abstainedClassifyPage("plugin session closed");
+            const registration = hooks.get("classify.page");
+            if (!registration) return abstainedClassifyPage("no plugin handler");
+            try {
+              const input = validateClassifyPageInput(rawInput);
+              const outcome = await deadline(
+                (signal) =>
+                  (registration.handler as unknown as AdvisoryHookHandler<"classify.page">)(input, {
+                    signal,
+                  }),
+                timeoutMs,
+              );
+              return validateClassifyPageOutcome(outcome);
+            } catch (error) {
+              options.reportFailure?.(registration.pluginId, toError(error).message);
+              return abstainedClassifyPage("plugin handler failed");
+            }
+          }),
+        runRouteSnapshot: (rawInput) =>
+          Effect.promise(async () => {
+            if (closed) return abstainedRouteSnapshot("plugin session closed");
+            const registration = hooks.get("route.snapshot");
+            if (!registration) return abstainedRouteSnapshot("no plugin handler");
+            try {
+              const input = validateRouteSnapshotInput(rawInput);
+              const outcome = await deadline(
+                (signal) =>
+                  (registration.handler as unknown as AdvisoryHookHandler<"route.snapshot">)(
+                    input,
+                    { signal },
+                  ),
+                timeoutMs,
+              );
+              return validateRouteSnapshotOutcome(input, outcome);
+            } catch (error) {
+              options.reportFailure?.(registration.pluginId, toError(error).message);
+              return abstainedRouteSnapshot("plugin handler failed");
             }
           }),
         runWorkspace: (rawInput) =>

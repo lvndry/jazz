@@ -97,13 +97,14 @@ import { discoverProjectInstructions, type ProjectInstructionFile } from "./proj
 import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
 import { runToolDenials } from "./tools/agent-tool-resolution";
+import { BrowserSessions } from "./tools/browser/session";
 import { resolveCommandRisk } from "./tools/command-risk";
 import { registerCustomToolsForAgent } from "./tools/custom";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
-import { registerPeerTools } from "./tools/register-tools";
+import { registerBrowserAdoptionTools, registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
-import { BUILTIN_TOOL_CATEGORIES } from "./tools/tool-categories";
+import { BUILTIN_TOOL_CATEGORIES, DEFAULT_AGENT_TOOL_CATEGORIES } from "./tools/tool-categories";
 import { INTERACTIVE_TOOL_NAMES } from "./tools/user-interaction";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
@@ -594,6 +595,7 @@ function initializeAgentRun(
     // Registered per run rather than globally, because whether it exists at all depends on
     // the config: an agent with no peers never sees the tool.
     yield* registerPeerTools().pipe(Effect.catchAll(() => Effect.void));
+    yield* registerBrowserAdoptionTools().pipe(Effect.catchAll(() => Effect.void));
 
     // Register MCP tools for this agent if needed (only connects to relevant servers)
     // This happens before validation so MCP tools are available
@@ -630,7 +632,7 @@ function initializeAgentRun(
       if (toolProfile?.categories !== undefined) return toolProfile.categories;
       // Back-compat: summarizer with no profile keeps its empty bundle.
       if (persona === "summarizer") return [];
-      return BUILTIN_TOOL_CATEGORIES.map((c) => c.id);
+      return DEFAULT_AGENT_TOOL_CATEGORIES.map((c) => c.id);
     })();
 
     const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((c) => c.id));
@@ -866,6 +868,8 @@ function initializeAgentRun(
                   command: candidate,
                 }),
               ),
+            classifyPage: pluginSession.value.runClassifyPage,
+            routeSnapshot: pluginSession.value.runRouteSnapshot,
           }
         : {}),
       // Always pass arrays by reference so that in-place mutations via
@@ -908,6 +912,9 @@ function initializeAgentRun(
         ? { resolvedUserSecrets: options.resolvedUserSecrets }
         : {}),
       ...(options.userSecrets !== undefined ? { userSecrets: options.userSecrets } : {}),
+      ...(options.browserSessions !== undefined
+        ? { browserSessions: options.browserSessions }
+        : {}),
       subagentDepth: options.subagentDepth ?? 0,
       maxSubagentDepth: Math.max(
         0,
@@ -1100,8 +1107,17 @@ export class AgentRunner {
             Effect.sync(() => closeUserSecretStore(store)),
           ));
 
+        // The run's browser launches on the first browser tool call; a top-level run closes it
+        // when it ends, and a sub-agent shares its parent's.
+        const browserSessions =
+          options.browserSessions ??
+          (yield* Effect.acquireRelease(
+            Effect.sync(() => new BrowserSessions()),
+            (sessions) => Effect.promise(() => sessions.close()),
+          ));
+
         // Initialize run context
-        const runContext = yield* initializeAgentRun({ ...options, userSecrets });
+        const runContext = yield* initializeAgentRun({ ...options, userSecrets, browserSessions });
 
         // Internal runs without their own panel (compaction) must not take over
         // the parent's stream — a streamed completion finalizes the transcript,

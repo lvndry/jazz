@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createEgressTaint } from "@/core/agent/execution/egress-taint";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { BrowserSessions } from "./browser/session";
 import { childRunAuthority } from "./child-run-authority";
 
 const base = { agentId: "a", conversationId: "c" };
@@ -41,6 +42,12 @@ describe("childRunAuthority", () => {
     expect(childRunAuthority(base).toolAllowlist).toEqual([]);
     expect(childRunAuthority({ ...base, unrestrictedTools: true }).toolAllowlist).toBeUndefined();
   });
+  it("shares the parent's browser, so a sub-agent drives the same pages and the parent closes them", () => {
+    const browserSessions = new BrowserSessions();
+    expect(childRunAuthority({ ...base, browserSessions }).browserSessions).toBe(browserSessions);
+    expect(childRunAuthority(base).browserSessions).toBeUndefined();
+  });
+
   it("shares the parent's egress taint, so untrusted content the parent read still gates the child", () => {
     const egressTaint = createEgressTaint();
     expect(childRunAuthority({ ...base, egressTaint }).egressTaint).toBe(egressTaint);

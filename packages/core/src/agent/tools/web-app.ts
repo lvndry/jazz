@@ -13,6 +13,7 @@ import { getUserDataDirectory } from "@/core/utils/paths";
 import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 import { storageSafeSegment } from "@/core/utils/storage-id";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { CHROME_RELEASE_CHANNELS } from "./chromium-default";
 import { openCompletedCompositionInBrowser } from "./composition-browser";
 import { type EgressPolicy, egressPolicyForContext } from "./guarded-fetch";
 import { guardPageRequests } from "./guarded-page";
@@ -41,14 +42,6 @@ import { toolKnownSecrets } from "./tool-secrets";
 function getCompositionsDirectory(sessionId: string): string {
   return `${getUserDataDirectory()}/compositions/${storageSafeSegment(sessionId)}`;
 }
-
-/** Tried in order when `PUPPETEER_EXECUTABLE_PATH` is unset. */
-const CHROME_RELEASE_CHANNELS: readonly ChromeReleaseChannel[] = [
-  "chrome",
-  "chrome-beta",
-  "chrome-dev",
-  "chrome-canary",
-];
 
 export const MISSING_BROWSER_ERROR =
   "create_composition with mode 'static' needs a Chrome or Chromium install to screenshot the page, " +

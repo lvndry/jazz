@@ -748,6 +748,23 @@ describe("checkConfigWrite", () => {
     expect(checkConfigWrite("network", { allowPrivate: ["nas.lan"] }).ok).toBe(false);
   });
 
+  it("accepts a browser endpoint as an http(s) or ws(s) DevTools URL", () => {
+    for (const endpoint of [
+      "http://127.0.0.1:9222",
+      "https://browser.example.com",
+      "ws://127.0.0.1:9222/devtools/browser/abc",
+      "wss://browser.example.com/devtools",
+    ]) {
+      expect(checkConfigWrite("browser.endpoint", endpoint)).toEqual({ ok: true });
+    }
+  });
+
+  it("refuses a browser endpoint that is not an http(s) or ws(s) URL", () => {
+    for (const endpoint of ["file:///tmp/chrome", "127.0.0.1:9222", "ftp://host", 9222]) {
+      expect(checkConfigWrite("browser.endpoint", endpoint).ok).toBe(false);
+    }
+  });
+
   it("refuses a path that is not a setting", () => {
     expect(checkConfigWrite("wizard.lastUsedAgentId", "a")).toEqual({
       ok: false,

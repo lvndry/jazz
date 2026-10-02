@@ -1,4 +1,5 @@
 import type { Effect } from "effect";
+import type { BrowserSessions } from "@/core/agent/tools/browser/session";
 import type { ProviderName } from "@/core/constants/models";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { UserSecretStore } from "@/core/secrets/user-secrets";
@@ -258,6 +259,11 @@ export interface AgentRunnerOptions {
    * own and closes it when it ends.
    */
   readonly userSecrets?: UserSecretStore;
+  /**
+   * The browser holder of the run this one belongs to, for a sub-agent: it drives the parent's
+   * browser, and the parent closes it. A top-level run opens its own and closes it when it ends.
+   */
+  readonly browserSessions?: BrowserSessions;
   /**
    * This run is continuing a parked one. Its history already ends mid-turn, so no user
    * message is appended.

@@ -4,6 +4,8 @@ import { Context, type Effect } from "effect";
 import type { AgentRunMetrics } from "@/core/agent/metrics/agent-run-metrics";
 import type {
   AdvisoryHookId,
+  ClassifyPageInput,
+  ClassifyPageOutcome,
   CompactToolsInput,
   CompactToolsOutcome,
   LifecycleEvent,
@@ -18,6 +20,8 @@ import type {
   WorkspaceContextInput,
   PolicyHookContracts,
   PolicyHookId,
+  RouteSnapshotInput,
+  RouteSnapshotOutcome,
   SkillRouteInput,
   SkillRouteOutcome,
 } from "@/core/types/plugin";
@@ -32,6 +36,10 @@ export interface PluginSession {
     input: PolicyHookContracts[K]["input"],
   ) => Effect.Effect<PolicyHookContracts[K]["output"]>;
   readonly runCompactTools: (input: CompactToolsInput) => Effect.Effect<CompactToolsOutcome>;
+  /** Advisory page classification; any failure resolves to an abstention and changes nothing. */
+  readonly runClassifyPage: (input: ClassifyPageInput) => Effect.Effect<ClassifyPageOutcome>;
+  /** Advisory snapshot routing; any failure resolves to an abstention and changes nothing. */
+  readonly runRouteSnapshot: (input: RouteSnapshotInput) => Effect.Effect<RouteSnapshotOutcome>;
   /** Bounded ambient context from workspace plugins; empty when none can answer. */
   readonly runWorkspace: (input: WorkspaceContextInput) => Effect.Effect<string | undefined>;
   /** The plugin registered for a hook, so callers can credit it in the UI. Undefined if none. */

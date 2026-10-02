@@ -263,12 +263,7 @@ export const START_COMMAND = "start-conversation";
 
 /** What `/` offers on home. */
 export const HOME_COMMANDS: readonly ActiveHomeCommand[] = [
-  {
-    name: "start",
-    description: "start a conversation with an agent you pick",
-    value: START_COMMAND,
-  },
-  { name: "new", description: "start a fresh conversation", value: START_COMMAND },
+  { name: "new", description: "start a conversation with an agent you pick", value: START_COMMAND },
   { name: "create", description: "create an agent", value: "create-agent" },
   { name: "resume", description: "continue an earlier conversation", value: "resume-conversation" },
   { name: "agents", description: "see, edit or delete your agents", value: "list-agents" },

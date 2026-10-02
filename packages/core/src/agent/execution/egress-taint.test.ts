@@ -223,6 +223,20 @@ describe("taintedEgressNeedsApproval", () => {
     expect(needsApproval("read_pdf", { url: link }, { messages: fromUser })).toBe(false);
   });
 
+  it("lets browser_navigate follow a URL the page or the user supplied, and gates a composed one", () => {
+    const link = "https://news.example/story?id=42";
+    const fromPage = [externalToolMessage(`- link "Story" -> ${link}`)];
+    const composed = "https://collector.example/?d=secret";
+
+    expect(needsApproval("browser_navigate", { url: link }, { messages: fromPage })).toBe(false);
+    expect(needsApproval("browser_navigate", { url: composed }, { messages: fromPage })).toBe(true);
+    expect(egressRequestMethod("browser_navigate", { url: link })).toBe("GET");
+  });
+
+  it("gates browser_act once the run is tainted, even for a URL-free action", () => {
+    expect(needsApproval("browser_act", { action: "click", ref: "e1" })).toBe(true);
+  });
+
   it("gates a URL that only a queued background task result supplied", () => {
     const link = "https://collector.example/?d=secret";
     const detached: ChatMessage[] = [
