@@ -975,7 +975,7 @@ describe("ToolExecutor picker-style approvals", () => {
       ...mockPresentationService,
       requestApproval: (request: ApprovalRequest) => {
         receivedRequests.push(request);
-        return Effect.succeed(outcome);
+        return Effect.succeed(request.isAutoApproved?.() ? { approved: true as const } : outcome);
       },
     } as unknown as PresentationService;
 
@@ -1017,6 +1017,7 @@ describe("ToolExecutor picker-style approvals", () => {
 
     expect(receivedRequests).toHaveLength(1);
     expect(receivedRequests[0]?.options).toHaveLength(2);
+    expect(receivedRequests[0]?.isAutoApproved?.()).toBe(false);
 
     expect(executeArgsSeen).toHaveLength(1);
     const seen = executeArgsSeen[0] as Record<string, unknown> | undefined;
