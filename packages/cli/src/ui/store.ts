@@ -946,6 +946,26 @@ export class UIStore {
   };
 
   /**
+   * Ctrl+O's in-place expansion: the newest settled receipt whose output is longer than the
+   * one-line preview it shows (a shell command's full output) opens under that receipt;
+   * pressing again closes it. Returns false when no receipt has more output to show.
+   */
+  toggleLastReceiptOutput = (): boolean => {
+    for (const entry of [...this.document.entries].reverse()) {
+      if (entry.content.kind !== "tool") continue;
+      const { detail, outputPreview } = entry.content.receipt;
+      if (detail === undefined || outputPreview === undefined) continue;
+      if (detail.trim() === outputPreview.trim()) continue;
+      if (this.expandedReceiptIds.has(entry.id)) this.expandedReceiptIds.delete(entry.id);
+      else this.expandedReceiptIds.add(entry.id);
+      this.refreshClassicProjection();
+      this.schedulePresentationCommit();
+      return true;
+    }
+    return false;
+  };
+
+  /**
    * The newest settled write/edit receipt's full diff, for the classic
    * scrollback to append below the transcript. Unaffected by later tool
    * results, because the diff rides on the receipt itself.

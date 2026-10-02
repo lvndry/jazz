@@ -2046,6 +2046,9 @@ export function FullscreenBridge(): React.ReactNode {
       }
 
       if (isCtrlLetter({ name, ctrl }, "o")) {
+        if (store.toggleLastReceiptOutput()) {
+          return true;
+        }
         const payload = store.getExpandableDiff();
         if (payload === null || payload === undefined) {
           store.printOutput({
