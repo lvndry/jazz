@@ -19,25 +19,41 @@ import {
   type RunState,
 } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag, type RunStore } from "@jazz/core/interfaces/run-store";
-import { writeJsonFileDurably } from "@jazz/core/utils/durable-file";
+import { writeFileDurably } from "@jazz/core/utils/durable-file";
 import { toError } from "@jazz/core/utils/errors";
 import { acquireFileLock } from "@jazz/core/utils/file-lock";
 import { getRunsDirectory } from "@jazz/core/utils/paths";
+import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { Effect, Layer } from "effect";
 
 /** Run ids are UUIDs; anything else came from outside and must not reach a path join. */
 const RUN_ID_PATTERN = /^[0-9a-fA-F-]{8,64}$/;
 
 /**
+ * The on-disk shape of one run file: the record stamped with a `schemaVersion` so a future
+ * format change can migrate instead of guessing. A file written before versioning is a bare
+ * record, which `parse` reads unchanged; the next write stores it stamped.
+ */
+const RUN_RECORD_KIND: StateFileKind<RunRecord> = {
+  noun: "run record",
+  schemaVersion: 1,
+  parse: (document) => {
+    const { schemaVersion: _schemaVersion, ...record } = document as Record<string, unknown>;
+    if (typeof record !== "object" || record === null || Array.isArray(record)) {
+      return { ok: false, error: "expected a run record" };
+    }
+    return { ok: true, content: record as unknown as RunRecord };
+  },
+  serialize: (record) => ({ ...record }),
+};
+
+/**
  * A record that will not parse is treated as absent rather than fatal: a half-written or
  * hand-edited file should cost one run's history, not every listing that walks past it.
  */
 function readRecord(raw: string): RunRecord | undefined {
-  try {
-    return JSON.parse(raw) as RunRecord;
-  } catch {
-    return undefined;
-  }
+  const decoded = decodeStateFile(raw, "run file", RUN_RECORD_KIND);
+  return decoded.status === "ok" ? decoded.content : undefined;
 }
 
 function withState(record: RunRecord, next: RunState, now: Date): RunRecord {
@@ -204,7 +220,7 @@ export class FileRunStore implements RunStore {
    * as a missing one, which for a parked run reads as "your approval is gone".
    */
   private writeRecordFile(record: RunRecord): Promise<void> {
-    return writeJsonFileDurably(this.pathFor(record.runId), record);
+    return writeFileDurably(this.pathFor(record.runId), encodeStateFile(RUN_RECORD_KIND, record));
   }
 
   /** Serializes read-modify-write on one run id across processes so a losing writer's update isn't silently dropped. */

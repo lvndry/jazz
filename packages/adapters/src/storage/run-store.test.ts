@@ -323,6 +323,31 @@ describe("FileRunStore hardening", () => {
     await nodeFs.rm(directory, { recursive: true, force: true });
   });
 
+  it("stamps run files with a schema version and reads ones written before versioning", async () => {
+    const directory = await nodeFs.mkdtemp(path.join(os.tmpdir(), "jazz-runs-"));
+    const store = new FileRunStore(directory, () => TRANSITION_AT);
+    await Effect.runPromise(store.save(record(RUN_ID)));
+    const stored = JSON.parse(
+      await nodeFs.readFile(path.join(directory, `${RUN_ID}.json`), "utf-8"),
+    ) as { schemaVersion: number };
+    expect(stored.schemaVersion).toBe(1);
+
+    const legacy = JSON.parse(
+      await nodeFs.readFile(path.join(directory, `${RUN_ID}.json`), "utf-8"),
+    );
+    delete legacy.schemaVersion;
+    await nodeFs.writeFile(
+      path.join(directory, `${OTHER_RUN_ID}.json`),
+      JSON.stringify(legacy, null, 2),
+      "utf-8",
+    );
+    const loaded = await Effect.runPromise(store.get(OTHER_RUN_ID));
+    // the file holds the copied record, so its runId is the copied one
+    expect(loaded?.runId).toBe(RUN_ID);
+    expect(loaded?.input).toBe("summarize the last 5 commits");
+    await nodeFs.rm(directory, { recursive: true, force: true });
+  });
+
   it("skips an unparseable record instead of failing the listing", async () => {
     const directory = await nodeFs.mkdtemp(path.join(os.tmpdir(), "jazz-runs-"));
     const store = new FileRunStore(directory);
