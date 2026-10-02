@@ -9,6 +9,7 @@
 
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import type { RetryNotice } from "../store";
+import { wrapTerminalCells } from "../text/terminal-cells";
 
 export interface RetryBand {
   readonly title: string;
@@ -18,8 +19,20 @@ export interface RetryBand {
   readonly attempt: string;
 }
 
-/** Rows the band takes in the live zone: title, cause and countdown, then the keys. */
-export const RETRY_BAND_ROWS = 3;
+/** The one sentence the countdown row says, so the wrapped height and the painted rows agree. */
+export function retryCountdownText(band: RetryBand): string {
+  return `${band.cause} Retrying in ${String(band.secondsLeft)}s. Nothing is lost.`;
+}
+
+/**
+ * The rows the band takes at `width`: the title, the wrapped countdown (a cause can carry a
+ * long URL and must not run off the edge), and the keys. One cell is left past the two-cell
+ * error bar, matching how the band paints its rows.
+ */
+export function retryBandHeight(band: RetryBand, width: number): number {
+  const budget = Math.max(1, width - 3);
+  return 1 + Math.max(1, wrapTerminalCells(retryCountdownText(band), budget).length) + 1;
+}
 
 function titleFor(reason: string): string {
   if (reason === "rate limit") return "The model provider is rate limiting";

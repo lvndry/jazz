@@ -28,6 +28,14 @@ export function wrapStyledSpans<Span extends StyledText>(
   const lines: Span[][] = [];
   let line: Span[] = [];
   let used = 0;
+  /** True once the line has carried anything but leading whitespace. */
+  let wordPushed = false;
+  /**
+   * Leading whitespace is part of the line's shape (an indented code line, a
+   * hanging value), not a separator. It may arrive in its own span, so it is
+   * held until the line's first word and re-lands there, never dropped.
+   */
+  let pendingLeading = "";
 
   const push = (span: Span): void => {
     const last = line[line.length - 1];
@@ -42,6 +50,8 @@ export function wrapStyledSpans<Span extends StyledText>(
     lines.push(line);
     line = [];
     used = 0;
+    wordPushed = false;
+    pendingLeading = "";
   };
 
   for (const span of spans) {
@@ -56,6 +66,10 @@ export function wrapStyledSpans<Span extends StyledText>(
         }
         const size = terminalCellWidth(word);
         if (/^\s+$/.test(word)) {
+          if (!wordPushed && used === 0) {
+            pendingLeading += word;
+            continue;
+          }
           if (used > 0 && used + size <= width) {
             push({ ...span, text: word });
             used += size;
@@ -65,9 +79,15 @@ export function wrapStyledSpans<Span extends StyledText>(
         if (used > 0 && used + size > width) {
           breakLine();
         }
+        if (!wordPushed && pendingLeading.length > 0) {
+          push({ ...span, text: pendingLeading });
+          used += terminalCellWidth(pendingLeading);
+          pendingLeading = "";
+        }
         if (size <= width) {
           push({ ...span, text: word });
           used += size;
+          wordPushed = true;
           continue;
         }
         const pieces = wrapTerminalCells(word, width);
@@ -76,6 +96,7 @@ export function wrapStyledSpans<Span extends StyledText>(
           push({ ...span, text });
           used += terminalCellWidth(text);
         }
+        wordPushed = true;
       }
     }
   }

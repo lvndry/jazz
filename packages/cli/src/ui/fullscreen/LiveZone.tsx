@@ -45,12 +45,16 @@ import {
   type StepLine,
   type Viewport,
 } from "./types";
-import { RETRY_BAND_ROWS, type RetryBand } from "../models/retry";
+import { retryBandHeight, type RetryBand } from "../models/retry";
 import { planProgress, planWindow, todoLine } from "../models/todo";
 import { formatElapsed } from "../text/format";
 import { roleStyle } from "../text/roles";
 import { highlightCodeLine } from "../text/syntax-spans";
-import { fitTerminalSegments, terminalSegmentsWidth } from "../text/terminal-cells";
+import {
+  fitTerminalSegments,
+  terminalSegmentsWidth,
+  wrapTerminalCells,
+} from "../text/terminal-cells";
 import { MOTION, THEME } from "../theme";
 
 /** Truncation marker. ASCII, because every monospace font has had it since 1970. */
@@ -306,17 +310,21 @@ function retryRows(band: RetryBand, glyphs: GlyphSet, width: number): LiveRow[] 
     [{ text: `${band.attempt} `, fg: THEME.muted }],
     width,
   );
-  const countdown = alignRow(
-    "retry:countdown",
-    [
-      bar,
-      { text: `${band.cause} Retrying in `, fg: THEME.secondary },
-      { text: `${String(band.secondsLeft)}s`, fg: THEME.selected, bold: true },
-      { text: ". Nothing is lost.", fg: THEME.secondary },
-    ],
-    [],
-    width,
-  );
+  // The cause can carry a long URL, so the countdown wraps: one row per wrapped
+  // fragment, each aligned with the bar, so nothing runs off the edge and is lost.
+  // The wrap budget matches retryBandHeight, so the painted rows and the reserved
+  // row count agree.
+  const rows: LiveRow[] = [title];
+  for (const [index, line] of wrapTerminalCells(
+    `${band.cause} Retrying in ${String(band.secondsLeft)}s. Nothing is lost.`,
+    width - 3,
+  ).entries()) {
+    rows.push({
+      key: `retry:countdown:${String(index)}`,
+      segments: [bar, { text: line, fg: THEME.secondary }],
+      background: THEME.surface,
+    });
+  }
   const keys = alignRow(
     "retry:keys",
     [
@@ -328,11 +336,7 @@ function retryRows(band: RetryBand, glyphs: GlyphSet, width: number): LiveRow[] 
     [],
     width,
   );
-  return [
-    { ...title, background: THEME.surface },
-    { ...countdown, background: THEME.surface },
-    keys,
-  ];
+  return [{ ...title, background: THEME.surface }, ...rows.slice(1), keys];
 }
 
 export interface LiveZoneProps {
@@ -387,15 +391,15 @@ export function liveRows(
   // band's room ahead of the (redundant) manage_todos tool row. The step row is
   // likewise redundant once the checklist header carries the count, so it yields.
   const showTodo = model.todoList !== undefined && model.todoList.length > 0;
-  const otherTools = showTodo ? model.tools.filter((tool) => tool.app !== "manage") : model.tools;
-
-  // Rows are claimed in the order the reader needs them: what is running, then
-  // the plan, then the copy. An under-provisioned reservation therefore loses
-  // the waiting line first — it is the only row that says nothing about state.
+  const retryHeight = model.retry === undefined ? 0 : retryBandHeight(model.retry, width);
+  // The band is shown only when the whole wrapped band fits: the live zone
+  // reserves exactly this many rows for it, so a taller band can never overflow.
   const retry =
-    model.retry === undefined || capacity < RETRY_BAND_ROWS
+    model.retry === undefined || capacity < retryHeight
       ? []
       : retryRows(model.retry, glyphs, width);
+  // The tool rows, or their summary when they overflow the live zone.
+  const otherTools = model.tools;
   const demand = otherTools.length + (model.hiddenTools.length > 0 ? 1 : 0);
   // While a retry is scheduled the band says why nothing is arriving, which is what the
   // waiting line would otherwise guess at.
