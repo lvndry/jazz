@@ -11,7 +11,7 @@ description: "Experimental: let an agent look at and act in desktop apps you gra
 
 Computer use lets an agent read the windows of desktop apps you choose and click, scroll, and
 type in them, without taking over your cursor. Use it for work that only a desktop app can do.
-For web pages, the [browser](./browser.md) is the better tool.
+For web pages, the [browser tools](./browser-use.md) is the better tool.
 
 ## Set it up
 
@@ -181,5 +181,5 @@ window's label is shortened and has secrets redacted. It is stored in `$JAZZ_HOM
 
 - [Computer use safety](../security/secrets-and-egress.md#computer-use-safety-experimental): what the desktop tools can and cannot reach
 - [`jazz computer`](../commands.md#jazz-computer): the operator commands
-- [Browser](./browser.md): reading and acting on web pages
+- [Browser tools](./browser-use.md): reading and acting on web pages
 - [Model companions](./media.md): `analyze_media` for reading screenshots
