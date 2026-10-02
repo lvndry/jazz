@@ -12,7 +12,6 @@ import {
 } from "./driver-pin";
 import { FakeDriver, mailApp } from "./fake-driver";
 import type { ComputerGrant, ComputerState } from "./grants";
-import { NO_GRANTS_MESSAGE } from "./messages";
 import { openComputerSession, processAncestry, SESSION_STARTED_MESSAGE } from "./open";
 import { useTemporaryJazzHome } from "./test-home";
 
@@ -105,12 +104,13 @@ describe("openComputerSession", () => {
 
     await expect(openComputerSession(value)).rejects.toThrow("changed since you acknowledged it");
   });
-
-  test("refuses when no app is granted", async () => {
+  test("opens with no grant: consent is asked on the first reach of each app", async () => {
     const driver = installDriver("driver");
     const { value } = options(driver, stateWith(driver, []));
 
-    await expect(openComputerSession(value)).rejects.toThrow(NO_GRANTS_MESSAGE);
+    const session = await openComputerSession(value);
+    expect((await session.apps())[0]?.name).toBe("Mail");
+    await session.close();
   });
 
   test("refuses when another run holds the desktop, without starting the driver", async () => {

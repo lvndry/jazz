@@ -170,6 +170,23 @@ function typesCharacter(key: string, modifiers: readonly string[]): boolean {
   return key.length === 1 && !modifiers.some(isModifierName);
 }
 
+/**
+ * An action reaches an app this run has neither a grant for nor a first-reach approval. The tools
+ * turn it into a consent ask; performing the action without that ask being answered is a
+ * programming error, not something the person or the model should read.
+ */
+export class FirstReachConsentRequired extends Error {
+  constructor(
+    readonly appName: string,
+    readonly bundleId: string,
+  ) {
+    super(
+      `This run has not been given access to ${appName} yet. Ask the person for the first-reach ` +
+        "consent before acting in this app.",
+    );
+  }
+}
+
 export class ComputerSession {
   readonly startedAt: number;
   private generation = 0;
@@ -249,7 +266,10 @@ export class ComputerSession {
     }).catch(() => undefined);
   }
 
-  /** The granted apps with their running state and windows. */
+  /**
+   * The apps this run may reach: the granted ones with their expiry, plus the running apps that
+   * still need the first-reach consent, so a run with no grants can name what it may ask about.
+   */
   async apps(): Promise<readonly GrantedApp[]> {
     const grants = await this.assertActive();
     const running = await this.settings.driver.listApps();
@@ -276,8 +296,55 @@ export class ComputerSession {
         windows,
       });
     }
+    for (const live of running) {
+      if (
+        !live.running ||
+        live.bundleId === null ||
+        classifyApp(live.bundleId) === "refused" ||
+        this.settings.ancestorPids.has(live.pid) ||
+        report.some((listed) => listed.bundleId === live.bundleId)
+      ) {
+        continue;
+      }
+      report.push({
+        bundleId: live.bundleId,
+        name: live.name,
+        tier: classifyApp(live.bundleId),
+        expiresAt: Number.MAX_SAFE_INTEGER,
+        foreground: false,
+        running: true,
+        windows: (await this.settings.driver.listWindows(live.pid)).filter(
+          (window) => window.onScreen && !window.minimized,
+        ),
+      });
+    }
     this.lastActionAt = this.now();
     return report;
+  }
+
+  /**
+   * The app this action would reach when the run holds no consent for it — no active grant and no
+   * first-reach approval yet. Refused apps and foreground-on-ungranted fail here; everything else
+   * returns the app the tools must put to the person before acting.
+   */
+  async pendingConsent(
+    action: ActionInput,
+  ): Promise<{ readonly appName: string; readonly bundleId: string } | undefined> {
+    const grants = await this.assertActive();
+    const { observation } = this.locate(action);
+    if (this.isConsented(observation.bundleId, grants)) {
+      return undefined;
+    }
+    const appClass = classifyApp(observation.bundleId);
+    if (appClass === "refused") {
+      throw new Error(describeRefusal(observation.bundleId));
+    }
+    if (action.delivery === "foreground") {
+      throw new Error(
+        `${observation.appName} is not granted, so it cannot be brought to the front. Grant it with --foreground, or act on it in the background.`,
+      );
+    }
+    return { appName: observation.appName, bundleId: observation.bundleId };
   }
   private chooseApp(running: readonly DriverApp[], wanted: string | undefined): DriverApp {
     const reachable = running.filter(
@@ -441,15 +508,6 @@ export class ComputerSession {
     }
   }
 
-  describeObservation(observationId: string): string | undefined {
-    try {
-      const observation = this.observationById(observationId);
-      return `${observation.appName} — "${observation.windowTitle}"`;
-    } catch {
-      return undefined;
-    }
-  }
-
   /** Whether the element a ref names is a secure text field. */
   isSecureField(ref: string): boolean {
     try {
@@ -459,16 +517,22 @@ export class ComputerSession {
     }
   }
 
+  describeObservation(observationId: string): string | undefined {
+    try {
+      const observation = this.observationById(observationId);
+      return `${observation.appName} — "${observation.windowTitle}"`;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async authorize(
     observation: Observation,
     kind: ActionKind,
     delivery: DeliveryMode,
     grants: readonly ComputerGrant[],
-  ): Promise<ComputerGrant> {
+  ): Promise<void> {
     const grant = grants.find((candidate) => candidate.bundleId === observation.bundleId);
-    if (grant === undefined) {
-      throw new Error(`Access to ${observation.appName} is no longer granted.`);
-    }
     const appClass = classifyApp(observation.bundleId);
     if (appClass === "refused") {
       throw new Error(describeRefusal(observation.bundleId));
@@ -478,10 +542,17 @@ export class ComputerSession {
         `${observation.appName} is ${appClass}: computer use cannot ${kind === "key" ? "press keys in" : kind} it.`,
       );
     }
-    if (delivery === "foreground" && !grant.foreground) {
+    // Foreground needs a --foreground grant, and a first-reach consent never grants it: this
+    // check runs before the consent check so the message the model gets is the useful one.
+    if (delivery === "foreground" && grant?.foreground !== true) {
       throw new Error(
-        `${observation.appName} is granted for background use only. Grant it with --foreground to let Jazz bring it to the front.`,
+        grant === undefined
+          ? `${observation.appName} is not granted, so it cannot be brought to the front. Grant it with --foreground, or act on it in the background.`
+          : `${observation.appName} is granted for background use only. Grant it with --foreground to let Jazz bring it to the front.`,
       );
+    }
+    if (!this.isConsented(observation.bundleId, grants)) {
+      throw new FirstReachConsentRequired(observation.appName, observation.bundleId);
     }
     const running = await this.settings.driver.listApps();
     const live = running.find(
@@ -491,7 +562,6 @@ export class ComputerSession {
     if (live === undefined || this.settings.ancestorPids.has(live.pid)) {
       throw new Error(`That window no longer belongs to ${observation.appName}. Observe again.`);
     }
-    return grant;
   }
 
   /** Perform one action through the checks, record it, and report what the driver confirmed. */

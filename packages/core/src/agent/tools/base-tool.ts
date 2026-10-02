@@ -231,9 +231,10 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
    *
    * Return types:
    * - `string` — simple approval message
-   * - `{ message, previewDiff?, impact?, alwaysAsk? }` — approval message with an optional diff
-   *   preview, a one-line statement of the concrete effect (`214 files, 1.3 GB`), and/or
-   *   `alwaysAsk`, which puts the call to a person under every auto-approve policy and allowlist
+   * - `{ message, previewDiff?, impact?, alwaysAsk?, rejectionMessage? }` — approval message with an
+   *   optional diff preview, a one-line statement of the concrete effect (`214 files, 1.3 GB`),
+   *   `alwaysAsk`, which puts the call to a person under every auto-approve policy and allowlist,
+   *   and `rejectionMessage`, the message the model receives when the person declines
    * - `{ skipApproval: true, toolResult }` — bypass approval and return result directly to the LLM
    *   (use when pre-validation detects the edit will fail, e.g., pattern not found)
    */
@@ -242,7 +243,13 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
     context: ToolExecutionContext,
   ) => Effect.Effect<
     | string
-    | { message: string; previewDiff?: string; impact?: string; alwaysAsk?: true }
+    | {
+        message: string;
+        previewDiff?: string;
+        impact?: string;
+        alwaysAsk?: true;
+        rejectionMessage?: string;
+      }
     | { skipApproval: true; toolResult: ToolExecutionResult },
     Error,
     R
@@ -336,6 +343,8 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
           typeof approvalResult === "string" ? undefined : approvalResult.previewDiff;
         const impact = typeof approvalResult === "string" ? undefined : approvalResult.impact;
         const alwaysAsk = typeof approvalResult !== "string" && approvalResult.alwaysAsk === true;
+        const rejectionMessage =
+          typeof approvalResult === "string" ? undefined : approvalResult.rejectionMessage;
         return {
           success: false,
           result: {
@@ -347,6 +356,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
             executeToolName: executeToolName,
             executeArgs: args as Record<string, unknown>,
             ...(alwaysAsk ? { alwaysAsk: true } : {}),
+            ...(rejectionMessage === undefined ? {} : { rejectionMessage }),
           },
           error: errorMessage,
         };

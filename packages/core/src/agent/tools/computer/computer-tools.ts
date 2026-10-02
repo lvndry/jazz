@@ -31,6 +31,7 @@ import {
   makeZodValidator,
 } from "../base-tool";
 import { toolKnownSecrets } from "../tool-secrets";
+import { firstReachMessage, rejectionMessageFor } from "./messages";
 import { openComputerSession } from "./open";
 import {
   type ActionInput,
@@ -132,8 +133,9 @@ export function createComputerAppsTool(): Tool<AgentConfigService> {
     summary:
       "List the desktop apps you may control on this computer, what each allows, and their windows (experimental).",
     description:
-      "List the apps the operator granted for computer use, what each one allows, and its " +
-      "visible windows. Call this first, then computer_observe to look at a window.",
+      "List the apps this run may control: the ones the operator granted, plus the running apps " +
+      "you may still reach with a first-reach consent, and each one's visible windows. Call this " +
+      "first, then computer_observe to look at a window.",
     tags: ["computer", "desktop", "apps"],
     parameters: appsParameters,
     validate: makeZodValidator(appsParameters),
@@ -142,15 +144,34 @@ export function createComputerAppsTool(): Tool<AgentConfigService> {
     handler: (_args, context) =>
       withComputer(context, (session) => session.apps()).pipe(
         Effect.map((apps) => {
-          const lines = apps.flatMap((app) => [
-            `- ${app.name} (${app.bundleId}): ${app.tier}${app.foreground ? ", may be brought to the front" : ""}, ${app.running ? "running" : "not running"}, granted until ${formatExpiry(app.expiresAt)}`,
-            ...app.windows.map(
-              (window) => `    window ${String(window.windowId)} "${window.title}"`,
-            ),
-          ]);
+          const granted = apps.filter((app) => app.expiresAt !== Number.MAX_SAFE_INTEGER);
+          const consentable = apps.filter((app) => app.expiresAt === Number.MAX_SAFE_INTEGER);
+          const lines = [
+            ...granted.flatMap((app) => [
+              `- ${app.name} (${app.bundleId}): ${app.tier}${app.foreground ? ", may be brought to the front" : ""}, ${app.running ? "running" : "not running"}, granted until ${formatExpiry(app.expiresAt)}`,
+              ...app.windows.map(
+                (window) => `    window ${String(window.windowId)} "${window.title}"`,
+              ),
+            ]),
+            ...(consentable.length === 0 ? [] : [""]),
+            ...(consentable.length === 0
+              ? []
+              : [
+                  "Apps you may still reach (each one asks the person for consent on your first action in it):",
+                ]),
+            ...consentable.flatMap((app) => [
+              `- ${app.name} (${app.bundleId}): ${app.tier}, ${app.running ? "running" : "not running"}`,
+              ...app.windows.map(
+                (window) => `    window ${String(window.windowId)} "${window.title}"`,
+              ),
+            ]),
+          ];
           return {
             success: true,
-            result: `Apps you may control:\n${lines.join("\n")}`,
+            result:
+              lines.length === 0
+                ? "No app is running that Jazz may use. Open one, then call this again."
+                : `Apps you may control:\n${lines.join("\n")}`,
             untrusted: untrusted(COMPUTER_APPS_TOOL_NAME),
           } satisfies ToolExecutionResult;
         }),
@@ -412,6 +433,18 @@ function approveAction(args: ActionArgs, context: ToolExecutionContext, foregrou
       }
     }
     if (typedSecrets.length === 0) {
+      const pending = yield* Effect.tryPromise({
+        try: () =>
+          session.pendingConsent(toActionInput(args, foreground ? "foreground" : "background")),
+        catch: toError,
+      });
+      if (pending !== undefined) {
+        return {
+          message: firstReachMessage(pending.appName, pending.bundleId),
+          alwaysAsk: true,
+          rejectionMessage: rejectionMessageFor(pending.appName),
+        } as const;
+      }
       return message;
     }
     return {
@@ -446,9 +479,16 @@ function performAction(
 ) {
   return Effect.gen(function* () {
     const known = yield* toolKnownSecrets();
-    const report = yield* withComputer(context, (session) =>
-      session.perform(toActionInput(args, delivery), known),
-    );
+    const input = toActionInput(args, delivery);
+    const report = yield* withComputer(context, async (session) => {
+      // The person already approved reaching this app: record the run-scoped consent before the
+      // action performs, so a message-cached approval cannot skip the ask.
+      const pending = await session.pendingConsent(input);
+      if (pending !== undefined) {
+        session.approveForRun(pending.bundleId, pending.appName);
+      }
+      return await session.perform(input, known);
+    });
     return reportResult(report, source);
   }).pipe(Effect.catchAll(toFailure));
 }
