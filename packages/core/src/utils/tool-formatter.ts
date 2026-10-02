@@ -4,6 +4,8 @@
  */
 import path from "node:path";
 import chalk from "chalk";
+import { DEFAULT_MEMORY_SCOPE } from "@/core/constants/memory";
+import { ALWAYS_SEGMENT, buildMemoryEntryPath } from "@/core/memory/entry-path";
 import { isRecord } from "@/core/utils/is-record";
 import { abbreviateHomePath } from "./storage";
 import { safeString } from "./string";
@@ -624,6 +626,24 @@ export function compactToolArguments(
     case "manage_todos":
       // The plan is drawn from the arguments themselves; there is nothing to add beside the name.
       return "";
+    case "manage_memory": {
+      const command = safeString(toolArgs["command"]);
+      if (command.length === 0) return "";
+      if (command === "create") {
+        // Mirror the tool: an omitted scope lands in the shared default scope.
+        const scope = safeString(toolArgs["scope"]) || DEFAULT_MEMORY_SCOPE;
+        const subject = safeString(toolArgs["subject"]);
+        const topic = safeString(toolArgs["topic"]);
+        if (scope.length === 0 || subject.length === 0) return command;
+        const target = buildMemoryEntryPath({
+          scope,
+          subject,
+          ...(topic === ALWAYS_SEGMENT ? {} : { topic }),
+        });
+        return join(command, target);
+      }
+      return join(command, safeString(toolArgs["path"] || toolArgs["old_path"]));
+    }
     default: {
       const formatted = formatToolArguments(toolName, args, { style: "plain" }).trim();
       if (formatted.startsWith("{") && formatted.endsWith("}")) {

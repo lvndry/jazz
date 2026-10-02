@@ -275,6 +275,37 @@ describe("compactToolArguments", () => {
     expect(compactToolArguments("manage_todos", { todos: [{ content: "a" }] }, cwd)).toBe("");
   });
 
+  test("shows a memory write beside where the entry lands", () => {
+    expect(
+      compactToolArguments(
+        "manage_memory",
+        {
+          command: "create",
+          scope: "personal",
+          subject: "Favorite fruit",
+          topic: "Food",
+        },
+        cwd,
+      ),
+    ).toBe("create personal/when/food/favorite-fruit.md");
+    expect(
+      compactToolArguments("manage_memory", { command: "create", subject: "Reply length" }, cwd),
+    ).toBe("create personal/always/reply-length.md");
+    expect(
+      compactToolArguments(
+        "manage_memory",
+        { command: "amend", path: "personal/when/food/favorite-fruit.md" },
+        cwd,
+      ),
+    ).toBe("amend personal/when/food/favorite-fruit.md");
+    expect(
+      compactToolArguments(
+        "manage_memory",
+        { command: "rename", old_path: "personal/a.md", new_path: "personal/b.md" },
+        cwd,
+      ),
+    ).toBe("rename personal/a.md");
+  });
   test("keeps key names for tools it knows nothing about", () => {
     expect(compactToolArguments("gmail_search", { query: "is:flagged" }, cwd)).toBe(
       "query: is:flagged",
