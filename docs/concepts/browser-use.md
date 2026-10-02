@@ -76,13 +76,13 @@ seconds. Cookies and logins carry over: the agent can read pages you are signed 
 without you doing anything. The clone is private, so your live profile is never touched
 while your browser is open; it is deleted when the run ends. Works with your default
 Chromium-based browser (Google Chrome, Brave, Arc/Dia, and others). Set
-`network.browserHeaded` to `true` to watch the launched browser in a visible window
+`browser.headless` to `false` to watch the launched browser in a visible window
 instead of headless. If a profile cannot be found or cloned, the run falls back to a
 blank one.
 
 Jazz drives a browser in this order, with no setup required:
 
-1. **A configured endpoint** (only if you set one): `network.browserEndpoint` in your global
+1. **A configured endpoint** (only if you set one): `browser.endpoint` in your global
    config points the browser tools at any running browser that speaks the Chrome DevTools
    Protocol, `http(s)://` or `ws(s)://`. Everything the agent reads and types then reaches
    that browser's host, so point it only at a browser you control.
@@ -102,7 +102,7 @@ For example, [Lightpanda](https://lightpanda.io) is a lightweight browser that s
 milliseconds. Run `lightpanda serve --host 127.0.0.1 --port 9222`, then set:
 
 ```json
-{ "network": { "browserEndpoint": "ws://127.0.0.1:9222" } }
+{ "browser": { "endpoint": "ws://127.0.0.1:9222" } }
 ```
 
 Reading pages, typing, choosing options, and clicking work there. A browser without a full

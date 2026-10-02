@@ -79,6 +79,7 @@ type SettingsMenuAction =
   | "private-hosts"
   | "http-approval"
   | "agents"
+  | "browser"
   | "back";
 
 /**
@@ -133,6 +134,10 @@ export function settingsWizardCommand() {
         }
         case "http-approval": {
           yield* configureHttpApproval();
+          break;
+        }
+        case "browser": {
+          yield* configureBrowser();
           break;
         }
         case "back": {
@@ -271,6 +276,11 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
           : `${String(config.network.httpApproval.length)} URL grants`,
     },
     { label: "Agents", value: "agents", hint: "edit model, tools, persona, name" },
+    {
+      label: "Browser Use",
+      value: "browser",
+      hint: config.browser?.headless === false ? "headed" : "headless",
+    },
     { label: "Back", value: "back" },
   ];
 }
@@ -1146,6 +1156,33 @@ function configureHttpApproval() {
         "Requests outside network.httpApproval require one-call approval. Edit URL entries in your config file.",
       );
     }
+    yield* terminal.log("");
+  });
+}
+
+/** Choose how a launched browser appears: hidden by default, or a visible window to watch. */
+function configureBrowser() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+    const current = (yield* configService.appConfig).browser?.headless ?? true;
+    const selection = yield* terminal.select<"headless" | "headed">(
+      "When Jazz launches a browser for the Browser Use tools, how should it appear?",
+      {
+        default: current ? "headless" : "headed",
+        choices: [
+          { name: "Headless — no visible window (default)", value: "headless" },
+          { name: "Headed — open a visible window so you can watch the run", value: "headed" },
+        ],
+      },
+    );
+    if (selection === undefined) return;
+    yield* configService.set("browser.headless", selection === "headless");
+    yield* terminal.success(
+      selection === "headed"
+        ? "Launched browsers open in a visible window."
+        : "Launched browsers run headless, without a visible window.",
+    );
     yield* terminal.log("");
   });
 }

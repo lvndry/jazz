@@ -945,7 +945,7 @@ describe("browser_adopt_tab", () => {
     const { result } = await approvalFor({ canAdopt: false });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("network.browserEndpoint");
+    expect(result.error).toContain("browser.endpoint");
     expect(JSON.stringify(result)).not.toContain("mail.example.com");
   });
 

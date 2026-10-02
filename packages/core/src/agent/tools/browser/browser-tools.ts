@@ -174,7 +174,7 @@ function withBrowser<Value>(
       return yield* Effect.fail(new Error("The browser tools work only inside an agent run."));
     }
     const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
-    const configuredEndpoint = appConfig.network?.browserEndpoint;
+    const configuredEndpoint = appConfig.browser?.endpoint;
     const policy = yield* browserEgressPolicy(context);
     return yield* Effect.tryPromise({
       try: async () => {
@@ -192,9 +192,9 @@ function withBrowser<Value>(
             executablePath: launch?.executablePath ?? null,
             cdpEndpoint: configuredEndpoint,
             realProfileDir: realProfile?.profileDirectory,
-            ...(appConfig.network?.browserHeaded === undefined
+            ...(appConfig.browser?.headless === undefined
               ? {}
-              : { headed: appConfig.network.browserHeaded }),
+              : { headed: !appConfig.browser.headless }),
           });
         });
         return session.exclusive(policy, () => operation(session));
@@ -844,7 +844,7 @@ export function createBrowserAdoptTabTools(): ApprovalToolPair<AgentConfigServic
           return {
             skipApproval: true,
             toolResult: failure(
-              "Sharing a tab needs a browser you run: start one with `--remote-debugging-port=9222` or set network.browserEndpoint.",
+              "Sharing a tab needs a browser you run: start one with `--remote-debugging-port=9222` or set browser.endpoint.",
             ),
           } as const;
         }

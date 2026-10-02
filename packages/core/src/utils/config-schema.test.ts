@@ -755,13 +755,13 @@ describe("checkConfigWrite", () => {
       "ws://127.0.0.1:9222/devtools/browser/abc",
       "wss://browser.example.com/devtools",
     ]) {
-      expect(checkConfigWrite("network.browserEndpoint", endpoint)).toEqual({ ok: true });
+      expect(checkConfigWrite("browser.endpoint", endpoint)).toEqual({ ok: true });
     }
   });
 
   it("refuses a browser endpoint that is not an http(s) or ws(s) URL", () => {
     for (const endpoint of ["file:///tmp/chrome", "127.0.0.1:9222", "ftp://host", 9222]) {
-      expect(checkConfigWrite("network.browserEndpoint", endpoint).ok).toBe(false);
+      expect(checkConfigWrite("browser.endpoint", endpoint).ok).toBe(false);
     }
   });
 

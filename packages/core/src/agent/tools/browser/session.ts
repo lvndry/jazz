@@ -97,7 +97,7 @@ export interface BrowserSettings {
   readonly headed?: boolean;
 }
 
-/** The DevTools port a local browser the person runs listens on. Tries this first when no `network.browserEndpoint` is set. */
+/** The DevTools port a local browser the person runs listens on. Tries this first when no `browser.endpoint` is set. */
 export const DEFAULT_LOOPBACK_CDP_ENDPOINT = "http://127.0.0.1:9222";
 
 export interface PageState {
@@ -329,7 +329,7 @@ export class BrowserSession {
         throw new Error(
           `Could not reach a browser at ${endpoint}: ${errorMessage(error)}. ` +
             "Run your browser with `--remote-debugging-port=9222`, install Chrome, or set " +
-            "network.browserEndpoint to a running browser.",
+            "browser.endpoint to a running browser.",
         );
       });
     const context = await browser.createBrowserContext();

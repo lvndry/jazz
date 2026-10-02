@@ -25,16 +25,20 @@ export interface NetworkConfig {
   readonly allowPrivateHosts?: readonly string[];
   /** HTTP requests and web fetches run automatically by default. A URL list asks outside it. */
   readonly httpApproval?: HttpApprovalPolicy;
+}
+
+/** Browser Use tools: which browser to drive and how a launched one appears. */
+export interface BrowserConfig {
   /**
-   * When the browser tools launch a browser, run it headed (visible window) instead of
-   * headless, so the run can be watched.
+   * Run a launched browser headless by default. Set to `false` for a visible window,
+   * so the run can be watched.
    */
-  readonly browserHeaded?: boolean;
+  readonly headless?: boolean;
   /**
-   * A running browser the browser tools drive instead of launching Chrome, as an `http(s)://`
+   * A running browser the browser tools drive instead of launching one, as an `http(s)://`
    * or `ws(s)://` DevTools URL. Page content and typed text reach that browser's host.
    */
-  readonly browserEndpoint?: string;
+  readonly endpoint?: string;
 }
 
 export interface AppConfig {
@@ -43,6 +47,7 @@ export interface AppConfig {
   readonly llm?: LLMConfig;
   readonly web_search?: WebSearchConfig;
   readonly network?: NetworkConfig;
+  readonly browser?: BrowserConfig;
   readonly output?: OutputConfig;
   /** Runtime merged view: full MCPServerConfig objects from .agents/mcp.json + overrides. */
   readonly mcpServers?: Record<string, MCPServerConfig>;

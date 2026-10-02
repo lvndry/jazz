@@ -113,7 +113,7 @@ own scripts. Three rules bound it.
   opened from them. `file:` URLs are always refused.
 - **Nothing persists.** Each run gets a fresh temporary profile, deleted when the run ends. The
   browser is closed on completion, error, and interruption. Jazz never attaches to your own
-  Chrome, so your logins and cookies are out of reach. A `network.browserEndpoint` you configure
+  Chrome, so your logins and cookies are out of reach. A `browser.endpoint` you configure
   is the exception: that browser's host sees what the agent reads and types.
 - **What a page says is data.** Snapshots arrive in the `untrusted-content` envelope and mark
   the run as having read external content. Afterwards `browser_navigate` to a URL the run did not

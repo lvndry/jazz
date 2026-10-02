@@ -332,7 +332,7 @@ demand and are off by default.
 | `browser_close`      | `read-only` | none                  | Close the browser and discard its cookies and session.                                                                                   |
 
 `browser_adopt_tab` (`high-risk`, pair `execute_browser_adopt_tab`) is registered only when
-`network.browserEndpoint` points at a browser the user runs: it lets the agent take over one
+`browser.endpoint` points at a browser the user runs: it lets the agent take over one
 existing tab the user names, after a separate approval showing the tab's title and URL. The
 agent sees only tabs it created or adopted, never the rest of the user's browser.
 

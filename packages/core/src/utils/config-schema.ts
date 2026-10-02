@@ -53,6 +53,7 @@ import type {
   VllmProviderConfig,
   WebSearchConfig,
   NetworkConfig,
+  BrowserConfig,
 } from "@/core/types/config";
 import { WEB_SEARCH_PROVIDERS } from "@/core/types/config";
 import { DISCLOSURE_TIERS } from "@/core/types/disclosure-tier";
@@ -368,9 +369,12 @@ const networkShape = {
   httpApproval: z
     .union([z.literal("allow"), z.array(httpUrlEntry).max(MAX_HTTP_URL_PATTERNS)])
     .exactOptional(),
-  browserEndpoint: browserEndpointUrl.exactOptional(),
-  browserHeaded: z.boolean().exactOptional(),
 } satisfies SchemaShape<NetworkConfig>;
+
+const browserShape = {
+  headless: z.boolean().exactOptional(),
+  endpoint: browserEndpointUrl.exactOptional(),
+} satisfies SchemaShape<BrowserConfig>;
 
 const streamingShape = {
   enabled: z.union([flag, z.literal("auto")]).exactOptional(),
@@ -631,6 +635,7 @@ const configFileShape = {
   llm: z.strictObject(llmShape).exactOptional(),
   web_search: z.strictObject(webSearchShape).exactOptional(),
   network: z.strictObject(networkShape).exactOptional(),
+  browser: z.strictObject(browserShape).exactOptional(),
   output: z.strictObject(outputShape).exactOptional(),
   mcpServers: z.record(safeRecordKey, mcpOverrideSchema).exactOptional(),
   notifications: z.strictObject(notificationsShape).exactOptional(),
