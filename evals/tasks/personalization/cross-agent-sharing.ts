@@ -6,15 +6,15 @@ import { runJazzOnce } from "../../run-jazz";
 import type { EvalTask, OneShotResult, TaskRunContext } from "../../types";
 
 /**
- * A standing entry seeded into a non-default scope must still be injected:
- * memory is shared by every agent, so `always/` entries are drawn from every
- * scope on disk, not just a per-agent allowlist. The memory tools are denied
- * so the name can only reach the answer through injection.
+ * Memory is shared by every agent in a home: a standing entry written for one
+ * agent's context (a non-default scope) must be injected into a *different*
+ * agent's run. The memory tools are denied so the name can only reach the
+ * answer through the shared store, not a lookup.
  */
 const PROMPT = "Say hello to me in a short one-liner.";
 const DENIED_LOOKUP_TOOLS = ["view_memory", "manage_memory"];
 
-function seedCrossScopeEntry(jazzHome: string): void {
+function seedSharedEntry(jazzHome: string): void {
   const directory = join(jazzHome, "memory", "friends", "always");
   mkdirSync(directory, { recursive: true });
   writeFileSync(
@@ -25,19 +25,22 @@ function seedCrossScopeEntry(jazzHome: string): void {
 
 export const tasks: EvalTask[] = [
   {
-    id: "personalization-cross-scope-standing",
+    id: "personalization-cross-agent-sharing",
     domain: "personalization",
     prompt: PROMPT,
     baseDifficulty: "trivial",
     setup() {},
     async run(context: TaskRunContext): Promise<OneShotResult> {
-      updateAgentConfig(context.jazzHome, context.agentId, {
+      // The seed belongs to the primary eval agent's context; the run below
+      // is a *different* agent in the same home, which must still see it.
+      seedSharedEntry(context.jazzHome);
+      const otherAgentId = "eval-sut-other";
+      updateAgentConfig(context.jazzHome, otherAgentId, {
         deniedTools: DENIED_LOOKUP_TOOLS,
       });
-      seedCrossScopeEntry(context.jazzHome);
       return runJazzOnce({
         prompt: PROMPT,
-        agentId: context.agentId,
+        agentId: otherAgentId,
         workspaceDir: context.workspaceDir,
         cassettePath: context.cassettePath,
         timeoutMs: context.timeoutMs,

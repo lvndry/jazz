@@ -27,20 +27,23 @@ You do not have to say "remember". The agent saves a stated preference in the sa
 second pass before compaction catches durable facts it missed. See
 [How the agent learns](./conversations-and-memory.md#how-the-agent-learns).
 
-The agent is conservative on purpose. Each standing entry is injected into every future turn
-of every agent that reads the scope, so an uncertain fact is not saved. Keeping memory small
-is what keeps it trustworthy and cheap to carry.
+The agent is conservative on purpose. Each standing entry is injected into every future turn of
+every agent, so an uncertain fact is not saved. Keeping memory small is what keeps it
+trustworthy and cheap to carry.
 
 ## A taste belongs to a context
 
 How you write to a friend is not how you write to a colleague, and "run evals before merge" is
-not advice for your cooking assistant. Memory is partitioned into named scopes, and an agent
-reads and writes only the scopes it is configured for.
+not advice for your cooking assistant. Memory is partitioned into named scopes, which are
+topics — not ownership boundaries. Every agent reads and writes every scope, and any agent can
+create a scope when a conversation calls for one, so a lesson learned with one agent is
+available to all of them.
 
 - `personal` is the default scope. A preference like concise replies follows you across your
-  terminal agent, your Telegram bot, and your CI reviewer because all three read it.
+  terminal agent, your Telegram bot, and your CI reviewer because they all share it.
 - A project scope holds what applies only there.
-- Two agents share context only by sharing a scope. Nothing is shared by accident.
+- Scopes are discovered from the memory directory, not configured per agent: what exists is
+  what is visible to everyone, and `jazz memory list` shows the whole landscape.
 
 ## Pay for context only where it applies
 
@@ -78,5 +81,5 @@ and it does not turn a procedure the agent worked out into a reusable
 ## Related
 
 - [Conversations, state, and memory](./conversations-and-memory.md): the mechanics and commands
-- [Agents](./agents.md): `memoryScopes` and the rest of the configuration
+- [Agents](./agents.md): the rest of the agent configuration
 - [Skills](./skills.md): reusable procedures

@@ -14,7 +14,6 @@ import {
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
 import { isLocalServerProvider, isZeroCostLocalModel } from "@/core/constants/local-providers";
-import { DEFAULT_MEMORY_SCOPE } from "@/core/constants/memory";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -155,7 +154,6 @@ const NO_INJECTED_PREFERENCES: InjectedPreferences = { standing: [], situational
  * to read degrades to injecting nothing rather than failing the run.
  */
 export function resolveInjectedPreferences(
-  memoryScopes: readonly string[],
   logger: LoggerService,
 ): Effect.Effect<InjectedPreferences, never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
@@ -166,8 +164,8 @@ export function resolveInjectedPreferences(
     }
     const memoryService = memoryServiceOption.value;
     return yield* Effect.gen(function* () {
-      const standingEntries = yield* memoryService.standingEntries(memoryScopes);
-      const conditionalEntries = yield* memoryService.conditionalEntries(memoryScopes);
+      const standingEntries = yield* memoryService.standingEntries();
+      const conditionalEntries = yield* memoryService.conditionalEntries();
       return {
         standing: standingEntries.map((entry) => ({
           scope: entry.scope,
@@ -190,7 +188,6 @@ export function resolveInjectedPreferences(
       Effect.catchAll((error) =>
         logger
           .warn("Failed to read memory; running without it", {
-            scopeCount: memoryScopes.length,
             errorCategory: telemetryErrorCategory(error),
           })
           .pipe(Effect.as(NO_INJECTED_PREFERENCES)),
@@ -768,16 +765,12 @@ function initializeAgentRun(
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llm.provider);
     const injectedPreferences = boundary.injectsPreferences
-      ? yield* resolveInjectedPreferences(
-          agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
-          logger,
-        )
+      ? yield* resolveInjectedPreferences(logger)
       : NO_INJECTED_PREFERENCES;
     const memoryServiceForReceipts = yield* Effect.serviceOption(MemoryServiceTag);
-    const memoryScopes = agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
     const memoryOpportunities = Option.isSome(memoryServiceForReceipts)
       ? createMemoryOpportunityRecorder({
-          snapshotEntries: () => memoryServiceForReceipts.value.snapshotEntries(memoryScopes),
+          snapshotEntries: () => memoryServiceForReceipts.value.snapshotEntries(),
           fileSystem: yield* FileSystem.FileSystem,
           logger,
           viewMemoryOffered: expandedToolNames.includes(VIEW_MEMORY_TOOL_NAME),
@@ -854,11 +847,9 @@ function initializeAgentRun(
         parentRunId: runMetrics.runId,
         sessionId: runMetrics.telemetryParent?.sessionId ?? actualConversationId,
       },
-      memoryScopes: agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       conversationId: actualConversationId,
       model,
       egressTaint: options.egressTaint ?? createEgressTaint(history),
-      httpApproval: appConfig.network?.httpApproval ?? "allow",
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
       ...(Option.isSome(pluginSession)
         ? {

@@ -40,7 +40,6 @@ import {
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
-import { effectiveMemoryScopes } from "@jazz/core/constants/memory";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import {
@@ -258,7 +257,7 @@ export function handleSpecialCommand(
         return yield* handleSkillsCommand(terminal);
 
       case "memory":
-        return yield* handleMemoryCommand(terminal, agent, command.args);
+        return yield* handleMemoryCommand(terminal, command.args);
 
       case "context":
         return yield* handleContextCommand(terminal, agent, conversationHistory);
@@ -3193,13 +3192,10 @@ function calculateContextUsage(
  */
 function handleMemoryCommand(
   terminal: TerminalService,
-  agent: CommandContext["agent"],
   args: string[],
 ): Effect.Effect<CommandResult, Error, MemoryService | FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const memoryService = yield* MemoryServiceTag;
-    const configuredScopes = agent.config.memoryScopes;
-    const scopes = effectiveMemoryScopes(configuredScopes);
 
     if (args[0] === "forget") {
       const target = args[1];
@@ -3214,7 +3210,7 @@ function handleMemoryCommand(
         );
         return { shouldContinue: true };
       }
-      const outcome = yield* memoryService.delete(scopes, target);
+      const outcome = yield* memoryService.delete(target);
       if (outcome.success) {
         yield* terminal.log(report("memory", [{ kind: "field", key: "forgot", value: target }]));
       } else {
@@ -3224,10 +3220,10 @@ function handleMemoryCommand(
     }
 
     if (args[0] !== undefined) {
-      const outcome = yield* memoryService.view(scopes, args[0]);
+      const outcome = yield* memoryService.view(args[0]);
       if (outcome.kind === "file") {
         const provenance = yield* memoryService
-          .provenance(scopes, args[0])
+          .provenance(args[0])
           .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
         yield* terminal.log(
           report("memory", [
@@ -3252,7 +3248,7 @@ function handleMemoryCommand(
       return { shouldContinue: true };
     }
 
-    const outcome = yield* memoryService.view(scopes, "");
+    const outcome = yield* memoryService.view("");
     const files =
       outcome.kind === "directory" ? outcome.entries.filter((entry) => entry.kind === "file") : [];
 
@@ -3260,7 +3256,7 @@ function handleMemoryCommand(
       yield* terminal.log(
         report("memory", [
           { kind: "text", text: "Nothing saved yet." },
-          { kind: "field", key: "scopes", value: scopes.join(", ") },
+          { kind: "text", text: "Drill in with /memory <scope> or /memory <path>." },
         ]),
       );
       return { shouldContinue: true };

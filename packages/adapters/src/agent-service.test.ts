@@ -800,23 +800,6 @@ describe("AgentService", () => {
     it("rejects a blank denied tool", async () => {
       await expectRejected({ ...baseConfig, deniedTools: ["execute_command", " "] });
     });
-
-    it("accepts named memory scopes", async () => {
-      await expectAccepted({ ...baseConfig, memoryScopes: ["work", "personal"] });
-    });
-
-    it("rejects a non-array memoryScopes value", async () => {
-      // @ts-expect-error - must be an array
-      await expectRejected({ ...baseConfig, memoryScopes: "work" });
-    });
-
-    it("rejects an unsafe memory scope name", async () => {
-      await expectRejected({ ...baseConfig, memoryScopes: ["../private"] });
-    });
-
-    it("rejects a blank memory scope", async () => {
-      await expectRejected({ ...baseConfig, memoryScopes: ["work", "  "] });
-    });
   });
 
   describe("deleteAgent", () => {

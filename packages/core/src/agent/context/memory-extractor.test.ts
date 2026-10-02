@@ -123,7 +123,7 @@ function createTestLayer() {
 }
 
 describe("extractMemories", () => {
-  it("runs a memory-extractor sub-agent that carries the parent's memory scopes and memory tools", async () => {
+  it("runs a memory-extractor sub-agent that carries the shared memory tools", async () => {
     let capturedAgent: Agent | undefined;
     let capturedMaxIterations: number | undefined;
     const mockRunner: RecursiveRunner = (options) => {
@@ -137,7 +137,6 @@ describe("extractMemories", () => {
         llm: { provider: "openai", model: "gpt-4" },
         persona: "default",
         tools: [],
-        memoryScopes: ["personal", "work"],
       },
     });
     const messages: ChatMessage[] = [
@@ -158,7 +157,6 @@ describe("extractMemories", () => {
     expect(capturedAgent?.config.persona).toBe("memory-extractor");
     expect(capturedAgent?.config.tools).toContain(VIEW_MEMORY_TOOL_NAME);
     expect(capturedAgent?.config.tools).toContain(MANAGE_MEMORY_TOOL_NAME);
-    expect(capturedAgent?.config.memoryScopes).toEqual(["personal", "work"]);
     expect(capturedMaxIterations).toBeGreaterThan(0);
   });
 

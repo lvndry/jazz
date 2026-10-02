@@ -107,7 +107,6 @@ export function agentDetailFields(
     { section: "Access", label: "Tools added", value: list(config.tools) },
     { section: "Access", label: "Tools denied", value: list(config.deniedTools) },
     { section: "Access", label: "Web search", value: config.webSearchProvider ?? "default" },
-    { section: "Access", label: "Memory scopes", value: list(config.memoryScopes ?? ["personal"]) },
     { section: "Access", label: "Env allowlist", value: list(config.envAllowlist) },
   );
   const companions = Object.entries(config.companions ?? {});
