@@ -152,6 +152,8 @@ function recordingObserver() {
     onInterrupted: (name: string) => Effect.sync(() => void calls.push(`interrupted:${name}`)),
     onIterationLimit: (name: string, max: number) =>
       Effect.sync(() => void calls.push(`limit:${name}:${max}`)),
+    onIterationPressure: (name: string, iteration: number, max: number) =>
+      Effect.sync(() => void calls.push(`pressure:${name}:${iteration}:${max}`)),
     onCostCapReached: (name: string, maxCostUSD: number, costUSD: number) =>
       Effect.sync(() => void calls.push(`cost-cap:${name}:${maxCostUSD}:${costUSD}`)),
     onTokenCapReached: (name: string, maxTokens: number, totalTokens: number) =>
@@ -1239,6 +1241,92 @@ describe("executeAgentLoop", () => {
     expect(result.iterationLimited).toBe(true);
 
     ToolExecutor.executeToolCalls = originalExecute;
+  });
+
+  it("warns at 50/70/90% of the iteration budget, once each, before the limit", async () => {
+    const { observer, calls } = recordingObserver();
+
+    // Never finishes, so the run runs out the full budget.
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (_messages, iteration) =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: "call_1",
+                type: "function" as const,
+                function: { name: "test_tool", arguments: JSON.stringify({ page: iteration }) },
+              },
+            ],
+          },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]),
+    );
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 10 }),
+        makeRunContext({ maxIterations: 10 }),
+        displayConfig,
+        strategy,
+        observer,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    const pressure = calls.filter((call) => call.startsWith("pressure:"));
+    expect(pressure).toEqual([
+      "pressure:test-agent:5:10",
+      "pressure:test-agent:7:10",
+      "pressure:test-agent:9:10",
+    ]);
+    expect(calls).toContain("limit:test-agent:10");
+
+    ToolExecutor.executeToolCalls = originalExecute;
+  });
+
+  it("skips iteration-pressure warnings on an unbounded run", async () => {
+    const { observer, calls } = recordingObserver();
+    // Finishes on the first answer: with an unlimited budget there is no pressure to report.
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: { id: "c1", model: "gpt-4", content: "done" },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: Infinity }),
+        makeRunContext({ maxIterations: Infinity }),
+        displayConfig,
+        strategy,
+        observer,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(calls.filter((call) => call.startsWith("pressure:"))).toEqual([]);
+    expect(calls.filter((call) => call.startsWith("limit:"))).toEqual([]);
   });
 
   it("sends the initial plugin advisory only in the provider copy", async () => {

@@ -6,7 +6,10 @@
  */
 
 import { readFileSync } from "node:fs";
-import { DEFAULT_MAX_ITERATIONS } from "@jazz/core/constants/agent";
+import {
+  DEFAULT_MAX_ITERATIONS,
+  DEFAULT_MAX_SUBAGENT_ITERATIONS,
+} from "@jazz/core/constants/agent";
 import { describe, expect, it } from "bun:test";
 import { createCLIApp } from "./cli-app";
 
@@ -65,8 +68,20 @@ describe(DOCS_PATH, () => {
     expect(missing, `${DOCS_PATH} is missing flags: ${missing.join(", ")}`).toEqual([]);
   });
 
-  it("records the runtime's default iteration limit", () => {
-    const row = markdown.split("\n").find((line) => line.includes("`--max-iterations <n>`"));
-    expect(row).toContain(`| ${DEFAULT_MAX_ITERATIONS}`);
+  it("records the runtime's default iteration limits", () => {
+    const lines = markdown.split("\n");
+    // The jazz run table row carries the defaults; the agent chat rows use their own phrasing.
+    const runRow = lines.find(
+      (line) =>
+        line.includes("`--max-iterations <n>`") && line.includes("Cap reasoning iterations"),
+    );
+    expect(runRow).toContain(`unattended: ${DEFAULT_MAX_ITERATIONS}`);
+    expect(runRow).toContain("Unlimited by default in a terminal");
+    const subagentRow = lines.find(
+      (line) =>
+        line.includes("`--max-subagent-iterations <n>`") &&
+        line.includes("Cap iterations for sub-agent runs"),
+    );
+    expect(subagentRow).toContain(`unattended: ${DEFAULT_MAX_SUBAGENT_ITERATIONS}`);
   });
 });

@@ -24,6 +24,7 @@ export function chatWithAIAgentCommand(
   options?: {
     stream?: boolean;
     maxIterations?: number;
+    maxSubagentIterations?: number;
     ephemeral?: boolean;
   } & ContinueOptions,
 ) {

@@ -74,6 +74,13 @@ describe("makeDefaultObserver", () => {
     expect(calls[0]).toContain("context 72% full of 128,000 tokens");
   });
 
+  it("warns with the percentage used and budget on iteration pressure", async () => {
+    const { service, calls } = recordingPresentation();
+    await Effect.runPromise(makeDefaultObserver(service).onIterationPressure("Agent", 50, 100));
+    expect(calls[0]).toContain("iteration budget 50% used (50/100)");
+    expect(calls[0]).toContain("type 'continue' to keep it going");
+  });
+
   it("maps onCompletion to presentCompletion", async () => {
     const { service, calls } = recordingPresentation();
     await Effect.runPromise(makeDefaultObserver(service).onCompletion("Agent"));

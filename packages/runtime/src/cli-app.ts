@@ -186,6 +186,11 @@ function registerRunCommand(program: Command): void {
       parsePositiveInt("--max-iterations"),
     )
     .option(
+      "--max-subagent-iterations <n>",
+      "Maximum iterations for sub-agent runs started by this run (default 30 unattended, unlimited in a terminal)",
+      parsePositiveInt("--max-subagent-iterations"),
+    )
+    .option(
       "--max-cost-usd <dollars>",
       "Abort the run once cumulative spend (own + sub-agent) reaches this many dollars. Checked between iterations, not preemptively; see docs/configure/jazz.md#run-budgets.",
       parsePositiveFloat("--max-cost-usd"),
@@ -261,6 +266,7 @@ function registerRunCommand(program: Command): void {
           timezone?: string;
           timeout?: number;
           maxIterations?: number;
+          maxSubagentIterations?: number;
           maxCostUsd?: number;
           maxTokens?: number;
           maxDurationMs?: number;
@@ -413,6 +419,9 @@ function registerRunCommand(program: Command): void {
                 ...(options.maxIterations !== undefined
                   ? { maxIterations: options.maxIterations }
                   : {}),
+                ...(options.maxSubagentIterations !== undefined
+                  ? { maxSubagentIterations: options.maxSubagentIterations }
+                  : {}),
                 ...(options.maxCostUsd !== undefined ? { maxCostUSD: options.maxCostUsd } : {}),
                 ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
                 ...(options.maxDurationMs !== undefined
@@ -553,8 +562,13 @@ function registerAgentCommands(program: Command): void {
     .option("--no-stream", "Disable streaming mode")
     .option(
       "--max-iterations <n>",
-      "Maximum agent reasoning iterations per turn (default 100)",
+      "Maximum agent reasoning iterations per turn (default unlimited in a terminal, 100 unattended)",
       parsePositiveInt("--max-iterations"),
+    )
+    .option(
+      "--max-subagent-iterations <n>",
+      "Maximum iterations for sub-agent runs (default unlimited in a terminal, 30 unattended)",
+      parsePositiveInt("--max-subagent-iterations"),
     )
     .option(
       "--ephemeral",
@@ -569,6 +583,7 @@ function registerAgentCommands(program: Command): void {
           stream?: boolean;
           noStream?: boolean;
           maxIterations?: number;
+          maxSubagentIterations?: number;
           ephemeral?: boolean;
           continue?: boolean;
           conversation?: string;
@@ -583,6 +598,9 @@ function registerAgentCommands(program: Command): void {
                 ...(streamOption !== undefined ? { stream: streamOption } : {}),
                 ...(options.maxIterations !== undefined
                   ? { maxIterations: options.maxIterations }
+                  : {}),
+                ...(options.maxSubagentIterations !== undefined
+                  ? { maxSubagentIterations: options.maxSubagentIterations }
                   : {}),
                 ...(options.ephemeral === true ? { ephemeral: true } : {}),
                 ...(options.continue === true ? { continue: true } : {}),

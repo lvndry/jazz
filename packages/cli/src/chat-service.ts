@@ -155,6 +155,7 @@ export class ChatServiceImpl implements ChatService {
       initialUiTranscript?: readonly ConversationUiEntry[];
       initialMessage?: string;
       maxIterations?: number;
+      maxSubagentIterations?: number;
       ephemeral?: boolean;
     },
   ): Effect.Effect<
@@ -801,6 +802,9 @@ export class ChatServiceImpl implements ChatService {
             },
             ...(options?.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
+              : {}),
+            ...(options?.maxSubagentIterations !== undefined
+              ? { maxSubagentIterations: options.maxSubagentIterations }
               : {}),
             ...(ephemeral
               ? { disablePersistence: true }

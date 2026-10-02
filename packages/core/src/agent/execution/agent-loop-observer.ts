@@ -11,6 +11,15 @@ export interface AgentLoopObserver {
   onThinking(agentName: string, isFirstIteration: boolean): Effect.Effect<void, never, never>;
   onInterrupted(agentName: string): Effect.Effect<void, never, never>;
   onIterationLimit(agentName: string, maxIterations: number): Effect.Effect<void, never, never>;
+  /**
+   * A bounded run crossed one of the iteration-pressure thresholds (50%, 70%, 90% of the
+   * budget). Fired once per threshold, like onContextPressure for the token budget.
+   */
+  onIterationPressure(
+    agentName: string,
+    iterationIndex: number,
+    maxIterations: number,
+  ): Effect.Effect<void, never, never>;
   /** Cumulative run cost (own + sub-agent spend) reached the configured `maxCostUSD` cap. */
   onCostCapReached(
     agentName: string,
@@ -99,6 +108,11 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
       presentation.presentWarning(
         agentName,
         `iteration limit reached (${maxIterations}) - type 'continue' to resume`,
+      ),
+    onIterationPressure: (agentName, iterationIndex, maxIterations) =>
+      presentation.presentWarning(
+        agentName,
+        `iteration budget ${Math.round((iterationIndex / maxIterations) * 100)}% used (${iterationIndex}/${maxIterations}) - run stops at the limit, type 'continue' to keep it going`,
       ),
     onCostCapReached: (agentName, maxCostUSD, costUSD) =>
       presentation.presentWarning(

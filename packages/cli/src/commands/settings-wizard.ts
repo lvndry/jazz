@@ -50,6 +50,12 @@ import {
 import { editAgentCommand } from "./edit-agent";
 import { addPrivateHost, applyPrivateHosts, removePrivateHost } from "./private-hosts";
 import {
+  applyRunLimit,
+  describeRunLimit,
+  parseRunLimitInput,
+  RUN_LIMIT_SETTINGS,
+} from "./run-limits";
+import {
   applySpendLimit,
   describeSpendLimit,
   parseSpendLimitInput,
@@ -76,6 +82,7 @@ type SettingsMenuAction =
   | "logging"
   | "notifications"
   | "spend-limits"
+  | "run-limits"
   | "private-hosts"
   | "http-approval"
   | "agents"
@@ -122,6 +129,10 @@ export function settingsWizardCommand() {
         }
         case "spend-limits": {
           yield* configureSpendLimits();
+          break;
+        }
+        case "run-limits": {
+          yield* configureRunLimits();
           break;
         }
         case "private-hosts": {
@@ -259,6 +270,14 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
       hint: notifications === undefined ? "not set up" : notifications ? "on" : "off",
     },
     { label: "Spend limits", value: "spend-limits", hint: spendHint(config.daemon) },
+    {
+      label: "Run limits",
+      value: "run-limits",
+      hint:
+        config.maxIterations === undefined
+          ? "100 unattended, unlimited in a terminal"
+          : `max iterations: ${String(config.maxIterations)}`,
+    },
     {
       label: "Private network hosts",
       value: "private-hosts",
@@ -1072,6 +1091,65 @@ function configureSpendLimits() {
       yield* applySpendLimit(configService, setting.key, parsed);
       yield* terminal.success(
         `${setting.label}: ${parsed.kind === "limit" ? describeSpendLimit(parsed.dollars) : "unlimited"}.`,
+      );
+      yield* terminal.log("");
+    }
+  });
+}
+
+/**
+ * The Run limits section: a per-run iteration budget for the top-level run and for
+ * sub-agent runs. Unset means 100 (top-level) / 30 (sub-agents) on an unattended run
+ * and unlimited in a terminal conversation, so the row says "default", not a number.
+ */
+function configureRunLimits() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+
+    while (true) {
+      const config = yield* configService.appConfig;
+      const selection = yield* terminal.select<string>(
+        "Run limits: a run stops at its iteration budget; in a terminal conversation the default is unlimited. 100 unattended.",
+        {
+          choices: [
+            ...RUN_LIMIT_SETTINGS.map((setting) => ({
+              name: `${setting.label} (${describeRunLimit(setting.read(config))})`,
+              value: setting.key,
+            })),
+            { name: "Back", value: "back" },
+          ],
+        },
+      );
+      const setting = RUN_LIMIT_SETTINGS.find((candidate) => candidate.key === selection);
+      if (setting === undefined) {
+        break;
+      }
+
+      const current = setting.read(config);
+      const raw = yield* terminal.ask(
+        `${setting.label}, in iterations (leave empty for the default):`,
+        {
+          simple: true,
+          cancellable: true,
+          ...(current !== undefined ? { defaultValue: String(current) } : {}),
+          validate: (input) => {
+            const parsed = parseRunLimitInput(input);
+            return parsed.kind === "invalid" ? parsed.message : true;
+          },
+        },
+      );
+      if (raw === undefined) {
+        continue;
+      }
+      const parsed = parseRunLimitInput(raw);
+      if (parsed.kind === "invalid") {
+        yield* terminal.warn(parsed.message);
+        continue;
+      }
+      yield* applyRunLimit(configService, setting.key, parsed);
+      yield* terminal.success(
+        `${setting.label}: ${parsed.kind === "limit" ? describeRunLimit(parsed.iterations) : "default"}.`,
       );
       yield* terminal.log("");
     }
