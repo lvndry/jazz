@@ -328,7 +328,7 @@ export async function createDetachSnapshot(
       conversationId: input.conversationId,
       title: prior?.title ?? "",
       startedAt: prior?.startedAt ?? new Date().toISOString(),
-      endedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       messages: [...input.history],
       ...(prior?.uiTranscript !== undefined ? { uiTranscript: prior.uiTranscript } : {}),
     };
@@ -942,7 +942,7 @@ export function withRemoteTurnsInUiTranscript(
       ? [
           {
             id: `remote:${returned.conversationId}:${shared + index}`,
-            timestamp: returned.endedAt ?? returned.startedAt,
+            timestamp: returned.updatedAt ?? returned.startedAt,
             content:
               message.role === "user"
                 ? { kind: "user" as const, text: message.content }
@@ -957,7 +957,7 @@ export function withRemoteTurnsInUiTranscript(
       ...returned.uiTranscript,
       {
         id: `remote:${returned.conversationId}:continued:${shared}`,
-        timestamp: returned.endedAt ?? returned.startedAt,
+        timestamp: returned.updatedAt ?? returned.startedAt,
         content: { kind: "notice", tone: "info", text: "Continued on a remote host" },
       },
       ...remoteTurns,

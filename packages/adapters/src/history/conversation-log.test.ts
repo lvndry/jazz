@@ -6,10 +6,12 @@ import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { presentationEntrySchema } from "@jazz/core/types/presentation-content-schema";
+import { stateFileMode } from "@jazz/core/utils/private-mode";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import {
   collapseSupersededUiEvents,
+  CONVERSATION_LOG_VERSION,
   deleteConversationLog,
   deriveConversationTitle,
   conversationLogPath,
@@ -50,7 +52,7 @@ function record(messages: readonly ChatMessage[], title = "Trip planning") {
     conversationId: "conv-1",
     title,
     startedAt: "2026-08-01T10:00:00.000Z",
-    endedAt: null,
+    updatedAt: null,
     messages,
   };
 }
@@ -179,14 +181,45 @@ describe("recordConversationTranscript", () => {
     );
     await runEffect(
       recordConversationTranscript(
-        { ...record([userMessage("hi")], "Second title"), endedAt: "2026-08-01T11:00:00.000Z" },
+        { ...record([userMessage("hi")], "Second title"), updatedAt: "2026-08-01T11:00:00.000Z" },
         tmpDir,
       ),
     );
 
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(session?.title).toBe("Second title");
-    expect(session?.endedAt).toBe("2026-08-01T11:00:00.000Z");
+    expect(session?.updatedAt).toBe("2026-08-01T11:00:00.000Z");
+  });
+  test("reads the pre-rename endedAt key in older meta events as updatedAt", async () => {
+    const logPath = conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir);
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(
+      logPath,
+      [
+        JSON.stringify({
+          type: "conversation",
+          version: CONVERSATION_LOG_VERSION,
+          agentId: AGENT_ID,
+          conversationId: CONVERSATION_ID,
+          startedAt: "2026-08-01T10:00:00.000Z",
+        }),
+        JSON.stringify({
+          type: "message",
+          at: "2026-08-01T10:00:01.000Z",
+          message: userMessage("hi"),
+        }),
+        JSON.stringify({
+          type: "meta",
+          at: "2026-08-01T11:00:00.000Z",
+          endedAt: "2026-08-01T11:00:00.000Z",
+        }),
+        "",
+      ].join("\n"),
+      { mode: stateFileMode() },
+    );
+
+    const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(session?.updatedAt).toBe("2026-08-01T11:00:00.000Z");
   });
 
   test("preserves the started-at instant across appends", async () => {

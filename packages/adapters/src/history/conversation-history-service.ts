@@ -275,7 +275,7 @@ export function saveConversation(
             conversationId: conversation.conversationId,
             title: conversation.title,
             startedAt: conversation.startedAt,
-            endedAt: conversation.endedAt,
+            updatedAt: conversation.updatedAt,
             messages: conversation.messages,
             ...(conversation.uiTranscript !== undefined
               ? { uiTranscript: conversation.uiTranscript }
@@ -363,7 +363,7 @@ export function saveRunTranscript(
         options.prior?.title ??
         Array.from(options.fallbackTitle).slice(0, MAX_RUN_TITLE_CHARS).join(""),
       startedAt: options.prior?.startedAt ?? now,
-      endedAt: now,
+      updatedAt: now,
       messages: [...options.messages],
     },
     dir,

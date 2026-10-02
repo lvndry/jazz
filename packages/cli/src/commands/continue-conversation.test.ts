@@ -47,7 +47,7 @@ describe("continuedSessionOptions", () => {
           title: "Groceries",
           agentId: agent.id,
           startedAt: new Date().toISOString(),
-          endedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
           messages: [
             { role: "user", content: "add milk" },
             { role: "assistant", content: "Added." },

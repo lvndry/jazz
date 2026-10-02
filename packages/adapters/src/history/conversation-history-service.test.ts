@@ -48,7 +48,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
     title: "Hello world",
     agentId: "agent-1",
     startedAt: new Date().toISOString(),
-    endedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     messages: [{ role: "user", content: "Hello world" } as ChatMessage],
     ...overrides,
   };
