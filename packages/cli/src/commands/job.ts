@@ -1,3 +1,4 @@
+import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { drainAgentJobs } from "@jazz/daemon/job-worker";
 import { Effect } from "effect";
@@ -7,11 +8,12 @@ import { Effect } from "effect";
  *
  * Agent-scoped rather than batch-scoped so two batches enqueued seconds apart do not start two
  * workers racing for the same lease — the first drains both, the second finds nothing and exits.
+ * The fan-in turns run with the file run store so a run that needs an approval can park itself.
  */
 export function runJobsCommand(options: { agent: string }) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     yield* logger.info("Draining background jobs");
     yield* drainAgentJobs(options.agent);
-  });
+  }).pipe(Effect.provide(makeFileRunStoreLayer()));
 }

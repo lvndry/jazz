@@ -1,3 +1,4 @@
+import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { claimWakeTrigger } from "@jazz/adapters/wake-trigger-service";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { createWakeTriggerOsScheduler } from "@jazz/core/wake-triggers/wake-trigger-os-scheduler";
@@ -13,6 +14,9 @@ import { Effect } from "effect";
  * this does nothing. The record is removed only after the turn finished or parked; a failed
  * turn keeps it with the error, for the daemon to retry. Either way the host scheduler's
  * one-shot job is removed at the end, since it has fired.
+ *
+ * The turn runs with the file run store, because a run that needs an approval nobody can give
+ * parks itself there; without it the park is unsaved and the trigger fails as unresumable.
  */
 export function fireWakeTriggerCommand(options: { agent: string; id: string }) {
   return Effect.gen(function* () {
@@ -29,5 +33,5 @@ export function fireWakeTriggerCommand(options: { agent: string; id: string }) {
     yield* osScheduler
       .cancelFire(options.agent, options.id, trigger?.osSchedulerJobId)
       .pipe(Effect.catchAll(() => Effect.void));
-  });
+  }).pipe(Effect.provide(makeFileRunStoreLayer()));
 }
