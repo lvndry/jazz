@@ -10,6 +10,7 @@ import { Effect, Option } from "effect";
 import {
   backgroundItems,
   describeBackgroundCheck,
+  describeBackgroundCommand,
   describeBackgroundTiming,
   type BackgroundItem,
 } from "@/cli/ui/models/background-work";
@@ -30,7 +31,15 @@ export function resolveBackgroundItem(
 }
 
 export function formatBackgroundItem(item: BackgroundItem, position: number, now: number): string {
-  return `${String(position)}. ${item.description}\n   ${describeBackgroundCheck(item)} · ${describeBackgroundTiming(item, now)}`;
+  const lines = [
+    `${String(position)}. ${item.description}`,
+    `   ${describeBackgroundCommand(item)} · ${describeBackgroundTiming(item, now)}`,
+  ];
+  const status = describeBackgroundCheck(item);
+  if (status !== describeBackgroundCommand(item)) {
+    lines.push(`   ${status}`);
+  }
+  return lines.join("\n");
 }
 
 export function handleWaitsCommand(context: CommandContext, args: readonly string[]) {

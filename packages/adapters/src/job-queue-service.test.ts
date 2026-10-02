@@ -23,6 +23,7 @@ import {
   listUndeliveredBatches,
   nextClaimableAt,
   reclaimExpiredLeases,
+  recordJobProgress,
   renewJobLease,
   settleBatchFanIn,
 } from "./job-queue-service";
@@ -353,6 +354,46 @@ describe("reclaimExpiredLeases", () => {
     ).toBe(false);
     const batch = await runEffect(service.getBatch("agent-1", claimed.batchId));
     expect(batch?.jobs[0]?.leaseExpiresAt).toBe(later + JOB_LEASE_TIMEOUT_MS);
+  });
+});
+
+describe("polling job progress", () => {
+  const progress = { checks: 3, lastExitCode: 1, lastCheckedAt: 1234, lastOutput: "building" };
+
+  test("is saved on the running job of the worker that holds it", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
+    );
+    if (!outcome.success) return;
+    const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
+    if (claimed === undefined) throw new Error("nothing claimed");
+
+    expect(
+      await runEffect(
+        recordJobProgress(tmpDir, "agent-1", claimed.batchId, claimed.jobId, "worker-a", progress),
+      ),
+    ).toBe(true);
+    const batch = await runEffect(service.getBatch("agent-1", claimed.batchId));
+    expect(batch?.jobs[0]?.progress).toEqual(progress);
+  });
+
+  test("is refused for a worker that no longer holds the job", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("agent-1", "conv-1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
+    );
+    if (!outcome.success) return;
+    const [claimed] = await runEffect(claimDueJobs(tmpDir, "agent-1", Date.now(), 1, "worker-a"));
+    if (claimed === undefined) throw new Error("nothing claimed");
+
+    expect(
+      await runEffect(
+        recordJobProgress(tmpDir, "agent-1", claimed.batchId, claimed.jobId, "worker-b", progress),
+      ),
+    ).toBe(false);
+    const batch = await runEffect(service.getBatch("agent-1", claimed.batchId));
+    expect(batch?.jobs[0]?.progress).toBeUndefined();
   });
 });
 

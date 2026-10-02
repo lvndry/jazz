@@ -21,6 +21,7 @@ import {
   listUndeliveredBatches,
   nextClaimableAt,
   reclaimExpiredLeases,
+  recordJobProgress,
   renewJobLease,
   settleBatchFanIn,
   type ClaimedJob,
@@ -157,15 +158,61 @@ function heartbeat(claimed: ClaimedJob, leaseOwner: string) {
   );
 }
 
-function runJobCommand(claimed: ClaimedJob) {
+/**
+ * Fastest a polling job saves its progress. A check can run every 250ms, but a viewer reads the
+ * record every few seconds, so writing each one would only churn the batch file's lock.
+ */
+const PROGRESS_RECORD_MIN_INTERVAL_MS = 2_000;
+
+/** Longest check-output line kept on the record. */
+const PROGRESS_OUTPUT_MAX_LENGTH = 200;
+
+/** Redacted, last non-empty line of a check's output, cut to a row's worth. */
+function progressOutputLine(stdout: string, stderr: string, known: readonly KnownSecret[]): string {
+  const lines = redactSecretText(stdout.trim() || stderr.trim(), known)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const line = lines[lines.length - 1] ?? "";
+  return line.length > PROGRESS_OUTPUT_MAX_LENGTH
+    ? `${line.slice(0, PROGRESS_OUTPUT_MAX_LENGTH - 1)}…`
+    : line;
+}
+
+function runJobCommand(claimed: ClaimedJob, leaseOwner: string) {
   const env = createSanitizedEnv({}, []);
-  if (claimed.poll !== undefined) {
-    return pollUntilSuccess({
-      command: claimed.command,
-      workingDir: claimed.workingDir,
-      intervalMs: claimed.poll.intervalMs,
-      timeoutMs: claimed.poll.timeoutMs,
-      env,
+  const poll = claimed.poll;
+  if (poll !== undefined) {
+    return Effect.gen(function* () {
+      const known = yield* toolKnownSecrets();
+      let lastRecordedAt = 0;
+      return yield* pollUntilSuccess({
+        command: claimed.command,
+        workingDir: claimed.workingDir,
+        intervalMs: poll.intervalMs,
+        timeoutMs: poll.timeoutMs,
+        env,
+        onCheck: (check) => {
+          const now = Date.now();
+          if (now - lastRecordedAt < PROGRESS_RECORD_MIN_INTERVAL_MS) {
+            return Effect.void;
+          }
+          lastRecordedAt = now;
+          return recordJobProgress(
+            jobBatchDirectory(),
+            claimed.agentId,
+            claimed.batchId,
+            claimed.jobId,
+            leaseOwner,
+            {
+              checks: check.attempts,
+              lastExitCode: check.exitCode,
+              lastCheckedAt: now,
+              lastOutput: progressOutputLine(check.stdout, check.stderr, known),
+            },
+          ).pipe(Effect.ignore);
+        },
+      });
     }).pipe(
       Effect.map((polled) => ({
         success: polled.matched,
@@ -199,7 +246,7 @@ function runJobCommand(claimed: ClaimedJob) {
 
 function runClaimedJob(claimed: ClaimedJob, leaseOwner: string) {
   return Effect.gen(function* () {
-    const outcome = yield* runJobCommand(claimed).pipe(
+    const outcome = yield* runJobCommand(claimed, leaseOwner).pipe(
       Effect.raceFirst(heartbeat(claimed, leaseOwner).pipe(Effect.zipRight(Effect.never))),
     );
 

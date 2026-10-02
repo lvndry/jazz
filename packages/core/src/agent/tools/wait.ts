@@ -139,6 +139,9 @@ export function createWaitTools(): WaitTools {
       "Rerun a command in the background until it exits 0; use it for every wait-until check. " +
       "Returns at once with a batchId while you keep working, and you are woken with the last " +
       "check's output when the command first exits 0 or when the time runs out. " +
+      "Have the command print one short status line per check, such as " +
+      "`tail -n 1 build.log; grep -q 'build finished' build.log`; the newest line shows in the " +
+      "session while it waits. " +
       `Waits up to ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes.`,
     parameters: waitForParameters,
     riskLevel: "unknown",

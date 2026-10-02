@@ -110,6 +110,28 @@ describe("batch progress", () => {
   });
 });
 
+describe("watch progress", () => {
+  test("shows the newest saved check, and the command until one has run", () => {
+    const fresh = backgroundItems([batch({})], "conversation-1")[0];
+    expect(fresh && describeBackgroundCheck(fresh)).toBe("every 1s: true");
+
+    const checked = backgroundItems(
+      [
+        batch({
+          jobs: [
+            job(true, {
+              progress: { checks: 12, lastExitCode: 1, lastCheckedAt: 5, lastOutput: "building" },
+            }),
+          ],
+        }),
+      ],
+      "conversation-1",
+    )[0];
+    expect(checked?.progress).toBe("check 12 · exit 1 · building");
+    expect(checked && describeBackgroundCheck(checked)).toBe("check 12 · exit 1 · building");
+  });
+});
+
 describe("formatBackgroundWork", () => {
   const watch = backgroundItems([batch({ id: "a" })], "conversation-1");
   const job = backgroundItems([batch({ id: "b", poll: false })], "conversation-1");

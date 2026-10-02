@@ -43,6 +43,19 @@ function lastLine(text: string): string {
     : line;
 }
 
+/** `check 12 · exit 1 · in_progress` from the newest check the worker saved; empty before one. */
+function watchProgress(batch: JobBatchRecord): string {
+  const progress = batch.jobs.find((job) => job.poll !== undefined)?.progress;
+  if (progress === undefined) {
+    return "";
+  }
+  const parts = [`check ${String(progress.checks)}`, `exit ${String(progress.lastExitCode)}`];
+  if (progress.lastOutput.length > 0) {
+    parts.push(progress.lastOutput);
+  }
+  return parts.join(" · ");
+}
+
 function jobProgress(
   batch: JobBatchRecord,
 ): Pick<BackgroundItem, "progress" | "current" | "failure"> {
@@ -98,7 +111,7 @@ export function backgroundItems(
       description: batch.reason.length > 0 ? batch.reason : command,
       command,
       startedAt: batch.createdAt,
-      ...(poll === undefined ? jobProgress(batch) : { progress: "" }),
+      ...(poll === undefined ? jobProgress(batch) : { progress: watchProgress(batch) }),
       ...(poll === undefined
         ? {}
         : { intervalMs: poll.intervalMs, expiresAt: batch.createdAt + poll.timeoutMs }),
@@ -152,10 +165,20 @@ export function describeBackgroundTiming(item: BackgroundItem, now: number): str
   return `running ${formatElapsed(Math.max(0, now - item.startedAt))}`;
 }
 
-/** A row's detail: what a watch re-runs, or how far a batch of jobs has got and what failed. */
+/** What a watch re-runs and how often; a job's command. */
+export function describeBackgroundCommand(item: BackgroundItem): string {
+  return item.intervalMs === undefined
+    ? item.command
+    : `every ${formatElapsed(item.intervalMs)}: ${item.command}`;
+}
+
+/**
+ * A row's detail: the newest check of a watch (its command until one has run), or how far a
+ * batch of jobs has got and what failed.
+ */
 export function describeBackgroundCheck(item: BackgroundItem): string {
   if (item.intervalMs !== undefined) {
-    return `every ${formatElapsed(item.intervalMs)}: ${item.command}`;
+    return item.progress.length > 0 ? item.progress : describeBackgroundCommand(item);
   }
   const parts = [item.progress];
   if (item.current !== undefined) {
