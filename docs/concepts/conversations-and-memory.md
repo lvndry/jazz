@@ -34,7 +34,7 @@ Jazz keeps five kinds of state:
 ## Conversation history
 
 Conversation history contains your messages, the agent's replies, and its tool results.
-In the terminal, use `/resume` to return to earlier work and `/start` for a new conversation.
+In the terminal, use `/resume` to return to earlier work and `/new` for a new conversation.
 
 In scripts, pass the same `--conversation` value to continue a thread:
 

@@ -1,7 +1,7 @@
 /**
  * Execute parsed chat commands through shared application services. handleSpecialCommand
  * returns explicit session changes for the chat loop to apply; title edits persist before
- * reporting success, agent creation leaves the active conversation in place, and /start
+ * reporting success, agent creation leaves the active conversation in place, and /new
  * requests a fresh conversation after saving the current one. Local command output stays in
  * the UI transcript rather than being inserted into model context unless a command opts in.
  */

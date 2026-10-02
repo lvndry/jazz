@@ -216,7 +216,6 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
     name: "new",
     type: "start",
     description: "Start a fresh conversation with the current agent",
-    aliases: ["start"],
   },
   { name: "create", type: "create", description: "Create a new agent" },
   {

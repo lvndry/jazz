@@ -382,7 +382,7 @@ describe("conversation titles through the chat loop", () => {
       expect((await runEffect(loadConversation(otherAgent.id, "rename-loop", tmpDir)))?.title).toBe(
         title,
       );
-      await session(otherAgent, ["/start", "/rename Fresh branch", "/exit"]);
+      await session(otherAgent, ["/new", "/rename Fresh branch", "/exit"]);
       const freshId = store.getCurrentConversationSnapshot()?.conversationId;
       expect(freshId).not.toBe("rename-loop");
       expect((await runEffect(loadConversation(otherAgent.id, freshId ?? "", tmpDir)))?.title).toBe(

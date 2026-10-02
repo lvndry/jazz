@@ -1,7 +1,7 @@
 /**
  * Conversation operations for the terminal chat command router. Call these handlers with
  * the active session context or history and apply their CommandResult in the chat loop:
- * /start creates a fresh ID, /fork branches the current history, /resume selects a saved
+ * /new creates a fresh ID, /fork branches the current history, /resume selects a saved
  * transcript, and /rename persists an explicit title before returning a session title update.
  *
  * These handlers do not call the model. History replacement and persistence remain explicit

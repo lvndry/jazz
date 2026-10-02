@@ -10,25 +10,30 @@ import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { WAITING_ON_USER_GOAL_STATES } from "@jazz/core/agent/goal/goal-state";
-import { isLocalServerProvider, isZeroCostLocalModel } from "@jazz/core/constants/local-providers";
-import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
 import { LLM_PROVIDER_ENV_VARS, llmProviderEnvVars } from "@jazz/core/constants/provider-env-vars";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { ChatServiceTag } from "@jazz/core/interfaces/chat-service";
 import { JazzStateServiceTag } from "@jazz/core/interfaces/jazz-state";
-import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { Agent, AppConfig } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
-import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
-import { agentDetailFields } from "./agent-details";
-import { deleteAgentCommand } from "./agent-management";
+import {
+  agentChoicesFor,
+  confirmAndDeleteAgent,
+  localHostUrlFor,
+  modelMetadataFor,
+  showAgentActions,
+  showAgentDetails,
+  showAgentList,
+} from "./agent-menu";
+/** Re-exported for existing tests; the menu lives in agent-menu.ts. */
+export { showAgentList };
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
 import { buildHome } from "./home-surface";
@@ -51,7 +56,7 @@ import {
   type AgentUsage,
   type WaitingSource,
 } from "../ui/models/home-view";
-import { store, type ActiveAgentChoice, type ActiveHomeDetection } from "../ui/store";
+import { store, type ActiveHomeDetection } from "../ui/store";
 
 /**
  * Interactive wizard command - the main entry point when `jazz` is run with no arguments
@@ -522,169 +527,6 @@ function showHome(context: HomeContext) {
     }
 
     return yield* Effect.promise(() => answered);
-  });
-}
-
-function agentChoicesFor(
-  agents: readonly Agent[],
-  lastUsedAgentId: string | null | undefined,
-): readonly ActiveAgentChoice[] {
-  return agents.map((agent) => ({
-    id: agent.id,
-    name: agent.name,
-    model: agentModelString(agent.config.llm),
-    persona: agent.config.persona,
-    ...(agent.description !== undefined && agent.description !== agent.name
-      ? { description: agent.description }
-      : {}),
-    ...(agent.id === lastUsedAgentId ? { lastUsed: true as const } : {}),
-  }));
-}
-
-export function showAgentList(
-  agents: readonly Agent[],
-  lastUsedAgentId: string | null | undefined,
-  previouslyOpenedId?: string,
-): Effect.Effect<Agent | null, never, never> {
-  return Effect.async<Agent | null>((resume) => {
-    const sorted = sortAgents(agents, lastUsedAgentId);
-    store.setActiveMenu(
-      {
-        kind: "agents",
-        title: "agents",
-        action: "details",
-        agents: agentChoicesFor(sorted, lastUsedAgentId),
-        ...(previouslyOpenedId === undefined
-          ? {}
-          : {
-              initialIndex: Math.max(
-                0,
-                sorted.findIndex((agent) => agent.id === previouslyOpenedId),
-              ),
-            }),
-      },
-      (result) => {
-        resume(
-          Effect.succeed(
-            result.kind === "exit"
-              ? null
-              : (agents.find((agent) => agent.id === result.value) ?? null),
-          ),
-        );
-      },
-    );
-  });
-}
-
-/** Display one selected agent until the reader returns to the list. */
-function showAgentDetails(
-  agent: Agent,
-  metadata: Awaited<ReturnType<typeof getModelsDevMetadata>>,
-  hostUrl: string | undefined,
-): Effect.Effect<void, never, never> {
-  return Effect.async<void>((resume) => {
-    store.setActiveMenu(
-      {
-        kind: "agent-details",
-        name: agent.name,
-        fields: agentDetailFields(agent, metadata, hostUrl),
-      },
-      () => resume(Effect.void),
-    );
-  });
-}
-
-type AgentAction = "start" | "details" | "edit" | "delete" | "back";
-
-/** What to do with one agent picked from the list. */
-function showAgentActions(agent: Agent): Effect.Effect<AgentAction, never, never> {
-  return Effect.async<AgentAction>((resume) => {
-    store.setActiveMenu(
-      {
-        kind: "menu",
-        title: agent.name,
-        options: [
-          {
-            label: "Start a conversation",
-            value: "start",
-            hint: agentModelString(agent.config.llm),
-          },
-          { label: "Details", value: "details", hint: "model, tools, access" },
-          { label: "Edit", value: "edit", hint: "change its model, persona or tools" },
-          { label: "Delete", value: "delete", hint: "asks first" },
-          { label: "Back to agents", value: "back" },
-        ],
-      },
-      (result) =>
-        resume(Effect.succeed(result.kind === "exit" ? "back" : (result.value as AgentAction))),
-    );
-  });
-}
-
-/**
- * Ask before deleting, with keeping the agent as the default, and say what goes and what stays:
- * the agent's file goes, its saved conversations stay on disk but no longer appear in resume.
- */
-function confirmAndDeleteAgent(agent: Agent) {
-  return Effect.gen(function* () {
-    const terminal = yield* TerminalServiceTag;
-    const history = yield* loadHistory(agent.id).pipe(
-      Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
-    );
-    const saved = history.conversations.length;
-    const keeps =
-      saved === 0
-        ? "It has no saved conversations."
-        : `Its ${String(saved)} saved ${saved === 1 ? "conversation stays" : "conversations stay"} on disk, but resume stops listing ${saved === 1 ? "it" : "them"}.`;
-    const answer = yield* terminal.select<"keep" | "delete">(
-      `Delete ${agent.name}? This removes its settings, persona choice and tool access. ${keeps}`,
-      {
-        choices: [
-          { name: `Keep ${agent.name}`, value: "keep" },
-          {
-            name: `Delete ${agent.name}`,
-            value: "delete",
-            tag: "can't be undone",
-            tagTone: "warning",
-          },
-        ],
-        default: "keep",
-      },
-    );
-    if (answer !== "delete") {
-      return false;
-    }
-    const outcome = yield* deleteAgentCommand(agent.id, { skipConfirmation: true }).pipe(
-      Effect.either,
-    );
-    if (outcome._tag === "Left") {
-      yield* terminal.error(`${agent.name} was not deleted: ${String(outcome.left)}`);
-      return false;
-    }
-    return true;
-  });
-}
-
-/** models.dev pricing for an agent's model, skipped for local models that cost nothing. */
-function modelMetadataFor(agent: Agent) {
-  return isZeroCostLocalModel(agent.config.llm.provider, agent.config.llm.model)
-    ? Effect.succeed(undefined)
-    : Effect.tryPromise({
-        try: () => getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
-        catch: (error) => error,
-      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
-}
-
-/** The server a local-model agent talks to, for the details screen. */
-function localHostUrlFor(agent: Agent) {
-  return Effect.gen(function* () {
-    const llmService = yield* LLMServiceTag;
-    const configService = yield* AgentConfigServiceTag;
-    const appConfig = yield* configService.appConfig;
-    return isLocalServerProvider(agent.config.llm.provider) &&
-      (agent.config.llm.provider !== "ollama" || !isOllamaCloudModel(agent.config.llm.model))
-      ? llmService.resolveLocalProviderBaseUrl(agent.config.llm.provider, appConfig.llm)
-      : undefined;
   });
 }
 
