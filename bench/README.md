@@ -87,6 +87,11 @@ Ink relative gates, and extended-run resource limits. The report links its raw
 per-run JSONs in `bench/results/`, which stay local (gitignored); only the
 write-up and runner snapshots under `bench/reports/` are tracked.
 
+For alternating fresh-process reproduction of the focused Ink cases, use
+`bun bench/qualify-ui.ts pipeline|memory --base <checkout> --head <checkout> --output <report>`.
+See [UI performance qualification](../docs/maintainers/ui-performance-qualification.md)
+for baseline preparation, the worker protocol, and qualification limits.
+
 `run.ts --output` writes versioned reports with OS, architecture and Bun version.
 CI runs `--samples 5`, using five fresh processes per suite and retaining the median of each
 reported measurement; the odd count keeps the median a real observation, so a single
