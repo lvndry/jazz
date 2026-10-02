@@ -68,7 +68,7 @@ function refuseWhenAgentStarted(decision: string): boolean {
     return false;
   }
   process.stderr.write(
-    `${decision} is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.\n`,
+    `${decision} is your decision; this command was started by a Jazz agent, so it was refused. Run the same command in a plain terminal, outside the Jazz conversation (or have the agent propose it with its in-chat tool and approve it there).\n`,
   );
   process.exitCode = 1;
   return true;

@@ -22,6 +22,8 @@ import {
   createComputerAppsTool,
   createComputerEndTool,
   createComputerForegroundTools,
+  createComputerGrantAppTool,
+  createComputerInstallDriverTool,
   createComputerHandoffTools,
   createComputerInputTools,
   createComputerObserveTool,
@@ -406,6 +408,8 @@ export function registerComputerTools(): Effect.Effect<void, Error, ToolRegistry
       createComputerInputTools(),
       createComputerForegroundTools(),
       createComputerHandoffTools(),
+      createComputerGrantAppTool(),
+      createComputerInstallDriverTool(),
     ]) {
       yield* registerTool(pair.approval);
       yield* registerTool(pair.execute);

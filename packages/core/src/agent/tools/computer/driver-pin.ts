@@ -75,7 +75,14 @@ export type DriverPinCheck =
   | { readonly ok: true; readonly executablePath: string; readonly sha256: string }
   | { readonly ok: false; readonly reason: string };
 
-export const DRIVER_MISSING_MESSAGE = `Computer use needs the ${DRIVER_COMMAND} driver, and none was found. Install it, or set ${DRIVER_PATH_ENV} to its path.`;
+export const DRIVER_INSTALL_COMMAND = `/bin/bash -c "$(curl -fsSL https://cua.ai/driver/install.sh)"`;
+
+export const DRIVER_MISSING_MESSAGE =
+  `Computer use needs the ${DRIVER_COMMAND} driver, and none was found. Unblock it one of these ways:\n` +
+  `  1. Let the agent install it: call the computer_install_driver tool and approve the command it shows.\n` +
+  `  2. Install it in your own terminal: ${DRIVER_INSTALL_COMMAND}\n` +
+  `  3. Point at an existing build: export ${DRIVER_PATH_ENV}=/path/to/cua-driver\n` +
+  "Then run `jazz computer acknowledge` once (in your own terminal) to pin the installed build.";
 
 export const NOT_ACKNOWLEDGED_MESSAGE =
   "Computer use has not been acknowledged on this machine. Run `jazz computer acknowledge` in your own terminal.";

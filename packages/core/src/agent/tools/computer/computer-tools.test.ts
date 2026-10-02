@@ -18,6 +18,8 @@ import {
   createComputerEndTool,
   createComputerForegroundTools,
   createComputerHandoffTools,
+  createComputerGrantAppTool,
+  createComputerInstallDriverTool,
   createComputerInputTools,
   createComputerObserveTool,
   createComputerPointerTools,
@@ -42,6 +44,8 @@ const apps = createComputerAppsTool();
 const observe = createComputerObserveTool();
 const wait = createComputerWaitTool();
 const end = createComputerEndTool();
+const grantApp = createComputerGrantAppTool();
+const installDriver = createComputerInstallDriverTool();
 
 const stores: UserSecretStore[] = [];
 
@@ -92,6 +96,8 @@ describe("declarations", () => {
     input.approval,
     foreground.approval,
     handoff.approval,
+    grantApp.approval,
+    installDriver.approval,
   ].map(asTool);
 
   test("give each tool the risk tier that matches what it can do", () => {
@@ -104,6 +110,8 @@ describe("declarations", () => {
       computer_input: "high-risk",
       computer_foreground: "high-risk",
       computer_handoff: "low-risk",
+      computer_grant_app: "low-risk",
+      computer_install_driver: "high-risk",
     });
   });
 
@@ -117,6 +125,8 @@ describe("declarations", () => {
       computer_input: true,
       computer_foreground: true,
       computer_handoff: false,
+      computer_grant_app: false,
+      computer_install_driver: false,
     });
   });
 
@@ -139,11 +149,15 @@ describe("declarations", () => {
   test("register exactly the names the attended-run gate removes", () => {
     const registered = [
       ...visible.map((tool) => tool.name),
-      ...[pointer, input, foreground, handoff].map((pair) => pair.execute.name),
+      ...[pointer, input, foreground, handoff, grantApp, installDriver].map(
+        (pair) => pair.execute.name,
+      ),
     ].sort();
     expect(registered).toEqual([...COMPUTER_TOOL_NAMES].sort());
     expect(
-      [pointer, input, foreground, handoff].every((pair) => pair.execute.hidden === true),
+      [pointer, input, foreground, handoff, grantApp, installDriver].every(
+        (pair) => pair.execute.hidden === true,
+      ),
     ).toBe(true);
   });
 

@@ -31,6 +31,17 @@ import {
   makeZodValidator,
 } from "../base-tool";
 import { toolKnownSecrets } from "../tool-secrets";
+import { classifyApp, describeRefusal } from "./app-policy";
+import { DRIVER_INSTALL_COMMAND, installDriver } from "./driver-install";
+import { NOT_ACKNOWLEDGED_MESSAGE } from "./driver-pin";
+import {
+  DEFAULT_GRANT_EXPIRY_MS,
+  DEFAULT_GRANT_IDLE_TIMEOUT_MS,
+  type ComputerGrant,
+  readComputerState,
+  updateComputerState,
+  withGrant,
+} from "./grants";
 import { firstReachMessage, rejectionMessageFor } from "./messages";
 import { openComputerSession } from "./open";
 import {
@@ -43,6 +54,8 @@ import {
 } from "./session";
 import {
   COMPUTER_APPS_TOOL_NAME,
+  COMPUTER_GRANT_APP_TOOL_NAME,
+  COMPUTER_INSTALL_DRIVER_TOOL_NAME,
   COMPUTER_END_TOOL_NAME,
   COMPUTER_FOREGROUND_TOOL_NAME,
   COMPUTER_HANDOFF_TOOL_NAME,
@@ -70,7 +83,34 @@ const MAX_WAIT_POLL_MS = 2000;
 const OBSERVE_HINT = "Observe the window to see the result.";
 
 function failure(error: string): ToolExecutionResult {
-  return { success: false, result: null, error };
+  return { success: false, result: null, error: withUnblockHint(error) };
+}
+
+/**
+ * The driver's error text names the state, not the fix. For the two cases that need the operator
+ * in a terminal, append the exact unblock command so the model can relay it and the person can run it.
+ */
+const PERMISSIONS_UNBLOCK_HINT =
+  " Unblock: run `cua-driver permissions grant` in your own terminal (System Settings → Privacy & " +
+  "Security → Accessibility and Screen & System Audio Recording). If an entry is already allowed " +
+  "but stale: `tccutil reset ScreenCapture com.trycua.driver && cua-driver permissions grant`. " +
+  "Retry after it completes.";
+
+const NOT_ACKNOWLEDGED_UNBLOCK_HINT =
+  " (In the chat, the model can ask you to approve computer_install_driver, and the driver's own " +
+  "`cua-driver permissions status` reports the state.)";
+
+function withUnblockHint(message: string): string {
+  if (
+    /permission|accessibility|screen recording|tcc|capture/i.test(message) &&
+    !message.includes("Unblock:")
+  ) {
+    return `${message}${PERMISSIONS_UNBLOCK_HINT}`;
+  }
+  if (message.includes(NOT_ACKNOWLEDGED_MESSAGE)) {
+    return `${message}${NOT_ACKNOWLEDGED_UNBLOCK_HINT}`;
+  }
+  return message;
 }
 
 function sessionsFor(context: ToolExecutionContext): ComputerSessions | undefined {
@@ -338,6 +378,15 @@ const baseActionFields = {
     .describe("Observation id from the latest computer_observe, such as c3."),
   x: z.number().int().min(0).optional().describe("Pixel across the observation's screenshot."),
   y: z.number().int().min(0).optional().describe("Pixel down the observation's screenshot."),
+  windowId: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "Act on this specific top-level window of the app (window_id from computer_apps). " +
+        "Pass it when the driver says the app owns more than one eligible top-level window.",
+    ),
   direction: z.enum(["up", "down", "left", "right"]).optional().describe("Scroll direction."),
   amount: z
     .number()
@@ -381,6 +430,7 @@ interface ActionArgs {
   readonly observation?: string | undefined;
   readonly x?: number | undefined;
   readonly y?: number | undefined;
+  readonly windowId?: number | undefined;
   readonly direction?: "up" | "down" | "left" | "right" | undefined;
   readonly amount?: number | undefined;
   readonly text?: string | undefined;
@@ -410,9 +460,11 @@ function requireFields(args: ActionArgs, refinement: z.RefinementCtx): void {
 }
 
 function toActionInput(args: ActionArgs, delivery: "background" | "foreground"): ActionInput {
+  // exactOptionalPropertyTypes: the field must be absent, not undefined.
+  const windowTarget = args.windowId === undefined ? {} : { windowId: args.windowId };
   switch (args.action) {
     case "click":
-      return { kind: "click", ref: args.ref ?? "", delivery };
+      return { kind: "click", ref: args.ref ?? "", delivery, ...windowTarget };
     case "click_point":
       return {
         kind: "click_point",
@@ -420,6 +472,7 @@ function toActionInput(args: ActionArgs, delivery: "background" | "foreground"):
         x: args.x ?? 0,
         y: args.y ?? 0,
         delivery,
+        ...windowTarget,
       };
     case "scroll":
       return {
@@ -428,6 +481,7 @@ function toActionInput(args: ActionArgs, delivery: "background" | "foreground"):
         direction: args.direction ?? "down",
         amount: args.amount ?? DEFAULT_SCROLL_AMOUNT,
         delivery,
+        ...windowTarget,
       };
     case "type": {
       return {
@@ -435,6 +489,7 @@ function toActionInput(args: ActionArgs, delivery: "background" | "foreground"):
         ref: args.ref ?? "",
         text: args.text ?? "",
         delivery,
+        ...windowTarget,
         secretPlaceholderGiven: heldUserSecrets().some(
           (secret) => secret.value.length > 0 && (args.text ?? "").includes(secret.value),
         ),
@@ -447,6 +502,7 @@ function toActionInput(args: ActionArgs, delivery: "background" | "foreground"):
         key: args.key ?? "",
         modifiers: args.modifiers ?? [],
         delivery,
+        ...windowTarget,
       };
   }
 }
@@ -727,6 +783,121 @@ export function createComputerHandoffTools(): ApprovalToolPair<AgentConfigServic
         return {
           success: true,
           result: `The person finished the step. Every earlier observation is cleared. ${OBSERVE_HINT}`,
+        } satisfies ToolExecutionResult;
+      }).pipe(Effect.catchAll(toFailure)),
+  });
+}
+
+const grantAppParameters = z
+  .object({
+    bundleId: z.string().min(1).describe("The app's bundle id, from computer_apps."),
+    foreground: z
+      .boolean()
+      .optional()
+      .describe(
+        "Also allow Jazz to bring the app to the front. Leave false unless the background tools cannot drive the app.",
+      ),
+  })
+  .strict();
+
+type GrantAppArgs = z.infer<typeof grantAppParameters>;
+
+export function createComputerGrantAppTool(): ApprovalToolPair<AgentConfigService> {
+  return defineApprovalTool<AgentConfigService, GrantAppArgs>({
+    name: COMPUTER_GRANT_APP_TOOL_NAME,
+    disclosure: "private",
+    summary: "Grant this agent a lasting computer-use permission for one app (experimental).",
+    description:
+      "Grant a lasting computer-use permission for one app, so you are not asked again for it in later " +
+      "conversations. The in-conversation first-reach ask already covers the current run; use this when the " +
+      "person wants the access to stick. It names the app, its tier, and whether foreground access is included. " +
+      "Granting stays your decision: the agent proposes, you approve.",
+    tags: ["computer", "desktop", "grant"],
+    parameters: grantAppParameters,
+    validate: makeZodValidator(grantAppParameters),
+    riskLevel: "low-risk",
+    approvalMessage: (args) =>
+      Effect.gen(function* () {
+        const state = yield* Effect.promise(() => readComputerState());
+        const appClass = classifyApp(args.bundleId);
+        if (appClass === "refused") {
+          throw new Error(`${describeRefusal(args.bundleId)} Granting it here would not help.`);
+        }
+        const known = state.grants.find((grant) => grant.bundleId === args.bundleId);
+        return {
+          message:
+            `Grant lasting computer-use access to ${known?.name === undefined ? args.bundleId : `${known.name} (${args.bundleId})`}? ` +
+            `Tier: ${appClass}. ${
+              args.foreground
+                ? "Includes bringing the app to the front (it may switch Spaces and take focus)."
+                : "Background only; the app is not brought to the front."
+            }\nExpires in ${String(DEFAULT_GRANT_EXPIRY_MS / 3_600_000)} hours; idle for more than ` +
+            `${String(DEFAULT_GRANT_IDLE_TIMEOUT_MS / 60_000)} minutes pauses it. Remove it with ` +
+            "`jazz computer revoke ${args.bundleId}`.",
+          alwaysAsk: true,
+        } as const;
+      }),
+    approvalErrorMessage: "Granting an app is your decision; approve it to continue.",
+    handler: (args) =>
+      Effect.gen(function* () {
+        yield* toolKnownSecrets();
+        const now = Date.now();
+        const state = yield* Effect.promise(() => readComputerState());
+        const known = state.grants.find((grant) => grant.bundleId === args.bundleId);
+        const grant: ComputerGrant = {
+          bundleId: args.bundleId,
+          ...(known?.name === undefined ? {} : { name: known.name }),
+          grantedAt: now,
+          expiresAt: now + DEFAULT_GRANT_EXPIRY_MS,
+          idleTimeoutMs: DEFAULT_GRANT_IDLE_TIMEOUT_MS,
+          foreground: args.foreground === true,
+        };
+        yield* Effect.promise(() => updateComputerState((current) => withGrant(current, grant)));
+        return {
+          success: true,
+          result: `Granted ${args.bundleId} ${
+            args.foreground === true ? "with foreground access" : "(background)"
+          } for ${String(DEFAULT_GRANT_EXPIRY_MS / 3_600_000)} hours. The app now works without asking in this and later runs.`,
+        } satisfies ToolExecutionResult;
+      }).pipe(Effect.catchAll(toFailure)),
+  });
+}
+
+const installDriverParameters = z.object({}).strict();
+
+export function createComputerInstallDriverTool(): ApprovalToolPair<AgentConfigService> {
+  return defineApprovalTool<AgentConfigService, Record<string, never>>({
+    name: COMPUTER_INSTALL_DRIVER_TOOL_NAME,
+    disclosure: "private",
+    summary: "Install the cua-driver binary on this machine (experimental).",
+    description:
+      "Install the computer-use driver (cua-driver) on this machine. Use it when a computer tool reports the " +
+      "driver is missing. Approval shows the exact command it runs. After installing, the machine still needs a " +
+      "one-time acknowledgment: `jazz computer acknowledge` in your own terminal (it pins the installed build " +
+      "by digest).",
+    tags: ["computer", "desktop", "install", "driver"],
+    parameters: installDriverParameters,
+    validate: makeZodValidator(installDriverParameters),
+    riskLevel: "high-risk",
+    approvalMessage: () =>
+      Effect.succeed({
+        message:
+          `Install the computer-use driver (cua-driver) on this machine?\n\nIt runs:\n  ${DRIVER_INSTALL_COMMAND}\n\n` +
+          "That downloads a signed release from cua.ai, verifies its SHA-256, installs it under /Applications " +
+          "and links it into ~/.local/bin. Telemetry defaults to on (pseudonymous, content-free); disable it " +
+          "with `cua-driver telemetry disable`.",
+        alwaysAsk: true,
+      } as const),
+    approvalErrorMessage: "Installing the driver is your decision; approve it to continue.",
+    handler: () =>
+      Effect.gen(function* () {
+        yield* toolKnownSecrets();
+        const path = yield* Effect.promise(() => installDriver());
+        return {
+          success: true,
+          result:
+            `Installed the driver at ${path}. Run \`jazz computer acknowledge\` in your own terminal once, ` +
+            "to pin this exact build by digest, then retry the computer tool.",
         } satisfies ToolExecutionResult;
       }).pipe(Effect.catchAll(toFailure)),
   });

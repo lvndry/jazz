@@ -110,6 +110,8 @@ export type ActionInput =
       readonly ref: string;
       readonly button?: MouseButton;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
     }
   | {
       readonly kind: "click_point";
@@ -118,14 +120,30 @@ export type ActionInput =
       readonly y: number;
       readonly button?: MouseButton;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
     }
-  | { readonly kind: "double_click"; readonly ref: string; readonly delivery: DeliveryMode }
-  | { readonly kind: "triple_click"; readonly ref: string; readonly delivery: DeliveryMode }
+  | {
+      readonly kind: "double_click";
+      readonly ref: string;
+      readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
+    }
+  | {
+      readonly kind: "triple_click";
+      readonly ref: string;
+      readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
+    }
   | {
       readonly kind: "drag";
       readonly fromRef: string;
       readonly toRef: string;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
     }
   | {
       readonly kind: "drag_points";
@@ -135,11 +153,15 @@ export type ActionInput =
       readonly toX: number;
       readonly toY: number;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
     }
   | {
       readonly kind: "hover";
       readonly ref: string;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
     }
   | {
       readonly kind: "hover_point";
@@ -147,6 +169,8 @@ export type ActionInput =
       readonly x: number;
       readonly y: number;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
     }
   | {
       readonly kind: "scroll";
@@ -154,12 +178,16 @@ export type ActionInput =
       readonly direction: ScrollDirection;
       readonly amount: number;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
     }
   | {
       readonly kind: "type";
       readonly ref: string;
       readonly text: string;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
       readonly secretPlaceholderGiven: boolean;
     }
   | {
@@ -167,6 +195,8 @@ export type ActionInput =
       readonly ref: string;
       readonly text: string;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
       readonly secretPlaceholderGiven: boolean;
     }
   | {
@@ -176,6 +206,8 @@ export type ActionInput =
       readonly modifiers: readonly string[];
       readonly repeat?: number;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
     }
   | {
       readonly kind: "hold_key";
@@ -184,6 +216,8 @@ export type ActionInput =
       readonly modifiers: readonly string[];
       readonly durationMs: number;
       readonly delivery: DeliveryMode;
+      /** Act on this specific top-level window of the app (see the multi-window error text). */
+      readonly windowId?: number;
     };
 
 export interface ActionReport {
@@ -893,7 +927,12 @@ export class ComputerSession {
     observation: Observation,
     element: ObservedElement | undefined,
   ): Parameters<ComputerDriver["act"]>[0] {
-    const target = observation.target;
+    // An explicit windowId on the action beats the observation's window: it is how the model
+    // resolves an app that owns several top-level windows.
+    const target =
+      action.windowId === undefined
+        ? observation.target
+        : { pid: observation.target.pid, windowId: action.windowId };
     switch (action.kind) {
       case "click":
         return {
