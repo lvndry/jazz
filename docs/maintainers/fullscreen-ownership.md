@@ -62,6 +62,26 @@ packed receipt run still wraps transiently in full; it is excluded from the
 painted cache. These bounds limit retained derived state, not source size or
 the maximum temporary allocation for an individual block.
 
+### Source-position metadata cache
+
+Per-frame row metadata (the chunk `partAt`/`starts`/`ends` maps and the
+cross-chunk source-position index) is built once per chunk and carried on the
+chunk itself; an update reuses every chunk object the wrapping phase proved
+unchanged. The cross-chunk index — row prefix offsets plus the per-block and
+per-part maps — is copy-on-written per update: a fresh index copies the
+reusable chunk-identity prefix (memcpy of the prefix array and a map copy
+that keeps only entries fully contained in, or spanning, that prefix) and
+records only the changed tail. An index handed to a caller is therefore never
+mutated: held snapshots keep their exact row lengths, source lookups, and
+block bounds across appends, rewrites, promotion, and geometry or palette
+epoch changes (`transcript-layout-metadata.test.ts` pins this). Limitations:
+the copy still walks the whole previous block/part map once per frame, so a
+very large settled history pays a linear copy cost before the tail rebuild;
+the first frame after any epoch change is a full cold build; and the copy
+assumes settled chunks are immutable, so a caller that mutates a block or
+chunk it passed in previously defeats the cache (treat block lists as
+immutable).
+
 Palette and glyph context belong to a layout epoch. Realizing an older index
 after a theme change must use its captured palette. Do not temporarily replace
 global theme state while laying out rows.

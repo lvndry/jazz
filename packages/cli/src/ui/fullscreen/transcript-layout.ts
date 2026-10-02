@@ -1479,10 +1479,12 @@ export function createTranscriptLayout(
     readonly starts: Uint32Array;
     readonly ends: Uint32Array;
   }
+
   let chunks: readonly Chunk[] = [];
   let lastBlocks: readonly Block[] | undefined;
+  let lastChunks: readonly Chunk[] = [];
   let lastEpoch: string | undefined;
-  let lastIndex: TranscriptLayoutIndex | undefined;
+  let lastIndex: LayoutIndex | undefined;
   let cachedRowCount = 0;
   const rowCache = new Map<Chunk, readonly TranscriptRow[]>();
   let disposed = false;
@@ -1586,30 +1588,53 @@ export function createTranscriptLayout(
       previous.every((block, index) => block === current[index])
     );
   }
+  const INDEX_CONTEXT = Symbol.for("jazz.transcript-layout.index-context");
 
-  function makeIndex(current: readonly Chunk[]): TranscriptLayoutIndex {
-    const prefix = new Float64Array(current.length + 1);
-    const blocks = new Map<string, { first: number; last: number }>();
-    const parts = new Map<string, { chunk: number; part: SourcePart }[]>();
-    for (let index = 0; index < current.length; index++) {
-      const chunk = current[index];
-      if (chunk === undefined) continue;
-      const offset = prefix[index] ?? 0;
-      prefix[index + 1] = offset + chunk.length;
-      for (const part of chunk.parts) {
-        const first = offset + (part.rows[0] ?? 0);
-        const last = offset + (part.rows[part.rows.length - 1] ?? 0);
-        const previous = blocks.get(part.blockId);
-        blocks.set(part.blockId, {
-          first: Math.min(previous?.first ?? first, first),
-          last: Math.max(previous?.last ?? last, last),
-        });
-        const key = `${part.blockId}\0${part.partId}`;
-        const spans = parts.get(key) ?? [];
-        spans.push({ chunk: index, part });
-        parts.set(key, spans);
-      }
+  type LayoutIndex = TranscriptLayoutIndex & Record<typeof INDEX_CONTEXT, IndexContext>;
+
+  interface IndexContext {
+    current: Chunk[];
+    prefix: Float64Array;
+    blocks: Map<string, { first: number; last: number }>;
+    parts: Map<string, { chunk: number; part: SourcePart }[]>;
+  }
+
+  /**
+   * Records one chunk's row offsets and source lookups into a shared index
+   * context. Reused by the cold build and the incremental append/tail path
+   * so both produce identical prefix/blocks/parts entries.
+   */
+  function indexChunk(chunk: Chunk, index: number, offset: number, context: IndexContext): number {
+    context.prefix[index + 1] = offset + chunk.length;
+    for (const part of chunk.parts) {
+      const first = offset + (part.rows[0] ?? 0);
+      const last = offset + (part.rows[part.rows.length - 1] ?? 0);
+      const previous = context.blocks.get(part.blockId);
+      context.blocks.set(part.blockId, {
+        first: Math.min(previous?.first ?? first, first),
+        last: Math.max(previous?.last ?? last, last),
+      });
+      const key = `${part.blockId}\0${part.partId}`;
+      const spans = context.parts.get(key) ?? [];
+      spans.push({ chunk: index, part });
+      context.parts.set(key, spans);
     }
+    return offset + chunk.length;
+  }
+
+  function indexAll(context: IndexContext): void {
+    for (let index = 0; index < context.current.length; index++) {
+      const chunk = context.current[index];
+      if (chunk === undefined) continue;
+      indexChunk(chunk, index, context.prefix[index] ?? 0, context);
+    }
+  }
+
+  function indexFromContext(context: IndexContext): LayoutIndex {
+    const current = context.current;
+    const prefix = context.prefix;
+    const blocks = context.blocks;
+    const parts = context.parts;
     const length = prefix[current.length] ?? 0;
     let flattened: readonly TranscriptRow[] | undefined;
     function locate(position: number): number {
@@ -1698,6 +1723,7 @@ export function createTranscriptLayout(
       return rows;
     }
     return {
+      [INDEX_CONTEXT]: context,
       length,
       sourceAt,
       sourceRow,
@@ -1762,7 +1788,42 @@ export function createTranscriptLayout(
     chunks = next;
     lastBlocks = blocks;
     lastEpoch = signature;
-    lastIndex = makeIndex(next);
+    const shared = Math.min(lastChunks.length, next.length);
+    let reusable = 0;
+    while (reusable < shared && lastChunks[reusable] === next[reusable]) reusable++;
+    if (lastIndex === undefined || reusable === 0 || signature !== lastEpoch) {
+      const context: IndexContext = {
+        current: [...next],
+        prefix: new Float64Array(next.length + 1),
+        blocks: new Map(),
+        parts: new Map(),
+      };
+      indexAll(context);
+      lastIndex = indexFromContext(context);
+    } else {
+      const old = lastIndex[INDEX_CONTEXT];
+      const prefix = new Float64Array(next.length + 1);
+      prefix.set(old.prefix.subarray(0, reusable + 1), 0);
+      const blocks = new Map<string, { first: number; last: number }>();
+      const parts = new Map<string, { chunk: number; part: SourcePart }[]>();
+      const boundary = old.prefix[reusable] ?? 0;
+      for (const [key, value] of old.blocks) if (value.first < boundary) blocks.set(key, value);
+      for (const [key, value] of old.parts)
+        if (value.some((span) => span.chunk < reusable)) parts.set(key, value);
+      const context: IndexContext = {
+        current: [...next],
+        prefix,
+        blocks,
+        parts,
+      };
+      for (let index = reusable; index < next.length; index++) {
+        const chunk = next[index];
+        if (chunk === undefined) continue;
+        indexChunk(chunk, index, prefix[index] ?? 0, context);
+      }
+      lastIndex = indexFromContext(context);
+    }
+    lastChunks = next;
     return lastIndex;
   }
 
