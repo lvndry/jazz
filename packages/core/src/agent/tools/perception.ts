@@ -29,7 +29,7 @@
  * provider whose models support the requested role — rather than returning a bare refusal.
  */
 
-import { Effect, Option } from "effect";
+import { Effect, Either, Option } from "effect";
 import { z } from "zod";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -283,6 +283,13 @@ export function describeGeneratedMedia(
   };
 }
 
+/** What a companion run came to once any model switch was offered. */
+type CompanionAttempt<Value> =
+  | { readonly kind: "done"; readonly value: Value }
+  | { readonly kind: "failed"; readonly error: string };
+
+const CANCEL_RETRY_VALUE = "__cancel__";
+
 /** One delegated run: everything that differs between analysis and generation. */
 interface CompanionJob {
   readonly role: CompanionRole;
@@ -435,6 +442,88 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
         ),
       ),
     );
+
+  /**
+   * Runs a companion and, when it throws (credits exhausted, auth, quota, outage), offers the
+   * person the other capable models instead of ending the delegation. Unattended sessions and
+   * declined retries end with an error that names the failed model and what to do next.
+   */
+  const runWithRecovery = <Value>(
+    parentAgent: Agent,
+    role: CompanionRole,
+    toolName: string,
+    firstCompanion: Agent,
+    run: (companion: Agent) => Effect.Effect<Value, Error, ToolRequirements | ToolRegistry>,
+  ): Effect.Effect<CompanionAttempt<Value>, never, ToolRequirements | ToolRegistry> =>
+    Effect.gen(function* () {
+      const presentation = yield* PresentationServiceTag;
+      const terminalOption = yield* Effect.serviceOption(TerminalServiceTag);
+      const triedModels = new Set<string>();
+      let companion = firstCompanion;
+
+      while (true) {
+        const attempt = yield* run(companion).pipe(Effect.either);
+        if (Either.isRight(attempt)) {
+          return { kind: "done", value: attempt.right } as const;
+        }
+
+        const failedModel = agentModelString(companion.config.llm);
+        triedModels.add(failedModel);
+        const reason = `${failedModel} failed: ${attempt.left.message}`;
+
+        if (presentation.canPromptForApproval?.() !== true || Option.isNone(terminalOption)) {
+          return {
+            kind: "failed",
+            error: `${reason}. Fix that provider's credentials or billing, or bind another model under companions["${role}"] in agent config.`,
+          } as const;
+        }
+
+        const candidateList = yield* listCandidates(role);
+        const alternatives = candidateList.available.filter(
+          (candidate) => !triedModels.has(candidate.id),
+        );
+        if (alternatives.length === 0) {
+          return {
+            kind: "failed",
+            error: `${reason}. No other capable model is available; add credentials for another provider.`,
+          } as const;
+        }
+
+        const pickedId = yield* terminalOption.value.search<string>(
+          `${reason}\nTry another model?`,
+          {
+            choices: [
+              ...alternatives.map((candidate) => ({
+                name: `${candidate.model.displayName ?? candidate.model.modelId}  —  ${candidate.provider} · ${formatModelPriceLine(candidate.model)}`,
+                value: candidate.id,
+              })),
+              { name: "No, give up", value: CANCEL_RETRY_VALUE },
+            ],
+            placeholder: "Type to filter models",
+          },
+        );
+        if (pickedId === undefined || pickedId === CANCEL_RETRY_VALUE) {
+          return {
+            kind: "failed",
+            error: `${reason}. The person chose not to try another model; calling ${toolName} again reopens the model picker if they ask to retry.`,
+          } as const;
+        }
+
+        const next = buildCompanionAgent(
+          parentAgent,
+          pickedId as `${string}/${string}`,
+          role,
+          ++companionCounter,
+        );
+        if (next === null) {
+          return {
+            kind: "failed",
+            error: `${reason}. Picked companion "${pickedId}" is not a valid provider/model id.`,
+          } as const;
+        }
+        companion = next;
+      }
+    });
 
   /**
    * Standing consent first, then a provider picker and a model approval, then the kind refusal.
@@ -614,14 +703,17 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           if (context.approvalPhase === "preflight") {
             return { success: true, result: null };
           }
-          const content = yield* runAnalysis(
+          const attempt = yield* runWithRecovery(
             parentAgent,
-            args,
+            roleFor(args.modality),
+            "analyze_media",
             choice.companion,
-            resolution.attachments,
-            context,
+            (companion) =>
+              runAnalysis(parentAgent, args, companion, resolution.attachments, context),
           );
-          return { success: true, result: content };
+          return attempt.kind === "done"
+            ? { success: true, result: attempt.value }
+            : { success: false, result: null, error: attempt.error };
         }
 
         const described = resolution.attachments
@@ -692,14 +784,16 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
                 : "Media could no longer be resolved.",
           };
         }
-        const content = yield* runAnalysis(
+        const attempt = yield* runWithRecovery(
           parentAgent,
-          args,
+          roleFor(args.modality),
+          "analyze_media",
           companionAgent,
-          resolution.attachments,
-          context,
+          (companion) => runAnalysis(parentAgent, args, companion, resolution.attachments, context),
         );
-        return { success: true, result: content };
+        return attempt.kind === "done"
+          ? { success: true, result: attempt.value }
+          : { success: false, result: null, error: attempt.error };
       }),
     createSummary: (result) => {
       if (!result.success) return `analyze_media failed: ${result.error}`;
@@ -740,7 +834,16 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           if (context.approvalPhase === "preflight") {
             return { success: true, result: null };
           }
-          return yield* runGeneration(parentAgent, args, choice.companion, context);
+          const attempt = yield* runWithRecovery(
+            parentAgent,
+            role,
+            "generate_media",
+            choice.companion,
+            (companion) => runGeneration(parentAgent, args, companion, context),
+          );
+          return attempt.kind === "done"
+            ? attempt.value
+            : { success: false, result: null, error: attempt.error };
         }
 
         return {
@@ -794,7 +897,16 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
             error: `Picked companion "${selectedId}" is not a valid provider/model id.`,
           };
         }
-        return yield* runGeneration(parentAgent, args, companionAgent, context);
+        const attempt = yield* runWithRecovery(
+          parentAgent,
+          companionRole("generate", args.modality),
+          "generate_media",
+          companionAgent,
+          (companion) => runGeneration(parentAgent, args, companion, context),
+        );
+        return attempt.kind === "done"
+          ? attempt.value
+          : { success: false, result: null, error: attempt.error };
       }),
     createSummary: (result) => {
       if (!result.success) return `generate_media failed: ${result.error}`;
