@@ -24,6 +24,7 @@ import { type LLMService, LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { MCPServerManagerTag } from "@jazz/core/interfaces/mcp-server";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
+import { OccupancyServiceTag } from "@jazz/core/interfaces/occupancy";
 import { PeerLedgerServiceTag, PeerTokenServiceTag } from "@jazz/core/interfaces/peers";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import {
@@ -345,6 +346,7 @@ describe("conversation titles through the chat loop", () => {
           Layer.mock(WorkspaceServiceTag, {}),
           Layer.mock(JobQueueServiceTag, {}),
           Layer.mock(MemoryServiceTag, {}),
+          Layer.mock(OccupancyServiceTag, {}),
           Layer.mock(PeerLedgerServiceTag, {}),
           Layer.mock(PeerTokenServiceTag, {}),
           Layer.mock(ReminderServiceTag, {}),

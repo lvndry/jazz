@@ -5,6 +5,7 @@
  */
 import type { Effect } from "effect";
 import type z from "zod";
+import type { ToolActivityTracker } from "@/core/agent/run/tool-activity";
 import type { SubagentSupervisor } from "@/core/agent/subagents/supervisor";
 import type { BrowserSessions } from "@/core/agent/tools/browser/session";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -450,6 +451,12 @@ export interface ToolExecutionContext {
    * Shared with sub-agents by reference.
    */
   readonly browserSessions?: BrowserSessions;
+  /**
+   * This run's directory-occupancy activity record. The tool executor feeds it each call's
+   * resolved risk level; the run's heartbeat reads it. Shared with sub-agents by reference
+   * so a child editing files shows up in the parent run's occupancy entry.
+   */
+  readonly toolActivity?: ToolActivityTracker;
   /** The individual call currently executing. Set on a per-call context copy. */
   readonly toolCallId?: string;
   /**

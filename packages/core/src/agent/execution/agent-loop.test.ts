@@ -37,6 +37,7 @@ import { LLMServiceTag } from "../../interfaces/llm";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import { MCPServerManagerTag } from "../../interfaces/mcp-server";
 import { MemoryServiceTag } from "../../interfaces/memory-service";
+import { OccupancyServiceTag } from "../../interfaces/occupancy";
 import { PeerLedgerServiceTag, PeerTokenServiceTag } from "../../interfaces/peers";
 import { PresentationServiceTag } from "../../interfaces/presentation";
 import { ReminderServiceTag } from "../../interfaces/reminder-service";
@@ -138,6 +139,7 @@ const TestLayer = Layer.mergeAll(
   Layer.succeed(ReminderServiceTag, {} as any),
   Layer.succeed(GoalStoreTag, {} as any),
   Layer.succeed(PeerLedgerServiceTag, {} as any),
+  Layer.succeed(OccupancyServiceTag, {} as any),
   Layer.succeed(PeerTokenServiceTag, {} as any),
 );
 
@@ -1223,6 +1225,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(ReminderServiceTag, {} as any),
       Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
+      Layer.succeed(OccupancyServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
 
@@ -1671,6 +1674,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(ReminderServiceTag, {} as any),
       Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
+      Layer.succeed(OccupancyServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
 
@@ -1738,6 +1742,7 @@ describe("executeAgentLoop", () => {
       Layer.succeed(ReminderServiceTag, {} as any),
       Layer.succeed(GoalStoreTag, {} as any),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
+      Layer.succeed(OccupancyServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
     );
 

@@ -5,11 +5,19 @@
  * core, and because the recording is genuinely optional: no `RunStore` in the layer means
  * every function here is a pass-through. That is the terminal's configuration — it holds
  * one process open for the whole run and has nobody to answer a question from outside.
+ *
+ * Alongside the store, the recorder keeps the shared occupancy file fresh: a heartbeat fiber
+ * writes this run's entry every few seconds for the run's lifetime, and one final entry goes
+ * out on every exit path. Other jazz processes on the machine read that file to answer
+ * "is someone working in this directory right now" — a question the run store cannot answer
+ * across terminals, because each terminal's store is its own.
  */
 
-import { Effect, Option } from "effect";
+import { Duration, Effect, Fiber, Option } from "effect";
+import { OccupancyServiceTag } from "@/core/interfaces/occupancy";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
+import type { OccupancyRunState } from "@/core/types/occupancy";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { currentProcessOwner } from "@/core/utils/process";
@@ -22,6 +30,7 @@ import {
   type RunRecordBoundary,
 } from "./run-record";
 import type { RunState } from "./run-state";
+import type { ToolActivityTracker } from "./tool-activity";
 
 export interface RunRecordingInput {
   readonly runId: string;
@@ -40,8 +49,28 @@ export interface RunRecordingInput {
   readonly maxIterations?: number;
   readonly maxSubagentIterations?: number;
   readonly workingDirectory?: string;
+  /** The agent's display name, for occupancy entries a person reads. */
+  readonly agentName?: string;
+  /** Fed by the tool executor; the heartbeat folds it into occupancy entries. */
+  readonly toolActivity?: ToolActivityTracker | undefined;
   readonly boundary?: RunRecordBoundary;
 }
+
+/** How often the occupancy heartbeat writes. */
+export const OCCUPANCY_HEARTBEAT_MS = 30_000;
+
+/**
+ * How long after the last write an entry may go before a reader treats its owner as gone.
+ * Three intervals, not one: a single skipped tick (GC pause, a slow disk lock) must not make
+ * a live agent vanish from a collision check.
+ */
+export const OCCUPANCY_FRESH_WINDOW_MS = 3 * OCCUPANCY_HEARTBEAT_MS;
+
+/** A mutating call within this window makes an occupant "writing"; older means "wrote, idle". */
+export const OCCUPANCY_WRITING_WINDOW_MS = 2 * 60_000;
+
+/** The run's prompt, shortened: a title for the report, not a transcript. */
+export const OCCUPANCY_PROMPT_EXCERPT_CHARS = 200;
 
 function parkedState(signal: RunParkRequested, expiresAt: string): RunState {
   return {
@@ -88,6 +117,9 @@ function failureState(error: unknown): RunState {
  * over it would throw away work that already succeeded. The one place that is not true is
  * parking, where the record *is* the run — so a park that cannot be persisted is
  * converted back into an ordinary failure rather than reported as resumable.
+ *
+ * The occupancy heartbeat follows the same rule end to end: a heartbeat that cannot land is
+ * a stale report, never a failed run.
  */
 export function withRunRecording<E, R>(
   input: RunRecordingInput,
@@ -100,6 +132,78 @@ export function withRunRecording<E, R>(
     }
     const store = storeOption.value;
     const activeStartedAt = Date.now();
+
+    // --- Occupancy heartbeat ---------------------------------------------------------
+    //
+    // The run store above is process-private; the occupancy file is the machine's. Every
+    // few seconds this process says "agent X is in directory Y, last touched Z with tool
+    // T"; readers on other terminals judge presence by heartbeat freshness and a live
+    // pid, so a finished or crashed run stops being present within a minute.
+    //
+    // Absent service means nobody can be told, so the whole block is skipped rather than
+    // demanding a service the layer does not provide.
+    const occupancyOption = yield* Effect.serviceOption(OccupancyServiceTag);
+    const occupancyService = Option.isSome(occupancyOption) ? occupancyOption.value : undefined;
+
+    const heartbeatState: { state: OccupancyRunState } = { state: "working" };
+
+    const writeOccupancy = (): Effect.Effect<void, never> => {
+      if (occupancyService === undefined) return Effect.void;
+      const activity = input.toolActivity?.snapshot();
+      const entry = {
+        runId: input.runId,
+        agentId: input.agentId,
+        agentName: input.agentName ?? input.agentId,
+        conversationId: input.conversationId,
+        workingDirectory: input.workingDirectory ?? process.cwd(),
+        ...(input.userInput.trim().length > 0
+          ? {
+              promptExcerpt: input.userInput.trim().slice(0, OCCUPANCY_PROMPT_EXCERPT_CHARS),
+            }
+          : {}),
+        state: heartbeatState.state,
+        pid: process.pid,
+        host: currentProcessOwner().host,
+        updatedAt: new Date().toISOString(),
+        ...(activity !== undefined && activity.lastMutatingAt !== ""
+          ? {
+              lastMutatingAt: activity.lastMutatingAt,
+              lastMutatingTool: activity.lastMutatingTool,
+            }
+          : {}),
+        ...(activity !== undefined && activity.lastMutatingPath !== ""
+          ? { lastMutatingPath: activity.lastMutatingPath }
+          : {}),
+        ...(activity !== undefined && activity.lastReadAt !== ""
+          ? { lastReadAt: activity.lastReadAt }
+          : {}),
+      };
+      return occupancyService.record(entry).pipe(Effect.ignore);
+    };
+
+    // One immediate write, then one per interval for the run's lifetime. `fork` keeps the
+    // loop out of the run's error channel; the `ensuring` at the end interrupts it on every
+    // exit path, completed or not.
+    let stopHeartbeat: Effect.Effect<void, never> = Effect.void;
+    if (occupancyService !== undefined) {
+      const heartbeat = yield* writeOccupancy().pipe(
+        Effect.zipRight(
+          Effect.fork(
+            Effect.forever(
+              Effect.sleep(Duration.millis(OCCUPANCY_HEARTBEAT_MS)).pipe(
+                Effect.zipRight(writeOccupancy()),
+              ),
+            ),
+          ),
+        ),
+      );
+      stopHeartbeat = Fiber.interrupt(heartbeat).pipe(Effect.ignore);
+    }
+
+    const writeFinalOccupancy = (state: OccupancyRunState) => {
+      heartbeatState.state = state;
+      return writeOccupancy();
+    };
 
     const withCost = (record: RunRecord): RunRecord => {
       const costUSD = input.costSoFarUSD?.();
@@ -154,16 +258,21 @@ export function withRunRecording<E, R>(
     }
 
     return yield* effect.pipe(
-      Effect.tap((response) => moveTo(completedState(response))),
+      Effect.tap((response) =>
+        moveTo(completedState(response)).pipe(Effect.zipRight(writeFinalOccupancy("completed"))),
+      ),
       Effect.catchAll((error) => {
         if (!isRunParkRequested(error)) {
-          return moveTo(failureState(error)).pipe(Effect.zipRight(Effect.fail(error)));
+          return moveTo(failureState(error))
+            .pipe(Effect.zipRight(writeFinalOccupancy("failed")))
+            .pipe(Effect.zipRight(Effect.fail(error)));
         }
         const expiresAt = new Date(
           Date.now() + (input.parkTtlMs ?? DEFAULT_PARK_TTL_MS),
         ).toISOString();
         return store.transition(input.runId, parkedState(error, expiresAt)).pipe(
           Effect.tap((updated) => store.save(withCost(updated))),
+          Effect.zipRight(writeFinalOccupancy("input-required")),
           Effect.zipRight(
             Effect.fail(
               new RunParkRequested({
@@ -198,6 +307,7 @@ export function withRunRecording<E, R>(
           ),
         );
       }),
+      Effect.ensuring(stopHeartbeat),
     );
   });
 }
