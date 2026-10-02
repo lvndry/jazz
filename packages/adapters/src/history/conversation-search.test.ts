@@ -41,7 +41,7 @@ async function writeSession(
         conversationId,
         title: options.title ?? "",
         startedAt: "2026-08-01T10:00:00.000Z",
-        endedAt: null,
+        updatedAt: null,
         messages,
       },
       tmpDir,

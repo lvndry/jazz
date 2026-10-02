@@ -341,7 +341,7 @@ function conversationActivity(agents: readonly Agent[]) {
       );
       for (const conversation of history.conversations) {
         titles.set(conversation.conversationId, conversation.title);
-        const at = new Date(conversation.endedAt ?? conversation.startedAt).getTime();
+        const at = new Date(conversation.updatedAt ?? conversation.startedAt).getTime();
         if (Number.isFinite(at) && at > (lastUsedMs.get(agent.id) ?? -1)) {
           lastUsedMs.set(agent.id, at);
         }
@@ -615,6 +615,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       conversationId: string;
       title: string;
       startedAt: string;
+      updatedAt: string | null;
     };
     const entries: ConversationEntry[] = [];
     const titles = new Map<string, string>();
@@ -630,6 +631,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
           conversationId: conversation.conversationId,
           title: conversation.title,
           startedAt: conversation.startedAt,
+          updatedAt: conversation.updatedAt,
         });
       }
     }
@@ -644,17 +646,20 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       (yield* waitingWork(agents, titles, nowMs)).map((source) => [source.conversationId, source]),
     );
 
-    // Waiting conversations first, so the ones home counted are the ones on top.
+    // Waiting conversations first, so the ones home counted are the ones on top; the rest
+    // by when they were last in, so the freshest conversation is the first one offered.
+    const lastAt = (entry: ConversationEntry): number =>
+      new Date(entry.updatedAt ?? entry.startedAt).getTime();
     entries.sort(
       (a, b) =>
         Number(waiting.has(b.conversationId)) - Number(waiting.has(a.conversationId)) ||
-        new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+        lastAt(b) - lastAt(a),
     );
     entries.splice(MAX_RESUME_CHOICES);
 
     const choices = entries.flatMap((entry, index) => {
       const work = waiting.get(entry.conversationId);
-      const age = formatRelativeWhen(new Date(entry.startedAt).getTime(), nowMs);
+      const age = formatRelativeWhen(lastAt(entry), nowMs);
       const title =
         work === undefined
           ? readableTitle({ conversationTitle: entry.title, agentName: entry.agent.name })

@@ -100,7 +100,7 @@ const testRecord = {
   title: "A past conversation",
   agentId: TEST_AGENT_ID,
   startedAt: new Date(Date.now() - 3600_000).toISOString(),
-  endedAt: new Date(Date.now() - 3000_000).toISOString(),
+  updatedAt: new Date(Date.now() - 3000_000).toISOString(),
   messageCount: 2,
   messages: [
     { role: "user" as const, content: "Hello" },

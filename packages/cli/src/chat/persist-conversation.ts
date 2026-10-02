@@ -60,7 +60,7 @@ export function persistConversationIfNeeded(
     title: input.title ?? "",
     agentId: input.agentId,
     startedAt: input.startedAt,
-    endedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     messages: [...input.conversationHistory],
     ...(input.uiTranscript !== undefined ? { uiTranscript: input.uiTranscript } : {}),
   };

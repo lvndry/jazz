@@ -61,7 +61,7 @@ export function handleRenameCommand(
           conversationId: context.conversationId,
           title,
           startedAt: loaded.right?.startedAt ?? context.sessionStartedAt.toISOString(),
-          endedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
           messages: [...context.conversationHistory],
           ...(loaded.right?.uiTranscript !== undefined
             ? { uiTranscript: loaded.right.uiTranscript }
@@ -183,7 +183,7 @@ export function handleResumeCommand(
     }
 
     const choices = history.conversations.map((conv) => {
-      const date = new Date(conv.startedAt);
+      const date = new Date(conv.updatedAt ?? conv.startedAt);
       const dateStr = date.toLocaleDateString(undefined, {
         month: "short",
         day: "numeric",
