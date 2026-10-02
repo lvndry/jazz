@@ -4,9 +4,13 @@ import {
   MAX_DECISION_OPTIONS,
   MAX_DECISION_QUESTIONS,
   MAX_COMMAND_RISK_COMMAND_CHARS,
+  MAX_PAGE_ELEMENTS,
+  MAX_PAGE_LABEL_CHARS,
+  MAX_PAGE_TITLE_CHARS,
   MAX_POLICY_ABSTENTION_REASON_CHARS,
   MAX_PLUGIN_IDENTIFIER_LENGTH,
   MAX_PLUGIN_STATE_BYTES,
+  MAX_ROUTE_REQUEST_CHARS,
   PluginValidationError,
   isLifecycleEventId,
   type DecisionBatchResult,
@@ -17,7 +21,13 @@ import {
   type CompactToolsDecision,
   type CompactToolsInput,
   type CompactToolsOutcome,
+  type ClassifyPageInput,
+  type ClassifyPageOutcome,
   type JsonValue,
+  type PageElementSummary,
+  type PageFlagId,
+  type RouteSnapshotInput,
+  type RouteSnapshotOutcome,
   type PluginManifest,
   type SkillRouteDistribution,
   type SkillRouteInput,
@@ -27,6 +37,18 @@ import { isRecord } from "@/core/utils/is-record";
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const EPSILON = 1e-6;
+const ADVISORY_HOOK_IDS: ReadonlySet<string> = new Set([
+  "route.skills",
+  "compact.tools",
+  "classify.page",
+  "route.snapshot",
+]);
+const PAGE_FLAG_IDS: ReadonlySet<string> = new Set<PageFlagId>([
+  "credential-entry",
+  "payment",
+  "captcha",
+  "agent-directed-instructions",
+]);
 
 function fail(message: string): never {
   throw new PluginValidationError({ message });
@@ -62,7 +84,7 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
   if (manifest.hostApi !== 1) fail("unsupported plugin API version");
   if (!SHA256.test(manifest.sha256)) fail("sha256 must be a lowercase SHA-256 hex digest");
   if (new Set(manifest.hooks).size !== manifest.hooks.length) fail("manifest hooks must be unique");
-  if (manifest.hooks.some((hook) => hook !== "route.skills" && hook !== "compact.tools"))
+  if (manifest.hooks.some((hook) => !ADVISORY_HOOK_IDS.has(hook)))
     fail("manifest contains an unknown hook");
   if (new Set(manifest.policyHooks).size !== manifest.policyHooks.length)
     fail("manifest policy hooks must be unique");
@@ -387,4 +409,159 @@ export function validateSkillRouteDistribution(
   }
   if (Math.abs(sum - 1) > EPSILON) fail("skill probabilities including no-skill must sum to 1");
   return distribution;
+}
+
+function readRecord(value: unknown, what: string): Readonly<Record<string, unknown>> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail(`${what} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function readArray(value: unknown, what: string): readonly unknown[] {
+  if (!Array.isArray(value)) {
+    fail(`${what} must be an array`);
+  }
+  return value as readonly unknown[];
+}
+
+function readBoundedString(value: unknown, what: string, maxLength: number): string {
+  if (typeof value !== "string" || value.length > maxLength) {
+    fail(`${what} must be a string of at most ${maxLength} characters`);
+  }
+  return value;
+}
+
+function readProbability(value: unknown, what: string): number {
+  if (typeof value !== "number") {
+    fail(`${what} must be a number`);
+  }
+  assertProbability(value, what);
+  return value;
+}
+
+function readAbstentionReason(record: Readonly<Record<string, unknown>>, what: string): string {
+  const reason = record["reason"];
+  if (
+    typeof reason !== "string" ||
+    reason.length === 0 ||
+    reason.length > MAX_POLICY_ABSTENTION_REASON_CHARS
+  ) {
+    fail(`${what} abstention reason must be a bounded non-empty string`);
+  }
+  return reason;
+}
+
+function validatePageElements(elements: readonly PageElementSummary[]): void {
+  const listed = readArray(elements, "page elements");
+  if (listed.length > MAX_PAGE_ELEMENTS) {
+    fail(`page elements must be at most ${MAX_PAGE_ELEMENTS}`);
+  }
+  const refs = new Set<string>();
+  for (const item of listed) {
+    const element = readRecord(item, "page element");
+    const ref = element["ref"];
+    if (typeof ref !== "string" || ref.length === 0 || refs.has(ref)) {
+      fail("page element refs must be unique non-empty strings");
+    }
+    refs.add(ref);
+    readBoundedString(element["role"], "page element role", MAX_PAGE_LABEL_CHARS);
+    readBoundedString(element["label"], "page element label", MAX_PAGE_LABEL_CHARS);
+  }
+}
+
+export function validateClassifyPageInput(input: ClassifyPageInput): ClassifyPageInput {
+  const record = readRecord(input, "classify page input");
+  if (typeof record["origin"] !== "string" || record["origin"].length === 0) {
+    fail("classify page origin must be a non-empty string");
+  }
+  readBoundedString(record["title"], "classify page title", MAX_PAGE_TITLE_CHARS);
+  validatePageElements(input.elements);
+  const signals = readRecord(record["signals"], "classify page signals");
+  if (
+    typeof signals["passwordField"] !== "boolean" ||
+    typeof signals["paymentField"] !== "boolean"
+  ) {
+    fail("classify page signals must be booleans");
+  }
+  return input;
+}
+
+/**
+ * The only thing a page classification can express is "this page may be flagged, with this
+ * probability". The result is rebuilt from the two known fields, so anything else a plugin
+ * attaches (a risk level, an approval decision, a taint instruction) never leaves this function.
+ */
+export function validateClassifyPageOutcome(outcome: ClassifyPageOutcome): ClassifyPageOutcome {
+  const record = readRecord(outcome, "classify page outcome");
+  if (record["status"] === "abstained") {
+    return { status: "abstained", reason: readAbstentionReason(record, "classify page") };
+  }
+  if (record["status"] !== "answered") {
+    fail("classify page outcome must be answered with flags, or abstained");
+  }
+  const seen = new Set<string>();
+  const flags = readArray(record["flags"], "classify page flags").map((item) => {
+    const entry = readRecord(item, "classify page flag");
+    const flag = entry["flag"];
+    if (typeof flag !== "string" || !PAGE_FLAG_IDS.has(flag)) {
+      fail("classify page flag must be a known flag");
+    }
+    if (seen.has(flag)) {
+      fail("classify page flags must be unique");
+    }
+    seen.add(flag);
+    return { flag: flag as PageFlagId, probability: readProbability(entry["probability"], flag) };
+  });
+  return { status: "answered", flags };
+}
+
+export function validateRouteSnapshotInput(input: RouteSnapshotInput): RouteSnapshotInput {
+  const record = readRecord(input, "route snapshot input");
+  readBoundedString(record["requestText"], "route snapshot request text", MAX_ROUTE_REQUEST_CHARS);
+  if (typeof record["origin"] !== "string" || record["origin"].length === 0) {
+    fail("route snapshot origin must be a non-empty string");
+  }
+  validatePageElements(input.elements);
+  return input;
+}
+
+export function validateRouteSnapshotOutcome(
+  input: RouteSnapshotInput,
+  outcome: RouteSnapshotOutcome,
+): RouteSnapshotOutcome {
+  const record = readRecord(outcome, "route snapshot outcome");
+  if (record["status"] === "abstained") {
+    return { status: "abstained", reason: readAbstentionReason(record, "route snapshot") };
+  }
+  if (record["status"] !== "answered") {
+    fail("route snapshot outcome must be answered with a distribution, or abstained");
+  }
+  const distribution = readRecord(record["distribution"], "snapshot distribution");
+  const allowed = new Set(input.elements.map(({ ref }) => ref));
+  const listed = readArray(distribution["elements"], "snapshot distribution elements");
+  if (listed.length !== allowed.size) {
+    fail("snapshot distribution must include every element exactly once");
+  }
+  const noElementProbability = readProbability(
+    distribution["noElementProbability"],
+    "noElementProbability",
+  );
+  let sum = noElementProbability;
+  const seen = new Set<string>();
+  const elements = listed.map((item) => {
+    const entry = readRecord(item, "snapshot distribution element");
+    const ref = entry["ref"];
+    if (typeof ref !== "string" || !allowed.has(ref) || seen.has(ref)) {
+      fail("snapshot distribution contains an unknown or duplicate element");
+    }
+    seen.add(ref);
+    const probability = readProbability(entry["probability"], `element ${ref}`);
+    sum += probability;
+    return { ref, probability };
+  });
+  if (Math.abs(sum - 1) > EPSILON) {
+    fail("snapshot probabilities including no-element must sum to 1");
+  }
+  return { status: "answered", distribution: { elements, noElementProbability } };
 }

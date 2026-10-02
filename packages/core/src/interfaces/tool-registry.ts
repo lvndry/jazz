@@ -192,14 +192,17 @@ export interface Tool<R = never> {
    */
   readonly peerGrantRequired?: boolean;
   /**
-   * The top-level string arguments a secret the person typed into `ask_user_secret` may reach.
-   * The registry replaces each `[redacted:<name>]` of this run's typed secrets in these
-   * arguments with the value just before the tool runs; for an approval pair that is the
-   * execute half, after the approval was shown and granted. A call carrying one anywhere else,
-   * or to a tool without this list, is refused.
+   * The string arguments a secret the person typed into `ask_user_secret` may reach. Name a
+   * top-level argument (`text`) or a field of each element of an array argument
+   * (`actions[].text`). The registry replaces each `[redacted:<name>]` of this run's typed
+   * secrets in these arguments with the value just before the tool runs; for an approval pair
+   * that is the execute half, after the approval was shown and granted. A call carrying one
+   * anywhere else, or to a tool without this list, is refused.
    *
    * Name only arguments whose value stays on this machine and is written nowhere: a local
-   * reader's password, or `execute_command`'s command, which a person approves every time.
+   * reader's password, or `execute_command`'s command, which a person approves every time. The
+   * one exception is `browser_act`'s step `text`, which a person approves every time with the
+   * page address shown, because signing in is typing a secret into someone else's site.
    */
   readonly userSecretArguments?: readonly string[];
   /**

@@ -10,6 +10,8 @@ model and currently pins `jev-1.13.0`.
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Skill routing (`route.skills`)                        | Ranks installed skills against your current request. Jazz can suggest the most relevant skill to the main model; the plugin does not load it itself.                                                            |
 | Tool-result compaction (`compact.tools`)              | Recommends keeping, truncating, or dropping old tool-result content during context cleanup. Dropping requires a confident signal; uncertain large results are truncated. User and assistant text are untouched. |
+| Page classification (`classify.page`)                 | Flags a browser page that asks for a password, payment details, or a human check, or whose labels address an AI agent. A flag only adds scrutiny: `browser_act` then asks on every call there.                  |
+| Snapshot routing (`route.snapshot`)                   | Ranks a page's interactive elements against your request so the browser snapshot lists the likely ones first. Every element stays in the snapshot.                                                              |
 | Command-risk classification (`classify.command-risk`) | Classifies proposed `execute_command` calls as read-only, low-risk, or high-risk before Jazz applies your approval policy.                                                                                      |
 
 The plugin adds no model-callable tools. Errors, timeouts, invalid answers, and
@@ -60,8 +62,16 @@ jazz plugin add ./plugins/jev
 Jev sends decision inputs to `https://api.typesafe.ai/v1/systemone`: the current
 request and installed skill names/descriptions for routing; proposed shell command
 text for risk classification; and the goal plus bounded tool-call metadata,
-inputs, and result previews for compaction. These are external API calls using
-your TypeSafe account.
+inputs, and result previews for compaction. For browser pages it sends the page's
+origin (never the path or query), its title, each interactive element's role and
+label, and whether the page has a password or payment card field; snapshot routing
+also sends your latest request. It never sends the page body, link targets, or
+field contents. These are external API calls using your TypeSafe account.
+
+TypeSafe documents that text written to steer a verdict can move it, and page
+titles and labels are written by the page. Treat a Jev page flag as an extra alarm,
+never as the boundary: Jazz also reads the page's own structure, and no answer can
+lower a risk, skip an approval, or clear the untrusted-content marking.
 
 Plugins execute inside Jazz with your OS-user authority; they are not sandboxed.
 Inspect the declarations before trusting and enabling the plugin. Command-risk

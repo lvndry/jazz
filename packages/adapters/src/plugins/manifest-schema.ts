@@ -339,7 +339,12 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       maxLength: 64,
       pattern: HOOK_ID,
     }).map((hook) => {
-      if (hook !== "route.skills" && hook !== "compact.tools") {
+      if (
+        hook !== "route.skills" &&
+        hook !== "compact.tools" &&
+        hook !== "classify.page" &&
+        hook !== "route.snapshot"
+      ) {
         throw new Error(`Unknown advisory hook: ${hook}`);
       }
       return hook;

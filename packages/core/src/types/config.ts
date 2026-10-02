@@ -27,12 +27,27 @@ export interface NetworkConfig {
   readonly httpApproval?: HttpApprovalPolicy;
 }
 
+/** Browser Use tools: which browser to drive and how a launched one appears. */
+export interface BrowserConfig {
+  /**
+   * Run a launched browser headless by default. Set to `false` for a visible window,
+   * so the run can be watched.
+   */
+  readonly headless?: boolean;
+  /**
+   * A running browser the browser tools drive instead of launching one, as an `http(s)://`
+   * or `ws(s)://` DevTools URL. Page content and typed text reach that browser's host.
+   */
+  readonly endpoint?: string;
+}
+
 export interface AppConfig {
   readonly storage: StorageConfig;
   readonly logging: LoggingConfig;
   readonly llm?: LLMConfig;
   readonly web_search?: WebSearchConfig;
   readonly network?: NetworkConfig;
+  readonly browser?: BrowserConfig;
   readonly output?: OutputConfig;
   /** Runtime merged view: full MCPServerConfig objects from .agents/mcp.json + overrides. */
   readonly mcpServers?: Record<string, MCPServerConfig>;

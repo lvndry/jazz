@@ -87,6 +87,21 @@ all become abstention. `AbortSignal` and Effect interruption cannot stop synchro
 `process.exit()`, or code that ignores cancellation; the local trust disclosure must remain explicit
 about that limit.
 
+## Page hook dispatch
+
+`classify.page` and `route.snapshot` are advisory hooks dispatched from `browser_snapshot`. The
+runner binds `runClassifyPage` and `runRouteSnapshot` of the run's plugin session onto the tool
+context as `classifyPage` and `routeSnapshot`, the same way it binds command-risk resolution, so
+a tool never holds the session itself. Inputs are built from the snapshot's role and label pairs,
+the page origin, and two structural booleans read from the document; no page body is sent.
+
+`validateClassifyPageOutcome` rebuilds the answer from `flag` and `probability` alone and rejects
+an unknown or repeated flag, so a plugin cannot express a risk level, an approval decision, or a
+taint instruction. The page's structural flags are merged with the plugin's flags above the
+threshold, and only tighten: `browser_act`'s approval returns `alwaysAsk` with a warning Jazz words
+from the flag names. `validateRouteSnapshotOutcome` requires a full distribution over the offered
+refs, and the snapshot renderer only adds a lead section before the unchanged outline.
+
 ## Policy dispatch
 
 `classify.command-risk` runs inside the approval path after `execute_command` has produced its

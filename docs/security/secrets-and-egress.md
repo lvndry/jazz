@@ -65,7 +65,8 @@ and never change the list. Redirect URLs must also match the grant, credentials 
 across origins, and response byte/time limits still apply. See [HTTP approvals](../configure/jazz.md#web-request-safety).
 
 The private-destination restrictions below apply to other model-selected URL tools, including
-`read_pdf` and rendered pages. HTTP tools instead use their scoped global HTTP authorization.
+`read_pdf`, rendered pages, and the [browser](#browser-safety). HTTP tools instead use their
+scoped global HTTP authorization.
 
 Other URL tools use the guarded fetch too: `read_pdf` with a URL, and the HTML rendered by
 `create_pdf` and `create_composition`. For these tools it enforces four things.
@@ -96,6 +97,54 @@ through unasked. List hosts ahead of time in the same setting (see
 
 A hostname entry allows whatever that name resolves to, so list names you control. An address or
 CIDR entry allows those addresses behind any name. Only the global config file sets it.
+
+## Browser safety
+
+The [browser tools](../concepts/browser-use.md) give the model a real browser, whose pages run their
+own scripts. Three rules bound it.
+
+- **Every request is checked, not just the first.** Navigations, images, scripts, `fetch()` calls
+  and redirects from the page all pass the destination check above: public addresses only, unless
+  the host is in `network.allowPrivateHosts`. A page on the public internet cannot make the
+  browser call `localhost`, your router, or the cloud metadata address. A navigation the agent
+  starts to a private address asks for approval, like `read_pdf`. A link the page opens to one is
+  refused, and the agent has to request that URL directly. With a URL list in
+  `network.httpApproval`, only matching URLs load, plus subresources from the origins the run
+  opened from them. `file:` URLs are always refused.
+- **Nothing persists.** Each run gets a fresh temporary profile, deleted when the run ends. The
+  browser is closed on completion, error, and interruption. Jazz never attaches to your own
+  Chrome, so your logins and cookies are out of reach. A `browser.endpoint` you configure
+  is the exception: that browser's host sees what the agent reads and types.
+- **What a page says is data.** Snapshots arrive in the `untrusted-content` envelope and mark
+  the run as having read external content. Afterwards `browser_navigate` to a URL the run did not
+  receive asks, like other outbound tools. `browser_act` always needs approval unless the policy
+  is `high-risk`, and unattended runs park on it.
+
+A password you type with `ask_user_secret` reaches a page only through `browser_act`. The
+approval names the page, Jazz refuses plain `http` pages that are not on this machine, and the
+model only ever sees the placeholder. The page itself receives the value, so approve it only for
+a site you expect to sign in to.
+
+A page that shows a password or payment card field is flagged. `browser_act` then asks on every
+call there, even under the `high-risk` policy or an allowlist, and the approval carries a warning.
+A plugin can add flags through the `classify.page` hook. A flag only adds scrutiny: a plugin cannot
+remove a flag the page's own structure raised, lower a risk, skip an approval, or clear the
+untrusted-content marking.
+
+What this does not cover:
+
+- **It is not a sandbox for the page.** A malicious page can still try to exploit the browser.
+  Chrome's own sandbox is on, except as root in a container, where it cannot run. Run unattended
+  browsing as a dedicated user or in a container, as for any tool.
+- **WebSocket and WebRTC traffic** does not pass through request interception, so the
+  destination check does not apply to it.
+- **DNS answers are cached for a call.** A host is resolved once per browser call, so a page
+  that rebinds a name between two requests in the same call is not caught.
+- **What the agent types goes to the page.** A page that looks like the site you expected can
+  collect a typed secret. The approval shows the page address; read it.
+- **Flags are an extra alarm, not a boundary.** The structural check does not see fields inside a
+  frame from another site, and a plugin's classification reads titles and labels that the page
+  wrote, which can be written to steer it.
 
 ## Secret values in tool output
 
@@ -187,8 +236,10 @@ passphrase. The agent asks for one with `ask_user_secret`, and the value never r
   conversation log, the run record or a provider request.
 - **Only declared arguments get the value.** Just before a tool runs, Jazz puts the value in place
   of the placeholder in the arguments that tool declares for secrets: `password` of `read_pdf` and
-  `pdf_page_count`, and `command` of `execute_command`. A command carrying one always asks you,
-  under every auto-approve policy, and its approval shows the placeholder. Any other tool or
+  `pdf_page_count`, `command` of `execute_command`, and `text` of `browser_act`. A command or a
+  typed browser action carrying one always asks you, under every auto-approve policy, and its
+  approval shows the placeholder. `browser_act` is the one tool that sends the value off this
+  machine, to the page you are signed in to; see [browser safety](#browser-safety). Any other tool or
   argument carrying the placeholder is refused, so it cannot reach a file, a URL, a web search, an
   MCP server, a notification or a sub-agent's prompt. A placeholder standing for a secret Jazz holds
   in its config (`[redacted:llm.openai.api_key]`) is never replaced by anything.

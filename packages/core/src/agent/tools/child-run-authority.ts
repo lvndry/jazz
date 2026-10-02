@@ -23,6 +23,7 @@ export type ChildRunAuthority = Pick<
   | "autoApprovedTools"
   | "egressTaint"
   | "userSecrets"
+  | "browserSessions"
 >;
 
 export function childRunAuthority(context: ToolExecutionContext): ChildRunAuthority {
@@ -45,5 +46,6 @@ export function childRunAuthority(context: ToolExecutionContext): ChildRunAuthor
       : {}),
     ...(context.egressTaint !== undefined ? { egressTaint: context.egressTaint } : {}),
     ...(context.userSecrets !== undefined ? { userSecrets: context.userSecrets } : {}),
+    ...(context.browserSessions !== undefined ? { browserSessions: context.browserSessions } : {}),
   };
 }
