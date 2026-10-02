@@ -719,6 +719,46 @@ describe("UIStore", () => {
     });
   });
 
+  describe("toggleLastReceiptOutput", () => {
+    async function expandedIds(store: UIStore): Promise<ReadonlySet<string>> {
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      return store.getPresentationSnapshot().expandedReceiptIds;
+    }
+
+    function commandReceipt(command: string, detail: string) {
+      return {
+        app: "execute_command",
+        summary: "",
+        status: "ok" as const,
+        args: command,
+        outputPreview: detail.split("\n")[0] ?? detail,
+        detail,
+      };
+    }
+
+    test("opens the newest receipt that has more output than its preview, and closes it again", async () => {
+      const s = new UIStore();
+      s.printContent({ kind: "tool", receipt: commandReceipt("git a", "one\ntwo") }, "tool-a");
+      s.printContent({ kind: "tool", receipt: commandReceipt("git b", "three\nfour") }, "tool-b");
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      const [first, second] = s.getDocumentSnapshot().entries;
+
+      expect(s.toggleLastReceiptOutput()).toBe(true);
+      expect((await expandedIds(s)).has(second?.id ?? "")).toBe(true);
+      expect((await expandedIds(s)).has(first?.id ?? "")).toBe(false);
+
+      expect(s.toggleLastReceiptOutput()).toBe(true);
+      expect((await expandedIds(s)).size).toBe(0);
+    });
+
+    test("reports nothing to expand when every receipt fits its preview", async () => {
+      const s = new UIStore();
+      s.printContent({ kind: "tool", receipt: commandReceipt("echo hi", "hi") }, "tool");
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      expect(s.toggleLastReceiptOutput()).toBe(false);
+    });
+  });
+
   describe("chatBusy", () => {
     test("setChatBusy toggles snapshot", () => {
       const s = new UIStore();

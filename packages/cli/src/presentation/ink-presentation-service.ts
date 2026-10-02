@@ -77,6 +77,7 @@ import {
 import { contentFromOutput } from "../ui/document";
 import { getGlyphs } from "../ui/glyphs";
 import { markdownToAnsi } from "../ui/markdown/ansi";
+import { commandOutputPreview, commandResultText } from "../ui/models/receipt";
 import { store } from "../ui/store";
 import type { SubagentChannel } from "../ui/subagent-runs";
 import { formatCost } from "../ui/text/format";
@@ -1103,6 +1104,17 @@ export class InkStreamingRenderer implements StreamingRenderer {
       const mutationPayload = fileMutationDiffText(result);
       if (mutationPayload !== null) {
         store.setExpandableDiff(mutationPayload);
+      }
+      return;
+    }
+
+    // A shell command expands to its output as text, the same text the fullscreen receipt opens
+    // in place, not the JSON result it was parsed from.
+    if (toolName === "execute_command" || toolName === "execute_execute_command") {
+      const output = commandResultText(result);
+      const preview = commandOutputPreview(result);
+      if (output !== undefined && output.trim() !== preview?.trim()) {
+        store.setExpandableDiff(output);
       }
       return;
     }

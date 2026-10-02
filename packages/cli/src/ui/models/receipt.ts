@@ -49,7 +49,7 @@ function stringValue(value: unknown): string {
   return "";
 }
 
-function commandResultText(result: string): string | undefined {
+export function commandResultText(result: string): string | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(result);
@@ -85,7 +85,7 @@ function commandResultText(result: string): string | undefined {
   return lines.join("\n");
 }
 
-function commandOutputPreview(result: string): string | undefined {
+export function commandOutputPreview(result: string): string | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(result);

@@ -555,7 +555,12 @@ export function App(): React.ReactElement {
         return InputResults.ignored();
       }
 
-      const receiptDiff = store.latestReceiptDiffText();
+      // Ctrl+O expands the last tool output (a command's full output); Ctrl+E the last
+      // write/edit diff. Each falls back to the other's content when it has none of its own.
+      const receiptDiff =
+        action.type === "expand-diff" && store.getExpandableDiff() !== null
+          ? undefined
+          : store.latestReceiptDiffText();
       if (receiptDiff !== undefined) {
         store.printOutput({
           type: "log",
