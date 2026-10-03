@@ -1,10 +1,10 @@
 import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp";
 import { getMCPServerCategories } from "@jazz/core/agent/tools/register-mcp-tools";
 import {
-  BUILTIN_TOOL_CATEGORIES,
   createCategoryMappings,
   FILE_MANAGEMENT_CATEGORY,
   HTTP_CATEGORY,
+  isUserSelectableToolCategory,
   mcpToolCategory,
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
@@ -1009,8 +1009,8 @@ export async function promptForAgentInfo(
         }
 
         // Custom agent - let user select tools
-        const selectableCategories = Object.entries(toolsByCategory).filter(
-          ([category]) => !BUILTIN_TOOL_CATEGORIES.some((c) => c.displayName === category),
+        const selectableCategories = Object.entries(toolsByCategory).filter(([category]) =>
+          isUserSelectableToolCategory(category),
         );
 
         // Opt-out rather than opt-in: every builtin category starts checked so
