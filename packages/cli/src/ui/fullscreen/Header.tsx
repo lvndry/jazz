@@ -1,16 +1,17 @@
 /** @jsxImportSource @opentui/react */
 
 /**
- * The header: one row, four fact groups, never hidden.
+ * The header: one row, five fact groups at most, never hidden.
  *
- *    jazz  model · host:port                     apps 3 of 4   ━━━━━━━━━━ 47%
+ *    jazz  model · host:port · ~/repo            apps 3 of 4   ━━━━━━━━━━ 47%
  *
  * The restraint is the design. The name is set bold and the model sits beside
  * it in the muted tone, because together they answer "who am I talking to".
- * Health is flush right: connector health as a count rather than four names
- * with four status marks — a name appears only when that connector needs
- * something from you — then a thin line meter for the context window. No rule
- * underneath; the blank row below the header is the separation.
+ * The working directory answers "where is this happening" with the same
+ * quietness. Health is flush right: connector health as a count rather than
+ * four names with four status marks — a name appears only when that connector
+ * needs something from you — then a thin line meter for the context window.
+ * No rule underneath; the blank row below the header is the separation.
  */
 
 import { memo, type ReactNode } from "react";
@@ -48,7 +49,7 @@ export interface HeaderSegment {
 }
 
 export interface HeaderGroup {
-  readonly key: "mark" | "model" | "connectors" | "meter";
+  readonly key: "mark" | "model" | "cwd" | "connectors" | "meter";
   readonly segments: readonly HeaderSegment[];
 }
 
@@ -99,7 +100,7 @@ function connectorsGroup(connectors: readonly Connector[]): HeaderGroup | undefi
   };
 }
 
-/** The groups the header would draw at unlimited width. Never more than four. */
+/** The groups the header would draw at unlimited width. Never more than five. */
 export function headerGroups(model: HeaderModel, glyphs: GlyphSet = getGlyphs()): HeaderGroup[] {
   const groups: HeaderGroup[] = [
     {
@@ -119,6 +120,15 @@ export function headerGroups(model: HeaderModel, glyphs: GlyphSet = getGlyphs())
       ],
     },
   ];
+  if (model.cwd !== "") {
+    groups.push({
+      key: "cwd",
+      segments: [
+        { text: `${glyphs.bullet} `, fg: THEME.muted },
+        { text: model.cwd, fg: THEME.muted },
+      ],
+    });
+  }
   const connectors = connectorsGroup(model.connectors);
   if (connectors !== undefined) groups.push(connectors);
   groups.push(meterGroup(model, glyphs));
@@ -135,10 +145,11 @@ function joined(groups: readonly HeaderGroup[], gap: string): HeaderSegment[] {
 }
 
 /**
- * The name and model on the left, health flush right, padded to exactly the
- * viewport. When the width runs out the host goes first, then the model, then
- * the connectors — identity you can recover from a key goes before health you
- * would act on, and the meter is the last thing standing.
+ * The name, model, and working directory on the left, health flush right,
+ * padded to exactly the viewport. When the width runs out the host goes first,
+ * then the working directory, then the model, then the connectors — identity
+ * you can recover from a key goes before health you would act on, and the
+ * meter is the last thing standing.
  */
 export function headerSegments(model: HeaderModel, viewport: Viewport): readonly HeaderSegment[] {
   const glyphs = getGlyphs();
@@ -147,29 +158,31 @@ export function headerSegments(model: HeaderModel, viewport: Viewport): readonly
   if (mark === undefined) return [];
 
   let modelGroup = groups.find((group) => group.key === "model");
+  let cwdGroup = groups.find((group) => group.key === "cwd");
   let right = groups.filter((group) => group.key === "connectors" || group.key === "meter");
   const markWidth = terminalSegmentsWidth(mark.segments);
-  const width = (): number => {
-    const leftWidth =
-      markWidth +
-      (modelGroup === undefined
-        ? 0
-        : terminalCellWidth(NEAR_GAP) + terminalSegmentsWidth(modelGroup.segments));
-    const rightWidth = terminalSegmentsWidth(joined(right, FAR_GAP));
-    return leftWidth + 1 + rightWidth + 1;
+  const leftWidth = (): number => {
+    let width = markWidth;
+    for (const group of [modelGroup, cwdGroup]) {
+      if (group !== undefined)
+        width += terminalCellWidth(NEAR_GAP) + terminalSegmentsWidth(group.segments);
+    }
+    return width;
   };
+  const width = (): number => leftWidth() + 1 + terminalSegmentsWidth(joined(right, FAR_GAP)) + 1;
 
   if (modelGroup !== undefined && model.localHost !== undefined && width() > viewport.width) {
     modelGroup = { ...modelGroup, segments: modelGroup.segments.slice(0, 1) };
   }
+  if (width() > viewport.width) cwdGroup = undefined;
   if (width() > viewport.width) modelGroup = undefined;
   while (right.length > 1 && width() > viewport.width) right = right.slice(1);
 
   const left: HeaderSegment[] = [
     ...mark.segments,
-    ...(modelGroup === undefined
-      ? []
-      : [{ text: NEAR_GAP, fg: THEME.muted }, ...modelGroup.segments]),
+    ...[modelGroup, cwdGroup].flatMap((group) =>
+      group === undefined ? [] : [{ text: NEAR_GAP, fg: THEME.muted }, ...group.segments],
+    ),
   ];
   // One cell of margin on the right mirrors the one before the name.
   const rightSegments: HeaderSegment[] = [

@@ -110,10 +110,16 @@ describe("Header", () => {
     expect((rows[1] ?? "").trim()).toBe("");
   });
 
-  it("holds four fact groups and no more", async () => {
+  it("holds five fact groups and no more", async () => {
     const groups = headerGroups(header());
-    expect(groups.length).toBeLessThanOrEqual(4);
-    expect(groups.map((group) => group.key)).toEqual(["mark", "model", "connectors", "meter"]);
+    expect(groups.length).toBeLessThanOrEqual(5);
+    expect(groups.map((group) => group.key)).toEqual([
+      "mark",
+      "model",
+      "cwd",
+      "connectors",
+      "meter",
+    ]);
 
     const { row } = await render(
       <Header
@@ -123,10 +129,10 @@ describe("Header", () => {
       80,
     );
     const separators = [...row].filter((character) => character === getGlyphs().bullet);
-    expect(separators.length).toBeLessThanOrEqual(3);
+    expect(separators.length).toBeLessThanOrEqual(4);
   });
 
-  it("shows local host:port after the model and drops the host first on narrow screens", async () => {
+  it("shows the working directory after the model and drops the directory before the model on narrow screens", async () => {
     const local = header({ model: "qwen3", localHost: "gpu.example:8000" });
     const wide = await render(
       <Header
@@ -135,7 +141,9 @@ describe("Header", () => {
       />,
       100,
     );
-    expect(wide.row).toContain(`qwen3 ${getGlyphs().bullet} gpu.example:8000`);
+    expect(wide.row).toContain(
+      `qwen3 ${getGlyphs().bullet} gpu.example:8000  ${getGlyphs().bullet} ~/github/jazz`,
+    );
     expect(wide.row).toContain("apps 4 of 4");
 
     const narrow = await render(
@@ -147,6 +155,7 @@ describe("Header", () => {
     );
     expect(narrow.row).toContain("qwen3");
     expect(narrow.row).not.toContain("gpu.example:8000");
+    expect(narrow.row).not.toContain("~/github/jazz");
     expect(terminalCellWidth(narrow.row)).toBe(48);
   });
 
@@ -256,7 +265,7 @@ describe("Header", () => {
   it("keeps identity, connectors, and context cell-aligned with wide text", async () => {
     const { row } = await render(
       <Header
-        model={header({ cwd: "~/音楽/👨‍👩‍👧‍👦-e\u0301", model: "模型" })}
+        model={header({ cwd: "~/模型/👨‍👩‍👧‍👦-e\u0301", model: "模型" })}
         viewport={{ width: 60, height: 24 }}
       />,
       60,
@@ -265,6 +274,7 @@ describe("Header", () => {
     expect(terminalCellWidth(row)).toBe(60);
     expect(row).toContain("jazz");
     expect(row).not.toContain("v0.14.2");
+    expect(row).toContain("模型");
     expect(row).toContain("apps 4 of 4");
     expect(row).toContain("40%");
   });
