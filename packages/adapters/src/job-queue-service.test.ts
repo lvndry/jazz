@@ -603,6 +603,20 @@ describe("archiving delivered batches", () => {
     return fs.readdirSync(path.join(tmpDir, "agent-1")).filter((name) => name.endsWith(".json"));
   }
 
+  /**
+   * An agent cancelling a wait that already ran out must hear it finished, not that the id is
+   * unknown, or it goes hunting for a batch that was real.
+   */
+  test("cancelling an archived batch reports it finished, not missing", async () => {
+    const service = makeService();
+    const batch = await completedBatch(service);
+    await runEffect(archiveBatch(tmpDir, "agent-1", batch.id));
+
+    const cancelOutcome = await runEffect(service.cancelBatch("agent-1", batch.id));
+
+    expect(cancelOutcome).toEqual({ success: false, message: "That batch has already finished." });
+  });
+
   test("moves a completed batch out of the directory the tick scans, and keeps it readable", async () => {
     const service = makeService();
     const batch = await completedBatch(service);

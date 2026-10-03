@@ -397,9 +397,17 @@ export class JobQueueServiceImpl implements JobQueueService {
           const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
           const batch = yield* readBatchFile(filePath);
           if (batch === null) {
+            const archived = yield* readStateFile(
+              archivedBatchFilePath(baseJobBatchDirectory, agentId, batchId),
+              JOB_BATCH_FILE_KIND,
+              { onCorrupt: "fail" },
+            );
             return {
               success: false,
-              message: `No job batch found with id "${batchId}".`,
+              message:
+                archived === undefined
+                  ? `No job batch found with id "${batchId}".`
+                  : "That batch has already finished.",
             } satisfies CancelBatchOutcome;
           }
           if (batch.completedAt !== null) {
