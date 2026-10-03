@@ -49,15 +49,19 @@ interface FirstCheck {
 /**
  * Run the condition once, in the same environment the background worker uses, so a check that
  * can never pass shows its real output now instead of after the whole wait. A check that outlasts
- * {@link WAIT_FOR_FIRST_CHECK_TIMEOUT_MS} is killed and reported as timed out.
+ * `timeoutMs` is killed and reported as timed out.
  */
-function runFirstCheck(command: string, workingDir: string): Effect.Effect<FirstCheck> {
+function runFirstCheck(
+  command: string,
+  workingDir: string,
+  timeoutMs: number,
+): Effect.Effect<FirstCheck> {
   return Effect.gen(function* () {
     const known = yield* toolKnownSecrets();
     return yield* runShellCommand({
       command,
       workingDir,
-      timeoutMs: WAIT_FOR_FIRST_CHECK_TIMEOUT_MS,
+      timeoutMs,
       env: createSanitizedEnv({}, []),
       redact: known,
     }).pipe(
@@ -68,6 +72,14 @@ function runFirstCheck(command: string, workingDir: string): Effect.Effect<First
       Effect.catchAll((error) => Effect.succeed({ exitCode: -1, output: toError(error).message })),
     );
   });
+}
+
+/**
+ * Most times the command can run: the check before the call returns, then one at the start of the
+ * background wait and one per interval until the shared deadline.
+ */
+export function worstCaseRuns(intervalMs: number, timeoutMs: number): number {
+  return Math.floor(timeoutMs / intervalMs) + 2;
 }
 
 function describeFirstCheck(check: FirstCheck): Record<string, unknown> {
@@ -206,7 +218,7 @@ export function createWaitTools(): WaitTools {
 
       const intervalMs = args.intervalMs ?? WAIT_FOR_DEFAULT_INTERVAL_MS;
       const timeoutMs = args.timeoutMs ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
-      const maxAttempts = Math.floor(timeoutMs / intervalMs) + 1;
+      const maxAttempts = worstCaseRuns(intervalMs, timeoutMs);
 
       return Effect.succeed(`Wait for: ${args.description}
 
@@ -240,7 +252,15 @@ The command runs repeatedly and unattended, in the background, until it succeeds
           ? yield* shell.resolvePath(key, args.workingDirectory)
           : yield* shell.getCwd(key);
 
-        const firstCheck = yield* runFirstCheck(args.command, workingDir);
+        const intervalMs = args.intervalMs ?? WAIT_FOR_DEFAULT_INTERVAL_MS;
+        const timeoutMs = args.timeoutMs ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
+
+        const firstCheckStartedAt = Date.now();
+        const firstCheck = yield* runFirstCheck(
+          args.command,
+          workingDir,
+          Math.min(WAIT_FOR_FIRST_CHECK_TIMEOUT_MS, timeoutMs),
+        );
         if (firstCheck.exitCode === 0) {
           return {
             success: true,
@@ -248,13 +268,19 @@ The command runs repeatedly and unattended, in the background, until it succeeds
           } satisfies ToolExecutionResult;
         }
 
-        const intervalMs = args.intervalMs ?? WAIT_FOR_DEFAULT_INTERVAL_MS;
-        const timeoutMs = args.timeoutMs ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
+        const remainingTimeoutMs = timeoutMs - (Date.now() - firstCheckStartedAt);
+        if (remainingTimeoutMs <= 0) {
+          return {
+            success: false,
+            result: { firstCheck },
+            error: `The whole ${String(timeoutMs)}ms timeout ran out during the first check, so nothing was scheduled.`,
+          } satisfies ToolExecutionResult;
+        }
 
         const outcome = yield* jobQueueService.enqueueBatch(
           context.agentId,
           context.conversationId,
-          [{ command: args.command, poll: { intervalMs, timeoutMs } }],
+          [{ command: args.command, poll: { intervalMs, timeoutMs: remainingTimeoutMs } }],
           { workingDir, reason: args.description },
         );
 
