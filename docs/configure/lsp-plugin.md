@@ -48,6 +48,16 @@ Install your language-server executable separately and configure its command in 
 }
 ```
 
+For HTML and CSS, use `vscode-langservers-extracted` (`npm install --global
+vscode-langservers-extracted`) with `command: "vscode-html-language-server"` for
+`.html`/`.htm` and `command: "vscode-css-language-server"` for `.css`, both with
+`args: ["--stdio"]`. The HTML server also reports diagnostics for CSS inside inline
+`<style>` blocks. Both use the LSP 3.17 pull model; the plugin queries
+textDocument/diagnostic directly. Avoid the older
+`vscode-html-languageserver-bin` / `vscode-css-languageserver-bin` packages: their
+pinned `vscode-jsonrpc` crashes at startup (`messageReader.onClose is not a
+function`). See the [plugin README](../../plugins/lsp/README.md) for a complete
+`lsp.json` example.
 Install `typescript-language-server` and a compatible `typescript` package containing
 `tsserver.js` before using this example. To configure another
 language, add an entry with its executable, argument vector, an extensions-to-language-ID

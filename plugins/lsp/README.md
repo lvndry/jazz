@@ -19,7 +19,7 @@ jazz plugin enable com.jazz.plugins.lsp --agent default
 
 Replace `default` with your agent name or ID, or omit `--agent` to enable it for every agent. The
 language-server executable is installed separately; Jazz does not bundle one. See "Add a language"
-below for TypeScript, Python, Rust, and Go.
+below for TypeScript, Python, Rust, Go, and HTML/CSS.
 
 ## Add a language
 
@@ -117,6 +117,49 @@ Install [`rust-analyzer`](https://rust-analyzer.github.io/book/installation.html
 }
 ```
 
+### HTML and CSS
+
+Install [`vscode-langservers-extracted`](https://github.com/vscode-langservers-extracted/vscode-langservers-extracted), which ships stdio servers for the VS Code HTML and CSS language services in one package:
+
+```sh
+npm install --global vscode-langservers-extracted
+```
+
+```json
+{
+  "servers": [
+    {
+      "id": "html",
+      "command": "vscode-html-language-server",
+      "args": ["--stdio"],
+      "extensions": {
+        ".html": "html",
+        ".htm": "html"
+      },
+      "rootMarkers": ["index.html", "package.json"]
+    },
+    {
+      "id": "css",
+      "command": "vscode-css-language-server",
+      "args": ["--stdio"],
+      "extensions": { ".css": "css" },
+      "rootMarkers": ["package.json"]
+    }
+  ]
+}
+```
+
+The HTML server covers `.html` files including the CSS inside their inline `<style>`
+blocks, plus validation of embedded JavaScript. The CSS server covers standalone
+`.css` files. Both provide diagnostics (they use the LSP 3.17 pull model, which
+the plugin queries directly), hover, symbols, definitions, and references.
+Neither provides document formatting. Adjust `rootMarkers` to your project's
+layout; with no marker present the plugin uses the current directory.
+
+Do not use `vscode-html-languageserver-bin` / `vscode-css-languageserver-bin`
+instead: their pinned `vscode-jsonrpc` is stale and the servers crash at
+startup (`messageReader.onClose is not a function`).
+
 ### Go
 
 Install [`gopls`](https://pkg.go.dev/golang.org/x/tools/gopls):
@@ -160,5 +203,5 @@ read on the next request; changing the executable starts a new server, while an 
 exits after two minutes. Use `JAZZ_LSP_CONFIG` to point to a different JSON file.
 
 The Python, Rust, and Go entries above illustrate the configuration format; Jazz's live server
-verification has covered TypeScript, not the other three. For the tested TypeScript setup,
+verification has covered TypeScript and HTML/CSS, not the other languages. For the tested setup,
 approval behavior, and current limitations, see the [full LSP guide](../../docs/configure/lsp-plugin.md).
