@@ -41,6 +41,7 @@ Start with the question, then choose the smallest form that answers it.
 | What happens next?                 | Timeline, flow, or state diagram.                          |
 | What can the person change?        | Small form plus immediate, visible result.                 |
 | What should someone scan quickly?  | A restrained dashboard with one primary insight.           |
+| What do I walk someone through?    | A deck: one idea per slide (`slides` reference).           |
 
 Do not make a dashboard by default. One strong view with a clear takeaway is
 usually more valuable than six generic cards.
@@ -76,6 +77,10 @@ usually more valuable than six generic cards.
   transitions. Load it when the artifact is a diagram or explainer.
 - `interactive` — popover, dialog, View Transitions, `:has()`, focus and
   accessibility patterns. Load it when the artifact has controls.
+- `slides` — deck/presentation mode: 16:9 canvas, keyboard navigation,
+  slide transitions, speaker notes, print export. Load it when the person
+  wants a Canva-style presentation, pitch, or walkthrough — one idea per
+  slide, not a long page.
 
 ## Data integrity
 
