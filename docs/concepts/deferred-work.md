@@ -45,7 +45,7 @@ If a person needs to read something, use a reminder. If a decision needs making,
 
 ## Background jobs
 
-`enqueue_batch` runs several independent shell commands at once, with a concurrency cap and
+`run_background_jobs` runs several independent shell commands at once, with a concurrency cap and
 per-job retry, without holding the turn open.
 
 When every job reaches a final state, the conversation resumes with each job's status and output.

@@ -28,8 +28,10 @@ import type { RunStarter } from "@/core/agent/types";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { PersonaServiceTag } from "@/core/interfaces/persona-service";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
+import type { RunOrigin } from "@/core/spend/sources";
 import type { Agent } from "@/core/types";
 import type { PersonaToolProfile } from "@/core/types/persona";
+import { COMPUTER_TOOL_NAMES } from "./computer/tool-names";
 import { PROPOSE_GOAL_TOOL_NAME } from "./goal";
 import { REPORT_GOAL_CYCLE_TOOL_NAME } from "./goal-report";
 import { END_LOOP_TOOL_NAME } from "./loop";
@@ -56,17 +58,39 @@ export function toolDenials(
   return new Set([...(toolProfile?.deny ?? []), ...(agent.config.deniedTools ?? [])]);
 }
 
+export interface RunSurface {
+  readonly offersGoalProposals?: boolean;
+  readonly startedBy?: RunStarter;
+  readonly origin?: RunOrigin;
+  readonly withholdInteractiveTools?: boolean;
+}
+
+/**
+ * Whether a person is watching this run: a terminal conversation, not a script, a schedule, a
+ * goal or loop cycle, a webhook, a peer, a bot or a detached job. Only such a run may drive the
+ * desktop, because an action that needs a decision has someone to put it to.
+ */
+export function isAttendedRun(surface: RunSurface): boolean {
+  return (
+    surface.origin?.source === "chat" &&
+    surface.withholdInteractiveTools !== true &&
+    surface.startedBy === undefined
+  );
+}
+
 /**
  * Everything a run may not use: the agent's and persona's denials, plus `propose_goal` unless
  * the surface shows proposals to a person who can accept them, and `end_loop` unless a loop
  * started the run (anywhere else there is no loop for it to end). Elsewhere (a workflow, a
  * webhook, a bot, a goal's own cycles) a proposal would sit unseen, and the rest of the run
  * would lose its tools, since a saved proposal ends the agent's work for the turn.
+ *
+ * The computer tools are withheld from every run nobody is watching.
  */
 export function runToolDenials(
   agent: Agent,
   toolProfile: PersonaToolProfile | undefined,
-  surface: { readonly offersGoalProposals?: boolean; readonly startedBy?: RunStarter },
+  surface: RunSurface,
 ): ReadonlySet<string> {
   const denied = new Set(toolDenials(agent, toolProfile));
   if (surface.offersGoalProposals !== true) {
@@ -77,6 +101,11 @@ export function runToolDenials(
   }
   if (surface.startedBy !== "goal") {
     denied.add(REPORT_GOAL_CYCLE_TOOL_NAME);
+  }
+  if (!isAttendedRun(surface)) {
+    for (const name of COMPUTER_TOOL_NAMES) {
+      denied.add(name);
+    }
   }
   return denied;
 }

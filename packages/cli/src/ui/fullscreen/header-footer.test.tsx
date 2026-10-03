@@ -315,6 +315,23 @@ describe("Footer", () => {
     expect(colorOf(spans, usage)).toBe(THEME.muted.toUpperCase());
   });
 
+  it("keeps background work next to the mode while hints give way", async () => {
+    const { row, spans } = await render(
+      <Footer
+        model={footer({
+          background: "watching 2",
+          hints: ["enter send", "up scroll", "^f to search"],
+        })}
+        viewport={{ width: 44, height: 24 }}
+      />,
+      44,
+    );
+
+    expect(row).toContain(`plan ${getGlyphs().bullet} watching 2`);
+    expect(row).toContain("$0.42");
+    expect(colorOf(spans, "watching 2")).toBe(THEME.primary.toUpperCase());
+  });
+
   it("replaces hints with a copy confirmation in the live accent", async () => {
     const { row, spans } = await render(
       <Footer

@@ -36,6 +36,7 @@ import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId } from "./types";
 import { WizardHome } from "./WizardHome";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
+import { formatBackgroundWork } from "./models/background-work";
 import { centredWindowStart } from "./text/picker-window";
 import { clipTerminalCells } from "./text/terminal-cells";
 import packageJson from "../../../../package.json";
@@ -93,7 +94,7 @@ const PromptIsland = React.memo(PromptIslandComponent);
 // ============================================================================
 
 function StatusFooterIslandComponent(): React.ReactElement | null {
-  const { runStats, isYolo } = useSessionSlice();
+  const { runStats, isYolo, backgroundItems } = useSessionSlice();
   const { prompt } = usePromptSlice();
   const hint = prompt?.type === "hidden" && prompt.options?.["keys"] ? prompt.message : null;
 
@@ -104,6 +105,7 @@ function StatusFooterIslandComponent(): React.ReactElement | null {
       workingDirectory={null}
       runStats={runStats}
       modeIsYolo={isYolo}
+      background={formatBackgroundWork(backgroundItems) ?? null}
     />
   );
 }

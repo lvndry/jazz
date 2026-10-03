@@ -72,7 +72,7 @@ describe("rankToolsByQuery", () => {
  */
 describe("finding a tool for an open-ended watch", () => {
   const candidates = [
-    { name: "enqueue_batch", summary: enqueueBatchSummary() },
+    { name: "run_background_jobs", summary: enqueueBatchSummary() },
     { name: "register_trigger", summary: registerTriggerSummary() },
   ];
 

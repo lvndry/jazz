@@ -8,6 +8,7 @@ import type z from "zod";
 import type { ToolActivityTracker } from "@/core/agent/run/tool-activity";
 import type { SubagentSupervisor } from "@/core/agent/subagents/supervisor";
 import type { BrowserSessions } from "@/core/agent/tools/browser/session";
+import type { ComputerSessions } from "@/core/agent/tools/computer/session";
 import type { LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
@@ -275,6 +276,12 @@ export interface ApprovalRequiredResult {
    * to ask, the run parks for approval.
    */
   readonly alwaysAsk?: true;
+  /**
+   * The message the tool result carries when a person declines this request, instead of
+   * the generic "you declined" one. Set it when the default text would not say what
+   * declined and what happens next.
+   */
+  readonly rejectionMessage?: string;
 }
 
 /**
@@ -298,6 +305,11 @@ export interface ApprovalRequest {
   readonly impact?: string;
   /** The argument a person may rewrite before approving. See {@link ApprovalRequiredResult.editableArg}. */
   readonly editableArg?: string;
+  /**
+   * The message the model receives when the person declines, in place of the generic
+   * rejection text. See {@link ApprovalRequiredResult.rejectionMessage}.
+   */
+  readonly rejectionMessage?: string;
   /** The risk class of the call being approved, when the tool declares one. */
   readonly riskLevel?: ToolRiskLevel;
   /**
@@ -463,6 +475,11 @@ export interface ToolExecutionContext {
    * so a child editing files shows up in the parent run's occupancy entry.
    */
   readonly toolActivity?: ToolActivityTracker;
+  /**
+   * This run's computer session, started by the first computer tool call and closed when the run
+   * ends. Sub-agents do not get the computer tools, so none shares it.
+   */
+  readonly computerSessions?: ComputerSessions;
   /** The individual call currently executing. Set on a per-call context copy. */
   readonly toolCallId?: string;
   /**

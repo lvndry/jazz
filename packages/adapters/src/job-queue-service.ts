@@ -45,6 +45,7 @@ import type {
   EnqueueBatchOutcome,
   JobBatchRecord,
   JobPollSpec,
+  JobProgress,
   JobQueueService,
   JobRecord,
 } from "@jazz/core/interfaces/job-queue-service";
@@ -284,7 +285,7 @@ export class JobQueueServiceImpl implements JobQueueService {
               success: false,
               message:
                 `You already have ${activeCount} active job batches, the maximum of ` +
-                `${MAX_ACTIVE_BATCHES_PER_AGENT}. Wait for one to finish or cancel_batch one before enqueueing another.`,
+                `${MAX_ACTIVE_BATCHES_PER_AGENT}. Wait for one to finish or cancel_background_jobs one before enqueueing another.`,
             } satisfies EnqueueBatchOutcome;
           }
 
@@ -757,6 +758,45 @@ export function renewJobLease(
         jobs: batch.jobs.map((candidate) =>
           candidate.id === jobId
             ? { ...candidate, leaseExpiresAt: now + JOB_LEASE_TIMEOUT_MS, updatedAt: now }
+            : candidate,
+        ),
+      });
+      return true;
+    }),
+  );
+}
+
+/**
+ * Save a running polling job's latest check onto its record. False when the job is no longer
+ * this worker's (reclaimed, cancelled, finished), exactly as for {@link renewJobLease}.
+ */
+export function recordJobProgress(
+  baseJobBatchDirectory: string,
+  agentId: string,
+  batchId: string,
+  jobId: string,
+  leaseOwner: string,
+  progress: JobProgress,
+): Effect.Effect<boolean, Error> {
+  return withLock(
+    batchLockPath(baseJobBatchDirectory, agentId, batchId),
+    Effect.gen(function* () {
+      const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
+      const batch = yield* readBatchFile(filePath);
+      const job = batch?.jobs.find((candidate) => candidate.id === jobId);
+      if (
+        batch === null ||
+        job === undefined ||
+        job.status !== "running" ||
+        job.leaseOwner !== leaseOwner
+      ) {
+        return false;
+      }
+      yield* writeBatchFile(filePath, {
+        ...batch,
+        jobs: batch.jobs.map((candidate) =>
+          candidate.id === jobId
+            ? { ...candidate, progress, updatedAt: progress.lastCheckedAt }
             : candidate,
         ),
       });

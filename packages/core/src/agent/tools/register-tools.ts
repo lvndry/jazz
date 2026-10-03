@@ -18,6 +18,19 @@ import {
   createBrowserSnapshotTool,
   createBrowserTabsTool,
 } from "./browser/browser-tools";
+import {
+  createComputerAcknowledgeDriverTool,
+  createComputerAppsTool,
+  createComputerEndTool,
+  createComputerForegroundTools,
+  createComputerGrantAppTool,
+  createComputerInstallDriverTool,
+  createComputerHandoffTools,
+  createComputerInputTools,
+  createComputerObserveTool,
+  createComputerWaitTool,
+  createComputerPointerTools,
+} from "./computer/computer-tools";
 import { createContextInfoTool, createGetTimeTool, createRetrieveToolResultTool } from "./context";
 import { createPdfTool } from "./create-pdf";
 import { fs } from "./fs";
@@ -42,6 +55,7 @@ import { createSubagentTools } from "./subagent";
 import { createListTodosTool, createManageTodosTool } from "./todo";
 import {
   BROWSER_CATEGORY,
+  COMPUTER_CATEGORY,
   CONTEXT_CATEGORY,
   FILE_MANAGEMENT_CATEGORY,
   GOALS_CATEGORY,
@@ -103,6 +117,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerUserInteractionTools();
     yield* registerCompositionTools();
     yield* registerBrowserTools();
+    yield* registerComputerTools();
   });
 }
 
@@ -377,6 +392,30 @@ export function registerBrowserAdoptionTools(): Effect.Effect<void, Error, ToolR
     const adoptTools = createBrowserAdoptTabTools();
     yield* registerTool(adoptTools.approval);
     yield* registerTool(adoptTools.execute);
+  });
+}
+
+export function registerComputerTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(COMPUTER_CATEGORY);
+
+    yield* registerTool(createComputerAppsTool());
+    yield* registerTool(createComputerObserveTool());
+    yield* registerTool(createComputerWaitTool());
+    yield* registerTool(createComputerEndTool());
+    for (const pair of [
+      createComputerPointerTools(),
+      createComputerInputTools(),
+      createComputerForegroundTools(),
+      createComputerHandoffTools(),
+      createComputerGrantAppTool(),
+      createComputerInstallDriverTool(),
+      createComputerAcknowledgeDriverTool(),
+    ]) {
+      yield* registerTool(pair.approval);
+      yield* registerTool(pair.execute);
+    }
   });
 }
 

@@ -50,6 +50,7 @@ function StatusFooter({
   workingDirectory,
   runStats,
   modeIsYolo = false,
+  background = null,
 }: {
   status: string | null;
   /** Key hint for an invisible prompt, e.g. "Press i to install". */
@@ -57,12 +58,14 @@ function StatusFooter({
   workingDirectory: string | null;
   runStats: RunStats;
   modeIsYolo?: boolean;
+  /** Waits and jobs still running in the background, e.g. `watching 2`. */
+  background?: string | null;
 }) {
   const hasRunStats =
     runStats.model !== undefined ||
     runStats.tokensInContext !== undefined ||
     runStats.costUSD !== undefined;
-  const hasContent = status || hint || workingDirectory || hasRunStats;
+  const hasContent = status || hint || background || workingDirectory || hasRunStats;
   if (!hasContent) return null;
 
   const homeDir = process.env["HOME"];
@@ -113,6 +116,12 @@ function StatusFooter({
                 yolo{statLine.length > 0 ? " · " : ""}
               </Text>
             ) : null}
+            {background ? (
+              <Text color={THEME.primary}>
+                {background}
+                {statLine.length > 0 || hint ? " · " : ""}
+              </Text>
+            ) : null}
             {hint ? (
               <Text color={THEME.primary}>
                 {hint}
@@ -121,7 +130,7 @@ function StatusFooter({
             ) : null}
             {statLine.length > 0 ? (
               <Text color={THEME.secondary}>{statLine}</Text>
-            ) : hint ? null : (
+            ) : hint || background ? null : (
               <Text dimColor> </Text>
             )}
           </Box>

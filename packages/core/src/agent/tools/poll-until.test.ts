@@ -55,4 +55,34 @@ describe("pollUntilSuccess", () => {
 
     expect(outcome.attempts).toBeGreaterThanOrEqual(3);
   });
+
+  it("reports every check to onCheck, the matching one included", async () => {
+    const counter = `${tmpdir()}/poll-until-oncheck-${String(process.pid)}`;
+    rmSync(counter, { force: true });
+    const seen: { attempts: number; exitCode: number; stdout: string }[] = [];
+
+    await Effect.runPromise(
+      pollUntilSuccess({
+        command: `count=$(cat ${counter} 2>/dev/null || echo 0); count=$((count+1)); echo $count > ${counter}; echo step-$count; test $count -ge 2`,
+        workingDir: process.cwd(),
+        intervalMs: WAIT_FOR_MIN_INTERVAL_MS,
+        timeoutMs: 10_000,
+        env: process.env,
+        onCheck: (check) =>
+          Effect.sync(() => {
+            seen.push({
+              attempts: check.attempts,
+              exitCode: check.exitCode,
+              stdout: check.stdout.trim(),
+            });
+          }),
+      }),
+    );
+
+    expect(seen).toEqual([
+      { attempts: 1, exitCode: 1, stdout: "step-1" },
+      { attempts: 2, exitCode: 0, stdout: "step-2" },
+    ]);
+    rmSync(counter, { force: true });
+  });
 });

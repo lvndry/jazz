@@ -17,12 +17,12 @@ and the [security model](../security/index.md).
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **64** |
-| Hidden `execute_*` counterparts (the second half of each approval pair) | 12     |
-| Total registered                                                        | 76     |
-| `read-only`                                                             | 35     |
-| `low-risk`                                                              | 15     |
-| `high-risk`                                                             | 11     |
+| **Agent-facing tools**                                                  | **75** |
+| Hidden `execute_*` counterparts (the second half of each approval pair) | 19     |
+| Total registered                                                        | 94     |
+| `read-only`                                                             | 39     |
+| `low-risk`                                                              | 18     |
+| `high-risk`                                                             | 15     |
 | `unknown`                                                               | 3      |
 
 Plus, registered per agent rather than globally:
@@ -62,19 +62,15 @@ machine; disclosure asks how freely its answer can be shared. The two do not cor
 `read_file` is read-only and can reveal anything, `get_time` is read-only and reveals
 nothing, `write_file` changes the machine and reveals nothing at all.
 
-| Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ---------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `report_goal_cycle`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cancel_wait_for`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`, `who_is_here`                                                                                                                                                                                                                                                                                               |
-| `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `ask_user_secret`, `browser_act`, `browser_back`, `browser_close`, `browser_navigate`, `browser_screenshot`, `browser_snapshot`, `browser_tabs`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_subagents`, `list_todos`, `manage_memory`, `manage_scratchpad`, `manage_todos`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `steer_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for`, `wait_subagents` |
+| Level      | Safe to tell                                                                  | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public`   | safe to tell anyone                                                           | `add_reminder`, `cp`, `end_loop`, `mkdir`, `mv`, `propose_goal`, `report_goal_cycle`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `internal` | the shape of this machine: paths, names, what is installed                    | `analyze_media`, `cancel_background_jobs`, `cancel_trigger`, `cancel_wait_for`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_background_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`, `who_is_here`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `private`  | your own material: file contents, memory, schedule, transcripts, tool results | `ask_file_picker`, `ask_user_question`, `ask_user_secret`, `browser_act`, `browser_back`, `browser_close`, `browser_navigate`, `browser_screenshot`, `browser_snapshot`, `browser_tabs`, `cancel_reminder`, `computer_acknowledge_driver`, `computer_apps`, `computer_end`, `computer_foreground`, `computer_grant_app`, `computer_handoff`, `computer_input`, `computer_install_driver`, `computer_observe`, `computer_pointer`, `computer_wait`, `edit_file`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_subagents`, `list_todos`, `manage_memory`, `manage_scratchpad`, `manage_todos`, `read_file`, `read_pdf`, `retrieve_tool_result`, `run_background_jobs`, `spawn_subagent`, `steer_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for`, `wait_subagents` |
 
 A tool spanning two levels takes the more sensitive one. `edit_file` writes, but its approval
 message carries a diff of your file, so it is `private`. `http_request` can reach
 hosts on your own network once they are in `network.allowPrivateHosts`, so it is too.
-
-Skill tools (`find_skills`, `load_skill`, `load_skill_section`) are `internal` too, and are
-absent from the table for the same reason they are absent from the one below. They are
-registered per agent rather than globally.
 
 **MCP and custom tools are `private`.**
 
@@ -86,9 +82,9 @@ Risk and disclosure are both about this end of the call: what a tool does to you
 what its answer would reveal. Neither asks about the **request**, and for a handful of tools
 the request is where your material would actually leave.
 
-| Sends | Tools                                                                                    |
-| ----- | ---------------------------------------------------------------------------------------- |
-| yes   | `browser_act`, `browser_navigate`, `http_request`, `read_pdf`, `web_fetch`, `web_search` |
+| Sends | Tools                                                                                                                                                 |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| yes   | `browser_act`, `browser_navigate`, `computer_foreground`, `computer_input`, `computer_pointer`, `http_request`, `read_pdf`, `web_fetch`, `web_search` |
 
 Three more, absent above only because they are registered per agent rather than globally:
 `ask_peer` (`high-risk`), whose whole purpose is to put your model's words in front of somebody else's
@@ -128,6 +124,7 @@ bookkeeping or start child runs, so a peer reaches them only when its `allow` na
 | `read_pdf`       | `read-only` | none                 | Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.                       |
 | `rm`             | `high-risk` | `execute_rm`         | Remove a file or directory. May be irreversible.                                                                          |
 | `stat`           | `read-only` | none                 | Check file/directory existence and get metadata (type, size, times).                                                      |
+| `who_is_here`    | `read-only` | none                 | Check whether other jazz agents are working in a directory (who is here, and whether they are writing).                   |
 | `write_file`     | `high-risk` | `execute_write_file` | Write content to a file, creating it if needed. Replaces entire file content.                                             |
 
 ### Shell Commands
@@ -138,7 +135,7 @@ bookkeeping or start child runs, so a peer reaches them only when its `allow` na
 | `wait_for`        | `unknown`  | `execute_wait_for`        | Watch in the background until a command exits 0, re-running it on an interval as tight as 250 ms. Returns at once; the agent is woken when the condition holds or after 15 minutes at most.                   |
 | `cancel_wait_for` | `low-risk` | none                      | Cancel a pending `wait_for` by batch id (get the id from wait_for first).                                                                                                                                     |
 
-`wait_for` runs as a background job (the same worker as `enqueue_batch`), so the agent keeps
+`wait_for` runs as a background job (the same worker as `run_background_jobs`), so the agent keeps
 working and is woken with the last check's output when the condition holds or the time runs out.
 `cancel_wait_for` cancels the batch that `wait_for` created; for waits longer than 15 minutes, `register_trigger` suspends the run and resumes it later.
 
@@ -187,24 +184,15 @@ Memory tools are in the built-in bundle. Deny `manage_memory` to prevent writes.
 
 ### Workspace
 
+Scratchpad tools are in the built-in bundle. Use them for working drafts, research material,
+and intermediate files that should persist across conversations.
+
 | Tool                | Risk        | Approval pair | What it does                                                                                          |
 | ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
 | `view_scratchpad`   | `read-only` | none          | View your durable scratchpad: drafts, research dumps and intermediate artifacts too large for memory. |
 | `manage_scratchpad` | `read-only` | none          | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…      |
 
 ### Reminders
-
-### Occupancy
-
-`who_is_here` reads the shared occupancy file at `$JAZZ_HOME/occupancy.json` and answers a
-very specific question: who is present in this directory right now, and who is actively
-writing here. Presence comes from fresh heartbeat entries plus a live process, so a finished
-or crashed run drops out after the heartbeat window instead of lingering forever. The answer
-is read-only and machine-local; it does not contact the network.
-
-| Tool          | Risk        | Approval pair | What it does                                                                                                                                     |
-| ------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `who_is_here` | `read-only` | none          | Check which other jazz agents are working in a directory right now — who is present, who is writing, and whether the directory is the same repo. |
 
 Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them. See [Reminders](../concepts/starting-runs.md).
 
@@ -260,7 +248,7 @@ succeeds and the ticker is the safety net.
 
 ### Background Jobs
 
-Background-job tools are in the built-in bundle. `enqueue_batch` starts independent shell
+Background-job tools are in the built-in bundle. `run_background_jobs` starts independent shell
 commands in a detached worker, with bounded concurrency and retries. When all jobs finish,
 the agent resumes its conversation with their statuses and output.
 
@@ -268,11 +256,11 @@ No daemon is required to start a batch. The daemon can recover a batch whose wor
 If the resumed turn needs approval, it parks and sends a notification; answer with
 `jazz runs approve <id>`. See [Deferred work](../concepts/deferred-work.md).
 
-| Tool            | Risk        | Approval pair           | What it does                                                                                               |
-| --------------- | ----------- | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `enqueue_batch` | `unknown`   | `execute_enqueue_batch` | Run several independent shell commands in the background with a concurrency cap and per-job retry/backoff. |
-| `list_jobs`     | `read-only` | none                    | List this agent's background job batches, every job's status, and what each one printed.                   |
-| `cancel_batch`  | `low-risk`  | none                    | Cancel a job batch's pending jobs by id (jobs already running finish naturally).                           |
+| Tool                     | Risk        | Approval pair                 | What it does                                                                                               |
+| ------------------------ | ----------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `run_background_jobs`    | `unknown`   | `execute_run_background_jobs` | Run several independent shell commands in the background with a concurrency cap and per-job retry/backoff. |
+| `list_background_jobs`   | `read-only` | none                          | List this agent's background job batches, every job's status, and what each one printed.                   |
+| `cancel_background_jobs` | `low-risk`  | none                          | Cancel a job batch's pending jobs by id (jobs already running finish naturally).                           |
 
 ### Context
 
@@ -344,6 +332,28 @@ demand and are off by default.
 `browser.endpoint` points at a browser the user runs: it lets the agent take over one
 existing tab the user names, after a separate approval showing the tab's title and URL. The
 agent sees only tabs it created or adopted, never the rest of the user's browser.
+
+### Computer use (experimental)
+
+Enable [Computer use](../concepts/computer-use.md) per agent to look at and act in desktop apps
+you grant. It is experimental, runs on macOS with Apple Silicon only, and exists only in a
+terminal conversation with you watching. Enabling the tools acknowledges computer use; the first
+successful session pins the driver digest automatically. Only a changed driver build requires
+`computer_acknowledge_driver` approval. The tools load on demand and are off by default.
+
+| Tool                          | Risk        | Approval pair                 | What it does                                                                                                     |
+| ----------------------------- | ----------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `computer_apps`               | `read-only` | none                          | List the apps you granted, what each allows, and their visible windows.                                          |
+| `computer_observe`            | `read-only` | none                          | Read one window of a granted app as a text outline with refs, and optionally save a screenshot.                  |
+| `computer_pointer`            | `low-risk`  | `execute_computer_pointer`    | Click an element or pixel, or scroll, in the background without moving your cursor.                              |
+| `computer_wait`               | `read-only` | none                          | Wait until the last observed window settles or changes, then return a fresh observation. No action is performed. |
+| `computer_grant_app`          | `low-risk`  | none                          | Lasting grant for one app (in-chat approval).                                                                    |
+| `computer_install_driver`     | `high-risk` | none                          | Install the cua-driver binary (in-chat approval).                                                                |
+| `computer_acknowledge_driver` | `high-risk` | none                          | Approve a changed driver build by digest in chat; not needed on first use. Always asks.                          |
+| `computer_input`              | `high-risk` | `execute_computer_input`      | Type into an element or press a named key or shortcut. A typed secret is entered only after you approve.         |
+| `computer_foreground`         | `high-risk` | `execute_computer_foreground` | Bring a granted app to the front, then click, scroll, type or press a key. The app needs a foreground grant.     |
+| `computer_handoff`            | `low-risk`  | `execute_computer_handoff`    | Pause and ask you to do a step yourself, such as signing in. Always asks, and clears every earlier observation.  |
+| `computer_end`                | `read-only` | none                          | Stop using the computer: close the driver, delete this run's screenshots, and release the desktop.               |
 
 ---
 

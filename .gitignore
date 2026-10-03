@@ -78,3 +78,6 @@ bench/results/
 
 # Astro build cache
 .astro/
+
+# local agent state from a run with no JAZZ_HOME set
+undefined/

@@ -622,7 +622,7 @@ export class ToolExecutor {
           // Pass the pre-fetched timeout to avoid a redundant getTool lookup.
           result =
             taintVerdict !== undefined && !taintVerdict.approved
-              ? rejectedToolResult(taintVerdict.userMessage)
+              ? rejectedToolResult(taintVerdict.userMessage, undefined)
               : yield* ToolExecutor.executeTool(
                   name,
                   args,
@@ -836,6 +836,9 @@ export class ToolExecutor {
             ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
             ...(approvalResult.impact ? { impact: approvalResult.impact } : {}),
             ...(approvalResult.editableArg ? { editableArg: approvalResult.editableArg } : {}),
+            ...(approvalResult.rejectionMessage
+              ? { rejectionMessage: approvalResult.rejectionMessage }
+              : {}),
             ...(hasSelectionOptions ? { options: approvalResult.options } : {}),
             riskLevel,
             ...(taintWarning === undefined ? {} : { warning: taintWarning }),
@@ -982,6 +985,7 @@ export class ToolExecutor {
 
             result = rejectedToolResult(
               (outcome as { approved: false; userMessage?: string }).userMessage,
+              approvalRequest.rejectionMessage,
             );
           }
         }
@@ -1659,14 +1663,21 @@ function isToolNameAutoApproved(
   return approvedTools.includes(toolName);
 }
 
-/** What a declined call returns to the model, with the person's own words when they gave some. */
-function rejectedToolResult(userMessage: string | undefined): ToolExecutionResult {
+/**
+ * What a declined call returns to the model: the person's own words when they gave some, then the
+ * tool's app-specific rejection message, then the generic fallback.
+ */
+function rejectedToolResult(
+  userMessage: string | undefined,
+  rejectionMessage: string | undefined,
+): ToolExecutionResult {
   return {
     success: false,
     result: {
       rejected: true,
       message:
         userMessage?.trim() ||
+        rejectionMessage?.trim() ||
         "User rejected the operation. Please acknowledge this and ask if they'd like to try something different.",
     },
     error: "User rejected the operation",

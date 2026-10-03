@@ -492,14 +492,14 @@ function runTurn(record: DetachedJobRecord, userInput: string, limits: TurnLimit
         }
         return saveConversation({
           ...prior,
-          endedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
           messages: withoutPreamble(error.messages),
         }).pipe(Effect.flatMap(() => Effect.fail(error)));
       }),
     );
     yield* saveConversation({
       ...prior,
-      endedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       messages: withoutPreamble(response.messages ?? prior.messages),
     });
     return {
@@ -569,14 +569,14 @@ function resumeOne(record: DetachedJobRecord) {
         }
         return saveConversation({
           ...prior,
-          endedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
           messages: withoutPreamble(error.messages),
         }).pipe(Effect.flatMap(() => Effect.fail(error)));
       }),
     );
     yield* saveConversation({
       ...prior,
-      endedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       messages: withoutPreamble(response.messages ?? prior.messages),
     });
     return {

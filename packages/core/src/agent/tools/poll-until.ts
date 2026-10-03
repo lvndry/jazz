@@ -12,6 +12,15 @@ export interface PollUntilInput {
   readonly intervalMs: number;
   readonly timeoutMs: number;
   readonly env: NodeJS.ProcessEnv;
+  /** Called after every check, matched or not, before the wait for the next one. */
+  readonly onCheck?: (check: PollCheck) => Effect.Effect<void>;
+}
+
+export interface PollCheck {
+  readonly attempts: number;
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
 }
 
 export interface PollUntilOutcome {
@@ -53,6 +62,10 @@ export function pollUntilSuccess(input: PollUntilInput): Effect.Effect<PollUntil
       exitCode = attempt.exitCode;
       stdout = attempt.stdout;
       stderr = attempt.stderr;
+
+      if (input.onCheck !== undefined) {
+        yield* input.onCheck({ attempts, exitCode, stdout, stderr });
+      }
 
       if (exitCode === 0) {
         return {

@@ -328,7 +328,7 @@ describe("resumed transcript after reclaim", () => {
     conversationId: "conversation",
     title: "",
     startedAt: "2026-09-26T00:00:00.000Z",
-    endedAt: null,
+    updatedAt: null,
     messages: [{ role: "user", content: "start" }],
     uiTranscript: [
       {
@@ -384,7 +384,7 @@ describe("egress taint in a returned transcript", () => {
     conversationId: "conversation",
     title: "",
     startedAt: "2026-09-26T00:00:00.000Z",
-    endedAt: null,
+    updatedAt: null,
     messages: [
       { role: "user", content: "read the page" },
       { role: "tool", tool_call_id: "fetch", content: "[cleared]", egressTainted: true },
@@ -424,7 +424,7 @@ describe("memory authority in a returned transcript", () => {
     conversationId: "conversation",
     title: "",
     startedAt: "2026-09-26T00:00:00.000Z",
-    endedAt: null,
+    updatedAt: null,
     messages: [{ role: "user", content: "remember I take the 8:10 train", memorySource: local }],
   };
 

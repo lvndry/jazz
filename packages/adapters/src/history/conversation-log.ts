@@ -61,6 +61,10 @@ const CONVERSATION_LOCKS_DIRECTORY_NAME = "conversation-locks";
  *
  * 2 dropped the derived `conversationId` field, stopped recording system messages, and moved
  * from one flat directory of `{agent}~{conversation}.jsonl` to a directory per agent.
+ *
+ * The version only guards events this version may misread or, by appending, corrupt. A field
+ * rename is not one of those: `meta` events older than the rename still carry `endedAt` (what
+ * is now `updatedAt`, the conversation's last save time), and the parser reads that key in.
  */
 export const CONVERSATION_LOG_VERSION = 3;
 
@@ -154,7 +158,7 @@ export interface ConversationLogMeta {
   readonly type: "meta";
   readonly at: string;
   readonly title?: string;
-  readonly endedAt?: string;
+  readonly updatedAt?: string;
 }
 
 /** Compaction replaced the transcript; readers reset and keep only what follows. */
@@ -196,7 +200,7 @@ export interface Conversation {
   readonly conversationId: string;
   readonly title: string;
   readonly startedAt: string;
-  readonly endedAt: string | null;
+  readonly updatedAt: string | null;
   readonly messages: ChatMessage[];
   /** Semantic UI scrollback snapshot, kept separate from messages and never sent to the model. */
   readonly uiTranscript?: readonly ConversationUiEntry[];
@@ -214,7 +218,7 @@ export interface ConversationSummary {
   readonly conversationId: string;
   readonly title: string;
   readonly startedAt: string;
-  readonly endedAt: string | null;
+  readonly updatedAt: string | null;
   readonly messageCount: number;
 }
 
@@ -287,13 +291,14 @@ export function parseConversationLogLine(
     }
     case "meta": {
       const title = optionalString(parsed["title"]);
-      const endedAt = optionalString(parsed["endedAt"]);
-      if (title === undefined && endedAt === undefined) return null;
+      // `endedAt` is what the rename left in older logs; it is still the last-save time.
+      const updatedAt = optionalString(parsed["updatedAt"]) ?? optionalString(parsed["endedAt"]);
+      if (title === undefined && updatedAt === undefined) return null;
       return {
         type: "meta",
         at,
         ...(title === undefined ? {} : { title }),
-        ...(endedAt === undefined ? {} : { endedAt }),
+        ...(updatedAt === undefined ? {} : { updatedAt }),
       };
     }
     case "rewrite":
@@ -391,7 +396,7 @@ export function reduceConversationLog(
 ): Conversation | null {
   let header: ConversationLogHeader | null = null;
   let title: string | undefined;
-  let endedAt: string | null = null;
+  let updatedAt: string | null = null;
   let messages: ChatMessage[] = [];
   let uiTranscript: ConversationUiEntry[] = [];
   let uiIds = new Set<string>();
@@ -407,7 +412,7 @@ export function reduceConversationLog(
         break;
       case "meta":
         if (event.title !== undefined) title = event.title;
-        if (event.endedAt !== undefined) endedAt = event.endedAt;
+        if (event.updatedAt !== undefined) updatedAt = event.updatedAt;
         break;
       case "rewrite":
         messages = [];
@@ -432,7 +437,7 @@ export function reduceConversationLog(
     conversationId: header.conversationId,
     title: deriveConversationTitle(title, messages),
     startedAt: header.startedAt,
-    endedAt,
+    updatedAt,
     messages,
     uiTranscript,
   };
@@ -444,7 +449,7 @@ export function summarize(conversation: Conversation): ConversationSummary {
     conversationId: conversation.conversationId,
     title: conversation.title,
     startedAt: conversation.startedAt,
-    endedAt: conversation.endedAt,
+    updatedAt: conversation.updatedAt,
     messageCount: conversation.messages.length,
   };
 }
@@ -662,7 +667,7 @@ interface AppendState {
   readonly messageCount: number;
   readonly lastMessageFingerprint: string;
   readonly title: string;
-  readonly endedAt: string | null;
+  readonly updatedAt: string | null;
   readonly uiEntryCount: number;
   readonly uiEntryFingerprints: readonly string[];
 }
@@ -824,7 +829,7 @@ function appendStateFromContent(content: string): AppendState | null {
     messageCount: conversation.messages.length,
     lastMessageFingerprint: fingerprintAt(conversation.messages, conversation.messages.length - 1),
     title: conversation.title,
-    endedAt: conversation.endedAt,
+    updatedAt: conversation.updatedAt,
     uiEntryCount: uiTranscript.length,
     uiEntryFingerprints: uiTranscript.map(uiEntryFingerprint),
   };
@@ -867,7 +872,7 @@ export interface ConversationTranscriptInput {
   readonly conversationId: string;
   readonly title: string;
   readonly startedAt: string;
-  readonly endedAt: string | null;
+  readonly updatedAt: string | null;
   readonly messages: readonly ChatMessage[];
   readonly uiTranscript?: readonly ConversationUiEntry[];
 }
@@ -935,7 +940,7 @@ export function recordConversationTranscript(
         messageCount: 0,
         lastMessageFingerprint: "",
         title: deriveConversationTitle(title, messages),
-        endedAt: null,
+        updatedAt: null,
         uiEntryCount: 0,
         uiEntryFingerprints: [],
       };
@@ -960,14 +965,14 @@ export function recordConversationTranscript(
 
     const nextTitle = deriveConversationTitle(input.title, messages);
     const titleChanged = nextTitle !== state.title;
-    const endedAtChanged = input.endedAt !== null && input.endedAt !== state.endedAt;
-    if (titleChanged || endedAtChanged) {
+    const updatedAtChanged = input.updatedAt !== null && input.updatedAt !== state.updatedAt;
+    if (titleChanged || updatedAtChanged) {
       chunks.push(
         serializeEvent({
           type: "meta",
           at: now,
           ...(titleChanged ? { title: nextTitle } : {}),
-          ...(endedAtChanged && input.endedAt !== null ? { endedAt: input.endedAt } : {}),
+          ...(updatedAtChanged && input.updatedAt !== null ? { updatedAt: input.updatedAt } : {}),
         }),
       );
     }
@@ -1006,7 +1011,7 @@ export function recordConversationTranscript(
           messageCount: messages.length,
           lastMessageFingerprint: fingerprintAt(messages, messages.length - 1),
           title: nextTitle,
-          endedAt: endedAtChanged ? input.endedAt : state.endedAt,
+          updatedAt: updatedAtChanged ? input.updatedAt : state.updatedAt,
           uiEntryCount,
           uiEntryFingerprints: nextUiEntryFingerprints,
         },

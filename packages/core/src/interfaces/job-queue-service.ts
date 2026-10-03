@@ -12,11 +12,23 @@ export interface JobPollSpec {
   readonly timeoutMs: number;
 }
 
+/** Where a polling job stands while it runs, saved after its checks so a viewer can see them. */
+export interface JobProgress {
+  readonly checks: number;
+  readonly lastExitCode: number;
+  /** Epoch ms of the newest check. */
+  readonly lastCheckedAt: number;
+  /** The last non-empty line the newest check printed; empty when it printed nothing. */
+  readonly lastOutput: string;
+}
+
 export interface JobRecord {
   readonly id: string;
   readonly command: string;
   /** Set for `wait_for` jobs: the job succeeds when the command first exits 0 and fails on timeout. */
   readonly poll?: JobPollSpec;
+  /** Set on a polling job once its first check has run. */
+  readonly progress?: JobProgress;
   readonly status: JobStatus;
   /** 1-based; incremented each time a failed job is retried. */
   readonly attempt: number;
@@ -57,7 +69,7 @@ export interface JobBatchRecord {
   readonly workingDir: string;
   readonly concurrencyCap: number;
   readonly backoff: JobBackoffPolicy;
-  /** Why the agent enqueued this batch, shown via list_jobs — not sent to the model. */
+  /** Why the agent enqueued this batch, shown via list_background_jobs — not sent to the model. */
   readonly reason: string;
   readonly createdAt: number;
   /** Epoch ms once every job is terminal (succeeded, failed, or cancelled); null while active. */
@@ -79,6 +91,14 @@ const JobRecordSchema: z.ZodType<JobRecord> = z.object({
     .object({
       intervalMs: z.number().int().positive(),
       timeoutMs: z.number().int().positive(),
+    })
+    .exactOptional(),
+  progress: z
+    .object({
+      checks: z.number().int().nonnegative(),
+      lastExitCode: z.number().int(),
+      lastCheckedAt: z.number().finite(),
+      lastOutput: z.string(),
     })
     .exactOptional(),
   status: z.enum(["pending", "running", "succeeded", "failed", "cancelled"]),

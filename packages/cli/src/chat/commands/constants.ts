@@ -163,6 +163,17 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
     docsLink: { label: "Loops in chat", href: "#loops-in-chat" },
   },
   {
+    name: "waits",
+    type: "waits",
+    description: "List what is waiting in the background, or cancel one",
+    usage: "[list|cancel <number>]",
+    forms: [
+      { form: "/waits list", meaning: "This conversation's pending waits and background jobs" },
+      { form: "/waits cancel <number>", meaning: "Stop one, using its number from the list" },
+    ],
+    note: "In fullscreen, press down from an empty composer to reach the same list.",
+  },
+  {
     name: "memory",
     type: "memory",
     description: "Show what this agent has remembered about you, or forget one file",

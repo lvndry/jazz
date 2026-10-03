@@ -36,6 +36,7 @@ import {
   type FileSystemContextService,
 } from "@jazz/core/interfaces/fs";
 import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interfaces/jazz-state";
+import { JobQueueServiceTag } from "@jazz/core/interfaces/job-queue-service";
 import { LLMServiceTag, type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@jazz/core/interfaces/mcp-server";
@@ -90,6 +91,7 @@ import {
   hydrateTranscriptFromUiEntries,
 } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
+import { backgroundItems } from "@/cli/ui/models/background-work";
 import { store } from "@/cli/ui/store";
 import { classifyChatInput } from "./chat/chat-input";
 import {
@@ -133,6 +135,9 @@ import {
  * growing without limit.
  */
 export const MAX_CHAT_HISTORY_MESSAGES = 2000;
+
+/** How often the footer re-reads this conversation's unfinished waits and jobs from disk. */
+const BACKGROUND_WORK_POLL_INTERVAL_MS = 3000;
 
 /** The newest `limit` messages, still marked as having read external content if any dropped one was. */
 export function capChatHistory(
@@ -254,6 +259,39 @@ export class ChatServiceImpl implements ChatService {
       const ephemeral = options?.ephemeral === true;
 
       let chatActive = true;
+      const jobQueueOption = yield* Effect.serviceOption(JobQueueServiceTag);
+      if (Option.isSome(jobQueueOption) && !ephemeral) {
+        const jobQueue = jobQueueOption.value;
+        const fileSystemForWatch = yield* FileSystem.FileSystem;
+        store.setBackgroundCancelHandler((batchId) => {
+          void Effect.runPromise(
+            jobQueue.cancelBatch(agent.id, batchId).pipe(
+              Effect.zipRight(jobQueue.listActiveBatches(agent.id)),
+              Effect.tap((batches) =>
+                Effect.sync(() =>
+                  store.setBackgroundItems(backgroundItems(batches, conversationId)),
+                ),
+              ),
+              Effect.ignore,
+              Effect.provideService(FileSystem.FileSystem, fileSystemForWatch),
+            ),
+          );
+        });
+        yield* Effect.gen(function* () {
+          while (chatActive) {
+            const batches = yield* jobQueue
+              .listActiveBatches(agent.id)
+              .pipe(Effect.catchAll(() => Effect.succeed([])));
+            store.setBackgroundItems(backgroundItems(batches, conversationId));
+            yield* Effect.sleep(BACKGROUND_WORK_POLL_INTERVAL_MS);
+          }
+          store.setBackgroundItems([]);
+          store.setBackgroundCancelHandler(null);
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystemForWatch),
+          Effect.forkDaemon,
+        );
+      }
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
       let conversationTitle = ephemeral
         ? undefined

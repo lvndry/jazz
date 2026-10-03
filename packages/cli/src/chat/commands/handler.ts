@@ -153,6 +153,7 @@ import {
   type SessionLimitMetric,
 } from "./session-limits";
 import type { CommandContext, CommandResult, SessionLimits, SpecialCommand } from "./types";
+import { handleWaitsCommand } from "./waits";
 import { formatCost } from "../../ui/text/format";
 
 /**
@@ -217,6 +218,9 @@ export function handleSpecialCommand(
         return yield* handleGoalCommand(context, command.args);
       case "loop":
         return yield* handleLoopCommand(context, command.args);
+
+      case "waits":
+        return yield* handleWaitsCommand(context, command.args);
 
       case "tools":
         return yield* handleToolsCommand(terminal, agent);

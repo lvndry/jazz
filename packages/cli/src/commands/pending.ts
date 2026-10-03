@@ -2,7 +2,7 @@
  * @fileoverview `jazz reminders`, `jazz triggers` and `jazz jobs`: see and cancel what is
  * waiting to happen while nobody is watching.
  *
- * Agents register these themselves (`remind_me`, `register_trigger`, `enqueue_batch`), so
+ * Agents register these themselves (`remind_me`, `register_trigger`, `run_background_jobs`), so
  * without a command the person the work is for cannot see what is queued or stop it. Each
  * noun has `list` (every agent, or `--agent` for one; `--json` for one envelope on stdout)
  * and `cancel <id>`, which finds the id across agents unless `--agent` narrows it. Cancelling

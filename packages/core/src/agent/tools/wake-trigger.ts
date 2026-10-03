@@ -49,7 +49,7 @@ export function createRegisterTriggerTool(): Tool<WakeTriggerToolDeps> {
       "log file, a price or restock, tickets going on sale, a package arriving, a reply, a site " +
       "coming back up.",
     description:
-      "Wake yourself later and resume this conversation with your prompt, to check back on something. Use it over enqueue_batch when a wait could exceed one job's cap or is open-ended: wake, look, and register another trigger if it is still running. Space wakes to how fast the thing changes and stop once you have the answer.",
+      "Wake yourself later and resume this conversation with your prompt, to check back on something. Use it over run_background_jobs when a wait could exceed one job's cap or is open-ended: wake, look, and register another trigger if it is still running. Space wakes to how fast the thing changes and stop once you have the answer.",
     parameters: registerTriggerParameters,
     riskLevel: "low-risk",
     hidden: false,

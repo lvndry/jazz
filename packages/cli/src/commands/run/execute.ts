@@ -218,7 +218,7 @@ export function buildConversation(params: {
     title: params.priorRecord?.title ?? params.prompt.trim().slice(0, 80),
     agentId: params.agentId,
     startedAt: params.priorRecord?.startedAt ?? params.now,
-    endedAt: params.now,
+    updatedAt: params.now,
     messages,
   };
 }
