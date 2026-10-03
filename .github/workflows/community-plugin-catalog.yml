@@ -27,6 +27,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: bun run plugin:community-catalog
+      - name: Install GitHub CLI
+        run: |
+          type -p gh >/dev/null || (sudo apt-get update && sudo apt-get install -y gh)
       - name: Open catalog update pull request
         env:
           GH_TOKEN: ${{ github.token }}
