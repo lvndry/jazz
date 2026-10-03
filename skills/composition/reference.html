@@ -253,32 +253,35 @@ footer { margin-top: var(--space-6); color: var(--ink-faint);
         </marker>
       </defs>
 
+      <!-- four 170-wide boxes, even 60px gaps (x: 20/250/480/710, right: 190/420/650/880).
+           edges run 6px past the source box to 6px before the target box, so every
+           arrowhead has clear room to render in the gap. -->
       <path class="edge draw" pathLength="100" style="--i:0"
-            d="M200,75 L296,75" marker-end="url(#arrow)" />
+            d="M196,75 L244,75" marker-end="url(#arrow)" />
       <path class="edge draw" pathLength="100" style="--i:1"
-            d="M488,75 L584,75" marker-end="url(#arrow)" />
+            d="M426,75 L474,75" marker-end="url(#arrow)" />
       <path class="edge draw" pathLength="100" style="--i:2"
-            d="M776,75 L830,75" marker-end="url(#arrow)" />
+            d="M656,75 L704,75" marker-end="url(#arrow)" />
 
       <g class="node" style="--i:0">
-        <rect class="node-box start" x="20" y="45" width="180" height="60" rx="10" />
+        <rect class="node-box start" x="20" y="45" width="170" height="60" rx="10" />
         <text class="node-label" x="36" y="66">A question</text>
         <text class="node-sub" x="36" y="86">“visualise this for me”</text>
       </g>
       <g class="node" style="--i:1">
-        <rect class="node-box" x="310" y="45" width="178" height="60" rx="10" />
-        <text class="node-label" x="326" y="66">Skill + references</text>
-        <text class="node-sub" x="326" y="86">tokens · motion · diagrams</text>
+        <rect class="node-box" x="250" y="45" width="170" height="60" rx="10" />
+        <text class="node-label" x="266" y="66">Skill + references</text>
+        <text class="node-sub" x="266" y="86">tokens · motion · diagrams</text>
       </g>
       <g class="node" style="--i:2">
-        <rect class="node-box" x="598" y="45" width="178" height="60" rx="10" />
-        <text class="node-label" x="614" y="66">One HTML file</text>
-        <text class="node-sub" x="614" y="86">inline CSS + JS, offline</text>
+        <rect class="node-box" x="480" y="45" width="170" height="60" rx="10" />
+        <text class="node-label" x="496" y="66">One HTML file</text>
+        <text class="node-sub" x="496" y="86">inline CSS + JS, offline</text>
       </g>
       <g class="node" style="--i:3">
-        <rect class="node-box" x="780" y="45" width="104" height="60" rx="10" />
-        <text class="node-label" x="794" y="66">Render</text>
-        <text class="node-sub" x="794" y="86">PNG or live</text>
+        <rect class="node-box" x="710" y="45" width="170" height="60" rx="10" />
+        <text class="node-label" x="726" y="66">Render</text>
+        <text class="node-sub" x="726" y="86">PNG or live</text>
       </g>
     </svg>
   </div>
