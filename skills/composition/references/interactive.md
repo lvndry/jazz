@@ -62,20 +62,16 @@ Never recreate a native control with `div`s. Style them, but keep the element,
   border-radius: var(--radius);
   box-shadow: var(--shadow-2);
   padding: var(--space-3);
-  opacity: 0;
-  transform: translateY(4px) scale(0.98);
-  transition:
-    opacity var(--dur-fast) var(--ease),
-    transform var(--dur-fast) var(--ease);
 }
 [popover]:open {
-  opacity: 1;
-  transform: none;
+  /* Animate TO the visible base state. Never start from a base-state
+     opacity:0: if the animation ever fails, the popover is still shown.
+     (transition + @starting-style silently failed to complete in Chrome,
+     leaving the popover open but invisible — verified 2026-10-04. */
+  animation: popover-in 180ms var(--ease) backwards;
 }
-/* :popover-open is not supported everywhere; @starting-style is the
-   cross-browser way to animate the enter */
-@starting-style {
-  [popover]:open {
+@keyframes popover-in {
+  from {
     opacity: 0;
     transform: translateY(4px) scale(0.98);
   }
