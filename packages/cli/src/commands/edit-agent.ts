@@ -3,9 +3,8 @@ import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp";
 import { getMCPServerCategories } from "@jazz/core/agent/tools/register-mcp-tools";
 import {
   createCategoryMappings,
+  isUserSelectableToolCategory,
   mcpToolCategory,
-  SKILLS_CATEGORY,
-  USER_INTERACTION_CATEGORY,
   WEB_SEARCH_CATEGORY,
 } from "@jazz/core/agent/tools/tool-categories";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
@@ -891,7 +890,9 @@ async function promptForAgentUpdates(
     // Find which categories contain the agent's current tools
     const defaultCategories: string[] = [];
     for (const [categoryDisplayName, toolsInCategory] of Object.entries(toolsByCategory)) {
-      // Check if any of the agent's current tools are in this category
+      if (!isUserSelectableToolCategory(categoryDisplayName)) {
+        continue;
+      }
       const hasAgentTool = toolsInCategory.some((toolName) => currentToolSet.has(toolName));
       if (hasAgentTool) {
         defaultCategories.push(categoryDisplayName);
@@ -932,18 +933,12 @@ async function promptForAgentUpdates(
       const categorySelection = await Effect.runPromise(
         terminal.checkbox<string>("Select tool categories:", {
           choices: Object.keys(toolsByCategory)
-            .filter(
-              (category) =>
-                category !== SKILLS_CATEGORY.displayName &&
-                category !== USER_INTERACTION_CATEGORY.displayName,
-            )
+            .filter(isUserSelectableToolCategory)
             .map((category) => ({
               name: `${category} ${toolsByCategory[category]?.length ? `(${toolsByCategory[category]?.length} tools)` : ""}`,
               value: category,
             })),
-          ...(selectedCategories.filter((c) => c !== SKILLS_CATEGORY.displayName).length > 0
-            ? { default: selectedCategories.filter((c) => c !== SKILLS_CATEGORY.displayName) }
-            : {}),
+          ...(selectedCategories.length > 0 ? { default: [...selectedCategories] } : {}),
         }),
       );
 

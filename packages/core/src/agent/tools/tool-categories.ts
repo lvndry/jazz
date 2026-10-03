@@ -160,6 +160,15 @@ export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
 ] as const;
 
 /**
+ * Whether a category belongs in the create/edit tool pickers. Builtin categories are added
+ * to every agent at run time regardless of its saved tools, so a checkbox for them would
+ * neither reflect nor change what the agent can do.
+ */
+export function isUserSelectableToolCategory(displayName: string): boolean {
+  return !BUILTIN_TOOL_CATEGORIES.some((category) => category.displayName === displayName);
+}
+
+/**
  * The categories every agent gets by default: all the internal ones, plus Browser Use.
  * Browser is in this list but not in BUILTIN_TOOL_CATEGORIES, so it is on for new
  * agents yet stays in the tool picker where a user can turn it off.
