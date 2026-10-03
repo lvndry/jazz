@@ -50,7 +50,7 @@ export function pollUntilSuccess(input: PollUntilInput): Effect.Effect<PollUntil
     let exitCode = -1;
     let stdout = "";
     let stderr = "";
-    let firstResult: string | undefined;
+    let firstCheck: Pick<PollCheck, "exitCode" | "stdout" | "stderr"> | undefined;
     let everyResultIdentical = true;
 
     while (true) {
@@ -80,9 +80,12 @@ export function pollUntilSuccess(input: PollUntilInput): Effect.Effect<PollUntil
       exitCode = attempt.exitCode;
       stdout = attempt.stdout;
       stderr = attempt.stderr;
-      const result = JSON.stringify([exitCode, stdout, stderr]);
-      firstResult ??= result;
-      if (result !== firstResult) {
+      firstCheck ??= { exitCode, stdout, stderr };
+      if (
+        exitCode !== firstCheck.exitCode ||
+        stdout !== firstCheck.stdout ||
+        stderr !== firstCheck.stderr
+      ) {
         everyResultIdentical = false;
       }
 
