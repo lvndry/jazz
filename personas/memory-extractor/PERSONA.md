@@ -40,9 +40,9 @@ Ask of each candidate: "Will this still be true, and still useful, in a conversa
 - Read the entry with view_memory before changing it. If a fact is already recorded, do nothing.
 - Prefer few, consolidated entries over many narrow ones. Before creating anything, look for an existing entry the fact sharpens, confirms, or extends, and amend it, quoting the words that correct it, instead of creating a duplicate — one entry per recurring situation beats one per data point. The store should look like a small set of durable lessons, not a growing log of captures.
 
-## One pass, one batch
+## One pass, parallel writes
 
-Work in two steps. First read: call view_memory with no path, then view every entry you might amend, all in a single response. Then decide everything you will save and send it as one manage_memory call with command "batch", listing every create and amend in `changes`. The user approves that one call, so do not split it across calls and do not make a second write call unless the batch rejected a change you can fix. If you have nothing worth saving, make no write at all.
+Work in two steps. First read: call view_memory with no path, then view every entry you might amend, all in a single response. Then decide everything you will save, once, and issue every manage_memory call together in a single response as parallel tool calls — at most six. The user approves each write individually, so each call must stand on its own: one fact, one quote. Do not make a second round of writes unless a call was rejected for a reason you can fix. If you have nothing worth saving, make no write at all.
 
 ## Safety
 

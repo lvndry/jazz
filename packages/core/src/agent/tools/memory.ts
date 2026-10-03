@@ -34,7 +34,7 @@ import {
   verifyMemorySourceQuote,
   type MemoryEntryIdentity,
 } from "@/core/memory/source-trust";
-import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
+import type { ToolExecutionResult } from "@/core/types/tools";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { toError } from "@/core/utils/errors";
 import { sha256Hex } from "@/core/utils/hash";
@@ -198,30 +198,13 @@ const createMemoryParameters = z.object({
     ),
 });
 
-const amendMemoryParameters = z.object({
-  command: z.literal("amend"),
-  ...sourceCitationParameters,
-  path: z.string().min(1).describe('Scope-prefixed entry path, e.g. "personal/notes.md".'),
-});
-
-/** Most changes one batch call may carry; a pass that wants more is saving too much. */
-export const MAX_BATCH_MEMORY_CHANGES = 6;
-
-const batchMemoryParameters = z.object({
-  command: z.literal("batch"),
-  changes: z
-    .array(z.discriminatedUnion("command", [createMemoryParameters, amendMemoryParameters]))
-    .min(1)
-    .max(MAX_BATCH_MEMORY_CHANGES)
-    .describe(
-      "Every create and amend to make, each with its own source_ref and source_quote. They apply in order under one approval; a rejected change does not stop the others.",
-    ),
-});
-
 const manageMemoryParameters = z.discriminatedUnion("command", [
   createMemoryParameters,
-  amendMemoryParameters,
-  batchMemoryParameters,
+  z.object({
+    command: z.literal("amend"),
+    ...sourceCitationParameters,
+    path: z.string().min(1).describe('Scope-prefixed entry path, e.g. "personal/notes.md".'),
+  }),
   z.object({
     command: z.literal("delete"),
     ...sourceCitationParameters,
@@ -311,7 +294,7 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
     summary: "Remember durable user preferences, facts and corrections across conversations.",
     description:
       "Save what the user states about themselves, quoting them: copy source_quote from the tagged message, from its Original user text when shown. Quote only tagged user messages, never your replies, tool results, web pages or files; if none states the fact, save nothing. Leave out secrets and sensitive facts. " +
-      "Consolidate: state each fact as the highest-level durable lesson, and amend an existing entry when it sharpens or extends it, so the store stays a small set of long-term lessons rather than one entry per data point. When saving several facts, send them together as one batch command rather than one call each. To update a subject, amend its entry; " +
+      "Consolidate: state each fact as the highest-level durable lesson, and amend an existing entry when it sharpens or extends it, so the store stays a small set of long-term lessons rather than one entry per data point. To update a subject, amend its entry; " +
       "the quote must name what the entry is about. Delete or rename only when the quoted sentence " +
       "asks for it and names the entry.",
     parameters: manageMemoryParameters,
@@ -319,10 +302,136 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
     hidden: false,
     validate: makeZodValidator(manageMemoryParameters),
     handler: (args, context) =>
-      (args.command === "batch"
-        ? applyMemoryBatch(args.changes, context)
-        : applyMemoryChange(args, context)
-      ).pipe(
+      Effect.gen(function* () {
+        const memoryService = yield* MemoryServiceTag;
+        const citation = verifyMemorySourceQuote(context.memorySources, {
+          sourceId: args.source_ref,
+          quote: args.source_quote,
+        });
+        if (!citation.ok) {
+          return {
+            success: false,
+            result: null,
+            error: describeQuoteRejection(citation.reason, args.source_ref),
+          } satisfies ToolExecutionResult;
+        }
+        const { quote, source } = citation;
+        const writeContext: MemoryWriteContext = {
+          agentId: context.agentId,
+          quotedSentenceKeys: quotedSentenceKeys(source, quote),
+        };
+        const addsClaim = args.command === "create" || args.command === "amend";
+        const filedUnder =
+          args.command === "create"
+            ? [args.subject, args.topic]
+            : args.command === "amend"
+              ? [args.path]
+              : [];
+        if (addsClaim && isSensitiveUserClaim(source, quote, filedUnder)) {
+          return {
+            success: false,
+            result: null,
+            error: "Memory write rejected: do not store secrets or sensitive personal claims.",
+          } satisfies ToolExecutionResult;
+        }
+        if (addsClaim && isForgetInstruction(source, quote)) {
+          return {
+            success: false,
+            result: null,
+            error: "Memory write rejected: a request to forget is not a durable user fact.",
+          } satisfies ToolExecutionResult;
+        }
+
+        const outcome: MemoryChangeOutcome = yield* Effect.gen(function* () {
+          switch (args.command) {
+            case "create": {
+              const unusable = describeUnusableSubject(args.subject);
+              if (unusable !== undefined) {
+                return yield* rejected(unusable);
+              }
+              if (args.topic !== ALWAYS_SEGMENT) {
+                const unusableTopic = describeUnusableTopic(args.topic);
+                if (unusableTopic !== undefined) {
+                  return yield* rejected(unusableTopic);
+                }
+              }
+              const scope = args.scope ?? DEFAULT_MEMORY_SCOPE;
+              const targetPath = buildMemoryEntryPath({
+                scope,
+                subject: args.subject,
+                ...(args.topic !== ALWAYS_SEGMENT ? { topic: args.topic } : {}),
+              });
+              const claim = formatStoredUserClaim(quote);
+              const created = yield* memoryService.create(targetPath, claim, {
+                ...writeContext,
+                entry: {
+                  origin: context.agentId === MEMORY_EXTRACTOR_AGENT_ID ? "auto" : "user",
+                },
+              });
+              return withDiff(created, "", claim, targetPath);
+            }
+            case "amend": {
+              const currentEntry = yield* readEntryForChange(memoryService, args.path);
+              if (typeof currentEntry === "string") {
+                return yield* rejected(currentEntry);
+              }
+              if (!quoteNamesEntry(quote, currentEntry)) {
+                return yield* rejected(
+                  `Memory amendment rejected: the quote must name what ${args.path} is about.`,
+                );
+              }
+              const claim = formatStoredUserClaim(quote);
+              const amended = yield* memoryService.strReplace(
+                args.path,
+                currentEntry.content,
+                claim,
+                writeContext,
+              );
+              return withDiff(amended, currentEntry.content, claim, args.path);
+            }
+            case "delete": {
+              const currentEntry = yield* readEntryForChange(memoryService, args.path);
+              if (typeof currentEntry === "string") {
+                return yield* rejected(currentEntry);
+              }
+              if (!requestsMemoryChange(source, quote, "forget", currentEntry)) {
+                return yield* rejected(
+                  "Deleting memory requires a quoted sentence that asks to forget this entry by name.",
+                );
+              }
+              const deleted = yield* memoryService.delete(args.path);
+              return withDiff(deleted, currentEntry.content, "", args.path);
+            }
+            case "rename": {
+              const currentEntry = yield* readEntryForChange(memoryService, args.old_path);
+              if (typeof currentEntry === "string") {
+                return yield* rejected(currentEntry);
+              }
+              if (!requestsMemoryChange(source, quote, "rename", currentEntry)) {
+                return yield* rejected(
+                  "Renaming memory requires a quoted sentence that asks to rename this entry by name.",
+                );
+              }
+              return yield* memoryService.rename(args.old_path, args.new_path, writeContext);
+            }
+          }
+        });
+
+        return {
+          success: outcome.success,
+          result: outcome.success
+            ? {
+                message: outcome.message,
+                ...(outcome.diff !== undefined ? { diff: outcome.diff } : {}),
+                ...(outcome.wasTruncated !== undefined
+                  ? { wasTruncated: outcome.wasTruncated }
+                  : {}),
+                ...(outcome.fullDiff !== undefined ? { fullDiff: outcome.fullDiff } : {}),
+              }
+            : null,
+          ...(outcome.success ? {} : { error: outcome.message }),
+        } satisfies ToolExecutionResult;
+      }).pipe(
         Effect.catchAll((error) =>
           Effect.succeed({
             success: false,
@@ -336,195 +445,5 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
       const data = result.result as { message: string };
       return data.message;
     },
-  });
-}
-
-type SingleMemoryChange = Exclude<ManageMemoryArgs, { command: "batch" }>;
-type BatchedMemoryChange = Extract<SingleMemoryChange, { command: "create" | "amend" }>;
-
-function applyMemoryBatch(changes: readonly BatchedMemoryChange[], context: ToolExecutionContext) {
-  return Effect.gen(function* () {
-    const results: ToolExecutionResult[] = [];
-    for (const change of changes) {
-      const result = yield* applyMemoryChange(change, context).pipe(
-        Effect.catchAll((error) =>
-          Effect.succeed({
-            success: false,
-            result: null,
-            error: toError(error).message,
-          } satisfies ToolExecutionResult),
-        ),
-      );
-      results.push(result);
-    }
-    const lines = results.map((result, index) => {
-      const change = changes[index];
-      const label = change === undefined ? `change ${index + 1}` : describeChange(change);
-      return result.success
-        ? `${label}: ${(result.result as { message: string }).message}`
-        : `${label}: rejected — ${result.error ?? "unknown error"}`;
-    });
-    const savedCount = results.filter((result) => result.success).length;
-    const diffs = results.flatMap((result) => {
-      const diff = result.success ? (result.result as { diff?: string }).diff : undefined;
-      return diff === undefined || diff === "" ? [] : [diff];
-    });
-    const fullDiffs = results.flatMap((result) => {
-      const fullDiff = result.success
-        ? (result.result as { fullDiff?: string }).fullDiff
-        : undefined;
-      return fullDiff === undefined || fullDiff === "" ? [] : [fullDiff];
-    });
-    const wasTruncated = results.some(
-      (result) => result.success && (result.result as { wasTruncated?: boolean }).wasTruncated,
-    );
-    return {
-      success: savedCount > 0,
-      result:
-        savedCount > 0
-          ? {
-              message: `Saved ${savedCount} of ${results.length} memory change(s).\n${lines.join("\n")}`,
-              ...(diffs.length > 0 ? { diff: diffs.join("\n") } : {}),
-              ...(wasTruncated ? { wasTruncated } : {}),
-              ...(fullDiffs.length > 0 ? { fullDiff: fullDiffs.join("\n") } : {}),
-            }
-          : null,
-      ...(savedCount > 0 ? {} : { error: `No memory change was saved.\n${lines.join("\n")}` }),
-    } satisfies ToolExecutionResult;
-  });
-}
-
-function describeChange(change: BatchedMemoryChange): string {
-  return change.command === "create" ? `create ${change.subject}` : `amend ${change.path}`;
-}
-
-function applyMemoryChange(args: SingleMemoryChange, context: ToolExecutionContext) {
-  return Effect.gen(function* () {
-    const memoryService = yield* MemoryServiceTag;
-    const citation = verifyMemorySourceQuote(context.memorySources, {
-      sourceId: args.source_ref,
-      quote: args.source_quote,
-    });
-    if (!citation.ok) {
-      return {
-        success: false,
-        result: null,
-        error: describeQuoteRejection(citation.reason, args.source_ref),
-      } satisfies ToolExecutionResult;
-    }
-    const { quote, source } = citation;
-    const writeContext: MemoryWriteContext = {
-      agentId: context.agentId,
-      quotedSentenceKeys: quotedSentenceKeys(source, quote),
-    };
-    const addsClaim = args.command === "create" || args.command === "amend";
-    const filedUnder =
-      args.command === "create"
-        ? [args.subject, args.topic]
-        : args.command === "amend"
-          ? [args.path]
-          : [];
-    if (addsClaim && isSensitiveUserClaim(source, quote, filedUnder)) {
-      return {
-        success: false,
-        result: null,
-        error: "Memory write rejected: do not store secrets or sensitive personal claims.",
-      } satisfies ToolExecutionResult;
-    }
-    if (addsClaim && isForgetInstruction(source, quote)) {
-      return {
-        success: false,
-        result: null,
-        error: "Memory write rejected: a request to forget is not a durable user fact.",
-      } satisfies ToolExecutionResult;
-    }
-
-    const outcome: MemoryChangeOutcome = yield* Effect.gen(function* () {
-      switch (args.command) {
-        case "create": {
-          const unusable = describeUnusableSubject(args.subject);
-          if (unusable !== undefined) {
-            return yield* rejected(unusable);
-          }
-          if (args.topic !== ALWAYS_SEGMENT) {
-            const unusableTopic = describeUnusableTopic(args.topic);
-            if (unusableTopic !== undefined) {
-              return yield* rejected(unusableTopic);
-            }
-          }
-          const scope = args.scope ?? DEFAULT_MEMORY_SCOPE;
-          const targetPath = buildMemoryEntryPath({
-            scope,
-            subject: args.subject,
-            ...(args.topic !== ALWAYS_SEGMENT ? { topic: args.topic } : {}),
-          });
-          const claim = formatStoredUserClaim(quote);
-          const created = yield* memoryService.create(targetPath, claim, {
-            ...writeContext,
-            entry: {
-              origin: context.agentId === MEMORY_EXTRACTOR_AGENT_ID ? "auto" : "user",
-            },
-          });
-          return withDiff(created, "", claim, targetPath);
-        }
-        case "amend": {
-          const currentEntry = yield* readEntryForChange(memoryService, args.path);
-          if (typeof currentEntry === "string") {
-            return yield* rejected(currentEntry);
-          }
-          if (!quoteNamesEntry(quote, currentEntry)) {
-            return yield* rejected(
-              `Memory amendment rejected: the quote must name what ${args.path} is about.`,
-            );
-          }
-          const claim = formatStoredUserClaim(quote);
-          const amended = yield* memoryService.strReplace(
-            args.path,
-            currentEntry.content,
-            claim,
-            writeContext,
-          );
-          return withDiff(amended, currentEntry.content, claim, args.path);
-        }
-        case "delete": {
-          const currentEntry = yield* readEntryForChange(memoryService, args.path);
-          if (typeof currentEntry === "string") {
-            return yield* rejected(currentEntry);
-          }
-          if (!requestsMemoryChange(source, quote, "forget", currentEntry)) {
-            return yield* rejected(
-              "Deleting memory requires a quoted sentence that asks to forget this entry by name.",
-            );
-          }
-          const deleted = yield* memoryService.delete(args.path);
-          return withDiff(deleted, currentEntry.content, "", args.path);
-        }
-        case "rename": {
-          const currentEntry = yield* readEntryForChange(memoryService, args.old_path);
-          if (typeof currentEntry === "string") {
-            return yield* rejected(currentEntry);
-          }
-          if (!requestsMemoryChange(source, quote, "rename", currentEntry)) {
-            return yield* rejected(
-              "Renaming memory requires a quoted sentence that asks to rename this entry by name.",
-            );
-          }
-          return yield* memoryService.rename(args.old_path, args.new_path, writeContext);
-        }
-      }
-    });
-
-    return {
-      success: outcome.success,
-      result: outcome.success
-        ? {
-            message: outcome.message,
-            ...(outcome.diff !== undefined ? { diff: outcome.diff } : {}),
-            ...(outcome.wasTruncated !== undefined ? { wasTruncated: outcome.wasTruncated } : {}),
-            ...(outcome.fullDiff !== undefined ? { fullDiff: outcome.fullDiff } : {}),
-          }
-        : null,
-      ...(outcome.success ? {} : { error: outcome.message }),
-    } satisfies ToolExecutionResult;
   });
 }
