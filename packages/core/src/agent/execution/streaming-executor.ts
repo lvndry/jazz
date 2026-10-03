@@ -142,6 +142,13 @@ export function executeWithStreaming(
             message: string,
             level: "info" | "success" | "warning" | "error" | "progress",
           ) => presentationService.presentStatus(message, level, agent.name);
+          // A sub-agent's slow step belongs in its own panel; in the main transcript it
+          // repeats once per step while the parent is already waiting on it.
+          const subagentRegionId = options.ephemeralRegionId;
+          const showSlowModelNotice: typeof showAgentStatus =
+            subagentRegionId === undefined
+              ? showAgentStatus
+              : (message) => presentationService.appendEphemeralRegion(subagentRegionId, message);
 
           const retryAttemptRef = yield* Ref.make(0);
           const streamingFailuresRef = yield* Ref.make(0);
@@ -294,7 +301,7 @@ export function executeWithStreaming(
           // One retry budget and one wall-clock limit for the whole step, whichever mode
           // each attempt uses.
           const completionWithRetries = Effect.retry(
-            withLongRunningLlmNotice(agent.name, showAgentStatus, attempt),
+            withLongRunningLlmNotice(agent.name, showSlowModelNotice, attempt),
             retrySchedule,
           ).pipe(
             Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),

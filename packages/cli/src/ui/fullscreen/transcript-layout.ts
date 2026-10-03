@@ -357,8 +357,11 @@ export function createTranscriptLayout(
     geometry: Geometry,
     glyphs: GlyphSet,
   ): RenderRow[] {
+    const metaText = [block.sender, block.at]
+      .filter((part) => part !== undefined)
+      .join(` ${glyphs.bullet} `);
     const meta: readonly Segment[] =
-      block.at !== undefined ? [{ text: block.at, fg: palette.muted }] : [];
+      metaText.length > 0 ? [{ text: metaText, fg: palette.muted }] : [];
     const contentWidth = widthWithMetadata(geometry, meta);
     const lines = wrap(
       [{ text: block.text, fg: palette.selected }],

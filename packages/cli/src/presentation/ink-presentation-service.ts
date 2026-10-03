@@ -1476,6 +1476,15 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
+  recordEphemeralRegionParentMessage(
+    regionId: string,
+    message: string,
+  ): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.recordSubagentParentMessage(regionId, message);
+    });
+  }
+
   takeEphemeralRegionMessage(regionId: string): Effect.Effect<string | undefined, never> {
     return Effect.sync(() => store.takeSubagentMessage(regionId));
   }

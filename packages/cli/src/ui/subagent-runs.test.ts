@@ -146,6 +146,18 @@ describe("UIStore sub-agent runs", () => {
     expect(store.sendSubagentMessage(id, "too late")).toBe(false);
   });
 
+  test("shows a message from the parent agent as a sent message in the run's log", () => {
+    const store = new UIStore();
+    const id = store.openEphemeral("subagent", "Solver", 12, steerable());
+    store.recordSubagentParentMessage(id, "  use two repos  ");
+
+    expect(store.getSubagentsSnapshot().runs[0]?.entries).toMatchObject([
+      { kind: "steer", text: "use two repos", sender: "parent" },
+    ]);
+    expect(store.takeSubagentMessage(id)).toBeUndefined();
+    expect(store.getEphemeralRegionsSnapshot()[0]?.tail).toEqual(["↳ parent: use two repos"]);
+  });
+
   test("says so when a sub-agent finishes with a message it never picked up", async () => {
     const store = new UIStore();
     const id = store.openEphemeral("subagent", "Solver", 12, steerable());

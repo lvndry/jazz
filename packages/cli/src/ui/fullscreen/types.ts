@@ -68,6 +68,8 @@ export interface UserBlock extends BlockBase {
   readonly kind: "user";
   readonly text: string;
   readonly at?: string;
+  /** Shown beside the message when someone other than the user sent it. */
+  readonly sender?: string;
 }
 
 export interface AgentBlock extends BlockBase {

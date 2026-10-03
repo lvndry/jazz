@@ -389,7 +389,9 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
               const fromParent = hooks?.takeParentMessage();
               if (fromParent !== undefined) {
                 Effect.runSync(
-                  presentation.appendEphemeralRegion(regionId, `↳ parent: ${fromParent}`),
+                  presentation.recordEphemeralRegionParentMessage !== undefined
+                    ? presentation.recordEphemeralRegionParentMessage(regionId, fromParent)
+                    : presentation.appendEphemeralRegion(regionId, `↳ parent: ${fromParent}`),
                 );
                 return frameParentMessage(fromParent);
               }

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { getGlyphs } from "../glyphs";
-import { openSubagentRun, startSubagentTool, steerSubagentRun } from "../subagent-runs";
+import {
+  openSubagentRun,
+  recordParentSteer,
+  startSubagentTool,
+  steerSubagentRun,
+} from "../subagent-runs";
 import { subagentBlocks } from "./subagent-view";
 import { SUBAGENT_LIST_MAX_ITEMS, subagentListRows } from "./SubagentList";
 import type { SubagentListItem, SubagentListModel } from "./types";
@@ -73,6 +78,18 @@ describe("subagent blocks", () => {
     expect(blocks.map((block) => block.kind)).toEqual(["divider", "user", "tool", "user"]);
     expect(blocks[0]).toMatchObject({ kind: "divider", label: expect.stringContaining("Solver") });
     expect(blocks[2]).toMatchObject({ app: "read_file", args: "board.txt", summary: "running" });
+  });
+
+  test("shows the parent agent's message as a sent message naming its sender", () => {
+    let run = openSubagentRun("eph-1", "Solver", 0, { task: "Solve it", acceptsMessages: true });
+    run = steerSubagentRun(run, "from the user")!;
+    run = recordParentSteer(run, "use two repos");
+    const sent = subagentBlocks(run, 3000).filter((block) => block.kind === "user");
+    expect(sent).toEqual([
+      expect.objectContaining({ text: "Solve it" }),
+      expect.not.objectContaining({ sender: expect.anything() }),
+      expect.objectContaining({ text: "use two repos", sender: "parent agent" }),
+    ]);
   });
 });
 

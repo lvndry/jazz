@@ -36,6 +36,7 @@ import {
   finishSubagentTool,
   openSubagentRun,
   startSubagentTool,
+  recordParentSteer,
   steerSubagentRun,
   takeSubagentMessages,
   type SubagentChannel,
@@ -1335,6 +1336,16 @@ export class UIStore {
     this.subagentRuns.set(id, next);
     this.publishSubagentRuns();
     return true;
+  };
+
+  recordSubagentParentMessage = (id: EphemeralRegionId, message: string): void => {
+    const text = message.trim();
+    if (text.length === 0) return;
+    this.appendEphemeral(id, `↳ parent: ${text}`, "tail");
+    const run = this.subagentRuns.get(id);
+    if (run === undefined) return;
+    this.subagentRuns.set(id, recordParentSteer(run, text));
+    this.publishSubagentRuns();
   };
 
   takeSubagentMessage = (id: EphemeralRegionId): string | undefined => {
