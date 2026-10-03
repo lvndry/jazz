@@ -157,7 +157,9 @@ How consistently an agent follows this depends on the model.
 [summarize older messages](./context-management.md), a separate extraction pass first reads the
 messages about to be folded away and saves any durable facts you stated that the agent had not
 already saved. It reads existing memory first, does not duplicate an entry that already covers
-the fact, and amends an entry that has gone stale. Saving nothing is the common outcome. The
+the fact, and amends an entry that has gone stale. It keeps only what will still be true in
+unrelated future conversations, and sends everything it saves as one batch, so there is a single
+approval rather than one per entry. Saving nothing is the common outcome. The
 pass is one extra model call, and its cost counts toward the run's caps. A manual `/compact`
 does not run it.
 
