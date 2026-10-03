@@ -27,10 +27,12 @@ describe("wait view", () => {
 /** The waits list also holds queued jobs, which have no checks to open. */
 describe("wait rows", () => {
   const job: BackgroundItem = {
-    ...WATCH,
+    batchId: "batch-2",
     kind: "job",
-    intervalMs: undefined,
-    expiresAt: undefined,
+    description: "Build",
+    command: "make",
+    startedAt: 0,
+    progress: "",
   };
 
   test("open the view for a wait, not for a queued job", () => {
