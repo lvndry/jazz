@@ -341,7 +341,7 @@ function conversationActivity(agents: readonly Agent[]) {
       );
       for (const conversation of history.conversations) {
         titles.set(conversation.conversationId, conversation.title);
-        const at = new Date(conversation.updatedAt ?? conversation.startedAt).getTime();
+        const at = new Date(conversation.lastMessageAt ?? conversation.startedAt).getTime();
         if (Number.isFinite(at) && at > (lastUsedMs.get(agent.id) ?? -1)) {
           lastUsedMs.set(agent.id, at);
         }
@@ -615,7 +615,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       conversationId: string;
       title: string;
       startedAt: string;
-      updatedAt: string | null;
+      lastMessageAt: string | null;
     };
     const entries: ConversationEntry[] = [];
     const titles = new Map<string, string>();
@@ -631,7 +631,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
           conversationId: conversation.conversationId,
           title: conversation.title,
           startedAt: conversation.startedAt,
-          updatedAt: conversation.updatedAt,
+          lastMessageAt: conversation.lastMessageAt,
         });
       }
     }
@@ -649,7 +649,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     // Waiting conversations first, so the ones home counted are the ones on top; the rest
     // by when they were last in, so the freshest conversation is the first one offered.
     const lastAt = (entry: ConversationEntry): number =>
-      new Date(entry.updatedAt ?? entry.startedAt).getTime();
+      new Date(entry.lastMessageAt ?? entry.startedAt).getTime();
     entries.sort(
       (a, b) =>
         Number(waiting.has(b.conversationId)) - Number(waiting.has(a.conversationId)) ||

@@ -9,7 +9,8 @@
 import { FileSystem } from "@effect/platform";
 import {
   saveConversation,
-  type Conversation,
+  type ConversationToSave,
+  type SaveConversationOptions,
   type ConversationUiEntry,
 } from "@jazz/adapters/history/conversation-history-service";
 import type { ChatMessage } from "@jazz/core/types/message";
@@ -50,20 +51,20 @@ export function shouldSaveTurn(input: {
 export function persistConversationIfNeeded(
   input: PersistConversationInput,
   dir?: string,
-): Effect.Effect<void, never, FileSystem.FileSystem> {
+  options?: SaveConversationOptions,
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
   if (!shouldPersistConversation(input)) {
     return Effect.void;
   }
 
-  const conversation: Conversation = {
+  const conversation: ConversationToSave = {
     conversationId: input.conversationId,
     title: input.title ?? "",
     agentId: input.agentId,
     startedAt: input.startedAt,
-    updatedAt: new Date().toISOString(),
     messages: [...input.conversationHistory],
     ...(input.uiTranscript !== undefined ? { uiTranscript: input.uiTranscript } : {}),
   };
 
-  return saveConversation(conversation, dir).pipe(Effect.catchAll(() => Effect.void));
+  return saveConversation(conversation, dir, options);
 }

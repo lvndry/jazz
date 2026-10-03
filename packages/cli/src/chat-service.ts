@@ -348,6 +348,53 @@ export class ChatServiceImpl implements ChatService {
       const sessionStartedAt = new Date();
       let startedAt = sessionStartedAt.toISOString();
 
+      /** What the turn under way has done so far, saved if the session is torn down mid-turn. */
+      let inFlightTranscript: readonly ChatMessage[] | undefined;
+      const reportedSaveFailures = new Set<string>();
+      /**
+       * Save this conversation for /resume. A failure is logged every time and shown once per
+       * distinct error, so a save that keeps failing is visible instead of losing work silently.
+       */
+      const saveSession = (
+        history: readonly ChatMessage[],
+        saveOptions: {
+          readonly uiTranscript?: readonly ConversationUiEntry[];
+          readonly housekeeping?: boolean;
+        } = {},
+      ): Effect.Effect<void> =>
+        persistConversationIfNeeded(
+          {
+            ephemeral,
+            conversationHistory: history,
+            conversationId,
+            agentId: agent.id,
+            startedAt,
+            title: conversationTitle,
+            ...(saveOptions.uiTranscript !== undefined
+              ? { uiTranscript: saveOptions.uiTranscript }
+              : {}),
+          },
+          undefined,
+          saveOptions.housekeeping === false ? { housekeeping: false } : undefined,
+        ).pipe(
+          Effect.catchAll((error) =>
+            Effect.gen(function* () {
+              yield* logger.error("Conversation save failed", {
+                conversationId,
+                error: error.message,
+              });
+              if (reportedSaveFailures.has(error.message)) {
+                return;
+              }
+              reportedSaveFailures.add(error.message);
+              yield* terminal.warn(
+                `This conversation could not be saved, so /resume may miss recent messages: ${error.message}`,
+              );
+            }),
+          ),
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+        );
+
       // Load persistent auto-approved commands from config
       if (appConfig.autoApprovedCommands?.length) {
         autoApprovedCommands = [...appConfig.autoApprovedCommands];
@@ -626,25 +673,10 @@ export class ChatServiceImpl implements ChatService {
             // inserting operational output into the next LLM request.
             store.flushOutputBatchNow();
             const uiTranscript = uiTranscriptFromStore();
-            yield* persistConversationIfNeeded({
-              ephemeral,
-              conversationHistory,
-              conversationId,
-              agentId: agent.id,
-              startedAt,
-              title: conversationTitle,
-              uiTranscript,
-            });
+            yield* saveSession(conversationHistory, { uiTranscript });
 
             if (commandResult.saveCurrentHistory) {
-              yield* persistConversationIfNeeded({
-                ephemeral,
-                conversationHistory,
-                conversationId,
-                agentId: agent.id,
-                startedAt,
-                title: conversationTitle,
-              });
+              yield* saveSession(conversationHistory);
             }
 
             if (commandResult.newConversationId !== undefined) {
@@ -838,6 +870,10 @@ export class ChatServiceImpl implements ChatService {
             onFailedTurn: (messages) => {
               failedTurnMessages = [...messages];
             },
+            onCheckpoint: (messages) => {
+              inFlightTranscript = messages;
+              return saveSession(messages, { housekeeping: false });
+            },
             ...(options?.maxIterations !== undefined
               ? { maxIterations: options.maxIterations }
               : {}),
@@ -1015,16 +1051,9 @@ export class ChatServiceImpl implements ChatService {
               turnKeptFailedWork: failedTurnMessages !== undefined,
             })
           ) {
-            yield* persistConversationIfNeeded({
-              ephemeral,
-              conversationHistory,
-              conversationId,
-              agentId: agent.id,
-              startedAt,
-              title: conversationTitle,
-              uiTranscript: uiTranscriptFromStore(),
-            });
+            yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
           }
+          inFlightTranscript = undefined;
 
           if (goalTurn !== undefined) {
             const outcome: RunOutcome<AgentResponse> = lastTurnErrored
@@ -1088,22 +1117,21 @@ export class ChatServiceImpl implements ChatService {
               yield* bumpPromotionThreshold(cmd).pipe(Effect.catchAll(() => Effect.void));
             }
           }
-        });
+        }).pipe(
+          // A real SIGINT/SIGTERM interrupts the session fiber mid-turn, skipping the save at
+          // the end of the turn; the newest checkpoint and the scrollback are saved instead.
+          Effect.onInterrupt(() =>
+            inFlightTranscript === undefined
+              ? Effect.void
+              : saveSession(inFlightTranscript, { uiTranscript: uiTranscriptFromStore() }),
+          ),
+        );
       }
 
       yield* emitLifecycle("session-end");
-      yield* persistConversationIfNeeded({
-        ephemeral,
-        conversationHistory,
-        conversationId,
-        agentId: agent.id,
-        startedAt,
-        title: conversationTitle,
-        uiTranscript: uiTranscriptFromStore(),
-      });
+      yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
       // Stop mirroring state to the pane product once the session is over;
       // the exit hooks handle the pane release.
-      detachPaneStateReporting();
       detachPaneStateReporting();
       return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
     }).pipe(

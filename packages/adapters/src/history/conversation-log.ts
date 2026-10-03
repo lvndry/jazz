@@ -62,9 +62,7 @@ const CONVERSATION_LOCKS_DIRECTORY_NAME = "conversation-locks";
  * 2 dropped the derived `conversationId` field, stopped recording system messages, and moved
  * from one flat directory of `{agent}~{conversation}.jsonl` to a directory per agent.
  *
- * The version only guards events this version may misread or, by appending, corrupt. A field
- * rename is not one of those: `meta` events older than the rename still carry `endedAt` (what
- * is now `updatedAt`, the conversation's last save time), and the parser reads that key in.
+ * The version only guards events this version may misread or, by appending, corrupt.
  */
 export const CONVERSATION_LOG_VERSION = 3;
 
@@ -158,7 +156,6 @@ export interface ConversationLogMeta {
   readonly type: "meta";
   readonly at: string;
   readonly title?: string;
-  readonly updatedAt?: string;
 }
 
 /** Compaction replaced the transcript; readers reset and keep only what follows. */
@@ -200,11 +197,15 @@ export interface Conversation {
   readonly conversationId: string;
   readonly title: string;
   readonly startedAt: string;
-  readonly updatedAt: string | null;
+  /** When the newest message was recorded, or null before anything was said. */
+  readonly lastMessageAt: string | null;
   readonly messages: ChatMessage[];
   /** Semantic UI scrollback snapshot, kept separate from messages and never sent to the model. */
   readonly uiTranscript?: readonly ConversationUiEntry[];
 }
+
+/** A conversation as handed to a save: the log stamps each message with when it was recorded. */
+export type ConversationToSave = Omit<Conversation, "lastMessageAt">;
 
 /**
  * A conversation without its transcript.
@@ -218,7 +219,8 @@ export interface ConversationSummary {
   readonly conversationId: string;
   readonly title: string;
   readonly startedAt: string;
-  readonly updatedAt: string | null;
+  /** When the newest message was recorded, or null before anything was said. */
+  readonly lastMessageAt: string | null;
   readonly messageCount: number;
 }
 
@@ -291,15 +293,8 @@ export function parseConversationLogLine(
     }
     case "meta": {
       const title = optionalString(parsed["title"]);
-      // `endedAt` is what the rename left in older logs; it is still the last-save time.
-      const updatedAt = optionalString(parsed["updatedAt"]) ?? optionalString(parsed["endedAt"]);
-      if (title === undefined && updatedAt === undefined) return null;
-      return {
-        type: "meta",
-        at,
-        ...(title === undefined ? {} : { title }),
-        ...(updatedAt === undefined ? {} : { updatedAt }),
-      };
+      if (title === undefined) return null;
+      return { type: "meta", at, title };
     }
     case "rewrite":
       return { type: "rewrite", at };
@@ -383,7 +378,10 @@ export function deriveConversationTitle(
   if (explicit && explicit.length > 0) return explicit;
 
   const firstUserMessage = messages.find((message) => message.role === "user");
-  const firstLine = firstUserMessage?.content.replace(/\s+/g, " ").trim() ?? "";
+  // The model-facing content can carry an appended memory-source tag; the source holds
+  // exactly what the person typed.
+  const typed = firstUserMessage?.memorySource?.text ?? firstUserMessage?.content ?? "";
+  const firstLine = typed.replace(/\s+/g, " ").trim();
   if (firstLine.length === 0) return "untitled conversation";
   return firstLine.length > DERIVED_TITLE_CHARS
     ? `${firstLine.slice(0, DERIVED_TITLE_CHARS - 1).trimEnd()}…`
@@ -396,7 +394,7 @@ export function reduceConversationLog(
 ): Conversation | null {
   let header: ConversationLogHeader | null = null;
   let title: string | undefined;
-  let updatedAt: string | null = null;
+  let lastMessageAt: string | null = null;
   let messages: ChatMessage[] = [];
   let uiTranscript: ConversationUiEntry[] = [];
   let uiIds = new Set<string>();
@@ -409,10 +407,10 @@ export function reduceConversationLog(
         break;
       case "message":
         messages.push(event.message);
+        lastMessageAt = event.at;
         break;
       case "meta":
         if (event.title !== undefined) title = event.title;
-        if (event.updatedAt !== undefined) updatedAt = event.updatedAt;
         break;
       case "rewrite":
         messages = [];
@@ -437,7 +435,7 @@ export function reduceConversationLog(
     conversationId: header.conversationId,
     title: deriveConversationTitle(title, messages),
     startedAt: header.startedAt,
-    updatedAt,
+    lastMessageAt,
     messages,
     uiTranscript,
   };
@@ -449,7 +447,7 @@ export function summarize(conversation: Conversation): ConversationSummary {
     conversationId: conversation.conversationId,
     title: conversation.title,
     startedAt: conversation.startedAt,
-    updatedAt: conversation.updatedAt,
+    lastMessageAt: conversation.lastMessageAt,
     messageCount: conversation.messages.length,
   };
 }
@@ -667,7 +665,6 @@ interface AppendState {
   readonly messageCount: number;
   readonly lastMessageFingerprint: string;
   readonly title: string;
-  readonly updatedAt: string | null;
   readonly uiEntryCount: number;
   readonly uiEntryFingerprints: readonly string[];
 }
@@ -829,7 +826,6 @@ function appendStateFromContent(content: string): AppendState | null {
     messageCount: conversation.messages.length,
     lastMessageFingerprint: fingerprintAt(conversation.messages, conversation.messages.length - 1),
     title: conversation.title,
-    updatedAt: conversation.updatedAt,
     uiEntryCount: uiTranscript.length,
     uiEntryFingerprints: uiTranscript.map(uiEntryFingerprint),
   };
@@ -872,7 +868,6 @@ export interface ConversationTranscriptInput {
   readonly conversationId: string;
   readonly title: string;
   readonly startedAt: string;
-  readonly updatedAt: string | null;
   readonly messages: readonly ChatMessage[];
   readonly uiTranscript?: readonly ConversationUiEntry[];
 }
@@ -940,7 +935,6 @@ export function recordConversationTranscript(
         messageCount: 0,
         lastMessageFingerprint: "",
         title: deriveConversationTitle(title, messages),
-        updatedAt: null,
         uiEntryCount: 0,
         uiEntryFingerprints: [],
       };
@@ -964,17 +958,8 @@ export function recordConversationTranscript(
     }
 
     const nextTitle = deriveConversationTitle(input.title, messages);
-    const titleChanged = nextTitle !== state.title;
-    const updatedAtChanged = input.updatedAt !== null && input.updatedAt !== state.updatedAt;
-    if (titleChanged || updatedAtChanged) {
-      chunks.push(
-        serializeEvent({
-          type: "meta",
-          at: now,
-          ...(titleChanged ? { title: nextTitle } : {}),
-          ...(updatedAtChanged && input.updatedAt !== null ? { updatedAt: input.updatedAt } : {}),
-        }),
-      );
+    if (nextTitle !== state.title) {
+      chunks.push(serializeEvent({ type: "meta", at: now, title: nextTitle }));
     }
 
     let uiEntryCount = state.uiEntryCount;
@@ -1011,7 +996,6 @@ export function recordConversationTranscript(
           messageCount: messages.length,
           lastMessageFingerprint: fingerprintAt(messages, messages.length - 1),
           title: nextTitle,
-          updatedAt: updatedAtChanged ? input.updatedAt : state.updatedAt,
           uiEntryCount,
           uiEntryFingerprints: nextUiEntryFingerprints,
         },

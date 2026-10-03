@@ -80,8 +80,13 @@ Prefer these to reading files:
 
 ## Where things are written, and when
 
-A run's transcript is saved when the run finishes, not incrementally, so reading `history/`
+A `jazz run` transcript is saved when the run finishes, not incrementally, so reading `history/`
 mid-run tells you nothing about the turn in flight. Use the daemon or `--watch` for that.
+
+A chat conversation is saved as the turn goes: your message before the first model call, then
+after every step (a model response and the tool results it asked for), and again when the turn
+ends or the process is stopped with Ctrl+C or SIGTERM. A turn killed outright keeps everything up
+to its last finished step. `/resume` dates each conversation by its newest message.
 
 Telemetry is the exception: it is written as events happen, whether or not you export anywhere.
 See [observability](../configure/observability.md).

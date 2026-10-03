@@ -2,6 +2,7 @@ import {
   loadConversation,
   saveConversation,
   type Conversation,
+  type ConversationToSave,
 } from "@jazz/adapters/history/conversation-history-service";
 import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
@@ -203,7 +204,7 @@ export function buildConversation(params: {
   readonly responseContent: string;
   readonly responseMessages: ChatMessage[] | undefined;
   readonly now: string;
-}): Conversation {
+}): ConversationToSave {
   const messages: ChatMessage[] =
     params.responseMessages && params.responseMessages.length > 0
       ? params.responseMessages
@@ -218,7 +219,6 @@ export function buildConversation(params: {
     title: params.priorRecord?.title ?? params.prompt.trim().slice(0, 80),
     agentId: params.agentId,
     startedAt: params.priorRecord?.startedAt ?? params.now,
-    updatedAt: params.now,
     messages,
   };
 }

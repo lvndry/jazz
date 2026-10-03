@@ -10,7 +10,7 @@ import {
 } from "@jazz/core/agent/execution/egress-taint";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, setSystemTime } from "bun:test";
 import { Effect } from "effect";
 import {
   archiveLegacyHistory,
@@ -18,7 +18,7 @@ import {
   loadConversation,
   loadHistory,
   setConversationRetentionLimit,
-  type Conversation,
+  type ConversationToSave,
   type ConversationsInUse,
 } from "./conversation-history-service";
 import { archivedConversationLogPath, conversationLogPath } from "./conversation-log";
@@ -42,13 +42,12 @@ function runEffectExit<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>)
   return Effect.runPromiseExit(eff.pipe(Effect.provide(NodeFileSystem.layer)));
 }
 
-function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
+function makeConversation(overrides: Partial<ConversationToSave> = {}): ConversationToSave {
   return {
     conversationId: "conv-1",
     title: "Hello world",
     agentId: "agent-1",
     startedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
     messages: [{ role: "user", content: "Hello world" } as ChatMessage],
     ...overrides,
   };
@@ -190,6 +189,19 @@ describe("conversation retention", () => {
     expect(fs.existsSync(conversationLogPath("agent-1", "conv-0", tmpDir))).toBe(true);
     expect(fs.existsSync(conversationLogPath("agent-1", "conv-1", tmpDir))).toBe(false);
     expect(fs.existsSync(archivedConversationLogPath("agent-1", "conv-1", tmpDir))).toBe(true);
+  });
+
+  test("a save without housekeeping archives nothing", async () => {
+    for (let index = 0; index < 5; index++) {
+      await runEffect(
+        saveConversation(makeConversation({ conversationId: `conv-${String(index)}` }), tmpDir, {
+          conversationsInUse: nothingInUse,
+          housekeeping: false,
+        }),
+      );
+    }
+    const history = await runEffect(loadHistory("agent-1", tmpDir));
+    expect(history.conversations).toHaveLength(5);
   });
 
   test("archives nothing when the goal, loop and run records cannot be read", async () => {
@@ -343,6 +355,31 @@ describe("loadHistory", () => {
     expect(summary?.messageCount).toBe(2);
     // Not "messages: []" — a listing cannot be mistaken for an empty conversation.
     expect(summary).not.toHaveProperty("messages");
+  });
+
+  test("lists the conversation spoken in most recently first, however recently another was saved", async () => {
+    try {
+      setSystemTime(new Date("2026-08-01T10:00:00.000Z"));
+      await runEffect(saveConversation(makeConversation({ conversationId: "older" }), tmpDir));
+      setSystemTime(new Date("2026-08-01T11:00:00.000Z"));
+      await runEffect(saveConversation(makeConversation({ conversationId: "newer" }), tmpDir));
+      setSystemTime(new Date("2026-08-01T12:00:00.000Z"));
+      await runEffect(
+        saveConversation(
+          makeConversation({ conversationId: "older", title: "Renamed, nothing said" }),
+          tmpDir,
+        ),
+      );
+    } finally {
+      setSystemTime();
+    }
+
+    const history = await runEffect(loadHistory("agent-1", tmpDir));
+    expect(history.conversations.map((conversation) => conversation.conversationId)).toEqual([
+      "newer",
+      "older",
+    ]);
+    expect(history.conversations[0]?.lastMessageAt).toBe("2026-08-01T11:00:00.000Z");
   });
 
   test("survives a log that is not readable at all", async () => {

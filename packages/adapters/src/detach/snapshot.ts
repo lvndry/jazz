@@ -23,6 +23,7 @@ import {
   loadConversation,
   saveConversation,
   type Conversation,
+  type ConversationToSave,
 } from "../history/conversation-history-service";
 import { BUILTIN_PERSONA_NAMES } from "../persona-service";
 
@@ -323,12 +324,11 @@ export async function createDetachSnapshot(
     ),
   );
   if (input.history !== undefined) {
-    const conversation: Conversation = {
+    const conversation: ConversationToSave = {
       agentId: input.agentId,
       conversationId: input.conversationId,
       title: prior?.title ?? "",
       startedAt: prior?.startedAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
       messages: [...input.history],
       ...(prior?.uiTranscript !== undefined ? { uiTranscript: prior.uiTranscript } : {}),
     };
@@ -942,7 +942,7 @@ export function withRemoteTurnsInUiTranscript(
       ? [
           {
             id: `remote:${returned.conversationId}:${shared + index}`,
-            timestamp: returned.updatedAt ?? returned.startedAt,
+            timestamp: returned.lastMessageAt ?? returned.startedAt,
             content:
               message.role === "user"
                 ? { kind: "user" as const, text: message.content }
@@ -957,7 +957,7 @@ export function withRemoteTurnsInUiTranscript(
       ...returned.uiTranscript,
       {
         id: `remote:${returned.conversationId}:continued:${shared}`,
-        timestamp: returned.updatedAt ?? returned.startedAt,
+        timestamp: returned.lastMessageAt ?? returned.startedAt,
         content: { kind: "notice", tone: "info", text: "Continued on a remote host" },
       },
       ...remoteTurns,

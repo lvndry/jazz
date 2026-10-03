@@ -1631,6 +1631,48 @@ describe("executeAgentLoop", () => {
         ToolExecutor.executeToolCalls = originalExecute;
       }
     });
+
+    it("checkpoints the user's message before the first model call, then each finished iteration", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() =>
+        Effect.succeed([
+          { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+        ]),
+      );
+      const checkpoints: (readonly ChatMessage[])[] = [];
+
+      try {
+        await runToFailure(strategyFailingAfter(1), {
+          onCheckpoint: (messages) =>
+            Effect.sync(() => {
+              checkpoints.push(messages);
+            }),
+        });
+
+        expect(checkpoints).toHaveLength(2);
+        expect(checkpoints[0]).toEqual([{ role: "user", content: "hello" }]);
+        expect(
+          checkpoints[1]?.some(
+            (message) => message.role === "tool" && message.tool_call_id === "call_1",
+          ),
+        ).toBe(true);
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("does not checkpoint an internal run", async () => {
+      let checkpointed = false;
+      await runToFailure(strategyFailingAfter(0), {
+        internal: true,
+        onCheckpoint: () =>
+          Effect.sync(() => {
+            checkpointed = true;
+          }),
+      });
+
+      expect(checkpointed).toBe(false);
+    });
   });
 
   it("should warn on empty response", async () => {
