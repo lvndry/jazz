@@ -691,7 +691,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
       "Read-only commands may be auto-approved; anything that mutates needs approval. " +
       "sudo and inline -c/-e code are blocked: write code to a temp file and run it. The environment has no secrets and takes no env vars. " +
       "Put a secret from ask_user_secret in the command as its placeholder; the person approves every such command. " +
-      "stdout and stderr are each capped at 256 KB.",
+      "A command is killed after 15 minutes; for longer work, background it and poll with wait_for.",
     tags: ["shell", "execution"],
     riskLevel: "unknown",
     userSecretArguments: ["command"],
