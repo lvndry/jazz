@@ -138,11 +138,16 @@ function go(n, push = true) {
     counter.textContent = `${i + 1} / ${slides.length}`;
     // in-slide choreography re-runs because the class changed
   };
-  if (document.startViewTransition && !reducedMotion()) {
-    vt?.finished?.catch(() => {}); // a faster nav aborts the in-flight transition
+  if (document.startViewTransition && !reducedMotion() && !vt) {
     vt = document.startViewTransition(apply);
-    vt.finished.catch(() => {});
+    vt.finished
+      .catch(() => {})
+      .finally(() => {
+        vt = null;
+      });
   } else {
+    // a transition is mid-flight (or unsupported): swap directly, no abort
+    vt?.finished?.catch(() => {});
     apply();
   }
   if (push) history.replaceState(null, "", `#${i + 1}`);
