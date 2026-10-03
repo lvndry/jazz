@@ -779,10 +779,25 @@ function reportRunSpend(deps: LoopDeps): Effect.Effect<void> {
 }
 
 /**
+ * A copy of the turn's transcript that is valid to send and to save: dangling tool calls are
+ * closed with `stopReason`, and the run's live egress taint is recorded so a later turn
+ * starting from it starts marked.
+ */
+function handOffTranscript(
+  state: LoopState,
+  egressTaint: EgressTaint | undefined,
+  stopReason: string,
+): ConversationMessages {
+  const transcript: Pick<LoopState, "currentMessages"> = {
+    currentMessages: [...state.currentMessages],
+  };
+  closeDanglingToolCalls(transcript, stoppedCallAnswer(state.activeToolBatch, stopReason));
+  return recordEgressTaint(transcript.currentMessages, egressTaint);
+}
+
+/**
  * Hand a failed turn's transcript to the caller before the failure unwinds it — otherwise
- * the caller reverts to the history it passed in and the turn's work is lost. Dangling tool
- * calls are closed on the copy so it stays valid to send, and the run's live egress taint is
- * recorded on it so the next turn starts marked.
+ * the caller reverts to the history it passed in and the turn's work is lost.
  *
  * Parking is skipped: its transcript rides the signal, and its unanswered tool call must
  * stay unanswered to resume.
@@ -798,12 +813,26 @@ function reportFailedTurn(
     return Effect.void;
   }
   return Effect.sync(() => {
-    const transcript: Pick<LoopState, "currentMessages"> = {
-      currentMessages: [...state.currentMessages],
-    };
-    closeDanglingToolCalls(transcript, stoppedCallAnswer(state.activeToolBatch, "the run failed"));
-    onFailedTurn(recordEgressTaint(transcript.currentMessages, egressTaint));
+    onFailedTurn(handOffTranscript(state, egressTaint, "the run failed"));
   });
+}
+
+/**
+ * Hand the turn's transcript so far to the caller, so a turn that runs for hours is not saved
+ * only when it ends: a killed process otherwise loses everything since the previous turn.
+ */
+function reportCheckpoint(
+  state: LoopState,
+  options: LoopDeps["options"],
+  egressTaint: EgressTaint | undefined,
+): Effect.Effect<void> {
+  const onCheckpoint = options.onCheckpoint;
+  if (onCheckpoint === undefined || options.internal === true) {
+    return Effect.void;
+  }
+  return Effect.suspend(() =>
+    onCheckpoint(handOffTranscript(state, egressTaint, "the run stopped")),
+  );
 }
 
 /**
@@ -2061,6 +2090,8 @@ export function executeAgentLoop(
           }
         }
 
+        yield* reportCheckpoint(state, options, deps.context.egressTaint);
+
         for (let i = 0; i < maxIterations && !interrupted && !stalled; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           // Iteration-budget pressure warnings: 50%, 70%, 90% — user-visible, once each.
@@ -2120,6 +2151,7 @@ export function executeAgentLoop(
           } finally {
             yield* Effect.sync(() => completeIteration(runMetrics));
           }
+          yield* reportCheckpoint(state, options, deps.context.egressTaint);
 
           // Soft checkpoint, not a preemptive interrupt: checked once between
           // iterations, same timing as the iteration budget above. A single

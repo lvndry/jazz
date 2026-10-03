@@ -48,12 +48,18 @@ import {
   summarize,
   type Conversation,
   type ConversationSummary,
+  type ConversationToSave,
 } from "./conversation-log";
 import { FileGoalStore } from "../storage/goal-store";
 import { FileLoopStore } from "../storage/loop-store";
 import { FileRunStore } from "../storage/run-store";
 
-export type { Conversation, ConversationSummary, ConversationUiEntry } from "./conversation-log";
+export type {
+  Conversation,
+  ConversationSummary,
+  ConversationToSave,
+  ConversationUiEntry,
+} from "./conversation-log";
 
 export interface AgentConversationHistory {
   readonly agentId: string;
@@ -100,6 +106,12 @@ export interface SaveConversationOptions {
   readonly fenceHeldBy?: string;
   /** Overrides the goal, loop and run lookup; tests pass a fixed set. */
   readonly conversationsInUse?: ConversationsInUse;
+  /**
+   * False skips archiving legacy files and conversations beyond the retention limit. A save
+   * made mid-turn runs once per agent-loop iteration, and the save at the end of the turn
+   * does the archiving.
+   */
+  readonly housekeeping?: boolean;
 }
 
 function logHousekeeping(
@@ -245,7 +257,7 @@ export function archiveLegacyHistory(
  * logs are the ones worth keeping, and the filesystem already tracks that.
  */
 export function saveConversation(
-  conversation: Conversation,
+  conversation: ConversationToSave,
   dir?: string,
   options?: SaveConversationOptions,
 ): Effect.Effect<void, Error, FileSystem.FileSystem> {
@@ -262,8 +274,11 @@ export function saveConversation(
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
   return Effect.gen(function* () {
+    const housekeeping = options?.housekeeping !== false;
     yield* assertWritable();
-    yield* archiveLegacyHistory(dir);
+    if (housekeeping) {
+      yield* archiveLegacyHistory(dir);
+    }
 
     yield* withLock(
       lockPath,
@@ -275,7 +290,6 @@ export function saveConversation(
             conversationId: conversation.conversationId,
             title: conversation.title,
             startedAt: conversation.startedAt,
-            updatedAt: conversation.updatedAt,
             messages: conversation.messages,
             ...(conversation.uiTranscript !== undefined
               ? { uiTranscript: conversation.uiTranscript }
@@ -284,14 +298,16 @@ export function saveConversation(
           dir,
         );
 
-        yield* archiveBeyondRetention(conversation.agentId, dir, conversationsInUse);
+        if (housekeeping) {
+          yield* archiveBeyondRetention(conversation.agentId, dir, conversationsInUse);
+        }
       }),
     );
   });
 }
 
 /**
- * One agent's conversations, newest first, without their transcripts.
+ * One agent's conversations, most recently spoken in first, without their transcripts.
  *
  * Summaries rather than conversations because a listing is what this is for. A caller that
  * needs what was said asks for one conversation by id, instead of every transcript on disk
@@ -308,8 +324,13 @@ export function loadHistory(
       const conversation = yield* readConversationLog(log.agentId, log.conversationId, dir);
       if (conversation) conversations.push(summarize(conversation));
     }
+    conversations.sort((left, right) => lastActivityMs(right) - lastActivityMs(left));
     return { agentId, conversations };
   });
+}
+
+function lastActivityMs(conversation: ConversationSummary): number {
+  return Date.parse(conversation.lastMessageAt ?? conversation.startedAt);
 }
 
 /** One conversation with everything said in it, or null when there is no log for it. */
@@ -363,7 +384,6 @@ export function saveRunTranscript(
         options.prior?.title ??
         Array.from(options.fallbackTitle).slice(0, MAX_RUN_TITLE_CHARS).join(""),
       startedAt: options.prior?.startedAt ?? now,
-      updatedAt: now,
       messages: [...options.messages],
     },
     dir,

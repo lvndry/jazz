@@ -7,7 +7,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { presentationEntrySchema } from "@jazz/core/types/presentation-content-schema";
 import { stateFileMode } from "@jazz/core/utils/private-mode";
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, setSystemTime } from "bun:test";
 import { Effect } from "effect";
 import {
   collapseSupersededUiEvents,
@@ -52,7 +52,6 @@ function record(messages: readonly ChatMessage[], title = "Trip planning") {
     conversationId: "conv-1",
     title,
     startedAt: "2026-08-01T10:00:00.000Z",
-    updatedAt: null,
     messages,
   };
 }
@@ -175,22 +174,53 @@ describe("recordConversationTranscript", () => {
     ]);
   });
 
-  test("records a title change and an end time as metadata", async () => {
+  test("titles an untitled conversation by what was typed, without the memory-source tag", async () => {
+    const tagged: ChatMessage = {
+      role: "user",
+      content: "plan the trip\n\n[memory source user:abc]",
+      memorySource: { id: "user:abc", text: "plan the trip" },
+    };
+    await runEffect(recordConversationTranscript(record([tagged], ""), tmpDir));
+
+    const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(session?.title).toBe("plan the trip");
+  });
+
+  test("records a title change as metadata", async () => {
     await runEffect(
       recordConversationTranscript(record([userMessage("hi")], "First title"), tmpDir),
     );
     await runEffect(
-      recordConversationTranscript(
-        { ...record([userMessage("hi")], "Second title"), updatedAt: "2026-08-01T11:00:00.000Z" },
-        tmpDir,
-      ),
+      recordConversationTranscript(record([userMessage("hi")], "Second title"), tmpDir),
     );
 
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(session?.title).toBe("Second title");
-    expect(session?.updatedAt).toBe("2026-08-01T11:00:00.000Z");
   });
-  test("reads the pre-rename endedAt key in older meta events as updatedAt", async () => {
+
+  test("dates the conversation by its newest message, not by a later save that adds none", async () => {
+    try {
+      setSystemTime(new Date("2026-08-01T10:00:00.000Z"));
+      await runEffect(recordConversationTranscript(record([userMessage("hi")]), tmpDir));
+      setSystemTime(new Date("2026-08-01T11:00:00.000Z"));
+      await runEffect(recordConversationTranscript(record([userMessage("hi")]), tmpDir));
+      const unchanged = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+      expect(unchanged?.lastMessageAt).toBe("2026-08-01T10:00:00.000Z");
+
+      setSystemTime(new Date("2026-08-01T12:00:00.000Z"));
+      await runEffect(
+        recordConversationTranscript(
+          record([userMessage("hi"), assistantMessage("hello")]),
+          tmpDir,
+        ),
+      );
+      const answered = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+      expect(answered?.lastMessageAt).toBe("2026-08-01T12:00:00.000Z");
+    } finally {
+      setSystemTime();
+    }
+  });
+  test("ignores the save time older meta events carry", async () => {
     const logPath = conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir);
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
     fs.writeFileSync(
@@ -219,7 +249,7 @@ describe("recordConversationTranscript", () => {
     );
 
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
-    expect(session?.updatedAt).toBe("2026-08-01T11:00:00.000Z");
+    expect(session?.lastMessageAt).toBe("2026-08-01T10:00:01.000Z");
   });
 
   test("preserves the started-at instant across appends", async () => {

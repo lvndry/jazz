@@ -342,6 +342,12 @@ export interface AgentRunnerOptions {
    */
   readonly onFailedTurn?: (messages: ConversationMessages) => void;
   /**
+   * Called with this turn's transcript before the first model call and after every iteration
+   * that continues, so the caller can save work a long turn has done before the turn ends.
+   * Dangling tool calls are closed. Not called for internal (sub-agent) runs.
+   */
+  readonly onCheckpoint?: (messages: ConversationMessages) => Effect.Effect<void>;
+  /**
    * IANA timezone (e.g. "Europe/Paris") for this run, copied into the tool
    * execution context so tools like add_reminder can resolve "now" in the
    * caller's local time without asking the model to supply a timezone string.
