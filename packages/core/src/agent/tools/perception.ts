@@ -14,11 +14,12 @@
  *   the same shape `create_pdf` returns.
  *
  * Who chooses the companion:
- * - **A human, always, interactively.** The person first picks a provider from those with
+ * - **A human, once, interactively.** The person first picks a provider from those with
  *   models capable of the requested role. If it needs an API key, Jazz asks for it in a
  *   masked prompt and stores it through the config service. The approval picker then lists
  *   only that provider's capable models; choosing and approving one is required before
- *   media is sent.
+ *   media is sent. The model that completes the job is then bound as the agent's companion
+ *   for that role, so later delegations skip the pickers.
  * - **A pre-bound companion, unattended.** `config.companions["<action>:<modality>"]` names a
  *   `"provider/model"` chosen ahead of time; binding it *is* the consent, so bound runs
  *   skip the prompt entirely — which is what makes cron and bridge runs work where no
@@ -33,6 +34,7 @@ import { Effect, Either, Option } from "effect";
 import { z } from "zod";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
+import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
@@ -302,6 +304,51 @@ interface CompanionJob {
 
 export function createPerceptionTools(): Tool<ToolRequirements>[] {
   let companionCounter = 0;
+  // The in-session agent object is a snapshot, so a model bound mid-session would not be
+  // seen through parentAgent.config until the agent is reloaded.
+  const sessionCompanions = new Map<string, `${string}/${string}`>();
+  const sessionCompanionKey = (agentId: string, role: CompanionRole) => `${agentId}\u0000${role}`;
+
+  /**
+   * Binds the model that just did the job as the agent's companion for the role, so the next
+   * delegation runs on it without asking again. Saving is best effort: ephemeral agents
+   * (subagents) have no stored record, and a failed save still leaves the session binding.
+   */
+  const bindCompanion = (
+    parentAgent: Agent,
+    role: CompanionRole,
+    modelId: `${string}/${string}`,
+  ): Effect.Effect<void, never, ToolRequirements> =>
+    Effect.gen(function* () {
+      const logger = yield* LoggerServiceTag;
+      sessionCompanions.set(sessionCompanionKey(parentAgent.id, role), modelId);
+
+      const agentServiceOption = yield* Effect.serviceOption(AgentServiceTag);
+      if (Option.isNone(agentServiceOption)) return;
+      const agentService = agentServiceOption.value;
+      yield* agentService.getAgent(parentAgent.id).pipe(
+        Effect.flatMap((stored) =>
+          stored.config.companions?.[role] === modelId
+            ? Effect.void
+            : agentService.updateAgent(stored.id, {
+                config: {
+                  ...stored.config,
+                  companions: { ...stored.config.companions, [role]: modelId },
+                },
+              }),
+        ),
+        Effect.tap(() =>
+          logger.info("Bound model companion", { agentId: parentAgent.id, role, modelId }),
+        ),
+        Effect.catchAll((error) =>
+          logger.debug("Companion binding not saved; it holds for this session only", {
+            agentId: parentAgent.id,
+            role,
+            error: String(error),
+          }),
+        ),
+      );
+    });
 
   const runCompanion = (
     parentAgent: Agent,
@@ -464,6 +511,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       while (true) {
         const attempt = yield* run(companion).pipe(Effect.either);
         if (Either.isRight(attempt)) {
+          yield* bindCompanion(parentAgent, role, agentModelString(companion.config.llm));
           return { kind: "done", value: attempt.right } as const;
         }
 
@@ -537,7 +585,9 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       const logger = yield* LoggerServiceTag;
       const presentation = yield* PresentationServiceTag;
 
-      const boundCompanion = parentAgent.config.companions?.[role];
+      const boundCompanion =
+        sessionCompanions.get(sessionCompanionKey(parentAgent.id, role)) ??
+        parentAgent.config.companions?.[role];
       if (boundCompanion) {
         const companion = buildCompanionAgent(
           parentAgent,

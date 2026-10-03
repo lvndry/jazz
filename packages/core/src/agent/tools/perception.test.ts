@@ -6,6 +6,8 @@ import { Effect, Layer } from "effect";
 import { silentLogger } from "@/core/agent/test-logger";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
+import type { AgentService } from "@/core/interfaces/agent-service";
+import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LLMServiceTag } from "@/core/interfaces/llm";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -588,6 +590,123 @@ describe("companion failure recovery", () => {
       const result = await outcome;
       expect(result.success).toBe(false);
       expect(result.error).toContain('companions["analyze:image"]');
+      expect(searchPrompts).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("binding the picked companion", () => {
+  const imageArgs = () => ({
+    modality: "image",
+    task: "describe",
+    mediaPaths: [join(directory, "shot.png")],
+  });
+
+  function makeAgentService(stored: Agent) {
+    const updates: Partial<Agent>[] = [];
+    const service = {
+      getAgent: () => Effect.succeed(stored),
+      updateAgent: (_id: string, update: Partial<Agent>) => {
+        updates.push(update);
+        return Effect.succeed({ ...stored, ...update });
+      },
+    } as unknown as AgentService;
+    return { service, updates };
+  }
+
+  function makeLayer(searchPrompts: string[], agentService?: AgentService) {
+    const terminal = {
+      search: (message: string) => {
+        searchPrompts.push(message);
+        return Effect.succeed("openai");
+      },
+    } as unknown as TerminalService;
+    const base = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, silentLogger),
+      Layer.succeed(PresentationServiceTag, makePresentation(true)),
+      Layer.succeed(LLMServiceTag, makeLlmService()),
+      Layer.succeed(TerminalServiceTag, terminal),
+    );
+    return agentService ? Layer.merge(base, Layer.succeed(AgentServiceTag, agentService)) : base;
+  }
+
+  function run(
+    tools: ReturnType<typeof createPerceptionTools>,
+    name: string,
+    args: Record<string, unknown>,
+    layer: Layer.Layer<never>,
+  ) {
+    const tool = tools.find((candidate) => candidate.name === name)!;
+    return Effect.runPromise(
+      tool.execute(args, makeContext()).pipe(Effect.provide(layer)) as Effect.Effect<
+        ToolExecutionResult,
+        Error,
+        never
+      >,
+    ) as Promise<ProposalOutcome>;
+  }
+
+  it("asks for a provider only once, then reuses the model that did the job", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((runOptions) =>
+      Effect.succeed({ content: "a cat", conversationId: runOptions.conversationId ?? "child" }),
+    );
+    try {
+      const tools = createPerceptionTools();
+      const searchPrompts: string[] = [];
+      const { service, updates } = makeAgentService(parentAgent);
+      const layer = makeLayer(searchPrompts, service);
+
+      const proposal = await run(tools, "analyze_media", imageArgs(), layer);
+      expect((proposal.result as { approvalRequired?: boolean }).approvalRequired).toBe(true);
+      expect(searchPrompts).toEqual(["Choose a provider for image understanding:"]);
+
+      const executed = await run(
+        tools,
+        "execute_analyze_media",
+        { ...imageArgs(), _selectedOptionId: "openai/gpt-vision" },
+        layer,
+      );
+      expect(executed.success).toBe(true);
+      expect(updates).toEqual([
+        {
+          config: { ...parentAgent.config, companions: { "analyze:image": "openai/gpt-vision" } },
+        },
+      ]);
+
+      const second = await run(tools, "analyze_media", imageArgs(), layer);
+      expect(second.success).toBe(true);
+      expect(second.result).toBe("a cat");
+      expect(searchPrompts).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("keeps the binding for the session when the agent cannot be saved", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((runOptions) =>
+      Effect.succeed({ content: "a cat", conversationId: runOptions.conversationId ?? "child" }),
+    );
+    try {
+      const tools = createPerceptionTools();
+      const searchPrompts: string[] = [];
+      const missing = {
+        getAgent: () => Effect.fail(new Error("not found")),
+        updateAgent: () => Effect.die("unreachable"),
+      } as unknown as AgentService;
+      const layer = makeLayer(searchPrompts, missing);
+
+      const executed = await run(
+        tools,
+        "execute_analyze_media",
+        { ...imageArgs(), _selectedOptionId: "openai/gpt-vision" },
+        layer,
+      );
+      expect(executed.success).toBe(true);
+
+      const second = await run(tools, "analyze_media", imageArgs(), layer);
+      expect(second.success).toBe(true);
       expect(searchPrompts).toEqual([]);
     } finally {
       spy.mockRestore();
