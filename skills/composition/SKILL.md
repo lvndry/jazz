@@ -32,16 +32,18 @@ substitute for missing data. If a small table is clearer, use the table.
 
 Start with the question, then choose the smallest form that answers it.
 
-| Question                           | Best default                                               |
-| ---------------------------------- | ---------------------------------------------------------- |
-| How does a value change over time? | Line chart; use bars only for discrete periods.            |
-| Which categories are larger?       | Sorted horizontal bars.                                    |
-| How do two quantities relate?      | Scatter plot with labeled axes.                            |
-| What makes up a whole?             | Stacked bars; use a pie only for a few unmistakable parts. |
-| What happens next?                 | Timeline, flow, or state diagram.                          |
-| What can the person change?        | Small form plus immediate, visible result.                 |
-| What should someone scan quickly?  | A restrained dashboard with one primary insight.           |
-| What do I walk someone through?    | A deck: one idea per slide (`slides` reference).           |
+| Question                           | Best default                                                |
+| ---------------------------------- | ----------------------------------------------------------- |
+| How does a value change over time? | Line chart; use bars only for discrete periods.             |
+| Which categories are larger?       | Sorted horizontal bars.                                     |
+| How do two quantities relate?      | Scatter plot with labeled axes.                             |
+| What makes up a whole?             | Stacked bars; use a pie only for a few unmistakable parts.  |
+| What happens next?                 | Timeline, flow, or state diagram.                           |
+| What can the person change?        | Small form plus immediate, visible result.                  |
+| What should someone scan quickly?  | A restrained dashboard with one primary insight.            |
+| What do I walk someone through?    | A deck: one idea per slide (`slides` reference).            |
+| What do I fill in to get a result? | A form: the live output is the product (`forms` reference). |
+| What do I show as a video?         | whatships references + HyperFrames (`design-pipeline`).     |
 
 Do not make a dashboard by default. One strong view with a clear takeaway is
 usually more valuable than six generic cards.
@@ -81,6 +83,15 @@ usually more valuable than six generic cards.
   slide transitions, speaker notes, print export. Load it when the person
   wants a Canva-style presentation, pitch, or walkthrough — one idea per
   slide, not a long page.
+- `forms` — input→output artifacts where the live result is the product:
+  document builders, generators, wizards, checklists, URL/localStorage
+  persistence, export. Load it when the person wants a form, builder,
+  generator, or anything they fill in to get a result.
+- `design-pipeline` — external research stages for real product identity:
+  DESIGN.md adoption (refero), 21st.dev + component.gallery components,
+  kinetics.colorion.co spring motion, whatships→HyperFrames video,
+  impeccable.style polish. Load it when the artifact needs a brand-grade
+  look or a video, or when the user names any of these sources.
 
 ## Data integrity
 
