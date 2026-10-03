@@ -9,10 +9,11 @@ Turn information into a useful, polished visual artifact. A composition is not
 decoration for an answer: it earns its place by making a relationship clearer,
 faster to inspect, or easier to act on than prose or a table.
 
-Use `create_composition` to produce it. Jazz stores the HTML under
+Use `create_composition` to produce it. (It is also exposed as the `create_web_app`
+alias — same tool, same rules.) Jazz stores the HTML under
 `~/.jazz/compositions/<session-id>/<composition-name>.html`; a local interactive
 session opens the finished composition in the default browser. Chat surfaces
-deliver a static image or an interactive link when they support it.
+deliver a static image or an interactive link when they support them.
 
 ## Decide whether a composition earns its cost
 
@@ -53,35 +54,28 @@ usually more valuable than six generic cards.
    changes the answer.
 4. Write a complete, self-contained HTML document. Keep CSS and JavaScript
    inline. Do not depend on a build step or local files. Use a CDN only where a
-   library adds real value.
-5. Make the first screen useful before adding interactions or polish.
-6. Call `create_composition` with a short, distinctive title that also makes a
+   library adds real value; hand-rolled SVG beats a chart library for diagrams
+   and most concept explainers.
+5. Apply the house style: load the `design-system` reference and start the
+   document with its token boilerplate. Load `motion` before writing any
+   animation, `diagrams` for SVG, `interactive` for controls and state changes.
+6. Make the first screen useful before adding interactions or polish.
+7. Call `create_composition` with a short, distinctive title that also makes a
    good filename.
-7. In the accompanying answer, say what the person can learn or do with it;
+8. In the accompanying answer, say what the person can learn or do with it;
    do not merely announce that a file was made.
 
-## HTML and CSS craft
+## References
 
-Use semantic HTML: a meaningful `main`, headings in order, real `button`,
-`label`, `input`, `table`, and `nav` elements where appropriate. Do not recreate
-native controls with anonymous `div`s.
-
-Design mobile-first. A composition should remain usable at 320px wide and have
-a comfortable desktop layout. Use flexible widths, sensible maximum content
-widths, `clamp()` for type scale when useful, and a narrow-screen layout that
-stacks rather than squeezes important information.
-
-Make hierarchy intentional:
-
-- one dominant title or visual, a concise subtitle, and a clear next action;
-- a limited palette with one accent for emphasis, not one color per element;
-- enough whitespace to separate ideas without creating empty theater;
-- readable typography, short labels, and units next to values;
-- motion only when it explains a change; honor `prefers-reduced-motion`.
-
-For controls, provide an accessible name, visible keyboard focus, logical tab
-order, and feedback that is understandable without color alone. Use sufficient
-contrast and do not hide essential meaning in hover states.
+- `design-system` — the house style, paste-in design-token boilerplate,
+  typography, layout, and color rules. Load it for every composition.
+- `motion` — the named animation recipes (staggered reveal, line-draw,
+  count-up, view transitions, …) with copy-paste CSS and the static-mode
+  screenshot trap. Load it before writing any animation.
+- `diagrams` — hand-rolled SVG patterns for flow diagrams, nodes, and state
+  transitions. Load it when the artifact is a diagram or explainer.
+- `interactive` — popover, dialog, View Transitions, `:has()`, focus and
+  accessibility patterns. Load it when the artifact has controls.
 
 ## Data integrity
 
@@ -100,11 +94,14 @@ Treat labels, values, units, dates, and provenance as part of the product.
 
 For `static`, inspect the requested viewport mentally: all important labels,
 the key takeaway, and the legend must be visible without scrolling, hovering,
-or clicking. Prefer fewer details over illegible detail.
+or clicking. Prefer fewer details over illegible detail. Remember the page is
+screenshot at `networkidle0` — any entrance animation must have fully
+completed by then (see the `motion` reference).
 
 For `interactive`, make a useful default view before adding controls. Inputs
-should have sensible initial values, changes should update quickly, and a person
-should be able to understand the result without a separate instruction manual.
+should have sensible initial values, changes should update quickly, and a
+person should be able to understand the result without a separate instruction
+manual.
 
 ## Final quality check
 
@@ -114,4 +111,6 @@ Before calling the tool, ask:
 - Is the chosen chart or interaction the simplest honest representation?
 - Can someone use it with a keyboard and on a narrow screen?
 - Are all numbers, labels, units, and caveats accurate and visible?
+- Does it follow the house style: one accent, token-driven palette, motion
+  that explains rather than decorates?
 - Did I make a composition rather than a generic dashboard template?
