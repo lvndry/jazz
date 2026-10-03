@@ -125,6 +125,7 @@ const slides = [...document.querySelectorAll(".slide")];
 const progress = document.getElementById("progress");
 const counter = document.getElementById("counter");
 let i = 0;
+let vt = null;
 
 function go(n, push = true) {
   n = Math.max(0, Math.min(slides.length - 1, n));
@@ -138,7 +139,9 @@ function go(n, push = true) {
     // in-slide choreography re-runs because the class changed
   };
   if (document.startViewTransition && !reducedMotion()) {
-    document.startViewTransition(apply);
+    vt?.finished?.catch(() => {}); // a faster nav aborts the in-flight transition
+    vt = document.startViewTransition(apply);
+    vt.finished.catch(() => {});
   } else {
     apply();
   }
