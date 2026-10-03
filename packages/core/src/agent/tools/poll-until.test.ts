@@ -50,6 +50,36 @@ describe("pollUntilSuccess", () => {
     expect(outcome.stdout).toContain("still-waiting");
   });
 
+  it("flags a timeout where every check returned the same result", async () => {
+    const outcome = await poll("echo completed...; false", WAIT_FOR_MIN_INTERVAL_MS, 1_200);
+
+    expect(outcome.matched).toBe(false);
+    expect(outcome.unchanged).toBe(true);
+  });
+
+  it("drops a check the deadline killed midway, keeping the last finished one", async () => {
+    const counter = `${tmpdir()}/poll-until-deadline-${String(process.pid)}`;
+    rmSync(counter, { force: true });
+
+    const outcome = await poll(
+      `count=$(cat ${counter} 2>/dev/null || echo 0); count=$((count+1)); echo $count > ${counter}; echo checked; test $count -ge 2 && sleep 5; false`,
+      WAIT_FOR_MIN_INTERVAL_MS,
+      1_000,
+    );
+
+    expect(outcome.attempts).toBe(1);
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.stdout.trim()).toBe("checked");
+    rmSync(counter, { force: true });
+  });
+
+  it("does not flag a timeout whose checks saw something change", async () => {
+    const outcome = await poll("echo $$; false", WAIT_FOR_MIN_INTERVAL_MS, 1_200);
+
+    expect(outcome.matched).toBe(false);
+    expect(outcome.unchanged).toBe(false);
+  });
+
   it("polls repeatedly within the budget rather than once per call", async () => {
     const outcome = await poll("false", WAIT_FOR_MIN_INTERVAL_MS, 2_000);
 

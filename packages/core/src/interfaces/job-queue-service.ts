@@ -12,6 +12,17 @@ export interface JobPollSpec {
   readonly timeoutMs: number;
 }
 
+/** One check a polling job ran. */
+export interface JobCheck {
+  /** 1-based position among the job's checks. */
+  readonly check: number;
+  /** Epoch ms the check finished. */
+  readonly at: number;
+  readonly exitCode: number;
+  /** The last non-empty line the check printed; empty when it printed nothing. */
+  readonly output: string;
+}
+
 /** Where a polling job stands while it runs, saved after its checks so a viewer can see them. */
 export interface JobProgress {
   readonly checks: number;
@@ -20,6 +31,8 @@ export interface JobProgress {
   readonly lastCheckedAt: number;
   /** The last non-empty line the newest check printed; empty when it printed nothing. */
   readonly lastOutput: string;
+  /** The newest checks, oldest first, up to `WAIT_RECENT_CHECKS_KEPT`. */
+  readonly recentChecks?: readonly JobCheck[];
 }
 
 export interface JobRecord {
@@ -99,6 +112,16 @@ const JobRecordSchema: z.ZodType<JobRecord> = z.object({
       lastExitCode: z.number().int(),
       lastCheckedAt: z.number().finite(),
       lastOutput: z.string(),
+      recentChecks: z
+        .array(
+          z.object({
+            check: z.number().int().positive(),
+            at: z.number().finite(),
+            exitCode: z.number().int(),
+            output: z.string(),
+          }),
+        )
+        .exactOptional(),
     })
     .exactOptional(),
   status: z.enum(["pending", "running", "succeeded", "failed", "cancelled"]),

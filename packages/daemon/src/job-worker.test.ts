@@ -1,7 +1,7 @@
 import { TOOL_OUTPUT_TAIL_CHARS } from "@jazz/core/agent/tools/capped-output";
 import type { JobBatchRecord, JobRecord } from "@jazz/core/interfaces/job-queue-service";
 import { describe, expect, it } from "bun:test";
-import { summarizeBatch } from "./job-worker";
+import { pollTimeoutMessage, summarizeBatch } from "./job-worker";
 
 function job(overrides: Partial<JobRecord> & Pick<JobRecord, "id" | "command">): JobRecord {
   return {
@@ -180,5 +180,33 @@ describe("summarizeBatch", () => {
 
     expect(summary).toContain("cancelled before it ran");
     expect(summary).toContain("0/1 succeeded");
+  });
+});
+
+describe("pollTimeoutMessage", () => {
+  const timedOut = {
+    matched: false,
+    attempts: 15,
+    elapsedMs: 900_000,
+    exitCode: 1,
+    stdout: "",
+    stderr: "",
+  };
+
+  it("reports a plain timeout when the checks saw something change", () => {
+    expect(pollTimeoutMessage({ ...timedOut, unchanged: false })).toBe(
+      "timed out after 900s and 15 checks",
+    );
+  });
+
+  /**
+   * A check that returned the same result every time never reacted to anything; the woken agent
+   * must suspect its check instead of assuming the watched thing is slow.
+   */
+  it("tells the agent to verify a check that never changed its result", () => {
+    const message = pollTimeoutMessage({ ...timedOut, unchanged: true });
+
+    expect(message).toContain("Every check exited 1 with identical output");
+    expect(message).toContain("confirm it can exit 0");
   });
 });

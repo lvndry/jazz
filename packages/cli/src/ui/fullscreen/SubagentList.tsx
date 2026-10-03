@@ -12,7 +12,7 @@
  * never hidden. The per-agent rows show while anything is still running, or while
  * the list has the keyboard: once every agent has finished, one row saying so is
  * all the room it earns until someone asks to look. Pending waits follow, one row
- * until the list has the keyboard.
+ * until the list has the keyboard; Enter on a wait opens its checks in the transcript.
  */
 
 import { memo, useEffect, useState, type ReactNode } from "react";

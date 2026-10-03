@@ -4,7 +4,8 @@
  * `/waits` command) reads the same items, so a wait is never described two ways.
  */
 
-import type { JobBatchRecord } from "@jazz/core/interfaces/job-queue-service";
+import type { JobBatchRecord, JobCheck } from "@jazz/core/interfaces/job-queue-service";
+import type { TerminalReport } from "@jazz/core/interfaces/terminal";
 import { formatElapsed } from "../text/format";
 
 export type BackgroundItemKind = "watch" | "job";
@@ -27,6 +28,8 @@ export interface BackgroundItem {
   readonly current?: string;
   /** The end of the first failed job's output, so a row says why. */
   readonly failure?: string;
+  /** Watches only: the newest checks the worker saved, oldest first. */
+  readonly recentChecks?: readonly JobCheck[];
 }
 
 /** Longest failure excerpt a row carries; the full output stays in the batch record. */
@@ -103,7 +106,9 @@ export function backgroundItems(
       continue;
     }
     const firstJob = batch.jobs[0];
-    const poll = batch.jobs.find((job) => job.poll !== undefined)?.poll;
+    const pollJob = batch.jobs.find((job) => job.poll !== undefined);
+    const poll = pollJob?.poll;
+    const recentChecks = pollJob?.progress?.recentChecks;
     const command = firstJob?.command ?? "";
     items.push({
       batchId: batch.id,
@@ -115,6 +120,7 @@ export function backgroundItems(
       ...(poll === undefined
         ? {}
         : { intervalMs: poll.intervalMs, expiresAt: batch.createdAt + poll.timeoutMs }),
+      ...(recentChecks === undefined ? {} : { recentChecks }),
     });
   }
   return items.sort((left, right) => left.startedAt - right.startedAt);
@@ -189,4 +195,50 @@ export function describeBackgroundCheck(item: BackgroundItem): string {
   }
   const text = parts.filter((part) => part.length > 0).join(" · ");
   return text.length > 0 ? text : item.command;
+}
+
+/** One check's result: `exit 1 · 12s ago · completed...`, or `no output` when it printed nothing. */
+export function describeCheckResult(check: JobCheck, now: number): string {
+  return [
+    `exit ${String(check.exitCode)}`,
+    `${formatElapsed(Math.max(0, now - check.at))} ago`,
+    check.output.length > 0 ? check.output : "no output",
+  ].join(" · ");
+}
+
+/**
+ * A wait laid out in full: the command it re-runs and how often, then every saved check,
+ * oldest first. The fullscreen wait view and `/waits show` both print this.
+ */
+export function waitReport(item: BackgroundItem, now: number): TerminalReport {
+  const checks = item.recentChecks ?? [];
+  const newest = checks[checks.length - 1];
+  const earlier = newest === undefined ? 0 : newest.check - checks.length;
+  return {
+    _tag: "report",
+    label: "wait",
+    rows: [
+      { kind: "field", key: "command", value: item.command },
+      ...(item.intervalMs === undefined
+        ? []
+        : [{ kind: "field" as const, key: "every", value: formatElapsed(item.intervalMs) }]),
+      { kind: "field", key: "status", value: describeBackgroundTiming(item, now) },
+      { kind: "gap" },
+      {
+        kind: "group",
+        label: "checks",
+        ...(newest === undefined ? {} : { count: String(newest.check) }),
+      },
+      ...(checks.length === 0
+        ? [{ kind: "text" as const, text: "no checks yet" }]
+        : checks.map((check) => ({
+            kind: "item" as const,
+            name: `check ${String(check.check)}`,
+            detail: describeCheckResult(check, now),
+          }))),
+    ],
+    ...(earlier > 0
+      ? { note: `${String(earlier)} earlier ${earlier === 1 ? "check" : "checks"} not kept` }
+      : {}),
+  };
 }

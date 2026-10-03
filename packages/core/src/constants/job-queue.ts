@@ -5,6 +5,9 @@
  */
 export const MAX_JOBS_PER_BATCH = 20;
 
+/** Checks a `wait_for` job keeps on its record, newest last, for a person watching it live. */
+export const WAIT_RECENT_CHECKS_KEPT = 20;
+
 /** Maximum number of batches with at least one non-terminal job, per agent. */
 export const MAX_ACTIVE_BATCHES_PER_AGENT = 5;
 

@@ -56,6 +56,12 @@ export const WAIT_FOR_MIN_INTERVAL_MS = 250;
 export const WAIT_FOR_DEFAULT_INTERVAL_MS = 5_000;
 
 /**
+ * Budget for the one check `wait_for` runs before handing off to the background, so the call
+ * still returns at once while the agent sees what its condition observes right away.
+ */
+export const WAIT_FOR_FIRST_CHECK_TIMEOUT_MS = 5_000;
+
+/**
  * Conversations each agent keeps in its live history when
  * `history.maxConversationsPerAgent` is unset.
  *

@@ -27,9 +27,19 @@ export interface PollUntilOutcome {
   readonly matched: boolean;
   readonly attempts: number;
   readonly elapsedMs: number;
+  /**
+   * `exitCode`, `stdout` and `stderr` are the last check that ran to completion; a check the
+   * deadline killed midway is dropped, so its timeout note never hides what the check saw.
+   */
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
+  /**
+   * True when more than one check ran and every one returned the same exit code and output: the
+   * check never reacted to anything, which usually means it cannot pass rather than that the
+   * thing it watches is slow.
+   */
+  readonly unchanged: boolean;
 }
 
 export function pollUntilSuccess(input: PollUntilInput): Effect.Effect<PollUntilOutcome> {
@@ -40,6 +50,8 @@ export function pollUntilSuccess(input: PollUntilInput): Effect.Effect<PollUntil
     let exitCode = -1;
     let stdout = "";
     let stderr = "";
+    let firstResult: string | undefined;
+    let everyResultIdentical = true;
 
     while (true) {
       const remainingMs = deadline - Date.now();
@@ -59,9 +71,20 @@ export function pollUntilSuccess(input: PollUntilInput): Effect.Effect<PollUntil
         ),
       );
 
+      const cutOffByDeadline = attempt.exitCode !== 0 && Date.now() >= deadline;
+      if (cutOffByDeadline && attempts > 1) {
+        attempts -= 1;
+        break;
+      }
+
       exitCode = attempt.exitCode;
       stdout = attempt.stdout;
       stderr = attempt.stderr;
+      const result = JSON.stringify([exitCode, stdout, stderr]);
+      firstResult ??= result;
+      if (result !== firstResult) {
+        everyResultIdentical = false;
+      }
 
       if (input.onCheck !== undefined) {
         yield* input.onCheck({ attempts, exitCode, stdout, stderr });
@@ -75,6 +98,7 @@ export function pollUntilSuccess(input: PollUntilInput): Effect.Effect<PollUntil
           exitCode,
           stdout,
           stderr,
+          unchanged: false,
         };
       }
 
@@ -92,6 +116,7 @@ export function pollUntilSuccess(input: PollUntilInput): Effect.Effect<PollUntil
       exitCode,
       stdout,
       stderr,
+      unchanged: attempts > 1 && everyResultIdentical,
     };
   });
 }

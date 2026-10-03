@@ -165,13 +165,14 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
   {
     name: "waits",
     type: "waits",
-    description: "List what is waiting in the background, or cancel one",
-    usage: "[list|cancel <number>]",
+    description: "List what is waiting in the background, show a wait's checks, or cancel one",
+    usage: "[list|show <number>|cancel <number>]",
     forms: [
       { form: "/waits list", meaning: "This conversation's pending waits and background jobs" },
+      { form: "/waits show <number>", meaning: "A wait's command and its recent checks" },
       { form: "/waits cancel <number>", meaning: "Stop one, using its number from the list" },
     ],
-    note: "In fullscreen, press down from an empty composer to reach the same list.",
+    note: "In fullscreen, press down from an empty composer to reach the same list; Enter on a wait opens its checks.",
   },
   {
     name: "memory",
