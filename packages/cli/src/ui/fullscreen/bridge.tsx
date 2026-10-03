@@ -79,6 +79,7 @@ import {
   type ThemePickerRow,
   type ViewModel,
 } from "./types";
+import { opensWaitView, waitBlocks, waitRowHints } from "./wait-view";
 import { formatTurnReceipt } from "../../presentation/turn-receipt";
 import { contentFromOutput, outputFromEntry, projectDocumentEntries } from "../document";
 import { agentDetailsBodyHeight, agentDetailsRows } from "../models/agent-details";
@@ -88,6 +89,7 @@ import {
   describeBackgroundCheck,
   describeBackgroundTiming,
   formatBackgroundWork,
+  type BackgroundItem,
 } from "../models/background-work";
 import { homeIntent } from "../models/home-view";
 import { interruptSummary, type InterruptSnapshot, type ReceiptFacts } from "../models/interrupt";
@@ -1080,6 +1082,9 @@ export function FullscreenBridge(): React.ReactNode {
   const [agentCursor, agentCursorRef, setAgentCursor] = useSynchronizedState<number | null>(null);
   // The sub-agent whose log is standing in for the conversation, if any.
   const [inspectedId, inspectedIdRef, setInspectedId] = useSynchronizedState<string | null>(null);
+  const [inspectedWaitId, inspectedWaitIdRef, setInspectedWaitId] = useSynchronizedState<
+    string | null
+  >(null);
   const [subagentNotice, setSubagentNotice] = useState<string | undefined>(undefined);
   const subagentNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const prompt = promptSlice.prompt;
@@ -1283,6 +1288,16 @@ export function FullscreenBridge(): React.ReactNode {
       setInspectedId(null);
     }
   }, [subagentRuns, backgroundItemsNow, inspectedId, setAgentCursor, setInspectedId]);
+
+  // A wait that finishes takes its view with it; its results arrive in the main conversation.
+  useEffect(() => {
+    if (
+      inspectedWaitId !== null &&
+      !backgroundItemsNow.some((item) => item.batchId === inspectedWaitId)
+    ) {
+      setInspectedWaitId(null);
+    }
+  }, [backgroundItemsNow, inspectedWaitId, setInspectedWaitId]);
 
   useEffect(() => {
     return () => {
@@ -1515,10 +1530,21 @@ export function FullscreenBridge(): React.ReactNode {
   /** Switching what the transcript shows lands at its live edge, as a submit does. */
   const inspectSubagent = useCallback(
     (id: string | null): void => {
+      setInspectedWaitId(null);
       setInspectedId(id);
       setSubmitCount((count) => count + 1);
     },
-    [setInspectedId],
+    [setInspectedId, setInspectedWaitId],
+  );
+
+  /** Opening a wait's checks fills the transcript the way opening a sub-agent does. */
+  const inspectWait = useCallback(
+    (batchId: string | null): void => {
+      setInspectedId(null);
+      setInspectedWaitId(batchId);
+      setSubmitCount((count) => count + 1);
+    },
+    [setInspectedId, setInspectedWaitId],
   );
 
   /**
@@ -2448,8 +2474,17 @@ export function FullscreenBridge(): React.ReactNode {
             return true;
           }
           if (name === "return" || name === "enter") {
-            const chosen = runsNow[Math.min(cursor, lastRow)];
+            const row = Math.min(cursor, lastRow);
+            if (row >= runsNow.length) {
+              const chosenWait = waitsNow[row - runsNow.length];
+              if (opensWaitView(chosenWait)) {
+                setAgentCursor(null);
+                inspectWait(chosenWait.batchId);
+              }
+              return true;
+            }
             setAgentCursor(null);
+            const chosen = runsNow[row];
             if (chosen !== undefined) inspectSubagent(chosen.id);
             return true;
           }
@@ -2469,6 +2504,10 @@ export function FullscreenBridge(): React.ReactNode {
       }
       if (name === "escape" && inspectedIdRef.current !== null) {
         inspectSubagent(null);
+        return true;
+      }
+      if (name === "escape" && inspectedWaitIdRef.current !== null) {
+        inspectWait(null);
         return true;
       }
       if (name === "down" && rowCount > 0 && composerRef.current.text.length === 0) {
@@ -2525,9 +2564,19 @@ export function FullscreenBridge(): React.ReactNode {
         sendToInspectedSubagent();
         return true;
       }
+      // A wait takes no messages; the draft stays for when the main conversation is back.
+      if (
+        inspectedWaitIdRef.current !== null &&
+        (name === "return" || name === "enter") &&
+        !isComposerNewline({ name, shift, option, meta })
+      ) {
+        return true;
+      }
 
       const slashQuery =
-        inspectedIdRef.current === null ? slashCommandQuery(composerRef.current.text) : null;
+        inspectedIdRef.current === null && inspectedWaitIdRef.current === null
+          ? slashCommandQuery(composerRef.current.text)
+          : null;
       const slashCommands = slashQuery === null ? [] : filterCommandsByPrefix(slashQuery);
       if (slashCommands.length > 0) {
         const selected = wrapCommandIndex(commandIndexRef.current, slashCommands.length);
@@ -2795,26 +2844,32 @@ export function FullscreenBridge(): React.ReactNode {
 
   const inspectedRun: SubagentRun | undefined =
     inspectedId === null ? undefined : subagentRuns.find((run) => run.id === inspectedId);
+  const inspectedWait: BackgroundItem | undefined =
+    inspectedWaitId === null
+      ? undefined
+      : backgroundItemsNow.find((item) => item.batchId === inspectedWaitId && opensWaitView(item));
 
   const previousBlocks = useRef<readonly Block[]>([]);
   const blocks = useMemo(() => {
     const next =
-      inspectedRun === undefined
-        ? transcriptBlocks(
-            {
-              outputs,
-              streaming,
-              regions,
-              expandedReasoningIds: presentation.expandedReasoningIds,
-              expandedReceiptIds: presentation.expandedReceiptIds,
-              liveReasoningIds: presentation.liveReasoningIds,
-              ...(presentation.document.streamingId === undefined
-                ? {}
-                : { streamingId: presentation.document.streamingId }),
-            },
-            previousBlocks.current,
-          )
-        : shareUnchangedBlocks(previousBlocks.current, subagentBlocks(inspectedRun, Date.now()));
+      inspectedWait !== undefined
+        ? shareUnchangedBlocks(previousBlocks.current, waitBlocks(inspectedWait, Date.now()))
+        : inspectedRun === undefined
+          ? transcriptBlocks(
+              {
+                outputs,
+                streaming,
+                regions,
+                expandedReasoningIds: presentation.expandedReasoningIds,
+                expandedReceiptIds: presentation.expandedReceiptIds,
+                liveReasoningIds: presentation.liveReasoningIds,
+                ...(presentation.document.streamingId === undefined
+                  ? {}
+                  : { streamingId: presentation.document.streamingId }),
+              },
+              previousBlocks.current,
+            )
+          : shareUnchangedBlocks(previousBlocks.current, subagentBlocks(inspectedRun, Date.now()));
     previousBlocks.current = next;
     return next;
     // elapsedMs ticks the open sub-agent's heading clock.
@@ -2823,6 +2878,7 @@ export function FullscreenBridge(): React.ReactNode {
     streaming,
     regions,
     inspectedRun,
+    inspectedWait,
     elapsedMs,
     presentation.expandedReasoningIds,
     presentation.expandedReceiptIds,
@@ -2922,7 +2978,7 @@ export function FullscreenBridge(): React.ReactNode {
   const inspectedRunning = inspectedRun?.status === "running";
   const inspectedSteerable = inspectedRunning && inspectedRun?.acceptsMessages === true;
   const input = useMemo<InputModel>(() => {
-    const inspecting = inspectedRun !== undefined;
+    const inspecting = inspectedRun !== undefined || inspectedWait !== undefined;
     const commandItems =
       commandQuery === null || inspecting ? [] : filterCommandsByPrefix(commandQuery);
     const mentionItems = mention === null ? [] : mentionEntries;
@@ -2941,15 +2997,17 @@ export function FullscreenBridge(): React.ReactNode {
       caret: draftCaret,
       anchor: draftAnchor,
       placeholder:
-        inspectedRun !== undefined
-          ? inspectedSteerable
-            ? `Message ${inspectedRun.label}`
-            : inspectedRunning
-              ? `${inspectedRun.label} can't take messages · esc to go back`
-              : `${inspectedRun.label} finished · esc to go back`
-          : busy
-            ? "Type to queue for next turn"
-            : "Ask anything",
+        inspectedWait !== undefined
+          ? `Watching ${inspectedWait.description} · esc to go back`
+          : inspectedRun !== undefined
+            ? inspectedSteerable
+              ? `Message ${inspectedRun.label}`
+              : inspectedRunning
+                ? `${inspectedRun.label} can't take messages · esc to go back`
+                : `${inspectedRun.label} finished · esc to go back`
+            : busy
+              ? "Type to queue for next turn"
+              : "Ask anything",
       queued: queue,
       queueing: !inspecting && (busy || queue.length > 0),
       disabled: overlay !== undefined || (!busy && queue.length === 0 && prompt?.type !== "chat"),
@@ -2970,6 +3028,7 @@ export function FullscreenBridge(): React.ReactNode {
     inspectedRun,
     inspectedRunning,
     inspectedSteerable,
+    inspectedWait,
   ]);
 
   const backgroundLabel = formatBackgroundWork(session.backgroundItems);
@@ -2982,13 +3041,15 @@ export function FullscreenBridge(): React.ReactNode {
           ? prompt.message.split(", ")
           : agentCursor !== null
             ? agentCursor >= subagentRuns.length
-              ? ["up down to choose", "x to cancel", "esc to close"]
+              ? waitRowHints(backgroundItemsNow[agentCursor - subagentRuns.length])
               : ["up down to choose", "enter to open", "esc to close"]
-            : inspectedRun !== undefined
-              ? inspectedSteerable
-                ? ["enter to send", "pgup to scroll", "esc back to main"]
-                : ["pgup to scroll", "esc back to main"]
-              : [],
+            : inspectedWait !== undefined
+              ? ["pgup to scroll", "esc back to main"]
+              : inspectedRun !== undefined
+                ? inspectedSteerable
+                  ? ["enter to send", "pgup to scroll", "esc back to main"]
+                  : ["pgup to scroll", "esc back to main"]
+                : [],
       ...(backgroundLabel === undefined ? {} : { background: backgroundLabel }),
       ...(subagentNotice === undefined ? {} : { notice: subagentNotice }),
       ...(stats.promptTokens === undefined && stats.completionTokens === undefined
@@ -3013,6 +3074,8 @@ export function FullscreenBridge(): React.ReactNode {
       inspectedSteerable,
       subagentNotice,
       backgroundLabel,
+      backgroundItemsNow,
+      inspectedWait,
     ],
   );
 
@@ -3046,7 +3109,13 @@ export function FullscreenBridge(): React.ReactNode {
     () => ({
       header,
       blocks,
-      documentId: `${presentation.document.id}:generation:${presentation.documentGeneration}:${inspectedRun === undefined ? "main" : `child:${inspectedRun.id}`}`,
+      documentId: `${presentation.document.id}:generation:${presentation.documentGeneration}:${
+        inspectedWait !== undefined
+          ? `wait:${inspectedWait.batchId}`
+          : inspectedRun === undefined
+            ? "main"
+            : `child:${inspectedRun.id}`
+      }`,
       runActive,
       live,
       input,
@@ -3067,6 +3136,7 @@ export function FullscreenBridge(): React.ReactNode {
       presentation.document.id,
       presentation.documentGeneration,
       inspectedRun,
+      inspectedWait,
     ],
   );
 

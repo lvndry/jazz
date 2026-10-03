@@ -28,16 +28,17 @@ import {
 } from "@jazz/adapters/job-queue-service";
 import { inFlight } from "@jazz/adapters/runs/runs-in-flight";
 import { tailForModel } from "@jazz/core/agent/tools/capped-output";
-import { pollUntilSuccess } from "@jazz/core/agent/tools/poll-until";
+import { pollUntilSuccess, type PollUntilOutcome } from "@jazz/core/agent/tools/poll-until";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
 import {
   COMPLETED_BATCH_SWEEP_INTERVAL_MS,
   DEFAULT_BACKOFF_MAX_MS,
   DEFAULT_JOB_TIMEOUT_MS,
+  WAIT_RECENT_CHECKS_KEPT,
   WORKER_POOL_SIZE,
 } from "@jazz/core/constants/job-queue";
-import type { JobBatchRecord, JobRecord } from "@jazz/core/interfaces/job-queue-service";
+import type { JobBatchRecord, JobCheck, JobRecord } from "@jazz/core/interfaces/job-queue-service";
 import { redactSecretText, type KnownSecret } from "@jazz/core/secrets/redaction";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
@@ -179,6 +180,18 @@ function progressOutputLine(stdout: string, stderr: string, known: readonly Know
     : line;
 }
 
+/** Exported for test: why a watched condition never held, as the woken agent reads it. */
+export function pollTimeoutMessage(polled: PollUntilOutcome): string {
+  const base = `timed out after ${Math.round(polled.elapsedMs / 1000)}s and ${polled.attempts} checks`;
+  if (!polled.unchanged) {
+    return base;
+  }
+  return (
+    `${base}. Every check exited ${polled.exitCode} with identical output, so the check itself ` +
+    "may be unable to pass: run it once yourself and confirm it can exit 0 before waiting again"
+  );
+}
+
 function runJobCommand(claimed: ClaimedJob, leaseOwner: string) {
   const env = createSanitizedEnv({}, []);
   const poll = claimed.poll;
@@ -186,6 +199,7 @@ function runJobCommand(claimed: ClaimedJob, leaseOwner: string) {
     return Effect.gen(function* () {
       const known = yield* toolKnownSecrets();
       let lastRecordedAt = 0;
+      let recentChecks: readonly JobCheck[] = [];
       return yield* pollUntilSuccess({
         command: claimed.command,
         workingDir: claimed.workingDir,
@@ -194,6 +208,11 @@ function runJobCommand(claimed: ClaimedJob, leaseOwner: string) {
         env,
         onCheck: (check) => {
           const now = Date.now();
+          const output = progressOutputLine(check.stdout, check.stderr, known);
+          recentChecks = [
+            ...recentChecks,
+            { check: check.attempts, at: now, exitCode: check.exitCode, output },
+          ].slice(-WAIT_RECENT_CHECKS_KEPT);
           if (now - lastRecordedAt < PROGRESS_RECORD_MIN_INTERVAL_MS) {
             return Effect.void;
           }
@@ -208,7 +227,8 @@ function runJobCommand(claimed: ClaimedJob, leaseOwner: string) {
               checks: check.attempts,
               lastExitCode: check.exitCode,
               lastCheckedAt: now,
-              lastOutput: progressOutputLine(check.stdout, check.stderr, known),
+              lastOutput: output,
+              recentChecks,
             },
           ).pipe(Effect.ignore);
         },
@@ -217,9 +237,7 @@ function runJobCommand(claimed: ClaimedJob, leaseOwner: string) {
       Effect.map((polled) => ({
         success: polled.matched,
         result: { stdout: polled.stdout, stderr: polled.stderr, exitCode: polled.exitCode },
-        error: polled.matched
-          ? null
-          : `timed out after ${Math.round(polled.elapsedMs / 1000)}s and ${polled.attempts} checks`,
+        error: polled.matched ? null : pollTimeoutMessage(polled),
       })),
     );
   }

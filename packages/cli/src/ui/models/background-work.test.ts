@@ -6,6 +6,7 @@ import {
   describeBackgroundTiming,
   formatBackgroundWork,
   sameBackgroundItems,
+  waitReport,
 } from "./background-work";
 
 function job(poll: boolean, overrides: Partial<JobRecord> = {}): JobRecord {
@@ -166,5 +167,73 @@ describe("sameBackgroundItems", () => {
     const second = backgroundItems([batch({ id: "b" })], "conversation-1");
     expect(sameBackgroundItems(first, first)).toBe(true);
     expect(sameBackgroundItems(first, second)).toBe(false);
+  });
+});
+
+describe("waitReport", () => {
+  function watchWith(recentChecks: NonNullable<JobRecord["progress"]>["recentChecks"]) {
+    const [item] = backgroundItems(
+      [
+        batch({
+          jobs: [
+            job(true, {
+              command: "gh run view 1 --json status -q .status",
+              ...(recentChecks === undefined
+                ? {}
+                : {
+                    progress: {
+                      checks: recentChecks.length,
+                      lastExitCode: 1,
+                      lastCheckedAt: 0,
+                      lastOutput: "",
+                      recentChecks,
+                    },
+                  }),
+            }),
+          ],
+        }),
+      ],
+      "conversation-1",
+    );
+    return item!;
+  }
+
+  test("names the full command, its interval, and when it gives up", () => {
+    expect(waitReport(watchWith(undefined), 9_000).rows.slice(0, 3)).toEqual([
+      { kind: "field", key: "command", value: "gh run view 1 --json status -q .status" },
+      { kind: "field", key: "every", value: "1s" },
+      { kind: "field", key: "status", value: "gives up in 51s" },
+    ]);
+  });
+
+  test("says so before the first check has run", () => {
+    expect(waitReport(watchWith(undefined), 0).rows).toContainEqual({
+      kind: "text",
+      text: "no checks yet",
+    });
+  });
+
+  /** Oldest first, so the newest check sits at the transcript's live edge. */
+  test("lists every saved check oldest first, saying when one printed nothing", () => {
+    const report = waitReport(
+      watchWith([
+        { check: 1, at: 20_000, exitCode: 1, output: "completed..." },
+        { check: 2, at: 50_000, exitCode: 1, output: "" },
+      ]),
+      62_000,
+    );
+
+    expect(report.rows.filter((row) => row.kind === "item")).toEqual([
+      { kind: "item", name: "check 1", detail: "exit 1 · 42s ago · completed..." },
+      { kind: "item", name: "check 2", detail: "exit 1 · 12s ago · no output" },
+    ]);
+    expect(report.rows).toContainEqual({ kind: "group", label: "checks", count: "2" });
+    expect(report.note).toBeUndefined();
+  });
+
+  test("notes how many earlier checks fell out of the saved history", () => {
+    const report = waitReport(watchWith([{ check: 41, at: 0, exitCode: 1, output: "x" }]), 0);
+
+    expect(report.note).toBe("40 earlier checks not kept");
   });
 });

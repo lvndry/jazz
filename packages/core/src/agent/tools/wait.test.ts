@@ -1,7 +1,11 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { SHELL_COMMAND_MAX_TIMEOUT_MS, WAIT_FOR_MIN_INTERVAL_MS } from "@/core/constants/agent";
+import {
+  SHELL_COMMAND_MAX_TIMEOUT_MS,
+  WAIT_FOR_FIRST_CHECK_TIMEOUT_MS,
+  WAIT_FOR_MIN_INTERVAL_MS,
+} from "@/core/constants/agent";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import {
   JobQueueServiceTag,
@@ -11,7 +15,7 @@ import {
 } from "@/core/interfaces/job-queue-service";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { createWaitTools } from "./wait";
+import { createWaitTools, worstCaseRuns } from "./wait";
 
 const fileSystemContext: FileSystemContextService = {
   getCwd: () => Effect.succeed(process.cwd()),
@@ -98,35 +102,128 @@ function runCancel(args: Record<string, unknown>) {
 
 describe("wait_for", () => {
   /**
-   * The call must hand the poll to the background worker and come back immediately; blocking the
+   * The call must hand the poll to the background worker and come back quickly; blocking the
    * turn for the whole wait is what this tool exists to avoid.
    */
-  it("enqueues the wait as a poll job and returns without running the command", async () => {
+  it("enqueues the wait as a poll job and returns without waiting it out", async () => {
     enqueueCalls.length = 0;
-    const started = Date.now();
     const result = await run({
-      command: "sleep 600; true",
+      command: "echo building; false",
       description: "a slow condition",
       intervalMs: 2_000,
       timeoutMs: 60_000,
     });
 
-    expect(Date.now() - started).toBeLessThan(5_000);
     expect(result.success).toBe(true);
     expect((result.result as { batchId: string }).batchId).toBe("batch-1");
     expect(enqueueCalls).toHaveLength(1);
     expect(enqueueCalls[0]?.conversationId).toBe("conversation-1");
     expect(enqueueCalls[0]?.options.reason).toBe("a slow condition");
-    expect(enqueueCalls[0]?.jobs).toEqual([
-      { command: "sleep 600; true", poll: { intervalMs: 2_000, timeoutMs: 60_000 } },
-    ]);
+    const [enqueued] = enqueueCalls[0]?.jobs ?? [];
+    expect(enqueued?.command).toBe("echo building; false");
+    expect(enqueued?.poll?.intervalMs).toBe(2_000);
+    expect(enqueued?.poll?.timeoutMs).toBeLessThanOrEqual(60_000);
+    expect(enqueued?.poll?.timeoutMs).toBeGreaterThan(55_000);
+  });
+
+  /**
+   * A check that can never pass (a wrong jq filter, a grep for text that never appears) must
+   * show what it observes on the call itself, not after the whole wait has run out.
+   */
+  it("returns the first check's exit code and output with the batch", async () => {
+    const result = await run({ command: "echo completed...; exit 1", description: "a run" });
+
+    expect(result.result).toMatchObject({
+      status: "watching",
+      firstCheck: { exitCode: 1, output: "completed..." },
+    });
+    expect((result.result as { note?: string }).note).toBeUndefined();
+  });
+
+  it("flags a first check that printed nothing", async () => {
+    const result = await run({ command: "false", description: "a silent check" });
+
+    expect((result.result as { note?: string }).note).toContain("printed nothing");
+  });
+
+  it("schedules nothing when the condition already holds", async () => {
+    enqueueCalls.length = 0;
+    const result = await run({ command: "echo ready", description: "already done" });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toEqual({ status: "holds", output: "ready" });
+    expect(enqueueCalls).toHaveLength(0);
+  });
+
+  it(
+    "still enqueues a check that outlasts the first-check budget",
+    async () => {
+      enqueueCalls.length = 0;
+      const started = Date.now();
+      const result = await run({ command: "sleep 600; true", description: "a slow check" });
+
+      expect(Date.now() - started).toBeLessThan(WAIT_FOR_FIRST_CHECK_TIMEOUT_MS + 3_000);
+      expect(result.result).toMatchObject({
+        status: "watching",
+        firstCheck: { output: expect.stringContaining("timed out") },
+      });
+      expect(enqueueCalls).toHaveLength(1);
+    },
+    WAIT_FOR_FIRST_CHECK_TIMEOUT_MS + 5_000,
+  );
+
+  /**
+   * The check before the call returns is one of the runs the person approved, and it spends the
+   * same deadline the background wait does.
+   */
+  it("counts the up-front check in the approved worst case", () => {
+    expect(worstCaseRuns(250, 501)).toBe(4);
+  });
+
+  it("states that worst case at the approval gate", async () => {
+    const approval = await Effect.runPromise(
+      tools.approval
+        .execute({ command: "false", description: "approval", intervalMs: 250, timeoutMs: 501 }, {
+          agentId: "agent-1",
+          conversationId: "conversation-1",
+        } as ToolExecutionContext)
+        .pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, Error, never>,
+    );
+
+    expect((approval.result as { message: string }).message).toContain("about 4 runs");
+  });
+
+  it("hands the background wait only the time the first check left", async () => {
+    enqueueCalls.length = 0;
+    await run({ command: "sleep 0.3; false", description: "shared deadline", timeoutMs: 10_000 });
+
+    const backgroundTimeoutMs = enqueueCalls[0]?.jobs[0]?.poll?.timeoutMs ?? 0;
+    expect(backgroundTimeoutMs).toBeLessThanOrEqual(10_000 - 300);
+    expect(backgroundTimeoutMs).toBeGreaterThan(5_000);
+  });
+
+  it("schedules nothing when the first check spends the whole timeout", async () => {
+    enqueueCalls.length = 0;
+    const result = await run({
+      command: "sleep 5; false",
+      description: "too slow",
+      timeoutMs: 300,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("ran out during the first check");
+    expect(enqueueCalls).toHaveLength(0);
   });
 
   it("defaults the interval and the timeout when they are not given", async () => {
     enqueueCalls.length = 0;
-    await run({ command: "true", description: "defaults" });
+    await run({ command: "false", description: "defaults" });
 
-    expect(enqueueCalls[0]?.jobs[0]?.poll?.timeoutMs).toBe(SHELL_COMMAND_MAX_TIMEOUT_MS);
+    const backgroundTimeoutMs = enqueueCalls[0]?.jobs[0]?.poll?.timeoutMs ?? 0;
+    expect(backgroundTimeoutMs).toBeLessThanOrEqual(SHELL_COMMAND_MAX_TIMEOUT_MS);
+    expect(backgroundTimeoutMs).toBeGreaterThan(
+      SHELL_COMMAND_MAX_TIMEOUT_MS - WAIT_FOR_FIRST_CHECK_TIMEOUT_MS,
+    );
     expect(enqueueCalls[0]?.jobs[0]?.poll?.intervalMs).toBeGreaterThanOrEqual(
       WAIT_FOR_MIN_INTERVAL_MS,
     );

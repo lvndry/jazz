@@ -11,6 +11,7 @@ import {
   SHELL_COMMAND_MAX_TIMEOUT_MS,
   SHELL_COMMAND_TIMEOUT_MINUTES,
   WAIT_FOR_DEFAULT_INTERVAL_MS,
+  WAIT_FOR_FIRST_CHECK_TIMEOUT_MS,
   WAIT_FOR_MIN_INTERVAL_MS,
 } from "@/core/constants/agent";
 import { JOB_REASON_MAX_LENGTH } from "@/core/constants/job-queue";
@@ -20,6 +21,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { spawnJobWorker } from "@/core/jobs/spawn-job-worker";
 import type { ToolExecutionResult } from "@/core/types";
+import { createSanitizedEnv } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
 import {
   defineApprovalTool,
@@ -27,14 +29,70 @@ import {
   makeZodValidator,
   type ApprovalToolPair,
 } from "./base-tool";
+import { tailForModel } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
-import { denylistBlockedError } from "./shell";
+import { denylistBlockedError, runShellCommand } from "./shell";
+import { toolKnownSecrets } from "./tool-secrets";
 
 export type WaitToolDeps =
   FileSystemContextService | JobQueueService | LoggerService | FileSystem.FileSystem;
 
 function summarizeJobBatchId(batchId: string): string {
   return `wait_for batch ${batchId}`;
+}
+
+interface FirstCheck {
+  readonly exitCode: number;
+  readonly output: string;
+}
+
+/**
+ * Run the condition once, in the same environment the background worker uses, so a check that
+ * can never pass shows its real output now instead of after the whole wait. A check that outlasts
+ * `timeoutMs` is killed and reported as timed out.
+ */
+function runFirstCheck(
+  command: string,
+  workingDir: string,
+  timeoutMs: number,
+): Effect.Effect<FirstCheck> {
+  return Effect.gen(function* () {
+    const known = yield* toolKnownSecrets();
+    return yield* runShellCommand({
+      command,
+      workingDir,
+      timeoutMs,
+      env: createSanitizedEnv({}, []),
+      redact: known,
+    }).pipe(
+      Effect.map((attempt) => ({
+        exitCode: attempt.exitCode,
+        output: tailForModel(attempt.stdout.trim() || attempt.stderr.trim()),
+      })),
+      Effect.catchAll((error) => Effect.succeed({ exitCode: -1, output: toError(error).message })),
+    );
+  });
+}
+
+/**
+ * Most times the command can run: the check before the call returns, then one at the start of the
+ * background wait and one per interval until the shared deadline.
+ */
+export function worstCaseRuns(intervalMs: number, timeoutMs: number): number {
+  return Math.floor(timeoutMs / intervalMs) + 2;
+}
+
+function describeFirstCheck(check: FirstCheck): Record<string, unknown> {
+  return {
+    firstCheck: check,
+    ...(check.output.length === 0
+      ? {
+          note:
+            "The check printed nothing, so its progress is invisible. If it should, cancel and " +
+            "rerun wait_for with a command that prints the value it tests before testing it.",
+        }
+      : {}),
+  };
 }
 
 const waitForParameters = z
@@ -137,7 +195,10 @@ export function createWaitTools(): WaitTools {
       `it happens or after ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes at most. Cancel with cancel_wait_for using the batch id it returns.`,
     description:
       "Rerun a command in the background until it exits 0; use it for every wait-until check. " +
-      "Returns at once with a batchId while you keep working, and you are woken with the last " +
+      "Runs one check right away: if it already exits 0 the call returns status `holds` and " +
+      "nothing is scheduled; otherwise it returns that first check's exit code and output plus " +
+      "a batchId, and keeps checking in the background while you keep working. Read the first " +
+      "check's output to confirm the command tests what you mean. You are woken with the last " +
       "check's output when the command first exits 0 or when the time runs out. " +
       "Have the command print one short status line per check, such as " +
       "`tail -n 1 build.log; grep -q 'build finished' build.log`; the newest line shows in the " +
@@ -157,7 +218,7 @@ export function createWaitTools(): WaitTools {
 
       const intervalMs = args.intervalMs ?? WAIT_FOR_DEFAULT_INTERVAL_MS;
       const timeoutMs = args.timeoutMs ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
-      const maxAttempts = Math.floor(timeoutMs / intervalMs) + 1;
+      const maxAttempts = worstCaseRuns(intervalMs, timeoutMs);
 
       return Effect.succeed(`Wait for: ${args.description}
 
@@ -194,10 +255,32 @@ The command runs repeatedly and unattended, in the background, until it succeeds
         const intervalMs = args.intervalMs ?? WAIT_FOR_DEFAULT_INTERVAL_MS;
         const timeoutMs = args.timeoutMs ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
 
+        const firstCheckStartedAt = Date.now();
+        const firstCheck = yield* runFirstCheck(
+          args.command,
+          workingDir,
+          Math.min(WAIT_FOR_FIRST_CHECK_TIMEOUT_MS, timeoutMs),
+        );
+        if (firstCheck.exitCode === 0) {
+          return {
+            success: true,
+            result: { status: "holds", output: firstCheck.output },
+          } satisfies ToolExecutionResult;
+        }
+
+        const remainingTimeoutMs = timeoutMs - (Date.now() - firstCheckStartedAt);
+        if (remainingTimeoutMs <= 0) {
+          return {
+            success: false,
+            result: { firstCheck },
+            error: `The whole ${String(timeoutMs)}ms timeout ran out during the first check, so nothing was scheduled.`,
+          } satisfies ToolExecutionResult;
+        }
+
         const outcome = yield* jobQueueService.enqueueBatch(
           context.agentId,
           context.conversationId,
-          [{ command: args.command, poll: { intervalMs, timeoutMs } }],
+          [{ command: args.command, poll: { intervalMs, timeoutMs: remainingTimeoutMs } }],
           { workingDir, reason: args.description },
         );
 
@@ -216,6 +299,7 @@ The command runs repeatedly and unattended, in the background, until it succeeds
           result: {
             batchId: outcome.batch.id,
             status: "watching",
+            ...describeFirstCheck(firstCheck),
             ...(worker.spawned
               ? {}
               : {
@@ -237,7 +321,10 @@ The command runs repeatedly and unattended, in the background, until it succeeds
       ),
     createSummary: (result) => {
       if (!result.success) return undefined;
-      const data = result.result as { batchId: string };
+      const data = result.result as { batchId?: string; status: string };
+      if (data.batchId === undefined) {
+        return "The condition already holds";
+      }
       return `Watching in the background (${summarizeJobBatchId(data.batchId)})`;
     },
   });

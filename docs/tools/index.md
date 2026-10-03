@@ -135,8 +135,17 @@ bookkeeping or start child runs, so a peer reaches them only when its `allow` na
 | `wait_for`        | `unknown`  | `execute_wait_for`        | Watch in the background until a command exits 0, re-running it on an interval as tight as 250 ms. Returns at once; the agent is woken when the condition holds or after 15 minutes at most.                   |
 | `cancel_wait_for` | `low-risk` | none                      | Cancel a pending `wait_for` by batch id (get the id from wait_for first).                                                                                                                                     |
 
-`wait_for` runs as a background job (the same worker as `run_background_jobs`), so the agent keeps
-working and is woken with the last check's output when the condition holds or the time runs out.
+`wait_for` checks once before it returns. If the condition already holds, nothing is scheduled.
+Otherwise the call returns that first check's exit code and output, and keeps checking as a
+background job (the same worker as `run_background_jobs`). The agent keeps working and is woken with
+the last check's output when the condition holds or the time runs out. If every check returned the
+same exit code and output, the wake message says so and tells the agent to test the check itself
+before waiting again.
+
+To watch a wait live in the fullscreen terminal, press down from an empty composer to reach the
+pending waits and press Enter on one. Its command and recent checks (exit code, age and output of
+each) replace the transcript and update as checks run; Esc goes back to the conversation.
+Elsewhere, `/waits show <number>` prints the same view once.
 `cancel_wait_for` cancels the batch that `wait_for` created; for waits longer than 15 minutes, `register_trigger` suspends the run and resumes it later.
 
 In the interactive terminal, an operator can also type `! <command>` (the space after `!` is

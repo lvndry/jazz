@@ -1,7 +1,7 @@
 /**
  * @fileoverview The chat `/waits` command: list this conversation's pending waits and queued
- * jobs, and cancel one. The list under the composer does the same in fullscreen; this is the
- * way in everywhere else.
+ * jobs, show one wait's recent checks, and cancel one. The list under the composer does the same
+ * in fullscreen; this is the way in everywhere else.
  */
 
 import { JobQueueServiceTag } from "@jazz/core/interfaces/job-queue-service";
@@ -12,6 +12,7 @@ import {
   describeBackgroundCheck,
   describeBackgroundCommand,
   describeBackgroundTiming,
+  waitReport,
   type BackgroundItem,
 } from "@/cli/ui/models/background-work";
 import { builtinUsage } from "./constants";
@@ -66,6 +67,16 @@ export function handleWaitsCommand(context: CommandContext, args: readonly strin
       for (const [index, item] of items.entries()) {
         yield* terminal.log(formatBackgroundItem(item, index + 1, now));
       }
+      return { shouldContinue: true };
+    }
+
+    if (subcommand.toLowerCase() === "show") {
+      const chosen = handle === undefined ? undefined : resolveBackgroundItem(items, handle);
+      if (chosen?.kind !== "watch") {
+        yield* terminal.warn("Usage: /waits show <number of a wait from /waits list>");
+        return { shouldContinue: true };
+      }
+      yield* terminal.log(waitReport(chosen, Date.now()));
       return { shouldContinue: true };
     }
 
