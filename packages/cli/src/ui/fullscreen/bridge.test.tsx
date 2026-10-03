@@ -184,12 +184,12 @@ describe("fullscreen bridge", () => {
     expect(text).toContain(`qwen3 ${getGlyphs().bullet} gpu.example:8000`);
   });
 
-  it("hydrates identity into the header without crowding the mark", async () => {
+  it("hydrates the working directory into the header without crowding the mark", async () => {
     store.setWorkingDirectory("/tmp/音楽/👨‍👩‍👧‍👦-e\u0301");
     const text = await frame();
     expect(text).toContain("jazz");
     expect(text).not.toContain(`v${packageJson.version}`);
-    expect(text).not.toContain("/tmp/音楽/👨‍👩‍👧‍👦-e\u0301");
+    expect(text).toContain("/tmp/音楽/👨‍👩‍👧‍👦-e\u0301");
   });
 
   it("hydrates a resumed conversation into the visible transcript", async () => {
