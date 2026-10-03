@@ -115,3 +115,30 @@ Before calling the tool, ask:
 - Can someone use it with a keyboard and on a narrow screen?
 - Are all numbers, labels, units, and caveats accurate and visible?
 - Did I make a composition rather than a generic dashboard template?
+
+## Publishing
+
+When the person wants a link they can open from anywhere — share it with
+someone, keep it as a permanent artifact, or view it on another device — offer
+`publish_composition`. It pushes the finished HTML to a stable GitHub Pages URL
+and is the only path that turns a local composition into something a second
+person can open without your machine.
+
+Offer it, do not assume it: publishing writes to the account `gh` is logged in
+as and, on first use, creates a repo there. Preview the destination URL to the
+person and let the approval gate carry the consent.
+
+- Stable URLs: re-publishing the same name overwrites the same file at the same
+  URL instead of minting a new one. Change the name to keep an old version and
+  add a new one side by side.
+- `public` (default): a public repo and a URL anyone with the link can open.
+  Use it for things that are fine for strangers to see.
+- `private`: a private repo, so the source is hidden from non-members and the
+  person opens the page while logged in. Say this honestly to the person:
+  "private" here means the _source_ is not public and the link needs a GitHub
+  login — it is not a password gate and it is not source-confidential for
+  everyone. If their account lacks the plan that GitHub charges for private
+  Pages, the tool reports a logged-in link instead of failing.
+
+It needs `gh` (authenticated) and `git` on the machine; the tool says so
+plainly if either is missing.
