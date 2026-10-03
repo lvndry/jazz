@@ -79,7 +79,7 @@ import {
   type ThemePickerRow,
   type ViewModel,
 } from "./types";
-import { waitBlocks } from "./wait-view";
+import { opensWaitView, waitBlocks, waitRowHints } from "./wait-view";
 import { formatTurnReceipt } from "../../presentation/turn-receipt";
 import { contentFromOutput, outputFromEntry, projectDocumentEntries } from "../document";
 import { agentDetailsBodyHeight, agentDetailsRows } from "../models/agent-details";
@@ -2475,12 +2475,15 @@ export function FullscreenBridge(): React.ReactNode {
           }
           if (name === "return" || name === "enter") {
             const row = Math.min(cursor, lastRow);
-            setAgentCursor(null);
             if (row >= runsNow.length) {
               const chosenWait = waitsNow[row - runsNow.length];
-              if (chosenWait !== undefined) inspectWait(chosenWait.batchId);
+              if (opensWaitView(chosenWait)) {
+                setAgentCursor(null);
+                inspectWait(chosenWait.batchId);
+              }
               return true;
             }
+            setAgentCursor(null);
             const chosen = runsNow[row];
             if (chosen !== undefined) inspectSubagent(chosen.id);
             return true;
@@ -2844,7 +2847,7 @@ export function FullscreenBridge(): React.ReactNode {
   const inspectedWait: BackgroundItem | undefined =
     inspectedWaitId === null
       ? undefined
-      : backgroundItemsNow.find((item) => item.batchId === inspectedWaitId);
+      : backgroundItemsNow.find((item) => item.batchId === inspectedWaitId && opensWaitView(item));
 
   const previousBlocks = useRef<readonly Block[]>([]);
   const blocks = useMemo(() => {
@@ -3038,7 +3041,7 @@ export function FullscreenBridge(): React.ReactNode {
           ? prompt.message.split(", ")
           : agentCursor !== null
             ? agentCursor >= subagentRuns.length
-              ? ["up down to choose", "enter to open", "x to cancel", "esc to close"]
+              ? waitRowHints(backgroundItemsNow[agentCursor - subagentRuns.length])
               : ["up down to choose", "enter to open", "esc to close"]
             : inspectedWait !== undefined
               ? ["pgup to scroll", "esc back to main"]
@@ -3071,6 +3074,7 @@ export function FullscreenBridge(): React.ReactNode {
       inspectedSteerable,
       subagentNotice,
       backgroundLabel,
+      backgroundItemsNow,
       inspectedWait,
     ],
   );

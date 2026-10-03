@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { waitBlocks } from "./wait-view";
+import { opensWaitView, waitBlocks, waitRowHints } from "./wait-view";
 import type { BackgroundItem } from "../models/background-work";
 
 const WATCH: BackgroundItem = {
@@ -21,5 +21,27 @@ describe("wait view", () => {
     expect(label).toContain("CI run");
     expect(label).toContain("gives up in 9m 00s");
     expect(body?.kind).toBe("report");
+  });
+});
+
+/** The waits list also holds queued jobs, which have no checks to open. */
+describe("wait rows", () => {
+  const job: BackgroundItem = {
+    ...WATCH,
+    kind: "job",
+    intervalMs: undefined,
+    expiresAt: undefined,
+  };
+
+  test("open the view for a wait, not for a queued job", () => {
+    expect(opensWaitView(WATCH)).toBe(true);
+    expect(opensWaitView(job)).toBe(false);
+    expect(opensWaitView(undefined)).toBe(false);
+  });
+
+  test("offer Enter only on a wait", () => {
+    expect(waitRowHints(WATCH)).toContain("enter to open");
+    expect(waitRowHints(job)).not.toContain("enter to open");
+    expect(waitRowHints(job)).toContain("x to cancel");
   });
 });

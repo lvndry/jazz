@@ -21,3 +21,15 @@ export function waitBlocks(item: BackgroundItem, now: number): Block[] {
     { id: `${item.batchId}:checks`, seq: 1, kind: "report", report: waitReport(item, now) },
   ];
 }
+
+/** Only a wait has checks to show; a queued job's row offers cancelling alone. */
+export function opensWaitView(item: BackgroundItem | undefined): item is BackgroundItem {
+  return item?.kind === "watch";
+}
+
+/** Footer hints while the cursor is on a row of the waits list. */
+export function waitRowHints(item: BackgroundItem | undefined): readonly string[] {
+  return opensWaitView(item)
+    ? ["up down to choose", "enter to open", "x to cancel", "esc to close"]
+    : ["up down to choose", "x to cancel", "esc to close"];
+}
