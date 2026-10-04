@@ -102,6 +102,7 @@ import {
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
 import { lifecycleEventForStreamEvent } from "../plugins/lifecycle-bridge";
+import { saveSubagentResult, subagentResultsDirectory } from "../subagents/results";
 import { createSubagentSupervisor, type SubagentSupervisor } from "../subagents/supervisor";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
@@ -1923,7 +1924,13 @@ export function executeAgentLoop(
       const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
         Option.none(),
       );
-      const subagents = yield* createSubagentSupervisor();
+      const subagents = yield* createSubagentSupervisor({
+        saveResult: (child) =>
+          saveSubagentResult(
+            subagentResultsDirectory(options.agent.id, runContext.actualConversationId),
+            child,
+          ),
+      });
       // A resumed session is the most expensive place to count with fresh
       // defaults: history is long, so the first pre-call estimate is what
       // decides compaction for a context that may be near the limit. Reuse

@@ -11,6 +11,7 @@ import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Agent } from "@/core/types";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { createSubagentTools } from "./subagent";
 import { AgentRunner } from "../agent-runner";
 import {
@@ -117,6 +118,30 @@ describe("sub-agents the parent steers", () => {
       timedOut: false,
       subagents: [{ id: agentId, status: "completed", result: "Lisbon, €84 return" }],
     });
+  });
+
+  it("returns every child's answer within one tool result when they overflow it", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    await call("spawn_subagent", { task: "market", name: "market" }, supervisor);
+    await call("spawn_subagent", { task: "rates", name: "rates" }, supervisor);
+    await Effect.runPromise(
+      Deferred.succeed(children.answers[0]!, "market finding\n".repeat(3_000)),
+    );
+    await Effect.runPromise(
+      Deferred.succeed(children.answers[1]!, "rates finding\n".repeat(1_600)),
+    );
+
+    const waited = await call("wait_subagents", {}, supervisor);
+    const formatted = formatToolResultForContext("wait_subagents", waited.result);
+
+    expect(formatted).not.toContain("[truncated");
+    const shown = JSON.parse(formatted) as { subagents: { name: string; result: string }[] };
+    expect(shown.subagents.map((child) => child.name)).toEqual(["market", "rates"]);
+    for (const child of shown.subagents) {
+      expect(child.result).toContain(`${child.name} finding`);
+    }
   });
 
   it("gives the child the hooks the parent steers it with and the shared cost pool", async () => {

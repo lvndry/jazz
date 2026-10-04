@@ -110,13 +110,14 @@ function runSpawnArgs(
       }
       const waited = yield* supervisor.wait([agentId], "all", 60_000);
       const child = waited.subagents[0];
+      const shownAfterRead = child?.error !== undefined ? child.untrusted : undefined;
       for (const name of ["list_subagents", "wait_subagents"]) {
         const tool = createSubagentTools().find((candidate) => candidate.name === name)!;
         const result = yield* tool.execute(
           {},
           { agentId: parentAgent.id, subagents: supervisor },
         ) as Effect.Effect<ToolExecutionResult, unknown, LoggerService | PresentationService>;
-        expect(result.untrusted).toEqual(child?.untrusted);
+        expect(result.untrusted).toEqual(shownAfterRead);
       }
       return {
         success: child?.status === "completed",

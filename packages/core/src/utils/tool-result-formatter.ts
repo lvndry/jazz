@@ -24,7 +24,7 @@ import { isRecord } from "@/core/utils/is-record";
 // ---------------------------------------------------------------------------
 
 /** Default character budget for serialized tool results. */
-const DEFAULT_MAX_CHARS = 12_000;
+export const DEFAULT_TOOL_RESULT_MAX_CHARS = 12_000;
 
 const WIDE_PAYLOAD_MAX_CHARS = 16_000;
 const VERY_WIDE_PAYLOAD_MAX_CHARS = 24_000;
@@ -83,7 +83,7 @@ function hasLargeArrayField(value: Record<string, unknown>): boolean {
 
 function resolveMaxChars(result: unknown): number {
   if (typeof result === "string") {
-    return result.length > 4_000 ? VERY_WIDE_PAYLOAD_MAX_CHARS : DEFAULT_MAX_CHARS;
+    return result.length > 4_000 ? VERY_WIDE_PAYLOAD_MAX_CHARS : DEFAULT_TOOL_RESULT_MAX_CHARS;
   }
   if (Array.isArray(result)) {
     return result.length > 100 ? VERY_WIDE_PAYLOAD_MAX_CHARS : WIDE_PAYLOAD_MAX_CHARS;
@@ -96,7 +96,7 @@ function resolveMaxChars(result: unknown): number {
       return WIDE_PAYLOAD_MAX_CHARS;
     }
   }
-  return DEFAULT_MAX_CHARS;
+  return DEFAULT_TOOL_RESULT_MAX_CHARS;
 }
 
 /**
