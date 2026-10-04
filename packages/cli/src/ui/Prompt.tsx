@@ -94,6 +94,10 @@ function PromptComponent({
   // Stable callback - doesn't change between renders
   const handleSubmit = useCallback((val: string): void => {
     const currentPrompt = promptRef.current;
+    if (currentPrompt.type === "chat" && store.runCommandImmediately(val)) {
+      setValueRef.current("", 0);
+      return;
+    }
     // Check if validation function exists
     const validate = currentPrompt.options?.["validate"];
     if (validate !== undefined && validate !== null && typeof validate === "function") {

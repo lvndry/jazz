@@ -373,6 +373,8 @@ describe("footer hints", () => {
     ]);
     // The card carries its own legend; the footer states that the session is waiting.
     expect(hintsFor("input", false, false, "approval")).toEqual(["waiting for you"]);
+    expect(hintsFor("input", true, false, "panel")).toEqual(["working", "esc to close"]);
+    expect(hintsFor("input", false, false, "panel")).toEqual(["esc to close"]);
     expect(hintsFor("input", false, false, "text")).toEqual([
       "waiting for you",
       "pgup to read above",

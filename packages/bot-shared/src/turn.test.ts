@@ -701,9 +701,11 @@ describe("turn runner", () => {
     const firstRun = current;
     current = undefined;
     const other = runner.handle(message("other chat", REQUESTER, "c2"));
-    await Bun.sleep(20);
+    const toldBusy = (): boolean => sent.some((entry) => entry.text.includes("Busy with 1"));
+    // A loaded CI runner can take longer than any fixed sleep to send the busy reply.
+    for (let attempt = 0; !toldBusy() && attempt < 1000; attempt += 1) await Bun.sleep(1);
     expect(runsStarted).toEqual(["hello"]);
-    expect(sent.some((entry) => entry.text.includes("Busy with 1"))).toBe(true);
+    expect(toldBusy()).toBe(true);
     firstRun?.finish();
     await turn;
     const running = (): FakeRun | undefined => current;

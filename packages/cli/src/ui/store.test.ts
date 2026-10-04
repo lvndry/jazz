@@ -193,6 +193,74 @@ describe("UIStore", () => {
     });
   });
 
+  describe("command panel", () => {
+    const text = (message: string) => ({
+      kind: "text" as const,
+      tone: "info" as const,
+      text: message,
+    });
+
+    test("opens on a run's first output, not when the run begins", () => {
+      const s = new UIStore();
+      const run = s.beginCommandPanel();
+      expect(s.getCommandPanelSnapshot()).toBe(null);
+
+      s.appendCommandPanel(run, "/info", text("one"));
+      s.appendCommandPanel(run, "/info", text("two"));
+      expect(s.getCommandPanelSnapshot()?.entries).toEqual([text("one"), text("two")]);
+    });
+
+    test("a newer run replaces the panel and an older run's late output is dropped", () => {
+      const s = new UIStore();
+      const older = s.beginCommandPanel();
+      const newer = s.beginCommandPanel();
+      s.appendCommandPanel(older, "/info", text("old"));
+      s.appendCommandPanel(newer, "/cost", text("new"));
+      s.appendCommandPanel(older, "/info", text("late"));
+
+      expect(s.getCommandPanelSnapshot()).toEqual({
+        id: newer,
+        command: "/cost",
+        entries: [text("new")],
+      });
+    });
+
+    test("output after the panel was closed does not reopen it", () => {
+      const s = new UIStore();
+      const run = s.beginCommandPanel();
+      s.appendCommandPanel(run, "/info", text("first"));
+      s.closeCommandPanel();
+      s.appendCommandPanel(run, "/info", text("second"));
+      expect(s.getCommandPanelSnapshot()).toBe(null);
+    });
+
+    test("runs a command immediately only through the registered runner", () => {
+      const s = new UIStore();
+      expect(s.runCommandImmediately("/info")).toBe(false);
+      const seen: string[] = [];
+      s.registerImmediateCommandRunner((command) => (seen.push(command), true));
+      expect(s.runCommandImmediately("  /info  ")).toBe(true);
+      expect(seen).toEqual(["/info"]);
+    });
+  });
+
+  describe("theme picker prompt", () => {
+    test("a prompt the session needs dismisses the theme picker", () => {
+      const s = new UIStore();
+      let dismissed = 0;
+      s.setPrompt({
+        type: "theme",
+        message: "Theme",
+        resolve: () => undefined,
+        reject: () => (dismissed += 1),
+      });
+      const question = { type: "chat" as const, message: "You:", resolve: () => undefined };
+      s.setPrompt(question);
+      expect(dismissed).toBe(1);
+      expect(s.getPromptSnapshot()).toBe(question);
+    });
+  });
+
   describe("completePrompt", () => {
     test("keeps the snapshot data-only and runs the continuation once", () => {
       const s = new UIStore();

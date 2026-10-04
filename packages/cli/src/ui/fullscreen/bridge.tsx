@@ -58,8 +58,10 @@ import {
   type KeyAction,
 } from "./keymap";
 import { TODO_WINDOW_ROWS } from "./LiveZone";
+import { commandPanelLayout } from "./overlays/CommandPanel";
 import { subagentBlocks, subagentListItem } from "./subagent-view";
 import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
+import { getGlyphs } from "../glyphs";
 import { themePickerTarget } from "./theme-picker-keys";
 import { foldTurn } from "./turn-fold";
 import {
@@ -1150,6 +1152,13 @@ export function FullscreenBridge(): React.ReactNode {
   const menu = session.activeMenu;
   const menuRef = useRef(menu);
   menuRef.current = menu;
+  const commandPanel = session.commandPanel;
+  const commandPanelRef = useRef(commandPanel);
+  commandPanelRef.current = commandPanel;
+  const [panelOffset, panelOffsetRef, setPanelOffset] = useSynchronizedState(0);
+  useEffect(() => {
+    setPanelOffset(0);
+  }, [commandPanel?.id, setPanelOffset]);
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
   const [menuFilter, menuFilterRef, setMenuFilter] = useSynchronizedState({ value: "", caret: 0 });
   /** The agent home's button and composer go to; ↑↓ and the agent picker move it. */
@@ -2100,6 +2109,39 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
+      // The command panel owns the keyboard while it shows: Esc closes it, the arrows scroll it.
+      const openPanel = commandPanelRef.current;
+      const panelPrompt = promptRef.current;
+      if (openPanel !== null && (panelPrompt === null || panelPrompt.type === "chat")) {
+        if (name === "escape") {
+          store.closeCommandPanel();
+          return true;
+        }
+        const { bodyRows, maxOffset } = commandPanelLayout(
+          { kind: "panel", panel: openPanel, offset: panelOffsetRef.current },
+          { width, height },
+          getGlyphs(),
+        );
+        const step =
+          name === "up"
+            ? -1
+            : name === "down"
+              ? 1
+              : name === "pageup"
+                ? -bodyRows
+                : name === "pagedown"
+                  ? bodyRows
+                  : name === "home"
+                    ? -maxOffset
+                    : name === "end"
+                      ? maxOffset
+                      : 0;
+        if (step !== 0) {
+          setPanelOffset((offset) => Math.max(0, Math.min(maxOffset, offset + step)));
+        }
+        return true;
+      }
+
       // Search likewise owns the keyboard while it is open.
       if (searchQueryRef.current !== null) {
         if (name === "escape") {
@@ -2604,6 +2646,11 @@ export function FullscreenBridge(): React.ReactNode {
           const command = slashCommands[selected];
           if (command === undefined) return true;
           const text = `/${command.name}`;
+          if (store.runCommandImmediately(text)) {
+            historyIndex.current = null;
+            commitComposer(EMPTY_COMPOSER);
+            return true;
+          }
           if (busyRef.current) {
             store.appendToQueue(text);
             commitComposer(EMPTY_COMPOSER);
@@ -2632,6 +2679,11 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
       if (name === "return" || name === "enter") {
+        if (store.runCommandImmediately(composerRef.current.text)) {
+          historyIndex.current = null;
+          commitComposer(EMPTY_COMPOSER);
+          return true;
+        }
         if (busyRef.current) {
           const queuedDraft = composerRef.current.text;
           if (queuedDraft.length > 0) {
@@ -2812,6 +2864,9 @@ export function FullscreenBridge(): React.ReactNode {
       setSkillDetail,
       setSkillDetailOffset,
       setMenuIndex,
+      setPanelOffset,
+      width,
+      height,
     ],
   );
 
@@ -2938,6 +2993,9 @@ export function FullscreenBridge(): React.ReactNode {
     // it arrived because the user asked for something.
     const promptOverlay = overlayFromPrompt(prompt, promptControls);
     let next: Overlay | undefined = promptOverlay;
+    if (commandPanel !== null && (prompt === null || prompt.type === "chat")) {
+      next = { kind: "panel", panel: commandPanel, offset: panelOffset };
+    }
     if (searchQuery !== null) {
       next = {
         kind: "search",
@@ -2963,6 +3021,8 @@ export function FullscreenBridge(): React.ReactNode {
   }, [
     prompt,
     promptControls,
+    commandPanel,
+    panelOffset,
     searchQuery,
     searchCaret,
     searchScope,
