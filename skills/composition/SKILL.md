@@ -93,6 +93,10 @@ usually more valuable than six generic cards.
   kinetics.colorion.co spring motion, whatships→HyperFrames video,
   impeccable.style polish. Load it when the artifact needs a brand-grade
   look or a video, or when the user names any of these sources.
+- `cloudflare-setup` — private publishing: the Cloudflare token/config, the
+  one-time Enable Access step, and why the project must be git-integrated
+  (direct-upload deploys 500 at the edge). Load it when a private publish
+  fails or the person asks how it is hosted.
 
 ## Data integrity
 
@@ -150,6 +154,8 @@ Before calling the tool, ask:
   that explains rather than decorates?
 - Is the load choreographed as a sequence with the primary signal landing
   early — and do state changes animate, not blink?
-- Does it follow the house style: one accent, token-driven palette, motion
-  that explains rather than decorates?
+- Is the JavaScript actually alive? A single syntax error kills the whole
+  script, and if reveal-on-scroll lives in it, the page renders as a wall of
+  empty space. Extract the `<script>` and run it through `node --check` (or a
+  quick headless render) before calling the tool.
 - Did I make a composition rather than a generic dashboard template?
