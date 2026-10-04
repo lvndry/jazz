@@ -159,11 +159,9 @@ async function getUploadToken(
 }
 
 /**
- * Ensure a self-hosted Access app + an allow policy on the domain.
- *
- * The allow rule is domain-scoped (`email_domain`): every account signed in
- * with that email domain is admitted. Per-address rules are managed in the
- * Cloudflare One dashboard (Access → Applications → the app → Policies).
+ * Ensure a self-hosted Access app + an allow policy on the domain. The
+ * configured email is the only address that gets in; extra addresses are
+ * added in the Cloudflare One dashboard (Access → Applications → Policies).
  */
 async function ensureAccess(
   fetchImpl: CloudflareFetch,
@@ -219,9 +217,6 @@ async function ensureAccess(
   if (!config.accessEmail) {
     return { preexisting: false, appId, needsEmail: true };
   }
-  const emailDomain = config.accessEmail.includes("@")
-    ? (config.accessEmail.split("@").pop() ?? config.accessEmail)
-    : config.accessEmail;
   await cfJson(
     fetchImpl,
     `${CF_BASE}/accounts/${aid}/access/apps/${appId}/policies`,
@@ -230,7 +225,7 @@ async function ensureAccess(
     {
       name: "jazz-allow-email",
       decision: "allow",
-      include: [{ email_domain: { domain: emailDomain } }],
+      include: [{ email: { email: config.accessEmail } }],
     },
   );
   return { preexisting: false, appId, needsEmail: false };

@@ -119,12 +119,12 @@ re-publishing an existing slug redeploys in place.
 
 ### Managing the private allow list
 
-Publishing creates an Access app with an allow rule for the **domain** of
-`accessEmail` — with `you@proton.me`, anyone signed in with a `@proton.me` address
-gets in. To tighten or extend this, open the Cloudflare One dashboard →
-**Access → Applications** → the app named `jazz-<project>` → **Policies** → edit, and
-add or remove **Email address** include rules. The tool never rewrites an existing
-app on re-publish, so manual changes are preserved.
+Publishing creates an Access app whose allow rule admits exactly `accessEmail` —
+with `you@proton.me`, only that address gets in. To let more people in, open the
+Cloudflare One dashboard → **Access → Applications** → the app named
+`jazz-<project>` → **Policies** → edit, and add more **Email address** include
+rules. The tool never rewrites an existing app on re-publish, so manual changes
+are preserved.
 
 ## Related
 
