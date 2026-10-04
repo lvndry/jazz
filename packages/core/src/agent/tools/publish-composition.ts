@@ -1,24 +1,27 @@
 /**
- * Publish a composition HTML file to a stable GitHub Pages URL.
+ * Publish a composition HTML file to a stable public or private URL.
  *
- * One repo per visibility, one page per commit: `<owner>.compositions` (public)
- * and `<owner>.compositions-private` (private). A re-publish with the same name
- * overwrites the same URL instead of minting a new one. Two repos rather than
- * one repo with a basic-auth folder: in a public repo everyone can pull the
- * HTML source, which would make "private" a label rather than a fact.
+ * Public: `<owner>.compositions` on the chosen host — GitHub Pages (default)
+ * or Cloudflare Pages; the agent asks the user which they prefer. Private:
+ * `<owner>.compositions-private`, a PRIVATE repo (sensitive source stays
+ * hidden) served by Cloudflare Pages behind Cloudflare Access — so
+ * `visibility: "private"` requires `host: "cloudflare"` (a private GitHub
+ * repo cannot render Pages on the free plan, and a public repo would expose
+ * the source).
  *
- * The repo is created on first use on the account `gh` is logged in as, and
- * `public` publishing sends model-authored HTML to a URL anyone can reach, so
- * the tool is high-risk: the approval gate shows the destination before it
- * runs.
+ * A re-publish with the same name overwrites the same URL instead of minting
+ * a new one. The repo is created on first use on the account `gh` is logged
+ * in as; the HTML leaves the machine for a URL others can reach, so the tool
+ * is high-risk: the approval gate shows the destination before it runs.
  *
- * `gh` (authenticated) and `git` are required; the auth check runs first and
- * the error says so plainly when it fails.
+ * `gh` (authenticated) and `git` are required; the cloudflare host also
+ * reads ~/.config/jazz/cloudflare.json.
  */
 
 import { execFile } from "node:child_process";
-import { cp, mkdtemp, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
+import { cp, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { promisify } from "node:util";
 import { FileSystem } from "@effect/platform";
@@ -29,14 +32,16 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { deployToCloudflare, type CloudflareConfig } from "./cloudflare-publish";
 import { buildKeyFromContext } from "./context-utils";
 
 const pexecFile = promisify(execFile);
 
 /**
- * Run one external command. Injected by tests so the flow is exercised without
- * cloning real repos; the production implementation follows the repo's
- * execFile convention.
+ * Run `file` with `args` and resolve with `{ stdout, stderr }` as strings.
+ * This is the one place in this module that touches a real subprocess, and
+ * it is injected everywhere else so tests never need git/gh installed. It
+ * mirrors the execFile convention the other tools already use.
  */
 export type PublishComposer = (
   file: string,
@@ -64,6 +69,17 @@ export const PUBLISH_HTML_NOT_FOUND_ERROR = (htmlPath: string) =>
 export const PUBLISH_AUTH_ERROR =
   "publish_composition needs the GitHub CLI: `gh auth status` did not pass. " +
   "Run `gh auth login` and retry.";
+
+export const PUBLISH_PRIVATE_REQUIRES_CLOUDFLARE =
+  'visibility "private" requires host "cloudflare": a private GitHub repo cannot render Pages ' +
+  "on the free plan, and a public repo would expose the source. Re-call with " +
+  'host "cloudflare" — the private composition goes to a private repo served by ' +
+  "Cloudflare Pages behind Cloudflare Access, so both the source and the page stay private.";
+
+export const PUBLISH_CLOUDFLARE_NOT_CONFIGURED =
+  "publish_composition (host cloudflare) needs Cloudflare credentials: create " +
+  "~/.config/jazz/cloudflare.json with { schemaVersion: 1, token, accountId, accessEmail? } " +
+  "(an Account-level token with Pages:Edit and Access:Apps:Edit).";
 
 /**
  * A readable slug for the published file: lowercase [a-z0-9-], no leading or
@@ -93,9 +109,14 @@ export function shortRepoName(repo: string): string {
   return repo.split("/").pop() ?? repo;
 }
 
-/** The stable Pages URL for one published slug. */
+/** The stable GitHub Pages URL for one published slug. */
 export function publishedUrl(owner: string, repo: string, slug: string): string {
   return `https://${owner}.github.io/${shortRepoName(repo)}/${slug}.html`;
+}
+
+/** The stable Cloudflare Pages URL for one published slug. */
+export function cloudflareUrl(project: string, slug: string): string {
+  return `https://${project}.pages.dev/${slug}.html`;
 }
 
 /**
@@ -113,6 +134,62 @@ export function privateRawUrl(repo: string, slug: string): string {
  */
 export function isPagesPlanLimitError(message: string): boolean {
   return /plan|billing|subscription|not available/i.test(message);
+}
+
+/**
+ * Where the Cloudflare credentials live. The account id cannot be discovered
+ * with a minimal token (GET /accounts needs Account:Read), so it is stored
+ * alongside the token. Never committed to a repo — it is a local config file.
+ * An env override lets tests and CI point at a fixture.
+ */
+export function cloudflareConfigPath(): string {
+  return (
+    process.env["JAZZ_CLOUDFLARE_CONFIG"] ?? join(homedir(), ".config", "jazz", "cloudflare.json")
+  );
+}
+
+/**
+ * Read the Cloudflare credentials. Throws a human-readable error when the
+ * file is missing or incomplete so the agent can relay it to the user.
+ */
+export function loadCloudflareConfig(path: string = cloudflareConfigPath()): CloudflareConfig {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    throw new Error(
+      `publish_composition: no Cloudflare credentials at ${path}. ` +
+        PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
+    );
+  }
+  type Parsed = { token?: unknown; accountId?: unknown; accessEmail?: unknown };
+  let parsed: Parsed;
+  try {
+    parsed = JSON.parse(raw) as Parsed;
+  } catch {
+    throw new Error(
+      `publish_composition: ${path} is not valid JSON. ` + PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
+    );
+  }
+  const token = parsed.token;
+  const accountId = parsed.accountId;
+  if (typeof token !== "string" || token.length === 0) {
+    throw new Error(
+      `publish_composition: ${path} must contain a non-empty token. ` +
+        PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
+    );
+  }
+  if (typeof accountId !== "string" || accountId.length === 0) {
+    throw new Error(
+      `publish_composition: ${path} must contain a non-empty accountId. ` +
+        PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
+    );
+  }
+  const config: CloudflareConfig = { token, accountId };
+  if (typeof parsed.accessEmail === "string" && parsed.accessEmail.length > 0) {
+    config.accessEmail = parsed.accessEmail;
+  }
+  return config;
 }
 
 const publishCompositionParameters = z
@@ -133,13 +210,26 @@ const publishCompositionParameters = z
       .enum(["public", "private"])
       .optional()
       .describe(
-        "'public' (default): a public repo, URL anyone can open. " +
-          "'private': a private repo, source hidden from non-members; the person opens the URL while logged in.",
+        "Ask the user which of these they want before publishing. " +
+          "'public' (default): a public repo, URL anyone can open. " +
+          "'private': a PRIVATE repo (sensitive source stays hidden) served by " +
+          "Cloudflare Pages behind Cloudflare Access — only the configured email can open it.",
+      ),
+    host: z
+      .enum(["github", "cloudflare"])
+      .optional()
+      .describe(
+        "Where the page is served. 'github' (default for public) → GitHub Pages. " +
+          "'cloudflare' → Cloudflare Pages. For visibility 'private' this MUST be 'cloudflare'. " +
+          "Ask the user which host they prefer when publishing public.",
       ),
     repo: z
       .string()
       .optional()
-      .describe('Override the target repo "owner/name". Defaults to <gh-user>.compositions.'),
+      .describe(
+        'Override the target repo "owner/name". Defaults to <gh-user>.compositions (public) ' +
+          "or <gh-user>.compositions-private (private).",
+      ),
   })
   .strict();
 
@@ -208,6 +298,10 @@ export async function publishComposition(
 
     const slug = slugFromName(args.name ?? basename(htmlPath, ".html"));
     const visibility = args.visibility ?? "public";
+    const host = args.host ?? (visibility === "private" ? "cloudflare" : "github");
+    if (visibility === "private" && host !== "cloudflare") {
+      return { success: false, result: null, error: PUBLISH_PRIVATE_REQUIRES_CLOUDFLARE };
+    }
 
     await compose("gh", ["auth", "status"]).catch(() => {
       throw new Error(PUBLISH_AUTH_ERROR);
@@ -226,6 +320,42 @@ export async function publishComposition(
       await commitIfChanged(compose, repoDir, slug, visibility);
       await runGit(["push"], repoDir, compose);
 
+      if (host === "cloudflare") {
+        const config = loadCloudflareConfig();
+        const fileBytes = await readFile(htmlPath);
+        const deploy = await deployToCloudflare(
+          config,
+          shortRepoName(repo),
+          slug,
+          new Uint8Array(fileBytes),
+          globalThis.fetch,
+        );
+        const project = shortRepoName(repo);
+        const accessNote =
+          visibility === "private"
+            ? deploy.accessPreexisting
+              ? ` Cloudflare Access already gates ${project}.pages.dev (app ${deploy.accessAppId}).`
+              : deploy.accessNeedsEmail
+                ? ` A Cloudflare Access app was created for ${project}.pages.dev, but no allow-email policy yet: add accessEmail to ${cloudflareConfigPath()} and re-publish to lock it; until then, treat the URL as sensitive.`
+                : ` Cloudflare Access now gates ${project}.pages.dev (app ${deploy.accessAppId}, allow: ${config.accessEmail}).`
+            : "";
+        return {
+          success: true,
+          result: {
+            url: deploy.url,
+            slug,
+            visibility,
+            host,
+            repo,
+            summary:
+              `Published ${slug} (${visibility}) to ${deploy.url}. ` +
+              `Source is in the ${visibility} repo ${repo}; the page is served by Cloudflare Pages ` +
+              `and takes a short time to go live.` +
+              accessNote,
+          },
+        } satisfies ToolExecutionResult;
+      }
+
       const pages = await ensurePages(compose, owner, repo);
       const url = pages.enabled ? publishedUrl(owner, repo, slug) : privateRawUrl(repo, slug);
 
@@ -235,6 +365,7 @@ export async function publishComposition(
           url,
           slug,
           visibility,
+          host,
           repo,
           pagesEnabled: pages.enabled,
           summary: publishSummary(url, slug, visibility, repo, pages),
@@ -425,8 +556,8 @@ function publishSummary(
     return (
       `Published ${slug} to private repo ${repo}. GitHub Pages for private repos needs a ` +
       `paid plan on the account, so Pages was not enabled — the file is stored privately and ` +
-      `can be opened while logged in at ${url}. Publishing again after a plan change will ` +
-      `enable Pages and give the github.io URL.`
+      `can be opened while logged in at ${url}. For a rendered page only you can open, ` +
+      `publish with host "cloudflare" instead.`
     );
   }
   return (
@@ -442,12 +573,16 @@ export function createPublishCompositionTool(
     name: "publish_composition",
     disclosure: "internal",
     summary:
-      "Publish a composition HTML file to a stable public GitHub Pages URL, or a private repo URL.",
+      "Publish a composition HTML file to a stable public or private URL (GitHub Pages or Cloudflare Pages).",
     description:
-      "Publish the HTML file from create_composition to a stable GitHub Pages URL: first use creates " +
-      "a compositions repo on the account `gh` is logged in as, and re-publishing the same name " +
-      "overwrites the same URL. 'private' visibility uses a private repo instead. Requires `gh` " +
-      "(authenticated) and `git`. Preview the destination URL to the user before calling; the " +
+      "Publish the HTML file from create_composition to a stable URL. ALWAYS ask the user whether " +
+      "they want it public or private before calling. 'public': a public repo, URL anyone can open; " +
+      "ask which host they prefer — 'github' (default, GitHub Pages) or 'cloudflare' (Cloudflare " +
+      "Pages). 'private': a PRIVATE repo (sensitive source stays hidden) served by Cloudflare Pages " +
+      "behind Cloudflare Access, so host is always 'cloudflare' (a private GitHub repo cannot render " +
+      "Pages on the free plan). First use creates the repo; re-publishing the same name overwrites " +
+      "the same URL. Requires `gh` (authenticated) and `git`; the cloudflare host also reads " +
+      "~/.config/jazz/cloudflare.json. Preview the destination URL to the user before calling; the " +
       "approval gate covers consent.",
     tags: ["ui", "visualization", "composition", "publish"],
     parameters: publishCompositionParameters,
