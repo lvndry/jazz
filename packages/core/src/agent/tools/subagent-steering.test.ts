@@ -29,11 +29,17 @@ const parentAgent: Agent = {
   updatedAt: new Date(),
 };
 
+const recordedParentMessages: { regionId: string; message: string }[] = [];
+
 const presentation = {
   writeOutput: () => Effect.void,
   openEphemeralRegion: () => Effect.succeed("eph-test"),
   appendEphemeralRegion: () => Effect.void,
   collapseEphemeralRegion: () => Effect.void,
+  recordEphemeralRegionParentMessage: (regionId: string, message: string) =>
+    Effect.sync(() => {
+      recordedParentMessages.push({ regionId, message });
+    }),
 } as unknown as PresentationService;
 
 const layer = Layer.mergeAll(
@@ -143,6 +149,10 @@ describe("sub-agents the parent steers", () => {
     expect(delivered).toContain("[MESSAGE FROM THE PARENT AGENT WHILE YOU WORK]");
     expect(delivered).toContain("only direct flights");
     expect(children.started[0]!.checkQueuedMessage?.()).toBeUndefined();
+    expect(recordedParentMessages.at(-1)).toEqual({
+      regionId: "eph-test",
+      message: "only direct flights",
+    });
   });
 
   it("cancels a child and reports it cancelled", async () => {

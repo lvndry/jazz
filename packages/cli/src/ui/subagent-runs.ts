@@ -22,6 +22,8 @@ export interface SubagentTextEntry {
   readonly id: string;
   readonly kind: "reasoning" | "response" | "note" | "steer";
   readonly text: string;
+  /** Who sent a steer: absent for the user, who steers through the panel. */
+  readonly sender?: "parent";
 }
 
 export interface SubagentToolEntry {
@@ -199,6 +201,13 @@ export function steerSubagentRun(run: SubagentRun, message: string): SubagentRun
     { kind: "steer", text },
     run.activity,
   );
+}
+
+/** The parent's message has already reached the sub-agent; this only records it. */
+export function recordParentSteer(run: SubagentRun, message: string): SubagentRun {
+  const text = message.trim();
+  if (text.length === 0) return run;
+  return withEntry(run, { kind: "steer", text, sender: "parent" }, run.activity);
 }
 
 export function takeSubagentMessages(run: SubagentRun): {

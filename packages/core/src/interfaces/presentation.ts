@@ -303,6 +303,16 @@ export interface PresentationService {
   ) => Effect.Effect<string | undefined, never>;
 
   /**
+   * Record a message the parent agent delivered to a sub-agent's region, so a surface
+   * that keeps the sub-agent's transcript can show it as a sent message. Surfaces
+   * without one fall back to `appendEphemeralRegion`.
+   */
+  readonly recordEphemeralRegionParentMessage?: (
+    regionId: string,
+    message: string,
+  ) => Effect.Effect<void, never>;
+
+  /**
    * Request user approval for a tool action.
    *
    * Shows a confirmation prompt with details about what action will be performed.

@@ -53,7 +53,13 @@ export function subagentBlocks(run: SubagentRun, now: number): Block[] {
     const id = entry.id;
     switch (entry.kind) {
       case "steer":
-        blocks.push({ id, seq: seq++, kind: "user", text: entry.text });
+        blocks.push({
+          id,
+          seq: seq++,
+          kind: "user",
+          text: entry.text,
+          ...(entry.sender === "parent" ? { sender: "parent agent" } : {}),
+        });
         return;
       case "reasoning":
         blocks.push({

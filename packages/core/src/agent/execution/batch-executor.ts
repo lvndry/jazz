@@ -107,6 +107,13 @@ export function executeWithoutStreaming(
             message: string,
             level: "info" | "success" | "warning" | "error" | "progress",
           ) => presentationService.presentStatus(message, level, agent.name);
+          // A sub-agent's slow step belongs in its own panel; in the main transcript it
+          // repeats once per step while the parent is already waiting on it.
+          const subagentRegionId = options.ephemeralRegionId;
+          const showSlowModelNotice: typeof showAgentStatus =
+            subagentRegionId === undefined
+              ? showAgentStatus
+              : (message) => presentationService.appendEphemeralRegion(subagentRegionId, message);
 
           const retryAttemptRef = yield* Ref.make(0);
           const batchRetrySchedule = makeUserVisibleLlmRetrySchedule(
@@ -120,7 +127,7 @@ export function executeWithoutStreaming(
           const completion = yield* Effect.retry(
             withLongRunningLlmNotice(
               agent.name,
-              showAgentStatus,
+              showSlowModelNotice,
               llmService.createChatCompletion(provider, llmOptions).pipe(
                 Effect.tapError((error) =>
                   Effect.gen(function* () {
