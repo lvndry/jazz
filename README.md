@@ -1,6 +1,9 @@
 <div align="center">
 
-# Jazz
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/jazz-logo-on-dark.svg">
+  <img alt="Jazz" src=".github/assets/jazz-logo-on-light.svg" height="80">
+</picture>
 
 ### One agent. Every surface. Your rules.
 
