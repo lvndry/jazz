@@ -17,13 +17,17 @@ const HEIGHT = 630;
 const BAR_COUNT = 40;
 const BAR_GAP = 6;
 
-// Core is not bundled per-page, so plain resolution works; the createRequire
-// form is kept so this keeps working if the module is ever bundled.
-const requireFromHere = createRequire(import.meta.url);
-const FONT_FILES = [
-  requireFromHere.resolve("@expo-google-fonts/anton/400Regular/Anton_400Regular.ttf"),
-  requireFromHere.resolve("@expo-google-fonts/ibm-plex-mono/500Medium/IBMPlexMono_500Medium.ttf"),
-];
+// Font paths are resolved lazily (inside renderCompositionOg): at module
+// scope, createRequire(import.meta.url) throws in a compiled CLI session
+// ($bunfs), and the tool registry imports this module at startup. When the
+// fonts are unresolvable the render simply degrades to "no card".
+function resolveFontFiles(): string[] {
+  const requireFromHere = createRequire(import.meta.url);
+  return [
+    requireFromHere.resolve("@expo-google-fonts/anton/400Regular/Anton_400Regular.ttf"),
+    requireFromHere.resolve("@expo-google-fonts/ibm-plex-mono/500Medium/IBMPlexMono_500Medium.ttf"),
+  ];
+}
 
 // From packages/website/src/lib/logo.ts — keep in sync.
 const BRAND_CYAN = "#00D7FF";
@@ -127,7 +131,7 @@ export function renderCompositionOg(title: string, options: CompositionOgOptions
   try {
     const resvg = new Resvg(svg, {
       fitTo: { mode: "width", value: WIDTH },
-      font: { fontFiles: FONT_FILES, loadSystemFonts: false },
+      font: { fontFiles: resolveFontFiles(), loadSystemFonts: false },
     });
     return resvg.render().asPng();
   } catch (error) {
