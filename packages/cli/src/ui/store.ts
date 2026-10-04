@@ -720,8 +720,16 @@ export class UIStore {
       this.publishDocument({ ...this.document, revision: this.document.revision + 1, entries });
   }
 
+  /**
+   * The theme picker is opened by the user beside whatever the session is doing, so a prompt
+   * the session needs (a question, the next chat prompt) takes its place and dismisses it.
+   */
   setPrompt = (nextPrompt: PromptState | null): void => {
+    const displaced = this.prompt.getSnapshot().prompt;
     patchSlice(this.prompt, { prompt: nextPrompt });
+    if (displaced?.type === "theme" && nextPrompt !== null && nextPrompt !== displaced) {
+      displaced.reject?.();
+    }
   };
 
   setActivity = (activity: ActivityState): void => {

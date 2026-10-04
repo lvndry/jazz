@@ -1,5 +1,6 @@
 import { store } from "./store";
 import { listThemes, revertPreview } from "./theme";
+import type { PromptState } from "./types";
 
 /**
  * Open the fullscreen theme picker and wait for a choice.
@@ -17,20 +18,30 @@ export function pickThemeInteractively(): Promise<string | undefined> {
     swatches: listing.swatches,
     current: listing.current,
   }));
+  // Opened from the idle chat, the picker covers the chat prompt and hands it back on close.
+  const underneath = store.getPromptSnapshot();
   return new Promise((resolve) => {
-    store.setPrompt({
+    let settled = false;
+    const settle = (chosen: string | undefined): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (store.getPromptSnapshot() === picker) {
+        store.setPrompt(underneath);
+      }
+      if (chosen === undefined) {
+        revertPreview();
+      }
+      resolve(chosen);
+    };
+    const picker: PromptState = {
       type: "theme",
       message: "Theme",
       options: { themes: rows },
-      resolve: (value: unknown) => {
-        store.setPrompt(null);
-        resolve(typeof value === "string" ? value : undefined);
-      },
-      reject: () => {
-        store.setPrompt(null);
-        revertPreview();
-        resolve(undefined);
-      },
-    });
+      resolve: (value: unknown) => settle(typeof value === "string" ? value : undefined),
+      reject: () => settle(undefined),
+    };
+    store.setPrompt(picker);
   });
 }
