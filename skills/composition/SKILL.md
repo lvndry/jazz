@@ -62,6 +62,7 @@ usually more valuable than six generic cards.
 5. Apply the house style: load the `design-system` reference and start the
    document with its token boilerplate. Load `motion` before writing any
    animation, `diagrams` for SVG, `interactive` for controls and state changes.
+   Design the motion as part of the layout, not after it (see "Motion design").
 6. Make the first screen useful before adding interactions or polish.
 7. Call `create_composition` with a short, distinctive title that also makes a
    good filename.
@@ -106,6 +107,26 @@ Treat labels, values, units, dates, and provenance as part of the product.
 - If input can be absent, loading, invalid, or empty, design that state rather
   than leaving a broken blank space.
 
+## Motion design
+
+Motion is part of the design, not a garnish. A polished composition without
+considered motion feels dead; one with confident, directed motion feels alive.
+Treat choreography with the same care you give layout and type.
+
+- Load the `motion` reference before writing any animation, and design the
+  load as a sequence, not a wall: title → primary visual → supporting detail,
+  each timed so the eye knows what to look at. The primary signal lands early
+  and is never the last thing to appear.
+- Choreograph state changes too, not just the entrance: tab and step switches
+  morph instead of blink, updated values pulse, panels open and close. An
+  interactive piece that never responds to input with motion feels broken.
+- One easing token, one duration family, transform/opacity/filter only, and
+  `prefers-reduced-motion` always honored — so every animation reads as one
+  directed piece. Content never depends on motion.
+- `interactive` mode gets the full choreography (the person actually watches
+  it); `static` mode obeys the screenshot budget — entrance animation ≤ 800ms
+  or none at all (see the `motion` reference).
+
 ## Mode-specific finish line
 
 For `static`, inspect the requested viewport mentally: all important labels,
@@ -125,8 +146,10 @@ Before calling the tool, ask:
 
 - Would a person understand the point in five seconds?
 - Is the chosen chart or interaction the simplest honest representation?
-- Can someone use it with a keyboard and on a narrow screen?
-- Are all numbers, labels, units, and caveats accurate and visible?
+- Does it follow the house style: one accent, token-driven palette, motion
+  that explains rather than decorates?
+- Is the load choreographed as a sequence with the primary signal landing
+  early — and do state changes animate, not blink?
 - Does it follow the house style: one accent, token-driven palette, motion
   that explains rather than decorates?
 - Did I make a composition rather than a generic dashboard template?
