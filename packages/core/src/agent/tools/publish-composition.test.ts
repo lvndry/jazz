@@ -107,10 +107,10 @@ type CfResponse = { status: number; json: () => Promise<unknown> };
  * flow — upload-token, asset check, deployment and Access apps/policies.
  * Records every URL so tests can assert the sequence.
  */
-function mockCfFetch(urls: string[]): CloudflareFetch {
+function mockCfFetch(requests: string[]): CloudflareFetch {
   return (async (url: string, init?: RequestInit): Promise<CfResponse> => {
-    urls.push(url);
     const method = init?.method ?? "GET";
+    requests.push(`${method} ${url}`);
     const respond = (result: unknown): CfResponse => ({
       status: 200,
       json: async () => ({ success: true, result, errors: [] }),
@@ -122,10 +122,10 @@ function mockCfFetch(urls: string[]): CloudflareFetch {
     if (url.includes("/upload-token")) return respond({ jwt: "test-jwt" });
     if (url.includes("/pages/assets/check-missing")) return respond([]); // nothing missing
     if (url.includes("/pages/assets")) return respond({ successful_key_count: 1 });
-    if (url.includes("/access/apps/self_hosted") && method === "POST") {
+    if (url.includes("/access/apps") && method === "GET") return respond([]); // no existing app
+    if (url.includes("/access/apps") && method === "POST") {
       return respond({ id: "app-1" });
     }
-    if (url.includes("/access/apps") && method === "GET") return respond([]); // no existing app
     if (url.includes("/policies") && method === "POST") return respond({ id: "policy-1" });
     return respond({});
   }) as CloudflareFetch;
@@ -353,7 +353,11 @@ describe("publishComposition", () => {
       calls.some((c) => c.startsWith("gh repo create octo/compositions-private --private")),
     ).toBe(true);
     // The Access gate was set up for the project domain.
-    expect(urls.some((u) => u.includes("/access/apps/self_hosted"))).toBe(true);
+    expect(
+      urls.some(
+        (u) => u.startsWith("POST") && u.includes("/access/apps") && !u.includes("/policies"),
+      ),
+    ).toBe(true);
     expect(urls.some((u) => u.includes("/policies"))).toBe(true);
     expect(out.summary).toContain("me@x.y");
   });
@@ -372,7 +376,11 @@ describe("publishComposition", () => {
     expect(urls.some((u) => u.includes("/pages/projects/compositions/upload-token"))).toBe(true);
     expect(urls.some((u) => u.includes("/pages/projects/compositions/deployments"))).toBe(true);
     // Public project: no Access app is created.
-    expect(urls.some((u) => u.includes("/access/apps"))).toBe(false);
+    expect(
+      urls.some(
+        (u) => u.startsWith("POST") && u.includes("/access/apps") && !u.includes("/policies"),
+      ),
+    ).toBe(false);
   });
 
   test("private cloudflare without accessEmail creates the app but flags needsEmail", async () => {
@@ -383,7 +391,11 @@ describe("publishComposition", () => {
       compose,
     );
     const out = expectPublish(result, "private-cf-no-email");
-    expect(urls.some((u) => u.includes("/access/apps/self_hosted"))).toBe(true);
+    expect(
+      urls.some(
+        (u) => u.startsWith("POST") && u.includes("/access/apps") && !u.includes("/policies"),
+      ),
+    ).toBe(true);
     expect(out.summary).toContain("no allow-email policy");
   });
 

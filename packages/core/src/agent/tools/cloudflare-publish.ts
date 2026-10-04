@@ -50,7 +50,7 @@ type CfJson<T = unknown> = {
 /** The shape of a Cloudflare Access self-hosted app we create or find. */
 type AccessApp = {
   readonly id?: string;
-  readonly services?: readonly { readonly service_host?: string; readonly service_port?: number }[];
+  readonly domain?: string;
 };
 
 /**
@@ -158,7 +158,13 @@ async function getUploadToken(
   return jwt;
 }
 
-/** Ensure a self-hosted Access app + allow-your-email policy on the domain. */
+/**
+ * Ensure a self-hosted Access app + an allow policy on the domain.
+ *
+ * The allow rule is domain-scoped (`email_domain`): every account signed in
+ * with that email domain is admitted. Per-address rules are managed in the
+ * Cloudflare One dashboard (Access → Applications → the app → Policies).
+ */
 async function ensureAccess(
   fetchImpl: CloudflareFetch,
   auth: Record<string, string>,
@@ -176,7 +182,7 @@ async function ensureAccess(
     undefined,
   );
   const list: AccessApp[] = Array.isArray(apps) ? apps : (apps ?? []);
-  const existing = list.find((a) => (a?.services ?? []).some((s) => s?.service_host === domain));
+  const existing = list.find((a) => a?.domain === domain);
   if (existing) {
     // Do not rewrite a user-tuned app; just report it.
     return {
@@ -188,19 +194,20 @@ async function ensureAccess(
 
   const created = await cfJson<AccessApp>(
     fetchImpl,
-    `${CF_BASE}/accounts/${aid}/access/apps/self_hosted`,
+    `${CF_BASE}/accounts/${aid}/access/apps`,
     "POST",
     auth,
     {
+      type: "self_hosted",
       name: `jazz-${project}`,
       session_duration: "24h",
-      services: [{ service_host: domain, service_port: 443 }],
+      domain,
     },
   ).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("not_enabled")) {
       throw new Error(
-        "Cloudflare Access is not enabled on this account. Open https://dash.cloudflare.com/ → Access → Enable Access, then re-publish.",
+        "Cloudflare Access is not enabled on this account. Open https://one.dash.cloudflare.com/ → Access and click Enable Access, then re-publish.",
       );
     }
     throw error;
@@ -212,6 +219,9 @@ async function ensureAccess(
   if (!config.accessEmail) {
     return { preexisting: false, appId, needsEmail: true };
   }
+  const emailDomain = config.accessEmail.includes("@")
+    ? (config.accessEmail.split("@").pop() ?? config.accessEmail)
+    : config.accessEmail;
   await cfJson(
     fetchImpl,
     `${CF_BASE}/accounts/${aid}/access/apps/${appId}/policies`,
@@ -219,8 +229,8 @@ async function ensureAccess(
     auth,
     {
       name: "jazz-allow-email",
-      purpose: "authenticated_users",
-      rules: [{ include: [{ email: config.accessEmail }] }],
+      decision: "allow",
+      include: [{ email_domain: { domain: emailDomain } }],
     },
   );
   return { preexisting: false, appId, needsEmail: false };
