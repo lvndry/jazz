@@ -103,7 +103,8 @@ usually more valuable than six generic cards.
   (multiple browsers, hourly updates, a real database): static Pages
   frontend + one Worker + D1 (managed SQLite) + scheduled cron, all via the
   cf CLI, Access-gated. Load it before designing or building any backend
-  for a composition; `compositions-private/networth/` is the reference
+  for a composition; a working reference implementation lives in the
+  `<owner>/compositions-private` repo (`networth/`).
   implementation.
 
 ## Data integrity
