@@ -87,6 +87,7 @@ export const presentationContentSchema: z.ZodType<PresentationContent> = z
         diffPreview: z
           .strictObject({ lines: z.array(z.string()), hiddenLines: nonnegative.int() })
           .optional(),
+        diffText: z.string().optional(),
       }),
     }),
     z.strictObject({
