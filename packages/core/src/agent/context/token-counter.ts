@@ -14,6 +14,16 @@
  *    everything else we use the calibrated ratio if we have one, else a
  *    family-default seed.
  *
+ * The `gpt-tokenizer` encoders (~3.5 MB of BPE tables, hundreds of ms to
+ * evaluate) are deferred past startup: statically imported they sit on every
+ * startup's critical path, and even a top-level dynamic import just moves the
+ * evaluation into startup's event-loop gaps, which is still startup. The
+ * preload starts ~1.5 s after module load (well after first paint) and, as a
+ * backstop, at the first OpenAI-family count. Until it lands, OpenAI text is
+ * priced with the same ratio estimate other families use; such estimates are
+ * deliberately not message-cached, so the first exact count after the
+ * encoders arrive supersedes them.
+ *
  * The seed values (Claude ≈ 3.5 chars/token, Gemini ≈ 4.0, etc.) come from
  * empirical samples across long English+JSON traces. They drift toward truth
  * after the first round-trip via calibration.
@@ -24,11 +34,16 @@
  * nothing.
  */
 
-import { countTokens as countCl100k } from "gpt-tokenizer/encoding/cl100k_base";
-import { countTokens as countO200k } from "gpt-tokenizer/encoding/o200k_base";
 import { describeAttachment, inlineAttachmentMessageIndices } from "@/core/types/attachment";
 import type { ChatMessage } from "@/core/types/message";
 import { estimateAttachmentsTokens } from "./attachment-tokens";
+
+type CountTokens = (text: string) => number;
+
+interface GptEncoders {
+  readonly cl100k: CountTokens;
+  readonly o200k: CountTokens;
+}
 
 /** Tokenizer family — drives both encoding choice and default ratio. */
 export type ModelFamily =
@@ -75,17 +90,72 @@ const FAMILY_DEFAULT_RATIO: Record<ModelFamily, number> = {
 const MESSAGE_BASE_OVERHEAD = 4;
 /** Bonus tokens for tool-result messages beyond the content cost. */
 const TOOL_RESULT_OVERHEAD = 10;
+/** Characters of already-counted text one counter keeps BPE results for. */
+const BPE_CACHE_MAX_CHARS = 4_000_000;
 
 /** Smoothing factor applied to new observations during calibration. */
+const CALIBRATION_SMOOTHING = 0.7;
+/** Lower bound on calibrated chars-per-token (anything lower is an accounting bug). */
+const RATIO_MIN = 2.0;
+/** Upper bound on calibrated chars-per-token. */
+const RATIO_MAX = 6.0;
+
 /**
- * Characters of already-counted text one counter keeps BPE results for.
- *
- * Sized to hold a long conversation's worth of message bodies (a full context
- * window of text is on the order of a megabyte) without becoming a place
- * where a run's memory quietly accumulates. Keys are the callers' own
- * strings, so this bounds retention, not copying.
+ * The gpt-tokenizer encoders once the background preload has resolved, or
+ * undefined until then (or forever, if the package failed to load — the
+ * ratio fallback keeps counting in that case).
  */
-const BPE_CACHE_MAX_CHARS = 4_000_000;
+let gptEncoders: GptEncoders | undefined;
+let gptEncodersReady: Promise<void> | undefined;
+
+/**
+ * How long after module load the background encoder preload starts.
+ *
+ * Interactive startup (config load, agent catalog, TUI init, first paint) takes
+ * several hundred ms; starting the preload inside that window just reschedules
+ * ~300 ms of encoder evaluation into startup's event-loop gaps and buys nothing
+ * (measured). Starting it after first paint moves the cost out of the window
+ * users actually feel, and any real count — the first LLM round trip is always
+ * later than this — finds the encoders loaded.
+ */
+const DEFER_ENCODER_PRELOAD_MS = 1500;
+
+async function loadGptEncoders(): Promise<void> {
+  if (gptEncoders !== undefined) return;
+  const [cl100k, o200k] = await Promise.all([
+    import("gpt-tokenizer/encoding/cl100k_base"),
+    import("gpt-tokenizer/encoding/o200k_base"),
+  ]);
+  gptEncoders = { cl100k: cl100k.countTokens, o200k: o200k.countTokens };
+}
+
+/**
+ * Await the encoder preload. Callers that need exact counts immediately
+ * (tests, one-shot scripts) can await this; the agent loop never does — it
+ * tolerates the short estimate window described above.
+ */
+export function ensureGptEncoders(): Promise<void> {
+  gptEncodersReady ??= loadGptEncoders().catch((error) => {
+    gptEncoders = undefined;
+    process.stderr.write(
+      `jazz: gpt-tokenizer failed to load; OpenAI models fall back to ratio estimates: ${String(error)}\n`,
+    );
+  });
+  return gptEncodersReady;
+}
+
+/** Test hook: forget the loaded encoders to exercise the not-yet-loaded path. */
+export function resetGptEncodersForTests(): void {
+  gptEncoders = undefined;
+  gptEncodersReady = undefined;
+}
+
+// Unreferenced so a one-shot invocation that never counts an OpenAI model
+// (and exits before the delay) never pays for the tables at all.
+const deferredEncoderPreload = setTimeout(() => {
+  void ensureGptEncoders();
+}, DEFER_ENCODER_PRELOAD_MS);
+deferredEncoderPreload.unref();
 
 /**
  * True for families counted with a real tokenizer rather than a ratio.
@@ -97,12 +167,6 @@ const BPE_CACHE_MAX_CHARS = 4_000_000;
 function isTokenizerBacked(family: ModelFamily): boolean {
   return family === "openai-o200k" || family === "openai-cl100k";
 }
-
-const CALIBRATION_SMOOTHING = 0.7;
-/** Lower bound on calibrated chars-per-token (anything lower is an accounting bug). */
-const RATIO_MIN = 2.0;
-/** Upper bound on calibrated chars-per-token. */
-const RATIO_MAX = 6.0;
 
 /**
  * Infer tokenizer family from a model hint.
@@ -175,25 +239,22 @@ export class TokenCounter {
    *
    * Measured rather than derived. `toolDefinitionChars` reports only the schemas,
    * while `promptTokens - estimatedMessageTokens` captures the whole gap, which is
-   * what the context window actually has to hold.
+   * what a future estimate needs to match the provider.
    */
   private overheadTokens = new Map<string, number>();
 
   /**
-   * Per-message memoization: maps message → cached count.
-   * Stores modelKey at compute-time so a later calibration (which invalidates
-   * the cache by replacing the WeakMap) doesn't mismatch.
+   * Memoized text cost per message, per model. Keyed by reference, so a
+   * message that survives between calls is counted once.
    */
   private messageCache = new WeakMap<ChatMessage, number>();
 
   /**
-   * BPE results for text already counted, per family, keyed by the text itself.
+   * Per-family cache of exact BPE counts.
    *
-   * `messageCache` above is keyed by message *reference*, which is the right
-   * cache for a steady conversation — the same objects come back turn after
-   * turn. It misses exactly when the objects are new but their text is not:
-   * resuming a session parses every message fresh out of the log, and
-   * compaction rebuilds history around a summary. Both then re-tokenize a
+   * Re-tokenizing is the expensive path this exists to skip: resuming a
+   * session parses every message fresh out of the log, and compaction
+   * rebuilds history around a summary. Both then re-tokenize a
    * whole conversation that was already tokenized, and for OpenAI families
    * that is a real BPE pass rather than a division.
    *
@@ -210,7 +271,8 @@ export class TokenCounter {
    * Count tokens in a string under the given model.
    *
    * Uses gpt-tokenizer for OpenAI families (exact). Falls back to the
-   * calibrated or family-default chars-per-token ratio for other providers.
+   * calibrated or family-default chars-per-token ratio for other providers,
+   * and temporarily for OpenAI families until the encoder preload lands.
    */
   countText(text: string, hint: ModelHint): number {
     if (text.length === 0) return 0;
@@ -219,15 +281,25 @@ export class TokenCounter {
     if (isTokenizerBacked(family)) {
       const cached = this.bpeCaches.get(family)?.get(text);
       if (cached !== undefined) return cached;
-      try {
-        const counted = family === "openai-o200k" ? countO200k(text) : countCl100k(text);
-        this.rememberBpeCount(family, text, counted);
-        return counted;
-      } catch {
-        // gpt-tokenizer can throw on malformed UTF-16 surrogate pairs. Fall
-        // through to the ratio estimate rather than crashing the run — and do
-        // not cache, so the failure is never mistaken for a count.
+      const encoders = gptEncoders;
+      if (encoders !== undefined) {
+        try {
+          const counted = family === "openai-o200k" ? encoders.o200k(text) : encoders.cl100k(text);
+          this.rememberBpeCount(family, text, counted);
+          return counted;
+        } catch {
+          // gpt-tokenizer can throw on malformed UTF-16 surrogate pairs. Fall
+          // through to the ratio estimate rather than crashing the run — and do
+          // not cache, so the failure is never mistaken for a count.
+        }
+      } else {
+        // Backstop for a count that arrives before the deferred preload ran:
+        // start loading now (this call still estimates), the next one is exact.
+        void ensureGptEncoders();
       }
+      // The encoders have not finished loading. Price the text the same way
+      // every non-tokenizer family is priced; countMessageText keeps such
+      // estimates out of the message cache so the next call is exact.
     }
 
     const ratio = this.ratioFor(hint, family);
@@ -281,7 +353,12 @@ export class TokenCounter {
    * genuinely a property of the message alone.
    */
   private countMessageText(msg: ChatMessage, hint: ModelHint): number {
-    const cached = this.messageCache.get(msg);
+    // An estimate made while the BPE encoders are still loading is not the
+    // exact count, so it must not be cached — a cached estimate would pin the
+    // message at a value the real tokenizer would not produce. Everything
+    // else (ratio-backed families, and exact BPE counts) is safe to cache.
+    const cacheable = !isTokenizerBacked(inferFamily(hint)) || gptEncoders !== undefined;
+    const cached = cacheable ? this.messageCache.get(msg) : undefined;
     if (cached !== undefined) return cached;
 
     let tokens = MESSAGE_BASE_OVERHEAD;
@@ -294,7 +371,7 @@ export class TokenCounter {
       tokens += TOOL_RESULT_OVERHEAD;
     }
 
-    this.messageCache.set(msg, tokens);
+    if (cacheable) this.messageCache.set(msg, tokens);
     return tokens;
   }
 
