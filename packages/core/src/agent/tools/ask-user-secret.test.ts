@@ -186,16 +186,16 @@ describe("ask_user_secret", () => {
     expect(known).toContainEqual({ name: "pdf-password", value: SECRET });
   });
 
-  it("names an unnamed secret secret-N, unique within the run", async () => {
-    const store = newStore();
-    const context = { agentId: "a", conversationId: "c", userSecrets: store };
-    await runAsk({ prompt: "Token" }, context, { kind: "provided", value: "first-token-value" });
-    const second = await runAsk({ prompt: "Other" }, context, {
-      kind: "provided",
-      value: "second-token-value",
-    });
-    expect(second.result).toContain("[redacted:secret-2]");
-    expect(store.valueOf("secret-1")).toBe("first-token-value");
+  it("refuses a call that does not name the secret", async () => {
+    const asked: SecretInputRequest[] = [];
+    const result = await runAsk(
+      { prompt: "Token" },
+      { agentId: "a", conversationId: "c", userSecrets: newStore() },
+      { kind: "provided", value: SECRET },
+      asked,
+    );
+    expect(result.success).toBe(false);
+    expect(asked).toEqual([]);
   });
 
   it("stops holding the value once the run's store is closed", async () => {
@@ -214,7 +214,7 @@ describe("ask_user_secret", () => {
   it("reports Esc as the person declining", async () => {
     const store = newStore();
     const result = await runAsk(
-      { prompt: "Password" },
+      { prompt: "Password", name: "pdf-password" },
       { agentId: "a", conversationId: "c", userSecrets: store },
       { kind: "declined" },
     );
@@ -225,7 +225,7 @@ describe("ask_user_secret", () => {
 
   it("tells the model to move to a private chat when the chat is shared", async () => {
     const result = await runAsk(
-      { prompt: "Password" },
+      { prompt: "Password", name: "pdf-password" },
       { agentId: "a", conversationId: "c", userSecrets: newStore() },
       { kind: "unavailable", reason: "shared-chat" },
     );
@@ -443,15 +443,41 @@ describe("typed secrets at the registry", () => {
     expect(logged.join("\n")).not.toContain(SECRET);
   }, 15_000);
 
-  it("leaves arguments alone when the run holds no typed secret", async () => {
+  it("refuses a placeholder the run does not hold instead of passing it on as literal text", async () => {
     const received: string[] = [];
-    await executeThroughRegistry(
+    const result = await executeThroughRegistry(
       [unlockTool(received)],
       "unlock_archive",
       { path: "a.zip", password: "[redacted:pdf-password]" },
       { agentId: "a", conversationId: "c", userSecrets: newStore() },
     );
-    expect(received).toEqual(["[redacted:pdf-password]"]);
+    expect(received).toEqual([]);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("[redacted:pdf-password] is not loaded in this run");
+    expect(result.error).toContain("use_saved_secret");
+  });
+
+  it("refuses an unheld placeholder in a command before anyone is asked to approve it", async () => {
+    const result = await executeThroughRegistry(
+      createShellCommandTools().all(),
+      "execute_command",
+      { command: "echo '[redacted:cloudflare-token]'", description: "Print it." },
+      { agentId: "a", conversationId: "c", userSecrets: newStore() },
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("[redacted:cloudflare-token] is not loaded in this run");
+  });
+
+  it("lets an unheld placeholder through where the tool takes no secret, or in a config shape", async () => {
+    const received: string[] = [];
+    const context = { agentId: "a", conversationId: "c", userSecrets: newStore() };
+    await executeThroughRegistry(
+      [unlockTool(received)],
+      "unlock_archive",
+      { path: "a.zip", password: "[redacted:llm.openai.api_key]" },
+      context,
+    );
+    expect(received).toEqual(["[redacted:llm.openai.api_key]"]);
   });
 });
 

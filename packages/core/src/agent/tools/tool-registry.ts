@@ -17,7 +17,11 @@ import {
 } from "@/core/interfaces/tool-registry";
 import { redactToolResult } from "@/core/secrets/redaction";
 import { redactionPlaceholder } from "@/core/secrets/secret-names";
-import { planUserSecrets, substituteUserSecrets } from "@/core/secrets/user-secrets";
+import {
+  planUserSecrets,
+  substituteUserSecrets,
+  unheldUserSecretNamesIn,
+} from "@/core/secrets/user-secrets";
 import { ToolNotFoundError } from "@/core/types/errors";
 import type {
   ToolCategory,
@@ -27,6 +31,11 @@ import type {
 } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { toolKnownSecrets } from "./tool-secrets";
+import {
+  ASK_USER_SECRET_TOOL_NAME,
+  LIST_SAVED_SECRETS_TOOL_NAME,
+  USE_SAVED_SECRET_TOOL_NAME,
+} from "./user-interaction";
 
 /** Max length of a summary derived from a tool's `description` when no explicit `summary` is set. */
 const SUMMARY_FALLBACK_MAX_LENGTH = 100;
@@ -63,6 +72,17 @@ function gateUserSecrets(
     return { kind: "run", args };
   }
   const accepted = tool.userSecretArguments ?? [];
+  const unheld = unheldUserSecretNamesIn(args, accepted, store);
+  if (unheld.length > 0) {
+    const placeholders = unheld.map(redactionPlaceholder).join(", ");
+    return {
+      kind: "refused",
+      error:
+        `${tool.name} was not run: ${placeholders} is not loaded in this run, so it would reach the tool as literal text. ` +
+        `If it is saved (${LIST_SAVED_SECRETS_TOOL_NAME} shows what is), load it with ${USE_SAVED_SECRET_TOOL_NAME}; ` +
+        `otherwise have the person type it with ${ASK_USER_SECRET_TOOL_NAME}. Then retry with the same placeholder.`,
+    };
+  }
   const plan = planUserSecrets(args, accepted, store);
   if (plan.kind === "none") {
     return { kind: "run", args };

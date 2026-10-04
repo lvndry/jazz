@@ -17,7 +17,11 @@ import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { NotificationServiceTag } from "@/core/interfaces/notification";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { redactionPlaceholder } from "@/core/secrets/secret-names";
-import { heldUserSecrets, userSecretNamesIn } from "@/core/secrets/user-secrets";
+import {
+  heldUserSecrets,
+  secretUseNeedsPerson,
+  userSecretNamesIn,
+} from "@/core/secrets/user-secrets";
 import type {
   ToolExecutionContext,
   ToolExecutionResult,
@@ -584,7 +588,7 @@ function approveAction(args: ActionArgs, context: ToolExecutionContext, foregrou
     }
     return {
       message: `${message}\n\nApproving enters the secret you typed in place of ${typedSecrets.map(redactionPlaceholder).join(", ")} into this app. Approve only if you expect this app to receive it.`,
-      alwaysAsk: true,
+      ...(secretUseNeedsPerson() ? { alwaysAsk: true as const } : {}),
     } as const;
   });
 }

@@ -8,12 +8,21 @@ import {
   type SecretInputRequest,
   type UserInputRequest,
 } from "@/core/interfaces/presentation";
+import { SavedSecretsServiceTag } from "@/core/interfaces/saved-secrets";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import { redactionPlaceholder } from "@/core/secrets/secret-names";
-import { MAX_USER_SECRET_NAME_LENGTH, USER_SECRET_NAME_PATTERN } from "@/core/secrets/user-secrets";
-import { defineTool, makeZodValidator } from "./base-tool";
+import {
+  MAX_USER_SECRET_NAME_LENGTH,
+  secretUseNeedsPerson,
+  USER_SECRET_NAME_PATTERN,
+  type UserSecretStore,
+} from "@/core/secrets/user-secrets";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
+import { defineApprovalTool, defineTool, makeZodValidator } from "./base-tool";
 
 export const ASK_USER_SECRET_TOOL_NAME = "ask_user_secret";
+export const LIST_SAVED_SECRETS_TOOL_NAME = "list_saved_secrets";
+export const USE_SAVED_SECRET_TOOL_NAME = "use_saved_secret";
 
 /** The tools that stop for a person's answer, withheld from a run nobody can answer. */
 export const INTERACTIVE_TOOL_NAMES: readonly string[] = [
@@ -64,12 +73,29 @@ const askSecretSchema = z.object({
   name: z
     .string()
     .max(MAX_USER_SECRET_NAME_LENGTH)
-    .regex(USER_SECRET_NAME_PATTERN, "Use lowercase words joined by hyphens, e.g. pdf-password.")
-    .optional()
-    .describe("Short kebab-case label for the placeholder, e.g. pdf-password."),
+    .regex(
+      USER_SECRET_NAME_PATTERN,
+      "Use lowercase words joined by hyphens, e.g. cloudflare-token.",
+    )
+    .describe(
+      "Short kebab-case name saying what the secret is, e.g. cloudflare-token or invoice-pdf-password. The secret is saved under it for later runs; asking again under a saved name replaces it.",
+    ),
 });
 
 type AskSecretArgs = z.infer<typeof askSecretSchema>;
+
+const savedSecretNameSchema = z
+  .string()
+  .max(MAX_USER_SECRET_NAME_LENGTH)
+  .regex(USER_SECRET_NAME_PATTERN, "Use the name list_saved_secrets shows, e.g. cloudflare-token.");
+
+const useSavedSecretSchema = z.object({
+  name: savedSecretNameSchema.describe("The saved secret's name, as list_saved_secrets shows it."),
+});
+
+type UseSavedSecretArgs = z.infer<typeof useSavedSecretSchema>;
+
+const listSavedSecretsSchema = z.object({});
 
 const SECRET_DECLINED_RESULT =
   "The person chose not to type this secret. Treat that as their decision: carry on with what needs no secret, and say plainly what stays locked without it.";
@@ -78,6 +104,117 @@ function secretHeldResult(name: string): string {
   const placeholder = redactionPlaceholder(name);
   return `The person typed the secret. It is held for this run as ${placeholder}: pass ${placeholder} exactly as written as the value of the argument that needs it.`;
 }
+
+function secretLoadedResult(name: string): string {
+  const placeholder = redactionPlaceholder(name);
+  return `Loaded the saved secret for this run as ${placeholder}: pass ${placeholder} exactly as written as the value of the argument that needs it.`;
+}
+
+/** Save a typed secret for later runs, and say in one sentence what became of it. */
+function saveTypedSecret(name: string, value: string, description: string): Effect.Effect<string> {
+  return Effect.gen(function* () {
+    const saved = yield* Effect.serviceOption(SavedSecretsServiceTag);
+    if (saved._tag === "None") {
+      return "";
+    }
+    const stored = yield* saved.value.save(name, value, description);
+    return stored
+      ? ` It is also saved: a later run loads it with ${USE_SAVED_SECRET_TOOL_NAME} instead of asking again.`
+      : " It could not be saved for later runs, so it lasts only for this one.";
+  });
+}
+
+function failure(message: string): ToolExecutionResult {
+  return { success: false, result: null, error: message };
+}
+
+/** Read the saved value into this run's store. */
+function loadSavedSecret(name: string, store: UserSecretStore): Effect.Effect<ToolExecutionResult> {
+  return Effect.gen(function* () {
+    const saved = yield* Effect.serviceOption(SavedSecretsServiceTag);
+    if (saved._tag === "None") {
+      return failure("Saved secrets are not available in this run.");
+    }
+    const value = yield* saved.value.read(name);
+    if (value === undefined) {
+      return failure(
+        `No value is saved as ${name} any more. Have the person type it with ${ASK_USER_SECRET_TOOL_NAME}.`,
+      );
+    }
+    store.hold(name, value);
+    return { success: true, result: secretLoadedResult(name) };
+  });
+}
+
+function savedSecretPrecheck(
+  name: string,
+  context: ToolExecutionContext,
+): Effect.Effect<
+  | { readonly kind: "done"; readonly result: ToolExecutionResult }
+  | { readonly kind: "ask"; readonly store: UserSecretStore; readonly description: string }
+> {
+  return Effect.gen(function* () {
+    const store = context.userSecrets;
+    if (store === undefined) {
+      return { kind: "done", result: failure("This run cannot hold a secret.") } as const;
+    }
+    if (store.valueOf(name) !== undefined) {
+      return {
+        kind: "done",
+        result: { success: true, result: secretLoadedResult(name) },
+      } as const;
+    }
+    const saved = yield* Effect.serviceOption(SavedSecretsServiceTag);
+    if (saved._tag === "None") {
+      return {
+        kind: "done",
+        result: failure("Saved secrets are not available in this run."),
+      } as const;
+    }
+    const entry = (yield* saved.value.list).find((candidate) => candidate.name === name);
+    if (entry === undefined) {
+      return {
+        kind: "done",
+        result: failure(
+          `No secret is saved as ${name}. ${LIST_SAVED_SECRETS_TOOL_NAME} shows what is; otherwise have the person type it with ${ASK_USER_SECRET_TOOL_NAME}.`,
+        ),
+      } as const;
+    }
+    return { kind: "ask", store, description: entry.description } as const;
+  });
+}
+
+const useSavedSecretTool = defineApprovalTool<never, UseSavedSecretArgs>({
+  name: USE_SAVED_SECRET_TOOL_NAME,
+  description:
+    "Load a secret the person saved earlier (see list_saved_secrets) into this run, so its placeholder works in tools that take secrets. " +
+    "The person approves every load, whatever the approval mode.",
+  parameters: useSavedSecretSchema,
+  riskLevel: "high-risk",
+  disclosure: "private",
+  approvalMessage: (args, context) =>
+    Effect.gen(function* () {
+      const precheck = yield* savedSecretPrecheck(args.name, context);
+      if (precheck.kind === "done") {
+        return { skipApproval: true, toolResult: precheck.result } as const;
+      }
+      if (!secretUseNeedsPerson()) {
+        return {
+          skipApproval: true,
+          toolResult: yield* loadSavedSecret(args.name, precheck.store),
+        } as const;
+      }
+      return {
+        message: `Load your saved secret ${redactionPlaceholder(args.name)} (${precheck.description}) into this run? The agent never sees the value; approving lets its tools use it until the run ends.`,
+        alwaysAsk: true,
+        rejectionMessage: `The person chose not to load ${args.name}. Treat that as their decision: carry on with what needs no secret, and say plainly what stays locked without it.`,
+      } as const;
+    }),
+  handler: (args, context) =>
+    context.userSecrets === undefined
+      ? Effect.succeed(failure("This run cannot hold a secret."))
+      : loadSavedSecret(args.name, context.userSecrets),
+});
 
 function secretUnavailableResult(outcome: Extract<SecretInputOutcome, { kind: "unavailable" }>) {
   return outcome.reason === "shared-chat"
@@ -171,7 +308,8 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     description:
       "Ask the person to type a password, token or passphrase only they know, such as the password of an encrypted PDF. " +
       "They type it hidden; you get back a placeholder like [redacted:pdf-password]. " +
-      "Pass that placeholder as-is to the argument that needs the secret, such as a PDF tool's password or inside a shell command.",
+      "Pass that placeholder as-is to the argument that needs the secret, such as a PDF tool's password or inside a shell command. " +
+      "Check list_saved_secrets first: a saved secret is loaded with use_saved_secret instead of asked for again.",
     parameters: askSecretSchema,
     hidden: false,
     riskLevel: "read-only",
@@ -186,7 +324,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
           };
         }
         const presentation = yield* PresentationServiceTag;
-        const request: SecretInputRequest = { prompt: args.prompt, name: store.nameFor(args.name) };
+        const request: SecretInputRequest = { prompt: args.prompt, name: args.name };
 
         const prior =
           context.toolCallId === undefined
@@ -197,7 +335,8 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
             return { success: false, result: SECRET_DECLINED_RESULT };
           }
           store.hold(request.name, prior.value);
-          return { success: true, result: secretHeldResult(request.name) };
+          const savedNote = yield* saveTypedSecret(request.name, prior.value, args.prompt);
+          return { success: true, result: `${secretHeldResult(request.name)}${savedNote}` };
         }
 
         if (context.parkWhenUnattended === true && presentation.canPromptForApproval?.() !== true) {
@@ -223,9 +362,43 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
           return { success: false, result: secretUnavailableResult(outcome) };
         }
         store.hold(request.name, outcome.value);
-        return { success: true, result: secretHeldResult(request.name) };
+        const savedNote = yield* saveTypedSecret(request.name, outcome.value, args.prompt);
+        return { success: true, result: `${secretHeldResult(request.name)}${savedNote}` };
       }),
   }),
+  defineTool({
+    name: LIST_SAVED_SECRETS_TOOL_NAME,
+    disclosure: "private",
+    description:
+      "List the secrets the person saved for every agent: names and what each is for, never values. " +
+      "Load one with use_saved_secret, then pass its placeholder like any typed secret.",
+    parameters: listSavedSecretsSchema,
+    hidden: false,
+    riskLevel: "read-only",
+    validate: makeZodValidator(listSavedSecretsSchema),
+    handler: () =>
+      Effect.gen(function* () {
+        const saved = yield* Effect.serviceOption(SavedSecretsServiceTag);
+        if (saved._tag === "None") {
+          return failure("Saved secrets are not available in this run.");
+        }
+        const entries = yield* saved.value.list;
+        if (entries.length === 0) {
+          return {
+            success: true,
+            result: `No secrets are saved. ${ASK_USER_SECRET_TOOL_NAME} with a name saves one.`,
+          };
+        }
+        const lines = entries.map(
+          (entry) => `- ${entry.name}: ${entry.description} (saved ${entry.savedAt.slice(0, 10)})`,
+        );
+        return {
+          success: true,
+          result: `Saved secrets:\n${lines.join("\n")}\n\nLoad one with ${USE_SAVED_SECRET_TOOL_NAME}.`,
+        };
+      }),
+  }),
+  ...useSavedSecretTool.all(),
   defineTool({
     name: "ask_file_picker",
     disclosure: "private",

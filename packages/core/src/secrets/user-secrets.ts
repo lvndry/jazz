@@ -20,8 +20,6 @@ export const USER_SECRET_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** Longest label a secret can carry, so a placeholder stays one short token. */
 export const MAX_USER_SECRET_NAME_LENGTH = 48;
 
-const DEFAULT_NAME_STEM = "secret";
-
 /** One run's typed secrets, by name. */
 export class UserSecretStore {
   private readonly values = new Map<string, string>();
@@ -38,18 +36,6 @@ export class UserSecretStore {
   /** The value held under `name`, when this run holds one. */
   valueOf(name: string): string | undefined {
     return this.values.get(name);
-  }
-
-  /** `requested` when given, else the first free `secret-N`. */
-  nameFor(requested: string | undefined): string {
-    if (requested !== undefined) {
-      return requested;
-    }
-    let index = this.values.size + 1;
-    while (this.values.has(`${DEFAULT_NAME_STEM}-${String(index)}`)) {
-      index += 1;
-    }
-    return `${DEFAULT_NAME_STEM}-${String(index)}`;
   }
 
   /** Every held value as a known secret, for exact redaction. */
@@ -180,6 +166,19 @@ export function userSecretNamesIn(value: unknown, store: UserSecretStore): strin
   return [...names];
 }
 
+/**
+ * Set to a truthy value (by `--dangerously-allow-reading-secrets` or by hand) to let a run load
+ * saved secrets and use typed ones without a person approving each use. Meant for unattended
+ * runs, which have nobody to ask.
+ */
+export const ALLOW_READING_SECRETS_ENV_VAR = "JAZZ_DANGEROUSLY_ALLOW_READING_SECRETS";
+
+/** Whether loading or using a secret must go to a person, under every auto-approve policy. */
+export function secretUseNeedsPerson(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env[ALLOW_READING_SECRETS_ENV_VAR]?.trim().toLowerCase();
+  return raw === undefined || raw === "" || raw === "0" || raw === "false";
+}
+
 /** What a call carrying this run's typed-secret placeholders may do. */
 export type UserSecretPlan =
   | { readonly kind: "none" }
@@ -278,6 +277,36 @@ export function planUserSecrets(
     };
   }
   return { kind: "substitute", names };
+}
+
+/**
+ * The user-secret names whose placeholders sit in the strings `accepted` names but which this
+ * run does not hold: a secret typed in an earlier run, or a name the model made up. Config,
+ * environment and shape placeholders never match the user-secret name pattern.
+ */
+export function unheldUserSecretNamesIn(
+  args: Readonly<Record<string, unknown>>,
+  accepted: readonly string[],
+  store: UserSecretStore,
+): string[] {
+  const patterns = accepted.map(parseArgumentPath);
+  const names = new Set<string>();
+  mapStringLeaves(args, [], (text, path) => {
+    if (patterns.some((pattern) => pathsMatch(path, pattern))) {
+      for (const match of text.matchAll(PLACEHOLDER_PATTERN)) {
+        const name = match[1] ?? "";
+        if (
+          USER_SECRET_NAME_PATTERN.test(name) &&
+          name.length <= MAX_USER_SECRET_NAME_LENGTH &&
+          store.valueOf(name) === undefined
+        ) {
+          names.add(name);
+        }
+      }
+    }
+    return text;
+  });
+  return [...names];
 }
 
 /**
