@@ -143,7 +143,9 @@
         "@effect/platform": "^0.97.1",
         "@effect/platform-node": "^0.108.1",
         "@modelcontextprotocol/client": "^2.0.0",
+        "@noble/hashes": "^2.4.0",
         "@perplexity-ai/perplexity_ai": "^0.38.3",
+        "@resvg/resvg-js": "^2.6.2",
         "ai": "^7.0.79",
         "chalk": "^6.0.0",
         "cron-parser": "^5.10.0",
@@ -167,7 +169,6 @@
         "@expo-google-fonts/anton": "^0.4.2",
         "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
         "@jazz/adapters": "workspace:*",
-        "@resvg/resvg-js": "^2.6.2",
       },
     },
     "packages/daemon": {
@@ -660,6 +661,8 @@
     "@napi-rs/canvas-win32-x64-msvc": ["@napi-rs/canvas-win32-x64-msvc@0.1.80", "", { "os": "win32", "cpu": "x64" }, "sha512-Z8jPsM6df5V8B1HrCHB05+bDiCxjE9QA//3YrkKIdVDEwn5RKaqOxCJDRJkl48cJbylcrJbW4HxZbTte8juuPg=="],
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.2.4", "", { "dependencies": { "@tybys/wasm-util": "^0.10.3" }, "peerDependencies": { "@emnapi/core": "^1.7.1 || ^2.0.0-alpha.4", "@emnapi/runtime": "^1.7.1 || ^2.0.0-alpha.4" } }, "sha512-AJxoUD2/15ESHbvpcyjU274nsAPLuOtPHCk0vKJM5pj//Fg/B1FXNWjPnXTT9PymCYYiHo4zPj0ZomXBKhoy7g=="],
+
+    "@noble/hashes": ["@noble/hashes@2.4.0", "", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
 
     "@nodable/entities": ["@nodable/entities@3.0.0", "", {}, "sha512-8L9xFeTYKhm49xfIypoe2W5wV1m/3Z58kT+7kR9A8OyFxcPduI4VmxaUMQyKYrRjUoLLSXv6EKKID5Tvj9cUVw=="],
 

@@ -90,7 +90,7 @@ deploy path:
 
 - **Public** — you pick the host: GitHub Pages (default) or Cloudflare Pages.
   The page lands in your `<you>/compositions` repo and is served at
-  `<you>.github.io/compositions/<slug>/` (or `/compositions/<slug>/` on the
+  `<you>.github.io/compositions/compositions/<slug>/` (or `/compositions/<slug>/` on the
   Cloudflare host).
 - **Private** — always Cloudflare Pages, from a **private** repo
   (`<you>/compositions-private`). The source file stays in a private repository
@@ -100,12 +100,18 @@ deploy path:
   Cloudflare account is needed on the visitor's side — the free "Cloudflare
   Access" provider signs people in with just an email address.
 
-Each published page also ships a **Jazz-styled `og.png` card** (the same brand as
-the site) plus `og:title`/`og:image` meta, so the composition looks right when
-the URL is shared.
+When the rendering fonts are available, published pages include a **Jazz-styled
+`og.png` card** plus `og:title`/`og:image` metadata. Card rendering is optional;
+a missing font stack does not prevent publishing.
 
-First use creates the repo, the Pages project, and the Access app automatically;
-re-publishing an existing slug redeploys in place.
+First use creates the repo, the Pages project, and the Access applications automatically.
+The tool verifies repository visibility before cloning or pushing. A private request
+refuses a public repository, including a repository passed through `repo`.
+
+Cloudflare publishing uploads the complete `compositions/` directory from the checkout,
+so adding a new slug retains existing pages. A deployment failure returns an error;
+a Git integration is not required and is not used as a fallback. Re-publishing an
+existing slug replaces that page in the next snapshot.
 
 ### Requirements
 
@@ -121,16 +127,28 @@ re-publishing an existing slug redeploys in place.
   (a scoped token from the dashboard is enough). `accessEmail` controls who can open
   private pages. One-time setup: open
   [one.dash.cloudflare.com](https://one.dash.cloudflare.com/) and click **Enable
-  Access** if the account has never used Access.
+  Access** if the account has never used Access. Enable **One-time PIN** under
+  **Integrations → Identity providers** for email-code sign-in.
+
+- `accessEmail` is required for private publishing. Optional `pagesHost` must already
+  be attached to that Pages project; the tool does not register a custom domain.
+  Without it, links use Cloudflare's assigned subdomain, which may include a suffix.
 
 ### Managing the private allow list
 
-Publishing creates an Access app whose allow rule admits exactly `accessEmail` —
-with `you@email.com`, only that address gets in. To let more people in, open the
-Cloudflare One dashboard → **Access → Applications** → the app named
-`jazz-<project>` → **Policies** → edit, and add more **Email address** include
-rules. The tool never rewrites an existing app on re-publish, so manual changes
-are preserved.
+Private publishing creates email allow policies for the assigned Pages hostname,
+its `*.<assigned-hostname>` deployment aliases, and every attached custom domain.
+These gates are configured and verified before source is pushed or assets are uploaded.
+A configured custom `pagesHost` protects `/compositions/private`; other project
+hostnames are protected in full.
+
+Manage access in Cloudflare One → **Access → Applications** → the applications
+named `jazz-<project>-<number>` → **Policies**. Update every application protecting
+the project when adding or removing an allowed address. Compatible existing email
+and email-domain allow lists are preserved. Publishing refuses applicable bypass
+policies, public destination overrides, and allow rules whose email restriction it
+cannot verify. An Access configuration failure stops publication before any content
+is pushed or uploaded.
 
 ## Related
 
