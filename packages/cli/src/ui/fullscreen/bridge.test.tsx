@@ -100,6 +100,8 @@ function resetStoreSlices(): void {
   store.clearModeToast();
   store.collapseAllEphemeral();
   store.setInterruptHandler(null);
+  store.closeCommandPanel();
+  store.registerImmediateCommandRunner(null);
 }
 
 /** Margin past the arming delay, so the timer that arms the card has certainly fired. */
@@ -734,6 +736,67 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
     store.setChatBusy(false);
     store.setPrompt(null);
+  });
+
+  it("answers a read-only command in a centered panel mid-turn instead of queueing it", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    let interrupted = false;
+    store.setInterruptHandler(() => {
+      interrupted = true;
+    });
+    store.setChatBusy(true);
+    await rendered.flush();
+    const ran: string[] = [];
+    store.registerImmediateCommandRunner((text) => {
+      if (text !== "/info") return false;
+      ran.push(text);
+      const panelId = store.beginCommandPanel();
+      store.appendCommandPanel(panelId, text, {
+        kind: "report",
+        report: {
+          _tag: "report",
+          label: "info",
+          rows: [{ kind: "field", key: "model", value: "openai/gpt" }],
+        },
+      });
+      return true;
+    });
+
+    await typeInto(rendered.mockInput, rendered.flush, "/info");
+    rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    const open = rendered.captureCharFrame();
+
+    rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush);
+    const closed = rendered.captureCharFrame();
+    rendered.renderer.destroy();
+
+    expect(ran).toEqual(["/info"]);
+    expect(store.getMessageQueueSnapshot()).toEqual([]);
+    expect(open).toContain("esc to close");
+    expect(open).toContain("openai/gpt");
+    const panelRow = open.split("\n").find((row) => row.includes("openai/gpt")) ?? "";
+    expect(panelRow.indexOf("info")).toBeGreaterThan(2);
+    expect(closed).not.toContain("openai/gpt");
+    expect(store.getCommandPanelSnapshot()).toBeNull();
+    expect(interrupted).toBe(false);
+  });
+
+  it("still queues a command that changes the conversation while a turn runs", async () => {
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setChatBusy(true);
+    await rendered.flush();
+    store.registerImmediateCommandRunner(() => false);
+
+    await typeInto(rendered.mockInput, rendered.flush, "/compact now");
+    rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    rendered.renderer.destroy();
+
+    expect(store.getMessageQueueSnapshot()).toEqual(["/compact now"]);
   });
 
   it("keeps the composer enabled after the chat prompt resolves while a queue is shown", async () => {

@@ -78,7 +78,7 @@ import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Runtime } from "effect";
 import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
 import { reasoningEffortLabel } from "@/cli/helpers/reasoning";
 import {
@@ -110,6 +110,7 @@ import {
   pauseOnExit,
   settledHere,
 } from "./chat/commands/goal";
+import { commandPanelTerminal, runsImmediately } from "./chat/commands/immediate";
 import { announceWaitingLoops } from "./chat/commands/loop";
 import {
   confirmSessionLimitOverage,
@@ -465,6 +466,52 @@ export class ChatServiceImpl implements ChatService {
         }
       });
 
+      /** The session as a command sees it, read when the command runs. */
+      const commandContext = (
+        persistedAutoApprovedCommands?: readonly string[],
+      ): CommandContext => ({
+        agent,
+        conversationId,
+        conversationTitle,
+        ephemeral,
+        conversationHistory,
+        queuedAfterCommand: store.peekQueue().length > 0,
+        sessionUsage,
+        sessionTurnCount,
+        sessionLimits,
+        sessionStartedAt,
+        lastUsedAgentId,
+        autoApprovePolicy,
+        ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
+        ...(persistedAutoApprovedCommands?.length
+          ? { persistedAutoApprovedCommands: [...persistedAutoApprovedCommands] }
+          : {}),
+        ...(autoApprovedTools.length > 0 ? { autoApprovedTools } : {}),
+      });
+
+      // A command that only reads answers in the command panel the moment it is entered,
+      // alongside a running turn or the idle prompt, instead of waiting its turn in the queue.
+      const runtime =
+        yield* Effect.runtime<Effect.Effect.Context<ReturnType<typeof handleSpecialCommand>>>();
+      store.registerImmediateCommandRunner((text) => {
+        if (!isCommandInput(text) || text.includes("\n")) {
+          return false;
+        }
+        const command = parseSpecialCommand(text);
+        if (!runsImmediately(command)) {
+          return false;
+        }
+        store.pushInputHistory(text);
+        const panelTerminal = commandPanelTerminal(terminal, text);
+        Runtime.runFork(runtime)(
+          handleSpecialCommand(command, commandContext()).pipe(
+            Effect.catchAll((error) => panelTerminal.error(toError(error).message)),
+            Effect.provideService(TerminalServiceTag, panelTerminal),
+          ),
+        );
+        return true;
+      });
+
       // True after a turn ended in a caught error. Decides whether queued
       // text auto-flushes (clean-finish path) or seeds the next prompt for
       // editing (error path).
@@ -640,25 +687,7 @@ export class ChatServiceImpl implements ChatService {
           } else {
             trustMessageAsMemorySource = false;
             const latestConfig = yield* configService.appConfig;
-            const context: CommandContext = {
-              agent,
-              conversationId,
-              conversationTitle,
-              ephemeral,
-              conversationHistory,
-              queuedAfterCommand: store.peekQueue().length > 0,
-              sessionUsage,
-              sessionTurnCount,
-              sessionLimits,
-              sessionStartedAt,
-              lastUsedAgentId,
-              autoApprovePolicy,
-              ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),
-              ...(latestConfig.autoApprovedCommands?.length
-                ? { persistedAutoApprovedCommands: latestConfig.autoApprovedCommands }
-                : {}),
-              ...(autoApprovedTools.length > 0 ? { autoApprovedTools } : {}),
-            };
+            const context = commandContext(latestConfig.autoApprovedCommands);
             const commandResult: CommandResult = yield* handleSpecialCommand(
               specialCommand,
               context,
@@ -1135,6 +1164,12 @@ export class ChatServiceImpl implements ChatService {
       detachPaneStateReporting();
       return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
     }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          store.registerImmediateCommandRunner(null);
+          store.closeCommandPanel();
+        }),
+      ),
       Effect.catchAll(() =>
         Effect.succeed<ChatSessionEnd>({ reason: "exit", messagesReceived: 0 }),
       ),

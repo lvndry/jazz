@@ -56,6 +56,7 @@ import {
 } from "./keymap";
 import { LiveZone } from "./LiveZone";
 import { Approval, approvalLayout } from "./overlays/Approval";
+import { CommandPanel } from "./overlays/CommandPanel";
 import { FilePicker, filePickerLayout } from "./overlays/FilePicker";
 import { overlayReservedRows } from "./overlays/overlay-frame";
 import { Question, questionLayout } from "./overlays/Question";
@@ -207,6 +208,9 @@ function TooSmall({ width, height }: { width: number; height: number }): React.R
 /** Rows the open card keeps from the transcript, from the same layout it draws with. */
 function overlayRows(overlay: Overlay, viewport: Viewport): number {
   switch (overlay.kind) {
+    case "panel":
+      // Centered over the chat rather than docked, so the transcript keeps every row.
+      return 0;
     case "approval":
       return overlayReservedRows(approvalLayout(overlay, viewport));
     case "search":
@@ -227,6 +231,13 @@ function renderOverlay(
   viewport: { width: number; height: number },
 ): React.ReactNode {
   switch (overlay.kind) {
+    case "panel":
+      return (
+        <CommandPanel
+          model={overlay}
+          viewport={viewport}
+        />
+      );
     case "approval":
       return (
         <Approval
@@ -352,8 +363,12 @@ function AppView({
     [layout, view.blocks, width, glyphs, themeRevision],
   );
   useEffect(() => () => layout.dispose(), [layout]);
+  // The command panel leaves the chat moving behind it; every other card holds it still.
   const transcriptOccluded =
-    overlayOpen || overrideContent !== undefined || width < MIN_WIDTH || height < MIN_HEIGHT;
+    (overlayOpen && view.overlay?.kind !== "panel") ||
+    overrideContent !== undefined ||
+    width < MIN_WIDTH ||
+    height < MIN_HEIGHT;
   const viewportInput = useMemo(
     () => ({
       documentId: view.documentId,

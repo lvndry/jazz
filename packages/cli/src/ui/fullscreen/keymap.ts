@@ -471,13 +471,14 @@ export function hintsFor(
   focus: Focus,
   runActive: boolean,
   queueing = false,
-  overlay?: "approval" | "search" | "question" | "text" | "filepicker" | "theme",
+  overlay?: "panel" | "approval" | "search" | "question" | "text" | "filepicker" | "theme",
   commandsOpen = false,
   hasQueued = false,
 ): readonly string[] {
   // A card that waits on a person carries its own legend under it; the footer says what
   // state the session is in rather than repeating the card's keys a second time.
   if (overlay === "approval") return ["waiting for you"];
+  if (overlay === "panel") return runActive ? ["working", "esc to close"] : ["esc to close"];
   if (overlay === "search") return ["enter to insert", "tab to scope", "esc to close"];
   if (overlay === "text") return ["waiting for you", "pgup to read above"];
   if (overlay === "question") return ["waiting for you", "pgup to read above"];
