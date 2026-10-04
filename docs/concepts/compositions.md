@@ -108,7 +108,7 @@ re-publishing an existing slug redeploys in place.
   `~/.config/jazz/cloudflare.json`
 
   ```json
-  { "schemaVersion": 1, "token": "…", "accountId": "…", "accessEmail": "you@example.com" }
+  { "schemaVersion": 1, "token": "…", "accountId": "…", "accessEmail": "you@email.com" }
   ```
 
   The token needs **Cloudflare Pages: Edit** and **Access: Apps: Edit** permissions
@@ -120,7 +120,7 @@ re-publishing an existing slug redeploys in place.
 ### Managing the private allow list
 
 Publishing creates an Access app whose allow rule admits exactly `accessEmail` —
-with `you@proton.me`, only that address gets in. To let more people in, open the
+with `you@email.com`, only that address gets in. To let more people in, open the
 Cloudflare One dashboard → **Access → Applications** → the app named
 `jazz-<project>` → **Policies** → edit, and add more **Email address** include
 rules. The tool never rewrites an existing app on re-publish, so manual changes

@@ -16,7 +16,7 @@ const CF_BASE = "https://api.cloudflare.com/client/v4";
 export type CloudflareConfig = {
   token: string;
   accountId: string;
-  /** Email that the private page's Access policy allows (e.g. "me@example.com"). */
+  /** Email that the private page's Access policy allows (e.g. "me@email.com"). */
   accessEmail?: string;
 };
 
