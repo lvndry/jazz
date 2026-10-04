@@ -1,11 +1,10 @@
 # Backend for stateful compositions (Worker + D1), via the cf CLI
 
 When a composition needs shared state (more than one browser, data that must
-persist and tick), the pattern that worked for the `patrimoine` household
-dashboard (see `compositions-private` → `networth/` for a full working
-example) is: **static Pages frontend + one Cloudflare Worker + D1
-(managed SQLite) + scheduled cron** — all serverless, all on the same
-account as the Pages project, all in the free tier for personal scale.
+persist and tick), the proven pattern is: **static Pages frontend + one
+Cloudflare Worker + D1 (managed SQLite) + scheduled cron** — all serverless,
+all on the same account as the Pages project, all in the free tier for
+personal scale.
 
 Everything below is done with the **cf CLI** (`cf auth login` once per
 machine; the OAuth token covers Workers, D1, and Zero Trust in this
@@ -21,7 +20,8 @@ cf d1 create --name my-app            # returns { uuid, name, ... } — keep the
 `cf d1 query <DATABASE_ID> --sql "..."` works for single statements but
 **chokes on multi-statement SQL** (batch bodies get rejected by the query
 endpoint). Apply a schema file statement by statement with a small helper
-(`compositions-private/networth/apply-d1.mjs` is a working one):
+that splits on semicolons _outside_ string literals and makes
+`CREATE TABLE`/`CREATE INDEX` idempotent:
 
 ```sh
 node apply-d1.mjs <DATABASE_ID> db/schema.sql db/seed.sql
