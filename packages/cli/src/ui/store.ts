@@ -22,6 +22,7 @@ import {
   type PendingStream,
   type StreamKind,
 } from "./adapters/terminal-output-adapter";
+import type { CommandPanel, CommandPanelEntry } from "./command-panel";
 import {
   appendDocumentEntries,
   appendDocumentStream,
@@ -304,6 +305,8 @@ export interface SessionSnapshot {
   readonly backgroundHandler: (() => void) | null;
   readonly approvalRequest: PendingApproval | null;
   readonly activeMenu: ActiveMenu | null;
+  /** A read-only command's answer, centered over the chat until Esc. */
+  readonly commandPanel: CommandPanel | null;
   readonly modeToast: string | null;
   /** A model call that failed and is scheduled to be tried again. Cleared once the model answers. */
   readonly retryNotice: RetryNotice | null;
@@ -351,6 +354,7 @@ const INITIAL_SESSION: SessionSnapshot = {
   backgroundHandler: null,
   approvalRequest: null,
   activeMenu: null,
+  commandPanel: null,
   modeToast: null,
   retryNotice: null,
   busySince: null,
@@ -536,6 +540,9 @@ export class UIStore {
   private expandableDiff: ExpandableDiffPayload | null = null;
   private pendingReceiptDiffs = new Map<string, string>();
   private modeSwitchHandler: ModeSwitchHandler | null = null;
+  private immediateCommandRunner: ((text: string) => boolean) | null = null;
+  private commandPanelSerial = 0;
+  private closedCommandPanel = 0;
   private sessionCostUSD = 0;
   private sessionPromptTokens = 0;
   private sessionCompletionTokens = 0;
@@ -1520,6 +1527,57 @@ export class UIStore {
     patchSlice(this.session, { activeMenu: null });
     continuation?.(result);
   };
+
+  /**
+   * Start a command run that answers in the panel. The panel opens on its first output, so a
+   * command that only shows a picker never flashes an empty one.
+   */
+  beginCommandPanel = (): number => {
+    this.commandPanelSerial += 1;
+    return this.commandPanelSerial;
+  };
+
+  /**
+   * Add a run's output to its panel. A newer run's panel replaces an older one, and output
+   * from a run whose panel was already closed is dropped rather than reopening it.
+   */
+  appendCommandPanel = (id: number, command: string, entry: CommandPanelEntry): void => {
+    if (id <= this.closedCommandPanel) {
+      return;
+    }
+    const current = this.session.getSnapshot().commandPanel;
+    if (current !== null && current.id > id) {
+      return;
+    }
+    const entries = current?.id === id ? [...current.entries, entry] : [entry];
+    patchSlice(this.session, { commandPanel: { id, command, entries } });
+  };
+
+  closeCommandPanel = (): void => {
+    const current = this.session.getSnapshot().commandPanel;
+    if (current === null) {
+      return;
+    }
+    this.closedCommandPanel = Math.max(this.closedCommandPanel, current.id);
+    patchSlice(this.session, { commandPanel: null });
+  };
+
+  getCommandPanelSnapshot(): CommandPanel | null {
+    return this.session.getSnapshot().commandPanel;
+  }
+
+  /** Registered by the chat for its lifetime; see `runCommandImmediately`. */
+  registerImmediateCommandRunner = (runner: ((text: string) => boolean) | null): void => {
+    this.immediateCommandRunner = runner;
+  };
+
+  /**
+   * Run `text` now when it is a command that only reads, busy turn or not, instead of
+   * queueing it or sending it as a turn. False when it is anything else, which the caller
+   * then submits or queues as usual.
+   */
+  runCommandImmediately = (text: string): boolean =>
+    this.immediateCommandRunner?.(text.trim()) ?? false;
 
   getActiveMenuSnapshot(): ActiveMenu | null {
     return this.session.getSnapshot().activeMenu;

@@ -10,6 +10,7 @@ import { InputPriority, InputResults } from "@/cli/services/input-service";
 import { ActivityView } from "./ActivityView";
 import type { PendingStream } from "./adapters/terminal-output-adapter";
 import { ApprovalView } from "./ApprovalView";
+import { CommandPanelView } from "./CommandPanelView";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
@@ -399,7 +400,9 @@ function InkAgentDetailsView({
 }
 
 export function App(): React.ReactElement {
-  const { activeMenu: menu, interruptHandler, modeToast } = useSessionSlice();
+  const { activeMenu: menu, commandPanel, interruptHandler, modeToast } = useSessionSlice();
+  const commandPanelOpenRef = useRef(false);
+  commandPanelOpenRef.current = commandPanel !== null;
   const { prompt } = usePromptSlice();
   const interruptHandlerRef = useRef(interruptHandler);
   interruptHandlerRef.current = interruptHandler;
@@ -493,7 +496,8 @@ export function App(): React.ReactElement {
 
   useInput((input, key) => {
     const isEscape = key.escape || input === "\x1b";
-    if (!isEscape || !interruptHandlerRef.current) {
+    // With the command panel open, Esc only closes it (CommandPanelView does that).
+    if (!isEscape || !interruptHandlerRef.current || commandPanelOpenRef.current) {
       return;
     }
 
@@ -656,6 +660,12 @@ export function App(): React.ReactElement {
               paddingX={PADDING.content}
             >
               <Text color={THEME.primary}>{modeToast}</Text>
+            </Box>
+          )}
+
+          {commandPanel !== null && (
+            <Box marginTop={1}>
+              <CommandPanelView panel={commandPanel} />
             </Box>
           )}
 

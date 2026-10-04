@@ -51,6 +51,9 @@ export function QueueInput({
 }): React.ReactElement {
   const handleSubmit = useCallback((val: string): void => {
     if (val.length === 0) return;
+    if (store.runCommandImmediately(val)) {
+      return;
+    }
     store.appendToQueue(val);
   }, []);
 

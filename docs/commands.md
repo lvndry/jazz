@@ -1109,6 +1109,16 @@ keys. In both, interrupting work takes a double Esc or one Ctrl+C.
 
 <!-- keys-classic:end -->
 
+### Commands that answer right away
+
+Commands that only show something open in a panel centered over the chat as soon as you press
+Enter, even while the agent is working: `/info`, `/cost`, `/context`, `/help`, `/tools`,
+`/peers`, `/theme`, and the plain forms of `/mcp`, `/work`, `/memory` and `/waits`. The agent
+keeps going behind the panel; Esc closes it, and Up and Down scroll a long one. Nothing in the
+panel is added to the conversation. Commands that change the conversation, the agent or a
+setting the agent reads (`/compact`, `/model`, `/mcp reconnect`, `/memory forget`, ...) still
+wait in the queue for the current turn to end.
+
 ### Watching and steering sub-agents
 
 When the agent delegates with `spawn_subagent`, the turn's sub-agents are listed under the

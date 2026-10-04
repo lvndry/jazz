@@ -19,14 +19,15 @@
 
 import type { TerminalReport } from "@jazz/core/interfaces/terminal";
 import type { TodoSnapshotItem } from "../activity-state";
+import type { CommandPanel } from "../command-panel";
 import type { ApprovalCommand, ApprovalDiff } from "../models/approval";
 import type { ToolReceipt } from "../models/receipt";
+import type { RetryBand } from "../models/retry";
 import type { SubagentStatus } from "../subagent-runs";
 import type { SuggestionPrefix } from "../suggestion-menu";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
-import type { RetryBand } from "../models/retry";
 /**
  * The live zone caps rather than grows, so the input never moves.
  *
@@ -416,7 +417,15 @@ export interface ThemePickerModel {
   readonly selected: number;
 }
 
+/** A read-only command's answer, centered over the chat; `offset` is its scroll position. */
+export interface CommandPanelOverlay {
+  readonly kind: "panel";
+  readonly panel: CommandPanel;
+  readonly offset: number;
+}
+
 export type Overlay =
+  | CommandPanelOverlay
   | ApprovalOverlay
   | SearchOverlay
   | QuestionModel
