@@ -803,6 +803,12 @@ describe("executeAgentLoop", () => {
     expect(warningCalls.some((msg) => msg.includes("auto-compacting"))).toBe(false);
   });
 
+  /**
+   * A model no catalog lists, so the run accounts against the fallback window and the long
+   * history stays under the compaction threshold: the overflow comes only from the provider.
+   */
+  const UNCATALOGUED_MODEL = "jazz-test-uncatalogued-model";
+
   function longHistory(): ChatMessage[] {
     const filler = "the quick brown fox jumps over the lazy dog. ".repeat(40);
     return [
@@ -845,7 +851,7 @@ describe("executeAgentLoop", () => {
     const response = await Effect.runPromise(
       executeAgentLoop(
         makeOptions(),
-        makeRunContext({ messages: longHistory() as any }),
+        makeRunContext({ model: UNCATALOGUED_MODEL, messages: longHistory() as any }),
         displayConfig,
         strategy,
         observer,
@@ -884,7 +890,7 @@ describe("executeAgentLoop", () => {
       Effect.runPromise(
         executeAgentLoop(
           makeOptions(),
-          makeRunContext({ messages: longHistory() as any }),
+          makeRunContext({ model: UNCATALOGUED_MODEL, messages: longHistory() as any }),
           displayConfig,
           strategy,
           defaultObserver,
