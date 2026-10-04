@@ -897,11 +897,22 @@ export function recordConversationTranscript(
     if (input.uiTranscript !== undefined) {
       const ids = new Set<string>();
       for (const entry of input.uiTranscript) {
-        const valid =
-          validatedUiEntries.has(entry) || presentationEntrySchema.safeParse(entry).success;
-        if (!valid || ids.has(entry.id)) {
+        if (!validatedUiEntries.has(entry)) {
+          const parsed = presentationEntrySchema.safeParse(entry);
+          if (!parsed.success) {
+            const issue = parsed.error.issues[0];
+            const where = issue?.path.join(".") ?? "";
+            return yield* Effect.fail(
+              new Error(
+                `Invalid ${entry.content?.kind ?? "unknown"} entry ${entry.id} in conversation history: ` +
+                  `${where.length > 0 ? `${where}: ` : ""}${issue?.message ?? "does not match the schema"}`,
+              ),
+            );
+          }
+        }
+        if (ids.has(entry.id)) {
           return yield* Effect.fail(
-            new Error("Invalid or duplicate presentation entry in conversation history"),
+            new Error(`Conversation history has a duplicate entry id ${entry.id}`),
           );
         }
         ids.add(entry.id);
