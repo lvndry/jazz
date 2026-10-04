@@ -76,6 +76,7 @@ import {
   resolveEffectiveContextWindow,
 } from "../context/effective-context-window";
 import { Summarizer, type AutoCompaction, type RecursiveRunner } from "../context/summarizer";
+import { hydrateTokenCalibration, saveTokenCalibration } from "../context/token-calibration-state";
 import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
 import { persistLargeToolResults } from "../context/tool-result-offload";
 import {
@@ -1912,6 +1913,11 @@ export function executeAgentLoop(
         Option.none(),
       );
       const subagents = yield* createSubagentSupervisor();
+      // A resumed session is the most expensive place to count with fresh
+      // defaults: history is long, so the first pre-call estimate is what
+      // decides compaction for a context that may be near the limit. Reuse
+      // what previous runs already learned; cannot fail.
+      yield* hydrateTokenCalibration();
       return { logger, finalizeFiberRef, subagents };
     }),
     // Use: main loop
@@ -2259,6 +2265,13 @@ export function executeAgentLoop(
             Effect.catchAll(() => Effect.void),
           );
         }
+
+        // Persist whatever the run's usage reports taught the counter so the
+        // next process starts calibrated. Runs on every exit path, including
+        // interruption, which is where a long session's learning would
+        // otherwise be lost. Ignored: an unsaved calibration costs the next
+        // run at most one round trip of convergence.
+        yield* saveTokenCalibration().pipe(Effect.ignore);
 
         yield* logger.popLogGroup();
       }),

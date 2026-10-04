@@ -168,6 +168,15 @@ function isTokenizerBacked(family: ModelFamily): boolean {
   return family === "openai-o200k" || family === "openai-cl100k";
 }
 
+/** One model's learned token economics, persisted across runs. */
+export interface CalibratedModel {
+  /** The counter's per-model key: `"provider::modelId"`. */
+  readonly model: string;
+  /** Calibrated characters-per-token ratio. */
+  readonly ratio: number;
+  /** Tokens each request carries beyond the message list (tool schemas etc.). */
+  readonly overhead: number;
+}
 /**
  * Infer tokenizer family from a model hint.
  *
@@ -229,6 +238,17 @@ export function inferFamily(hint: ModelHint): ModelFamily {
  * Memoization uses a WeakMap keyed by message reference so trimmed messages
  * are garbage-collected automatically.
  */
+
+/**
+ * Family of a persisted model key (`"provider::modelId"`), used to decide
+ * whether a rehydrated ratio is still meaningful for that model.
+ */
+function familyForModelKey(modelKey: string): ModelFamily {
+  const separator = modelKey.indexOf("::");
+  const provider = separator === -1 ? modelKey : modelKey.slice(0, separator);
+  const modelId = separator === -1 ? "" : modelKey.slice(separator + 2);
+  return inferFamily({ provider, modelId });
+}
 export class TokenCounter {
   /** Per-model calibrated chars-per-token. Updated via calibrate(). */
   private calibratedRatio = new Map<string, number>();
@@ -482,6 +502,42 @@ export class TokenCounter {
    */
   overheadFor(hint: ModelHint): number {
     return this.overheadTokens.get(this.modelKey(hint)) ?? 0;
+  }
+
+  /**
+   * The per-model values learned so far, for persisting across runs.
+   *
+   * Every model with a calibrated entry is included; an overhead of 0 means
+   * no authoritative report has separated it from the messages yet.
+   */
+  calibratedSnapshot(): readonly CalibratedModel[] {
+    const models: CalibratedModel[] = [];
+    for (const [model, ratio] of this.calibratedRatio) {
+      models.push({ model, ratio, overhead: this.overheadTokens.get(model) ?? 0 });
+    }
+    return models;
+  }
+
+  /**
+   * Seed the counter with values learned by a previous run (see
+   * {@link calibratedSnapshot}) so a resumed session starts calibrated instead
+   * of at family defaults.
+   *
+   * Deliberately conservative: out-of-range or non-finite ratios are ignored
+   * as corrupt rather than trusted, and ratios for models that now count with
+   * an exact tokenizer are dropped (dead weight). Overhead is different — the
+   * window budget consults it for every family, tokenizer-backed ones included
+   * — so a sane overhead is restored even when its ratio is not.
+   */
+  hydrate(models: readonly CalibratedModel[]): void {
+    for (const { model, ratio, overhead } of models) {
+      if (Number.isFinite(overhead) && overhead > 0) {
+        this.overheadTokens.set(model, Math.round(overhead));
+      }
+      if (!Number.isFinite(ratio) || ratio < RATIO_MIN || ratio > RATIO_MAX) continue;
+      if (isTokenizerBacked(familyForModelKey(model))) continue;
+      this.calibratedRatio.set(model, ratio);
+    }
   }
 
   /**
