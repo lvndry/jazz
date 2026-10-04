@@ -80,6 +80,52 @@ without opening a browser.
 Compositions can contain JavaScript. Only open pages you trust, and keep secrets out of
 files or links you share.
 
+## Publish a composition to a URL
+
+`publish_composition` takes an interactive composition and makes it available at a
+stable public or private URL, so it can be shared without sending the file.
+
+The agent always asks **public or private** first, and the answer decides the whole
+deploy path:
+
+- **Public** — you pick the host: GitHub Pages (default) or Cloudflare Pages.
+  The page is cloned into your `<you>/compositions` repo and served at
+  `<you>.github.io/compositions/<slug>.html` (or `compositions.pages.dev/…`).
+- **Private** — always Cloudflare Pages, from a **private** repo
+  (`<you>/compositions-private`). The source file stays in a private repository,
+  and the page itself is locked behind
+  [Cloudflare Access](https://one.dash.cloudflare.com/): anyone who opens the URL
+  gets a sign-in screen that sends a one-time PIN to the configured email. No
+  account on the visitor's side is needed.
+
+First use creates the repo, the Pages project, and the Access app automatically;
+re-publishing an existing slug redeploys in place.
+
+### Requirements
+
+- `gh` authenticated and `git` on PATH (both hosts need the GitHub step).
+- For Cloudflare (private publishing, or public-on-Cloudflare):
+  `~/.config/jazz/cloudflare.json`
+
+  ```json
+  { "schemaVersion": 1, "token": "…", "accountId": "…", "accessEmail": "you@example.com" }
+  ```
+
+  The token needs **Cloudflare Pages: Edit** and **Access: Apps: Edit** permissions
+  (a scoped token from the dashboard is enough). `accessEmail` controls who can open
+  private pages. One-time setup: open
+  [one.dash.cloudflare.com](https://one.dash.cloudflare.com/) and click **Enable
+  Access** if the account has never used Access.
+
+### Managing the private allow list
+
+Publishing creates an Access app with an allow rule for the **domain** of
+`accessEmail` — with `you@proton.me`, anyone signed in with a `@proton.me` address
+gets in. To tighten or extend this, open the Cloudflare One dashboard →
+**Access → Applications** → the app named `jazz-<project>` → **Policies** → edit, and
+add or remove **Email address** include rules. The tool never rewrites an existing
+app on re-publish, so manual changes are preserved.
+
 ## Related
 
 - [Artifacts](./artifacts.md): where generated files are saved and how surfaces present them

@@ -120,25 +120,36 @@ Before calling the tool, ask:
 
 When the person wants a link they can open from anywhere — share it with
 someone, keep it as a permanent artifact, or view it on another device — offer
-`publish_composition`. It pushes the finished HTML to a stable GitHub Pages URL
-and is the only path that turns a local composition into something a second
-person can open without your machine.
+`publish_composition`. It is the only path that turns a local composition into
+something a second person can open without your machine.
+
+Ask **public or private** first; the answer decides the deploy path. If
+private, no further questions. If public, ask the host: **GitHub Pages**
+(default) or **Cloudflare Pages**.
+
+- `public` + `github` (default): a public repo, a URL anyone with the link can
+  open (`<owner>.github.io/compositions/<slug>.html`). Use it for things that
+  are fine for strangers to see.
+- `public` + `cloudflare`: same, on Cloudflare Pages (`compositions.pages.dev`).
+- `private`: a **private repo** (`<owner>/compositions-private`), served by
+  Cloudflare Pages and locked behind **Cloudflare Access**. Anyone opening the
+  URL gets a sign-in screen that sends a one-time PIN to the configured email —
+  a real gate, not a login-only link. Both the source file and the page are
+  invisible to everyone else.
 
 Offer it, do not assume it: publishing writes to the account `gh` is logged in
-as and, on first use, creates a repo there. Preview the destination URL to the
-person and let the approval gate carry the consent.
+as and, on first use, creates a repo, a Pages project, and (for private) an
+Access app there. Preview the destination URL to the person and let the
+approval gate carry the consent.
 
-- Stable URLs: re-publishing the same name overwrites the same file at the same
-  URL instead of minting a new one. Change the name to keep an old version and
-  add a new one side by side.
-- `public` (default): a public repo and a URL anyone with the link can open.
-  Use it for things that are fine for strangers to see.
-- `private`: a private repo, so the source is hidden from non-members and the
-  person opens the page while logged in. Say this honestly to the person:
-  "private" here means the _source_ is not public and the link needs a GitHub
-  login — it is not a password gate and it is not source-confidential for
-  everyone. If their account lacks the plan that GitHub charges for private
-  Pages, the tool reports a logged-in link instead of failing.
+- Stable URLs: re-publishing the same name overwrites the same file at the
+  same URL instead of minting a new one. Change the name to keep an old
+  version and add a new one side by side.
+- Private requires Cloudflare setup: `~/.config/jazz/cloudflare.json` with a
+  token (Pages: Edit, Access: Apps: Edit), the account id, and `accessEmail`.
+  The tool says plainly what is missing; the allow list itself is managed in
+  the Cloudflare One dashboard (Access → Applications → the app → Policies).
+  See [Publishing compositions](../../docs/concepts/compositions.md#publish-a-composition-to-a-url).
 
 It needs `gh` (authenticated) and `git` on the machine; the tool says so
 plainly if either is missing.

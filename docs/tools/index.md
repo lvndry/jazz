@@ -313,11 +313,11 @@ Always-on. Lets an agent borrow specialist perception or generation from another
 Enable [Compositions](../concepts/compositions.md) per agent to create interactive HTML pages
 or static images. The bundled `composition` skill supplies design instructions.
 
-| Tool                  | Risk        | Approval pair | What it does                                                                                                                                                 |
-| --------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `create_composition`  | `low-risk`  | none          | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
-| `create_pdf`          | `high-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
-| `publish_composition` | `high-risk` | none          | Publish a composition HTML file to a stable GitHub Pages URL. First use creates the compositions repo; `private` uses a private repo. Needs `gh` and `git`.  |
+| Tool                  | Risk        | Approval pair | What it does                                                                                                                                                                                                                                                                                                                                      |
+| --------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create_composition`  | `low-risk`  | none          | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                                                                                                                                                                                                                  |
+| `create_pdf`          | `high-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator.                                                                                                                                                                                      |
+| `publish_composition` | `high-risk` | none          | Publish a composition to a stable URL. Public → GitHub Pages or Cloudflare Pages; private → a private repo behind Cloudflare Access. First use creates the repo, project, and Access app. Needs `gh`, `git`, and (for Cloudflare) `~/.config/jazz/cloudflare.json`. See [Publishing](../concepts/compositions.md#publish-a-composition-to-a-url). |
 
 ### Browser
 
