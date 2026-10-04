@@ -419,6 +419,43 @@ describe("publishComposition", () => {
     if (result.success) throw new Error("unreachable");
     expect(result.error).toContain(PUBLISH_CLOUDFLARE_NOT_CONFIGURED);
   });
+
+  test("refuses a public repository before pushing private content", async () => {
+    writeCfConfig({ accessEmail: "me@x.y" });
+    const { compose, calls } = makeComposer((file, args) => {
+      if (file === "gh" && args[0] === "repo" && args[1] === "view") {
+        return {
+          stdout: JSON.stringify({ nameWithOwner: "octo/compositions-private", isPrivate: false }),
+          stderr: "",
+        };
+      }
+      return handlerFor({ repoExists: true })(file, args);
+    });
+    const result = await publishComposition(
+      { htmlPath, visibility: "private" },
+      dir,
+      compose,
+      fs,
+      mockCfFetch([]),
+    );
+    expect(result.success).toBe(false);
+    expect(calls.some((call) => call.startsWith("git push"))).toBe(false);
+  });
+
+  test("protects private publications with a custom repository name", async () => {
+    writeCfConfig({ accessEmail: "me@x.y" });
+    const { compose } = makeComposer(handlerFor({}));
+    const requests: string[] = [];
+    const result = await publishComposition(
+      { htmlPath, visibility: "private", repo: "octo/reports" },
+      dir,
+      compose,
+      fs,
+      mockCfFetch(requests),
+    );
+    expect(result.success).toBe(true);
+    expect(requests.some((request) => request.includes("/access/apps"))).toBe(true);
+  });
 });
 
 describe("createPublishCompositionTool", () => {

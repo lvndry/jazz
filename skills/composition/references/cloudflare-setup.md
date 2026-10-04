@@ -15,6 +15,7 @@ change who can open a private page.
 | Create the Pages project                   | Cloudflare API, automatic     | first private publish |
 | Create the Access app + allow policy       | Cloudflare API, automatic     | first private publish |
 | **Enable the Access service**              | **Cloudflare One dashboard**  | **once, per account** |
+| **Enable One-time PIN sign-in**            | **Cloudflare One dashboard**  | **once, per account** |
 | **Connect the project to the GitHub repo** | **Workers & Pages dashboard** | **once, per project** |
 | **Add / remove allowed emails**            | **Cloudflare One dashboard**  | **any time**          |
 
@@ -28,7 +29,31 @@ Open [one.dash.cloudflare.com](https://one.dash.cloudflare.com/) — this is the
 **Enable Access**. Free and one-time. Without it, Access-app creation fails
 with `access.api.error.not_enabled`, and the tool tells you exactly that.
 
-## 2 · Connect the project to the GitHub repo (once per project)
+## 2 · Enable One-time PIN sign-in (once per account)
+
+Without this step the sign-in page **only offers “Continue with Cloudflare”** —
+new Zero Trust organizations ship with the Cloudflare account IdP as the only
+login, so people you invite would need a Cloudflare account of their own.
+Email-only sign-in needs the built-in **One-time PIN** IdP enabled at the
+_account_ level first:
+
+1. Cloudflare dashboard → **Zero Trust** ([one.dash.cloudflare.com](https://one.dash.cloudflare.com/))
+2. **Integrations → Identity providers** (the account-level list — _not_ the
+   app's “Choose available identity providers” screen, which only shows IdPs
+   already created here)
+3. **Add new identity provider** → **One-time PIN**
+4. Enable it (free on the Zero Trust Free plan)
+
+Then open the Access app (Access → **Applications** → `jazz-<project>` →
+**Edit** → **Choose available identity providers**) and tick **One-time PIN**
+so the app offers it. Now the sign-in page shows “Continue with email”: the
+visitor types their address, gets a one-time code in their inbox, enters it —
+**no Cloudflare account needed**. (API equivalent: `POST
+/access/identity_providers` with `{name, type: "onetimepin", config: {}}`, then
+attach its id to the app's `allowed_idps` — needs the _Identity Providers:
+Edit_ token permission, which the dashboard path above doesn't.)
+
+## 3 · Connect the project to the GitHub repo (once per project)
 
 **Why it exists:** direct-upload deploys (the asset API the tool uses) report
 success but the edge then **500s** on some accounts. The reliable path is a
@@ -50,7 +75,7 @@ fields but they don't stick (all verified).
 404s behind the login wall. `wrangler pages project list` shows
 **Git Provider: No**. Fix = the connection above.
 
-## 3 · Add or remove allowed emails (any time)
+## 4 · Add or remove allowed emails (any time)
 
 The tool creates the Access app with an allow policy for **exactly** the
 `accessEmail` from `~/.config/jazz/cloudflare.json`. To change who gets in —
