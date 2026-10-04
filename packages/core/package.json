@@ -42,6 +42,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@jazz/adapters": "workspace:*"
+    "@expo-google-fonts/anton": "^0.4.2",
+    "@expo-google-fonts/ibm-plex-mono": "^0.4.1",
+    "@jazz/adapters": "workspace:*",
+    "@resvg/resvg-js": "^2.6.2"
   }
 }

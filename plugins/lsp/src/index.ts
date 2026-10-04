@@ -6,6 +6,7 @@
  * output is data, never a command. Mutations carry a diff and a snapshot-bound edit plan.
  */
 
+import { stat } from "node:fs/promises";
 import { extname, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { JazzPluginModule, JsonValue, PluginToolResult } from "@jazz/plugin-sdk";
@@ -33,6 +34,7 @@ const MAX_TRACKED_FILES = 12;
 const MAX_DIAGNOSTICS_PER_FILE = 8;
 const MAX_DIAGNOSTIC_MESSAGE_CHARS = 220;
 const MAX_AMBIENT_CONTENT_CHARS = 3_000;
+const MAX_TRACKED_FAILURES = 6;
 const MAX_FAILURE_MESSAGE_CHARS = 220;
 const MAX_TOOL_RESULT_CHARS = 24_000;
 const DEFAULT_FORMAT_TAB_SIZE = 2;
@@ -73,6 +75,15 @@ function failureLine(cause: unknown): string {
   return `LSP unavailable: ${message.replace(/\s+/g, " ").slice(0, MAX_FAILURE_MESSAGE_CHARS)}`;
 }
 
+/**
+ * Absolute paths print as-is; a relative path only reads for files under
+ * cwd (../../.. noise is what made stray files look like project files).
+ */
+function displayPath(cwd: string, path: string): string {
+  const rel = relative(cwd, path);
+  return rel.startsWith("..") || rel.startsWith("/") ? path : rel;
+}
+
 function result(value: unknown): PluginToolResult {
   const serialized = JSON.stringify(value ?? null);
   return {
@@ -91,6 +102,9 @@ const plugin: JazzPluginModule = {
   apiVersion: 1,
   register(api) {
     const trackedFiles = new Set<string>();
+    // One ambient failure line per file per message: a broken server must
+    // not re-announce itself on every tool call until something changes.
+    const reportedFailures = new Map<string, string>();
     api.workspace.register(async (input, context) => {
       const lines: string[] = [];
       try {
@@ -103,23 +117,43 @@ const plugin: JazzPluginModule = {
           trackedFiles.add(file.path);
           if (trackedFiles.size > MAX_TRACKED_FILES) {
             const oldest = trackedFiles.values().next().value;
-            if (oldest !== undefined) trackedFiles.delete(oldest);
+            if (oldest !== undefined) {
+              trackedFiles.delete(oldest);
+              reportedFailures.delete(oldest);
+            }
           }
         }
         const diagnostics = await Promise.all(
           [...trackedFiles].map(async (path) => {
             try {
+              await stat(path);
+            } catch {
+              // Deleted between tracking and now: drop it so its ENOENT is
+              // never reported again (that line is noise, not a finding).
+              trackedFiles.delete(path);
+              reportedFailures.delete(path);
+              return undefined;
+            }
+            try {
               const selected = await selectServer(path, input.cwd);
               const items = await ambientDiagnostics(selected, context.signal);
+              reportedFailures.delete(path);
               const rendered = items
                 .slice(0, MAX_DIAGNOSTICS_PER_FILE)
                 .map(diagnosticLine)
                 .filter((line): line is string => line !== undefined);
               return rendered.length > 0
-                ? `${relative(input.cwd, selected.path)}:\n${rendered.map((line) => `  ${line}`).join("\n")}`
+                ? `${displayPath(input.cwd, selected.path)}:\n${rendered.map((line) => `  ${line}`).join("\n")}`
                 : undefined;
             } catch (cause) {
-              return `${relative(input.cwd, path)}: ${failureLine(cause)}`;
+              const line = failureLine(cause);
+              if (reportedFailures.get(path) === line) return undefined;
+              reportedFailures.set(path, line);
+              if (reportedFailures.size > MAX_TRACKED_FAILURES) {
+                const oldest = reportedFailures.keys().next().value;
+                if (oldest !== undefined) reportedFailures.delete(oldest);
+              }
+              return `${displayPath(input.cwd, path)}: ${line}`;
             }
           }),
         );

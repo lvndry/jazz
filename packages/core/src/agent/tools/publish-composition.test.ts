@@ -1,10 +1,10 @@
 /**
  * publish_composition: slug sanitization, source validation, URL construction
- * (GitHub + Cloudflare, public + private), the private-requires-cloudflare
- * contract, the repo exists/create decision, and the Cloudflare deploy
- * sequence (incl. the Access gate). `gh`/`git` are stubbed through the
- * injected composer and the Cloudflare API through a stubbed fetch — no
- * network.
+ * (GitHub + Cloudflare, public + private, clean nested URLs), the
+ * private-requires-cloudflare contract, repo exists/create decision, and the
+ * Cloudflare deploy sequence (incl. the Access gate). `gh`/`git` are stubbed
+ * through the injected composer and the Cloudflare API through a stubbed
+ * fetch — no network.
  */
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,10 +15,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import type { CloudflareFetch } from "./cloudflare-publish";
 import {
-  cloudflareUrl,
   compositionRepoFor,
   createPublishCompositionTool,
   isPagesPlanLimitError,
+  ogImageUrlFor,
   PUBLISH_AUTH_ERROR,
   PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
   PUBLISH_HTML_NOT_FOUND_ERROR,
@@ -26,36 +26,35 @@ import {
   privateRawUrl,
   publishedUrl,
   publishComposition,
+  repoPathFor,
   shortRepoName,
   slugFromName,
   type PublishComposer,
 } from "./publish-composition";
 
-const MINIMAL_HTML = "<html><body>hi</body></html>";
+const MINIMAL_HTML = "<html><head><title>Weekly Spending</title></head><body>hi</body></html>";
 
-/**
- * Build a composer from a handler and record every call as "file arg0 arg1…".
- * A handler that throws simulates a failing command.
- */
 function makeComposer(
-  handler: (file: string, args: readonly string[]) => { stdout: string; stderr: string },
+  handler: (
+    file: string,
+    args: readonly string[],
+    options?: { cwd?: string },
+  ) => {
+    stdout: string;
+    stderr: string;
+  },
 ) {
   const calls: string[] = [];
-  const compose: PublishComposer = async (file, args) => {
-    calls.push(`${file} ${args.join(" ")}`);
-    return handler(file, args);
+  const compose: PublishComposer = async (file, args, options) => {
+    calls.push(`${file} ${args.join(" ")}${options?.cwd ? " @cwd" : ""}`);
+    return handler(file, args, options);
   };
   return { compose, calls };
 }
 
-/**
- * A scripted command environment: routes on which command is in flight. The
- * repo-existence and Pages outcomes are the knobs.
- */
 function handlerFor(options: {
   owner?: string;
   repoExists?: boolean;
-  /** "enabled" (GET ok), "create-ok" (GET 404, POST ok), "plan-limit" (GET 404, POSTs fail on plan). */
   pages?: "enabled" | "create-ok" | "plan-limit";
 }) {
   const owner = options.owner ?? "octo";
@@ -72,21 +71,17 @@ function handlerFor(options: {
       }
       if (args[0] === "repo" && args[1] === "create") return { stdout: "", stderr: "" };
       if (args[0] === "api" && args[1] === "-X") {
-        // POST repos/.../pages.
         if (pages === "plan-limit") {
           throw new Error("HTTP 422: GitHub Pages is not available on the Free plan");
         }
         return { stdout: "{}\n", stderr: "" };
       }
       if (args[0] === "api") {
-        // GET repos/.../pages.
         if (pages === "enabled") return { stdout: "{}\n", stderr: "" };
         throw new Error("HTTP 404: Not found");
       }
       throw new Error(`unexpected gh command: ${args.join(" ")}`);
     }
-    // git: diff --cached --quiet signals "changes found" via exit code 1 so
-    // the commit path runs; add, commit, push, clone all succeed.
     if (args[0] === "diff" && args[1] === "--cached") {
       const e = new Error("differences found") as Error & { code: number };
       e.code = 1;
@@ -102,11 +97,6 @@ async function nodeFs(): Promise<FileSystem.FileSystem> {
 
 type CfResponse = { status: number; json: () => Promise<unknown> };
 
-/**
- * A scripted Cloudflare API: just enough of the real endpoints for the deploy
- * flow — upload-token, asset check, deployment and Access apps/policies.
- * Records every URL so tests can assert the sequence.
- */
 function mockCfFetch(requests: string[]): CloudflareFetch {
   return (async (url: string, init?: RequestInit): Promise<CfResponse> => {
     const method = init?.method ?? "GET";
@@ -161,32 +151,56 @@ describe("repo and URL construction", () => {
     expect(compositionRepoFor("octo", "private")).toBe("octo/compositions-private");
   });
 
+  test("repo path: private nests under compositions/private", () => {
+    expect(repoPathFor("public", "chart")).toBe("compositions/chart");
+    expect(repoPathFor("private", "chart")).toBe("compositions/private/chart");
+  });
+
   test("shortRepoName takes the last path segment", () => {
     expect(shortRepoName("octo/compositions")).toBe("compositions");
     expect(shortRepoName("octo")).toBe("octo");
   });
 
-  test("public GitHub Pages URL", () => {
-    expect(publishedUrl("octo", "octo/compositions", "weekly-spending-1")).toBe(
-      "https://octo.github.io/compositions/weekly-spending-1.html",
+  test("public GitHub Pages URL is a clean nested path", () => {
+    expect(publishedUrl("octo", "octo/compositions", "weekly-spending-1", "public", "github")).toBe(
+      "https://octo.github.io/compositions/weekly-spending-1",
     );
   });
 
   test("public GitHub Pages URL honours an owner/name repo override", () => {
-    expect(publishedUrl("octo", "somebody/else-site", "chart")).toBe(
-      "https://octo.github.io/else-site/chart.html",
+    expect(publishedUrl("octo", "somebody/else-site", "chart", "public", "github")).toBe(
+      "https://octo.github.io/else-site/compositions/chart",
     );
   });
 
-  test("Cloudflare Pages URL uses the project name (repo short name)", () => {
-    expect(cloudflareUrl("compositions-private", "chart")).toBe(
-      "https://compositions-private.pages.dev/chart.html",
+  test("Cloudflare URL uses the default project host", () => {
+    expect(
+      publishedUrl("octo", "octo/compositions-private", "chart", "private", "cloudflare"),
+    ).toBe("https://compositions-private.pages.dev/compositions/private/chart");
+  });
+
+  test("Cloudflare URL honours a claimed custom host", () => {
+    expect(
+      publishedUrl(
+        "octo",
+        "octo/compositions",
+        "chart",
+        "public",
+        "cloudflare",
+        "lvndry.pages.dev",
+      ),
+    ).toBe("https://lvndry.pages.dev/compositions/chart");
+  });
+
+  test("og:image URL sits next to the page", () => {
+    expect(ogImageUrlFor("https://lvndry.pages.dev/compositions/chart")).toBe(
+      "https://lvndry.pages.dev/compositions/chart/og.png",
     );
   });
 
   test("private raw (logged-in) URL", () => {
     expect(privateRawUrl("octo/compositions-private", "chart")).toBe(
-      "https://github.com/octo/compositions-private/raw/main/chart.html",
+      "https://github.com/octo/compositions-private/raw/main/compositions/private/chart/index.html",
     );
   });
 });
@@ -221,23 +235,23 @@ describe("publishComposition", () => {
   });
 
   function expectPublish(result: Awaited<ReturnType<typeof publishComposition>>, label: string) {
-    if (!result.success) console.error("ERR in", label, ":", result.error);
+    if (!result.success) console.error("ERR in", label, ":", (result as { error?: string }).error);
     expect(result.success).toBe(true);
-    return result.result as {
+    return (result as { success: true; result: unknown }).result as {
       url: string;
       repo: string;
       slug: string;
+      visibility: string;
+      ogCard: boolean;
       pagesEnabled?: boolean;
       summary: string;
     };
   }
 
-  /** A throwaway config path, isolated from the user's real one. */
   function cfConfigPath(): string {
     return join(dir, "cloudflare.json");
   }
 
-  /** Write a minimal Cloudflare config pointing at the fixture. */
   function writeCfConfig(extra?: Record<string, unknown>): void {
     process.env["JAZZ_CLOUDFLARE_CONFIG"] = cfConfigPath();
     writeFileSync(
@@ -246,7 +260,6 @@ describe("publishComposition", () => {
     );
   }
 
-  /** Run a cloudflare-host publish with a stubbed fetch; returns [result, urls]. */
   async function withCfFetch(
     args: { htmlPath: string; visibility?: "public" | "private"; host?: "github" | "cloudflare" },
     compose: PublishComposer,
@@ -266,6 +279,7 @@ describe("publishComposition", () => {
     const missing = join(dir, "missing.html");
     const result = await publishComposition({ htmlPath: missing }, dir, compose, fs);
     expect(result.success).toBe(false);
+    if (result.success) throw new Error("unreachable");
     expect(result.error).toBe(PUBLISH_HTML_NOT_FOUND_ERROR(missing));
   });
 
@@ -274,7 +288,8 @@ describe("publishComposition", () => {
     const { compose } = makeComposer(handlerFor({}));
     const result = await publishComposition({ htmlPath: join(dir, "notes.txt") }, dir, compose, fs);
     expect(result.success).toBe(false);
-    expect(result.error).toContain("no readable .html file");
+    if (result.success) throw new Error("unreachable");
+    expect(result.error).toContain("is not an .html file");
   });
 
   test("resolves a relative htmlPath against the working directory", async () => {
@@ -285,7 +300,7 @@ describe("publishComposition", () => {
     expect(out.slug).toBe("relative");
   });
 
-  test("first use creates the public repo, publishes, and returns the github.io URL", async () => {
+  test("first use creates the public repo, publishes, and returns the clean github.io URL", async () => {
     const { compose, calls } = makeComposer(handlerFor({ owner: "octo", repoExists: false }));
     const out = expectPublish(
       await publishComposition({ htmlPath, visibility: "public" }, dir, compose, fs),
@@ -293,14 +308,13 @@ describe("publishComposition", () => {
     );
     expect(out.repo).toBe("octo/compositions");
     expect(out.slug).toBe("weekly-spending");
-    expect(out.url).toBe("https://octo.github.io/compositions/weekly-spending.html");
+    expect(out.visibility).toBe("public");
+    expect(out.url).toBe("https://octo.github.io/compositions/weekly-spending");
     expect(out.pagesEnabled).toBe(true);
-    // Repo did not exist -> `gh repo create … --public --clone`, not `git clone`.
     expect(
       calls.some((c) => c.startsWith("gh repo create octo/compositions --public --clone")),
     ).toBe(true);
     expect(calls.some((c) => c.startsWith("git clone"))).toBe(false);
-    // Explicit author so no global git config is needed.
     expect(calls.some((c) => c.includes("user.email=jazz@users.noreply.github.com"))).toBe(true);
   });
 
@@ -310,7 +324,7 @@ describe("publishComposition", () => {
       await publishComposition({ htmlPath, visibility: "public" }, dir, compose, fs),
       "existing",
     );
-    expect(out.url).toBe("https://octo.github.io/compositions/weekly-spending.html");
+    expect(out.url).toBe("https://octo.github.io/compositions/weekly-spending");
     expect(
       calls.some((c) => c.startsWith("git clone https://github.com/octo/compositions.git")),
     ).toBe(true);
@@ -319,11 +333,14 @@ describe("publishComposition", () => {
 
   test("fails with the auth hint when gh is not logged in", async () => {
     const { compose } = makeComposer((file, args) => {
-      if (file === "gh" && args[0] === "auth") throw new Error("HTTP 401: Bad credentials");
+      if (file === "gh" && args[0] === "api" && args[1] === "user") {
+        throw new Error("HTTP 401: Bad credentials");
+      }
       return handlerFor({})(file, args);
     });
     const result = await publishComposition({ htmlPath, visibility: "public" }, dir, compose, fs);
     expect(result.success).toBe(false);
+    if (result.success) throw new Error("unreachable");
     expect(result.error).toBe(PUBLISH_AUTH_ERROR);
   });
 
@@ -336,8 +353,8 @@ describe("publishComposition", () => {
       fs,
     );
     expect(result.success).toBe(false);
+    if (result.success) throw new Error("unreachable");
     expect(result.error).toBe(PUBLISH_PRIVATE_REQUIRES_CLOUDFLARE);
-    // Rejected before touching the repo.
     expect(calls.some((c) => c.startsWith("gh repo"))).toBe(false);
   });
 
@@ -347,19 +364,19 @@ describe("publishComposition", () => {
     const [result, urls] = await withCfFetch({ htmlPath, visibility: "private" }, compose);
     const out = expectPublish(result, "private-cf");
     expect(out.repo).toBe("octo/compositions-private");
-    expect(out.url).toBe(cloudflareUrl("compositions-private", "weekly-spending"));
-    // The private repo was created with --private.
+    expect(out.url).toBe(
+      "https://compositions-private.pages.dev/compositions/private/weekly-spending",
+    );
     expect(
       calls.some((c) => c.startsWith("gh repo create octo/compositions-private --private")),
     ).toBe(true);
-    // The Access gate was set up for the project domain.
     expect(
       urls.some(
         (u) => u.startsWith("POST") && u.includes("/access/apps") && !u.includes("/policies"),
       ),
     ).toBe(true);
     expect(urls.some((u) => u.includes("/policies"))).toBe(true);
-    expect(out.summary).toContain("me@x.y");
+    expect(out.summary).toContain("Cloudflare Access");
   });
 
   test("a public cloudflare publish deploys via fetch and returns the pages.dev URL", async () => {
@@ -370,17 +387,11 @@ describe("publishComposition", () => {
       compose,
     );
     const out = expectPublish(result, "public-cf");
-    expect(out.url).toBe(cloudflareUrl("compositions", "weekly-spending"));
+    expect(out.url).toBe("https://compositions.pages.dev/compositions/weekly-spending");
     expect(out.summary).toContain("Cloudflare Pages");
-    // The deploy sequence was actually exercised.
     expect(urls.some((u) => u.includes("/pages/projects/compositions/upload-token"))).toBe(true);
     expect(urls.some((u) => u.includes("/pages/projects/compositions/deployments"))).toBe(true);
-    // Public project: no Access app is created.
-    expect(
-      urls.some(
-        (u) => u.startsWith("POST") && u.includes("/access/apps") && !u.includes("/policies"),
-      ),
-    ).toBe(false);
+    expect(urls.some((u) => u.includes("/access/apps"))).toBe(false);
   });
 
   test("private cloudflare without accessEmail creates the app but flags needsEmail", async () => {
@@ -391,11 +402,7 @@ describe("publishComposition", () => {
       compose,
     );
     const out = expectPublish(result, "private-cf-no-email");
-    expect(
-      urls.some(
-        (u) => u.startsWith("POST") && u.includes("/access/apps") && !u.includes("/policies"),
-      ),
-    ).toBe(true);
+    expect(urls.some((u) => u.startsWith("POST") && u.includes("/access/apps"))).toBe(true);
     expect(out.summary).toContain("no allow-email policy");
   });
 
@@ -409,6 +416,7 @@ describe("publishComposition", () => {
       fs,
     );
     expect(result.success).toBe(false);
+    if (result.success) throw new Error("unreachable");
     expect(result.error).toContain(PUBLISH_CLOUDFLARE_NOT_CONFIGURED);
   });
 });

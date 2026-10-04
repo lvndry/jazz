@@ -89,14 +89,20 @@ The agent always asks **public or private** first, and the answer decides the wh
 deploy path:
 
 - **Public** — you pick the host: GitHub Pages (default) or Cloudflare Pages.
-  The page is cloned into your `<you>/compositions` repo and served at
-  `<you>.github.io/compositions/<slug>.html` (or `compositions.pages.dev/…`).
+  The page lands in your `<you>/compositions` repo and is served at
+  `<you>.github.io/compositions/<slug>/` (or `/compositions/<slug>/` on the
+  Cloudflare host).
 - **Private** — always Cloudflare Pages, from a **private** repo
-  (`<you>/compositions-private`). The source file stays in a private repository,
-  and the page itself is locked behind
+  (`<you>/compositions-private`). The source file stays in a private repository
+  at `compositions/private/<slug>/`, and the page itself is locked behind
   [Cloudflare Access](https://one.dash.cloudflare.com/): anyone who opens the URL
-  gets a sign-in screen that sends a one-time PIN to the configured email. No
-  account on the visitor's side is needed.
+  gets a sign-in screen that sends a one-time code to an allowed email. No
+  Cloudflare account is needed on the visitor's side — the free "Cloudflare
+  Access" provider signs people in with just an email address.
+
+Each published page also ships a **Jazz-styled `og.png` card** (the same brand as
+the site) plus `og:title`/`og:image` meta, so the composition looks right when
+the URL is shared.
 
 First use creates the repo, the Pages project, and the Access app automatically;
 re-publishing an existing slug redeploys in place.

@@ -1,28 +1,28 @@
 /**
- * Publish a composition HTML file to a stable public or private URL.
+ * Publish a composition to a stable URL on the host the person picked.
  *
- * Public: `<owner>.compositions` on the chosen host — GitHub Pages (default)
- * or Cloudflare Pages; the agent asks the user which they prefer. Private:
- * `<owner>.compositions-private`, a PRIVATE repo (sensitive source stays
- * hidden) served by Cloudflare Pages behind Cloudflare Access — so
- * `visibility: "private"` requires `host: "cloudflare"` (a private GitHub
- * repo cannot render Pages on the free plan, and a public repo would expose
- * the source).
+ * Layout (one repo per visibility, the path tells the story):
+ *   public  → compositions/<slug>/index.html
+ *   private → compositions/private/<slug>/index.html
+ * Each page ships a Jazz-styled og.png card next to index.html, and the
+ * published HTML gets og:title/og:image meta injected so shares read as
+ * compositions made with jazz.
  *
- * A re-publish with the same name overwrites the same URL instead of minting
- * a new one. The repo is created on first use on the account `gh` is logged
- * in as; the HTML leaves the machine for a URL others can reach, so the tool
- * is high-risk: the approval gate shows the destination before it runs.
+ * Hosts:
+ *   public  → github (default, <owner>.github.io) or cloudflare (pages.dev;
+ *             a claimed custom host like lvndry.pages.dev when configured)
+ *   private → cloudflare only: a private repo served by Cloudflare Pages
+ *             behind a Cloudflare Access sign-in (a login-only raw link is
+ *             not a private page).
  *
- * `gh` (authenticated) and `git` are required; the cloudflare host also
- * reads ~/.config/jazz/cloudflare.json.
+ * Egress: `gh`/`git` (both hosts), Cloudflare API (cloudflare host).
  */
 
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { cp, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { basename, isAbsolute, join, resolve as resolvePath } from "node:path";
+import { basename, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
@@ -30,244 +30,39 @@ import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
-import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
-import { deployToCloudflare, type CloudflareConfig } from "./cloudflare-publish";
+import {
+  deployToCloudflare,
+  type CloudflareConfig,
+  type CloudflareFetch,
+} from "./cloudflare-publish";
+import { injectOgMeta, renderCompositionOg, titleFromHtml } from "./composition-og";
 import { buildKeyFromContext } from "./context-utils";
 
-const pexecFile = promisify(execFile);
+const run = promisify(execFile);
 
-/**
- * Run `file` with `args` and resolve with `{ stdout, stderr }` as strings.
- * This is the one place in this module that touches a real subprocess, and
- * it is injected everywhere else so tests never need git/gh installed. It
- * mirrors the execFile convention the other tools already use.
- */
+export const PUBLISH_HTML_NOT_FOUND_ERROR = (path: string): string =>
+  `publish_composition: no readable .html file at ${path}`;
+export const PUBLISH_AUTH_ERROR =
+  "publish_composition: `gh` is not authenticated. Run `gh auth login` (with the repo, pages and workflow scopes) and try again.";
+export const PUBLISH_CLOUDFLARE_NOT_CONFIGURED =
+  'write it with { "token": "…", "accountId": "…", "accessEmail": "you@email.com" } (token needs Cloudflare Pages: Edit and Access: Apps: Edit).';
+export const PUBLISH_PRIVATE_REQUIRES_CLOUDFLARE =
+  'publish_composition: visibility "private" needs host "cloudflare" — a private GitHub repo is served by Cloudflare Pages behind a Cloudflare Access sign-in (only the configured email gets in). Pick host "cloudflare".';
+
+const AUTHOR_EMAIL = "jazz@users.noreply.github.com";
+const AUTHOR_NAME = "Jazz";
+
 export type PublishComposer = (
   file: string,
   args: readonly string[],
   options?: { cwd?: string },
 ) => Promise<{ stdout: string; stderr: string }>;
 
-/** The real subprocess runner. */
-export async function runComposer(
-  file: string,
-  args: readonly string[],
-  options?: { cwd?: string },
-): Promise<{ stdout: string; stderr: string }> {
-  const result = await pexecFile(file, [...args], {
-    cwd: options?.cwd,
-    maxBuffer: 4 * 1024 * 1024,
-  });
-  return { stdout: result.stdout, stderr: result.stderr };
-}
+export const runComposer: PublishComposer = (file, args, options) =>
+  run(file, args, { maxBuffer: 16 * 1024 * 1024, cwd: options?.cwd });
 
-export const PUBLISH_HTML_NOT_FOUND_ERROR = (htmlPath: string) =>
-  `publish_composition: no readable .html file at ${htmlPath}. ` +
-  "The path must point at the file create_composition wrote (look at its htmlPath result).";
-
-export const PUBLISH_AUTH_ERROR =
-  "publish_composition needs the GitHub CLI: `gh auth status` did not pass. " +
-  "Run `gh auth login` and retry.";
-
-export const PUBLISH_PRIVATE_REQUIRES_CLOUDFLARE =
-  'visibility "private" requires host "cloudflare": a private GitHub repo cannot render Pages ' +
-  "on the free plan, and a public repo would expose the source. Re-call with " +
-  'host "cloudflare" — the private composition goes to a private repo served by ' +
-  "Cloudflare Pages behind Cloudflare Access, so both the source and the page stay private.";
-
-export const PUBLISH_CLOUDFLARE_NOT_CONFIGURED =
-  "publish_composition (host cloudflare) needs Cloudflare credentials: create " +
-  "~/.config/jazz/cloudflare.json with { schemaVersion: 1, token, accountId, accessEmail? } " +
-  "(an Account-level token with Pages:Edit and Access:Apps:Edit).";
-
-/**
- * A readable slug for the published file: lowercase [a-z0-9-], no leading or
- * trailing hyphens. Falls back to a fixed name so a name with nothing usable
- * in it still publishes rather than failing.
- */
-export function slugFromName(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-  return slug.length > 0 ? slug : "composition";
-}
-
-/**
- * The owner/name repo each visibility publishes into. The repo *name* is
- * `compositions` (or `compositions-private`) because GitHub Pages serves a repo
- * at `<owner>.github.io/<repo-name>/`; the private one hides its source.
- */
-export function compositionRepoFor(owner: string, visibility: "public" | "private"): string {
-  return visibility === "private" ? `${owner}/compositions-private` : `${owner}/compositions`;
-}
-
-/** The repo's short name — the last path segment of "owner/name". */
-export function shortRepoName(repo: string): string {
-  return repo.split("/").pop() ?? repo;
-}
-
-/** The stable GitHub Pages URL for one published slug. */
-export function publishedUrl(owner: string, repo: string, slug: string): string {
-  return `https://${owner}.github.io/${shortRepoName(repo)}/${slug}.html`;
-}
-
-/** The stable Cloudflare Pages URL for one published slug. */
-export function cloudflareUrl(project: string, slug: string): string {
-  return `https://${project}.pages.dev/${slug}.html`;
-}
-
-/**
- * The logged-in viewing URL for a private composition when Pages is not
- * enabled: a private repo's raw file is readable while logged in.
- */
-export function privateRawUrl(repo: string, slug: string): string {
-  return `https://github.com/${repo}/raw/main/${slug}.html`;
-}
-
-/**
- * Whether a failed Pages call is the paid-plan gate: GitHub returns plan or
- * billing wording when private Pages is unavailable on the account's plan.
- * Everything else is a real failure that should surface.
- */
-export function isPagesPlanLimitError(message: string): boolean {
-  return /plan|billing|subscription|not available/i.test(message);
-}
-
-/**
- * Where the Cloudflare credentials live. The account id cannot be discovered
- * with a minimal token (GET /accounts needs Account:Read), so it is stored
- * alongside the token. Never committed to a repo — it is a local config file.
- * An env override lets tests and CI point at a fixture.
- */
-export function cloudflareConfigPath(): string {
-  return (
-    process.env["JAZZ_CLOUDFLARE_CONFIG"] ?? join(homedir(), ".config", "jazz", "cloudflare.json")
-  );
-}
-
-/**
- * Read the Cloudflare credentials. Throws a human-readable error when the
- * file is missing or incomplete so the agent can relay it to the user.
- */
-export function loadCloudflareConfig(path: string = cloudflareConfigPath()): CloudflareConfig {
-  let raw: string;
-  try {
-    raw = readFileSync(path, "utf8");
-  } catch {
-    throw new Error(
-      `publish_composition: no Cloudflare credentials at ${path}. ` +
-        PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
-    );
-  }
-  type Parsed = { token?: unknown; accountId?: unknown; accessEmail?: unknown };
-  let parsed: Parsed;
-  try {
-    parsed = JSON.parse(raw) as Parsed;
-  } catch {
-    throw new Error(
-      `publish_composition: ${path} is not valid JSON. ` + PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
-    );
-  }
-  const token = parsed.token;
-  const accountId = parsed.accountId;
-  if (typeof token !== "string" || token.length === 0) {
-    throw new Error(
-      `publish_composition: ${path} must contain a non-empty token. ` +
-        PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
-    );
-  }
-  if (typeof accountId !== "string" || accountId.length === 0) {
-    throw new Error(
-      `publish_composition: ${path} must contain a non-empty accountId. ` +
-        PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
-    );
-  }
-  const config: CloudflareConfig = { token, accountId };
-  if (typeof parsed.accessEmail === "string" && parsed.accessEmail.length > 0) {
-    config.accessEmail = parsed.accessEmail;
-  }
-  return config;
-}
-
-const publishCompositionParameters = z
-  .object({
-    htmlPath: z
-      .string()
-      .min(1)
-      .describe(
-        "Path to the .html file to publish, absolute or relative to the working directory.",
-      ),
-    name: z
-      .string()
-      .optional()
-      .describe(
-        "Slug for the published file. Defaults to the htmlPath basename, sanitized to [a-z0-9-].",
-      ),
-    visibility: z
-      .enum(["public", "private"])
-      .optional()
-      .describe(
-        "Ask the user which of these they want before publishing. " +
-          "'public' (default): a public repo, URL anyone can open. " +
-          "'private': a PRIVATE repo (sensitive source stays hidden) served by " +
-          "Cloudflare Pages behind Cloudflare Access — only the configured email can open it.",
-      ),
-    host: z
-      .enum(["github", "cloudflare"])
-      .optional()
-      .describe(
-        "Where the page is served. 'github' (default for public) → GitHub Pages. " +
-          "'cloudflare' → Cloudflare Pages. For visibility 'private' this MUST be 'cloudflare'. " +
-          "Ask the user which host they prefer when publishing public.",
-      ),
-    repo: z
-      .string()
-      .optional()
-      .describe(
-        'Override the target repo "owner/name". Defaults to <gh-user>.compositions (public) ' +
-          "or <gh-user>.compositions-private (private).",
-      ),
-  })
-  .strict();
-
-type PublishCompositionArgs = z.infer<typeof publishCompositionParameters>;
-
-/**
- * The meaningful line of a failing command's output. `execFile` errors carry
- * only "Command failed: …" in the message — the actual text (where GitHub's
- * "Your current plan does not support GitHub Pages…" lives) is in stderr,
- * which the composer's rejection includes.
- */
-function trimError(error: unknown): string {
-  const message = toError(error).message;
-  const rawStderr = (error as { stderr?: string | Buffer }).stderr;
-  const stderr = typeof rawStderr === "string" ? rawStderr : (rawStderr?.toString() ?? "");
-  const line =
-    [...message.split("\n"), ...stderr.split("\n")]
-      .map((l) => l.trim())
-      .find((l) => l.length > 0 && !l.startsWith("Command failed")) ?? message;
-  return line.slice(0, 300);
-}
-
-/** Run `gh`, trimming stdout; failures carry the first line of the output. */
-async function runGh(
-  args: readonly string[],
-  compose: PublishComposer,
-  options?: { cwd?: string },
-): Promise<string> {
-  try {
-    return (await compose("gh", args, options)).stdout.trim();
-  } catch (error) {
-    throw new Error(`gh ${args[0]} ${args[1] ?? ""}: ${trimError(error)}`.trim(), {
-      cause: error,
-    });
-  }
-}
-
-/** Run `git` in the working repo. */
+/** Run `git` through the injected composer; failures carry the git output. */
 async function runGit(
   args: readonly string[],
   cwd: string,
@@ -276,295 +71,83 @@ async function runGit(
   try {
     await compose("git", args, { cwd });
   } catch (error) {
-    throw new Error(`git ${args[0]}: ${trimError(error)}`, { cause: error });
+    throw new Error(`git ${args[0]}: ${firstLine(error)}`, { cause: error });
   }
 }
 
-/**
- * The publish flow, separated from the tool wrapper so tests drive it with a
- * scripted composer and a real or stubbed filesystem.
- */
-export async function publishComposition(
-  args: PublishCompositionArgs,
-  workingDirectory: string,
+/** Run `git` and report whether it exited non-zero. */
+async function gitFailed(
+  args: readonly string[],
+  cwd: string,
   compose: PublishComposer,
-  fs: FileSystem.FileSystem,
-): Promise<ToolExecutionResult> {
+): Promise<boolean> {
   try {
-    const htmlPath = isAbsolute(args.htmlPath)
-      ? args.htmlPath
-      : resolvePath(workingDirectory, args.htmlPath);
-    await verifySourceFile(fs, htmlPath);
-
-    const slug = slugFromName(args.name ?? basename(htmlPath, ".html"));
-    const visibility = args.visibility ?? "public";
-    const host = args.host ?? (visibility === "private" ? "cloudflare" : "github");
-    if (visibility === "private" && host !== "cloudflare") {
-      return { success: false, result: null, error: PUBLISH_PRIVATE_REQUIRES_CLOUDFLARE };
-    }
-
-    await compose("gh", ["auth", "status"]).catch(() => {
-      throw new Error(PUBLISH_AUTH_ERROR);
-    });
-    const owner = await runGh(["api", "user", "--jq", ".login"], compose);
-    const repo = args.repo ?? compositionRepoFor(owner, visibility);
-
-    const tempDir = await mkdtemp(join(tmpdir(), "jazz-publish-composition-"));
-    try {
-      const repoDir = await cloneOrCreateRepo(compose, repo, tempDir, visibility);
-
-      // Same slug re-publish = overwrite: one file per slug at the repo root.
-      await cp(htmlPath, join(repoDir, `${slug}.html`));
-
-      await runGit(["add", "-A"], repoDir, compose);
-      await commitIfChanged(compose, repoDir, slug, visibility);
-      await runGit(["push"], repoDir, compose);
-
-      if (host === "cloudflare") {
-        const config = loadCloudflareConfig();
-        const fileBytes = await readFile(htmlPath);
-        const deploy = await deployToCloudflare(
-          config,
-          shortRepoName(repo),
-          slug,
-          new Uint8Array(fileBytes),
-          globalThis.fetch,
-        );
-        const project = shortRepoName(repo);
-        const accessNote =
-          visibility === "private"
-            ? deploy.accessPreexisting
-              ? ` Cloudflare Access already gates ${project}.pages.dev (app ${deploy.accessAppId}).`
-              : deploy.accessNeedsEmail
-                ? ` A Cloudflare Access app was created for ${project}.pages.dev, but no allow-email policy yet: add accessEmail to ${cloudflareConfigPath()} and re-publish to lock it; until then, treat the URL as sensitive.`
-                : ` Cloudflare Access now gates ${project}.pages.dev (app ${deploy.accessAppId}, allow: ${config.accessEmail}).`
-            : "";
-        return {
-          success: true,
-          result: {
-            url: deploy.url,
-            slug,
-            visibility,
-            host,
-            repo,
-            summary:
-              `Published ${slug} (${visibility}) to ${deploy.url}. ` +
-              `Source is in the ${visibility} repo ${repo}; the page is served by Cloudflare Pages ` +
-              `and takes a short time to go live.` +
-              accessNote,
-          },
-        } satisfies ToolExecutionResult;
-      }
-
-      const pages = await ensurePages(compose, owner, repo);
-      const url = pages.enabled ? publishedUrl(owner, repo, slug) : privateRawUrl(repo, slug);
-
-      return {
-        success: true,
-        result: {
-          url,
-          slug,
-          visibility,
-          host,
-          repo,
-          pagesEnabled: pages.enabled,
-          summary: publishSummary(url, slug, visibility, repo, pages),
-        },
-      } satisfies ToolExecutionResult;
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  } catch (error) {
-    return { success: false, result: null, error: toError(error).message };
+    await compose("git", args, { cwd });
+    return false;
+  } catch {
+    return true;
   }
 }
 
-async function verifySourceFile(fs: FileSystem.FileSystem, htmlPath: string): Promise<void> {
-  const missing = new Error(PUBLISH_HTML_NOT_FOUND_ERROR(htmlPath));
-  let info;
-  try {
-    info = await stat(htmlPath);
-  } catch {
-    throw missing;
-  }
-  if (!info.isFile() || !htmlPath.toLowerCase().endsWith(".html")) {
-    throw missing;
-  }
-  // A stat that passed is not proof the file is readable: read it.
-  try {
-    await Effect.runPromise(fs.readFileString(htmlPath));
-  } catch {
-    throw missing;
-  }
-}
-
-/**
- * Clone an existing repo, or create and clone it on first use. Returns the
- * directory holding the checkout: `gh repo create --clone` clones into
- * `<tempDir>/<repo-name>`, while `git clone` uses `tempDir` directly.
- */
-async function cloneOrCreateRepo(
+/** Run `gh` through the injected composer, trimming stdout. */
+async function runGh(
+  args: readonly string[],
   compose: PublishComposer,
-  repo: string,
-  tempDir: string,
-  visibility: "public" | "private",
+  options?: { cwd?: string },
 ): Promise<string> {
-  let exists = false;
   try {
-    exists =
-      (
-        await runGh(
-          ["repo", "view", repo, "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-          compose,
-        )
-      ).length > 0;
-  } catch {
-    // `gh repo view` fails for a repo that is not there yet: create it.
-  }
-  if (exists) {
-    await runGit(["clone", `https://github.com/${repo}.git`, tempDir], tempDir, compose);
-    return tempDir;
-  }
-  // `--clone` is a flag that clones into the current directory, not a
-  // value-taking option: run it with the (empty) temp dir as cwd, which
-  // yields the checkout at tempDir/<repo-name>.
-  await runGh(["repo", "create", repo, `--${visibility}`, "--clone"], compose, {
-    cwd: tempDir,
-  });
-  return join(tempDir, shortRepoName(repo));
-}
-
-/**
- * Commit with an explicit author so no global git config is needed. A
- * re-publish of identical content leaves nothing to commit: `git diff
- * --cached --quiet` exits 0 when the index matches HEAD (skip the commit)
- * and 1 when it does not (proceed). The branch still gets pushed as-is, so a
- * no-op re-publish is success.
- */
-async function commitIfChanged(
-  compose: PublishComposer,
-  repoDir: string,
-  slug: string,
-  visibility: "public" | "private",
-): Promise<void> {
-  let changed = false;
-  try {
-    await compose("git", ["diff", "--cached", "--quiet"], { cwd: repoDir });
+    return (await compose("gh", args, options)).stdout.trim();
   } catch (error) {
-    // execFile rejects on every non-zero exit; 1 is "differences found".
-    if ((error as { code?: number }).code !== 1) throw error;
-    changed = true;
-  }
-  if (!changed) return; // nothing staged: identical re-publish.
-  await runGit(
-    [
-      "-c",
-      "user.name=jazz",
-      "-c",
-      "user.email=jazz@users.noreply.github.com",
-      "commit",
-      "-m",
-      `publish ${slug} (${visibility})`,
-    ],
-    repoDir,
-    compose,
-  );
-}
-
-export type PagesStatus =
-  { readonly enabled: true } | { readonly enabled: false; readonly reason: "plan-limit" };
-
-/**
- * Enable Pages when it is not already on. When GitHub refuses because private
- * Pages needs a paid plan, the file is still stored and readable while logged
- * in, which the caller reports instead of failing the publish.
- */
-async function ensurePages(
-  compose: PublishComposer,
-  owner: string,
-  repo: string,
-): Promise<PagesStatus> {
-  const repoPath = `repos/${owner}/${shortRepoName(repo)}`;
-  const deploymentPost = () =>
-    runGh(
-      [
-        "api",
-        "-X",
-        "POST",
-        `${repoPath}/pages`,
-        "-f",
-        "build_type=deployment",
-        "-f",
-        "source[branch]=main",
-        "-f",
-        "source[path]=/",
-      ],
-      compose,
-    );
-  const legacyPost = () =>
-    runGh(
-      [
-        "api",
-        "-X",
-        "POST",
-        `${repoPath}/pages`,
-        "-f",
-        "source[branch]=main",
-        "-f",
-        "source[path]=/",
-      ],
-      compose,
-    );
-
-  try {
-    await runGh(["api", `${repoPath}/pages`], compose);
-    return { enabled: true };
-  } catch {
-    // No site yet: enable it. GitHub defaults new sites to Actions-based
-    // builds; a one-file repo has no workflow, so ask for a direct deployment
-    // of the branch, with the legacy parameter shape as the fallback.
-    try {
-      await deploymentPost();
-      return { enabled: true };
-    } catch (deploymentError) {
-      try {
-        await legacyPost();
-        return { enabled: true };
-      } catch (legacyError) {
-        if (isPagesPlanLimitError(toError(legacyError).message)) {
-          return { enabled: false, reason: "plan-limit" };
-        }
-        // A plan-limit refusal on the deployment call falls through here too.
-        if (isPagesPlanLimitError(toError(deploymentError).message)) {
-          return { enabled: false, reason: "plan-limit" };
-        }
-        throw legacyError;
-      }
-    }
+    throw new Error(`gh ${args[0]} ${args[1] ?? ""}: ${firstLine(error)}`, { cause: error });
   }
 }
 
-/** The message the agent relays; the approval gate already covered the URL. */
-function publishSummary(
-  url: string,
-  slug: string,
-  visibility: "public" | "private",
-  repo: string,
-  pages: PagesStatus,
-): string {
-  if (!pages.enabled) {
-    return (
-      `Published ${slug} to private repo ${repo}. GitHub Pages for private repos needs a ` +
-      `paid plan on the account, so Pages was not enabled — the file is stored privately and ` +
-      `can be opened while logged in at ${url}. For a rendered page only you can open, ` +
-      `publish with host "cloudflare" instead.`
-    );
-  }
-  return (
-    `Published ${slug} (${visibility}) to ${url}. ` +
-    `GitHub Pages takes about a minute to go live; if the URL 404s, wait and retry.`
-  );
+function firstLine(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.split("\n").find((line) => line.trim().length > 0) ?? "command failed";
 }
+
+export type PublishCompositionResult = {
+  readonly slug: string;
+  readonly visibility: "public" | "private";
+  readonly url: string;
+  readonly repo: string;
+  readonly pagesEnabled?: boolean;
+  readonly ogCard: boolean;
+  readonly summary: string;
+};
+
+const publishCompositionParameters = z
+  .object({
+    htmlPath: z
+      .string()
+      .min(1)
+      .describe(
+        "Path to the composition HTML file to publish, absolute or relative to the working directory.",
+      ),
+    visibility: z
+      .enum(["public", "private"])
+      .optional()
+      .describe(
+        "public: anyone with the link can open it. private: the source lives in a private repo and the page is locked behind Cloudflare Access (only the configured email can open it).",
+      ),
+    host: z
+      .enum(["github", "cloudflare"])
+      .optional()
+      .describe(
+        "Where the page is served: github (GitHub Pages) or cloudflare (Cloudflare Pages). Required for public; private always uses cloudflare.",
+      ),
+    repo: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "owner/name of the GitHub repo to publish into. Default: a compositions (or compositions-private) repo owned by the user.",
+      ),
+  })
+  .strict();
+
+type PublishCompositionArgs = z.infer<typeof publishCompositionParameters>;
 
 export function createPublishCompositionTool(
   compose: PublishComposer = runComposer,
@@ -580,10 +163,11 @@ export function createPublishCompositionTool(
       "ask which host they prefer — 'github' (default, GitHub Pages) or 'cloudflare' (Cloudflare " +
       "Pages). 'private': a PRIVATE repo (sensitive source stays hidden) served by Cloudflare Pages " +
       "behind Cloudflare Access, so host is always 'cloudflare' (a private GitHub repo cannot render " +
-      "Pages on the free plan). First use creates the repo; re-publishing the same name overwrites " +
-      "the same URL. Requires `gh` (authenticated) and `git`; the cloudflare host also reads " +
-      "~/.config/jazz/cloudflare.json. Preview the destination URL to the user before calling; the " +
-      "approval gate covers consent.",
+      "Pages on the free plan). First use creates the repo; re-publishing the same name redeploys at " +
+      "the same URL. Each page ships a jazz-styled og.png card and og:title/og:image meta so it " +
+      "looks right when shared. Requires `gh` (authenticated) and `git`; the cloudflare host also " +
+      "reads ~/.config/jazz/cloudflare.json. Preview the destination URL to the user before calling; " +
+      "the approval gate covers consent.",
     tags: ["ui", "visualization", "composition", "publish"],
     parameters: publishCompositionParameters,
     riskLevel: "high-risk",
@@ -618,4 +202,339 @@ function workingDirectoryFor(
       .pipe(Effect.catchAll(() => Effect.succeed(process.cwd())));
     return typeof cwd === "string" && cwd.length > 0 ? cwd : process.cwd();
   });
+}
+
+/** Where the Cloudflare credentials live. Never committed to a repo. */
+export function cloudflareConfigPath(): string {
+  return (
+    process.env["JAZZ_CLOUDFLARE_CONFIG"] ?? join(homedir(), ".config", "jazz", "cloudflare.json")
+  );
+}
+
+export function loadCloudflareConfig(path: string = cloudflareConfigPath()): CloudflareConfig {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    throw new Error(
+      `publish_composition: no Cloudflare credentials at ${path}. ` +
+        PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
+    );
+  }
+  type Parsed = {
+    token?: unknown;
+    accountId?: unknown;
+    accessEmail?: unknown;
+    pagesHost?: unknown;
+  };
+  let parsed: Parsed;
+  try {
+    parsed = JSON.parse(raw) as Parsed;
+  } catch {
+    throw new Error(
+      `publish_composition: ${path} is not valid JSON. ` + PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
+    );
+  }
+  const token = parsed.token;
+  const accountId = parsed.accountId;
+  if (typeof token !== "string" || token.length === 0) {
+    throw new Error(
+      `publish_composition: ${path} must contain a non-empty token. ` +
+        PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
+    );
+  }
+  if (typeof accountId !== "string" || accountId.length === 0) {
+    throw new Error(
+      `publish_composition: ${path} must contain a non-empty accountId. ` +
+        PUBLISH_CLOUDFLARE_NOT_CONFIGURED,
+    );
+  }
+  const config: CloudflareConfig = { token, accountId };
+  if (typeof parsed.accessEmail === "string" && parsed.accessEmail.length > 0) {
+    config.accessEmail = parsed.accessEmail;
+  }
+  if (typeof parsed.pagesHost === "string" && parsed.pagesHost.length > 0) {
+    config.pagesHost = parsed.pagesHost;
+  }
+  return config;
+}
+
+/**
+ * The in-repo page directory. Pages live under compositions/ in the repo
+ * (public: compositions/<slug>, private: compositions/private/<slug> — the
+ * Cloudflare Access path scope keys on /compositions/private).
+ */
+export function repoPathFor(visibility: "public" | "private", slug: string): string {
+  return visibility === "private" ? `compositions/private/${slug}` : `compositions/${slug}`;
+}
+
+export function compositionRepoFor(owner: string, visibility: "public" | "private"): string {
+  return `${owner}/${visibility === "private" ? "compositions-private" : "compositions"}`;
+}
+
+export function shortRepoName(repo: string): string {
+  return repo.split("/").pop() ?? repo;
+}
+
+/**
+ * The published URL. Cloudflare uses the claimed custom host from config
+ * when present (e.g. lvndry.pages.dev), else the default <project>.pages.dev.
+ */
+export function publishedUrl(
+  owner: string,
+  repo: string,
+  slug: string,
+  visibility: "public" | "private",
+  host: "github" | "cloudflare",
+  cfHost?: string,
+): string {
+  if (host === "cloudflare") {
+    const hostBase = cfHost ?? `${shortRepoName(repo)}.pages.dev`;
+    return `https://${hostBase}/${repoPathFor(visibility, slug)}`;
+  }
+  // GitHub Pages serves the repo under <owner>.github.io/<repo>/ — when the
+  // repo is the compositions one, its name already provides the
+  // compositions/ segment, so the page path drops it; any other repo keeps
+  // the full in-repo path.
+  const page = repoPathFor(visibility, slug);
+  const short = shortRepoName(repo);
+  const path =
+    short === "compositions" || short === "compositions-private"
+      ? page.slice("compositions/".length)
+      : page;
+  return `https://${owner}.github.io/${short}/${path}`;
+}
+/**
+ * The logged-in raw link to a private page's HTML on GitHub — how the
+ * person fetches it back. (Only reachable while authenticated; the
+ * Cloudflare URL is the private page itself.)
+ */
+export function privateRawUrl(repo: string, slug: string): string {
+  return `https://github.com/${repo}/raw/main/compositions/private/${slug}/index.html`;
+}
+
+/** The og:image absolute URL (og.png sits next to index.html). */
+export function ogImageUrlFor(url: string): string {
+  return `${url}/og.png`;
+}
+
+/** Slug for the URL: lowercase [a-z0-9-], bounded. */
+export function slugFromName(name: string): string {
+  const base = basename(name).replace(/\.[^.]+$/, "");
+  const slug = base
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return (slug || "composition").slice(0, 80);
+}
+
+/** True when a Cloudflare Pages failure is a billing/plan limit, not a bug. */
+export function isPagesPlanLimitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /not available on the free plan|billing is required|subscription required/i.test(message);
+}
+
+export async function publishComposition(
+  input: PublishCompositionArgs,
+  cwd: string,
+  compose: PublishComposer,
+  fs: FileSystem.FileSystem,
+  fetchImpl?: CloudflareFetch,
+): Promise<ToolExecutionResult> {
+  try {
+    return { success: true, result: await runPublish(input, cwd, compose, fs, fetchImpl) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/not logged in|401|authentication failed/i.test(message) || message.startsWith("gh: ")) {
+      return { success: false, result: null, error: PUBLISH_AUTH_ERROR };
+    }
+    const prefixed = message.startsWith("publish_composition:")
+      ? message
+      : `publish_composition: ${message}`;
+    return { success: false, result: null, error: prefixed };
+  }
+}
+
+async function runPublish(
+  input: PublishCompositionArgs,
+  cwd: string,
+  compose: PublishComposer,
+  fs: FileSystem.FileSystem,
+  fetchImpl: CloudflareFetch | undefined,
+): Promise<PublishCompositionResult> {
+  const visibility: "public" | "private" = input.visibility ?? "public";
+  const host: "github" | "cloudflare" =
+    input.host ?? (visibility === "private" ? "cloudflare" : "github");
+  if (visibility === "private" && host !== "cloudflare") {
+    throw new Error(PUBLISH_PRIVATE_REQUIRES_CLOUDFLARE);
+  }
+
+  const sourcePath = isAbsolute(input.htmlPath) ? input.htmlPath : join(cwd, input.htmlPath);
+  if (extname(sourcePath).toLowerCase() !== ".html") {
+    throw new Error(
+      `publish_composition: ${sourcePath} is not an .html file. Pass the composition HTML to publish.`,
+    );
+  }
+  let source: string;
+  try {
+    source = await Effect.runPromise(fs.readFileString(sourcePath));
+  } catch {
+    throw new Error(PUBLISH_HTML_NOT_FOUND_ERROR(sourcePath));
+  }
+
+  const config = host === "cloudflare" ? loadCloudflareConfig() : undefined;
+  const cfHost = config?.pagesHost;
+
+  const owner = await currentUser(compose);
+  if (!owner) throw new Error(PUBLISH_AUTH_ERROR);
+  const repo = input.repo ?? compositionRepoFor(owner, visibility);
+  const slug = slugFromName(input.htmlPath);
+  const pageDir = repoPathFor(visibility, slug);
+  const url = publishedUrl(owner, repo, slug, visibility, host, cfHost);
+
+  // OG card: render the jazz-styled card from the title, inject the meta so
+  // the published page declares it. An enhancement — if it fails, the
+  // publish proceeds without one.
+  const title = titleFromHtml(source);
+  const ogPng = renderCompositionOg(title);
+  const hasOg = ogPng.length > 0;
+  const finalHtml = hasOg ? injectOgMeta(source, title, ogImageUrlFor(url)) : source;
+
+  const tmp = mkdtempSync(join(tmpdir(), "jazz-publish-"));
+  try {
+    const repoDir = await ensureRepo(repo, visibility, compose, tmp);
+    const pageTmp = join(repoDir, pageDir);
+    await mkdir(pageTmp, { recursive: true });
+    writeFileSync(join(pageTmp, "index.html"), finalHtml);
+    if (hasOg) writeFileSync(join(pageTmp, "og.png"), ogPng);
+
+    await runGit(
+      ["-c", `user.email=${AUTHOR_EMAIL}`, "-c", `user.name=${AUTHOR_NAME}`, "add", pageDir],
+      repoDir,
+      compose,
+    );
+    if (await gitFailed(["diff", "--cached", "--quiet"], repoDir, compose)) {
+      await runGit(
+        [
+          "-c",
+          `user.email=${AUTHOR_EMAIL}`,
+          "-c",
+          `user.name=${AUTHOR_NAME}`,
+          "commit",
+          "-m",
+          `publish ${slug} (${visibility})`,
+        ],
+        repoDir,
+        compose,
+      );
+    }
+    await runGit(["push"], repoDir, compose);
+
+    if (host === "cloudflare") {
+      const doFetch: CloudflareFetch = fetchImpl ?? ((url, init) => fetch(url, init));
+      const deployment = await deployToCloudflare(
+        config!,
+        shortRepoName(repo),
+        pageDir,
+        { indexHtml: finalHtml, ...(hasOg ? { ogPng } : {}) },
+        doFetch,
+      );
+      const accessLine =
+        visibility === "private"
+          ? deployment.accessNeedsEmail
+            ? " — no allow-email policy could be set (add accessEmail to ~/.config/jazz/cloudflare.json)."
+            : ` — gated by Cloudflare Access${deployment.accessAppId ? ` (app ${deployment.accessAppId})` : ""}; only the configured email gets in.`
+          : "";
+      return {
+        slug,
+        visibility,
+        url,
+        repo,
+        ogCard: hasOg,
+        summary: `Published ${slug} (${visibility}) to ${repo} at ${url} (Cloudflare Pages)${accessLine}`,
+      };
+    }
+
+    const pagesEnabled = await enablePages(repo, compose);
+    return {
+      slug,
+      visibility,
+      url,
+      repo,
+      pagesEnabled,
+      ogCard: hasOg,
+      summary: `Published ${slug} (${visibility}) to ${repo} at ${url} (GitHub Pages)`,
+    };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Clone the repo (or create it on first use). Returns the checkout dir:
+ * `git clone` lands in `tmp`, `gh repo create --clone` in
+ * `tmp/<repo-name>`.
+ */
+/** The logged-in GitHub login. `gh api user` prints a JSON object, not the bare name. */
+async function currentUser(compose: PublishComposer): Promise<string | undefined> {
+  const raw = (await runGh(["api", "user"], compose)).trim();
+  try {
+    const parsed = JSON.parse(raw) as { login?: unknown };
+    if (typeof parsed?.login === "string" && parsed.login.length > 0) return parsed.login;
+  } catch {
+    // Not JSON (e.g. an error banner) — the raw first line still names the user.
+  }
+  return raw.split("\n")[0]?.trim();
+}
+
+async function ensureRepo(
+  repo: string,
+  visibility: "public" | "private",
+  compose: PublishComposer,
+  tmp: string,
+): Promise<string> {
+  const exists = await compose("gh", ["repo", "view", repo, "--json", "nameWithOwner"])
+    .then(() => true)
+    .catch(() => false);
+  if (!exists) {
+    const flag = visibility === "private" ? "--private" : "--public";
+    await compose("gh", ["repo", "create", repo, flag, "--clone"], { cwd: tmp });
+    return join(tmp, shortRepoName(repo));
+  }
+  await compose("git", ["clone", `https://github.com/${repo}.git`, tmp]);
+  return tmp;
+}
+
+async function enablePages(repo: string, compose: PublishComposer): Promise<boolean> {
+  try {
+    await runGh(["api", "repos", repo, "pages"], compose);
+    return true;
+  } catch (error) {
+    if (!/404/.test(String(error instanceof Error ? error.message : error))) throw error;
+  }
+  try {
+    await runGh(
+      [
+        "api",
+        "-X",
+        "POST",
+        "repos",
+        repo,
+        "pages",
+        "-f",
+        "source[branch]=main",
+        "-f",
+        "source[path]=/",
+      ],
+      compose,
+    );
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const detail = isPagesPlanLimitError(message)
+      ? `GitHub Pages is not available on this account's plan (${message}). Enable Pages on a paid plan, or publish with host "cloudflare".`
+      : `enabling GitHub Pages failed: ${message}`;
+    throw new Error(`publish_composition: ${detail}`, { cause: error });
+  }
 }

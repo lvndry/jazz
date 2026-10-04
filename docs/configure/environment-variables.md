@@ -135,12 +135,13 @@ The standard OpenTelemetry variables configure OTLP export when `telemetry.otlp`
 
 ## Tools and plugins
 
-| Variable                                      | Effect                                                                                                              |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `PUPPETEER_EXECUTABLE_PATH`                   | Chrome or Chromium binary for the web page and PDF tools.                                                           |
-| `JAZZ_COMPUTER_DRIVER`                        | Path to the `cua-driver` executable for [computer use](../concepts/computer-use.md). Searched on `PATH` when unset. |
-| `JAZZ_TERMINAL_NOTIFIER`, `TERMINAL_NOTIFIER` | Path to `terminal-notifier` for desktop notifications on macOS. The bundled copy is used otherwise.                 |
-| `JAZZ_LSP_CONFIG`                             | Server list for the `lsp` plugin. Defaults to `~/.jazz/lsp.json`, whatever `JAZZ_HOME` is.                          |
+| Variable                                      | Effect                                                                                                                                                   |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUPPETEER_EXECUTABLE_PATH`                   | Chrome or Chromium binary for the web page and PDF tools.                                                                                                |
+| `JAZZ_COMPUTER_DRIVER`                        | Path to the `cua-driver` executable for [computer use](../concepts/computer-use.md). Searched on `PATH` when unset.                                      |
+| `JAZZ_TERMINAL_NOTIFIER`, `TERMINAL_NOTIFIER` | Path to `terminal-notifier` for desktop notifications on macOS. The bundled copy is used otherwise.                                                      |
+| `JAZZ_LSP_CONFIG`                             | Server list for the `lsp` plugin. Defaults to `~/.jazz/lsp.json`, whatever `JAZZ_HOME` is.                                                               |
+| `JAZZ_CLOUDFLARE_CONFIG`                      | Cloudflare credentials for `publish_composition` (`{ "token", "accountId", "accessEmail", "pagesHost" }`). Defaults to `~/.config/jazz/cloudflare.json`. |
 
 ## Installer
 

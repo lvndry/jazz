@@ -1,10 +1,15 @@
 /**
- * Cloudflare Pages deploy via the asset API (wrangler's protocol):
+ * Cloudflare Pages deploy + Access, via the asset API (wrangler's protocol):
  * upload-token (JWT) → asset upload → upsert-hashes → deployment manifest.
  *
- * A git-integrated project is also acceptable: the tool pushes to the repo
- * first, and if the project is already connected to that repo in the
- * dashboard, the deploy below is a harmless redeploy of the same assets.
+ * For git-integrated projects (the reliable path on most accounts —
+ * direct-upload deploys 500 at the edge) the tool has already pushed the
+ * files to the repo, so the upload here is a best-effort warm-up of the
+ * preview and the git build is what serves production.
+ *
+ * Access: private projects get a self-hosted Access app. When the host is a
+ * claimed custom subdomain (lvndry.pages.dev) the app is PATH-scoped to
+ * /compositions/private so the public pages on the same host stay open.
  *
  * `fetch` is injected so tests exercise the whole sequence offline.
  */
@@ -18,6 +23,8 @@ export type CloudflareConfig = {
   accountId: string;
   /** Email that the private page's Access policy allows (e.g. "me@email.com"). */
   accessEmail?: string;
+  /** Claimed custom pages.dev subdomain, e.g. "lvndry.pages.dev". */
+  pagesHost?: string;
 };
 
 export type CloudflareFetch = (
@@ -29,7 +36,7 @@ export type CloudflareFetch = (
 }>;
 
 export type CloudflareDeployResult = {
-  /** Canonical URL, e.g. https://compositions-private.pages.dev/secret.html */
+  /** Canonical URL of the published page. */
   readonly url: string;
   /** Short-id preview URL from the deployment response. */
   readonly previewUrl: string;
@@ -39,6 +46,12 @@ export type CloudflareDeployResult = {
   readonly accessAppId?: string;
   /** True when the Access app exists but no allow-email policy could be set (no email configured). */
   readonly accessNeedsEmail: boolean;
+};
+
+/** What ships in a page: the HTML plus the optional OG card. */
+export type CloudflareAssets = {
+  readonly indexHtml: string;
+  readonly ogPng?: Buffer;
 };
 
 type CfJson<T = unknown> = {
@@ -51,70 +64,55 @@ type CfJson<T = unknown> = {
 type AccessApp = {
   readonly id?: string;
   readonly domain?: string;
+  /** Path restriction ("" or absent = whole domain). */
+  readonly path?: string;
 };
 
 /**
- * Deploy one HTML file to a Cloudflare Pages project, and (for projects whose
- * name ends in `-private`) ensure a self-hosted Access app with an
- * allow-your-email policy exists on the project's domain.
+ * Deploy a page (HTML + optional og.png) to a Cloudflare Pages project under
+ * `pageDir`, and (for private projects) ensure an Access app gating the page
+ * exists with an allow policy for the configured email.
  */
 export async function deployToCloudflare(
   config: CloudflareConfig,
   project: string,
-  slug: string,
-  fileBytes: Uint8Array,
+  pageDir: string,
+  assets: CloudflareAssets,
   fetchImpl: CloudflareFetch,
 ): Promise<CloudflareDeployResult> {
   const auth: Record<string, string> = { Authorization: `Bearer ${config.token}` };
   const aid = config.accountId;
-  const hash = createHash("sha256").update(fileBytes).digest("hex");
-  const pathKey = `/${slug}.html`;
-  const url = `https://${project}.pages.dev/${slug}.html`;
+  const hostBase = config.pagesHost ?? `${project}.pages.dev`;
+  const url = `https://${hostBase}/${pageDir}`;
+  const isPrivate = project.endsWith("-private");
+  // Path-scoped Access only makes sense on the shared custom host; on the
+  // default <project>.pages.dev the whole domain is private anyway.
+  const accessPath = isPrivate && config.pagesHost ? "/compositions/private" : undefined;
 
   await ensureProject(fetchImpl, auth, aid, project);
+  await uploadPage(fetchImpl, auth, aid, project, assets);
 
-  const jwt = await getUploadToken(fetchImpl, auth, aid, project);
-  const assetHeaders: Record<string, string> = { Authorization: `Bearer ${jwt}` };
-
-  const missing = await cfJson<string[]>(
-    fetchImpl,
-    `${CF_BASE}/pages/assets/check-missing`,
-    "POST",
-    assetHeaders,
-    { hashes: [hash] },
-  );
-  if ((missing ?? []).includes(hash)) {
-    await cfJson(fetchImpl, `${CF_BASE}/pages/assets/upload`, "POST", assetHeaders, [
-      {
-        key: hash,
-        value: Buffer.from(fileBytes).toString("base64"),
-        metadata: { contentType: "text/html" },
-        base64: true,
-      },
-    ]);
-    await cfJson(fetchImpl, `${CF_BASE}/pages/assets/upsert-hashes`, "POST", assetHeaders, {
-      hashes: [hash],
-    });
+  // Best-effort deployment for the preview; on git-integrated projects the
+  // push already triggered the real build.
+  let previewUrl = "";
+  try {
+    const deployment = await deployManifest(fetchImpl, auth, aid, project, pageDir, assets);
+    previewUrl = deployment.url ?? url;
+  } catch {
+    // On a git-integrated project the push is the real deploy.
   }
 
-  // Deployment: multipart form with a `manifest` field mapping paths to asset hashes.
-  const form = new FormData();
-  form.append("manifest", JSON.stringify({ [pathKey]: hash }));
-  form.append("commit_message", `jazz publish_composition: ${slug}`);
-  const deployment = await cfForm(fetchImpl, auth, aid, project, form);
-  const previewUrl = deployment.url ?? url;
-
-  if (project.endsWith("-private")) {
-    const access = await ensureAccess(fetchImpl, auth, config, project);
+  if (isPrivate) {
+    const access = await ensureAccess(fetchImpl, auth, config, project, hostBase, accessPath);
     return {
       url,
-      previewUrl,
+      previewUrl: previewUrl || url,
       accessPreexisting: access.preexisting,
       ...(access.appId ? { accessAppId: access.appId } : {}),
       accessNeedsEmail: access.needsEmail,
     };
   }
-  return { url, previewUrl, accessPreexisting: false, accessNeedsEmail: false };
+  return { url, previewUrl: previewUrl || url, accessPreexisting: false, accessNeedsEmail: false };
 }
 
 async function ensureProject(
@@ -138,6 +136,34 @@ async function ensureProject(
   });
 }
 
+async function uploadAsset(
+  fetchImpl: CloudflareFetch,
+  assetHeaders: Record<string, string>,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const missing = await cfJson<string[]>(
+    fetchImpl,
+    `${CF_BASE}/pages/assets/check-missing`,
+    "POST",
+    assetHeaders,
+    { hashes: [hash] },
+  );
+  if (!(missing ?? []).includes(hash)) return;
+  await cfJson(fetchImpl, `${CF_BASE}/pages/assets/upload`, "POST", assetHeaders, [
+    {
+      key: hash,
+      value: Buffer.from(bytes).toString("base64"),
+      metadata: { contentType },
+      base64: true,
+    },
+  ]);
+  await cfJson(fetchImpl, `${CF_BASE}/pages/assets/upsert-hashes`, "POST", assetHeaders, {
+    hashes: [hash],
+  });
+}
+
 async function getUploadToken(
   fetchImpl: CloudflareFetch,
   auth: Record<string, string>,
@@ -158,18 +184,64 @@ async function getUploadToken(
   return jwt;
 }
 
+async function uploadPage(
+  fetchImpl: CloudflareFetch,
+  auth: Record<string, string>,
+  accountId: string,
+  project: string,
+  assets: CloudflareAssets,
+): Promise<void> {
+  const jwt = await getUploadToken(fetchImpl, auth, accountId, project);
+  const assetHeaders: Record<string, string> = { Authorization: `Bearer ${jwt}` };
+  await uploadAsset(fetchImpl, assetHeaders, Buffer.from(assets.indexHtml, "utf8"), "text/html");
+  if (assets.ogPng && assets.ogPng.length > 0) {
+    await uploadAsset(fetchImpl, assetHeaders, assets.ogPng, "image/png");
+  }
+}
+
+/** Multipart deployment manifest mapping the page files to their asset hashes. */
+async function deployManifest(
+  fetchImpl: CloudflareFetch,
+  auth: Record<string, string>,
+  accountId: string,
+  project: string,
+  pageDir: string,
+  assets: CloudflareAssets,
+): Promise<{ url?: string }> {
+  const manifest: Record<string, string> = {
+    [`${pageDir}/index.html`]: createHash("sha256").update(assets.indexHtml, "utf8").digest("hex"),
+  };
+  if (assets.ogPng && assets.ogPng.length > 0) {
+    manifest[`${pageDir}/og.png`] = createHash("sha256").update(assets.ogPng).digest("hex");
+  }
+  const form = new FormData();
+  form.append("manifest", JSON.stringify(manifest));
+  form.append("commit_message", `jazz publish_composition: ${pageDir}`);
+  const r = await fetchImpl(
+    `${CF_BASE}/accounts/${accountId}/pages/projects/${project}/deployments`,
+    { method: "POST", headers: auth, body: form },
+  );
+  const b = (await r.json()) as CfJson<{ url?: string }>;
+  if (r.status !== 200 || b.success === false) {
+    throw new Error(`Cloudflare deployment failed: ${firstError(b)}`);
+  }
+  return b.result ?? {};
+}
+
 /**
- * Ensure a self-hosted Access app + an allow policy on the domain. The
- * configured email is the only address that gets in; extra addresses are
- * added in the Cloudflare One dashboard (Access → Applications → Policies).
+ * Ensure an Access app gating `domain` (optionally restricted to `path`) with
+ * an allow policy for the configured email. A pre-existing app on the domain
+ * is left untouched — the person owns it (emails are managed in the
+ * Cloudflare One dashboard).
  */
 async function ensureAccess(
   fetchImpl: CloudflareFetch,
   auth: Record<string, string>,
   config: CloudflareConfig,
   project: string,
+  domain: string,
+  path: string | undefined,
 ): Promise<{ preexisting: boolean; appId?: string; needsEmail: boolean }> {
-  const domain = `${project}.pages.dev`;
   const aid = config.accountId;
 
   const apps = await cfJson<AccessApp[]>(
@@ -200,6 +272,7 @@ async function ensureAccess(
       name: `jazz-${project}`,
       session_duration: "24h",
       domain,
+      ...(path ? { path } : {}),
     },
   ).catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
@@ -249,29 +322,6 @@ async function cfJson<T>(
     throw new Error(`Cloudflare API ${method} ${new URL(url).pathname} failed: ${firstError(b)}`);
   }
   return b.result;
-}
-
-/** Deployment accepts a multipart form; the runtime sets the Content-Type. */
-async function cfForm(
-  fetchImpl: CloudflareFetch,
-  auth: Record<string, string>,
-  accountId: string,
-  project: string,
-  form: FormData,
-): Promise<{ url?: string }> {
-  const r = await fetchImpl(
-    `${CF_BASE}/accounts/${accountId}/pages/projects/${project}/deployments`,
-    {
-      method: "POST",
-      headers: auth,
-      body: form,
-    },
-  );
-  const b = (await r.json()) as CfJson<{ url?: string }>;
-  if (r.status !== 200 || b.success === false) {
-    throw new Error(`Cloudflare deployment failed: ${firstError(b)}`);
-  }
-  return b.result ?? {};
 }
 
 function firstError(b: CfJson): string {
