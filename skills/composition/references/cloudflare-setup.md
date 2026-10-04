@@ -3,9 +3,13 @@
 Private compositions are served by Cloudflare Pages from a **private** GitHub
 repo, behind a **Cloudflare Access** sign-in. Most of it is automatic; a small
 number of things live in the Cloudflare dashboard because they are OAuth or
-account-level actions the API cannot do. This reference is the runbook. Read
-it when a private publish fails, a published URL 500s, or the person wants to
 change who can open a private page.
+
+> **Needs a backend instead?** If the composition requires shared state,
+> multiple browsers, hourly updates, or a real database, use
+> `references/backend-worker-d1.md` — the static Pages frontend + Worker +
+> D1 (SQLite) + cron pattern, all via the `cf` CLI. This guide is the
+> static-only flow.
 
 ## What is automatic vs manual
 

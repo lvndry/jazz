@@ -96,7 +96,15 @@ usually more valuable than six generic cards.
 - `cloudflare-setup` — private publishing: the Cloudflare token/config, the
   one-time Enable Access step, and why the project must be git-integrated
   (direct-upload deploys 500 at the edge). Load it when a private publish
-  fails or the person asks how it is hosted.
+  fails or the person asks how it is hosted. Cloudflare operations use the
+  `cf` CLI (wrangler is superseded; it survives only as a build-time dev
+  dependency for `cf deploy`).
+- `backend-worker-d1` — when a composition needs shared or ticking state
+  (multiple browsers, hourly updates, a real database): static Pages
+  frontend + one Worker + D1 (managed SQLite) + scheduled cron, all via the
+  cf CLI, Access-gated. Load it before designing or building any backend
+  for a composition; `compositions-private/networth/` is the reference
+  implementation.
 
 ## Data integrity
 
