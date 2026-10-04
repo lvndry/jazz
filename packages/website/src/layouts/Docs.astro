@@ -1,5 +1,6 @@
 ---
 /** Render documentation with navigation, search, code blocks, and readable Mermaid diagrams. */
+import Logo from "../components/Logo.astro";
 import Base from "./Base.astro";
 import type { PrevNext, SidebarSection } from "../lib/docs";
 
@@ -61,7 +62,7 @@ const jsonLd = [
     set:html={JSON.stringify(jsonLd)}
   />
   <header class="top">
-    <a class="brand mono" href="/">▞ jazz</a>
+    <a class="brand" href="/"><Logo height={20} /></a>
     <a class="mono docs-home" href="/docs">docs</a>
     <a class="mono" href="/blog">blog</a>
     <a class="mono" href="/library">library</a>
@@ -147,8 +148,8 @@ const jsonLd = [
     color: var(--jz-primary);
   }
   .top .brand {
-    color: var(--jz-primary);
-    font-size: 14px;
+    display: inline-flex;
+    color: var(--jz-selected);
   }
   .grow {
     flex: 1;

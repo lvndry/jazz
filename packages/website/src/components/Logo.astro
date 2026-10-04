@@ -1,0 +1,46 @@
+---
+import { LOCKUP_VIEWBOX, MARK_VIEWBOX, lockupShapes, markShapes } from "../lib/logo";
+
+interface Props {
+  variant?: "lockup" | "mark";
+  /** Rendered height in px; the width follows the viewBox. */
+  height?: number;
+  /** CSS colour for the on-beat block and wordmark. Defaults to the surrounding text colour. */
+  foreground?: string;
+  /** CSS colour for the off-beat block. Defaults to the skin's primary. */
+  accent?: string;
+}
+
+const { variant = "lockup", height = 20, foreground = "currentColor", accent = "var(--jz-primary)" } = Astro.props;
+const isMark = variant === "mark";
+const viewBox = isMark ? MARK_VIEWBOX : LOCKUP_VIEWBOX;
+const [, , viewWidth, viewHeight] = viewBox.split(" ").map(Number);
+const width = Math.round((height * viewWidth) / viewHeight);
+const placeholderPaint = { foreground: "currentColor", accent: "currentColor" };
+const shapes = isMark ? markShapes(placeholderPaint) : lockupShapes(placeholderPaint);
+---
+
+<svg
+  class="logo"
+  width={width}
+  height={height}
+  viewBox={viewBox}
+  role="img"
+  aria-label="Jazz"
+  style={`--logo-fg: ${foreground}; --logo-accent: ${accent}`}
+  set:html={shapes}
+/>
+
+<style>
+  .logo {
+    display: inline-block;
+    vertical-align: middle;
+    flex-shrink: 0;
+  }
+  .logo :global(.logo-fg) {
+    fill: var(--logo-fg);
+  }
+  .logo :global(.logo-accent) {
+    fill: var(--logo-accent);
+  }
+</style>

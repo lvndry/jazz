@@ -1,4 +1,5 @@
 ---
+import Logo from "../components/Logo.astro";
 import Base from "./Base.astro";
 
 interface Props {
@@ -12,7 +13,7 @@ const { title, description, image } = Astro.props;
 
 <Base title={title} description={description} image={image}>
   <header class="top">
-    <a class="brand mono" href="/">▞ jazz</a>
+    <a class="brand" href="/"><Logo height={20} /></a>
     <a class="mono" href="/library">library</a>
     <div class="grow"></div>
     <a class="mono" href="/docs">docs</a>
@@ -41,8 +42,8 @@ const { title, description, image } = Astro.props;
     color: var(--jz-primary);
   }
   .top .brand {
-    color: var(--jz-primary);
-    font-size: 14px;
+    display: inline-flex;
+    color: var(--jz-selected);
   }
   .grow {
     flex: 1;

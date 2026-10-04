@@ -1,4 +1,5 @@
 ---
+import Logo from "./Logo.astro";
 const chromes = [
   { key: "terminal", label: "▞ jazz — your terminal" },
   { key: "telegram", label: "Telegram · @your-jazz-bot" },
@@ -71,7 +72,7 @@ const rules = [
         </div>
 
         <div class="variant tg" data-variant="1">
-          <div class="tg-header mono"><span class="tg-avatar">▞</span> Jazz <span class="tg-bot">bot</span></div>
+          <div class="tg-header mono"><span class="tg-avatar"><Logo variant="mark" height={22} foreground="#F5F7FA" accent="#00D7FF" /></span> Jazz <span class="tg-bot">bot</span></div>
           <div class="tg-bubble">
             <p class="tg-title">I'd like to send an email — approve?</p>
             <div class="tg-facts">
@@ -90,7 +91,7 @@ const rules = [
 
         <div class="variant gh mono" data-variant="2">
           <div class="gh-head">
-            <span class="gh-avatar">▞</span>
+            <span class="gh-avatar"><Logo variant="mark" height={18} foreground="#F5F7FA" accent="#00D7FF" /></span>
             <span class="gh-who">jazz</span>
             <span class="gh-badge">bot</span>
             <span class="gh-when">commented · run parked</span>
@@ -263,9 +264,7 @@ const rules = [
     width: 26px;
     height: 26px;
     border-radius: 50%;
-    background: var(--jz-primary);
-    color: #000;
-    font-size: 13px;
+    background: #0b0d10;
   }
   .tg-bot {
     font-size: 10px;
@@ -348,9 +347,7 @@ const rules = [
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    background: var(--jz-primary);
-    color: #000;
-    font-size: 11px;
+    background: #0b0d10;
   }
   .gh-who {
     color: var(--jz-selected);

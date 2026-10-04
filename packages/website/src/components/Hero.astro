@@ -1,11 +1,12 @@
 ---
+import Logo from "./Logo.astro";
 
 ---
 
 <header class="hero">
   <canvas id="eq" aria-hidden="true"></canvas>
   <nav class="topbar mono">
-    <a class="brand" href="/">▞ jazz</a>
+    <a class="brand" href="/"><Logo height={22} /></a>
     <div class="links">
       <a href="/library">library</a>
       <a href="/docs">docs</a>
@@ -55,8 +56,8 @@
     font-size: 13px;
   }
   .topbar .brand {
-    color: var(--jz-primary);
-    font-size: 14px;
+    display: inline-flex;
+    color: var(--jz-selected);
     text-decoration: none;
   }
   .topbar .links {

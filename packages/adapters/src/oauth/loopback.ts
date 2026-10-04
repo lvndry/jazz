@@ -59,8 +59,13 @@ function browserCommand(url: string): readonly [string, readonly string[]] {
   }
 }
 
+/** The Jazz mark (one terminal cell split into the ▞ quadrants), as favicon and page header. */
+const MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="26" fill="#0B0D10"/><rect x="36" y="60" width="24" height="48" rx="2" fill="#F5F7FA"/><rect x="60" y="12" width="24" height="48" rx="2" fill="#00D7FF"/></svg>`;
+
 const SUCCESS_PAGE = `<!doctype html><meta charset="utf-8"><title>Jazz</title>
+<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(MARK_SVG)}">
 <body style="font-family:system-ui;padding:3rem;text-align:center">
+<div style="width:64px;height:64px;margin:0 auto 1rem">${MARK_SVG}</div>
 <h1>Authorized</h1><p>You can close this tab and return to your terminal.</p></body>`;
 
 export interface LoopbackListener {

@@ -9,10 +9,18 @@ import { createRequire } from "node:module";
 
 import { Resvg } from "@resvg/resvg-js";
 
+import { BRAND_CYAN, LOCKUP_BOX, iconSvg, lockupShapes } from "./logo";
+
 const WIDTH = 1200;
 const HEIGHT = 630;
 const BAR_COUNT = 40;
 const BAR_GAP = 6;
+
+/** Lockup sits top-left, 60px tall, its wordmark baseline on the 96px baseline of the repo URL. */
+const LOCKUP_HEIGHT = 60;
+const HEADER_BASELINE = 96;
+const LOCKUP_SCALE = LOCKUP_HEIGHT / LOCKUP_BOX.height;
+const LOCKUP_TOP = HEADER_BASELINE - (LOCKUP_BOX.baseline - LOCKUP_BOX.y) * LOCKUP_SCALE;
 
 // Node resolution rather than cwd- or module-relative paths: og.ts is bundled
 // at build time, so import.meta.url points at the build output, and cwd
@@ -77,7 +85,7 @@ export function renderOgImage(title: string, subtitle: string): Buffer {
     const barHeight = Math.round(fraction * HEIGHT * 0.42);
     const opacity = (0.2 + ((value % 700) / 700) * 0.55).toFixed(2);
     const x = index * (barWidth + BAR_GAP);
-    return `<rect x="${x.toFixed(1)}" y="${HEIGHT - barHeight}" width="${barWidth.toFixed(1)}" height="${barHeight}" fill="#00D7FF" opacity="${opacity}"/>`;
+    return `<rect x="${x.toFixed(1)}" y="${HEIGHT - barHeight}" width="${barWidth.toFixed(1)}" height="${barHeight}" fill="${BRAND_CYAN}" opacity="${opacity}"/>`;
   }).join("");
 
   const lines = wrapTitle(title);
@@ -94,10 +102,8 @@ export function renderOgImage(title: string, subtitle: string): Buffer {
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
   <rect width="${WIDTH}" height="${HEIGHT}" fill="#07090B"/>
   <g opacity="0.5">${bars}</g>
-  <rect x="64" y="70" width="14" height="28" rx="1" fill="#E8EBEF"/>
-  <rect x="78" y="42" width="14" height="28" rx="1" fill="#00D7FF"/>
-  <text x="104" y="96" font-family="IBM Plex Mono" font-size="34" fill="#00D7FF">jazz</text>
-  <text x="${WIDTH - 64}" y="96" text-anchor="end" font-family="IBM Plex Mono" font-size="22" fill="#5C6673">github.com/lvndry/jazz</text>
+  <g transform="translate(64 ${LOCKUP_TOP}) scale(${LOCKUP_SCALE}) translate(${-LOCKUP_BOX.x} ${-LOCKUP_BOX.y})">${lockupShapes({ foreground: "#E8EBEF", accent: BRAND_CYAN })}</g>
+  <text x="${WIDTH - 64}" y="${HEADER_BASELINE}" text-anchor="end" font-family="IBM Plex Mono" font-size="22" fill="#5C6673">github.com/lvndry/jazz</text>
   ${titleText}
   <text x="64" y="${HEIGHT - 64}" font-family="IBM Plex Mono" font-size="24" fill="#A9B2BD" letter-spacing="3">${escapeXml(subtitle.toUpperCase())}</text>
 </svg>`;
@@ -106,5 +112,10 @@ export function renderOgImage(title: string, subtitle: string): Buffer {
     fitTo: { mode: "width", value: WIDTH },
     font: { fontFiles: FONT_FILES, loadSystemFonts: false },
   });
+  return resvg.render().asPng();
+}
+
+export function renderIconPng(size: number, options: { readonly rounded?: boolean } = {}): Buffer {
+  const resvg = new Resvg(iconSvg({ size, ...options }), { fitTo: { mode: "width", value: size } });
   return resvg.render().asPng();
 }
