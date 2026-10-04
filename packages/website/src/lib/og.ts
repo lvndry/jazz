@@ -94,8 +94,8 @@ export function renderOgImage(title: string, subtitle: string): Buffer {
   const svg = `<svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
   <rect width="${WIDTH}" height="${HEIGHT}" fill="#07090B"/>
   <g opacity="0.5">${bars}</g>
-  <rect x="64" y="56" width="26" height="26" fill="#00D7FF"/>
-  <rect x="38" y="82" width="26" height="26" fill="#00D7FF"/>
+  <rect x="64" y="70" width="14" height="28" rx="1" fill="#E8EBEF"/>
+  <rect x="78" y="42" width="14" height="28" rx="1" fill="#00D7FF"/>
   <text x="104" y="96" font-family="IBM Plex Mono" font-size="34" fill="#00D7FF">jazz</text>
   <text x="${WIDTH - 64}" y="96" text-anchor="end" font-family="IBM Plex Mono" font-size="22" fill="#5C6673">github.com/lvndry/jazz</text>
   ${titleText}
