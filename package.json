@@ -15,7 +15,7 @@
   },
   "description": "An everyday AI assistant you can leave running: in your terminal, on a schedule, and in your chat apps.",
   "engines": {
-    "bun": ">=1.4.0",
+    "bun": ">=1.4.2",
     "node": ">=22.16.0",
     "npm": ">=10.0.0"
   },
@@ -47,6 +47,8 @@
   "scripts": {
     "build:binary": "bun run scripts/build.ts --compile",
     "build:binaries": "bun run scripts/build.ts --compile --all-targets",
+    "bundle:size": "bun run scripts/bundle-size.ts",
+    "record:startup-order": "bun run scripts/record-startup-order.ts",
     "plugin:pack": "bun run scripts/plugin-pack.ts",
     "plugin:catalog": "bun run scripts/build-plugin-catalog.ts",
     "plugin:community-catalog": "bun run scripts/build-community-plugin-catalog.ts",

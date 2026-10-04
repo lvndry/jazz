@@ -1,8 +1,26 @@
-import { describe, expect, it } from "bun:test";
-import { countTokens as countCl100k } from "gpt-tokenizer/encoding/cl100k_base";
-import { countTokens as countO200k } from "gpt-tokenizer/encoding/o200k_base";
+import { beforeAll, describe, expect, it } from "bun:test";
 import type { ChatMessage } from "@/core/types/message";
-import { inferFamily, type ModelHint, TokenCounter } from "./token-counter";
+import {
+  ensureGptEncoders,
+  inferFamily,
+  resetGptEncodersForTests,
+  type ModelHint,
+  TokenCounter,
+} from "./token-counter";
+
+// The counter lazy-loads the encoders in the background; tests assert exact
+// counts, so wait for the preload explicitly.
+let countCl100k: (text: string) => number;
+let countO200k: (text: string) => number;
+beforeAll(async () => {
+  const [cl100k, o200k] = await Promise.all([
+    import("gpt-tokenizer/encoding/cl100k_base"),
+    import("gpt-tokenizer/encoding/o200k_base"),
+    ensureGptEncoders(),
+  ]);
+  countCl100k = cl100k.countTokens;
+  countO200k = o200k.countTokens;
+});
 
 const sysMsg = (content: string): ChatMessage => ({ role: "system", content });
 const userMsg = (content: string): ChatMessage => ({ role: "user", content });
@@ -78,6 +96,62 @@ describe("TokenCounter — OpenAI families use gpt-tokenizer (exact)", () => {
   it("returns 0 for empty text", () => {
     const counter = new TokenCounter();
     expect(counter.countText("", { provider: "openai", modelId: "gpt-4o" })).toBe(0);
+  });
+});
+
+describe("TokenCounter — encoders still loading (ratio fallback window)", () => {
+  it("prices OpenAI text with the family default ratio, not the encoder", () => {
+    resetGptEncodersForTests();
+    try {
+      const counter = new TokenCounter();
+      const hint: ModelHint = { provider: "openai", modelId: "gpt-4o" };
+      const text = "a".repeat(80);
+
+      // Same math as the non-tokenizer families until the preload lands.
+      expect(counter.countText(text, hint)).toBe(Math.ceil(80 / 4.0));
+    } finally {
+      // Re-arm the background preload for any later test.
+      void ensureGptEncoders();
+    }
+  });
+
+  it("a count before the preload lands starts loading; the next count is exact", async () => {
+    resetGptEncodersForTests();
+    try {
+      const counter = new TokenCounter();
+      const hint: ModelHint = { provider: "openai", modelId: "gpt-4o" };
+      const text = "a".repeat(80);
+
+      // This call estimates, but its backstop kicks off the load.
+      expect(counter.countText(text, hint)).toBe(Math.ceil(80 / 4.0));
+      await ensureGptEncoders();
+      expect(counter.countText(text, hint)).toBe(countO200k(text));
+    } finally {
+      void ensureGptEncoders();
+    }
+  });
+
+  it("does not message-cache the estimate, so the first exact count supersedes it", async () => {
+    resetGptEncodersForTests();
+    try {
+      const counter = new TokenCounter();
+      const hint: ModelHint = { provider: "openai", modelId: "gpt-4o" };
+      const message = userMsg("a".repeat(80));
+
+      // Encoders not yet loaded: the message is priced by ratio and must not
+      // be cached, so it is re-priced (exactly) once the preload lands.
+      const estimate = counter.countMessage(message, hint);
+      await ensureGptEncoders();
+      const exact = counter.countMessage(message, hint);
+
+      expect(estimate).not.toBe(exact);
+      expect(exact).toBe(countO200k("a".repeat(80)) + 4);
+
+      // A second call after the encoders arrive is now cached and stable.
+      expect(counter.countMessage(message, hint)).toBe(exact);
+    } finally {
+      void ensureGptEncoders();
+    }
   });
 });
 
