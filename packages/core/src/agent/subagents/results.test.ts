@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { Effect } from "effect";
 import {
   combinedProvenance,
   fitSubagentResults,
@@ -9,6 +10,10 @@ import {
   subagentResultText,
 } from "./results";
 import type { SubagentSnapshot } from "./supervisor";
+import {
+  readOffloadedToolResult,
+  readOffloadedToolResultProvenance,
+} from "../context/tool-result-offload";
 
 const BUDGET = 12_000;
 
@@ -19,7 +24,7 @@ function finished(id: string, result: unknown, extra: Partial<SubagentSnapshot> 
     status: "completed",
     elapsedMs: 1,
     result,
-    resultPath: `/results/${id}.md`,
+    retrieveId: `subagent-${id}`,
     ...extra,
   } satisfies SubagentSnapshot;
 }
@@ -44,7 +49,9 @@ describe("fitSubagentResults", () => {
     expect(fitted.map((child) => child.id)).toEqual(["sa-1", "sa-2"]);
     for (const child of fitted) {
       expect(String(child.result).length).toBeGreaterThan(BUDGET / 3);
-      expect(child.resultNote).toContain("read_file at resultPath");
+      expect(child.resultNote).toContain(
+        `retrieve_tool_result with tool_call_id "subagent-${child.id}"`,
+      );
     }
   });
 
@@ -73,7 +80,7 @@ describe("fitSubagentResults", () => {
     expect(serialize(child === undefined ? [] : [child]).length).toBeLessThanOrEqual(BUDGET);
   });
 
-  it("says when the whole answer could not be saved", () => {
+  it("says when the whole answer could not be kept", () => {
     const unsaved: SubagentSnapshot = {
       id: "sa-1",
       name: "sa-1",
@@ -82,7 +89,7 @@ describe("fitSubagentResults", () => {
       result: report(30_000),
     };
     const [child] = fitSubagentResults([unsaved], BUDGET, serialize);
-    expect(child?.resultNote).toContain("could not be saved");
+    expect(child?.resultNote).toContain("could not be kept");
   });
 });
 
@@ -109,46 +116,58 @@ describe("combinedProvenance", () => {
 });
 
 describe("saveSubagentResult", () => {
-  let directory: string;
+  let jazzHome: string;
+  let previousHome: string | undefined;
 
   beforeEach(() => {
-    directory = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "jazz-subagent-")), "results");
+    jazzHome = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-subagent-"));
+    previousHome = process.env["JAZZ_HOME"];
+    process.env["JAZZ_HOME"] = jazzHome;
   });
 
   afterEach(() => {
-    fs.rmSync(path.dirname(directory), { recursive: true, force: true });
+    if (previousHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousHome;
+    }
+    fs.rmSync(jazzHome, { recursive: true, force: true });
   });
 
-  it("writes a text answer as markdown and a structured one as JSON", () => {
-    const text = saveSubagentResult(directory, { id: "sa-1", startedAt: 1, result: "hi" });
-    const structured = saveSubagentResult(directory, {
+  const read = (retrieveId: string) =>
+    Effect.runPromise(readOffloadedToolResult("agent-1", "conv", retrieveId));
+
+  it("keeps a text answer as is and a structured one as JSON, under their retrieve ids", async () => {
+    const text = saveSubagentResult("agent-1", "conv", { id: "sa-1", startedAt: 1, result: "hi" });
+    const structured = saveSubagentResult("agent-1", "conv", {
       id: "sa-2",
       startedAt: 2,
       result: { candidates: ["a"] },
     });
-    expect(text).toBe(path.join(directory, "sa-1-1.md"));
-    expect(fs.readFileSync(text!, "utf-8")).toBe("hi");
-    expect(structured).toBe(path.join(directory, "sa-2-2.json"));
-    expect(fs.readFileSync(structured!, "utf-8")).toBe(subagentResultText({ candidates: ["a"] })!);
+    expect(text).toBe("subagent-sa-1-1");
+    expect(await read(text!)).toBe("hi");
+    expect(structured).toBe("subagent-sa-2-2");
+    expect(await read(structured!)).toBe(subagentResultText({ candidates: ["a"] })!);
   });
 
-  it("writes nothing for an empty answer", () => {
-    expect(saveSubagentResult(directory, { id: "sa-1", startedAt: 1, result: "  " })).toBe(
-      undefined,
-    );
-    expect(fs.existsSync(directory)).toBe(false);
-  });
-
-  it("returns undefined when the directory cannot be written", () => {
-    const blocked = path.join(path.dirname(directory), "file");
-    fs.mkdirSync(path.dirname(blocked), { recursive: true });
-    fs.writeFileSync(blocked, "");
+  it("keeps the provenance of what the child read", async () => {
+    const untrusted = { kind: "external", source: "sub-agent Market" } as const;
+    const retrieveId = saveSubagentResult("agent-1", "conv", {
+      id: "sa-1",
+      startedAt: 1,
+      result: "found it",
+      untrusted,
+    });
     expect(
-      saveSubagentResult(path.join(blocked, "results"), {
-        id: "sa-1",
-        startedAt: 1,
-        result: "hi",
-      }),
+      await Effect.runPromise(
+        readOffloadedToolResultProvenance("agent-1", "conv", retrieveId!, "found it"),
+      ),
+    ).toEqual(untrusted);
+  });
+
+  it("keeps nothing for an empty answer", () => {
+    expect(
+      saveSubagentResult("agent-1", "conv", { id: "sa-1", startedAt: 1, result: "  " }),
     ).toBeUndefined();
   });
 });

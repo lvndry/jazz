@@ -6,13 +6,19 @@
  * locked-down container, or a CI image that can read but not write must not
  * fail the run: persist reports failure and the clearer falls back to a
  * "re-run the tool" stub. `clearWorkState` already deletes this directory.
+ *
+ * A body can also be written the moment its result is cut to fit the context, with the
+ * provenance of what it holds beside it, so a page read back later is framed like the original.
  */
 
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { Effect } from "effect";
 import type { ChatMessage } from "@/core/types/message";
+import type { UntrustedProvenance } from "@/core/types/tools";
 import { getWorkStateDirectory } from "@/core/utils/paths";
+import { UNTRUSTED_TAG, hasExternalUntrustedFrame } from "@/core/utils/untrusted-content";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
 import { MIN_CLEARABLE_RESULT_TOKENS } from "./tool-result-clearing";
 
@@ -37,36 +43,57 @@ export function toolResultOffloadPath(
   return path.join(toolResultsDirectory(agentId, conversationId), `${toolCallId}.txt`);
 }
 
+function provenancePath(agentId: string, conversationId: string, toolCallId: string): string {
+  return path.join(toolResultsDirectory(agentId, conversationId), `${toolCallId}.provenance.json`);
+}
+
 /**
- * Write one tool body. Returns false on any filesystem error — including
- * EACCES / EROFS — and never throws.
+ * Write one tool body, and its provenance when it holds untrusted content. A body already
+ * stored is kept: the first write is the whole result. Returns false on any filesystem error —
+ * including EACCES / EROFS — and never throws.
+ *
+ * Synchronous so a run being stopped can still keep the result of a call it cut.
  */
+export function writeToolResult(
+  agentId: string,
+  conversationId: string,
+  toolCallId: string,
+  content: string,
+  provenance?: UntrustedProvenance,
+): boolean {
+  if (!isSafeToolCallId(toolCallId)) {
+    return false;
+  }
+  try {
+    mkdirSync(toolResultsDirectory(agentId, conversationId), { recursive: true, mode: 0o700 });
+    if (provenance !== undefined) {
+      writeFileSync(
+        provenancePath(agentId, conversationId, toolCallId),
+        JSON.stringify(provenance),
+        { encoding: "utf-8", mode: 0o600 },
+      );
+    }
+    const target = toolResultOffloadPath(agentId, conversationId, toolCallId);
+    if (!existsSync(target)) {
+      writeFileSync(target, content, { encoding: "utf-8", mode: 0o600 });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** `writeToolResult` as an effect. */
 export function persistToolResult(
   agentId: string,
   conversationId: string,
   toolCallId: string,
   content: string,
+  provenance?: UntrustedProvenance,
 ): Effect.Effect<boolean, never, never> {
-  if (!isSafeToolCallId(toolCallId)) {
-    return Effect.succeed(false);
-  }
-
-  return Effect.tryPromise({
-    try: async () => {
-      const directory = toolResultsDirectory(agentId, conversationId);
-      await nodeFs.mkdir(directory, { recursive: true, mode: 0o700 });
-      const target = toolResultOffloadPath(agentId, conversationId, toolCallId);
-      try {
-        await nodeFs.access(target);
-        return true;
-      } catch {
-        // Not there yet — write it.
-      }
-      await nodeFs.writeFile(target, content, { encoding: "utf-8", mode: 0o600 });
-      return true;
-    },
-    catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+  return Effect.sync(() =>
+    writeToolResult(agentId, conversationId, toolCallId, content, provenance),
+  );
 }
 
 /**
@@ -86,6 +113,49 @@ export function readOffloadedToolResult(
     try: () => nodeFs.readFile(toolResultOffloadPath(agentId, conversationId, toolCallId), "utf-8"),
     catch: (error) => error,
   }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+}
+
+function isUntrustedProvenance(value: unknown): value is UntrustedProvenance {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const { kind, source } = value as Record<string, unknown>;
+  return (kind === "external" || kind === "local-file") && typeof source === "string";
+}
+
+/**
+ * What a stored body holds that came from outside: the provenance written beside it, or, for a
+ * body stored with its envelope already around it, the kind of that envelope. Undefined when it
+ * holds nothing untrusted.
+ */
+export function readOffloadedToolResultProvenance(
+  agentId: string,
+  conversationId: string,
+  toolCallId: string,
+  content: string,
+): Effect.Effect<UntrustedProvenance | undefined, never, never> {
+  if (!isSafeToolCallId(toolCallId)) {
+    return Effect.succeed(undefined);
+  }
+  const framed = (): UntrustedProvenance | undefined => {
+    if (!content.includes(`<${UNTRUSTED_TAG} `)) {
+      return undefined;
+    }
+    return {
+      kind: hasExternalUntrustedFrame(content) ? "external" : "local-file",
+      source: `retrieve_tool_result ${toolCallId}`,
+    };
+  };
+  return Effect.tryPromise({
+    try: async (): Promise<unknown> =>
+      JSON.parse(
+        await nodeFs.readFile(provenancePath(agentId, conversationId, toolCallId), "utf-8"),
+      ),
+    catch: (error) => error,
+  }).pipe(
+    Effect.map((stored) => (isUntrustedProvenance(stored) ? stored : framed())),
+    Effect.catchAll(() => Effect.succeed(framed())),
+  );
 }
 
 export interface PersistLargeToolResultsOptions {

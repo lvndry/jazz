@@ -1,30 +1,25 @@
 /**
  * What a parent reads of its sub-agents' answers.
  *
- * Every finished child's whole answer is written to a file. `wait_subagents` returns previews
- * that share one context budget across the children it returns, each with the file's path, so
- * one long answer can never crowd another out and nothing is lost to a cut the parent cannot undo.
+ * Every finished child's whole answer is kept in the conversation's tool-result store, where
+ * `retrieve_tool_result` pages through it. `wait_subagents` returns previews that share one
+ * context budget across the children it returns, each with the id to retrieve the whole answer
+ * by, so one long answer can never crowd another out and nothing is lost to a cut.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import * as path from "node:path";
 import type { UntrustedProvenance } from "@/core/types/tools";
-import { getWorkStateDirectory } from "@/core/utils/paths";
 import type { SubagentSnapshot } from "./supervisor";
+import { writeToolResult } from "../context/tool-result-offload";
 
 export interface FinishedSubagent {
   readonly id: string;
   readonly startedAt: number;
   readonly result: unknown;
+  readonly untrusted?: UntrustedProvenance;
 }
 
 /** A preview is cut at a line break when one falls in the last fifth of its budget. */
 const LINE_BREAK_SEARCH_FRACTION = 0.8;
-
-/** Where a run's children's answers are kept: with the conversation's work state, deleted with it. */
-export function subagentResultsDirectory(agentId: string, conversationId: string): string {
-  return path.join(getWorkStateDirectory(agentId, conversationId), "subagent-results");
-}
 
 /** The answer as text: a string as is, a structured result as indented JSON. */
 export function subagentResultText(result: unknown): string | undefined {
@@ -35,23 +30,28 @@ export function subagentResultText(result: unknown): string | undefined {
 }
 
 /**
- * Writes a finished child's whole answer under `directory`. Undefined when it has no answer or
- * the write failed; the parent then gets the preview alone.
+ * Keeps a finished child's whole answer in the conversation's tool-result store, with the
+ * provenance of what it read. Returns the id `retrieve_tool_result` reads it by, or undefined
+ * when it has no answer or the write failed; the parent then gets the preview alone.
  */
-export function saveSubagentResult(directory: string, child: FinishedSubagent): string | undefined {
+export function saveSubagentResult(
+  agentId: string,
+  conversationId: string,
+  child: FinishedSubagent,
+): string | undefined {
   const text = subagentResultText(child.result);
   if (text === undefined || text.trim() === "") {
     return undefined;
   }
-  const extension = typeof child.result === "string" ? "md" : "json";
-  const filePath = path.join(directory, `${child.id}-${String(child.startedAt)}.${extension}`);
-  try {
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    writeFileSync(filePath, text, { mode: 0o600 });
-    return filePath;
-  } catch {
-    return undefined;
-  }
+  const retrieveId = `subagent-${child.id}-${String(child.startedAt)}`;
+  return writeToolResult(agentId, conversationId, retrieveId, text, child.untrusted)
+    ? retrieveId
+    : undefined;
+}
+
+/** How the parent reads a kept answer, a page at a time. */
+export function retrieveInstruction(retrieveId: string): string {
+  return `Call retrieve_tool_result with tool_call_id "${retrieveId}" to read the whole answer a page at a time.`;
 }
 
 function cutAtLineBreak(text: string, maxChars: number): string {
@@ -93,10 +93,11 @@ function previewWithin(
       return child;
     }
     const preview = cutAtLineBreak(text, granted);
+    const shown = `Preview: the first ${String(preview.length)} of ${String(text.length)} chars`;
     const note =
-      child.resultPath !== undefined
-        ? `Preview: the first ${String(preview.length)} of ${String(text.length)} chars. Read the whole answer with read_file at resultPath, by startLine and endLine when it is long, before relying on it.`
-        : `Preview: the first ${String(preview.length)} of ${String(text.length)} chars; the whole answer could not be saved.`;
+      child.retrieveId !== undefined
+        ? `${shown}. ${retrieveInstruction(child.retrieveId)} Read it before relying on it.`
+        : `${shown}; the whole answer could not be kept.`;
     return { ...child, result: preview, resultNote: note };
   });
 }

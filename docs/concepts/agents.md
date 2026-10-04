@@ -168,8 +168,8 @@ cost, not the child's transcript.
 
 Each child's whole answer is saved with the conversation's working state. `wait_subagents`
 returns each answer once, and when several long answers would not fit together it returns a
-preview of each, sharing the space between them, with the path to the whole answer for
-`read_file`.
+preview of each, sharing the space between them, with the id to read the whole answer by with
+`retrieve_tool_result`.
 
 Each child has its own context window. Use `resultSchema`, a JSON Schema with root type
 `object`, to require a validated structured result.

@@ -271,7 +271,7 @@ If the resumed turn needs approval, it parks and sends a notification; answer wi
 | ---------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------- |
 | `context_info`         | `read-only` | none          | Get current context window token usage statistics.                                                      |
 | `get_time`             | `read-only` | none          | Get current date and time. Use for scheduling, relative times (yesterday, next Monday), and timestamps. |
-| `retrieve_tool_result` | `read-only` | none          | Read a tool body that was offloaded from context. Pass the `tool_call_id` from the placeholder.         |
+| `retrieve_tool_result` | `read-only` | none          | Read a tool body that was offloaded from context or cut to fit it, a page at a time by `offset`.        |
 
 ### Tool Search
 
@@ -284,8 +284,8 @@ If the resumed turn needs approval, it parks and sends a notification; answer wi
 | Tool                | Risk        | Approval pair | What it does                                                                                                                                                                                                                            |
 | ------------------- | ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `spawn_subagent`    | `read-only` | none          | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Returns an `agentId` at once; collect the answer with `wait_subagents`. Optionally validate a bounded JSON handoff with `resultSchema`. |
-| `list_subagents`    | `read-only` | none          | Show each sub-agent of the run: status, current activity, spend so far and where its saved answer is once finished.                                                                                                                     |
-| `wait_subagents`    | `read-only` | none          | Wait for sub-agents (until any or all) and return each answer once, as a preview with the saved answer's path when the answers are long.                                                                                                |
+| `list_subagents`    | `read-only` | none          | Show each sub-agent of the run: status, current activity, spend so far and the id its saved answer is kept under once finished.                                                                                                         |
+| `wait_subagents`    | `read-only` | none          | Wait for sub-agents (until any or all) and return each answer once, as a preview naming how to read the whole answer when the answers are long.                                                                                         |
 | `steer_subagent`    | `read-only` | none          | Message, pause, resume or cancel a running sub-agent. Messages and pauses take effect before its next model call.                                                                                                                       |
 | `summarize_context` | `read-only` | none          | Compact conversation by summarizing older messages to free token budget. Always performs summarization when…                                                                                                                            |
 

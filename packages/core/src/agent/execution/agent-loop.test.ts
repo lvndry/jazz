@@ -49,6 +49,7 @@ import { SkillServiceTag } from "../../skills/skill-service";
 import type { RecursiveRunner } from "../context/summarizer";
 import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 import { PROTECTED_TOOL_CYCLES } from "../context/tool-result-clearing";
+import { readOffloadedToolResult } from "../context/tool-result-offload";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
@@ -260,6 +261,12 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
     ...overrides,
   };
 }
+
+/**
+ * A model no catalog lists, so a run accounts against the fallback window wherever the test
+ * runs, instead of whatever models.dev or the local catalog mirror says the model holds.
+ */
+const UNCATALOGUED_MODEL = "jazz-test-uncatalogued-model";
 
 const displayConfig: DisplayConfig = {
   showReasoning: false,
@@ -743,6 +750,109 @@ describe("executeAgentLoop", () => {
     }
   });
 
+  describe("a tool result cut to fit the context", () => {
+    const longOutput = Array.from({ length: 4_000 }, (_, index) => `row ${String(index)}`).join(
+      "\n",
+    );
+    const retrieveTool = {
+      type: "function" as const,
+      function: { name: "retrieve_tool_result", description: "", parameters: {} },
+    };
+    let previousHome: string | undefined;
+    let jazzHome: string;
+
+    beforeEach(() => {
+      jazzHome = mkdtempSync(join(tmpdir(), "jazz-cut-result-"));
+      previousHome = process.env["JAZZ_HOME"];
+      process.env["JAZZ_HOME"] = jazzHome;
+    });
+
+    afterEach(() => {
+      if (previousHome === undefined) {
+        delete process.env["JAZZ_HOME"];
+      } else {
+        process.env["JAZZ_HOME"] = previousHome;
+      }
+    });
+
+    async function toolMessageAfterRun(tools: readonly unknown[]): Promise<ChatMessage> {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() =>
+        Effect.succeed([
+          { toolCallId: "call_1", name: "test_tool", result: longOutput, success: true },
+        ]),
+      ) as unknown as typeof ToolExecutor.executeToolCalls;
+      const requests: ChatMessage[][] = [];
+      const strategy: CompletionStrategy = {
+        shouldShowReasoning: false,
+        getCompletion: (messages) => {
+          requests.push([...messages]);
+          return Effect.succeed(
+            requests.length === 1
+              ? {
+                  completion: {
+                    id: "c1",
+                    model: "gpt-4",
+                    content: "",
+                    toolCalls: [
+                      {
+                        id: "call_1",
+                        type: "function" as const,
+                        function: { name: "test_tool", arguments: "{}" },
+                      },
+                    ],
+                  },
+                  interrupted: false,
+                }
+              : { completion: { id: "c2", model: "gpt-4", content: "Done" }, interrupted: false },
+          );
+        },
+        presentResponse: () => Effect.void,
+        onComplete: () => Effect.void,
+        getRenderer: () => null,
+      };
+      try {
+        await Effect.runPromise(
+          executeAgentLoop(
+            makeOptions(),
+            makeRunContext({ model: UNCATALOGUED_MODEL, maxIterations: 2, tools: tools as any }),
+            displayConfig,
+            strategy,
+            defaultObserver,
+            runRecursive,
+          ).pipe(Effect.provide(TestLayer)),
+        );
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+      const toolMessage = requests[1]?.find((message) => message.role === "tool");
+      if (toolMessage === undefined) {
+        throw new Error("no tool message reached the second request");
+      }
+      return toolMessage;
+    }
+
+    it("keeps the whole result and tells the model how to page through it", async () => {
+      const message = await toolMessageAfterRun([retrieveTool]);
+      expect(message.content.length).toBeLessThan(longOutput.length);
+      expect(message.content).toContain(
+        `Call retrieve_tool_result with tool_call_id "call_1" to read it a page at a time.`,
+      );
+      const kept = await Effect.runPromise(
+        readOffloadedToolResult("agent-1", "conv-123", "call_1"),
+      );
+      expect(kept).toBe(longOutput);
+    });
+
+    it("leaves the cut result alone when the run cannot read one back", async () => {
+      const message = await toolMessageAfterRun([]);
+      expect(message.content).not.toContain("retrieve_tool_result");
+      expect(
+        await Effect.runPromise(readOffloadedToolResult("agent-1", "conv-123", "call_1")),
+      ).toBeUndefined();
+    });
+  });
+
   it("warns against the agent's max context tokens before compacting", async () => {
     const warningCalls: string[] = [];
     const trackingPresentationService = {
@@ -802,12 +912,6 @@ describe("executeAgentLoop", () => {
     expect(pressureWarning).toContain(`${maxContextTokens.toLocaleString()} tokens`);
     expect(warningCalls.some((msg) => msg.includes("auto-compacting"))).toBe(false);
   });
-
-  /**
-   * A model no catalog lists, so the run accounts against the fallback window and the long
-   * history stays under the compaction threshold: the overflow comes only from the provider.
-   */
-  const UNCATALOGUED_MODEL = "jazz-test-uncatalogued-model";
 
   function longHistory(): ChatMessage[] {
     const filler = "the quick brown fox jumps over the lazy dog. ".repeat(40);

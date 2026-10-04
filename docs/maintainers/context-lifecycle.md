@@ -401,6 +401,13 @@ CI images, locked-down containers, a Telegram host that can read but not write ,
 the run continues and the placeholder says to re-run the original tool. Missing
 retrieves fail the same way. The conversation never depends on a writable disk.
 
+A result too long for its context budget is cut when it is first added to the conversation.
+When the run has `retrieve_tool_result`, the whole result is written to the same path at once,
+with a `<tool_call_id>.provenance.json` beside it when it holds untrusted content, and a line
+after the cut result names the call to read it. `retrieve_tool_result` returns a long body a page
+at a time by `offset`, and frames every page with the stored provenance. Sub-agents' whole answers
+are kept in the same store under `subagent-<id>-<started>` ids.
+
 The protected window runs from the assistant message that opened the fifth most
 recent tool cycle through the end of the list (`PROTECTED_TOOL_CYCLES`). One cycle
 was not enough: a model that reads a file, then lists a directory, then edits has

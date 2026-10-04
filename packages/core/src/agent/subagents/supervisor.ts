@@ -11,7 +11,7 @@
  * Cancelling interrupts the child at once.
  *
  * The parent reads answers through `wait_subagents` only, once each: `list` reports status, and
- * an answer already read comes back as its `resultPath` rather than again in full.
+ * an answer already read comes back as its `retrieveId` rather than again in full.
  *
  * Money is one pool. Each child reports what it has spent after every step, and the parent's cost
  * cap counts that live spend, so parallel children cannot each spend the whole remainder.
@@ -23,7 +23,7 @@ import type {
   ToolProgressEvent,
   UntrustedProvenance,
 } from "@/core/types/tools";
-import type { FinishedSubagent } from "./results";
+import { retrieveInstruction, type FinishedSubagent } from "./results";
 
 /** Sub-agents one run may have going at once. Matches `JAZZ_BOT_MAX_CONCURRENT_RUNS`. */
 export const MAX_LIVE_SUBAGENTS = 4;
@@ -43,11 +43,11 @@ export interface SubagentSnapshot {
   readonly liveCostUSD?: number;
   /** Its answer once it finished, or what a failed one returned alongside its error. */
   readonly result?: unknown;
-  /** The file holding its whole answer. */
-  readonly resultPath?: string;
-  /** Set when `result` is a preview: how much is shown and where the rest is. */
+  /** The `retrieve_tool_result` id its whole answer is kept under. */
+  readonly retrieveId?: string;
+  /** Set when `result` is a preview: how much is shown and how to read the rest. */
   readonly resultNote?: string;
-  /** The parent read this answer in an earlier `wait_subagents`; it is at `resultPath`. */
+  /** The parent read this answer in an earlier `wait_subagents`; it is kept under `retrieveId`. */
   readonly alreadyRead?: true;
   /** Provenance retained when a child read external content. */
   readonly untrusted?: UntrustedProvenance;
@@ -90,7 +90,7 @@ interface Entry {
   resumeGate: Deferred.Deferred<void> | undefined;
   fiber: Fiber.RuntimeFiber<void> | undefined;
   result: ToolExecutionResult | undefined;
-  resultPath: string | undefined;
+  retrieveId: string | undefined;
   finishedAt: number | undefined;
   /** The parent has read this child's result through `wait_subagents`. */
   collected: boolean;
@@ -158,7 +158,7 @@ export interface SubagentSupervisor {
 let subagentSequence = 0;
 
 export interface SubagentSupervisorOptions {
-  /** Keeps a finished child's whole answer; returns where, or undefined when it was not kept. */
+  /** Keeps a finished child's whole answer; returns its retrieve id, or undefined when not kept. */
   readonly saveResult?: (child: FinishedSubagent) => string | undefined;
 }
 
@@ -193,7 +193,7 @@ export function createSubagentSupervisor(
       ...(withResult && entry.result?.result !== undefined && entry.result.result !== null
         ? { result: entry.result.result }
         : {}),
-      ...(entry.resultPath !== undefined ? { resultPath: entry.resultPath } : {}),
+      ...(entry.retrieveId !== undefined ? { retrieveId: entry.retrieveId } : {}),
       ...(entry.result?.untrusted !== undefined ? { untrusted: entry.result.untrusted } : {}),
       ...(entry.result !== undefined && !entry.result.success
         ? { error: entry.result.error ?? "The sub-agent failed." }
@@ -211,10 +211,15 @@ export function createSubagentSupervisor(
         return;
       }
       entry.result = result;
-      entry.resultPath =
+      entry.retrieveId =
         result.result === undefined || result.result === null
           ? undefined
-          : options.saveResult?.({ id, startedAt: entry.startedAt, result: result.result });
+          : options.saveResult?.({
+              id,
+              startedAt: entry.startedAt,
+              result: result.result,
+              ...(result.untrusted !== undefined ? { untrusted: result.untrusted } : {}),
+            });
       entry.status = cancelled ? "cancelled" : result.success ? "completed" : "failed";
       entry.finishedAt = Date.now();
       entry.liveCostUSD = 0;
@@ -283,7 +288,7 @@ export function createSubagentSupervisor(
           resumeGate: undefined,
           fiber: undefined,
           result: undefined,
-          resultPath: undefined,
+          retrieveId: undefined,
           finishedAt: undefined,
           collected: false,
           announced: false,
@@ -409,8 +414,8 @@ export function createSubagentSupervisor(
             return {
               ok: false,
               error:
-                entry.resultPath !== undefined
-                  ? `${entry.name} (${id}) already ${entry.status}. Its whole answer is at ${entry.resultPath}; read it with read_file.`
+                entry.retrieveId !== undefined
+                  ? `${entry.name} (${id}) already ${entry.status}. ${retrieveInstruction(entry.retrieveId)}`
                   : `${entry.name} (${id}) already ${entry.status}. Read its answer with wait_subagents.`,
             } as const;
           }

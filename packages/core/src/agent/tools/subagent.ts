@@ -767,7 +767,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "list_subagents",
       disclosure: "private",
       description:
-        "Show each sub-agent of this run: status (running, paused, waiting-approval, completed, failed, cancelled), what it is doing, what it has spent, and resultPath once finished. Returns at once. Read answers with wait_subagents.",
+        "Show each sub-agent of this run: status (running, paused, waiting-approval, completed, failed, cancelled), what it is doing, what it has spent, and retrieveId once finished. Returns at once. Read answers with wait_subagents.",
       parameters: listSubagentsSchema,
       hidden: false,
       peerGrantRequired: true,
@@ -796,7 +796,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
-        "Wait for sub-agents and get their answers in one call: until all (default) returns once none is still running, until any once one finishes or is paused. Each answer comes once; a long one comes as a preview with resultNote, and resultPath holds the whole answer for read_file. Use it instead of checking list_subagents repeatedly.",
+        "Wait for sub-agents and get their answers in one call: until all (default) returns once none is still running, until any once one finishes or is paused. Each answer comes once; a long one comes as a preview whose resultNote says how to read the whole answer. Use it instead of checking list_subagents repeatedly.",
       parameters: waitSubagentsSchema,
       hidden: false,
       peerGrantRequired: true,

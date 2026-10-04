@@ -89,7 +89,7 @@ describe("tool guidance injection", () => {
     expect(result).toContain("prefer the most specific available tool");
     expect(result).not.toContain("Use the shell");
     expect(result).not.toContain("subagents");
-    expect(result).not.toContain("offloaded tool results");
+    expect(result).not.toContain("offloaded or cut tool results");
   });
 
   test("capability-specific guidance appears only with its tool", () => {
@@ -98,7 +98,7 @@ describe("tool guidance injection", () => {
     });
     expect(result).toContain("Use the shell");
     expect(result).toContain("subagents");
-    expect(result).toContain("offloaded tool results");
+    expect(result).toContain("offloaded or cut tool results");
   });
 });
 

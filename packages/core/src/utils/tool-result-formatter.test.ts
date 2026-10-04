@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { MAX_PROGRESS_RESULT_CHARS } from "@/core/types/tools";
-import { toolResultForProgress } from "./tool-result-formatter";
+import {
+  DEFAULT_TOOL_RESULT_MAX_CHARS,
+  formatToolResultForContext,
+  formatToolResultWithOverflow,
+  toolResultForProgress,
+} from "./tool-result-formatter";
 
 describe("toolResultForProgress", () => {
   it("passes a result through as it is, newlines and all", () => {
@@ -40,5 +45,28 @@ describe("toolResultForProgress", () => {
     const cyclic: Record<string, unknown> = {};
     cyclic["self"] = cyclic;
     expect(toolResultForProgress(cyclic)?.text).toContain("Failed to serialize");
+  });
+});
+
+describe("formatToolResultWithOverflow", () => {
+  it("returns no full text for a result that fits", () => {
+    expect(formatToolResultWithOverflow("custom", { answer: 42 })).toEqual({
+      content: '{"answer":42}',
+    });
+  });
+
+  it("returns the whole serialized result beside the cut one", () => {
+    const result = { rows: [{ text: "x".repeat(DEFAULT_TOOL_RESULT_MAX_CHARS * 2) }] };
+    const formatted = formatToolResultWithOverflow("custom", result);
+    expect(formatted.content).toBe(formatToolResultForContext("custom", result));
+    expect(formatted.content.length).toBeLessThanOrEqual(DEFAULT_TOOL_RESULT_MAX_CHARS);
+    expect(formatted.fullText).toBe(JSON.stringify(result));
+  });
+
+  it("never cuts a loaded skill", () => {
+    const instructions = "step\n".repeat(20_000);
+    expect(formatToolResultWithOverflow("load_skill", instructions)).toEqual({
+      content: instructions,
+    });
   });
 });

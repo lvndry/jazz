@@ -70,7 +70,7 @@ describe("SubagentSupervisor", () => {
         const supervisor = yield* createSubagentSupervisor({
           saveResult: (child) => {
             saved.push(String(child.result));
-            return `/results/${child.id}.md`;
+            return `subagent-${child.id}`;
           },
         });
         const hooks = yield* finishedChild(supervisor, "digest", done("the whole report"));
@@ -81,16 +81,18 @@ describe("SubagentSupervisor", () => {
         return { id: hooks.id, listed, first, second, steered };
       }),
     );
-    const resultPath = `/results/${outcome.id}.md`;
+    const retrieveId = `subagent-${outcome.id}`;
     expect(saved).toEqual(["the whole report"]);
-    expect(outcome.listed).toMatchObject({ status: "completed", resultPath });
+    expect(outcome.listed).toMatchObject({ status: "completed", retrieveId });
     expect(outcome.listed).not.toHaveProperty("result");
-    expect(outcome.first).toMatchObject({ result: "the whole report", resultPath });
+    expect(outcome.first).toMatchObject({ result: "the whole report", retrieveId });
     expect(outcome.first).not.toHaveProperty("alreadyRead");
-    expect(outcome.second).toMatchObject({ alreadyRead: true, resultPath });
+    expect(outcome.second).toMatchObject({ alreadyRead: true, retrieveId });
     expect(outcome.second).not.toHaveProperty("result");
     expect(outcome.steered).toMatchObject({ ok: false });
-    expect(outcome.steered.ok ? "" : outcome.steered.error).toContain(resultPath);
+    expect(outcome.steered.ok ? "" : outcome.steered.error).toContain(
+      `retrieve_tool_result with tool_call_id "${retrieveId}"`,
+    );
   });
 
   it("returns on the first child to finish with until any, and times out with none", async () => {

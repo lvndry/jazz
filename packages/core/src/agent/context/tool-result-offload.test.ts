@@ -9,7 +9,9 @@ import {
   persistLargeToolResults,
   persistToolResult,
   readOffloadedToolResult,
+  readOffloadedToolResultProvenance,
   toolResultOffloadPath,
+  writeToolResult,
 } from "./tool-result-offload";
 
 const runEffect = <A>(effect: Effect.Effect<A, never, never>): Promise<A> =>
@@ -62,6 +64,28 @@ describe("tool result offload", () => {
     await runEffect(persistToolResult("agent-1", "conv-1", "call_1", "first"));
     await runEffect(persistToolResult("agent-1", "conv-1", "call_1", "second"));
     expect(await runEffect(readOffloadedToolResult("agent-1", "conv-1", "call_1"))).toBe("first");
+  });
+
+  it("reads back the provenance kept beside a body", async () => {
+    const provenance = { kind: "external", source: "web_fetch https://example.com" } as const;
+    expect(writeToolResult("agent-1", "conv-1", "call_1", "page text", provenance)).toBe(true);
+    expect(
+      await runEffect(
+        readOffloadedToolResultProvenance("agent-1", "conv-1", "call_1", "page text"),
+      ),
+    ).toEqual(provenance);
+  });
+
+  it("reads the envelope's kind from a body stored already framed", async () => {
+    const framed =
+      '<untrusted-content source="web_fetch x" kind="external">\nhi\n</untrusted-content>';
+    await runEffect(persistToolResult("agent-1", "conv-1", "call_1", framed));
+    expect(
+      await runEffect(readOffloadedToolResultProvenance("agent-1", "conv-1", "call_1", framed)),
+    ).toEqual({ kind: "external", source: "retrieve_tool_result call_1" });
+    expect(
+      await runEffect(readOffloadedToolResultProvenance("agent-1", "conv-1", "call_1", "plain")),
+    ).toBeUndefined();
   });
 
   it("returns undefined rather than throwing when nothing was stored", async () => {
