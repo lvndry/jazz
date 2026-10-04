@@ -251,6 +251,10 @@ export function buildContextPressureMessage(
  * After a successful compaction the history has been rewritten underneath the
  * model. The warn/critical nudges tell it to wrap up — the opposite of what
  * just happened: space was freed so the original task can continue.
+ *
+ * The current usage is always stated. Below the warn threshold no other nudge
+ * reports a figure, so without it the model keeps quoting the pre-compaction
+ * percentage it last saw and acts as if context were still nearly full.
  */
 export function buildPostCompactionMessage(
   currentTokens: number,
@@ -258,13 +262,20 @@ export function buildPostCompactionMessage(
 ): { role: "user"; content: string } {
   const resume =
     "[CONTEXT COMPACTED: Older history was summarized to free space. The original task is still in progress. Continue from the summary and recent messages until the user's request is fully complete. Do not treat this compaction as a reason to wrap up.]";
-  if (budgetTokens <= 0) return { role: "user", content: resume };
+  if (budgetTokens <= 0) {
+    return { role: "user", content: resume };
+  }
 
   const ratio = currentTokens / budgetTokens;
-  if (ratio < CONTEXT_CRITICAL_RATIO) return { role: "user", content: resume };
-
   const percent = Math.round(ratio * 100);
   const budget = budgetTokens.toLocaleString();
+  if (ratio < CONTEXT_CRITICAL_RATIO) {
+    return {
+      role: "user",
+      content: `${resume} Context is now ${percent}% of the ${budget}-token budget; any earlier usage figure is out of date.`,
+    };
+  }
+
   return {
     role: "user",
     content: `${resume} Context is still ${percent}% of the ${budget}-token budget — prefer finishing current work over opening new investigations, but do not stop short of the original request.`,

@@ -962,6 +962,19 @@ describe("executeAgentLoop", () => {
     expect(message.role).toBe("user");
   });
 
+  it("states the post-compaction usage so the model drops the pre-compaction figure", () => {
+    const message = buildPostCompactionMessage(2_600, 10_000);
+    expect(message.content).toContain("Context is now 26% of the 10,000-token budget");
+    expect(message.content).toContain("out of date");
+    expect(message.content).not.toContain("prefer finishing current work");
+  });
+
+  it("omits the usage figure when there is no budget to measure against", () => {
+    const message = buildPostCompactionMessage(2_600, 0);
+    expect(message.content).toContain("CONTEXT COMPACTED");
+    expect(message.content).not.toContain("%");
+  });
+
   it("still asks the model to finish the task when context stays critical after compaction", () => {
     const message = buildPostCompactionMessage(9_500, 10_000);
     expect(message.content).toContain("CONTEXT COMPACTED");
