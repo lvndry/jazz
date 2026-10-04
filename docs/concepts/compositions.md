@@ -80,6 +80,76 @@ without opening a browser.
 Compositions can contain JavaScript. Only open pages you trust, and keep secrets out of
 files or links you share.
 
+## Publish a composition to a URL
+
+`publish_composition` takes an interactive composition and makes it available at a
+stable public or private URL, so it can be shared without sending the file.
+
+The agent always asks **public or private** first, and the answer decides the whole
+deploy path:
+
+- **Public** — you pick the host: GitHub Pages (default) or Cloudflare Pages.
+  The page lands in your `<you>/compositions` repo and is served at
+  `<you>.github.io/compositions/compositions/<slug>/` (or `/compositions/<slug>/` on the
+  Cloudflare host).
+- **Private** — always Cloudflare Pages, from a **private** repo
+  (`<you>/compositions-private`). The source file stays in a private repository
+  at `compositions/private/<slug>/`, and the page itself is locked behind
+  [Cloudflare Access](https://one.dash.cloudflare.com/): anyone who opens the URL
+  gets a sign-in screen that sends a one-time code to an allowed email. No
+  Cloudflare account is needed on the visitor's side — the free "Cloudflare
+  Access" provider signs people in with just an email address.
+
+When the rendering fonts are available, published pages include a **Jazz-styled
+`og.png` card** plus `og:title`/`og:image` metadata. Card rendering is optional;
+a missing font stack does not prevent publishing.
+
+First use creates the repo, the Pages project, and the Access applications automatically.
+The tool verifies repository visibility before cloning or pushing. A private request
+refuses a public repository, including a repository passed through `repo`.
+
+Cloudflare publishing uploads the complete `compositions/` directory from the checkout,
+so adding a new slug retains existing pages. A deployment failure returns an error;
+a Git integration is not required and is not used as a fallback. Re-publishing an
+existing slug replaces that page in the next snapshot.
+
+### Requirements
+
+- `gh` authenticated and `git` on PATH (both hosts need the GitHub step).
+- For Cloudflare (private publishing, or public-on-Cloudflare):
+  `~/.config/jazz/cloudflare.json`
+
+  ```json
+  { "schemaVersion": 1, "token": "…", "accountId": "…", "accessEmail": "you@email.com" }
+  ```
+
+  The token needs **Cloudflare Pages: Edit** and **Access: Apps: Edit** permissions
+  (a scoped token from the dashboard is enough). `accessEmail` controls who can open
+  private pages. One-time setup: open
+  [one.dash.cloudflare.com](https://one.dash.cloudflare.com/) and click **Enable
+  Access** if the account has never used Access. Enable **One-time PIN** under
+  **Integrations → Identity providers** for email-code sign-in.
+
+- `accessEmail` is required for private publishing. Optional `pagesHost` must already
+  be attached to that Pages project; the tool does not register a custom domain.
+  Without it, links use Cloudflare's assigned subdomain, which may include a suffix.
+
+### Managing the private allow list
+
+Private publishing creates email allow policies for the assigned Pages hostname,
+its `*.<assigned-hostname>` deployment aliases, and every attached custom domain.
+These gates are configured and verified before source is pushed or assets are uploaded.
+A configured custom `pagesHost` protects `/compositions/private`; other project
+hostnames are protected in full.
+
+Manage access in Cloudflare One → **Access → Applications** → the applications
+named `jazz-<project>-<number>` → **Policies**. Update every application protecting
+the project when adding or removing an allowed address. Compatible existing email
+and email-domain allow lists are preserved. Publishing refuses applicable bypass
+policies, public destination overrides, and allow rules whose email restriction it
+cannot verify. An Access configuration failure stops publication before any content
+is pushed or uploaded.
+
 ## Related
 
 - [Artifacts](./artifacts.md): where generated files are saved and how surfaces present them

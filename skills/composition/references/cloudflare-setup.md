@@ -9,14 +9,14 @@ change who can open a private page.
 
 ## What is automatic vs manual
 
-| Step                                       | Where                         | When                  |
-| ------------------------------------------ | ----------------------------- | --------------------- |
-| Create the private repo                    | `gh`, automatic               | first private publish |
-| Create the Pages project                   | Cloudflare API, automatic     | first private publish |
-| Create the Access app + allow policy       | Cloudflare API, automatic     | first private publish |
-| **Enable the Access service**              | **Cloudflare One dashboard**  | **once, per account** |
-| **Connect the project to the GitHub repo** | **Workers & Pages dashboard** | **once, per project** |
-| **Add / remove allowed emails**            | **Cloudflare One dashboard**  | **any time**          |
+| Step                                 | Where                        | When                  |
+| ------------------------------------ | ---------------------------- | --------------------- |
+| Create the private repo              | `gh`, automatic              | first private publish |
+| Create the Pages project             | Cloudflare API, automatic    | first private publish |
+| Create the Access app + allow policy | Cloudflare API, automatic    | first private publish |
+| **Enable the Access service**        | **Cloudflare One dashboard** | **once, per account** |
+| **Enable One-time PIN sign-in**      | **Cloudflare One dashboard** | **once, per account** |
+| **Add / remove allowed emails**      | **Cloudflare One dashboard** | **any time**          |
 
 Everything else — pushing the file, deploying, re-publishing — is what the
 tool does.
@@ -28,45 +28,66 @@ Open [one.dash.cloudflare.com](https://one.dash.cloudflare.com/) — this is the
 **Enable Access**. Free and one-time. Without it, Access-app creation fails
 with `access.api.error.not_enabled`, and the tool tells you exactly that.
 
-## 2 · Connect the project to the GitHub repo (once per project)
+## 2 · Enable One-time PIN sign-in (once per account)
 
-**Why it exists:** direct-upload deploys (the asset API the tool uses) report
-success but the edge then **500s** on some accounts. The reliable path is a
-git-integrated project: the tool pushes the file to the private repo, and for
-a git project that push _is_ the deploy. Git integration is an OAuth
-authorization of Cloudflare's GitHub app, so it must be done in the browser —
-`wrangler pages project create` has no git flag, and the API accepts build
-fields but they don't stick (all verified).
+Without this step the sign-in page **only offers “Continue with Cloudflare”** —
+new Zero Trust organizations ship with the Cloudflare account IdP as the only
+login, so people you invite would need a Cloudflare account of their own.
+Email-only sign-in needs the built-in **One-time PIN** IdP enabled at the
+_account_ level first:
 
-- **Workers & Pages** on [dash.cloudflare.com](https://dash.cloudflare.com/) →
-  the project (e.g. `compositions-private`) → **Settings → Build &
-  deployments** → **Connect to Git** → authorize Cloudflare's GitHub app (once
-  per account) → pick the repo (`<owner>/compositions-private`), branch
-  `main`, root directory `/`, no build command.
-- The connection triggers an immediate git build; the page is live ~1 minute
-  later.
+1. Cloudflare dashboard → **Zero Trust** ([one.dash.cloudflare.com](https://one.dash.cloudflare.com/))
+2. **Integrations → Identity providers** (the account-level list — _not_ the
+   app's “Choose available identity providers” screen, which only shows IdPs
+   already created here)
+3. **Add new identity provider** → **One-time PIN**
+4. Enable it (free on the Zero Trust Free plan)
 
-**Diagnosing "not git-integrated":** the publish succeeds, but the URL 500s or
-404s behind the login wall. `wrangler pages project list` shows
-**Git Provider: No**. Fix = the connection above.
+Then open each Access app (Access → **Applications** → `jazz-<project>-<number>` →
+**Edit** → **Choose available identity providers**) and tick **One-time PIN**
+so the app offers it. Now the sign-in page shows “Continue with email”: the
+visitor types their address, gets a one-time code in their inbox, enters it —
+**no Cloudflare account needed**. (API equivalent: `POST
+/access/identity_providers` with `{name, type: "onetimepin", config: {}}`, then
+attach its id to the app's `allowed_idps` — needs the _Identity Providers:
+Edit_ token permission, which the dashboard path above doesn't.)
+
+## Deployment and private protection
+
+The tool deploys a complete snapshot of the checkout's `compositions/` tree through
+Cloudflare's asset API. Git integration is optional; it is not a fallback for a
+failed direct deployment. If an existing project is Git-integrated, Access is
+configured before the push that can trigger a build.
+
+Private publishing verifies the repository is private and installs email Access
+policies for the project's assigned hostname, its wildcard deployment aliases,
+and attached custom hostnames before pushing or uploading content. The project
+hostname can have a suffix when its requested name is already taken; returned
+links and Access scopes use the assigned hostname. `pagesHost` must already be
+attached to the project. Its private scope is `/compositions/private`.
+
+If Access setup or policy verification fails, nothing is pushed or uploaded.
+A failed deployment is reported as an error. If an existing page returns an error,
+check the project's deployment status and Access configuration before republishing.
 
 ## 3 · Add or remove allowed emails (any time)
 
 The tool creates the Access app with an allow policy for **exactly** the
 `accessEmail` from `~/.config/jazz/cloudflare.json`. To change who gets in —
 add a second person, remove someone, switch providers — do it in the
-dashboard; **the tool never rewrites an existing app on re-publish, so manual
-edits are preserved**:
+dashboard; **compatible email allow lists are preserved on re-publish**. Update every
+application protecting the project, including deployment aliases:
 
 - [one.dash.cloudflare.com](https://one.dash.cloudflare.com/) →
-  **Access → Applications** → the app named `jazz-<project>` (its service
-  domain is `<project>.pages.dev`) → **Policies** → the allow policy →
+  **Access → Applications** → each app named `jazz-<project>-<number>` (the assigned Pages hostname,
+  its wildcard deployment aliases, and any custom domains) → **Policies** → the allow policy →
   **Edit**.
 - **Include** rules: add an **Email address** per person (that is the only
   per-address rule the current API accepts; a whole-domain rule — e.g. every
   `@acme.com` — is available if you want coarser control).
 - **Exclude** rules: to kick someone out of a domain-wide allow, add their
-  address here.
+  address here. Bypass policies, public destination overrides, and non-email
+  allow selectors must be removed before the tool can verify private publication.
 - Each visitor with an allowed address signs in with a one-time PIN sent to
   that email — no account, no device enrollment, 24h session.
 
@@ -76,12 +97,13 @@ edits are preserved**:
 # Who is this token / is Access reachable?
 CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… npx wrangler whoami
 
-# Is the project git-integrated? "Git Provider: Yes" = good.
+# Find the assigned project hostname and deployment status.
 CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… npx wrangler pages project list
 
-# Is the latest deployment serving? Preview subdomains skip the Access wall,
-# so this tests the asset without a login. <short_id> = the deployment id.
-curl -sIL https://<short_id>.compositions-private.pages.dev/<slug>
+# Canonical and immutable deployment URLs must both redirect to Access sign-in.
+# Use the assigned hostname and deployment id from the project response.
+curl -sIL https://<assigned-host>/compositions/private/<slug>/
+curl -sIL https://<deployment-id>.<assigned-host>/compositions/private/<slug>/
 ```
 
 ## Token & config

@@ -159,3 +159,42 @@ Before calling the tool, ask:
   empty space. Extract the `<script>` and run it through `node --check` (or a
   quick headless render) before calling the tool.
 - Did I make a composition rather than a generic dashboard template?
+
+## Publishing
+
+When the person wants a link they can open from anywhere — share it with
+someone, keep it as a permanent artifact, or view it on another device — offer
+`publish_composition`. It is the only path that turns a local composition into
+something a second person can open without your machine.
+
+Ask **public or private** first; the answer decides the deploy path. If
+private, no further questions. If public, ask the host: **GitHub Pages**
+(default) or **Cloudflare Pages**.
+
+- `public` + `github` (default): a public repo, a URL anyone with the link can
+  open (`<owner>.github.io/compositions/compositions/<slug>/`). Use it for things that
+  are fine for strangers to see.
+- `public` + `cloudflare`: same, on Cloudflare Pages (the project’s assigned `pages.dev` hostname).
+- `private`: a **private repo** (`<owner>/compositions-private`), served by
+  Cloudflare Pages and locked behind **Cloudflare Access** on canonical and deployment URLs. Anyone opening the
+  URL gets a sign-in screen that sends a one-time PIN to the configured email —
+  a real gate, not a login-only link. Both the source file and the page are
+  invisible to everyone else.
+
+Offer it, do not assume it: publishing writes to the account `gh` is logged in
+as and, on first use, creates a repo, a Pages project, and (for private) an
+Access apps there. Preview the host, repository and visibility to the person;
+Cloudflare resolves the assigned hostname during publication. Let the approval
+gate carry the consent.
+
+- Stable URLs: re-publishing the same name overwrites the same file at the
+  same URL instead of minting a new one. Cloudflare deploys the complete composition snapshot so old pages stay available. Change the name to keep an old
+  version and add a new one side by side.
+- Private requires Cloudflare setup: `~/.config/jazz/cloudflare.json` with a
+  token (Pages: Edit, Access: Apps: Edit), the account id, and `accessEmail`.
+  Private publication stops before pushing content if email configuration or Access protection is missing. Enable One-time PIN sign-in once in Cloudflare One. The allow lists are managed in
+  the Cloudflare One dashboard (Access → Applications → the app → Policies).
+  See [Publishing compositions](../../docs/concepts/compositions.md#publish-a-composition-to-a-url).
+
+It needs `gh` (authenticated) and `git` on the machine; the tool says so
+plainly if either is missing.

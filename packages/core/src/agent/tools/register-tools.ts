@@ -43,6 +43,7 @@ import { createManageMemoryTool, createViewMemoryTool } from "./memory";
 import { createWhoIsHereTool } from "./occupancy";
 import { createAskPeerTool, createRequestClarificationTool } from "./peer";
 import { createPerceptionTools } from "./perception";
+import { createPublishCompositionTool } from "./publish-composition";
 import {
   createAddReminderTool,
   createCancelReminderTool,
@@ -358,6 +359,8 @@ export function registerCompositionTools(): Effect.Effect<void, Error, ToolRegis
     yield* registerTool(createCompositionTool());
     // Same category: both turn HTML the agent wrote into a file, and both need Chromium.
     yield* registerTool(createPdfTool());
+    // Same category: it delivers a composition over a URL the person can share.
+    yield* registerTool(createPublishCompositionTool());
   });
 }
 
