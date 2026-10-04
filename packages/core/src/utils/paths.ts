@@ -67,6 +67,16 @@ export function getSecretsLockPath(): string {
   return path.join(getJazzHomeDirectory(), ".secrets.lock");
 }
 
+/** Names and descriptions of the secrets a person saved for every agent; values stay in the keyring. */
+export function getSavedSecretsIndexPath(): string {
+  return path.join(getJazzHomeDirectory(), "saved-secrets.json");
+}
+
+/** The directory lock held while `saved-secrets.json` is rewritten. */
+export function getSavedSecretsIndexLockPath(): string {
+  return path.join(getJazzHomeDirectory(), ".saved-secrets.lock");
+}
+
 /** The lock held while the ChatGPT OAuth credential is refreshed. */
 export function getChatGptCredentialLockPath(): string {
   return path.join(getJazzHomeDirectory(), ".chatgpt-credential.lock");

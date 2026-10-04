@@ -13,7 +13,7 @@ Look up shell commands, their flags, and commands available inside chat.
 | Start work                       | [`jazz`](#jazz), [`jazz run`](#jazz-run-headless-one-shot), [`jazz agent`](#jazz-agent)                                                                         |
 | Save or schedule jobs            | [`jazz workflow`](#jazz-workflow), [`jazz goal`](#jazz-goal), [`jazz loop`](#jazz-loop)                                                                         |
 | Check work and spend             | [`jazz runs`](#jazz-runs), [`jazz spend`](#jazz-spend), [reminders, triggers, jobs](#jazz-reminders-jazz-triggers-jazz-jobs)                                    |
-| Connect services                 | [`jazz mcp`](#jazz-mcp), [`jazz peers`](#jazz-peers), [`jazz webhook`](#jazz-webhook)                                                                           |
+| Connect services                 | [`jazz mcp`](#jazz-mcp), [`jazz peers`](#jazz-peers), [`jazz secrets`](#jazz-secrets), [`jazz webhook`](#jazz-webhook)                                          |
 | Run elsewhere                    | [`jazz daemon`](#jazz-daemon), [`jazz hosts`](#jazz-hosts), [`jazz detach`](#jazz-detach), [`jazz imessage`](#jazz-imessage), [`jazz whatsapp`](#jazz-whatsapp) |
 | Configure and extend             | [`jazz config`](#jazz-config), [`jazz persona`](#jazz-persona), [`jazz skill`](#jazz-skill), [`jazz plugin`](#jazz-plugin), [`jazz memory`](#jazz-memory)       |
 | Use your computer (experimental) | [`jazz computer`](#jazz-computer)                                                                                                                               |
@@ -40,16 +40,17 @@ shows the forms of one command.
 
 Available on every command.
 
-| Flag                | Effect                                                                                                                                                                      |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-v, --verbose`     | Verbose logging                                                                                                                                                             |
-| `--debug`           | Debug-level logging                                                                                                                                                         |
-| `--config <path>`   | Use a specific config file (also `JAZZ_CONFIG_PATH`). A path that does not exist, or a file that is not valid, stops the command with the reason and exit code `1`          |
-| `--data-dir <path>` | Directory holding this invocation's config, data, and keyring entries (overrides `$JAZZ_HOME`; defaults to `~/.jazz`). Lets one host run several independent agents by flag |
-| `--no-tui`          | Disable the full-screen interface; use plain terminal output for CI, scripts, or small terminals. Same as `JAZZ_NO_TUI=1`                                                   |
-| `--output <mode>`   | `rendered` \| `hybrid` (default) \| `raw` (no formatting) \| `quiet` (suppress output). Same as `JAZZ_OUTPUT_MODE`                                                          |
-| `--version`         | Print the version                                                                                                                                                           |
-| `-h, --help`        | Print help                                                                                                                                                                  |
+| Flag                                  | Effect                                                                                                                                                                                                                            |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-v, --verbose`                       | Verbose logging                                                                                                                                                                                                                   |
+| `--debug`                             | Debug-level logging                                                                                                                                                                                                               |
+| `--config <path>`                     | Use a specific config file (also `JAZZ_CONFIG_PATH`). A path that does not exist, or a file that is not valid, stops the command with the reason and exit code `1`                                                                |
+| `--data-dir <path>`                   | Directory holding this invocation's config, data, and keyring entries (overrides `$JAZZ_HOME`; defaults to `~/.jazz`). Lets one host run several independent agents by flag                                                       |
+| `--no-tui`                            | Disable the full-screen interface; use plain terminal output for CI, scripts, or small terminals. Same as `JAZZ_NO_TUI=1`                                                                                                         |
+| `--output <mode>`                     | `rendered` \| `hybrid` (default) \| `raw` (no formatting) \| `quiet` (suppress output). Same as `JAZZ_OUTPUT_MODE`                                                                                                                |
+| `--dangerously-allow-reading-secrets` | Let agents load [saved secrets](#jazz-secrets) and use typed ones without a person approving each use, under every approval mode. For unattended runs that have nobody to ask. Same as `JAZZ_DANGEROUSLY_ALLOW_READING_SECRETS=1` |
+| `--version`                           | Print the version                                                                                                                                                                                                                 |
+| `-h, --help`                          | Print help                                                                                                                                                                                                                        |
 
 ---
 
@@ -599,6 +600,21 @@ machine, and happens once: credentials live in `WHATSAPP_AUTH_DIR`. See
 
 ---
 
+## `jazz secrets`
+
+Secrets saved for every agent on this Jazz home. Values live in the OS keyring (or
+`$JAZZ_HOME/secrets.json` where there is none); names and descriptions live in
+`$JAZZ_HOME/saved-secrets.json`. Agents see the names with `list_saved_secrets` and load one into a
+run with `use_saved_secret`, which you approve every time unless the run was started with
+`--dangerously-allow-reading-secrets`. Every secret an agent asks for with `ask_user_secret` is saved here too,
+under the name the agent gives it. See [Secrets the person types](./security/secrets-and-egress.md#secrets-the-person-types).
+
+| Command                   | Purpose                                                               |
+| ------------------------- | --------------------------------------------------------------------- |
+| `jazz secrets list`       | Saved secrets by name and description, never by value. `--json`       |
+| `jazz secrets set <name>` | Save a secret, typed hidden or piped on stdin. `--description <text>` |
+| `jazz secrets rm <name>`  | Forget a saved secret                                                 |
+
 ## `jazz peers`
 
 Other people's agents this machine talks to, and what has been said to or by them.
@@ -891,6 +907,8 @@ options still accept [global options](#global-options) and `-h, --help`.
 | `jazz jobs list`            | `--agent <id-or-name>`          | Only this agent's                                                                                                                                                                                           |
 | `jazz jobs list`            | `--json`                        | Emit a single JSON envelope                                                                                                                                                                                 |
 | `jazz jobs cancel`          | `--agent <id-or-name>`          | Only look in this agent's                                                                                                                                                                                   |
+| `jazz secrets list`         | `--json`                        | Emit a single JSON envelope { ok, secrets }                                                                                                                                                                 |
+| `jazz secrets set`          | `--description <text>`          | What the secret is for, shown to agents                                                                                                                                                                     |
 | `jazz peers list`           | `--json`                        | Emit a single JSON envelope { ok, peers }                                                                                                                                                                   |
 | `jazz peers set-token`      | `--from-env <VAR>`              | Environment variable holding the token                                                                                                                                                                      |
 | `jazz peers log`            | `--peer <name>`                 | Only entries for this peer                                                                                                                                                                                  |

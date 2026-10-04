@@ -296,10 +296,23 @@ passphrase. The agent asks for one with `ask_user_secret`, and the value never r
   argument carrying the placeholder is refused, so it cannot reach a file, a URL, a web search, an
   MCP server, a notification or a sub-agent's prompt. A placeholder standing for a secret Jazz holds
   in its config (`[redacted:llm.openai.api_key]`) is never replaced by anything.
+- **Every typed secret is saved for later runs.** The agent must name it (`cloudflare-token`); the
+  value also goes to the OS keyring, or `$JAZZ_HOME/secrets.json` where there is none, and the name and
+  prompt to `$JAZZ_HOME/saved-secrets.json`. Every agent on this Jazz home can see the names with
+  `list_saved_secrets`; none can see a value. Manage them with [`jazz secrets`](../commands.md#jazz-secrets).
+- **Loading a saved secret asks you, every time.** A later run loads one with `use_saved_secret`,
+  which asks you under every auto-approve policy, `yolo` included, before the keyring is read. A
+  run nobody can answer parks instead. Starting the run with `--dangerously-allow-reading-secrets`
+  (or `JAZZ_DANGEROUSLY_ALLOW_READING_SECRETS=1`) drops that question, and the one on each command
+  or typed action that uses a secret; those then follow the run's ordinary approval policy. Use it
+  only for unattended runs you trust with every saved secret.
+- **A placeholder the run does not hold is refused.** Passed to a tool that takes secrets, it would
+  otherwise arrive as literal text. The tool is not run, and the model is told to load the secret
+  with `use_saved_secret` or have you type it.
 - **A parked run asks again.** A run nobody can answer (a goal, a loop, `jazz run --park`) parks
   with the prompt and name only. Type the secret in a terminal with `jazz runs secret <run id>`; it
   goes to the resumed run in memory. A run resumed for any other reason starts with no typed
-  secrets, so the model asks again.
+  secrets, so the model loads a saved one or asks again.
 - **In a chat bridge, only a private chat collects one.** Telegram, Discord, WhatsApp and iMessage
   ask for it in a one-to-one chat with the bot and take your next message as the value; that
   message is never forwarded to the agent as a turn. The Telegram bridge deletes your message as

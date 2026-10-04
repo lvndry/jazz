@@ -36,6 +36,7 @@ import {
   PluginRegistryServiceImpl,
 } from "@jazz/adapters/plugins";
 import { createReminderServiceLayer } from "@jazz/adapters/reminder-service";
+import { createSavedSecretsService } from "@jazz/adapters/secrets/saved-secrets";
 import { createSkillRegistryServiceLayer } from "@jazz/adapters/skill-registry-service";
 import { FileStorageService } from "@jazz/adapters/storage/file";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
@@ -64,6 +65,7 @@ import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { CLIOptionsTag } from "@jazz/core/interfaces/cli-options";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { MCPServerManagerTag } from "@jazz/core/interfaces/mcp-server";
+import { SavedSecretsServiceTag } from "@jazz/core/interfaces/saved-secrets";
 import { StorageServiceTag } from "@jazz/core/interfaces/storage";
 import { TelemetryServiceTag } from "@jazz/core/interfaces/telemetry";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
@@ -354,6 +356,7 @@ export function createAppLayer(
   const jobQueueServiceLayer = createJobQueueServiceLayer();
   const peerLedgerServiceLayer = createPeerLedgerServiceLayer();
   const peerTokenServiceLayer = createPeerTokenServiceLayer();
+  const savedSecretsLayer = Layer.sync(SavedSecretsServiceTag, () => createSavedSecretsService());
 
   const chatLayer = createChatServiceLayer().pipe(
     Layer.provide(terminalLayer),
@@ -405,6 +408,7 @@ export function createAppLayer(
     jobQueueServiceLayer,
     peerLedgerServiceLayer,
     peerTokenServiceLayer,
+    savedSecretsLayer,
     chatLayer,
     telemetryLayer,
     presentationLayer,

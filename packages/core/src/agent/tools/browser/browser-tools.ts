@@ -22,7 +22,7 @@ import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { Tool, ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import { redactionPlaceholder } from "@/core/secrets/secret-names";
-import { userSecretNamesIn } from "@/core/secrets/user-secrets";
+import { secretUseNeedsPerson, userSecretNamesIn } from "@/core/secrets/user-secrets";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
@@ -795,7 +795,7 @@ export function createBrowserActTools(): ApprovalToolPair<AgentConfigService> {
         const placeholders = typedSecrets.map(redactionPlaceholder).join(", ");
         return {
           message: `${message}\n\nApproving enters the secret you typed in place of ${placeholders} on this site. Approve only if you expect this site to receive it.`,
-          alwaysAsk: true,
+          ...(secretUseNeedsPerson() ? { alwaysAsk: true as const } : {}),
         } as const;
       }),
     approvalErrorMessage: "Browser actions need your approval.",

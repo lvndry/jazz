@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ALLOW_READING_SECRETS_ENV_VAR,
   planUserSecrets,
+  secretUseNeedsPerson,
   substituteUserSecrets,
+  unheldUserSecretNamesIn,
   UserSecretStore,
 } from "@/core/secrets/user-secrets";
 
@@ -97,5 +100,30 @@ describe("typed-secret argument paths", () => {
     const args = { actions: [{ action: "type", ref: "e1", text: "[redacted:other-name]" }] };
 
     expect(substituteUserSecrets(args, ["actions[].text"], store)).toEqual(args);
+  });
+});
+
+describe("unheldUserSecretNamesIn", () => {
+  test("names a user-secret placeholder the run does not hold, only in accepted arguments", () => {
+    const store = storeHolding("pdf-password", "hunter2");
+    const args = {
+      command: "curl -H 'X: [redacted:cloudflare-token]' -u '[redacted:pdf-password]'",
+      description: "uses [redacted:github-token]",
+    };
+    expect(unheldUserSecretNamesIn(args, ["command"], store)).toEqual(["cloudflare-token"]);
+  });
+
+  test("ignores config and environment placeholders", () => {
+    const args = { command: "echo [redacted:llm.openai.api_key] [redacted:API_TOKEN]" };
+    expect(unheldUserSecretNamesIn(args, ["command"], new UserSecretStore())).toEqual([]);
+  });
+});
+
+describe("secretUseNeedsPerson", () => {
+  test("asks a person unless the run explicitly allows reading secrets", () => {
+    expect(secretUseNeedsPerson({})).toBe(true);
+    expect(secretUseNeedsPerson({ [ALLOW_READING_SECRETS_ENV_VAR]: "0" })).toBe(true);
+    expect(secretUseNeedsPerson({ [ALLOW_READING_SECRETS_ENV_VAR]: "false" })).toBe(true);
+    expect(secretUseNeedsPerson({ [ALLOW_READING_SECRETS_ENV_VAR]: "1" })).toBe(false);
   });
 });

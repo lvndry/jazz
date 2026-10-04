@@ -11,7 +11,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { KnownSecret } from "@/core/secrets/redaction";
 import { redactionPlaceholder } from "@/core/secrets/secret-names";
-import { userSecretNamesIn } from "@/core/secrets/user-secrets";
+import { secretUseNeedsPerson, userSecretNamesIn } from "@/core/secrets/user-secrets";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { formatDuration } from "@/core/utils/duration";
 import { createSanitizedEnv } from "@/core/utils/env";
@@ -739,7 +739,7 @@ This command will be executed on your system. Only approve commands you trust.`;
         const placeholders = typedSecrets.map(redactionPlaceholder).join(", ");
         return {
           message: `${message}\n\nApproving puts the secret you typed in place of ${placeholders} when the command runs.`,
-          alwaysAsk: true,
+          ...(secretUseNeedsPerson() ? { alwaysAsk: true as const } : {}),
         };
       }),
 

@@ -26,6 +26,7 @@ import {
   DEFAULT_DAEMON_LOG_LINES,
   DEFAULT_DAEMON_PORT,
 } from "@jazz/core/constants/daemon";
+import { ALLOW_READING_SECRETS_ENV_VAR } from "@jazz/core/secrets/user-secrets";
 import {
   companionRole,
   isMediaModality,
@@ -2550,6 +2551,59 @@ function registerReminderCommand(program: Command): void {
     );
 }
 
+function registerSecretsCommands(program: Command): void {
+  const secretsCommand = program
+    .command("secrets")
+    .description(
+      "Secrets saved for every agent: values in the OS keyring, loaded into a run only with your approval",
+    );
+
+  secretsCommand
+    .command("list")
+    .alias("ls")
+    .description("List saved secrets by name, never by value")
+    .option("--json", "Emit a single JSON envelope { ok, secrets }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/secrets").then((mod) =>
+            mod.listSecretsCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  secretsCommand
+    .command("set <name>")
+    .description(
+      "Save a secret under a kebab-case name, typed hidden or piped on stdin, so it never reaches your shell history",
+    )
+    .option("--description <text>", "What the secret is for, shown to agents")
+    .action((name: string, options: { description?: string }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/secrets").then((mod) =>
+            mod.setSecretCommand({
+              name,
+              ...(options.description !== undefined ? { description: options.description } : {}),
+            }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  secretsCommand
+    .command("rm <name>")
+    .alias("remove")
+    .description("Forget a saved secret")
+    .action((name: string) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/secrets").then((mod) => mod.removeSecretCommand({ name })),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
 function registerPeersCommands(program: Command): void {
   const peersCommand = program
     .command("peers")
@@ -3417,6 +3471,11 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
     .option(
       "--output <mode>",
       "Output mode: rendered, hybrid (default), raw (no formatting), or quiet (suppress output)",
+    )
+    .option(
+      "--dangerously-allow-reading-secrets",
+      "Let agents load saved secrets and use typed ones without a person approving each use, " +
+        "under any approval mode. For unattended runs only; also set by $JAZZ_DANGEROUSLY_ALLOW_READING_SECRETS=1.",
     );
 
   program.hook("preAction", (thisCommand, actionCommand) => {
@@ -3429,6 +3488,9 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
     }
     if (opts["dataDir"]) {
       process.env["JAZZ_HOME"] = path.resolve(opts["dataDir"] as string);
+    }
+    if (opts["dangerouslyAllowReadingSecrets"] === true) {
+      process.env[ALLOW_READING_SECRETS_ENV_VAR] = "1";
     }
     secureJazzHome();
     setCurrentCommandName(commandPath(actionCommand));
@@ -3458,6 +3520,7 @@ export function createCLIApp(argv: readonly string[] = process.argv): Command {
   registerReminderCommand(program);
   registerPendingWorkCommands(program);
   registerPeersCommands(program);
+  registerSecretsCommands(program);
   registerRunsCommands(program);
   registerSpendCommand(program);
   registerNotifyCommands(program);
