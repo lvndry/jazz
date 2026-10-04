@@ -892,6 +892,18 @@ describe("semantic presentation persistence", () => {
     expect(fs.existsSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir))).toBe(false);
   });
 
+  test("names the entry and field a save rejects", async () => {
+    const draft = { ...receipt, content: { kind: "user", text: "hi", secretDraft: "x" } };
+    await expect(
+      runEffect(
+        recordConversationTranscript(
+          { ...record([]), uiTranscript: [draft as unknown as typeof receipt] },
+          tmpDir,
+        ),
+      ),
+    ).rejects.toThrow(`Invalid user entry ${receipt.id} in conversation history: content`);
+  });
+
   test("legacy migration preserves model and unreadable records, strips paint, and is idempotent", () => {
     const header = JSON.stringify({
       type: "conversation",

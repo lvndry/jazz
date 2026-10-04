@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How a composition is made</title>
+<style>
+:root {
+  color-scheme: dark;
+  --accent-h: 240;
+  --accent-s: 75%;
+  --accent-l: 72%;
+
+  --accent: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+  --accent-strong: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) - 12%));
+  --accent-soft: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 8%) / 0.14);
+  --accent-text: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 10%));
+
+  --bg: hsl(230 16% 8%);
+  --surface: hsl(230 14% 12%);
+  --surface-2: hsl(230 12% 17%);
+  --ink: hsl(228 14% 93%);
+  --ink-muted: hsl(230 9% 62%);
+  --ink-faint: hsl(230 9% 42%);
+  --line: hsl(230 11% 22%);
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow-1: 0 1px 2px hsl(0 0% 0% / 0.3);
+  --shadow-2: 0 8px 24px hsl(0 0% 0% / 0.35);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur-med: 300ms;
+  --dur-slow: 600ms;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+  --space-6: 64px;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4) var(--space-6);
+}
+h1, h2, h3 { line-height: 1.2; text-wrap: balance; }
+h1 {
+  font-size: clamp(1.75rem, 1.2rem + 2.5vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-2);
+}
+h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: var(--space-5) 0 var(--space-3);
+  color: var(--ink);
+}
+.subtitle {
+  color: var(--ink-muted);
+  font-size: clamp(1rem, 0.9rem + 0.5vw, 1.15rem);
+  margin: 0 0 var(--space-5);
+  text-wrap: pretty;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-1);
+}
+.num { font-variant-numeric: tabular-nums; }
+.stat-value {
+  font-size: clamp(2.2rem, 1.6rem + 3vw, 3.4rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.stat-label {
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+}
+
+/* ---- reveal (staggered) ---- */
+.reveal {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: reveal-in 450ms var(--ease) forwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+@keyframes reveal-in { to { opacity: 1; transform: none; } }
+
+/* ---- line-draw ---- */
+svg text { fill: var(--ink); }
+.edge { stroke: var(--ink-faint); stroke-width: 1.5; fill: none; }
+.edge.draw {
+  /* paths declare pathLength="100", so one dash unit works for every edge */
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: draw-in 800ms var(--ease) forwards;
+  animation-delay: calc(400ms + var(--i, 0) * 180ms);
+}
+@keyframes draw-in { to { stroke-dashoffset: 0; } }
+.node-box { fill: var(--surface-2); stroke: var(--line); }
+.node-box.start { fill: var(--accent-soft); stroke: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.4); }
+.node-label { font-size: 12.5px; font-weight: 600; }
+.node-sub { fill: var(--ink-muted); font-size: 10.5px; }
+.node { opacity: 0; animation: reveal-in 400ms var(--ease) forwards;
+  animation-delay: calc(450ms + var(--i, 0) * 180ms); }
+.flow-svg { width: 100%; height: auto; display: block; }
+
+/* ---- bar grow ---- */
+.bars { display: flex; align-items: flex-end; gap: var(--space-3);
+  height: 200px; padding-top: var(--space-2); }
+.bar-col { flex: 1; display: flex; flex-direction: column;
+  align-items: center; gap: var(--space-2); height: 100%;
+  justify-content: flex-end; }
+.bar {
+  width: 100%;
+  max-width: 90px;
+  background: var(--accent);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transform: scaleY(0);
+  transform-origin: bottom;
+  animation: grow 500ms var(--ease) forwards;
+  animation-delay: calc(600ms + var(--i, 0) * 80ms);
+}
+.bar.secondary { background: hsl(var(--accent-h) calc(var(--accent-s) - 30%) calc(var(--accent-l) - 24%)); }
+@keyframes grow { to { transform: scaleY(1); } }
+.bar-val { font-size: 0.85rem; font-weight: 600; opacity: 0;
+  animation: reveal-in 300ms var(--ease) forwards;
+  animation-delay: calc(1000ms + var(--i, 0) * 80ms); }
+.bar-lbl { color: var(--ink-muted); font-size: 0.78rem; text-align: center; }
+
+/* ---- interactive planner ---- */
+.planner { display: grid; grid-template-columns: 1fr; gap: var(--space-4); }
+@media (min-width: 720px) {
+  .planner { grid-template-columns: 300px 1fr; }
+}
+.control { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+.control label { font-size: 0.9rem; font-weight: 600; }
+.control .hint { color: var(--ink-muted); font-size: 0.8rem; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+output { color: var(--accent-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.split { display: flex; height: 44px; border-radius: var(--radius-sm);
+  overflow: hidden; margin: var(--space-3) 0; }
+.split div { display: flex; align-items: center; justify-content: center;
+  font-size: 0.78rem; font-weight: 600; white-space: nowrap;
+  transition: width var(--dur-med) var(--ease); }
+.split .s1 { background: var(--accent); color: hsl(var(--accent-h) var(--accent-s) 12%); }
+.split .s2 { background: var(--surface-2); color: var(--ink-muted); }
+.result-row { display: flex; justify-content: space-between; align-items: baseline;
+  padding: var(--space-2) 0; border-top: 1px solid var(--line); }
+.result-row dt { color: var(--ink-muted); font-size: 0.88rem; }
+.result-row dd { margin: 0; font-weight: 700; font-size: 1.05rem;
+  font-variant-numeric: tabular-nums; }
+.result-row dd.hot { color: var(--accent-text); }
+.pulse { animation: none; }
+.pulse.changed { animation: pulse 400ms var(--ease); }
+@keyframes pulse {
+  0% { opacity: 1; }
+  30% { opacity: 0.35; transform: scale(0.98); }
+  100% { opacity: 1; transform: none; }
+}
+
+/* ---- popover ---- */
+button {
+  font: inherit; cursor: pointer; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
+  padding: 7px 14px; font-weight: 500; font-size: 0.88rem;
+  transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+button:hover { transform: translateY(-1px); }
+button:active { transform: none; }
+button.primary { background: var(--accent); border-color: transparent;
+  color: hsl(var(--accent-h) var(--accent-s) 12%); font-weight: 600; }
+button.primary:hover { background: var(--accent-strong); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+[popover] {
+  margin: auto; width: min(92vw, 460px);
+  background: var(--surface-2); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-2); padding: var(--space-4);
+  opacity: 0; transform: translateY(6px) scale(0.98);
+  transition: opacity var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+[popover]:open { opacity: 1; transform: none; }
+@starting-style {
+  [popover]:open { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+[popover] h3 { margin: 0 0 var(--space-2); font-size: 1rem; }
+[popover] p { margin: 0 0 var(--space-2); color: var(--ink-muted); font-size: 0.88rem; }
+[popover] ul { margin: 0; padding-left: 1.2em; color: var(--ink-muted); font-size: 0.88rem; }
+
+footer { margin-top: var(--space-6); color: var(--ink-faint);
+  font-size: 0.78rem; display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1 class="reveal" style="--i:0">How a composition is made</h1>
+  <p class="subtitle reveal" style="--i:1">
+    A single self-contained HTML file, styled by a design system, choreographed by
+    named motion recipes. This page is the reference — every technique it
+    demonstrates is a recipe in the skill.
+  </p>
+
+  <!-- 1. the pipeline: staggered reveal + line-draw SVG -->
+  <h2 class="reveal" style="--i:2">1 · The pipeline</h2>
+  <div class="card reveal" style="--i:3">
+    <svg class="flow-svg" viewBox="0 0 900 150" role="img"
+         aria-label="Pipeline: question, skill and references, single HTML file, screenshot or live browser">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)" />
+        </marker>
+      </defs>
+
+      <!-- four 170-wide boxes, even 60px gaps (x: 20/250/480/710, right: 190/420/650/880).
+           edges run 6px past the source box to 6px before the target box, so every
+           arrowhead has clear room to render in the gap. -->
+      <path class="edge draw" pathLength="100" style="--i:0"
+            d="M196,75 L244,75" marker-end="url(#arrow)" />
+      <path class="edge draw" pathLength="100" style="--i:1"
+            d="M426,75 L474,75" marker-end="url(#arrow)" />
+      <path class="edge draw" pathLength="100" style="--i:2"
+            d="M656,75 L704,75" marker-end="url(#arrow)" />
+
+      <g class="node" style="--i:0">
+        <rect class="node-box start" x="20" y="45" width="170" height="60" rx="10" />
+        <text class="node-label" x="36" y="66">A question</text>
+        <text class="node-sub" x="36" y="86">“visualise this for me”</text>
+      </g>
+      <g class="node" style="--i:1">
+        <rect class="node-box" x="250" y="45" width="170" height="60" rx="10" />
+        <text class="node-label" x="266" y="66">Skill + references</text>
+        <text class="node-sub" x="266" y="86">tokens · motion · diagrams</text>
+      </g>
+      <g class="node" style="--i:2">
+        <rect class="node-box" x="480" y="45" width="170" height="60" rx="10" />
+        <text class="node-label" x="496" y="66">One HTML file</text>
+        <text class="node-sub" x="496" y="86">inline CSS + JS, offline</text>
+      </g>
+      <g class="node" style="--i:3">
+        <rect class="node-box" x="710" y="45" width="170" height="60" rx="10" />
+        <text class="node-label" x="726" y="66">Render</text>
+        <text class="node-sub" x="726" y="86">PNG or live</text>
+      </g>
+    </svg>
+  </div>
+
+  <!-- 2. stats: count-up -->
+  <h2 class="reveal" style="--i:4">2 · Count-up stats</h2>
+  <div class="stats">
+    <div class="stat reveal" style="--i:5">
+      <div class="stat-value num" data-count="1" data-suffix=" file">0 file</div>
+      <div class="stat-label">Whole artifact</div>
+    </div>
+    <div class="stat reveal" style="--i:6">
+      <div class="stat-value num" data-count="12">0</div>
+      <div class="stat-label">Motion recipes</div>
+    </div>
+    <div class="stat reveal" style="--i:7">
+      <div class="stat-value num" data-count="0" data-suffix=" KB CDN">0 KB CDN</div>
+      <div class="stat-label">Dependencies</div>
+    </div>
+  </div>
+
+  <!-- 3. bar grow: token palette in action -->
+  <h2 class="reveal" style="--i:8">3 · The palette, one accent derived</h2>
+  <div class="card reveal" style="--i:9">
+    <div class="bars" role="img" aria-label="Chart series derived from one accent hue: primary, secondary, tertiary, quaternary">
+      <div class="bar-col">
+        <div class="bar-val num" style="--i:0">100</div>
+        <div class="bar" style="--i:0; height:100%" title="Accent: hsl(240 75% 72%)"></div>
+        <div class="bar-lbl">Accent</div>
+      </div>
+      <div class="bar-col">
+        <div class="bar-val num" style="--i:1">−22 L</div>
+        <div class="bar secondary" style="--i:1; height:78%" title="Derived: darker, desaturated"></div>
+        <div class="bar-lbl">Series 2</div>
+      </div>
+      <div class="bar-col">
+        <div class="bar-val num" style="--i:2">+14 L</div>
+        <div class="bar secondary" style="--i:2; height:64%; background: hsl(calc(var(--accent-h) + 20) var(--accent-s) calc(var(--accent-l) + 14%));" title="Derived: rotated hue, lighter"></div>
+        <div class="bar-lbl">Series 3</div>
+      </div>
+      <div class="bar-col">
+        <div class="bar-val num" style="--i:3">ink</div>
+        <div class="bar secondary" style="--i:3; height:42%; background: var(--ink-faint);" title="Neutral: for context lines"></div>
+        <div class="bar-lbl">Neutral</div>
+      </div>
+    </div>
+    <p style="color: var(--ink-muted); font-size: 0.82rem; margin: var(--space-3) 0 0;">
+      One hue per composition. Secondary series are derived, never invented — no
+      rainbow charts.
+    </p>
+  </div>
+
+  <!-- 4. interactive: the planner -->
+  <h2 class="reveal" style="--i:10">4 · Interactive, with a live result</h2>
+  <div class="card reveal planner" style="--i:11">
+    <div>
+      <div class="control">
+        <label for="monthly">Monthly budget</label>
+        <input type="range" id="monthly" min="200" max="5000" step="50" value="2000" />
+        <output for="monthly" id="monthly-out" aria-live="polite">€2,000 / month</output>
+        <span class="hint">Drag it. The result on the right follows — value pulse
+        included.</span>
+      </div>
+      <div class="control" style="margin-bottom: 0;">
+        <label for="split">Buffer share</label>
+        <input type="range" id="split" min="0" max="100" step="5" value="50" />
+        <output for="split" id="split-out" aria-live="polite">50% buffer · 50% invest</output>
+      </div>
+      <button popovertarget="why" style="margin-top: var(--space-4);">Why two outputs?</button>
+    </div>
+    <div>
+      <div class="split" aria-hidden="true">
+        <div class="s1" id="seg-buffer" style="width:50%">Buffer</div>
+        <div class="s2" id="seg-invest" style="width:50%">Invest</div>
+      </div>
+      <dl style="margin:0;">
+        <div class="result-row">
+          <dt>Buffer, after 12 months</dt>
+          <dd class="num" id="out-buffer">€12,000</dd>
+        </div>
+        <div class="result-row">
+          <dt>Invested, after 12 months</dt>
+          <dd class="num" id="out-invest">€12,000</dd>
+        </div>
+        <div class="result-row">
+          <dt>Total allocated</dt>
+          <dd class="num hot" id="out-total">€24,000</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  <div id="why" popover>
+    <h3>Because state must be visible without color alone</h3>
+    <p>This popover is a native <code>popover</code> element: outside click and
+    Escape close it for free, and it animated in with <code>@starting-style</code>.</p>
+    <ul>
+      <li>Numbers carry units and precision</li>
+      <li>Live region announces updates to screen readers</li>
+      <li>Everything degrades under <code>prefers-reduced-motion</code></li>
+    </ul>
+    <button class="primary" popovertarget="why" popovertargetaction="hide"
+            style="margin-top: var(--space-3);">Got it</button>
+  </div>
+
+  <footer class="reveal" style="--i:12">
+    <span>Recipes demonstrated: staggered reveal · line-draw · count-up · bar
+    grow · value pulse · @starting-style popover</span>
+    <span>Static mode: same file, fast reveals, full legibility at networkidle0</span>
+  </footer>
+</main>
+
+<script>
+const fmt = (n) => "€" + Math.round(n).toLocaleString("en-US");
+
+function countUp(el, target, { duration = 1100, format = (n) => Math.round(n).toLocaleString("en-US"), suffix = "" } = {}) {
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduced) { el.textContent = format(target) + suffix; return; }
+  const start = performance.now();
+  const ease = (t) => 1 - Math.pow(1 - t, 3);
+  (function tick(now) {
+    const t = Math.min(1, (now - start) / duration);
+    el.textContent = format(target * ease(t)) + suffix;
+    if (t < 1) requestAnimationFrame(tick);
+  })(start);
+}
+
+document.querySelectorAll("[data-count]").forEach((el, idx) => {
+  setTimeout(() => countUp(el, +el.dataset.count, { suffix: el.dataset.suffix || "" }), 500 + idx * 150);
+});
+
+function setPulse(el) {
+  el.classList.remove("changed");
+  void el.offsetWidth;
+  el.classList.add("changed");
+}
+
+const monthly = document.getElementById("monthly");
+const split = document.getElementById("split");
+
+function recalc() {
+  const m = +monthly.value;
+  const pct = +split.value;
+  const buffer = m * (pct / 100) * 12;
+  const invest = m * ((100 - pct) / 100) * 12;
+
+  document.getElementById("monthly-out").textContent = fmt(m) + " / month";
+  document.getElementById("split-out").textContent = `${pct}% buffer · ${100 - pct}% invest`;
+
+  const b = document.getElementById("out-buffer");
+  const i = document.getElementById("out-invest");
+  const t = document.getElementById("out-total");
+  b.textContent = fmt(buffer); setPulse(b);
+  i.textContent = fmt(invest); setPulse(i);
+  t.textContent = fmt(m * 12);
+
+  const s1 = document.getElementById("seg-buffer");
+  const s2 = document.getElementById("seg-invest");
+  s1.style.width = pct + "%";
+  s2.style.width = (100 - pct) + "%";
+  s1.textContent = pct >= 18 ? `Buffer ${pct}%` : "";
+  s2.textContent = 100 - pct >= 18 ? `Invest ${100 - pct}%` : "";
+
+  const params = new URLSearchParams(location.search);
+  params.set("m", m); params.set("s", pct);
+  history.replaceState(null, "", `${location.pathname}?${params}`);
+}
+
+const saved = new URLSearchParams(location.search);
+if (saved.has("m")) monthly.value = saved.get("m");
+if (saved.has("s")) split.value = saved.get("s");
+
+monthly.addEventListener("input", recalc);
+split.addEventListener("input", recalc);
+recalc();
+</script>
+</body>
+</html>
