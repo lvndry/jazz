@@ -55,6 +55,10 @@ export interface SubagentRun {
   readonly activity: string;
   /** Messages the user sent that the sub-agent's loop has not picked up yet. */
   readonly pendingMessages: readonly string[];
+  /** It keeps working after the turn that started it ends. */
+  readonly outlivesTurn: boolean;
+  /** The user can stop it from the sub-agent list while it runs. */
+  readonly cancellable: boolean;
 }
 
 /**
@@ -68,13 +72,20 @@ export function openSubagentRun(
   id: string,
   label: string,
   startedAt: number,
-  agentRun: { readonly task: string; readonly acceptsMessages: boolean },
+  agentRun: {
+    readonly task: string;
+    readonly acceptsMessages: boolean;
+    readonly outlivesTurn?: boolean;
+    readonly cancel?: () => void;
+  },
 ): SubagentRun {
   return {
     id,
     label,
     task: agentRun.task,
     acceptsMessages: agentRun.acceptsMessages,
+    outlivesTurn: agentRun.outlivesTurn === true,
+    cancellable: agentRun.cancel !== undefined,
     startedAt,
     status: "running",
     entries: [],

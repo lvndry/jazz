@@ -75,6 +75,12 @@ function visibleWindow(model: SubagentListModel): { start: number; end: number }
   return { start, end: start + slots };
 }
 
+function agentHint(model: SubagentListModel, focused: boolean): string {
+  if (!focused) return "down to manage";
+  const selected = model.selected === undefined ? undefined : model.items[model.selected];
+  return selected?.cancellable === true ? "enter to open · x to cancel" : "enter to open";
+}
+
 function agentRows(
   model: SubagentListModel,
   width: number,
@@ -89,7 +95,7 @@ function agentRows(
         { text: " ", fg: THEME.muted },
         { text: headerText(model.items), fg: focused ? THEME.secondary : THEME.muted },
       ],
-      [{ text: focused ? "enter to open" : "down to manage", fg: THEME.muted }],
+      [{ text: agentHint(model, focused), fg: THEME.muted }],
       width,
     ),
   ];

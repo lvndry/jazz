@@ -96,6 +96,25 @@ export function appendDocumentStream(
   };
 }
 
+/**
+ * Add an entry while an answer streams, without ending that answer: it goes just before the
+ * answer, which stays last and keeps taking deltas. Without an answer streaming it is appended.
+ */
+export function insertBeforeDocumentStream(
+  document: PresentationDocument,
+  entry: PresentationEntry,
+): PresentationDocument {
+  const last = document.entries.at(-1);
+  if (last === undefined || last.id !== document.streamingId || last.content.kind !== "agent") {
+    return appendDocumentEntries(settleDocumentStream(document), [entry]);
+  }
+  return {
+    ...document,
+    revision: document.revision + 1,
+    entries: [...document.entries.slice(0, -1), entry, last],
+  };
+}
+
 export function settleDocumentStream(document: PresentationDocument): PresentationDocument {
   if (document.streamingId === undefined) return document;
   const { streamingId: _streamingId, ...settled } = document;

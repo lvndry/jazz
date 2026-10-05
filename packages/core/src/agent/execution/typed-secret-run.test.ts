@@ -19,6 +19,7 @@ import type { ChatCompletionOptions } from "../../types/chat";
 import type { ChatCompletionResponse } from "../../types/chat";
 import type { RecursiveRunner } from "../context/summarizer";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { createSubagentSupervisor } from "../subagents/supervisor";
 import { defineTool } from "../tools/base-tool";
 import { createToolRegistryLayer } from "../tools/tool-registry";
 import { userInteractionTools } from "../tools/user-interaction";
@@ -176,6 +177,7 @@ function runContext(): AgentRunContext {
     agent,
     expandedToolNames: ["ask_user_secret", "unlock_archive"],
     connectedMCPServers: [],
+    subagents: Effect.runSync(createSubagentSupervisor()),
     knownSkills: [],
     maxRetries: 0,
     maxIterations: DEFAULT_MAX_ITERATIONS,

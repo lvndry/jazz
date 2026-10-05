@@ -35,7 +35,11 @@ import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import type { RunSpendReport } from "../metrics/agent-run-metrics";
 import { judgeAnswer } from "../run/answer-outcome";
 import { combinedProvenance, fitSubagentResults } from "../subagents/results";
-import { MAX_LIVE_SUBAGENTS, type SubagentHooks } from "../subagents/supervisor";
+import {
+  MAX_LIVE_SUBAGENTS,
+  unknownSubagentNote,
+  type SubagentHooks,
+} from "../subagents/supervisor";
 import type { AgentResponse } from "../types";
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -291,10 +295,13 @@ function runSubagent(args: SpawnSubagentArgs, context: ToolExecutionContext, run
     const taskPreview = args.task.length > 80 ? `...${args.task.slice(-77)}` : args.task;
     const startedAt = Date.now();
 
+    const outlivesTurn = context.outlivesTurn === true || context.subagents?.outlivesRuns === true;
     const regionId = yield* presentation.openEphemeralRegion("subagent", subagentLabel, {
       agentRun: {
         task: args.task,
         acceptsMessages: presentation.takeEphemeralRegionMessage !== undefined,
+        ...(outlivesTurn ? { outlivesTurn: true } : {}),
+        ...(hooks !== undefined ? { cancel: () => void Effect.runFork(hooks.cancel()) } : {}),
       },
     });
     yield* presentation.appendEphemeralRegion(regionId, `Task: ${taskPreview}`);
@@ -372,9 +379,14 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
         ? { maxCostUSD: remainingBudget.maxCostUSD }
         : {}),
       ...(remainingBudget.maxTokens !== undefined ? { maxTokens: remainingBudget.maxTokens } : {}),
-      // Every way the child ends, a failure included, is paid for by the parent.
+      // Every way the child ends, a failure included, is paid for by the parent: by the run that
+      // started it, or after that run ended, recorded for it.
       onRunSpend: (spend) => {
         childSpend = spend;
+        if (hooks !== undefined) {
+          hooks.chargeSpend(spend);
+          return;
+        }
         if (spend.costUSD !== undefined && spend.costUSD > 0) {
           context.recordChildCost?.(spend.costUSD);
         }
@@ -431,6 +443,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       ...childRunAuthority(context),
       ...(childTaint !== undefined ? { egressTaint: childTaint.taint } : {}),
       subagentDepth: currentDepth + 1,
+      ...(outlivesTurn ? { outlivesTurn: true } : {}),
       ...(context.onAutoApproveCommand
         ? { onAutoApproveCommand: context.onAutoApproveCommand }
         : {}),
@@ -590,7 +603,7 @@ const waitSubagentsSchema = z.object({
   ids: z
     .array(z.string())
     .optional()
-    .describe("agentIds to wait for; omit for every sub-agent of this run."),
+    .describe("agentIds to wait for; omit for every sub-agent you started."),
   until: z
     .enum(["any", "all"])
     .optional()
@@ -752,7 +765,9 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
               agentId: hooks.id,
               name: subagentLabel,
               status: "running",
-              note: "Started. Keep working; call wait_subagents to collect its result, and steer_subagent to message, pause, resume or cancel it.",
+              note: supervisor.outlivesRuns
+                ? "Started. It keeps working after you answer, and you get a new turn when it finishes. Answer the user now unless you need its result to continue this turn; then call wait_subagents. Steer it with steer_subagent."
+                : "Started. Keep working; call wait_subagents to collect its result, and steer_subagent to message, pause, resume or cancel it.",
             },
           };
         }),
@@ -767,7 +782,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "list_subagents",
       disclosure: "private",
       description:
-        "Show each sub-agent of this run: status (running, paused, waiting-approval, completed, failed, cancelled), what it is doing, what it has spent, and retrieveId once finished. Returns at once. Read answers with wait_subagents.",
+        "Show each sub-agent you started: status (running, paused, waiting-approval, completed, failed, cancelled), what it is doing, what it has spent, and retrieveId once finished. Returns at once. Read answers with wait_subagents.",
       parameters: listSubagentsSchema,
       hidden: false,
       peerGrantRequired: true,
@@ -815,23 +830,36 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             return {
               success: false,
               result: null,
-              error: `No sub-agent ${unknown.join(", ")} in this run. Sub-agents stop when the run that started them ends.`,
+              error: `No sub-agent ${unknown.join(", ")} here. ${unknownSubagentNote(supervisor.outlivesRuns)}`,
             };
           }
-          const outcome = yield* supervisor.wait(
+          const waited = yield* supervisor.wait(
             ids,
             args.until ?? "all",
             (args.timeoutSeconds ?? DEFAULT_WAIT_SECONDS) * 1000,
+            context.awaitQueuedMessage?.(),
           );
+          const timedOut = waited.outcome === "timed-out";
+          const note =
+            waited.outcome === "interrupted"
+              ? supervisor.outlivesRuns
+                ? "The user sent a message, which you read next. The sub-agents still running keep working and you get a turn when they finish."
+                : "The user sent a message, which you read next. The sub-agents still running keep working; wait again once you have answered it."
+              : undefined;
           const subagents = fitSubagentResults(
-            outcome.subagents,
+            waited.subagents,
             DEFAULT_TOOL_RESULT_MAX_CHARS,
-            (fitted) => JSON.stringify({ subagents: fitted, timedOut: outcome.timedOut }),
+            (fitted) =>
+              JSON.stringify({
+                subagents: fitted,
+                timedOut,
+                ...(note !== undefined ? { note } : {}),
+              }),
           );
           const untrusted = combinedProvenance(subagents);
           return {
             success: true,
-            result: { subagents, timedOut: outcome.timedOut },
+            result: { subagents, timedOut, ...(note !== undefined ? { note } : {}) },
             ...(untrusted !== undefined ? { untrusted } : {}),
           };
         }),

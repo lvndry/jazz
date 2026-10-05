@@ -261,6 +261,67 @@ describe("UIStore", () => {
     });
   });
 
+  describe("chat prompt set aside", () => {
+    const chatPrompt = () => ({ type: "chat" as const, message: "You:", resolve: () => undefined });
+    const approval = () => ({
+      type: "select" as const,
+      message: "Approve this action?",
+      resolve: () => undefined,
+    });
+
+    test("comes back once a prompt that took its place closes", () => {
+      const s = new UIStore();
+      const chat = chatPrompt();
+      s.setPrompt(chat);
+      s.setPrompt(approval());
+      expect(s.getPromptSnapshot()?.type).toBe("select");
+      s.setPrompt(null);
+      expect(s.getPromptSnapshot()).toBe(chat);
+    });
+
+    test("stays gone once withdrawn while set aside", () => {
+      const s = new UIStore();
+      const chat = chatPrompt();
+      s.setPrompt(chat);
+      s.setPrompt(approval());
+      s.withdrawPrompt(chat);
+      s.setPrompt(null);
+      expect(s.getPromptSnapshot()).toBeNull();
+    });
+
+    test("closes when withdrawn while showing, and not when another prompt shows", () => {
+      const s = new UIStore();
+      const chat = chatPrompt();
+      s.setPrompt(chat);
+      s.withdrawPrompt(chat);
+      expect(s.getPromptSnapshot()).toBeNull();
+      const shown = approval();
+      s.setPrompt(shown);
+      s.withdrawPrompt(chat);
+      expect(s.getPromptSnapshot()).toBe(shown);
+    });
+
+    test("a chat prompt opened while a question shows waits behind it", () => {
+      const s = new UIStore();
+      const shown = approval();
+      s.setPrompt(shown);
+      const chat = chatPrompt();
+      s.setPrompt(chat);
+      expect(s.getPromptSnapshot()).toBe(shown);
+      s.setPrompt(null);
+      expect(s.getPromptSnapshot()).toBe(chat);
+    });
+
+    test("answering the chat prompt itself leaves nothing to bring back", () => {
+      const s = new UIStore();
+      s.setPrompt(chatPrompt());
+      s.setPrompt(null);
+      s.setPrompt(approval());
+      s.setPrompt(null);
+      expect(s.getPromptSnapshot()).toBeNull();
+    });
+  });
+
   describe("completePrompt", () => {
     test("keeps the snapshot data-only and runs the continuation once", () => {
       const s = new UIStore();
@@ -687,6 +748,30 @@ describe("UIStore", () => {
   // -------------------------------------------------------------------------
 
   describe("message queue", () => {
+    test("signals queued prose once, and not for a queued command", () => {
+      const s = new UIStore();
+      let signalled = 0;
+      s.onceQueuedProse(() => (signalled += 1));
+      s.appendToQueue("/help");
+      expect(signalled).toBe(0);
+      s.clearQueue();
+      s.appendToQueue("also check the tests");
+      s.appendToQueue("and the docs");
+      expect(signalled).toBe(1);
+      let immediate = 0;
+      s.onceQueuedProse(() => (immediate += 1));
+      expect(immediate).toBe(1);
+    });
+
+    test("a cancelled queued-prose listener is never called", () => {
+      const s = new UIStore();
+      let signalled = 0;
+      const cancel = s.onceQueuedProse(() => (signalled += 1));
+      cancel();
+      s.appendToQueue("hello");
+      expect(signalled).toBe(0);
+    });
+
     test("appendToQueue stores each entry as its own array element", () => {
       const s = new UIStore();
       s.appendToQueue("first");

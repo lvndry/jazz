@@ -29,6 +29,7 @@ import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import type { Agent } from "../types";
 import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
 import type { createAgentRunMetrics, RunSpendReport } from "./metrics/agent-run-metrics";
+import type { SubagentSupervisor } from "./subagents/supervisor";
 
 /**
  * Configuration options for running an agent conversation.
@@ -52,6 +53,7 @@ export type ChatTurnOptions = Pick<
   | "onAutoApproveCommand"
   | "onAutoApproveTool"
   | "checkQueuedMessage"
+  | "awaitQueuedMessage"
   | "onDetachedToolComplete"
 >;
 
@@ -293,6 +295,8 @@ export interface AgentRunnerOptions {
   readonly pendingToolCalls?: readonly ToolCall[];
   /** How many sub-agent levels sit above this run. 0 at the top level. */
   readonly subagentDepth?: number;
+  /** This run is a sub-agent, or one nested in a sub-agent, that outlives its parent's turn. */
+  readonly outlivesTurn?: boolean;
   /**
    * The parent run's taint, handed to a sub-agent so both share one verdict on whether
    * external untrusted content has entered the run. Unset starts a fresh one from history.
@@ -312,6 +316,17 @@ export interface AgentRunnerOptions {
    * that sub-agent; other internal runs (compaction, extraction) leave it unset.
    */
   readonly checkQueuedMessage?: () => string | undefined;
+  /**
+   * Completes once a message `checkQueuedMessage` would deliver is waiting. A tool that would
+   * hold the run for long (`wait_subagents`) returns early on it, so the message is read now.
+   */
+  readonly awaitQueuedMessage?: () => Effect.Effect<void>;
+  /**
+   * The host's sub-agent supervisor, made with `outlivesRuns` by a host that gives the agent
+   * another turn when a sub-agent finishes (a chat). Unset, the run gets a supervisor of its
+   * own, and its sub-agents end with it.
+   */
+  readonly subagents?: SubagentSupervisor;
   /**
    * Awaited at the start of each iteration, before `checkQueuedMessage` and the LLM call.
    * `spawn_subagent` sets it on a child so the parent can pause it there; a paused child makes
@@ -548,6 +563,8 @@ export interface AgentRunContext {
   /** Display name of the plugin providing `compact.tools`, to credit it in the run's UI. */
   readonly compactPluginName?: string;
   readonly runMetrics: ReturnType<typeof createAgentRunMetrics>;
+  /** The supervisor the run's sub-agents are registered with; the runner attaches the run to it. */
+  readonly subagents: SubagentSupervisor;
   readonly provider: ProviderName;
   readonly model: string;
   /**

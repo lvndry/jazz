@@ -37,7 +37,9 @@ Two more shape delegation itself: `maxSubagentIterations` (30) and `maxSubagentD
 
 - its own turns, with prompt-cache reads at the cache-read rate and cache writes at the
   cache-write rate;
-- every sub-agent it spawned, including one that failed or was stopped;
+- every sub-agent it spawned, including one that failed or was stopped (in chat, a sub-agent
+  still working when the turn ends is recorded in the spend ledger under that turn once it
+  finishes);
 - the calls it makes for itself: compaction summaries, memory extraction before compaction,
   and the command-risk classifier.
 

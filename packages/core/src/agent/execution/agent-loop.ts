@@ -105,8 +105,7 @@ import {
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
 import { lifecycleEventForStreamEvent } from "../plugins/lifecycle-bridge";
-import { saveSubagentResult } from "../subagents/results";
-import { createSubagentSupervisor, type SubagentSupervisor } from "../subagents/supervisor";
+import type { SubagentSupervisor } from "../subagents/supervisor";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 /**
@@ -1894,8 +1893,8 @@ function runIteration(
       return { kind: "continue" } as const;
     }
 
-    // An answer given while sub-agents were still working, or before their results
-    // were read, waits for them and goes back to the model once, so the answer can use them.
+    // An answer given before sub-agents' results were read goes back to the model once, so the
+    // answer can use them. A supervisor of this run alone first waits for children still working.
     const unreadSubagents = yield* deps.subagents.settleBeforeAnswer();
     if (unreadSubagents !== undefined) {
       state.unreadSubagentNotice = unreadSubagents;
@@ -1992,21 +1991,18 @@ export function executeAgentLoop(
       const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
         Option.none(),
       );
-      const subagents = yield* createSubagentSupervisor({
-        saveResult: (child) =>
-          saveSubagentResult(options.agent.id, runContext.actualConversationId, child),
-      });
       // A resumed session is the most expensive place to count with fresh
       // defaults: history is long, so the first pre-call estimate is what
       // decides compaction for a context that may be near the limit. Reuse
       // what previous runs already learned; cannot fail.
       yield* hydrateTokenCalibration();
-      return { logger, finalizeFiberRef, subagents };
+      return { logger, finalizeFiberRef };
     }),
     // Use: main loop
-    ({ logger, finalizeFiberRef, subagents }) =>
+    ({ logger, finalizeFiberRef }) =>
       Effect.gen(function* () {
         const { agent } = options;
+        const { subagents } = runContext;
         const {
           actualConversationId,
           context,
@@ -2337,10 +2333,8 @@ export function executeAgentLoop(
         ),
       ),
     // Release: cleanup
-    ({ logger, finalizeFiberRef, subagents }) =>
+    ({ logger, finalizeFiberRef }) =>
       Effect.gen(function* () {
-        // Sub-agents never outlive the run that started them.
-        yield* subagents.close();
         const fiberOption = yield* Ref.get(finalizeFiberRef);
         if (Option.isSome(fiberOption)) {
           yield* Fiber.await(fiberOption.value).pipe(

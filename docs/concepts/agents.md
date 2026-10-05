@@ -197,12 +197,21 @@ Delegation limits:
 - **At most four at once,** each with **30 iterations** by default, against the parent's 100.
 - **Cost rolls up and is shared.** Each child's spend is added to the parent's as it happens, so
   children running together stop at the parent's `maxCostUSD` instead of each spending the whole
-  remainder. An unpriced child marks the total cost as unknown.
-- **Children never outlive the turn.** If the parent answers while children are still going,
-  Jazz cancels the paused ones, waits for the rest, and gives the parent one more step to read
-  their results. Work that should continue after the turn is a
-  [goal](./goals-and-loops.md). A run that parks or detaches stops its children; a
-  resumed run starts with none.
+  remainder. An unpriced child marks the total cost as unknown. A chat child that finishes after
+  its parent's turn ended is recorded in the spend ledger under that turn's run.
+- **In chat, children work in the background.** The parent can answer while its children are
+  still going: the turn ends, you keep chatting, and when a child finishes the parent gets a new
+  turn to read its result and tell you what came of it. A message you send while the parent is
+  waiting on its children with `wait_subagents` ends that wait, so the parent reads you first.
+  Children belong to the conversation: `/new`, switching conversations or leaving the chat stops
+  the ones still working. In fullscreen, select a running child in the list under the composer
+  and press `x` to stop it; anywhere, ask the parent to cancel it.
+- **Elsewhere, children never outlive the run.** In `jazz run`, a workflow, a bot, or a goal's
+  cycle, nobody is there to hand the parent another turn, so if it answers while children are
+  still going, Jazz cancels the paused ones, waits for the rest, and gives the parent one more
+  step to read their results. Work that should continue after the run is a
+  [goal](./goals-and-loops.md). A run that parks or detaches stops its children; a resumed run
+  starts with none.
 - **Their approvals name them.** In chat, a child's approval prompt starts with its name. In an
   unattended run, a child's gated call is declined and the child reports that to the parent.
 

@@ -47,6 +47,7 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import {
   guardRunStart,
   isUnattendedRun,
+  recordLateChildSpend,
   releaseRunReservation,
   type RunAccountingInput,
   settleRunAccounting,
@@ -88,6 +89,7 @@ import {
   computeRunCost,
   createAgentRunMetrics,
   emitAgentRunStarted,
+  recordChildSpend,
   recordSideSpend,
   runSpendReport,
   telemetryErrorCategory,
@@ -97,6 +99,8 @@ import { discoverProjectInstructions, type ProjectInstructionFile } from "./proj
 import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
 import { ToolActivityTracker } from "./run/tool-activity";
+import { saveSubagentResult } from "./subagents/results";
+import { createSubagentSupervisor } from "./subagents/supervisor";
 import { isAttendedRun, runToolDenials } from "./tools/agent-tool-resolution";
 import { BrowserSessions } from "./tools/browser/session";
 import { resolveCommandRisk } from "./tools/command-risk";
@@ -419,7 +423,7 @@ export function renderSkillRoutingAdvisory(
 function initializeAgentRun(
   options: AgentRunnerOptions,
 ): Effect.Effect<
-  AgentRunContext,
+  Omit<AgentRunContext, "subagents">,
   Error,
   | ToolRegistry
   | LoggerService
@@ -940,6 +944,10 @@ function initializeAgentRun(
       ...(options.computerSessions !== undefined
         ? { computerSessions: options.computerSessions }
         : {}),
+      ...(options.awaitQueuedMessage !== undefined
+        ? { awaitQueuedMessage: options.awaitQueuedMessage }
+        : {}),
+      ...(options.outlivesTurn === true ? { outlivesTurn: true } : {}),
       subagentDepth: options.subagentDepth ?? 0,
       maxSubagentDepth: Math.max(
         0,
@@ -1130,12 +1138,19 @@ export class AgentRunner {
         yield* Effect.addFinalizer(() => releaseRunReservation(accounting));
         yield* guardRunStart(accounting);
 
+        // What the run's sub-agents share with it is released once they have finished too; with
+        // a supervisor of this run alone they are stopped before the release runs.
+        let releaseAfterSubagents = (finalizer: Effect.Effect<void>): Effect.Effect<void> =>
+          finalizer;
+
         // A top-level run holds the secrets its person types until it ends; a sub-agent shares
         // its parent's.
         const userSecrets =
           options.userSecrets ??
           (yield* Effect.acquireRelease(Effect.sync(openUserSecretStore), (store) =>
-            Effect.sync(() => closeUserSecretStore(store)),
+            Effect.suspend(() =>
+              releaseAfterSubagents(Effect.sync(() => closeUserSecretStore(store))),
+            ),
           ));
 
         // The run's browser launches on the first browser tool call; a top-level run closes it
@@ -1144,7 +1159,8 @@ export class AgentRunner {
           options.browserSessions ??
           (yield* Effect.acquireRelease(
             Effect.sync(() => new BrowserSessions()),
-            (sessions) => Effect.promise(() => sessions.close()),
+            (sessions) =>
+              Effect.suspend(() => releaseAfterSubagents(Effect.promise(() => sessions.close()))),
           ));
 
         // The same holder pattern for the desktop: started by the first computer tool call, and
@@ -1161,6 +1177,22 @@ export class AgentRunner {
           browserSessions,
           computerSessions,
         });
+
+        const runId = options.runId ?? runContext.runMetrics.runId;
+        const subagents = options.subagents ?? (yield* createSubagentSupervisor());
+        const subagentAttachment = subagents.attachRun({
+          saveResult: (child) =>
+            saveSubagentResult(options.agent.id, runContext.actualConversationId, child),
+          chargeSpend: (spend) => recordChildSpend(runContext.runMetrics, spend),
+          chargeLateSpend: (spend) => recordLateChildSpend(accounting, spend, runId),
+        });
+        releaseAfterSubagents = subagentAttachment.releaseAfterChildren;
+        // Before the run's spend is recorded: a child stopped here still charges this run.
+        const endSubagents = subagents.outlivesRuns
+          ? Effect.sync(subagentAttachment.detach)
+          : subagents.close();
+        yield* Effect.addFinalizer(() => endSubagents);
+        const runContextWithSubagents: AgentRunContext = { ...runContext, subagents };
 
         // Internal runs without their own panel (compaction) must not take over
         // the parent's stream — a streamed completion finalizes the transcript,
@@ -1215,16 +1247,24 @@ export class AgentRunner {
           },
         );
 
-        const execute = shouldStream
-          ? executeWithStreaming(
-              options,
-              runContext,
-              displayConfig,
-              streamingConfig,
-              showMetrics,
-              runRecursive,
-            )
-          : executeWithoutStreaming(options, runContext, displayConfig, showMetrics, runRecursive);
+        const execute = (
+          shouldStream
+            ? executeWithStreaming(
+                options,
+                runContextWithSubagents,
+                displayConfig,
+                streamingConfig,
+                showMetrics,
+                runRecursive,
+              )
+            : executeWithoutStreaming(
+                options,
+                runContextWithSubagents,
+                displayConfig,
+                showMetrics,
+                runRecursive,
+              )
+        ).pipe(Effect.ensuring(endSubagents));
         const executeRecordingTaint = execute.pipe(
           Effect.map((response) =>
             response.messages === undefined
@@ -1245,7 +1285,7 @@ export class AgentRunner {
 
         return yield* withRunRecording(
           {
-            runId: options.runId ?? runContext.runMetrics.runId,
+            runId,
             agentId: options.agent.id,
             conversationId: runContext.actualConversationId,
             userInput: options.userInput,
@@ -1290,7 +1330,7 @@ export class AgentRunner {
                   runContext.runMetrics.totalCompletionTokens,
               },
               exit,
-              options.runId ?? runContext.runMetrics.runId,
+              runId,
             ),
           ),
         );

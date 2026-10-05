@@ -18,8 +18,8 @@ export function pickThemeInteractively(): Promise<string | undefined> {
     swatches: listing.swatches,
     current: listing.current,
   }));
-  // Opened from the idle chat, the picker covers the chat prompt and hands it back on close.
-  const underneath = store.getPromptSnapshot();
+  // Opened from the idle chat, the picker covers the chat prompt; the store hands it back on
+  // close unless the chat withdrew it meanwhile.
   return new Promise((resolve) => {
     let settled = false;
     const settle = (chosen: string | undefined): void => {
@@ -28,7 +28,7 @@ export function pickThemeInteractively(): Promise<string | undefined> {
       }
       settled = true;
       if (store.getPromptSnapshot() === picker) {
-        store.setPrompt(underneath);
+        store.setPrompt(null);
       }
       if (chosen === undefined) {
         revertPreview();

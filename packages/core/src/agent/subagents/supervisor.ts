@@ -1,10 +1,20 @@
 /**
- * The sub-agents of one run: what `spawn_subagent`, `list_subagents`, `wait_subagents` and
- * `steer_subagent` act on.
+ * The sub-agents of a run or of a whole chat: what `spawn_subagent`, `list_subagents`,
+ * `wait_subagents` and `steer_subagent` act on.
  *
- * Every child runs as a fiber in a scope owned by the parent's run while the parent keeps working,
- * so children never outlive it: closing the supervisor when the run ends, however it ends, cancels
- * whatever is still going, along with the tools and processes those children started.
+ * Every child runs as a fiber in the supervisor's own scope while the parent keeps working. A
+ * supervisor has one of two lifetimes:
+ *
+ * - **One run** (`outlivesRuns: false`, what every run gets by default). Closing it when the run
+ *   ends, however it ends, cancels whatever is still going, along with the tools and processes
+ *   those children started. Before the parent answers it waits for its running children.
+ * - **A whole chat** (`outlivesRuns: true`, made by a host that can give the parent another turn).
+ *   Each of the host's runs attaches to it; the parent answers without waiting, its children keep
+ *   working after the turn ends, and the host starts a turn when one finishes
+ *   ({@link SubagentSupervisor.awaitFinished}). What a child holds of its run (the browser, typed
+ *   secrets) is released only once every child of that run has finished
+ *   ({@link RunAttachment.releaseAfterChildren}), and what it spends after its run ended is charged
+ *   through {@link RunAttachmentInput.chargeLateSpend}. The host closes it when the chat ends.
  *
  * Steering takes effect at a child's step boundary, before its next model call: a message is
  * delivered there, and a pause holds the child there without any model call until it is resumed.
@@ -18,6 +28,7 @@
  */
 
 import { Deferred, Duration, Effect, Exit, Fiber, Scope } from "effect";
+import type { RunCost } from "@/core/agent/metrics/agent-run-metrics";
 import type {
   ToolExecutionResult,
   ToolProgressEvent,
@@ -64,6 +75,9 @@ export type SteerOutcome =
 
 export type WaitUntil = "any" | "all";
 
+/** Why a wait returned before its children did. */
+export type WaitOutcome = "settled" | "timed-out" | "interrupted";
+
 /** The hooks a child's run uses to take steering and report on itself. */
 export interface SubagentHooks {
   readonly id: string;
@@ -75,12 +89,42 @@ export interface SubagentHooks {
   readonly pauseRequested: () => boolean;
   /** The child's spend so far, reported after each of its steps. */
   readonly reportSpend: (costUSD: number | undefined) => void;
+  /** The child's whole spend once it ends, charged to the run that started it. */
+  readonly chargeSpend: (spend: RunCost) => void;
   readonly onToolEvent: (event: ToolProgressEvent) => void;
+  /** Stop the child now, for a person cancelling it from the UI. */
+  readonly cancel: () => Effect.Effect<void>;
+}
+
+/** What a run brings when it attaches to a supervisor: where its children's answers and spend go. */
+export interface RunAttachmentInput {
+  /** Keeps a finished child's whole answer; returns its retrieve id, or undefined when not kept. */
+  readonly saveResult?: (child: FinishedSubagent) => string | undefined;
+  /** Folds a child's spend into the run while it is still going. */
+  readonly chargeSpend: (spend: RunCost) => void;
+  /** Records a child's spend after the run that started it ended. */
+  readonly chargeLateSpend?: (spend: RunCost) => Effect.Effect<void>;
+}
+
+/** A run's hold on the supervisor its children are registered with. */
+export interface RunAttachment {
+  /** The run ended: the children it started keep going and charge `chargeLateSpend` from now on. */
+  readonly detach: () => void;
+  /** Runs `finalizer` once every child this run started has finished; at once when none is live. */
+  readonly releaseAfterChildren: (finalizer: Effect.Effect<void>) => Effect.Effect<void>;
+}
+
+interface RunLink {
+  readonly input: RunAttachmentInput;
+  attached: boolean;
+  readonly pendingFinalizers: Effect.Effect<void>[];
 }
 
 interface Entry {
   readonly id: string;
   readonly name: string;
+  /** The run that started it, when one was attached. */
+  readonly run: RunLink | undefined;
   readonly startedAt: number;
   status: SubagentStatus;
   lastActivity: string | undefined;
@@ -105,6 +149,13 @@ interface Entry {
 const FINISHED: ReadonlySet<SubagentStatus> = new Set(["completed", "failed", "cancelled"]);
 
 export interface SubagentSupervisor {
+  /** Whether children keep working after the run that started them ends. */
+  readonly outlivesRuns: boolean;
+  /**
+   * Attach a run: the children it registers from now on save their answers and charge their
+   * spend through it. A later attach replaces it as the run new children belong to.
+   */
+  readonly attachRun: (input: RunAttachmentInput) => RunAttachment;
   /** Children still running, paused or waiting on approval. */
   readonly liveCount: () => number;
   /** Register a child about to start; its hooks go into the child's run. */
@@ -119,15 +170,17 @@ export interface SubagentSupervisor {
   /**
    * Wait until the children named (every child when `ids` is empty) have finished or were
    * paused: `any` returns once one of them has, `all` once all have. Answers not read before are
-   * returned and marked read; one read before is marked `alreadyRead` and left out.
+   * returned and marked read; one read before is marked `alreadyRead` and left out. Completing
+   * `interrupt` ends the wait early with whatever has finished, as a timeout does.
    */
   readonly wait: (
     ids: readonly string[],
     until: WaitUntil,
     timeoutMs: number,
+    interrupt?: Effect.Effect<void>,
   ) => Effect.Effect<{
     readonly subagents: readonly SubagentSnapshot[];
-    readonly timedOut: boolean;
+    readonly outcome: WaitOutcome;
   }>;
   readonly steer: (
     id: string,
@@ -136,10 +189,15 @@ export interface SubagentSupervisor {
   ) => Effect.Effect<SteerOutcome>;
   /** One-line notices for the parent's next step: children that finished since it last looked. */
   readonly takeNotices: () => readonly string[];
+  /** The children `takeNotices` would announce, without their answers; marks them announced. */
+  readonly takeFinished: () => readonly SubagentSnapshot[];
+  /** Completes once a child has finished that the parent was not told about yet. */
+  readonly awaitFinished: () => Effect.Effect<void>;
   /**
-   * Called when the parent answers. Cancels paused children, waits for running ones, and returns
-   * the notice to give the parent when some finished work was never read; undefined when there
-   * is nothing to read, so the answer can stand.
+   * Called when the parent answers. Returns the notice to give the parent when some finished work
+   * was never read; undefined when there is nothing to read, so the answer can stand. A
+   * supervisor of one run first cancels paused children and waits for running ones; one that
+   * outlives runs leaves them working.
    */
   readonly settleBeforeAnswer: () => Effect.Effect<string | undefined>;
   /** What children still running have spent, not yet charged to the parent. */
@@ -158,18 +216,46 @@ export interface SubagentSupervisor {
 let subagentSequence = 0;
 
 export interface SubagentSupervisorOptions {
-  /** Keeps a finished child's whole answer; returns its retrieve id, or undefined when not kept. */
-  readonly saveResult?: (child: FinishedSubagent) => string | undefined;
+  /** Children keep working after the run that started them ends; see the module comment. */
+  readonly outlivesRuns?: boolean;
+}
+
+/** Where a sub-agent id that is not known may have gone, for the error the parent reads. */
+export function unknownSubagentNote(outlivesRuns: boolean): string {
+  return outlivesRuns
+    ? "Sub-agents are kept until this conversation ends."
+    : "Sub-agents stop when the run that started them ends.";
+}
+
+function finishedNotice(child: SubagentSnapshot): string {
+  return `Sub-agent ${child.name} (${child.id}) ${child.status}; call wait_subagents to read its result.`;
+}
+
+/**
+ * The message that opens a turn a host starts because sub-agents finished while the agent was
+ * idle, from the children {@link SubagentSupervisor.takeFinished} returned.
+ */
+export function subagentWakeMessage(finished: readonly SubagentSnapshot[]): string {
+  return [
+    "[Sub-agent update: this turn was started because sub-agents you started finished. It is not a message from the user.]",
+    ...finished.map(finishedNotice),
+    "Read their results and carry on with what they were for; tell the user what came of it.",
+  ].join("\n");
 }
 
 export function createSubagentSupervisor(
   options: SubagentSupervisorOptions = {},
 ): Effect.Effect<SubagentSupervisor> {
   return Effect.gen(function* () {
+    const outlivesRuns = options.outlivesRuns === true;
     const scope = yield* Scope.make();
     const entries = new Map<string, Entry>();
+    let currentRun: RunLink | undefined;
     let changed = yield* Deferred.make<void>();
     let maxCostUSD: number | undefined;
+    const stoppedReason = outlivesRuns
+      ? "Stopped when the conversation ended."
+      : "Stopped when the parent run ended.";
     let spentUSD: () => number | undefined = () => undefined;
 
     const signalChange = Effect.gen(function* () {
@@ -214,7 +300,7 @@ export function createSubagentSupervisor(
       entry.retrieveId =
         result.result === undefined || result.result === null
           ? undefined
-          : options.saveResult?.({
+          : entry.run?.input.saveResult?.({
               id,
               startedAt: entry.startedAt,
               result: result.result,
@@ -228,8 +314,26 @@ export function createSubagentSupervisor(
         Effect.runSync(Deferred.succeed(entry.resumeGate, undefined));
         entry.resumeGate = undefined;
       }
+      if (entry.run !== undefined && !entry.run.attached) {
+        Effect.runFork(releaseFinishedRun(entry.run));
+      }
       signalChangeSync();
     };
+
+    const hasLiveChildren = (run: RunLink) =>
+      [...entries.values()].some((entry) => entry.run === run && !FINISHED.has(entry.status));
+
+    /** Run what a detached run left to release, once its last child has finished. */
+    const releaseFinishedRun = (run: RunLink) =>
+      Effect.suspend(() => {
+        if (run.attached || hasLiveChildren(run)) {
+          return Effect.void;
+        }
+        const finalizers = run.pendingFinalizers.splice(0);
+        return Effect.forEach(finalizers, (finalizer) => Effect.ignore(finalizer), {
+          discard: true,
+        });
+      });
 
     /**
      * A child that reports progress is past any approval it was waiting on: the prompt was
@@ -272,6 +376,35 @@ export function createSubagentSupervisor(
       });
 
     const supervisor: SubagentSupervisor = {
+      outlivesRuns,
+
+      attachRun: (input) => {
+        const run: RunLink = { input, attached: true, pendingFinalizers: [] };
+        currentRun = run;
+        return {
+          detach: () => {
+            if (!run.attached) {
+              return;
+            }
+            run.attached = false;
+            if (currentRun === run) {
+              currentRun = undefined;
+              maxCostUSD = undefined;
+              spentUSD = () => undefined;
+            }
+            Effect.runFork(releaseFinishedRun(run));
+          },
+          releaseAfterChildren: (finalizer) =>
+            Effect.suspend(() => {
+              if (!hasLiveChildren(run)) {
+                return finalizer;
+              }
+              run.pendingFinalizers.push(finalizer);
+              return Effect.void;
+            }),
+        };
+      },
+
       liveCount: () => [...entries.values()].filter(isLive).length,
 
       register: ({ name }) => {
@@ -279,6 +412,7 @@ export function createSubagentSupervisor(
         const entry: Entry = {
           id,
           name,
+          run: currentRun,
           startedAt: Date.now(),
           status: "running",
           lastActivity: undefined,
@@ -318,6 +452,22 @@ export function createSubagentSupervisor(
             }
             markMovedOn(entry);
           },
+          chargeSpend: (spend) => {
+            const run = entry.run;
+            if (run === undefined) {
+              return;
+            }
+            if (run.attached) {
+              run.input.chargeSpend(spend);
+              return;
+            }
+            const late = run.input.chargeLateSpend;
+            if (late !== undefined) {
+              Effect.runFork(late(spend));
+            }
+          },
+          cancel: () =>
+            FINISHED.has(entry.status) ? Effect.void : cancelEntry(entry, "Cancelled by the user."),
           onToolEvent: (event) => {
             if (FINISHED.has(entry.status)) {
               return;
@@ -352,7 +502,7 @@ export function createSubagentSupervisor(
                   {
                     success: false,
                     result: null,
-                    error: entry.cancelReason ?? "Stopped when the parent run ended.",
+                    error: entry.cancelReason ?? stoppedReason,
                   },
                   true,
                 ),
@@ -367,7 +517,7 @@ export function createSubagentSupervisor(
 
       list: () => [...entries.values()].map((entry) => snapshot(entry, false)),
 
-      wait: (ids, until, timeoutMs) =>
+      wait: (ids, until, timeoutMs, interrupt) =>
         Effect.gen(function* () {
           const targets = resolveTargets(ids);
           const deadline = Date.now() + timeoutMs;
@@ -378,14 +528,34 @@ export function createSubagentSupervisor(
           const satisfied = () =>
             targets.length === 0 ||
             (until === "any" ? targets.some(needsParent) : targets.every(needsParent));
-          let timedOut = false;
+          let outcome: WaitOutcome = "settled";
+          let interrupted = false;
+          const interruption =
+            interrupt === undefined
+              ? undefined
+              : yield* interrupt.pipe(
+                  Effect.tap(() =>
+                    Effect.gen(function* () {
+                      interrupted = true;
+                      yield* signalChange;
+                    }),
+                  ),
+                  Effect.forkScoped,
+                );
           while (!satisfied()) {
+            if (interrupted) {
+              outcome = "interrupted";
+              break;
+            }
             const remaining = deadline - Date.now();
             if (remaining <= 0) {
-              timedOut = true;
+              outcome = "timed-out";
               break;
             }
             yield* Deferred.await(changed).pipe(Effect.timeoutOption(Duration.millis(remaining)));
+          }
+          if (interruption !== undefined) {
+            yield* Fiber.interrupt(interruption);
           }
           const subagents = targets.map((entry): SubagentSnapshot => {
             if (!FINISHED.has(entry.status)) {
@@ -398,8 +568,8 @@ export function createSubagentSupervisor(
               ? { ...snapshot(entry, false), alreadyRead: true }
               : snapshot(entry, true);
           });
-          return { subagents, timedOut };
-        }),
+          return { subagents, outcome };
+        }).pipe(Effect.scoped),
 
       steer: (id, action, message) =>
         Effect.gen(function* () {
@@ -407,7 +577,7 @@ export function createSubagentSupervisor(
           if (entry === undefined) {
             return {
               ok: false,
-              error: `No sub-agent ${id} in this run. Sub-agents stop when the run that started them ends.`,
+              error: `No sub-agent ${id} here. ${unknownSubagentNote(outlivesRuns)}`,
             } as const;
           }
           if (FINISHED.has(entry.status)) {
@@ -466,37 +636,50 @@ export function createSubagentSupervisor(
           }
         }),
 
-      takeNotices: () => {
-        const notices: string[] = [];
+      takeNotices: () => supervisor.takeFinished().map(finishedNotice),
+
+      takeFinished: () => {
+        const finished: SubagentSnapshot[] = [];
         for (const entry of entries.values()) {
           if (FINISHED.has(entry.status) && !entry.announced) {
             entry.announced = true;
-            notices.push(
-              `Sub-agent ${entry.name} (${entry.id}) ${entry.status}; call wait_subagents to read its result.`,
-            );
+            finished.push(snapshot(entry, false));
           }
         }
-        return notices;
+        return finished;
       },
+
+      awaitFinished: () =>
+        Effect.gen(function* () {
+          const unannounced = () =>
+            [...entries.values()].some((entry) => FINISHED.has(entry.status) && !entry.announced);
+          while (!unannounced()) {
+            yield* Deferred.await(changed);
+          }
+        }),
 
       settleBeforeAnswer: () =>
         Effect.gen(function* () {
           const children = [...entries.values()];
-          const paused = children.filter((entry) => entry.status === "paused");
+          // Outliving the turn, a paused child can still be resumed and a running one still
+          // reports back, so the answer leaves both as they are.
+          const paused = outlivesRuns ? [] : children.filter((entry) => entry.status === "paused");
           for (const entry of paused) {
             yield* cancelEntry(
               entry,
               "Cancelled because the parent answered while this sub-agent was paused.",
             );
           }
-          yield* Effect.forEach(
-            children.filter(isLive),
-            (entry) =>
-              entry.fiber === undefined
-                ? Effect.void
-                : Fiber.await(entry.fiber).pipe(Effect.asVoid),
-            { concurrency: "unbounded", discard: true },
-          );
+          if (!outlivesRuns) {
+            yield* Effect.forEach(
+              children.filter(isLive),
+              (entry) =>
+                entry.fiber === undefined
+                  ? Effect.void
+                  : Fiber.await(entry.fiber).pipe(Effect.asVoid),
+              { concurrency: "unbounded", discard: true },
+            );
+          }
           const unread = children.filter(
             (entry) => FINISHED.has(entry.status) && !entry.collected && !entry.offeredAtAnswer,
           );
@@ -540,11 +723,23 @@ export function createSubagentSupervisor(
                 {
                   success: false,
                   result: null,
-                  error: entry.cancelReason ?? "Stopped when the parent run ended.",
+                  error: entry.cancelReason ?? stoppedReason,
                 },
                 true,
               );
             }
+          }
+          const runs = new Set<RunLink>();
+          for (const entry of entries.values()) {
+            if (entry.run !== undefined) {
+              runs.add(entry.run);
+            }
+          }
+          for (const run of runs) {
+            const finalizers = run.pendingFinalizers.splice(0);
+            yield* Effect.forEach(finalizers, (finalizer) => Effect.ignore(finalizer), {
+              discard: true,
+            });
           }
         }),
     };

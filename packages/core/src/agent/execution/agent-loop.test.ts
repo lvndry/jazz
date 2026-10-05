@@ -51,6 +51,7 @@ import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 import { PROTECTED_TOOL_CYCLES } from "../context/tool-result-clearing";
 import { readOffloadedToolResult } from "../context/tool-result-offload";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
 // Shared mocks
@@ -253,6 +254,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
     } as any,
     expandedToolNames: [],
     connectedMCPServers: [],
+    subagents: Effect.runSync(createSubagentSupervisor()),
     knownSkills: [],
     maxIterations: DEFAULT_MAX_ITERATIONS,
     maxCostUSD: undefined,

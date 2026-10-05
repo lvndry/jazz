@@ -52,7 +52,7 @@ describe("SubagentSupervisor", () => {
         return { result, notices: supervisor.takeNotices(), live: supervisor.liveCount() };
       }),
     );
-    expect(outcome.result.timedOut).toBe(false);
+    expect(outcome.result.outcome).toBe("settled");
     expect(
       outcome.result.subagents.map((child) => [child.name, child.status, child.result]),
     ).toEqual([
@@ -67,7 +67,9 @@ describe("SubagentSupervisor", () => {
     const saved: string[] = [];
     const outcome = await Effect.runPromise(
       Effect.gen(function* () {
-        const supervisor = yield* createSubagentSupervisor({
+        const supervisor = yield* createSubagentSupervisor();
+        supervisor.attachRun({
+          chargeSpend: () => {},
           saveResult: (child) => {
             saved.push(String(child.result));
             return `subagent-${child.id}`;
@@ -109,8 +111,8 @@ describe("SubagentSupervisor", () => {
         return { timedOut, any: yield* Fiber.join(waiting) };
       }),
     );
-    expect(outcome.timedOut.timedOut).toBe(true);
-    expect(outcome.any.timedOut).toBe(false);
+    expect(outcome.timedOut.outcome).toBe("timed-out");
+    expect(outcome.any.outcome).toBe("settled");
     expect(outcome.any.subagents.map((child) => child.status)).toEqual(["completed", "running"]);
   });
 
@@ -311,7 +313,7 @@ describe("SubagentSupervisor", () => {
         return yield* supervisor.wait([], "any", 30);
       }),
     );
-    expect(outcome.timedOut).toBe(true);
+    expect(outcome.outcome).toBe("timed-out");
     expect(outcome.subagents[0]?.status).toBe("waiting-approval");
   });
 
@@ -342,5 +344,145 @@ describe("SubagentSupervisor", () => {
       lastActivity: "waiting on approval for execute_command",
     });
     expect(statuses[1]).toMatchObject({ status: "running", lastActivity: "execute_command" });
+  });
+});
+
+describe("SubagentSupervisor that outlives runs", () => {
+  const noCharge = () => {};
+
+  it("lets the parent answer while a child still works, and leaves a paused one paused", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({ outlivesRuns: true });
+        supervisor.attachRun({ chargeSpend: noCharge });
+        const release = yield* Deferred.make<string>();
+        yield* startChild(supervisor, "worker", release);
+        const paused = yield* startChild(supervisor, "held", yield* Deferred.make<string>());
+        yield* supervisor.steer(paused.id, "pause");
+        yield* Effect.yieldNow();
+        const notice = yield* supervisor.settleBeforeAnswer();
+        return { notice, statuses: supervisor.list().map((child) => child.status) };
+      }),
+    );
+    expect(outcome.notice).toBeUndefined();
+    expect(outcome.statuses).toEqual(["running", "paused"]);
+  });
+
+  it("charges the run while it is attached and the late charge once it has ended", async () => {
+    const charged: number[] = [];
+    const late: number[] = [];
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({ outlivesRuns: true });
+        const attachment = supervisor.attachRun({
+          chargeSpend: (spend) => charged.push(spend.costUSD ?? 0),
+          chargeLateSpend: (spend) => Effect.sync(() => late.push(spend.costUSD ?? 0)),
+        });
+        const early = supervisor.register({ name: "early" });
+        const later = supervisor.register({ name: "later" });
+        early.chargeSpend({ costUSD: 0.01, costIncomplete: false });
+        attachment.detach();
+        later.chargeSpend({ costUSD: 0.02, costIncomplete: false });
+        yield* Effect.yieldNow();
+      }),
+    );
+    expect(charged).toEqual([0.01]);
+    expect(late).toEqual([0.02]);
+  });
+
+  it("releases what a run held only once the children it started have finished", async () => {
+    const released: string[] = [];
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({ outlivesRuns: true });
+        const attachment = supervisor.attachRun({ chargeSpend: noCharge });
+        const release = yield* Deferred.make<string>();
+        yield* startChild(supervisor, "worker", release);
+        attachment.detach();
+        yield* attachment.releaseAfterChildren(Effect.sync(() => released.push("browser")));
+        expect(released).toEqual([]);
+        yield* Deferred.succeed(release, "done");
+        yield* supervisor.awaitFinished();
+        yield* Effect.yieldNow();
+        expect(released).toEqual(["browser"]);
+
+        const idle = supervisor.attachRun({ chargeSpend: noCharge });
+        yield* idle.releaseAfterChildren(Effect.sync(() => released.push("secrets")));
+        expect(released).toEqual(["browser", "secrets"]);
+      }),
+    );
+  });
+
+  it("releases what is still held when it closes", async () => {
+    const released: string[] = [];
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({ outlivesRuns: true });
+        const attachment = supervisor.attachRun({ chargeSpend: noCharge });
+        yield* startChild(supervisor, "worker", yield* Deferred.make<string>());
+        attachment.detach();
+        yield* attachment.releaseAfterChildren(Effect.sync(() => released.push("browser")));
+        yield* supervisor.close();
+        expect(supervisor.list()[0]?.status).toBe("cancelled");
+        expect(supervisor.list()[0]?.error).toBe("Stopped when the conversation ended.");
+      }),
+    );
+    expect(released).toEqual(["browser"]);
+  });
+
+  it("wakes the host once a child finishes and hands it over once", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({ outlivesRuns: true });
+        supervisor.attachRun({ chargeSpend: noCharge }).detach();
+        const release = yield* Deferred.make<string>();
+        yield* startChild(supervisor, "worker", release);
+        const woken = yield* Effect.fork(supervisor.awaitFinished());
+        yield* Effect.yieldNow();
+        const beforeFinish = woken.unsafePoll();
+        yield* Deferred.succeed(release, "done");
+        yield* Fiber.join(woken);
+        const finished = supervisor.takeFinished();
+        return { beforeFinish, finished, again: supervisor.takeNotices() };
+      }),
+    );
+    expect(outcome.beforeFinish).toBeNull();
+    expect(outcome.finished.map((child) => [child.name, child.status])).toEqual([
+      ["worker", "completed"],
+    ]);
+    expect(outcome.finished[0]?.result).toBeUndefined();
+    expect(outcome.again).toEqual([]);
+  });
+
+  it("ends a wait early when it is interrupted, leaving the children working", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({ outlivesRuns: true });
+        supervisor.attachRun({ chargeSpend: noCharge });
+        yield* startChild(supervisor, "worker", yield* Deferred.make<string>());
+        const message = yield* Deferred.make<void>();
+        const waiting = yield* Effect.fork(
+          supervisor.wait([], "all", 60_000, Deferred.await(message)),
+        );
+        yield* Effect.yieldNow();
+        yield* Deferred.succeed(message, undefined);
+        return yield* Fiber.join(waiting);
+      }),
+    );
+    expect(outcome.outcome).toBe("interrupted");
+    expect(outcome.subagents[0]?.status).toBe("running");
+  });
+
+  it("stops a child the user cancels", async () => {
+    const status = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({ outlivesRuns: true });
+        supervisor.attachRun({ chargeSpend: noCharge });
+        const hooks = yield* startChild(supervisor, "worker", yield* Deferred.make<string>());
+        yield* hooks.cancel();
+        return supervisor.list()[0];
+      }),
+    );
+    expect(status).toMatchObject({ status: "cancelled", error: "Cancelled by the user." });
   });
 });
