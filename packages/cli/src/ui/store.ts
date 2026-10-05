@@ -1221,7 +1221,8 @@ export class UIStore {
     const ids = this.turnThoughtIds;
     this.turnThoughtIds = [];
     const entryId = ids[0];
-    if (fullText.length > 0) {
+    const alreadyOpen = ids.every((id) => this.expandedReasoningIds.has(id));
+    if (fullText.length > 0 && !alreadyOpen) {
       this.pushExpandableReasoning({
         fullText,
         label: this.turnThoughtLabel,
@@ -1386,7 +1387,23 @@ export class UIStore {
   // Ink's <Static> never repaints entries it has already emitted, so the
   // islands renderer must ask for "append": patching the collapsed stub
   // in place would change the store without changing the screen.
+  /**
+   * The fullscreen transcript folds a turn's reasoning as soon as each step
+   * ends, but the turn only reaches the stack when it settles, so mid-turn
+   * the newest folded line is opened from the turn's own ids first.
+   */
   expandLastReasoning = (target: "in-place" | "append" = "in-place"): boolean => {
+    if (target === "in-place") {
+      const unsettled = this.turnThoughtIds.filter((id) => !this.expandedReasoningIds.has(id));
+      if (unsettled.length > 0) {
+        for (const id of unsettled) this.expandedReasoningIds.add(id);
+        this.pinOpenReasoning();
+        this.flushOutputBatchNow();
+        this.refreshClassicProjection();
+        this.schedulePresentationCommit();
+        return true;
+      }
+    }
     const value = this.expandableReasoningStack.pop();
     if (value === undefined) return this.pinOpenReasoning();
     if (target === "in-place")
