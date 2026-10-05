@@ -11,7 +11,10 @@ import { describe, test, expect, beforeEach, afterEach, setSystemTime } from "bu
 import { Effect } from "effect";
 import {
   collapseSupersededUiEvents,
+  ConversationChangedError,
+  conversationRevision,
   CONVERSATION_LOG_VERSION,
+  EMPTY_CONVERSATION_REVISION,
   deleteConversationLog,
   deriveConversationTitle,
   conversationLogPath,
@@ -46,6 +49,7 @@ function assistantMessage(content: string): ChatMessage {
   return { role: "assistant", content };
 }
 
+/** A first save of `messages`; a later save spreads this and names the revision it builds on. */
 function record(messages: readonly ChatMessage[], title = "Trip planning") {
   return {
     agentId: "agent-1",
@@ -53,6 +57,7 @@ function record(messages: readonly ChatMessage[], title = "Trip planning") {
     title,
     startedAt: "2026-08-01T10:00:00.000Z",
     messages,
+    basedOn: EMPTY_CONVERSATION_REVISION,
   };
 }
 
@@ -98,13 +103,15 @@ describe("recordConversationTranscript", () => {
 
   test("appends only the new messages instead of rewriting the log", async () => {
     const first = [userMessage("hi"), assistantMessage("hello")];
-    await runEffect(recordConversationTranscript(record(first), tmpDir));
+    const afterFirst = await runEffect(recordConversationTranscript(record(first), tmpDir));
     const bytesAfterFirst = fs.statSync(
       conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir),
     ).size;
 
     const second = [...first, userMessage("and again"), assistantMessage("sure")];
-    await runEffect(recordConversationTranscript(record(second), tmpDir));
+    await runEffect(
+      recordConversationTranscript({ ...record(second), basedOn: afterFirst }, tmpDir),
+    );
 
     const content = fs.readFileSync(
       conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir),
@@ -121,7 +128,10 @@ describe("recordConversationTranscript", () => {
     await runEffect(recordConversationTranscript(record(first), tmpDir));
 
     await runEffect(
-      recordConversationTranscript(record([...first, userMessage("resumed")]), tmpDir),
+      recordConversationTranscript(
+        { ...record([...first, userMessage("resumed")]), basedOn: conversationRevision(first) },
+        tmpDir,
+      ),
     );
 
     expect(messageLineCount()).toBe(3);
@@ -131,13 +141,15 @@ describe("recordConversationTranscript", () => {
 
   test("a replaced transcript supersedes the old one instead of concatenating", async () => {
     const original = [userMessage("hi"), assistantMessage("hello"), userMessage("more")];
-    await runEffect(recordConversationTranscript(record(original), tmpDir));
+    const afterOriginal = await runEffect(recordConversationTranscript(record(original), tmpDir));
 
     const compacted: ChatMessage[] = [
       { role: "assistant", content: "summary of earlier turns", kind: "summary" },
       userMessage("carry on"),
     ];
-    await runEffect(recordConversationTranscript(record(compacted), tmpDir));
+    await runEffect(
+      recordConversationTranscript({ ...record(compacted), basedOn: afterOriginal }, tmpDir),
+    );
 
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(session?.messages.map((message) => message.content)).toEqual([
@@ -149,7 +161,7 @@ describe("recordConversationTranscript", () => {
   });
 
   test("tolerates a truncated final line and keeps appending cleanly", async () => {
-    await runEffect(
+    const beforeCrash = await runEffect(
       recordConversationTranscript(record([userMessage("hi"), assistantMessage("hello")]), tmpDir),
     );
 
@@ -161,7 +173,10 @@ describe("recordConversationTranscript", () => {
 
     await runEffect(
       recordConversationTranscript(
-        record([userMessage("hi"), assistantMessage("hello"), userMessage("after the crash")]),
+        {
+          ...record([userMessage("hi"), assistantMessage("hello"), userMessage("after the crash")]),
+          basedOn: beforeCrash,
+        },
         tmpDir,
       ),
     );
@@ -186,19 +201,89 @@ describe("recordConversationTranscript", () => {
     expect(session?.title).toBe("plan the trip");
   });
 
-  test("a save with no messages leaves the saved ones in place", async () => {
-    const said = [userMessage("plan the trip"), assistantMessage("Where to?")];
-    await runEffect(recordConversationTranscript(record(said, ""), tmpDir));
-    await runEffect(recordConversationTranscript(record([], ""), tmpDir));
+  test("a save built on a stale revision is refused and writes nothing", async () => {
+    const first = [userMessage("hi")];
+    const afterFirst = await runEffect(recordConversationTranscript(record(first), tmpDir));
+    await runEffect(
+      recordConversationTranscript(
+        { ...record([...first, assistantMessage("hello")]), basedOn: afterFirst },
+        tmpDir,
+      ),
+    );
+    const before = fs.readFileSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir), "utf8");
 
+    const stale = await runEffect(
+      recordConversationTranscript(
+        { ...record([...first, userMessage("from a stale copy")]), basedOn: afterFirst },
+        tmpDir,
+      ).pipe(Effect.either),
+    );
+
+    expect(stale._tag === "Left" && stale.left instanceof ConversationChangedError).toBe(true);
+    expect(fs.readFileSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir), "utf8")).toBe(
+      before,
+    );
+  });
+
+  test("a writer that never read the log cannot replace what was said in it", async () => {
+    await runEffect(
+      recordConversationTranscript(
+        record([userMessage("plan the trip"), assistantMessage("Where to?")]),
+        tmpDir,
+      ),
+    );
+    const before = fs.readFileSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir), "utf8");
+
+    for (const unread of [[], [userMessage("a different conversation")]]) {
+      const refused = await runEffect(
+        recordConversationTranscript(record(unread), tmpDir).pipe(Effect.either),
+      );
+      expect(refused._tag === "Left" && refused.left instanceof ConversationChangedError).toBe(
+        true,
+      );
+    }
+    expect(fs.readFileSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir), "utf8")).toBe(
+      before,
+    );
+  });
+
+  test("a writer that read the log may replace it, as compaction does", async () => {
+    const original = [userMessage("hi"), assistantMessage("hello"), userMessage("more")];
+    const afterOriginal = await runEffect(recordConversationTranscript(record(original), tmpDir));
+    const compacted: ChatMessage[] = [
+      { role: "assistant", content: "summary", kind: "summary" },
+      userMessage("carry on"),
+    ];
+
+    const afterCompaction = await runEffect(
+      recordConversationTranscript({ ...record(compacted), basedOn: afterOriginal }, tmpDir),
+    );
+
+    expect(afterCompaction).toEqual(conversationRevision(compacted));
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
-    expect(session?.messages).toEqual(said);
-    expect(session?.title).toBe("plan the trip");
-    const lines = fs
-      .readFileSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir), "utf8")
-      .trim()
-      .split("\n");
-    expect(lines.some((line) => line.includes('"type":"rewrite"'))).toBe(false);
+    expect(session?.messages).toEqual(compacted);
+  });
+
+  test("of two writers building on the same revision, only the first is saved", async () => {
+    const first = [userMessage("hi")];
+    const shared = await runEffect(recordConversationTranscript(record(first), tmpDir));
+
+    await runEffect(
+      recordConversationTranscript(
+        { ...record([...first, assistantMessage("from the chat")]), basedOn: shared },
+        tmpDir,
+      ),
+    );
+    const second = await runEffect(
+      recordConversationTranscript(
+        { ...record([...first, assistantMessage("from a goal cycle")]), basedOn: shared },
+        tmpDir,
+      ).pipe(Effect.either),
+    );
+
+    expect(second._tag === "Left" && second.left instanceof ConversationChangedError).toBe(true);
+    const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(session?.messages.map((message) => message.content)).toEqual(["hi", "from the chat"]);
   });
 
   test("never records the untitled placeholder as a title", async () => {
@@ -230,11 +315,14 @@ describe("recordConversationTranscript", () => {
   });
 
   test("records a title change as metadata", async () => {
-    await runEffect(
+    const afterFirst = await runEffect(
       recordConversationTranscript(record([userMessage("hi")], "First title"), tmpDir),
     );
     await runEffect(
-      recordConversationTranscript(record([userMessage("hi")], "Second title"), tmpDir),
+      recordConversationTranscript(
+        { ...record([userMessage("hi")], "Second title"), basedOn: afterFirst },
+        tmpDir,
+      ),
     );
 
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
@@ -244,16 +332,20 @@ describe("recordConversationTranscript", () => {
   test("dates the conversation by its newest message, not by a later save that adds none", async () => {
     try {
       setSystemTime(new Date("2026-08-01T10:00:00.000Z"));
-      await runEffect(recordConversationTranscript(record([userMessage("hi")]), tmpDir));
+      const afterHi = await runEffect(
+        recordConversationTranscript(record([userMessage("hi")]), tmpDir),
+      );
       setSystemTime(new Date("2026-08-01T11:00:00.000Z"));
-      await runEffect(recordConversationTranscript(record([userMessage("hi")]), tmpDir));
+      await runEffect(
+        recordConversationTranscript({ ...record([userMessage("hi")]), basedOn: afterHi }, tmpDir),
+      );
       const unchanged = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
       expect(unchanged?.lastMessageAt).toBe("2026-08-01T10:00:00.000Z");
 
       setSystemTime(new Date("2026-08-01T12:00:00.000Z"));
       await runEffect(
         recordConversationTranscript(
-          record([userMessage("hi"), assistantMessage("hello")]),
+          { ...record([userMessage("hi"), assistantMessage("hello")]), basedOn: afterHi },
           tmpDir,
         ),
       );
@@ -296,12 +388,15 @@ describe("recordConversationTranscript", () => {
   });
 
   test("preserves the started-at instant across appends", async () => {
-    await runEffect(recordConversationTranscript(record([userMessage("hi")]), tmpDir));
+    const afterHi = await runEffect(
+      recordConversationTranscript(record([userMessage("hi")]), tmpDir),
+    );
     await runEffect(
       recordConversationTranscript(
         {
           ...record([userMessage("hi"), userMessage("two")]),
           startedAt: "2027-01-01T00:00:00.000Z",
+          basedOn: afterHi,
         },
         tmpDir,
       ),
@@ -382,12 +477,14 @@ describe("UI scrollback growth", () => {
     const logPath = conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir);
     const sizes = new Map<number, number>();
     const { messages, uiTranscript } = turnsOfChat(200);
+    let revision = EMPTY_CONVERSATION_REVISION;
     for (let turn = 1; turn <= 200; turn++) {
-      await runEffect(
+      revision = await runEffect(
         recordConversationTranscript(
           {
             ...record(messages.slice(0, turn * 2)),
             uiTranscript: uiTranscript.slice(0, turn * 2),
+            basedOn: revision,
           },
           tmpDir,
         ),
@@ -433,9 +530,13 @@ describe("UI scrollback growth", () => {
         content: { kind: "notice" as const, tone: "info" as const, text: "fresh start" },
       },
     ];
+    let revision = EMPTY_CONVERSATION_REVISION;
     for (const uiTranscript of [first, second, cleared]) {
-      await runEffect(
-        recordConversationTranscript({ ...record([userMessage("hi")]), uiTranscript }, tmpDir),
+      revision = await runEffect(
+        recordConversationTranscript(
+          { ...record([userMessage("hi")]), uiTranscript, basedOn: revision },
+          tmpDir,
+        ),
       );
     }
 
@@ -457,12 +558,15 @@ describe("UI scrollback growth", () => {
         content: { kind: "user" as const, text: "hi" },
       },
     ];
-    await runEffect(
+    const afterHi = await runEffect(
       recordConversationTranscript({ ...record([userMessage("hi")]), uiTranscript }, tmpDir),
     );
     const before = logLines().length;
     await runEffect(
-      recordConversationTranscript({ ...record([userMessage("hi")]), uiTranscript }, tmpDir),
+      recordConversationTranscript(
+        { ...record([userMessage("hi")]), uiTranscript, basedOn: afterHi },
+        tmpDir,
+      ),
     );
     expect(logLines().length).toBe(before);
   });
@@ -508,7 +612,11 @@ describe("UI scrollback growth", () => {
     ];
     await runEffect(
       recordConversationTranscript(
-        { ...record([userMessage("hi")]), uiTranscript: nextScrollback },
+        {
+          ...record([userMessage("hi")]),
+          uiTranscript: nextScrollback,
+          basedOn: conversationRevision(legacy?.messages ?? []),
+        },
         tmpDir,
       ),
     );
@@ -557,9 +665,13 @@ describe("UI scrollback growth", () => {
       `${JSON.stringify({ type: "message", at: "2026-08-01T10:00:00.000Z", message: assistantMessage("from elsewhere") })}\n`,
     );
 
+    const onDisk = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     await runEffect(
       recordConversationTranscript(
-        record([userMessage("hi"), assistantMessage("from elsewhere"), userMessage("next")]),
+        {
+          ...record([userMessage("hi"), assistantMessage("from elsewhere"), userMessage("next")]),
+          basedOn: conversationRevision(onDisk?.messages ?? []),
+        },
         tmpDir,
       ),
     );

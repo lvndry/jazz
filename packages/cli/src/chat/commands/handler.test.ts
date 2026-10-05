@@ -5,6 +5,8 @@ import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
 import {
+  conversationRevision,
+  EMPTY_CONVERSATION_REVISION,
   loadConversation,
   saveConversation,
 } from "@jazz/adapters/history/conversation-history-service";
@@ -107,6 +109,7 @@ const testRecord = {
     { role: "user" as const, content: "Hello" },
     { role: "assistant" as const, content: "Hi there" },
   ] as ChatMessage[],
+  basedOn: EMPTY_CONVERSATION_REVISION,
 };
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
@@ -165,6 +168,7 @@ describe("handleSpecialCommand /skills", () => {
     agent: testAgent,
     conversationHistory: [],
     conversationId: "test-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -239,6 +243,7 @@ describe("agent creation and fresh conversations", () => {
     agent: testAgent,
     conversationHistory: testRecord.messages,
     conversationId: "current-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -411,6 +416,7 @@ describe("handleSpecialCommand /rename", () => {
     agent: testAgent,
     conversationHistory: [],
     conversationId: "rename-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -469,8 +475,16 @@ describe("handleSpecialCommand /rename", () => {
         tmpDir,
       ),
     );
-    const rename = run([], { conversationHistory: testRecord.messages }, "New  title 🪷");
-    await rename.outcome;
+    const rename = run(
+      [],
+      {
+        conversationHistory: testRecord.messages,
+        conversationRevision: conversationRevision(testRecord.messages),
+      },
+      "New  title 🪷",
+    );
+    const renamed = await rename.outcome;
+    expect(renamed.conversationRevision).toEqual(conversationRevision(testRecord.messages));
     expect(rename.options()?.defaultValue).toBe(testRecord.title);
     expect(rename.options()?.cancellable).toBe(true);
     const saved = await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir));
@@ -536,6 +550,7 @@ describe("handleSpecialCommand resume", () => {
       agent: testAgent,
       conversationHistory: [],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -551,6 +566,7 @@ describe("handleSpecialCommand resume", () => {
     );
 
     expect(result.newConversationId).toBe(testRecord.conversationId);
+    expect(result.conversationRevision).toEqual(conversationRevision(testRecord.messages));
     expect(result.saveCurrentHistory).toBe(true);
     expect(result.newConversationTitle).toBe(testRecord.title);
     expect(result.newHistory?.map((message) => message.content)).toEqual([
@@ -582,6 +598,7 @@ describe("handleSpecialCommand resume", () => {
       agent: testAgent,
       conversationHistory: [{ role: "user", content: "still on screen" }],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -614,6 +631,7 @@ describe("handleSpecialCommand /detach", () => {
     const context: CommandContext = {
       agent: testAgent,
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       conversationHistory: [{ role: "user", content: "Keep working" }],
       queuedAfterCommand: true,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
@@ -662,6 +680,7 @@ describe("handleSpecialCommand shell escape", () => {
           agent: testAgent,
           conversationHistory: [],
           conversationId: "test-session",
+          conversationRevision: EMPTY_CONVERSATION_REVISION,
           sessionUsage: { promptTokens: 0, completionTokens: 0 },
           sessionTurnCount: 0,
           sessionLimits: {},
@@ -701,6 +720,7 @@ describe("handleSpecialCommand shell escape", () => {
           agent: testAgent,
           conversationHistory: [],
           conversationId: "test-session",
+          conversationRevision: EMPTY_CONVERSATION_REVISION,
           sessionUsage: { promptTokens: 0, completionTokens: 0 },
           sessionTurnCount: 0,
           sessionLimits: {},
@@ -734,6 +754,7 @@ describe("handleSpecialCommand shell escape", () => {
           agent: testAgent,
           conversationHistory: [],
           conversationId: "test-session",
+          conversationRevision: EMPTY_CONVERSATION_REVISION,
           sessionUsage: { promptTokens: 0, completionTokens: 0 },
           sessionTurnCount: 0,
           sessionLimits: {},
@@ -755,6 +776,7 @@ describe("handleSpecialCommand /reasoning", () => {
     },
     conversationHistory: [],
     conversationId: "test-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -887,6 +909,7 @@ describe("handleSpecialCommand /compact", () => {
     agent: testAgent,
     conversationHistory: history,
     conversationId: "conv-compact",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -1126,6 +1149,7 @@ describe("handleSpecialCommand /tools", () => {
       agent: { ...testAgent, config: { ...testAgent.config, tools: ["http_request"] } },
       conversationHistory: [],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -1187,6 +1211,7 @@ describe("handleSpecialCommand /agents", () => {
       agent: testAgent,
       conversationHistory: [],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -1235,6 +1260,7 @@ describe("handleSpecialCommand /peers", () => {
       agent: testAgent,
       conversationHistory: [],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -1281,6 +1307,7 @@ describe("handleSpecialCommand /peers", () => {
       agent: testAgent,
       conversationHistory: [],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -1302,6 +1329,7 @@ describe("handleSpecialCommand /runPluginCommand", () => {
     agent: testAgent,
     conversationHistory: [],
     conversationId: "test-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -1377,6 +1405,7 @@ describe("handleSpecialCommand /mode", () => {
     agent: testAgent,
     conversationHistory: [],
     conversationId: "test-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},

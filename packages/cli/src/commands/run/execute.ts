@@ -1,6 +1,7 @@
 import {
   loadConversation,
-  saveConversation,
+  conversationRevision,
+  saveConversationOrFork,
   type Conversation,
   type ConversationToSave,
 } from "@jazz/adapters/history/conversation-history-service";
@@ -220,6 +221,7 @@ export function buildConversation(params: {
     agentId: params.agentId,
     startedAt: params.priorRecord?.startedAt ?? params.now,
     messages,
+    basedOn: conversationRevision(params.priorRecord?.messages ?? []),
   };
 }
 
@@ -519,7 +521,16 @@ export function runAgentOnceCommand(
       });
       // A failed save must not discard the answer the run already produced —
       // warn on stderr (stdout stays the clean payload) and continue.
-      yield* saveConversation(record).pipe(
+      yield* saveConversationOrFork(record).pipe(
+        Effect.tap((savedId) =>
+          savedId === conversationKey
+            ? Effect.void
+            : Effect.sync(() => {
+                process.stderr.write(
+                  `Warning: conversation "${conversationKey}" was saved elsewhere during this run, so the run was saved as "${savedId}".\n`,
+                );
+              }),
+        ),
         Effect.catchAll((error) =>
           Effect.sync(() => {
             process.stderr.write(

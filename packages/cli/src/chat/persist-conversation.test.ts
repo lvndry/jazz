@@ -3,7 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
+import {
+  EMPTY_CONVERSATION_REVISION,
+  loadConversation,
+  loadHistory,
+} from "@jazz/adapters/history/conversation-history-service";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
@@ -39,6 +43,7 @@ function makeInput(overrides: Partial<PersistConversationInput> = {}): PersistCo
     conversationId: "conv-1",
     agentId: "agent-1",
     startedAt: "2026-08-22T12:00:00.000Z",
+    basedOn: EMPTY_CONVERSATION_REVISION,
     ...overrides,
   };
 }
@@ -94,7 +99,8 @@ describe("persistConversationIfNeeded", () => {
     first.appendStream("response", "first answer");
     first.finalizeStream();
     const input = makeInput({ uiTranscript: first.getDocumentSnapshot().entries });
-    await runEffect(persistConversationIfNeeded(input, tmpDir));
+    const firstRevision = await runEffect(persistConversationIfNeeded(input, tmpDir));
+    if (firstRevision === null) throw new Error("Initial conversation was not saved");
     const saved = await runEffect(loadConversation(input.agentId, input.conversationId, tmpDir));
     if (saved?.uiTranscript === undefined) throw new Error("Initial document was not saved");
     const resumed = new UIStore();
@@ -104,7 +110,12 @@ describe("persistConversationIfNeeded", () => {
     resumed.finalizeStream();
     const entries = resumed.getDocumentSnapshot().entries;
     expect(new Set(entries.map((entry) => entry.id)).size).toBe(entries.length);
-    await runEffect(persistConversationIfNeeded({ ...input, uiTranscript: entries }, tmpDir));
+    await runEffect(
+      persistConversationIfNeeded(
+        { ...input, uiTranscript: entries, basedOn: firstRevision },
+        tmpDir,
+      ),
+    );
     expect(
       (await runEffect(loadConversation(input.agentId, input.conversationId, tmpDir)))
         ?.uiTranscript,
@@ -188,7 +199,8 @@ describe("persistConversationIfNeeded", () => {
 
   test("later turns upsert the same conversationId with the latest transcript", async () => {
     const firstTurn = makeInput();
-    await runEffect(persistConversationIfNeeded(firstTurn, tmpDir));
+    const firstRevision = await runEffect(persistConversationIfNeeded(firstTurn, tmpDir));
+    if (firstRevision === null) throw new Error("First turn was not saved");
 
     const laterHistory: ChatMessage[] = [
       ...firstTurn.conversationHistory,
@@ -199,6 +211,7 @@ describe("persistConversationIfNeeded", () => {
       persistConversationIfNeeded(
         makeInput({
           conversationHistory: laterHistory,
+          basedOn: firstRevision,
         }),
         tmpDir,
       ),

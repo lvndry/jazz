@@ -210,8 +210,13 @@ export interface Conversation {
   readonly uiTranscript?: readonly ConversationUiEntry[];
 }
 
-/** A conversation as handed to a save: the log stamps each message with when it was recorded. */
-export type ConversationToSave = Omit<Conversation, "lastMessageAt">;
+/**
+ * A conversation as handed to a save: the log stamps each message with when it was recorded,
+ * and refuses the save unless `basedOn` is the revision it holds.
+ */
+export type ConversationToSave = Omit<Conversation, "lastMessageAt"> & {
+  readonly basedOn: ConversationRevision;
+};
 
 /**
  * A conversation without its transcript.
@@ -688,6 +693,50 @@ function fingerprintAt(messages: readonly ChatMessage[], index: number): string 
   return message ? messageFingerprint(message) : "";
 }
 
+/**
+ * Which saved transcript a writer is building on: how many messages a reader sees and which
+ * one is last. A save names the revision it started from, and the log refuses it when the
+ * file has moved on since, so a writer can only replace history it has actually read.
+ */
+export interface ConversationRevision {
+  readonly messageCount: number;
+  readonly lastMessageFingerprint: string;
+}
+
+/** The revision of a transcript, counting only the messages a reader of the log sees. */
+export function conversationRevision(messages: readonly ChatMessage[]): ConversationRevision {
+  const recorded = messages.filter((message) => message.role !== "system");
+  return {
+    messageCount: recorded.length,
+    lastMessageFingerprint: fingerprintAt(recorded, recorded.length - 1),
+  };
+}
+
+/** The revision of a conversation that has no saved messages, or no log at all. */
+export const EMPTY_CONVERSATION_REVISION: ConversationRevision = conversationRevision([]);
+
+function sameRevision(left: ConversationRevision, right: ConversationRevision): boolean {
+  return (
+    left.messageCount === right.messageCount &&
+    left.lastMessageFingerprint === right.lastMessageFingerprint
+  );
+}
+
+/**
+ * A save built on a transcript the log no longer holds: another session, run or process
+ * saved this conversation after the writer read it, or the writer never read it at all.
+ * Nothing is written, so the writer can keep its work under another conversation instead.
+ */
+export class ConversationChangedError extends Error {
+  readonly conversationId: string;
+
+  constructor(conversationId: string) {
+    super(`Conversation ${conversationId} was saved elsewhere since this copy of it was read`);
+    this.name = "ConversationChangedError";
+    this.conversationId = conversationId;
+  }
+}
+
 /** Entries are immutable source facts, so unchanged entries need no repeat serialization. */
 const uiEntryFingerprints = new WeakMap<ConversationUiEntry, string>();
 const validatedUiEntries = new WeakSet<ConversationUiEntry>();
@@ -880,6 +929,8 @@ export interface ConversationTranscriptInput {
   readonly startedAt: string;
   readonly messages: readonly ChatMessage[];
   readonly uiTranscript?: readonly ConversationUiEntry[];
+  /** The saved revision these messages were built on; see {@link ConversationRevision}. */
+  readonly basedOn: ConversationRevision;
 }
 
 /**
@@ -891,11 +942,15 @@ export interface ConversationTranscriptInput {
  * transcript are appended instead. The UI scrollback is compared the same way: new entries
  * are appended as `ui-append`, and a scrollback that no longer extends the logged one is
  * written as a fresh `ui-transcript` snapshot.
+ *
+ * A save whose `basedOn` is not the log's current revision fails with
+ * {@link ConversationChangedError} and writes nothing: replacing history is only allowed for
+ * a writer that read it. Succeeds with the revision the log now holds, for the next save.
  */
 export function recordConversationTranscript(
   input: ConversationTranscriptInput,
   historyDirectory?: string,
-): Effect.Effect<void, Error, FileSystem.FileSystem> {
+): Effect.Effect<ConversationRevision, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const logPath = conversationLogPath(input.agentId, input.conversationId, historyDirectory);
@@ -936,6 +991,16 @@ export function recordConversationTranscript(
 
     const loaded = yield* loadAppendState(fs, logPath);
 
+    const savedRevision: ConversationRevision = loaded.state
+      ? {
+          messageCount: loaded.state.messageCount,
+          lastMessageFingerprint: loaded.state.lastMessageFingerprint,
+        }
+      : EMPTY_CONVERSATION_REVISION;
+    if (!sameRevision(input.basedOn, savedRevision)) {
+      return yield* Effect.fail(new ConversationChangedError(input.conversationId));
+    }
+
     let state = loaded.state;
     const chunks: string[] = [];
     if (loaded.needsLeadingNewline) chunks.push("\n");
@@ -961,13 +1026,9 @@ export function recordConversationTranscript(
       };
     }
 
-    // A save with no messages for a log that has some comes from a session that never loaded
-    // them; recording it would hide everything said so far behind an empty rewrite.
-    const keepsSavedMessages = messages.length === 0 && state.messageCount > 0;
     const prefixHolds =
-      keepsSavedMessages ||
-      (messages.length >= state.messageCount &&
-        fingerprintAt(messages, state.messageCount - 1) === state.lastMessageFingerprint);
+      messages.length >= state.messageCount &&
+      fingerprintAt(messages, state.messageCount - 1) === state.lastMessageFingerprint;
 
     const now = new Date().toISOString();
     let firstNewMessage = state.messageCount;
@@ -1019,15 +1080,14 @@ export function recordConversationTranscript(
       rememberAppendState(logPath, {
         identity,
         state: {
-          messageCount: keepsSavedMessages ? state.messageCount : messages.length,
-          lastMessageFingerprint: keepsSavedMessages
-            ? state.lastMessageFingerprint
-            : fingerprintAt(messages, messages.length - 1),
+          messageCount: messages.length,
+          lastMessageFingerprint: fingerprintAt(messages, messages.length - 1),
           title: nextTitle,
           uiEntryCount,
           uiEntryFingerprints: nextUiEntryFingerprints,
         },
       });
     }
+    return conversationRevision(messages);
   });
 }

@@ -8,7 +8,11 @@ import { test, expect } from "bun:test";
 import { Effect } from "effect";
 import { enqueueDetachedJob, readDetachedJob } from "./job";
 import { createDetachSnapshot, importDetachSnapshot, verifyDetachSnapshot } from "./snapshot";
-import { loadConversation } from "../history/conversation-history-service";
+import {
+  conversationRevision,
+  EMPTY_CONVERSATION_REVISION,
+  loadConversation,
+} from "../history/conversation-history-service";
 
 test("local handoff preserves Git state and conversation through a queued remote continuation", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-handoff-integration-"));
@@ -57,7 +61,7 @@ test("local handoff preserves Git state and conversation through a queued remote
       handoffId,
       workspaceRoot: sourceWorkspace,
       bundleDirectory: outbound,
-      history: originalMessages,
+      history: { messages: originalMessages, basedOn: EMPTY_CONVERSATION_REVISION },
     });
     await verifyDetachSnapshot(outbound);
 
@@ -121,7 +125,7 @@ test("local handoff preserves Git state and conversation through a queued remote
       handoffId: "return-int",
       workspaceRoot: remoteWorkspace,
       bundleDirectory: inbound,
-      history: completedMessages,
+      history: { messages: completedMessages, basedOn: conversationRevision(originalMessages) },
     });
     await verifyDetachSnapshot(inbound);
 

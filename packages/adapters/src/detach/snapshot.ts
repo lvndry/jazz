@@ -20,9 +20,11 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 import {
+  conversationRevision,
   loadConversation,
   saveConversation,
   type Conversation,
+  type ConversationRevision,
   type ConversationToSave,
 } from "../history/conversation-history-service";
 import { BUILTIN_PERSONA_NAMES } from "../persona-service";
@@ -65,8 +67,14 @@ export interface CreateDetachSnapshotInput {
   readonly workspaceRoot: string;
   readonly handoffId: string;
   readonly bundleDirectory: string;
-  /** Exact latest terminal history, if the disk log has not yet caught up. */
-  readonly history?: readonly ChatMessage[];
+  /**
+   * Exact latest terminal history, if the disk log has not yet caught up, with the saved
+   * revision the terminal built it on.
+   */
+  readonly history?: {
+    readonly messages: readonly ChatMessage[];
+    readonly basedOn: ConversationRevision;
+  };
 }
 
 function requireId(id: string, label: string): void {
@@ -329,8 +337,9 @@ export async function createDetachSnapshot(
       conversationId: input.conversationId,
       title: prior?.title ?? "",
       startedAt: prior?.startedAt ?? new Date().toISOString(),
-      messages: [...input.history],
+      messages: [...input.history.messages],
       ...(prior?.uiTranscript !== undefined ? { uiTranscript: prior.uiTranscript } : {}),
+      basedOn: input.history.basedOn,
     };
     await Effect.runPromise(
       saveConversation(conversation).pipe(Effect.provide(NodeFileSystem.layer)),
@@ -697,8 +706,15 @@ export async function importDetachSnapshot(input: {
     await fs.copyFile(source, destination);
     await fs.chmod(destination, 0o600);
   }
+  const imported = history as Conversation;
   await Effect.runPromise(
-    saveConversation(history as Conversation).pipe(Effect.provide(NodeFileSystem.layer)),
+    Effect.gen(function* () {
+      const existing = yield* loadConversation(imported.agentId, imported.conversationId);
+      yield* saveConversation({
+        ...imported,
+        basedOn: conversationRevision(existing?.messages ?? []),
+      });
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
   return manifest;
 }
@@ -842,10 +858,13 @@ export async function applyDetachResult(input: {
   }
   await Effect.runPromise(
     saveConversation(
-      withRemoteTurnsInUiTranscript(
-        handedOff,
-        withHandedOffEgressTaint(handedOff, withoutRemoteMemorySources(handedOff, history)),
-      ),
+      {
+        ...withRemoteTurnsInUiTranscript(
+          handedOff,
+          withHandedOffEgressTaint(handedOff, withoutRemoteMemorySources(handedOff, history)),
+        ),
+        basedOn: conversationRevision(handedOff.messages),
+      },
       undefined,
       {
         fenceHeldBy: initial.handoffId,

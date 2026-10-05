@@ -10,6 +10,7 @@
  */
 import type { FileSystem } from "@effect/platform";
 import {
+  conversationRevision,
   loadConversation,
   loadConversationOrNull,
   loadHistory,
@@ -65,12 +66,20 @@ export function handleRenameCommand(
           ...(loaded.right?.uiTranscript !== undefined
             ? { uiTranscript: loaded.right.uiTranscript }
             : {}),
+          basedOn: context.conversationRevision,
         }),
       );
       if (saved._tag === "Left") {
         yield* terminal.error(`Could not rename conversation: ${saved.left.message}`);
         return { shouldContinue: true, skipTranscriptRepaint: true };
       }
+      yield* terminal.success(`Renamed conversation: ${title}`);
+      return {
+        shouldContinue: true,
+        newConversationTitle: title,
+        conversationRevision: saved.right,
+        skipTranscriptRepaint: true,
+      };
     }
     yield* terminal.success(`Renamed conversation: ${title}`);
     return { shouldContinue: true, newConversationTitle: title, skipTranscriptRepaint: true };
@@ -230,6 +239,7 @@ export function handleResumeCommand(
     return {
       shouldContinue: true,
       newConversationId: selected.conversationId,
+      conversationRevision: conversationRevision(conversation.messages),
       newHistory,
       newConversationTitle: conversation.title,
       ...(conversation.uiTranscript?.length ? { newUiTranscript: conversation.uiTranscript } : {}),

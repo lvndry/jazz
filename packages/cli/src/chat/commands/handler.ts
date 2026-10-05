@@ -8,7 +8,10 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { loadConversationOrNull } from "@jazz/adapters/history/conversation-history-service";
+import {
+  conversationRevision,
+  loadConversationOrNull,
+} from "@jazz/adapters/history/conversation-history-service";
 import { getLogsDirectory } from "@jazz/adapters/logger";
 import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
 import {
@@ -370,7 +373,10 @@ function handleDetachCommand(
         prepareDetachTransfer({
           agentId: context.agent.id,
           conversationId: context.conversationId,
-          history: context.conversationHistory,
+          history: {
+            messages: context.conversationHistory,
+            basedOn: context.conversationRevision,
+          },
           hostName,
           cwd,
           continuation: continuation.trim(),
@@ -383,6 +389,8 @@ function handleDetachCommand(
     }
 
     const preview = prepared.right;
+    // Preparing saved the terminal's history, so the log now holds exactly these messages.
+    const savedRevision = conversationRevision(context.conversationHistory);
     const shownFiles = preview.manifest.entries.slice(0, DETACH_FILES_SHOWN);
     const hiddenFiles = preview.manifest.entries.length - shownFiles.length;
     yield* terminal.log(
@@ -431,7 +439,7 @@ function handleDetachCommand(
         yield* terminal.warn(`Could not remove the staged copy: ${String(canceled.left)}`);
       }
       yield* terminal.info("Detach cancelled. This conversation remains local.");
-      return { shouldContinue: true };
+      return { shouldContinue: true, conversationRevision: savedRevision };
     }
 
     yield* terminal.info("Transferring and starting the remote run…");
@@ -447,7 +455,7 @@ function handleDetachCommand(
         yield* terminal.info(
           "The transfer stopped before remote ownership. This conversation is still local.",
         );
-        return { shouldContinue: true };
+        return { shouldContinue: true, conversationRevision: savedRevision };
       }
       yield* terminal.warn(
         `Check jazz detach status ${preview.handoffId} before retrying; remote ownership may be uncertain.`,

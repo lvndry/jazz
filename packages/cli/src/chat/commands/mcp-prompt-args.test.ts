@@ -1,3 +1,4 @@
+import { EMPTY_CONVERSATION_REVISION } from "@jazz/adapters/history/conversation-history-service";
 import { MCPServerManagerTag, type MCPServerManager } from "@jazz/core/interfaces/mcp-server";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/agent";
@@ -16,6 +17,7 @@ const context: CommandContext = {
   agent,
   conversationHistory: [],
   conversationId: "c",
+  conversationRevision: EMPTY_CONVERSATION_REVISION,
   sessionUsage: { promptTokens: 0, completionTokens: 0 },
   sessionTurnCount: 0,
   sessionLimits: {},

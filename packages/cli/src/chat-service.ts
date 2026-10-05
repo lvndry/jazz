@@ -15,7 +15,11 @@ import {
 import { getOwnedGoal } from "@jazz/adapters/goals/goal-actions";
 import { claimChatGoalTurn, settleChatGoalTurn } from "@jazz/adapters/goals/goal-worker";
 import {
+  ConversationChangedError,
+  conversationRevision,
+  EMPTY_CONVERSATION_REVISION,
   loadConversationOrNull,
+  type ConversationRevision,
   type ConversationUiEntry,
 } from "@jazz/adapters/history/conversation-history-service";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
@@ -294,6 +298,9 @@ export class ChatServiceImpl implements ChatService {
         );
       }
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
+      // The saved transcript this session builds on. Every save names it, so the session can
+      // only replace history it has read; a log saved elsewhere since makes the save fork.
+      let savedRevision: ConversationRevision = conversationRevision(conversationHistory);
       let conversationTitle = ephemeral
         ? undefined
         : (yield* loadConversationOrNull(agent.id, conversationId))?.title;
@@ -374,10 +381,37 @@ export class ChatServiceImpl implements ChatService {
             ...(saveOptions.uiTranscript !== undefined
               ? { uiTranscript: saveOptions.uiTranscript }
               : {}),
+            basedOn: savedRevision,
           },
           undefined,
           saveOptions.housekeeping === false ? { housekeeping: false } : undefined,
         ).pipe(
+          Effect.tap((revision) =>
+            Effect.sync(() => {
+              if (revision !== null) savedRevision = revision;
+            }),
+          ),
+          Effect.asVoid,
+          Effect.catchIf(
+            (error) => error instanceof ConversationChangedError,
+            () =>
+              Effect.gen(function* () {
+                const changedId = conversationId;
+                conversationId = generateConversationId();
+                savedRevision = EMPTY_CONVERSATION_REVISION;
+                store.setCurrentConversation({ agentId: agent.id, conversationId });
+                yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
+                yield* logger.warn("Conversation saved elsewhere; continuing as a new one", {
+                  changedConversationId: changedId,
+                  conversationId,
+                });
+                yield* terminal.warn(
+                  "This conversation was also saved from somewhere else, so this session " +
+                    "continues as a new conversation. Nothing was overwritten.",
+                );
+                yield* saveSession(history, saveOptions);
+              }),
+          ),
           Effect.catchAll((error) =>
             Effect.gen(function* () {
               yield* logger.error("Conversation save failed", {
@@ -473,6 +507,7 @@ export class ChatServiceImpl implements ChatService {
         agent,
         conversationId,
         conversationTitle,
+        conversationRevision: savedRevision,
         ephemeral,
         conversationHistory,
         queuedAfterCommand: store.peekQueue().length > 0,
@@ -695,11 +730,13 @@ export class ChatServiceImpl implements ChatService {
 
             // A command that switches conversations brings the next conversation's title; it is
             // applied with the switch below, so the conversation being left is saved under its own.
-            if (
-              commandResult.newConversationTitle !== undefined &&
-              commandResult.newConversationId === undefined
-            ) {
-              conversationTitle = commandResult.newConversationTitle;
+            if (commandResult.newConversationId === undefined) {
+              if (commandResult.newConversationTitle !== undefined) {
+                conversationTitle = commandResult.newConversationTitle;
+              }
+              if (commandResult.conversationRevision !== undefined) {
+                savedRevision = commandResult.conversationRevision;
+              }
             }
 
             // Slash commands are UI interactions, not model turns. Snapshot the rendered
@@ -722,6 +759,7 @@ export class ChatServiceImpl implements ChatService {
               }
               conversationId = commandResult.newConversationId;
               conversationTitle = commandResult.newConversationTitle;
+              savedRevision = commandResult.conversationRevision ?? EMPTY_CONVERSATION_REVISION;
               if (!ephemeral) {
                 yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
                 yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
@@ -752,6 +790,8 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newAgent !== undefined) {
               agent = commandResult.newAgent;
+              // Conversations are kept per agent, so the next save starts this one's log.
+              savedRevision = EMPTY_CONVERSATION_REVISION;
               store.updateRunStats({
                 provider: agent.config.llm.provider,
                 model: agent.config.llm.model,

@@ -51,6 +51,7 @@ import { claimOwnerStatus, inFlight } from "@/adapters/runs/runs-in-flight";
 import {
   loadConversationOrNull,
   saveRunTranscript,
+  type Conversation,
 } from "@jazz/adapters/history/conversation-history-service";
 
 /** A goal without a name is shown by the start of its id, as `jazz goal` commands accept it. */
@@ -106,10 +107,14 @@ function writeGoal(goal: GoalRecord, next: GoalRecordInput, purpose: string) {
   });
 }
 
-function saveGoalTranscript(goal: GoalRecord, messages: readonly ChatMessage[]) {
+/** `prior` is the conversation as the cycle loaded it before running, which the save builds on. */
+function saveGoalTranscript(
+  goal: GoalRecord,
+  prior: Conversation | null,
+  messages: readonly ChatMessage[],
+) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
     yield* saveRunTranscript({
       agentId: goal.agentId,
       conversationId: goal.conversationId,
@@ -400,10 +405,12 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string) {
       }),
     );
     if (outcome.kind === "finished" && outcome.response.interrupted === true) {
-      yield* settleInterruptedCycle(goal, runId, outcome.response.messages ?? []);
+      yield* settleInterruptedCycle(goal, runId, outcome.response.messages ?? [], {
+        saveOnto: prior,
+      });
       return "interrupted";
     }
-    yield* settleRunOutcome(goal, runId, outcome);
+    yield* settleRunOutcome(goal, runId, outcome, { saveOnto: prior });
     return "settled";
   });
 }
@@ -414,22 +421,23 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string) {
  * transcript. A cancel already recorded on the cycle still wins.
  */
 /**
- * Where a settled cycle's transcript goes: the worker saves it to the goal's conversation, but a
- * turn the chat ran is already in the chat's conversation, which the chat saves itself.
+ * Where a settled cycle's transcript goes: the worker saves it to the goal's conversation,
+ * building on the conversation as the cycle loaded it, but a turn the chat ran is already in
+ * the chat's conversation, which the chat saves itself.
  */
-type CycleTranscript = "save" | "chat-owned";
+type CycleTranscript = { readonly saveOnto: Conversation | null } | "chat-owned";
 
 function settleInterruptedCycle(
   goal: GoalRecord,
   runId: string,
   messages: readonly ChatMessage[],
-  transcript: CycleTranscript = "save",
+  transcript: CycleTranscript,
 ) {
   return Effect.gen(function* () {
     const goals = yield* GoalStoreTag;
     const runs = yield* RunStoreTag;
-    if (transcript === "save" && messages.length > 0) {
-      yield* saveGoalTranscript(goal, messages);
+    if (transcript !== "chat-owned" && messages.length > 0) {
+      yield* saveGoalTranscript(goal, transcript.saveOnto, messages);
     }
     const current = yield* goals.get(goal.goalId);
     const cycle = current?.cycle;
@@ -521,12 +529,12 @@ function settleRunOutcome(
   goal: GoalRecord,
   runId: string,
   outcome: RunOutcome<AgentResponse>,
-  transcript: CycleTranscript = "save",
+  transcript: CycleTranscript,
 ) {
   return Effect.gen(function* () {
     if (outcome.kind === "parked") {
-      if (transcript === "save" && outcome.park.messages !== undefined) {
-        yield* saveGoalTranscript(goal, outcome.park.messages);
+      if (transcript !== "chat-owned" && outcome.park.messages !== undefined) {
+        yield* saveGoalTranscript(goal, transcript.saveOnto, outcome.park.messages);
       }
       yield* settleParkedCycle(goal.goalId, runId);
       return;
@@ -536,8 +544,8 @@ function settleRunOutcome(
       return;
     }
     const messages = outcome.response.messages ?? [];
-    if (transcript === "save") {
-      yield* saveGoalTranscript(goal, messages);
+    if (transcript !== "chat-owned") {
+      yield* saveGoalTranscript(goal, transcript.saveOnto, messages);
     }
     yield* finishCycle(goal.goalId, runId, cycleMessages(messages, runId));
   });
@@ -744,11 +752,12 @@ export function resumeGoalRun(options: ResumeRunOptions) {
         reason: `Goal ${goal.goalId} changed while answering; check /goal list and retry.`,
       } as const;
     }
+    const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
     const outcome = yield* inFlight(
       options.runId,
       Effect.gen(function* () {
         const settled = yield* runToOutcome(resumeRun({ ...options, startedBy: "goal" }));
-        yield* settleRunOutcome(working.right, options.runId, settled);
+        yield* settleRunOutcome(working.right, options.runId, settled, { saveOnto: prior });
         return settled;
       }),
     );

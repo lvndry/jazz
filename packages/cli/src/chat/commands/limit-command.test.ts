@@ -1,3 +1,4 @@
+import { EMPTY_CONVERSATION_REVISION } from "@jazz/adapters/history/conversation-history-service";
 import {
   isTerminalReport,
   report,
@@ -29,6 +30,7 @@ function baseContext(overrides: Partial<CommandContext> = {}): CommandContext {
     agent: testAgent,
     conversationHistory: [],
     conversationId: "c",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},

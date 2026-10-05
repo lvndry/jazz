@@ -86,7 +86,12 @@ mid-run tells you nothing about the turn in flight. Use the daemon or `--watch` 
 A chat conversation is saved as the turn goes: your message before the first model call, then
 after every step (a model response and the tool results it asked for), and again when the turn
 ends or the process is stopped with Ctrl+C or SIGTERM. A turn killed outright keeps everything up
-to its last finished step. `/resume` dates each conversation by its newest message.
+to its last finished step. `/resume` dates each conversation by its newest message, and switches
+the chat to the conversation you pick, so later turns are saved into that conversation.
+
+A save only replaces history it has read. If the same conversation is saved from somewhere else
+while you are in it (a second terminal, a goal or loop run, `jazz run --conversation`), your next
+save goes to a new conversation instead, and Jazz tells you. Both copies keep everything.
 
 Telemetry is the exception: it is written as events happen, whether or not you export anywhere.
 See [observability](../configure/observability.md).
