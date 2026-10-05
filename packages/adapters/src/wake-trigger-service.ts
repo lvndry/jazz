@@ -27,7 +27,7 @@ import { type DeliveryOutcome, hasStoppedRetrying } from "@jazz/core/utils/deliv
 import { toError } from "@jazz/core/utils/errors";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
-import { recordListKind, writeStateFile } from "@jazz/core/utils/state-file";
+import { readStateFile, recordListKind, writeStateFile } from "@jazz/core/utils/state-file";
 import { requireValidAgentId, withLock } from "@jazz/core/utils/storage";
 import { parseWhen } from "@jazz/core/utils/time";
 import {
@@ -42,6 +42,7 @@ import {
   readItemsLocked,
   type ScheduledItemClaim,
   type ScheduledItemStore,
+  scheduledItemClaimable,
   settleItem,
 } from "@/adapters/storage/scheduled-items";
 
@@ -81,6 +82,7 @@ export const WAKE_TRIGGER_STORE: ScheduledItemStore<WakeTriggerRecord> = {
   kind: WAKE_TRIGGER_FILE_KIND,
   filePath: wakeTriggerFilePath,
   lockPath: wakeTriggerLockPath,
+  conversationOf: (trigger) => trigger.conversationId,
 };
 
 function readWakeTriggerFile(filePath: string): Effect.Effect<WakeTriggerRecord[], Error> {
@@ -285,6 +287,33 @@ export function claimDueWakeTriggers(
     }
     return claims;
   });
+}
+
+/** The due wake triggers of one conversation that this process may fire now, earliest first. */
+export function listDueConversationWakeTriggers(
+  baseWakeTriggerDirectory: string,
+  agentId: string,
+  conversationId: string,
+  now: number = Date.now(),
+): Effect.Effect<readonly WakeTriggerRecord[]> {
+  return readStateFile(
+    wakeTriggerFilePath(baseWakeTriggerDirectory, agentId),
+    WAKE_TRIGGER_FILE_KIND,
+    {
+      onCorrupt: "fail",
+    },
+  ).pipe(
+    Effect.map((triggers) =>
+      (triggers ?? [])
+        .filter(
+          (trigger) =>
+            trigger.conversationId === conversationId &&
+            scheduledItemClaimable(WAKE_TRIGGER_STORE, agentId, trigger, now),
+        )
+        .sort((left, right) => left.fireAt - right.fireAt),
+    ),
+    Effect.catchAll(() => Effect.succeed([])),
+  );
 }
 
 /** Claim one wake trigger by id; undefined when it is gone or already being fired. */

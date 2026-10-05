@@ -18,6 +18,7 @@ import {
   completeJob,
   jobClaimKey,
   listAgentIdsWithActiveBatches,
+  listUndeliveredAgentBatches,
   listUndeliveredBatches,
   nextClaimableAt,
   reclaimExpiredLeases,
@@ -47,7 +48,7 @@ import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Cause, Duration, Effect, Exit, Schedule } from "effect";
 import { runUnattendedTurn } from "@/daemon/unattended-resume";
 
-function jobBatchDirectory(): string {
+export function jobBatchDirectory(): string {
   return `${getJazzHomeDirectory()}/job-batches`;
 }
 
@@ -120,9 +121,41 @@ export function deliverBatchFanIn(agentId: string, batchId: string) {
     const outcome: DeliveryOutcome = Exit.isSuccess(exit)
       ? exit.value
       : { delivered: false, error: Cause.pretty(exit.cause), retryable: true };
+    yield* finishBatchFanIn(agentId, batchId, outcome);
+  });
+}
+
+/**
+ * Settle a claimed fan-in with how its turn ended, and archive the batch once delivered. Every
+ * deliverer calls this: the unattended turn here, and a chat that ran the turn itself.
+ */
+export function finishBatchFanIn(agentId: string, batchId: string, outcome: DeliveryOutcome) {
+  return Effect.gen(function* () {
+    const baseDirectory = jobBatchDirectory();
     yield* settleBatchFanIn(baseDirectory, agentId, batchId, outcome);
     if (outcome.delivered) {
       yield* archiveBatch(baseDirectory, agentId, batchId).pipe(Effect.catchAll(() => Effect.void));
+    }
+  });
+}
+
+/**
+ * Deliver every fan-in of this agent that is still owed: a batch a chat held until it closed,
+ * or one whose worker died between recording the last job and delivering it.
+ */
+function deliverOwedAgentFanIns(agentId: string) {
+  return Effect.gen(function* () {
+    const owed = yield* listUndeliveredAgentBatches(jobBatchDirectory(), agentId, Date.now());
+    for (const batch of owed) {
+      yield* deliverBatchFanIn(agentId, batch.id).pipe(
+        Effect.catchAllCause((cause) =>
+          Effect.sync(() => {
+            process.stderr.write(
+              `jazz job batch ${batch.id} fan-in failed: ${Cause.pretty(cause)}\n`,
+            );
+          }),
+        ),
+      );
     }
   });
 }
@@ -343,11 +376,15 @@ export function drainAgentJobs(agentId: string) {
       const nextAt = yield* nextClaimableAt(baseDirectory, agentId).pipe(
         Effect.catchAll(() => Effect.succeed(null)),
       );
-      if (nextAt === null) return;
+      if (nextAt === null) {
+        yield* deliverOwedAgentFanIns(agentId);
+        return;
+      }
 
       const waitMs = nextAt - Date.now();
       if (waitMs <= 0) {
         // Claimable by the clock but not claimed — another worker holds it. Nothing to do here.
+        yield* deliverOwedAgentFanIns(agentId);
         return;
       }
       yield* Effect.sleep(Duration.millis(Math.min(waitMs, DEFAULT_BACKOFF_MAX_MS)));

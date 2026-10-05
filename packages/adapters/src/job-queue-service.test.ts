@@ -21,6 +21,7 @@ import {
   listAgentIdsWithActiveBatches,
   JobQueueServiceImpl,
   listUndeliveredBatches,
+  listUndeliveredConversationBatches,
   nextClaimableAt,
   reclaimExpiredLeases,
   recordJobProgress,
@@ -449,6 +450,42 @@ describe("fan-in delivery", () => {
     expect(delivered?.deliveredAt).not.toBeNull();
     expect(delivered?.fanIn).toBeUndefined();
     expect(await runEffect(listUndeliveredBatches(tmpDir))).toEqual([]);
+  });
+
+  /**
+   * The regression: a batch finishing while its conversation was open in a chat resumed it as an
+   * unattended turn, which parked on an approval the chat never showed.
+   */
+  test("a batch whose conversation is open in another process's chat is left to that chat", async () => {
+    const batchId = await completedBatch();
+    const attachments = path.join(tmpDir, "chat-attachments");
+    fs.mkdirSync(path.join(attachments, "agent-1"), { recursive: true });
+    const attachment = path.join(attachments, "agent-1", "conv-1.json");
+    fs.writeFileSync(attachment, JSON.stringify({ pid: process.ppid, host: os.hostname() }));
+
+    const now = Date.now();
+    expect(
+      await runEffect(claimBatchFanIn(tmpDir, "agent-1", batchId, now, attachments)),
+    ).toBeNull();
+    expect(
+      await runEffect(
+        listUndeliveredConversationBatches(tmpDir, "agent-1", "conv-1", now, attachments),
+      ),
+    ).toEqual([]);
+
+    fs.rmSync(attachment);
+    const owed = await runEffect(
+      listUndeliveredConversationBatches(tmpDir, "agent-1", "conv-1", now, attachments),
+    );
+    expect(owed.map((batch) => batch.id)).toEqual([batchId]);
+    expect(
+      await runEffect(
+        listUndeliveredConversationBatches(tmpDir, "agent-1", "conv-2", now, attachments),
+      ),
+    ).toEqual([]);
+    expect(
+      await runEffect(claimBatchFanIn(tmpDir, "agent-1", batchId, now, attachments)),
+    ).not.toBeNull();
   });
 
   test("a batch completed before fan-in delivery existed reads as delivered", async () => {

@@ -73,6 +73,7 @@ import {
   withLock,
 } from "@jazz/core/utils/storage";
 import { Effect, Layer, Option } from "effect";
+import { chatAttachmentDirectory, heldByChatElsewhere } from "@/adapters/chat-attachments";
 import { claimOwnerStatus, clearInFlight, markInFlight } from "@/adapters/runs/runs-in-flight";
 
 /** Raised for guardrail violations — genuinely unexpected conditions, not tool-result-shaped errors. */
@@ -818,30 +819,41 @@ function fanInClaimKey(batchId: string): string {
   return `fan-in:${batchId}`;
 }
 
-function fanInClaimable(batch: JobBatchRecord, now: number): boolean {
+/**
+ * Whether this process may claim the batch's fan-in now. A batch whose conversation is open in
+ * another process's chat is that chat's to deliver, in front of the user.
+ */
+export function fanInClaimable(
+  batch: JobBatchRecord,
+  now: number,
+  chatAttachments: string = chatAttachmentDirectory(),
+): boolean {
   return (
     batch.completedAt !== null &&
     batch.deliveredAt === null &&
-    isClaimable(batch.fanIn, now, (owner) => claimOwnerStatus(owner, fanInClaimKey(batch.id)))
+    isClaimable(batch.fanIn, now, (owner) => claimOwnerStatus(owner, fanInClaimKey(batch.id))) &&
+    !heldByChatElsewhere(batch.agentId, batch.conversationId, chatAttachments)
   );
 }
 
 /**
  * Claim a completed batch's fan-in delivery (the resume turn), or null when it is delivered,
- * not complete, waiting out a retry, or being delivered by another live process.
+ * not complete, waiting out a retry, being delivered by another live process, or held by a chat
+ * open on its conversation in another process.
  */
 export function claimBatchFanIn(
   baseJobBatchDirectory: string,
   agentId: string,
   batchId: string,
   now: number = Date.now(),
+  chatAttachments: string = chatAttachmentDirectory(),
 ): Effect.Effect<JobBatchRecord | null, Error> {
   return withLock(
     batchLockPath(baseJobBatchDirectory, agentId, batchId),
     Effect.gen(function* () {
       const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
       const batch = yield* readBatchFile(filePath);
-      if (batch === null || !fanInClaimable(batch, now)) {
+      if (batch === null || !fanInClaimable(batch, now, chatAttachments)) {
         return null;
       }
       const claimed: JobBatchRecord = {
@@ -901,21 +913,55 @@ export function listUndeliveredBatches(
     const agentIds = yield* listAgentIdsWithActiveBatches(baseJobBatchDirectory);
     const due: Array<{ readonly agentId: string; readonly batchId: string }> = [];
     for (const agentId of agentIds) {
-      const names = yield* Effect.tryPromise({
-        try: () => nodeFs.readdir(agentDirectory(baseJobBatchDirectory, agentId)),
-        catch: toError,
-      }).pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
-      for (const name of names) {
-        if (!name.endsWith(".json")) continue;
-        const batchId = name.slice(0, -".json".length);
-        const batch = yield* peekBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId));
-        if (batch !== null && batch !== "corrupt" && fanInClaimable(batch, now)) {
-          due.push({ agentId, batchId });
-        }
+      const batches = yield* listUndeliveredAgentBatches(baseJobBatchDirectory, agentId, now);
+      for (const batch of batches) {
+        due.push({ agentId, batchId: batch.id });
       }
     }
     return due;
   });
+}
+
+/** The batches of one agent whose fan-in this process may deliver now. */
+export function listUndeliveredAgentBatches(
+  baseJobBatchDirectory: string,
+  agentId: string,
+  now: number,
+  chatAttachments: string = chatAttachmentDirectory(),
+): Effect.Effect<JobBatchRecord[]> {
+  return Effect.gen(function* () {
+    const names = yield* Effect.tryPromise({
+      try: () => nodeFs.readdir(agentDirectory(baseJobBatchDirectory, agentId)),
+      catch: toError,
+    }).pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+    const due: JobBatchRecord[] = [];
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      const batchId = name.slice(0, -".json".length);
+      const batch = yield* peekBatchFile(batchFilePath(baseJobBatchDirectory, agentId, batchId));
+      if (batch !== null && batch !== "corrupt" && fanInClaimable(batch, now, chatAttachments)) {
+        due.push(batch);
+      }
+    }
+    return due;
+  });
+}
+
+/** The batches of one conversation whose fan-in this process may deliver now, oldest first. */
+export function listUndeliveredConversationBatches(
+  baseJobBatchDirectory: string,
+  agentId: string,
+  conversationId: string,
+  now: number = Date.now(),
+  chatAttachments: string = chatAttachmentDirectory(),
+): Effect.Effect<readonly JobBatchRecord[]> {
+  return listUndeliveredAgentBatches(baseJobBatchDirectory, agentId, now, chatAttachments).pipe(
+    Effect.map((batches) =>
+      batches
+        .filter((batch) => batch.conversationId === conversationId)
+        .sort((left, right) => (left.completedAt ?? 0) - (right.completedAt ?? 0)),
+    ),
+  );
 }
 
 export interface ReclaimedBatchCompletion {
