@@ -5,9 +5,13 @@
 
 import { Effect } from "effect";
 import { z } from "zod";
-import { readOffloadedToolResult } from "@/core/agent/context/tool-result-offload";
+import {
+  readOffloadedToolResult,
+  readOffloadedToolResultProvenance,
+} from "@/core/agent/context/tool-result-offload";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { VERY_WIDE_PAYLOAD_MAX_CHARS } from "@/core/utils/tool-result-formatter";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 const DAYS = [
@@ -104,9 +108,23 @@ export function createContextInfoTool(): Tool<never> {
   };
 }
 
+/**
+ * One page of a retrieved body: the widest budget the conversation gives a text result, less
+ * room for the line saying where the next page starts.
+ */
+export const RETRIEVE_PAGE_CHARS = VERY_WIDE_PAYLOAD_MAX_CHARS - 1_000;
+
 const retrieveToolResultParameters = z
   .object({
-    tool_call_id: z.string().min(1).describe("From the offloaded placeholder."),
+    tool_call_id: z.string().min(1).describe("From the offloaded placeholder or the cut result."),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe(
+        "Character to start reading from, default 0; the previous page names the next one.",
+      ),
   })
   .strict();
 
@@ -125,7 +143,7 @@ export function createRetrieveToolResultTool(): Tool<never> {
     name: "retrieve_tool_result",
     disclosure: "private",
     description:
-      "Read back a tool result that was offloaded from context. If nothing is stored, rerun the original tool.",
+      "Read back a tool result that was offloaded from context or cut to fit it, a page at a time. If nothing is stored, rerun the original tool.",
     parameters: retrieveToolResultParameters,
     riskLevel: "read-only",
     egress: false,
@@ -157,7 +175,35 @@ export function createRetrieveToolResultTool(): Tool<never> {
           } satisfies ToolExecutionResult;
         }
 
-        return { success: true, result: contents } satisfies ToolExecutionResult;
+        const untrusted = yield* readOffloadedToolResultProvenance(
+          context.agentId,
+          conversationId,
+          args.tool_call_id,
+          contents,
+        );
+        const provenance = untrusted !== undefined ? { untrusted } : {};
+        const offset = args.offset ?? 0;
+        if (offset === 0 && contents.length <= RETRIEVE_PAGE_CHARS) {
+          return { success: true, result: contents, ...provenance } satisfies ToolExecutionResult;
+        }
+        if (offset >= contents.length) {
+          return {
+            success: false,
+            result: null,
+            error: `offset ${String(offset)} is past the end of this ${String(contents.length)}-char result.`,
+          } satisfies ToolExecutionResult;
+        }
+        const end = Math.min(offset + RETRIEVE_PAGE_CHARS, contents.length);
+        const position = `[chars ${String(offset)}–${String(end)} of ${String(contents.length)}`;
+        const footer =
+          end < contents.length
+            ? `${position}. Call retrieve_tool_result with offset ${String(end)} for the next page.]`
+            : `${position}; this is the end.]`;
+        return {
+          success: true,
+          result: `${contents.slice(offset, end)}\n${footer}`,
+          ...provenance,
+        } satisfies ToolExecutionResult;
       }),
   });
 }

@@ -114,7 +114,9 @@ export function renderHarnessPrompt(options: HarnessPromptOptions): string {
       guidance.push("Delegate bulky independent investigation to subagents.");
     }
     if (options.hasToolResultRetrieval) {
-      guidance.push("Retrieve offloaded tool results instead of repeating the original call.");
+      guidance.push(
+        "Retrieve offloaded or cut tool results instead of repeating the original call.",
+      );
     }
     sections.push(`## Tools\n\n${guidance.join(" ")}`);
   }

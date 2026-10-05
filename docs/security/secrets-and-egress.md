@@ -323,7 +323,8 @@ passphrase. The agent asks for one with `ask_user_secret`, and the value never r
 ## Content from outside is labelled
 
 Sub-agent answers retain their external-content provenance while running in the background.
-Both `wait_subagents` and `list_subagents` mark results containing those answers as untrusted.
+`wait_subagents` and `list_subagents` mark results containing those answers or their errors as
+untrusted, naming every child whose content is shown.
 
 Results that carry someone else's words arrive inside an `<untrusted-content>` envelope that names
 the source before and after the text: `web_fetch`, `web_search`, `http_request`, `read_pdf` URLs,

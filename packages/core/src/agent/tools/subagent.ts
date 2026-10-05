@@ -26,6 +26,7 @@ import type {
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { toError } from "@/core/utils/errors";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
+import { DEFAULT_TOOL_RESULT_MAX_CHARS } from "@/core/utils/tool-result-formatter";
 import { AgentRunner } from "../agent-runner";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { childRunAuthority } from "./child-run-authority";
@@ -33,6 +34,7 @@ import { resolveEffectiveContextWindow } from "../context/effective-context-wind
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import type { RunSpendReport } from "../metrics/agent-run-metrics";
 import { judgeAnswer } from "../run/answer-outcome";
+import { combinedProvenance, fitSubagentResults } from "../subagents/results";
 import { MAX_LIVE_SUBAGENTS, type SubagentHooks } from "../subagents/supervisor";
 import type { AgentResponse } from "../types";
 
@@ -765,7 +767,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "list_subagents",
       disclosure: "private",
       description:
-        "Show each sub-agent of this run: status (running, paused, waiting-approval, completed, failed, cancelled), what it is doing, what it has spent, and its result once finished. Returns at once.",
+        "Show each sub-agent of this run: status (running, paused, waiting-approval, completed, failed, cancelled), what it is doing, what it has spent, and retrieveId once finished. Returns at once. Read answers with wait_subagents.",
       parameters: listSubagentsSchema,
       hidden: false,
       peerGrantRequired: true,
@@ -778,7 +780,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             return { success: false, result: null, error: NO_SUPERVISOR_ERROR };
           }
           const subagents = supervisor.list();
-          const untrusted = subagents.find((child) => child.untrusted !== undefined)?.untrusted;
+          const untrusted = combinedProvenance(subagents);
           return {
             success: true,
             result: { subagents },
@@ -794,7 +796,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
-        "Wait for sub-agents and get their results in one call: until all (default) returns once none is still running, until any once one finishes or is paused. Use it instead of checking list_subagents repeatedly.",
+        "Wait for sub-agents and get their answers in one call: until all (default) returns once none is still running, until any once one finishes or is paused. Each answer comes once; a long one comes as a preview whose resultNote says how to read the whole answer. Use it instead of checking list_subagents repeatedly.",
       parameters: waitSubagentsSchema,
       hidden: false,
       peerGrantRequired: true,
@@ -821,12 +823,15 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             args.until ?? "all",
             (args.timeoutSeconds ?? DEFAULT_WAIT_SECONDS) * 1000,
           );
-          const untrusted = outcome.subagents.find(
-            (child) => child.untrusted !== undefined,
-          )?.untrusted;
+          const subagents = fitSubagentResults(
+            outcome.subagents,
+            DEFAULT_TOOL_RESULT_MAX_CHARS,
+            (fitted) => JSON.stringify({ subagents: fitted, timedOut: outcome.timedOut }),
+          );
+          const untrusted = combinedProvenance(subagents);
           return {
             success: true,
-            result: outcome,
+            result: { subagents, timedOut: outcome.timedOut },
             ...(untrusted !== undefined ? { untrusted } : {}),
           };
         }),

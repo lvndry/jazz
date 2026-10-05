@@ -63,6 +63,38 @@ describe("SubagentSupervisor", () => {
     expect(outcome.live).toBe(0);
   });
 
+  it("keeps each answer, lists status only, and returns an answer once", async () => {
+    const saved: string[] = [];
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({
+          saveResult: (child) => {
+            saved.push(String(child.result));
+            return `subagent-${child.id}`;
+          },
+        });
+        const hooks = yield* finishedChild(supervisor, "digest", done("the whole report"));
+        const listed = supervisor.list()[0];
+        const first = (yield* supervisor.wait([], "all", 5_000)).subagents[0];
+        const second = (yield* supervisor.wait([], "all", 5_000)).subagents[0];
+        const steered = yield* supervisor.steer(hooks.id, "message", "write it to a file");
+        return { id: hooks.id, listed, first, second, steered };
+      }),
+    );
+    const retrieveId = `subagent-${outcome.id}`;
+    expect(saved).toEqual(["the whole report"]);
+    expect(outcome.listed).toMatchObject({ status: "completed", retrieveId });
+    expect(outcome.listed).not.toHaveProperty("result");
+    expect(outcome.first).toMatchObject({ result: "the whole report", retrieveId });
+    expect(outcome.first).not.toHaveProperty("alreadyRead");
+    expect(outcome.second).toMatchObject({ alreadyRead: true, retrieveId });
+    expect(outcome.second).not.toHaveProperty("result");
+    expect(outcome.steered).toMatchObject({ ok: false });
+    expect(outcome.steered.ok ? "" : outcome.steered.error).toContain(
+      `retrieve_tool_result with tool_call_id "${retrieveId}"`,
+    );
+  });
+
   it("returns on the first child to finish with until any, and times out with none", async () => {
     const outcome = await Effect.runPromise(
       Effect.gen(function* () {

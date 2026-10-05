@@ -39,9 +39,9 @@ and Jazz tells you when history is discarded.
 **Work state** records the task's objective, decisions, open questions, and next step.
 **Todos** track progress and verification. Both survive compaction.
 
-Jazz saves large tool outputs separately. When an older output is removed from context,
-the agent can retrieve the saved copy with `retrieve_tool_result`. If saving failed,
-it must rerun the tool.
+Jazz saves large tool outputs separately. When an older output is removed from context, or an
+output is too long to show whole, the agent can read the saved copy a page at a time with
+`retrieve_tool_result`. If saving failed, it must rerun the tool.
 
 Use [memory](./conversations-and-memory.md) for facts needed across conversations and files or
 the scratchpad for longer drafts and research material.

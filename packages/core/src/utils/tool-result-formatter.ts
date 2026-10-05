@@ -24,10 +24,10 @@ import { isRecord } from "@/core/utils/is-record";
 // ---------------------------------------------------------------------------
 
 /** Default character budget for serialized tool results. */
-const DEFAULT_MAX_CHARS = 12_000;
+export const DEFAULT_TOOL_RESULT_MAX_CHARS = 12_000;
 
 const WIDE_PAYLOAD_MAX_CHARS = 16_000;
-const VERY_WIDE_PAYLOAD_MAX_CHARS = 24_000;
+export const VERY_WIDE_PAYLOAD_MAX_CHARS = 24_000;
 const LARGE_TEXT_FIELD_KEYS = new Set(["content", "diff", "stdout", "stderr", "body", "text"]);
 const LARGE_ARRAY_FIELD_KEYS = new Set([
   "matches",
@@ -83,7 +83,7 @@ function hasLargeArrayField(value: Record<string, unknown>): boolean {
 
 function resolveMaxChars(result: unknown): number {
   if (typeof result === "string") {
-    return result.length > 4_000 ? VERY_WIDE_PAYLOAD_MAX_CHARS : DEFAULT_MAX_CHARS;
+    return result.length > 4_000 ? VERY_WIDE_PAYLOAD_MAX_CHARS : DEFAULT_TOOL_RESULT_MAX_CHARS;
   }
   if (Array.isArray(result)) {
     return result.length > 100 ? VERY_WIDE_PAYLOAD_MAX_CHARS : WIDE_PAYLOAD_MAX_CHARS;
@@ -96,7 +96,7 @@ function resolveMaxChars(result: unknown): number {
       return WIDE_PAYLOAD_MAX_CHARS;
     }
   }
-  return DEFAULT_MAX_CHARS;
+  return DEFAULT_TOOL_RESULT_MAX_CHARS;
 }
 
 /**
@@ -368,10 +368,28 @@ function truncateResult(result: unknown, serialized: string, maxChars: number): 
  * @returns A string ready to be used as the `content` of a tool message.
  */
 export function formatToolResultForContext(toolName: string, result: unknown): string {
+  return formatToolResultWithOverflow(toolName, result).content;
+}
+
+/** A tool result shaped for the conversation, and the whole of it when the shaping cut it. */
+export interface FormattedToolResult {
+  readonly content: string;
+  /** The complete serialized result, present only when `content` holds part of it. */
+  readonly fullText?: string;
+}
+
+/**
+ * `formatToolResultForContext`, also returning the complete serialized result whenever the
+ * context budget cut it, so the caller can keep it where the model can page through it.
+ */
+export function formatToolResultWithOverflow(
+  toolName: string,
+  result: unknown,
+): FormattedToolResult {
   // Skills always pass through in full — truncating instructions defeats
   // the purpose of loading a skill.
   if (toolName === "load_skill" || toolName === "load_skill_section") {
-    return typeof result === "string" ? result : safeStringify(result);
+    return { content: typeof result === "string" ? result : safeStringify(result) };
   }
 
   // Phase 1: Strip noise from object/array results
@@ -405,10 +423,10 @@ export function formatToolResultForContext(toolName: string, result: unknown): s
   // Phase 2: Truncate only when payload actually exceeds adaptive budget.
   const maxChars = resolveMaxChars(stripped);
   if (serialized.length <= maxChars) {
-    return serialized;
+    return { content: serialized };
   }
 
-  return truncateResult(stripped, serialized, maxChars);
+  return { content: truncateResult(stripped, serialized, maxChars), fullText: serialized };
 }
 
 /**

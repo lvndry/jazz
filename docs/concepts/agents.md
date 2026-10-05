@@ -166,6 +166,11 @@ context window. It returns an `agentId` at once and the child works while the pa
 the parent collects the child's answer with `wait_subagents`, and gets back a summary and the
 cost, not the child's transcript.
 
+Each child's whole answer is saved with the conversation's working state. `wait_subagents`
+returns each answer once, and when several long answers would not fit together it returns a
+preview of each, sharing the space between them, with the id to read the whole answer by with
+`retrieve_tool_result`.
+
 Each child has its own context window. Use `resultSchema`, a JSON Schema with root type
 `object`, to require a validated structured result.
 
@@ -173,7 +178,7 @@ While children work, the parent can manage them:
 
 | Tool             | What it does                                                                                   |
 | ---------------- | ---------------------------------------------------------------------------------------------- |
-| `wait_subagents` | Waits until any or all of them finish, and returns their results in one call                   |
+| `wait_subagents` | Waits until any or all of them finish, and returns their answers in one call                   |
 | `list_subagents` | Each child's status (running, paused, waiting on an approval, done), activity and spend so far |
 | `steer_subagent` | Sends a child new guidance, pauses it, resumes it or cancels it                                |
 

@@ -10,6 +10,9 @@
  * delivered there, and a pause holds the child there without any model call until it is resumed.
  * Cancelling interrupts the child at once.
  *
+ * The parent reads answers through `wait_subagents` only, once each: `list` reports status, and
+ * an answer already read comes back as its `retrieveId` rather than again in full.
+ *
  * Money is one pool. Each child reports what it has spent after every step, and the parent's cost
  * cap counts that live spend, so parallel children cannot each spend the whole remainder.
  */
@@ -20,6 +23,7 @@ import type {
   ToolProgressEvent,
   UntrustedProvenance,
 } from "@/core/types/tools";
+import { retrieveInstruction, type FinishedSubagent } from "./results";
 
 /** Sub-agents one run may have going at once. Matches `JAZZ_BOT_MAX_CONCURRENT_RUNS`. */
 export const MAX_LIVE_SUBAGENTS = 4;
@@ -39,6 +43,12 @@ export interface SubagentSnapshot {
   readonly liveCostUSD?: number;
   /** Its answer once it finished, or what a failed one returned alongside its error. */
   readonly result?: unknown;
+  /** The `retrieve_tool_result` id its whole answer is kept under. */
+  readonly retrieveId?: string;
+  /** Set when `result` is a preview: how much is shown and how to read the rest. */
+  readonly resultNote?: string;
+  /** The parent read this answer in an earlier `wait_subagents`; it is kept under `retrieveId`. */
+  readonly alreadyRead?: true;
   /** Provenance retained when a child read external content. */
   readonly untrusted?: UntrustedProvenance;
   readonly error?: string;
@@ -80,6 +90,7 @@ interface Entry {
   resumeGate: Deferred.Deferred<void> | undefined;
   fiber: Fiber.RuntimeFiber<void> | undefined;
   result: ToolExecutionResult | undefined;
+  retrieveId: string | undefined;
   finishedAt: number | undefined;
   /** The parent has read this child's result through `wait_subagents`. */
   collected: boolean;
@@ -103,10 +114,12 @@ export interface SubagentSupervisor {
     id: string,
     work: Effect.Effect<ToolExecutionResult, never, R>,
   ) => Effect.Effect<void, never, R>;
+  /** Every child's status, without answers. */
   readonly list: () => readonly SubagentSnapshot[];
   /**
    * Wait until the children named (every child when `ids` is empty) have finished or were
-   * paused: `any` returns once one of them has, `all` once all have. Their results are marked read.
+   * paused: `any` returns once one of them has, `all` once all have. Answers not read before are
+   * returned and marked read; one read before is marked `alreadyRead` and left out.
    */
   readonly wait: (
     ids: readonly string[],
@@ -144,7 +157,14 @@ export interface SubagentSupervisor {
 
 let subagentSequence = 0;
 
-export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
+export interface SubagentSupervisorOptions {
+  /** Keeps a finished child's whole answer; returns its retrieve id, or undefined when not kept. */
+  readonly saveResult?: (child: FinishedSubagent) => string | undefined;
+}
+
+export function createSubagentSupervisor(
+  options: SubagentSupervisorOptions = {},
+): Effect.Effect<SubagentSupervisor> {
   return Effect.gen(function* () {
     const scope = yield* Scope.make();
     const entries = new Map<string, Entry>();
@@ -159,7 +179,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
     });
     const signalChangeSync = () => Effect.runSync(signalChange);
 
-    const snapshot = (entry: Entry): SubagentSnapshot => ({
+    const snapshot = (entry: Entry, withResult: boolean): SubagentSnapshot => ({
       id: entry.id,
       name: entry.name,
       status: entry.status,
@@ -170,9 +190,10 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
       ...(!FINISHED.has(entry.status) && entry.liveCostUSD > 0
         ? { liveCostUSD: entry.liveCostUSD }
         : {}),
-      ...(entry.result?.result !== undefined && entry.result.result !== null
+      ...(withResult && entry.result?.result !== undefined && entry.result.result !== null
         ? { result: entry.result.result }
         : {}),
+      ...(entry.retrieveId !== undefined ? { retrieveId: entry.retrieveId } : {}),
       ...(entry.result?.untrusted !== undefined ? { untrusted: entry.result.untrusted } : {}),
       ...(entry.result !== undefined && !entry.result.success
         ? { error: entry.result.error ?? "The sub-agent failed." }
@@ -190,6 +211,15 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
         return;
       }
       entry.result = result;
+      entry.retrieveId =
+        result.result === undefined || result.result === null
+          ? undefined
+          : options.saveResult?.({
+              id,
+              startedAt: entry.startedAt,
+              result: result.result,
+              ...(result.untrusted !== undefined ? { untrusted: result.untrusted } : {}),
+            });
       entry.status = cancelled ? "cancelled" : result.success ? "completed" : "failed";
       entry.finishedAt = Date.now();
       entry.liveCostUSD = 0;
@@ -258,6 +288,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
           resumeGate: undefined,
           fiber: undefined,
           result: undefined,
+          retrieveId: undefined,
           finishedAt: undefined,
           collected: false,
           announced: false,
@@ -334,7 +365,7 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
           }
         }),
 
-      list: () => [...entries.values()].map(snapshot),
+      list: () => [...entries.values()].map((entry) => snapshot(entry, false)),
 
       wait: (ids, until, timeoutMs) =>
         Effect.gen(function* () {
@@ -356,13 +387,18 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
             }
             yield* Deferred.await(changed).pipe(Effect.timeoutOption(Duration.millis(remaining)));
           }
-          for (const entry of targets) {
-            if (FINISHED.has(entry.status)) {
-              entry.collected = true;
-              entry.announced = true;
+          const subagents = targets.map((entry): SubagentSnapshot => {
+            if (!FINISHED.has(entry.status)) {
+              return snapshot(entry, false);
             }
-          }
-          return { subagents: targets.map(snapshot), timedOut };
+            const readBefore = entry.collected;
+            entry.collected = true;
+            entry.announced = true;
+            return readBefore
+              ? { ...snapshot(entry, false), alreadyRead: true }
+              : snapshot(entry, true);
+          });
+          return { subagents, timedOut };
         }),
 
       steer: (id, action, message) =>
@@ -375,7 +411,13 @@ export function createSubagentSupervisor(): Effect.Effect<SubagentSupervisor> {
             } as const;
           }
           if (FINISHED.has(entry.status)) {
-            return { ok: false, error: `${entry.name} (${id}) already ${entry.status}.` } as const;
+            return {
+              ok: false,
+              error:
+                entry.retrieveId !== undefined
+                  ? `${entry.name} (${id}) already ${entry.status}. ${retrieveInstruction(entry.retrieveId)}`
+                  : `${entry.name} (${id}) already ${entry.status}. Read its answer with wait_subagents.`,
+            } as const;
           }
           switch (action) {
             case "message": {

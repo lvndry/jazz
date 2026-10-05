@@ -68,7 +68,7 @@ Default research team:
 - **Surveyor** — maps the source landscape; breadth, bibliographic nets, who has written
   what; finds the load-bearing primary sources others miss.
 - **Domain Specialist(s)** — one per major sub-question; interprets evidence within the
-  field and explains *why* it matters.
+  field and explains _why_ it matters.
 - **Methodologist** — audits study rigor: design, statistics, sample size, p-hacking,
   confounds, whether a claim is supported by the method used.
 - **Contrarian / Red Team** — steelmans opposing views, hunts disconfirming evidence, and
@@ -90,6 +90,8 @@ them in parallel; between layers, wait and feed collected outputs into the next 
 - `research-progress.md` — append a section after every iteration (Phase 4).
 - `research-report.md` — the final synthesis (Phase 6).
 - `source-log.md` — every source, in the tracking format below.
+- `findings-<role>.md` — each specialist's full report, written by the specialist itself
+  (Phase 2).
 
 These make the investigation resumable across sessions and auditable after the fact.
 
@@ -115,30 +117,36 @@ Create `research-plan.md`. It is the contract for the whole investigation.
 # Research Plan: [Question]
 
 ## Objective
+
 [One sentence: the decision or understanding this answers.]
 
 ## Hypotheses to test
+
 - H1: [claim we suspect is true, and what would falsify it]
 - H2: ...
 
 ## Sub-Questions (priority + dependencies)
+
 1. [Critical] [gates others] — owner: <specialist>
 2. [High] — owner: <specialist>
 3. [Medium] — can run in parallel with 2
 4. [Low] nice-to-have
 
 ## Team & ownership
+
 - Surveyor: maps sources for Q1–Q3
 - Domain specialist A: interprets Q1, Q2
 - Methodologist: audits rigor of Q2 evidence
 - Contrarian: challenges assumptions each loop
 
 ## Search strategy
+
 - Per sub-question: 2–3 query variants (synonym / specificity ladder / source-type targeting)
 - Source-quality bar: peer-reviewed > official report > reputable expert > news > blog
 - Budget: aim for 10–20 searches per iteration; track count
 
 ## Convergence criteria (when are we "done"?)
+
 - All sub-questions addressed
 - Every load-bearing claim has 2+ independent sources
 - Each contradiction either resolved or logged as unresolved
@@ -146,6 +154,7 @@ Create `research-plan.md`. It is the contract for the whole investigation.
 - Confidence meets target: [High/Medium] defined explicitly
 
 ## Assumptions to challenge
+
 - A1: [thing the team currently takes for granted]
 - A2: ...
 ```
@@ -165,6 +174,12 @@ OPEN QUESTIONS: <what's still unknown or contradictory>
 INTERFACES: <what it needs from / hands to other specialists>
 ```
 
+Brief every specialist to **write that full report to `findings-<role>.md`** in the research
+directory before finishing, and to answer you with only the file path and a ten-line summary.
+A long answer returned inline can reach you as a preview; the file is the complete record.
+Read each findings file in full before integrating it — a summary or preview is never the
+evidence.
+
 - **Roots first**: gating sub-questions, so dependents build on settled ground.
 - **Fan-out in parallel**: independent specialists, each fed the shared context + root
   outputs.
@@ -177,12 +192,13 @@ in `source-log.md`:
 
 ```markdown
 ## [Source N: Title]
+
 - URL: [link]
 - Type: [Academic/News/Official/Expert/Blog]
 - Date: [publication date]
 - Credibility: [High/Medium/Low]
 - Key claims:
-  - "[claim]" 
+  - "[claim]"
 - Contradicts: [other source if applicable]
 ```
 
@@ -195,7 +211,7 @@ This is what makes it a team, not a pile of consultants.
    Methodologist, where does the evidence not actually support that claim? As Contrarian,
    what assumption is doing the heavy lifting, and what disconfirming evidence exists?"
 2. Carry the critique the way the runtime supports: spawn a fresh agent with both its
-   prior output and the peer's, and tell it to *react from its stance* — defend or revise,
+   prior output and the peer's, and tell it to _react from its stance_ — defend or revise,
    don't re-answer blandly. (If the runtime can continue an agent in place, that's fine.)
 3. The Contrarian must produce, each loop:
    - Hidden assumptions the team treats as ground truth
@@ -213,20 +229,25 @@ Append to `research-progress.md` after every iteration:
 ## Iteration [N] — [date/time]
 
 ### What changed since last loop
+
 - [finding added / claim sharpened / assumption falsified]
 
 ### Confidence deltas
+
 - Claim X: Low → Medium (corroborated by [n])
 - Claim Y: unchanged (still single source)
 
 ### Contradictions
+
 - Open: [list] — resolution attempt: [query dispatched]
 - Closed: [list] — how resolved
 
 ### Assumptions challenged
+
 - A1: weakened by [evidence] — team now treats as [revised stance]
 
 ### Decision
+
 - [Continue deeper on Q2] / [Pivot to Q4] / [Converge — criteria met]
 ```
 
@@ -234,14 +255,14 @@ Append to `research-progress.md` after every iteration:
 
 Before synthesizing, verify against the plan's convergence criteria:
 
-| Condition                              | Action                                  |
-| -------------------------------------- | --------------------------------------- |
-| Sub-question unanswered                | Next iteration, targeted specialist     |
-| Load-bearing claim has single source   | Search for corroboration               |
-| Major contradiction unresolved         | Search for resolution/context           |
-| Contrarian challenge unaddressed       | Force a response or log as open risk    |
-| Convergence criteria met               | Proceed to synthesis                    |
-| Iteration budget exhausted             | Note limitations, proceed              |
+| Condition                            | Action                               |
+| ------------------------------------ | ------------------------------------ |
+| Sub-question unanswered              | Next iteration, targeted specialist  |
+| Load-bearing claim has single source | Search for corroboration             |
+| Major contradiction unresolved       | Search for resolution/context        |
+| Contrarian challenge unaddressed     | Force a response or log as open risk |
+| Convergence criteria met             | Proceed to synthesis                 |
+| Iteration budget exhausted           | Note limitations, proceed            |
 
 Recursive verification for high-stakes claims — don't trust a claim one hop from source:
 
@@ -260,36 +281,46 @@ Write `research-report.md`. Lead with conclusions, support with evidence, cite e
 # [Research Question]
 
 ## Executive Summary
+
 [2–3 sentence answer with confidence level]
 
 ## Key Findings
+
 ### Finding 1: [Statement]
+
 [Evidence synthesis with citations]
+
 - Source A reports... [1]
 - Corroborated by... [2]
 - However, Source C notes... [3]
 
 ## Analysis
+
 [Interpretation connecting findings]
 
 ## Where the team disagreed and how I ruled
+
 [The live tensions and your reasoning — the most valuable part]
 
 ## Assumptions challenged
+
 [Which initial assumptions were falsified/revised and what changed]
 
 ## Limitations & Gaps
+
 - [What couldn't be verified]
 - [Areas needing more research]
 - [Potential biases in available sources]
 
 ## Confidence Assessment
+
 | Claim   | Confidence | Basis                    |
 | ------- | ---------- | ------------------------ |
 | Claim 1 | High       | 3+ independent sources   |
 | Claim 2 | Medium     | 2 sources, some conflict |
 
 ## Sources
+
 [Required — every source used, in citation order]
 [1] Author/Publisher, "Title", Publication/Site, Date. URL
 [2] ...
@@ -303,6 +334,8 @@ Write `research-report.md`. Lead with conclusions, support with evidence, cite e
 - ❌ **Confidence without 2+ independent sources** for load-bearing claims.
 - ❌ **Invisible assumptions** — treating untested premises as ground truth.
 - ❌ **No progress log** — state lives only in your context, not in a file.
+- ❌ **Synthesizing from previews** — writing the report from a specialist's summary or a
+  cut-off answer instead of its full `findings-<role>.md`.
 - ❌ **Omitting the sources list** — the report must show every source used.
 - ❌ **Stale experts** — specialists reciting memory instead of searching current sources.
 
@@ -311,6 +344,7 @@ Write `research-report.md`. Lead with conclusions, support with evidence, cite e
 Before delivering the final report:
 
 - [ ] Team composed and dispatched in layers
+- [ ] Every specialist's `findings-<role>.md` read in full
 - [ ] `research-plan.md` written with convergence criteria
 - [ ] At least one assumption-challenge loop completed
 - [ ] All sub-questions addressed
@@ -348,12 +382,12 @@ Techniques for breaking a complex question into searchable sub-questions and que
 
 ### Query reformulation
 
-| Technique            | Example                                                          |
-| -------------------- | --------------------------------------------------------------- |
-| Synonym expansion    | "AI" → "machine learning", "deep learning"                     |
-| Specificity ladder   | "AI healthcare" → "radiology AI FDA approved 2024"             |
-| Source targeting     | append "peer reviewed" / "government report" / "meta-analysis" |
-| Negation queries     | also search the opposing view ("remote work disadvantages")    |
+| Technique          | Example                                                        |
+| ------------------ | -------------------------------------------------------------- |
+| Synonym expansion  | "AI" → "machine learning", "deep learning"                     |
+| Specificity ladder | "AI healthcare" → "radiology AI FDA approved 2024"             |
+| Source targeting   | append "peer reviewed" / "government report" / "meta-analysis" |
+| Negation queries   | also search the opposing view ("remote work disadvantages")    |
 
 ### Dependency mapping
 
@@ -365,21 +399,26 @@ run in the right order.
 
 ```markdown
 ## Batch 1 (Foundation) — parallel
+
 - Q1 context · Q2 current state · Q3 major players
+
 ## Batch 2 (Deep dive) — after Batch 1
+
 - Q4 specific aspect from Q1 · Q5 follow-up on surprising Q2 result
+
 ## Batch 3 (Verification) — after Batch 2
+
 - Q6 verify key claim · Q7 search for contradicting evidence
 ```
 
 ### Common mistakes
 
-| Mistake               | Fix                                  |
-| --------------------- | ------------------------------------ |
-| Too many sub-questions | Limit to 5–7, prioritize           |
-| Overlapping queries   | De-duplicate before searching        |
-| Missing negation      | Always add opposing-view queries     |
-| No dependency mapping | Map the DAG before searching         |
+| Mistake                | Fix                              |
+| ---------------------- | -------------------------------- |
+| Too many sub-questions | Limit to 5–7, prioritize         |
+| Overlapping queries    | De-duplicate before searching    |
+| Missing negation       | Always add opposing-view queries |
+| No dependency mapping  | Map the DAG before searching     |
 
 ## Verification Playbook
 
@@ -402,6 +441,7 @@ Score each source on Authority / Recency / Evidence / Bias / Corroboration (High
 - 12–15: High · 8–11: Medium · 5–7: Low (caution) · <5: exclude or flag.
 
 Tier hierarchy (highest → lowest trust):
+
 1. Peer-reviewed papers, government statistics, meta-analyses, primary docs
 2. Industry reports (disclosed method), reputable multi-sourced news, credentialed experts
 3. Trade press, conference talks, preprints, well-sourced journalism
@@ -422,23 +462,23 @@ Tier hierarchy (highest → lowest trust):
 
 ### Confidence scoring (per claim)
 
-| Level       | Criteria                                         | Report as              |
-| ----------- | ------------------------------------------------ | ---------------------- |
-| Very High   | 3+ Tier-1, no contradictions, recent            | Established fact       |
-| High        | 2+ reliable, minor contradictions resolved      | State with confidence  |
-| Medium      | 1–2 sources or unresolved minor contradictions  | State with caveat      |
-| Low         | Single source or major contradictions           | Flag uncertainty       |
-| Very Low    | Weak source or strong contradictions            | Consider excluding     |
+| Level     | Criteria                                       | Report as             |
+| --------- | ---------------------------------------------- | --------------------- |
+| Very High | 3+ Tier-1, no contradictions, recent           | Established fact      |
+| High      | 2+ reliable, minor contradictions resolved     | State with confidence |
+| Medium    | 1–2 sources or unresolved minor contradictions | State with caveat     |
+| Low       | Single source or major contradictions          | Flag uncertainty      |
+| Very Low  | Weak source or strong contradictions           | Consider excluding    |
 
 ### Iteration triggers / stop conditions
 
-| Search again when…              | Stop when…                              |
-| ------------------------------- | --------------------------------------- |
-| Sub-question unanswered         | Confidence target met for all claims    |
-| Key claim has single source     | Search budget exhausted                 |
-| All sources same perspective    | Diminishing returns (same results)      |
-| Claim contradicted              | Topic has limited available info        |
-| Source credibility low          |                                         |
+| Search again when…           | Stop when…                           |
+| ---------------------------- | ------------------------------------ |
+| Sub-question unanswered      | Confidence target met for all claims |
+| Key claim has single source  | Search budget exhausted              |
+| All sources same perspective | Diminishing returns (same results)   |
+| Claim contradicted           | Topic has limited available info     |
+| Source credibility low       |                                      |
 
 ### Common mistakes
 

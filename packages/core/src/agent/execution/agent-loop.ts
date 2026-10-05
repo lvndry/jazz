@@ -49,11 +49,14 @@ import type { MemoryDelivery } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput, WorkspaceFileActivity } from "@/core/types/plugin";
 import type { StreamEvent } from "@/core/types/streaming";
-import type { EgressTaint } from "@/core/types/tools";
+import type { EgressTaint, ToolDefinition, UntrustedProvenance } from "@/core/types/tools";
 import { sha256Hex } from "@/core/utils/hash";
 import { conversationLogGroup } from "@/core/utils/log-group";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
-import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
+import {
+  formatToolResultForContext,
+  formatToolResultWithOverflow,
+} from "@/core/utils/tool-result-formatter";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
 import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
@@ -78,7 +81,7 @@ import {
 import { Summarizer, type AutoCompaction, type RecursiveRunner } from "../context/summarizer";
 import { hydrateTokenCalibration, saveTokenCalibration } from "../context/token-calibration-state";
 import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
-import { persistLargeToolResults } from "../context/tool-result-offload";
+import { persistLargeToolResults, writeToolResult } from "../context/tool-result-offload";
 import {
   closeUnansweredToolCalls,
   type UnansweredToolCallAnswer,
@@ -102,6 +105,7 @@ import {
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
 import { lifecycleEventForStreamEvent } from "../plugins/lifecycle-bridge";
+import { saveSubagentResult } from "../subagents/results";
 import { createSubagentSupervisor, type SubagentSupervisor } from "../subagents/supervisor";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
@@ -672,6 +676,60 @@ interface ActiveToolBatch {
   readonly aliases: ReadonlyMap<string, string>;
   /** Set once the caller was told about this batch stopping. */
   reported: boolean;
+  readonly keepCutResult: CutResultKeeper | undefined;
+}
+
+/**
+ * Keeps the whole of a result the context budget cut, where `retrieve_tool_result` reads it.
+ * Returns whether it was kept.
+ */
+type CutResultKeeper = (
+  toolCallId: string,
+  fullText: string,
+  provenance: UntrustedProvenance | undefined,
+) => boolean;
+
+/**
+ * The run's `CutResultKeeper`: undefined when the run cannot read a kept result back, because
+ * it has no conversation to keep it under or no `retrieve_tool_result`.
+ */
+function cutResultKeeper(
+  agentId: string,
+  conversationId: string,
+  tools: readonly ToolDefinition[],
+): CutResultKeeper | undefined {
+  if (
+    conversationId === "" ||
+    !tools.some((tool) => tool.function.name === "retrieve_tool_result")
+  ) {
+    return undefined;
+  }
+  return (toolCallId, fullText, provenance) =>
+    writeToolResult(agentId, conversationId, toolCallId, fullText, provenance);
+}
+
+/**
+ * A tool result as its message carries it: shaped to the context budget and framed when it
+ * holds untrusted content. When the budget cut it and the whole result was kept, a line after
+ * it says how to read the rest.
+ */
+function toolMessageContent(
+  toolCallId: string,
+  toolName: string,
+  result: unknown,
+  provenance: UntrustedProvenance | undefined,
+  keepCutResult: CutResultKeeper | undefined,
+): string {
+  const formatted = formatToolResultWithOverflow(toolName, result);
+  const content =
+    provenance === undefined ? formatted.content : frameUntrusted(formatted.content, provenance);
+  if (
+    formatted.fullText === undefined ||
+    keepCutResult?.(toolCallId, formatted.fullText, provenance) !== true
+  ) {
+    return content;
+  }
+  return `${content}\n[Cut to fit: the whole result is ${String(formatted.fullText.length)} chars. Call retrieve_tool_result with tool_call_id "${toolCallId}" to read it a page at a time.]`;
 }
 
 /** The batch's calls and their statuses, duplicates reported under their own ids. */
@@ -709,12 +767,18 @@ function stoppedCallAnswer(
     const status = batch.ledger.statusOf(canonicalId);
     const outcome = batch.ledger.outcomeOf(canonicalId);
     if (status === "completed" && outcome !== undefined) {
-      const formatted = formatToolResultForContext(toolCall.name, outcome.result);
+      const content = toolMessageContent(
+        toolCall.id,
+        toolCall.name,
+        outcome.result,
+        outcome.untrusted,
+        batch.keepCutResult,
+      );
       if (outcome.untrusted === undefined) {
-        return formatted;
+        return content;
       }
       return {
-        content: frameUntrusted(formatted, outcome.untrusted),
+        content,
         ...(outcome.untrusted.kind === "external" ? { egressTainted: true as const } : {}),
       };
     }
@@ -1050,7 +1114,8 @@ function handleToolPhase(
     for (const outcome of withheld) {
       ledger.markFinished(outcome);
     }
-    state.activeToolBatch = { ledger, aliases, reported: false };
+    const keepCutResult = cutResultKeeper(agent.id, actualConversationId, deps.tools);
+    state.activeToolBatch = { ledger, aliases, reported: false, keepCutResult };
 
     const executedResults = yield* ToolExecutor.executeToolCalls(
       dispatched,
@@ -1175,9 +1240,13 @@ function handleToolPhase(
           });
         } else {
           const provenance = provenanceMap.get(toolCall.id);
-          const formatted = formatToolResultForContext(toolCall.function.name, result);
-          const formattedResult =
-            provenance === undefined ? formatted : frameUntrusted(formatted, provenance);
+          const formattedResult = toolMessageContent(
+            toolCall.id,
+            toolCall.function.name,
+            result,
+            provenance,
+            keepCutResult,
+          );
           const memoryExposure = exposureMap.get(toolCall.id);
           const memoryDelivery: MemoryDelivery | undefined =
             memoryExposure === undefined
@@ -1923,7 +1992,10 @@ export function executeAgentLoop(
       const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
         Option.none(),
       );
-      const subagents = yield* createSubagentSupervisor();
+      const subagents = yield* createSubagentSupervisor({
+        saveResult: (child) =>
+          saveSubagentResult(options.agent.id, runContext.actualConversationId, child),
+      });
       // A resumed session is the most expensive place to count with fresh
       // defaults: history is long, so the first pre-call estimate is what
       // decides compaction for a context that may be near the limit. Reuse
