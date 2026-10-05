@@ -739,6 +739,13 @@ export class UIStore {
     }
   };
 
+  /** Close `prompt` without an answer, when it is the one showing. */
+  withdrawPrompt = (prompt: PromptState): void => {
+    if (this.prompt.getSnapshot().prompt === prompt) {
+      patchSlice(this.prompt, { prompt: null });
+    }
+  };
+
   setActivity = (activity: ActivityState): void => {
     if (isActivityEqual(this.session.getSnapshot().activity, activity)) {
       return;

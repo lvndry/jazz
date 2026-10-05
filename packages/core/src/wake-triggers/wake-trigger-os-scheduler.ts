@@ -41,7 +41,8 @@ export interface WakeTriggerOsScheduler {
 export const WakeTriggerOsSchedulerTag =
   Context.GenericTag<WakeTriggerOsScheduler>("WakeTriggerOsScheduler");
 
-function buildFireArgs(agentId: string, triggerId: string): readonly string[] {
+/** The `jazz` arguments that fire one wake trigger. */
+export function wakeTriggerFireArgs(agentId: string, triggerId: string): readonly string[] {
   return ["--output", "quiet", "wake-trigger", "fire", "--agent", agentId, "--id", triggerId];
 }
 
@@ -55,7 +56,7 @@ export function createWakeTriggerOsScheduler(): Effect.Effect<WakeTriggerOsSched
   return createOneShotOsScheduler({
     labelPrefix: "com.jazz.trigger",
     logNamePrefix: "wake-trigger",
-    buildProgramArgs: buildFireArgs,
+    buildProgramArgs: wakeTriggerFireArgs,
   });
 }
 

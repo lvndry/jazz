@@ -23,6 +23,11 @@ export interface SpawnJobWorkerResult {
  * what happened rather than having the enqueue itself rejected.
  */
 export function spawnJobWorker(agentId: string): Effect.Effect<SpawnJobWorkerResult> {
+  return spawnDetachedJazz(["--output", "quiet", "job", "run", "--agent", agentId]);
+}
+
+/** Start `jazz <args>` detached from this process, so it outlives it. Never fails. */
+export function spawnDetachedJazz(args: readonly string[]): Effect.Effect<SpawnJobWorkerResult> {
   return Effect.gen(function* () {
     const invocation = yield* getJazzSchedulerInvocation();
     const [executable, ...leadingArgs] = invocation;
@@ -32,11 +37,10 @@ export function spawnJobWorker(agentId: string): Effect.Effect<SpawnJobWorkerRes
 
     return yield* Effect.sync(() => {
       try {
-        const child = spawn(
-          executable,
-          [...leadingArgs, "--output", "quiet", "job", "run", "--agent", agentId],
-          { detached: true, stdio: "ignore" },
-        );
+        const child = spawn(executable, [...leadingArgs, ...args], {
+          detached: true,
+          stdio: "ignore",
+        });
         child.unref();
         return { spawned: true } satisfies SpawnJobWorkerResult;
       } catch (error) {

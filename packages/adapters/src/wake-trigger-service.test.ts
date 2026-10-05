@@ -14,6 +14,7 @@ import { Effect } from "effect";
 import {
   claimDueWakeTriggers,
   claimWakeTrigger,
+  listDueConversationWakeTriggers,
   settleWakeTrigger,
   WakeTriggerServiceImpl,
 } from "./wake-trigger-service";
@@ -484,6 +485,39 @@ describe("at-least-once delivery", () => {
     const claimed = await runEffect(claimWakeTrigger(tmpDir, "agent-1", id));
     expect(claimed?.delivery).toMatchObject({ status: "firing", attempts: 2 });
     await runEffect(settleWakeTrigger(tmpDir, "agent-1", id, { delivered: true }));
+  });
+
+  test("a trigger whose conversation is open in another process's chat is left to that chat", async () => {
+    const id = await dueTrigger();
+    const originalJazzHome = process.env["JAZZ_HOME"];
+    process.env["JAZZ_HOME"] = tmpDir;
+    const attachment = path.join(tmpDir, "chat-attachments", "agent-1", "conv-1.json");
+    try {
+      fs.mkdirSync(path.dirname(attachment), { recursive: true });
+      fs.writeFileSync(attachment, JSON.stringify({ pid: process.ppid, host: os.hostname() }));
+      const later = Date.now() + 5_000;
+      expect(await runEffect(claimDueWakeTriggers(tmpDir, later))).toEqual([]);
+      expect(await runEffect(claimWakeTrigger(tmpDir, "agent-1", id))).toBeUndefined();
+      expect(
+        await runEffect(listDueConversationWakeTriggers(tmpDir, "agent-1", "conv-1", later)),
+      ).toEqual([]);
+
+      fs.rmSync(attachment);
+      const due = await runEffect(
+        listDueConversationWakeTriggers(tmpDir, "agent-1", "conv-1", later),
+      );
+      expect(due.map((trigger) => trigger.id)).toEqual([id]);
+      expect(
+        await runEffect(listDueConversationWakeTriggers(tmpDir, "agent-1", "conv-2", later)),
+      ).toEqual([]);
+      expect(await runEffect(claimWakeTrigger(tmpDir, "agent-1", id))).toBeDefined();
+    } finally {
+      if (originalJazzHome === undefined) {
+        delete process.env["JAZZ_HOME"];
+      } else {
+        process.env["JAZZ_HOME"] = originalJazzHome;
+      }
+    }
   });
 
   test("a trigger that cannot be delivered stops retrying and stays for a person to see", async () => {

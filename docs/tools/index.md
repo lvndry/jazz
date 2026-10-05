@@ -136,6 +136,13 @@ the last check's output when the condition holds or the time runs out. If every 
 same exit code and output, the wake message says so and tells the agent to test the check itself
 before waiting again.
 
+Where the agent is woken depends on whether the conversation is open. In an interactive chat, the
+chat takes the turn itself the moment it is idle: the result appears in the transcript and any
+approval the turn needs is asked right there. A message you are typing stays in the composer. The
+same goes for a `register_trigger` wake-up that comes due while the chat is open. With no chat open
+(or after you leave it, or in a piped `jazz` session), the turn runs unattended as before and parks
+on the first approval it needs, waiting for `jazz runs approve`.
+
 To watch a wait live in the fullscreen terminal, press down from an empty composer to reach the
 pending waits and press Enter on one. Its command and recent checks (exit code, age and output of
 each) replace the transcript and update as checks run; Esc goes back to the conversation.

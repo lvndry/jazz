@@ -118,6 +118,14 @@ import {
   findExceededSessionLimits,
 } from "./chat/commands/session-limits";
 import type { CommandContext, CommandResult, SessionLimits } from "./chat/commands/types";
+import {
+  attachConversation,
+  awaitOwedDelivery,
+  chatDeliveryOutcome,
+  claimOwedDelivery,
+  detachConversation,
+  type ConversationDelivery,
+} from "./chat/conversation-deliveries";
 import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import {
@@ -183,6 +191,8 @@ export class ChatServiceImpl implements ChatService {
     | WorkflowService
     | PersonaService
   > {
+    /** Leaves the conversation this chat holds; run however the session ends, interrupts too. */
+    let releaseConversation: Effect.Effect<void> = Effect.void;
     return Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;
       const logger = yield* LoggerServiceTag;
@@ -293,6 +303,28 @@ export class ChatServiceImpl implements ChatService {
           Effect.forkDaemon,
         );
       }
+      // What comes back to this conversation later (a finished wait, a due wake trigger) runs
+      // here, in front of the user, while the chat has it open. A piped chat cannot be woken
+      // between lines, so its conversation is left to the unattended deliverers.
+      const takesDeliveries = !ephemeral && terminal.isInteractive;
+      let attachedConversationId: string | undefined;
+      const attachTo = (nextConversationId: string): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          if (!takesDeliveries || attachedConversationId === nextConversationId) {
+            return;
+          }
+          if (attachedConversationId !== undefined) {
+            yield* detachConversation(agent.id, attachedConversationId);
+          }
+          attachedConversationId = nextConversationId;
+          yield* attachConversation(agent.id, nextConversationId);
+        });
+      releaseConversation = Effect.suspend(() => {
+        const leaving = attachedConversationId;
+        attachedConversationId = undefined;
+        return leaving === undefined ? Effect.void : detachConversation(agent.id, leaving);
+      });
+      yield* attachTo(conversationId);
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
       let conversationTitle = ephemeral
         ? undefined
@@ -531,6 +563,11 @@ export class ChatServiceImpl implements ChatService {
       let attendedGoalId: string | undefined;
       let goalContinues = false;
 
+      /** Set when the idle prompt gave way because something was owed to the conversation. */
+      let deliveryOwedAtLastLook = false;
+      /** That look saw an item the claim after it could not take; wait before looking again. */
+      let claimCameBackEmpty = false;
+
       let endReason: ChatSessionEnd["reason"] = "exit";
       let messagesReceived = 0;
 
@@ -544,7 +581,16 @@ export class ChatServiceImpl implements ChatService {
 
         // What the user typed meanwhile goes first; the goal picks up again after it.
         let goalTurn: Effect.Effect.Success<ReturnType<typeof claimChatGoalTurn>> = undefined;
-        if (firstMessage !== undefined) {
+        let deliveryTurn: ConversationDelivery | undefined;
+        if (firstMessage === undefined && queued.length === 0 && takesDeliveries) {
+          deliveryTurn = yield* claimOwedDelivery(agent.id, conversationId);
+          claimCameBackEmpty = deliveryTurn === undefined && deliveryOwedAtLastLook;
+          deliveryOwedAtLastLook = false;
+        }
+        if (deliveryTurn !== undefined) {
+          yield* terminal.info(deliveryTurn.announcement);
+          userMessage = deliveryTurn.prompt;
+        } else if (firstMessage !== undefined) {
           // Typed on home before the session existed: it goes exactly as a typed message would,
           // echoed into the transcript and recallable with ↑.
           userMessage = firstMessage;
@@ -592,7 +638,7 @@ export class ChatServiceImpl implements ChatService {
             ...(draft !== undefined ? { defaultValue: draft } : {}),
           };
           yield* emitLifecycle("awaiting-input");
-          userMessage = yield* terminal.ask("You:", askOptions).pipe(
+          const asked = terminal.ask("You:", askOptions).pipe(
             Effect.catchAll((error: unknown) => {
               // Handle ExitPromptError from inquirer when user presses Ctrl+C
               if (
@@ -607,6 +653,24 @@ export class ChatServiceImpl implements ChatService {
               return Effect.fail(toError(error));
             }),
           );
+          // A draft seeded from the queue is the user's to edit and send; nothing preempts it.
+          const idle =
+            queued.length > 0 || !takesDeliveries
+              ? yield* Effect.map(asked, (text) => ({ kind: "typed", text }) as const)
+              : yield* Effect.raceFirst(
+                  Effect.map(asked, (text) => ({ kind: "typed", text }) as const),
+                  Effect.as(
+                    awaitOwedDelivery(agent.id, conversationId, BACKGROUND_WORK_POLL_INTERVAL_MS, {
+                      waitFirst: claimCameBackEmpty,
+                    }),
+                    { kind: "delivery-owed" } as const,
+                  ),
+                );
+          if (idle.kind === "delivery-owed") {
+            deliveryOwedAtLastLook = true;
+            continue;
+          }
+          userMessage = idle.text;
           // Whatever the user submitted supersedes the seeded queue content.
           if (queued.length > 0) {
             store.clearQueue();
@@ -660,13 +724,14 @@ export class ChatServiceImpl implements ChatService {
         messagesReceived += 1;
 
         let messageForAgent = userMessage;
-        let trustMessageAsMemorySource = goalTurn === undefined;
+        let trustMessageAsMemorySource = goalTurn === undefined && deliveryTurn === undefined;
 
         // A message with interior newlines (multi-line composition or a
         // combined prose drain) is prose even when it starts with "/" or "! ":
         // command parsing would silently discard everything after line one.
         if (
           goalTurn === undefined &&
+          deliveryTurn === undefined &&
           isCommandInput(trimmedMessage) &&
           (!trimmedMessage.includes("\n") || parseSpecialCommand(trimmedMessage).type === "rename")
         ) {
@@ -716,6 +781,7 @@ export class ChatServiceImpl implements ChatService {
                 goalContinues = false;
               }
               conversationId = commandResult.newConversationId;
+              yield* attachTo(conversationId);
               conversationTitle = commandResult.newConversationTitle;
               if (!ephemeral) {
                 yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
@@ -844,7 +910,11 @@ export class ChatServiceImpl implements ChatService {
           }
         }
 
-        if (goalTurn === undefined && messageForAgent === userMessage) {
+        if (
+          goalTurn === undefined &&
+          deliveryTurn === undefined &&
+          messageForAgent === userMessage
+        ) {
           const typedMessage = messageForAgent;
           const workingDirectory = yield* (yield* FileSystemContextServiceTag).getCwd({
             agentId: agent.id,
@@ -869,6 +939,15 @@ export class ChatServiceImpl implements ChatService {
           if (exceeded.length > 0) {
             const proceed = yield* confirmSessionLimitOverage(terminal, exceeded);
             if (!proceed) {
+              if (deliveryTurn !== undefined) {
+                yield* deliveryTurn
+                  .settle({
+                    delivered: false,
+                    error: "The user declined to run it past the session limit.",
+                    retryable: false,
+                  })
+                  .pipe(Effect.provideService(FileSystem.FileSystem, fileSystem));
+              }
               yield* terminal.log("Turn cancelled. Use /limit to raise or clear the cap.");
               yield* terminal.log("");
               continue;
@@ -895,7 +974,7 @@ export class ChatServiceImpl implements ChatService {
             trustUserInputAsMemorySource: trustMessageAsMemorySource,
             conversationId,
             conversationHistory,
-            origin: { source: goalTurn === undefined ? "chat" : "goal" },
+            origin: deliveryTurn?.origin ?? { source: goalTurn === undefined ? "chat" : "goal" },
             onFailedTurn: (messages) => {
               failedTurnMessages = [...messages];
             },
@@ -1007,6 +1086,7 @@ export class ChatServiceImpl implements ChatService {
 
           // Store the conversation ID for continuity
           conversationId = response.conversationId;
+          yield* attachTo(conversationId);
           store.setCurrentConversation({ agentId: agent.id, conversationId });
 
           // A finished turn — the event a task-completion notifier (e.g. Warp) rides.
@@ -1083,6 +1163,17 @@ export class ChatServiceImpl implements ChatService {
             yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
           }
           inFlightTranscript = undefined;
+
+          if (deliveryTurn !== undefined) {
+            yield* deliveryTurn
+              .settle(
+                chatDeliveryOutcome({
+                  errored: lastTurnErrored,
+                  keptWork: failedTurnMessages !== undefined,
+                }),
+              )
+              .pipe(Effect.provideService(FileSystem.FileSystem, fileSystem));
+          }
 
           if (goalTurn !== undefined) {
             const outcome: RunOutcome<AgentResponse> = lastTurnErrored
@@ -1165,10 +1256,14 @@ export class ChatServiceImpl implements ChatService {
       return { reason: endReason, messagesReceived } satisfies ChatSessionEnd;
     }).pipe(
       Effect.ensuring(
-        Effect.sync(() => {
-          store.registerImmediateCommandRunner(null);
-          store.closeCommandPanel();
-        }),
+        Effect.suspend(() => releaseConversation).pipe(
+          Effect.zipRight(
+            Effect.sync(() => {
+              store.registerImmediateCommandRunner(null);
+              store.closeCommandPanel();
+            }),
+          ),
+        ),
       ),
       Effect.catchAll(() =>
         Effect.succeed<ChatSessionEnd>({ reason: "exit", messagesReceived: 0 }),

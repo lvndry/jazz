@@ -34,6 +34,7 @@ import {
 } from "@jazz/core/utils/state-file";
 import { isValidStorageKey, withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
+import { heldByChatElsewhere } from "@/adapters/chat-attachments";
 import { claimOwnerStatus, clearInFlight, markInFlight } from "@/adapters/runs/runs-in-flight";
 
 export interface ScheduledItem {
@@ -50,6 +51,11 @@ export interface ScheduledItemStore<Item extends ScheduledItem> {
   readonly kind: StateFileKind<Item[]>;
   readonly filePath: (baseDirectory: string, agentId: string) => string;
   readonly lockPath: (baseDirectory: string, agentId: string) => string;
+  /**
+   * The conversation an item resumes, for items that start a turn. Such an item is not claimed
+   * while that conversation is open in another process's chat: the chat runs it instead.
+   */
+  readonly conversationOf?: (item: Item) => string;
 }
 
 export interface ScheduledItemClaim<Item extends ScheduledItem> {
@@ -71,9 +77,25 @@ function claimableNow<Item extends ScheduledItem>(
   item: Item,
   now: number,
 ): boolean {
+  if (
+    store.conversationOf !== undefined &&
+    heldByChatElsewhere(agentId, store.conversationOf(item))
+  ) {
+    return false;
+  }
   return isClaimable(item.delivery, now, (owner) =>
     claimOwnerStatus(owner, claimKey(store, agentId, item.id)),
   );
+}
+
+/** Whether `item` may be claimed by this process now. */
+export function scheduledItemClaimable<Item extends ScheduledItem>(
+  store: ScheduledItemStore<Item>,
+  agentId: string,
+  item: Item,
+  now: number,
+): boolean {
+  return item.fireAt <= now && claimableNow(store, agentId, item, now);
 }
 
 /** Read an agent's items under its lock: a corrupt file is quarantined and reads as empty. */
@@ -190,7 +212,7 @@ function hasClaimableItem<Item extends ScheduledItem>(
     onCorrupt: "fail",
   }).pipe(
     Effect.map((items) =>
-      (items ?? []).some((item) => item.fireAt <= now && claimableNow(store, agentId, item, now)),
+      (items ?? []).some((item) => scheduledItemClaimable(store, agentId, item, now)),
     ),
     Effect.catchAll((error) => Effect.succeed(error instanceof CorruptStateFileError)),
   );

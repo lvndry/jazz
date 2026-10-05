@@ -23,6 +23,7 @@ or to adjust how much history Jazz retains. Jazz stores its data under `~/.jazz`
 | `history/archive/`                                                | Conversations past the retention limit, gzip-compressed            | shape may change        |
 | `runs/`                                                           | One record per run, pruned once terminal                           | shape may change        |
 | `job-batches/`                                                    | Background job batches in flight; delivered ones under `.archive/` | internal                |
+| `chat-attachments/`                                               | Which conversation each open chat holds, so its wake-ups run there | internal                |
 | `work/`                                                           | Per-conversation work state, journal, and offloaded tool results   | internal                |
 | `generated/`                                                      | Media a model produced, referenced by artifacts                    | path is in the artifact |
 | `logs/`                                                           | `jazz.log`, per-conversation logs, per-workflow stdout and stderr  | yes                     |
