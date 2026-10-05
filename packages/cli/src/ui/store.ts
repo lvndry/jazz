@@ -6,7 +6,7 @@
  * approval continuations stay on the write side and never enter source content.
  */
 
-import type { LlmRetryNotice } from "@jazz/core/interfaces/presentation";
+import type { EphemeralRegionOptions, LlmRetryNotice } from "@jazz/core/interfaces/presentation";
 import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import type {
   PresentationContent,
@@ -80,6 +80,8 @@ export interface EphemeralRegion {
   readonly startedAt: number;
   readonly tail: readonly string[];
   readonly maxLines: number;
+  /** A sub-agent that keeps working after the turn that started it ends. */
+  readonly outlivesTurn?: boolean;
 }
 
 export interface ExpandableReasoning {
@@ -548,6 +550,10 @@ export class UIStore {
   private sessionCompletionTokens = 0;
   private expandableReasoningStack: ExpandableReasoning[] = [];
   private inputHistory: string[] = [];
+  /** The chat prompt another prompt took the place of, shown again when that one closes. */
+  private setAsideChatPrompt: PromptState | null = null;
+  /** How to stop each running sub-agent whose region was opened with a way to cancel it. */
+  private readonly subagentCancels = new Map<EphemeralRegionId, () => void>();
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
   private ephemeralIdCounter = 0;
   private subagentRuns: Map<EphemeralRegionId, SubagentRun> = new Map();
@@ -730,12 +736,43 @@ export class UIStore {
   /**
    * The theme picker is opened by the user beside whatever the session is doing, so a prompt
    * the session needs (a question, the next chat prompt) takes its place and dismisses it.
+   *
+   * The idle chat prompt can be taken over too: a sub-agent still working after the turn ended
+   * may need an approval while the chat waits for the user. The chat prompt is set aside and
+   * comes back when the prompt that took its place closes; a chat prompt opened while such a
+   * question shows waits behind it the same way.
    */
   setPrompt = (nextPrompt: PromptState | null): void => {
     const displaced = this.prompt.getSnapshot().prompt;
-    patchSlice(this.prompt, { prompt: nextPrompt });
-    if (displaced?.type === "theme" && nextPrompt !== null && nextPrompt !== displaced) {
+    const answering = displaced !== null && displaced.type !== "chat" && displaced.type !== "theme";
+    if (nextPrompt?.type === "chat" && answering) {
+      // The question showing goes first; the chat prompt waits behind it.
+      this.setAsideChatPrompt = nextPrompt;
+      return;
+    }
+    let shown = nextPrompt;
+    if (nextPrompt !== null && displaced?.type === "chat" && nextPrompt !== displaced) {
+      this.setAsideChatPrompt = displaced;
+    } else if (nextPrompt === null && displaced?.type !== "chat" && this.setAsideChatPrompt) {
+      shown = this.setAsideChatPrompt;
+      this.setAsideChatPrompt = null;
+    } else if (nextPrompt?.type === "chat") {
+      this.setAsideChatPrompt = null;
+    }
+    patchSlice(this.prompt, { prompt: shown });
+    if (displaced?.type === "theme" && shown !== null && shown !== displaced) {
       displaced.reject?.();
+    }
+  };
+
+  /** Close `prompt` without an answer, whether it is showing or set aside. */
+  withdrawPrompt = (prompt: PromptState): void => {
+    if (this.setAsideChatPrompt === prompt) {
+      this.setAsideChatPrompt = null;
+      return;
+    }
+    if (this.prompt.getSnapshot().prompt === prompt) {
+      patchSlice(this.prompt, { prompt: null });
     }
   };
 
@@ -854,6 +891,27 @@ export class UIStore {
     if (end === 0) return EMPTY_QUEUE;
     patchSlice(this.prompt, { messageQueue: queue.slice(end) });
     return queue.slice(0, end);
+  };
+
+  /** Whether `takeQueuedProse` has something to deliver to a running turn. */
+  hasQueuedProse = (): boolean => {
+    const head = this.prompt.getSnapshot().messageQueue[0];
+    return head !== undefined && !isQueuedCommand(head);
+  };
+
+  /** Calls `listener` once `hasQueuedProse` is true, at once when it already is; returns a cancel. */
+  onceQueuedProse = (listener: () => void): (() => void) => {
+    if (this.hasQueuedProse()) {
+      listener();
+      return () => {};
+    }
+    const unsubscribe = this.prompt.subscribe(() => {
+      if (this.hasQueuedProse()) {
+        unsubscribe();
+        listener();
+      }
+    });
+    return unsubscribe;
   };
 
   /**
@@ -1070,7 +1128,7 @@ export class UIStore {
     kind: EphemeralKind,
     label: string,
     maxLines: number,
-    agentRun?: { readonly task: string; readonly acceptsMessages: boolean },
+    agentRun?: EphemeralRegionOptions["agentRun"],
   ): EphemeralRegionId => {
     const id = `eph-${this.sourceNamespace}-${++this.ephemeralIdCounter}`;
     const startedAt = Date.now();
@@ -1081,7 +1139,11 @@ export class UIStore {
       startedAt,
       tail: [],
       maxLines,
+      ...(agentRun?.outlivesTurn === true ? { outlivesTurn: true } : {}),
     });
+    if (agentRun?.cancel !== undefined) {
+      this.subagentCancels.set(id, agentRun.cancel);
+    }
     if (kind === "reasoning") {
       this.liveReasoningIds.add(id);
       this.deferredReasoningIds.add(id);
@@ -1148,6 +1210,7 @@ export class UIStore {
     if (!region) return;
 
     this.ephemeralRegions.delete(id);
+    this.subagentCancels.delete(id);
     this.publishEphemeralRegions();
     this.finishSubagentRunWith(id, summary.status ?? "completed");
 
@@ -1260,10 +1323,16 @@ export class UIStore {
     this.setExpandableReasoning(value);
   }
 
-  /** The run was interrupted: every open region closes, and the turn's thinking settles. */
+  /**
+   * The turn was interrupted: every region it opened closes, and its thinking settles. A
+   * sub-agent that outlives the turn keeps working, so its region stays open.
+   */
   collapseAllEphemeral = (): void => {
-    for (const id of this.ephemeralRegions.keys()) this.finishSubagentRunWith(id, "interrupted");
-    for (const region of Array.from(this.ephemeralRegions.values())) {
+    const closing = Array.from(this.ephemeralRegions.values()).filter(
+      (region) => region.outlivesTurn !== true,
+    );
+    for (const region of closing) this.finishSubagentRunWith(region.id, "interrupted");
+    for (const region of closing) {
       if (region.kind !== "reasoning") continue;
       const content = this.document.entries.find((entry) => entry.id === region.id)?.content;
       if (content?.kind === "reasoning" && content.text.trim().length > 0)
@@ -1273,11 +1342,23 @@ export class UIStore {
         this.deferredReasoningIds.delete(region.id);
       }
     }
-    if (this.ephemeralRegions.size > 0) {
-      this.ephemeralRegions.clear();
+    if (closing.length > 0) {
+      for (const region of closing) {
+        this.ephemeralRegions.delete(region.id);
+        this.subagentCancels.delete(region.id);
+      }
       this.publishEphemeralRegions();
     }
     this.settleTurnThought();
+  };
+
+  /** Stop a running sub-agent from its list row. False when it has ended or cannot be stopped. */
+  cancelSubagent = (id: EphemeralRegionId): boolean => {
+    const cancel = this.subagentCancels.get(id);
+    if (cancel === undefined || this.subagentRuns.get(id)?.status !== "running") return false;
+    this.subagentCancels.delete(id);
+    cancel();
+    return true;
   };
 
   private publishSubagentRuns(): void {
@@ -1507,6 +1588,7 @@ export class UIStore {
     this.turnThoughtIds = [];
     this.expandableReasoningStack.length = 0;
     this.ephemeralRegions.clear();
+    this.subagentCancels.clear();
     this.publishEphemeralRegions();
     this.subagentRuns.clear();
     this.publishSubagentRuns();

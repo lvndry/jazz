@@ -26,6 +26,7 @@ import type { ChatCompletionResponse } from "../../types/chat";
 import type { StreamEvent } from "../../types/streaming";
 import type { RecursiveRunner } from "../context/summarizer";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { createSubagentSupervisor } from "../subagents/supervisor";
 import { DEFAULT_DISPLAY_CONFIG } from "../types";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
@@ -138,6 +139,7 @@ function makeRunContext(): AgentRunContext {
     agent,
     expandedToolNames: ["ls"],
     connectedMCPServers: [],
+    subagents: Effect.runSync(createSubagentSupervisor()),
     knownSkills: [],
     maxRetries: 0,
     maxIterations: DEFAULT_MAX_ITERATIONS,

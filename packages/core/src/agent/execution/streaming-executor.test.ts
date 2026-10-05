@@ -26,6 +26,7 @@ import { SkillServiceTag } from "../../skills/skill-service";
 import { LLMRateLimitError, LLMRequestError } from "../../types/errors";
 import type { RecursiveRunner } from "../context/summarizer";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
+import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
 // Mocks
@@ -151,6 +152,7 @@ describe("executeWithStreaming", () => {
       agent: options.agent,
       expandedToolNames: [],
       connectedMCPServers: [],
+      subagents: Effect.runSync(createSubagentSupervisor()),
       knownSkills: [],
       maxIterations: DEFAULT_MAX_ITERATIONS,
       maxCostUSD: undefined,
@@ -408,6 +410,7 @@ describe("executeWithStreaming", () => {
       agent: options.agent,
       expandedToolNames: [],
       connectedMCPServers: [],
+      subagents: Effect.runSync(createSubagentSupervisor()),
       knownSkills: [],
       maxIterations: DEFAULT_MAX_ITERATIONS,
       maxCostUSD: undefined,
@@ -529,6 +532,7 @@ describe("executeWithStreaming", () => {
       agent: options.agent,
       expandedToolNames: [],
       connectedMCPServers: [],
+      subagents: Effect.runSync(createSubagentSupervisor()),
       knownSkills: [],
       maxIterations: DEFAULT_MAX_ITERATIONS,
       maxCostUSD: undefined,
@@ -661,6 +665,7 @@ function makeStreamingHarness(input: {
     agent,
     expandedToolNames: [],
     connectedMCPServers: [],
+    subagents: Effect.runSync(createSubagentSupervisor()),
     knownSkills: [],
     maxIterations: DEFAULT_MAX_ITERATIONS,
     maxCostUSD: undefined,

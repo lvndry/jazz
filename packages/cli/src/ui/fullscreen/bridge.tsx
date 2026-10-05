@@ -2495,7 +2495,7 @@ export function FullscreenBridge(): React.ReactNode {
         return false;
       }
 
-      // The sub-agent list has the keyboard: arrows move, Enter opens, Esc (or up
+      // The sub-agent list has the keyboard: arrows move, Enter opens, x cancels, Esc (or up
       // past the first row) hands it back. Any other key returns to the composer
       // and is handled there, so typing never needs a key to leave the list first.
       const runsNow = subagentRunsRef.current;
@@ -2528,6 +2528,11 @@ export function FullscreenBridge(): React.ReactNode {
             setAgentCursor(null);
             const chosen = runsNow[row];
             if (chosen !== undefined) inspectSubagent(chosen.id);
+            return true;
+          }
+          if (name === "x" && !ctrl && cursor < runsNow.length) {
+            const chosen = runsNow[cursor];
+            if (chosen !== undefined) store.cancelSubagent(chosen.id);
             return true;
           }
           if (name === "x" && !ctrl && cursor >= runsNow.length) {

@@ -17,6 +17,7 @@
  */
 
 import { Cause, Effect, Exit, Option } from "effect";
+import type { RunCost } from "@/core/agent/metrics/agent-run-metrics";
 import { isRunParkRequested } from "@/core/agent/run/park-signal";
 import { capLifted, parkedRunWaitingItem } from "@/core/daemon/attention";
 import { daemonStatePath, readDaemonStateFile } from "@/core/daemon/daemon-state";
@@ -283,6 +284,33 @@ export function settleRunAccounting(
       );
     }
   });
+}
+
+/**
+ * Record what a sub-agent spent after the run that started it was recorded, as a further entry
+ * under that run's id: a chat's sub-agents keep working after its turn ends. Never fails, as
+ * {@link settleRunAccounting} never does.
+ */
+export function recordLateChildSpend(
+  input: RunAccountingInput,
+  spend: RunCost,
+  runId: string,
+): Effect.Effect<void> {
+  if (!shouldAccount(input)) {
+    return Effect.void;
+  }
+  return recordSpend(
+    {
+      agentId: input.agentId,
+      source: input.origin.source,
+      costUSD: spend.costUSD ?? 0,
+      costKnown: spend.costUSD !== undefined && !spend.costIncomplete,
+      tokens: 0,
+      unattended: input.unattended,
+      runId,
+    },
+    input.home,
+  ).pipe(Effect.catchAll((error) => reportAccountingError("record a sub-agent's spend", error)));
 }
 
 /**

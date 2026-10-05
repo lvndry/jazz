@@ -522,6 +522,13 @@ export interface ToolExecutionContext {
   readonly onToolEvent?: (event: ToolProgressEvent) => void;
   /** The sub-agents of the run executing this tool; set by the agent loop for every run. */
   readonly subagents?: SubagentSupervisor;
+  /**
+   * Completes once a person has sent a message the run will read at its next step. A tool that
+   * waits on something else for long returns early on it, so the person is not kept waiting.
+   */
+  readonly awaitQueuedMessage?: () => Effect.Effect<void>;
+  /** The run executing this tool keeps working after the chat turn that started it ends. */
+  readonly outlivesTurn?: boolean;
   /** Iteration budget for a sub-agent spawned here — its own, not the parent's remainder. */
   readonly maxSubagentIterations?: number;
   /**

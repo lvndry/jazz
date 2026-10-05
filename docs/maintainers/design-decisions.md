@@ -215,24 +215,34 @@ the telemetry records.
 
 📄 [`agent-loop.ts:221`](../../packages/core/src/agent/execution/agent-loop.ts#L221)
 
-### Sub-agents run beside their parent, inside its run
+### Sub-agents run beside their parent; in chat they outlive its turn
 
-**Decision.** `spawn_subagent` returns an `agentId` at once and the child is a fiber in a scope the
-parent's run owns; `wait_subagents` collects it. There is one mode, not a waiting one and a
-non-waiting one. Closing the run, however it ends, cancels every child still going. An answer the
-parent gives while children run, or before it read their results, waits for them and goes back to
-the model once.
+**Decision.** `spawn_subagent` returns an `agentId` at once and the child is a fiber in a
+supervisor's scope; `wait_subagents` collects it. There is one mode, not a waiting one and a
+non-waiting one. What differs is who owns the supervisor:
+
+- **A run** owns it by default (`jazz run`, workflows, bots, goal cycles, and every sub-agent's own
+  children). Closing the run, however it ends, cancels every child still going, and an answer the
+  parent gives while children run waits for them and goes back to the model once.
+- **A chat** owns one per conversation and attaches each turn to it. The parent answers without
+  waiting, the children keep working, and a child finishing while the chat waits for the user
+  starts a turn whose message says which children finished. What a child shares with the turn that
+  started it (the browser, typed secrets) is released once that turn's children have all finished,
+  and spend a child reports after its turn was recorded goes to the ledger as a further entry under
+  the turn's run id. A message the user sends ends a `wait_subagents` early, so a parent waiting on
+  its children never holds the user off.
 
 **Alternatives rejected.** Keeping a mode where the spawn call blocks until the child answers: it
 saves one model call when a single child is started and awaited at once, but it is a second
 concept for agents and people, and a blocked parent cannot steer. Running children as daemon jobs
 that wake the parent later, the way `run_background_jobs` does: that needs the parent's budget,
-approvals, egress state and cancellation carried across processes. Goals and loops already cover
-work that outlives a turn.
+approvals, egress state and cancellation carried across processes. Children live in the chat's
+process instead, so they share its approvals, policy and presentation as they always did.
 
-**Cost accepted.** One extra model call for a single delegation (spawn, wait, answer). A child
-cannot survive a park, a detach, or the end of the turn. Steering reaches a child only between its
-steps; only cancel is immediate.
+**Cost accepted.** One extra model call for a single delegation (spawn, wait, answer), and one more
+for the turn a finished child starts, since its result is read through `wait_subagents` so the
+egress taint sees it. A child cannot survive a park, a detach, or the end of the conversation.
+Steering reaches a child only between its steps; only cancel is immediate.
 
 📄 [`supervisor.ts`](../../packages/core/src/agent/subagents/supervisor.ts)
 
