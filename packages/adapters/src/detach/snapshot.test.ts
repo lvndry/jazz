@@ -6,7 +6,10 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { createDetachSnapshot, importDetachSnapshot, verifyDetachSnapshot } from "./snapshot";
-import { loadConversation } from "../history/conversation-history-service";
+import {
+  EMPTY_CONVERSATION_REVISION,
+  loadConversation,
+} from "../history/conversation-history-service";
 
 let root: string;
 let previousHome: string | undefined;
@@ -69,7 +72,10 @@ describe("portable detach snapshot", () => {
         ...ids,
         workspaceRoot,
         bundleDirectory,
-        history: [{ role: "user", content: "Write the draft" }],
+        history: {
+          messages: [{ role: "user", content: "Write the draft" }],
+          basedOn: EMPTY_CONVERSATION_REVISION,
+        },
       });
       expect(manifest.entries.some((entry) => entry.relativePath === "workspace/note.txt")).toBe(
         true,
@@ -85,7 +91,7 @@ describe("portable detach snapshot", () => {
       const history = await Effect.runPromise(
         loadConversation("agent", "conversation").pipe(Effect.provide(NodeFileSystem.layer)),
       );
-      expect(history?.messages).toEqual([{ role: "user", content: "Write the draft" }]);
+      expect(history?.messages).toMatchObject([{ role: "user", content: "Write the draft" }]);
       expect(
         await fs.readFile(path.join(root, "remote-home", "agents", "agent.json"), "utf8"),
       ).not.toContain("secret-key");
@@ -131,7 +137,10 @@ describe("portable detach snapshot", () => {
       ...ids,
       workspaceRoot,
       bundleDirectory,
-      history: [{ role: "user", content: "hello" }],
+      history: {
+        messages: [{ role: "user", content: "hello" }],
+        basedOn: EMPTY_CONVERSATION_REVISION,
+      },
     });
     await fs.writeFile(path.join(bundleDirectory, "files", "workspace", "note.txt"), "wrong");
     process.env["JAZZ_HOME"] = path.join(root, "remote-home");
@@ -186,7 +195,10 @@ describe("portable detach snapshot", () => {
         ...ids,
         workspaceRoot,
         bundleDirectory: path.join(root, "bundle"),
-        history: [{ role: "user", content: "hello" }],
+        history: {
+          messages: [{ role: "user", content: "hello" }],
+          basedOn: EMPTY_CONVERSATION_REVISION,
+        },
       }),
     ).rejects.toThrow("symbolic link");
   });

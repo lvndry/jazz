@@ -32,6 +32,7 @@ import { assertConversationWritable } from "@jazz/core/agent/detach/ownership";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { toError } from "@jazz/core/utils/errors";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
@@ -40,13 +41,18 @@ import { Effect, Option } from "effect";
 import {
   agentConversationLockPath,
   archiveConversationLog,
+  ConversationChangedError,
+  conversationRevision,
   countConversationLogs,
+  EMPTY_CONVERSATION_REVISION,
   getHistoryArchiveDirectory,
   listConversationLogs,
   readConversationLog,
   recordConversationTranscript,
+  recordLeafMove,
   summarize,
   type Conversation,
+  type ConversationRevision,
   type ConversationSummary,
   type ConversationToSave,
 } from "./conversation-log";
@@ -56,10 +62,21 @@ import { FileRunStore } from "../storage/run-store";
 
 export type {
   Conversation,
+  ConversationRevision,
   ConversationSummary,
   ConversationToSave,
   ConversationUiEntry,
 } from "./conversation-log";
+export {
+  ConversationChangedError,
+  conversationRevision,
+  displayConversationTitle,
+  EMPTY_CONVERSATION_REVISION,
+  readConversationBranches,
+  sameRevision,
+  savedConversationRevision,
+} from "./conversation-log";
+export type { ConversationBranch } from "./conversation-tree";
 
 export interface AgentConversationHistory {
   readonly agentId: string;
@@ -260,7 +277,7 @@ export function saveConversation(
   conversation: ConversationToSave,
   dir?: string,
   options?: SaveConversationOptions,
-): Effect.Effect<void, Error, FileSystem.FileSystem> {
+): Effect.Effect<ConversationRevision, Error, FileSystem.FileSystem> {
   const lockPath = agentConversationLockPath(conversation.agentId, dir);
   const conversationsInUse = options?.conversationsInUse ?? conversationsInUseByRecords;
   const assertWritable = () =>
@@ -280,17 +297,18 @@ export function saveConversation(
       yield* archiveLegacyHistory(dir);
     }
 
-    yield* withLock(
+    return yield* withLock(
       lockPath,
       Effect.gen(function* () {
         yield* assertWritable();
-        yield* recordConversationTranscript(
+        const revision = yield* recordConversationTranscript(
           {
             agentId: conversation.agentId,
             conversationId: conversation.conversationId,
             title: conversation.title,
             startedAt: conversation.startedAt,
             messages: conversation.messages,
+            basedOn: conversation.basedOn,
             ...(conversation.uiTranscript !== undefined
               ? { uiTranscript: conversation.uiTranscript }
               : {}),
@@ -301,9 +319,26 @@ export function saveConversation(
         if (housekeeping) {
           yield* archiveBeyondRetention(conversation.agentId, dir, conversationsInUse);
         }
+        return revision;
       }),
     );
   });
+}
+
+/**
+ * Continue a conversation from another entry (see `recordLeafMove`), under the same lock as a
+ * save so it never lands between another writer's read and write.
+ */
+export function moveConversationLeaf(
+  input: {
+    readonly agentId: string;
+    readonly conversationId: string;
+    readonly to: string | null;
+    readonly basedOn: ConversationRevision;
+  },
+  dir?: string,
+): Effect.Effect<Conversation, Error, FileSystem.FileSystem> {
+  return withLock(agentConversationLockPath(input.agentId, dir), recordLeafMove(input, dir));
 }
 
 /**
@@ -312,6 +347,9 @@ export function saveConversation(
  * Summaries rather than conversations because a listing is what this is for. A caller that
  * needs what was said asks for one conversation by id, instead of every transcript on disk
  * being read to draw a picker.
+ *
+ * A log that cannot be read (one written by a newer Jazz) is left out and logged, so one bad
+ * file never empties the whole list.
  */
 export function loadHistory(
   agentId: string,
@@ -321,7 +359,14 @@ export function loadHistory(
     const logs = yield* listConversationLogs(agentId, dir);
     const conversations: ConversationSummary[] = [];
     for (const log of logs) {
-      const conversation = yield* readConversationLog(log.agentId, log.conversationId, dir);
+      const conversation = yield* readConversationLog(log.agentId, log.conversationId, dir).pipe(
+        Effect.catchAll((error) =>
+          logHousekeeping("warn", "Conversation left out of history: its log cannot be read", {
+            conversationId: log.conversationId,
+            error: error.message,
+          }).pipe(Effect.as(null)),
+        ),
+      );
       if (conversation) conversations.push(summarize(conversation));
     }
     conversations.sort((left, right) => lastActivityMs(right) - lastActivityMs(left));
@@ -361,9 +406,39 @@ export function loadConversationOrNull(
 const MAX_RUN_TITLE_CHARS = 80;
 
 /**
+ * Save a transcript a writer built on `conversation.basedOn`, or, when the conversation was
+ * saved elsewhere since, save it as a new conversation instead of replacing what was said
+ * there. Succeeds with the id the transcript was saved under.
+ */
+export function saveConversationOrFork(
+  conversation: ConversationToSave,
+  dir?: string,
+): Effect.Effect<string, Error, FileSystem.FileSystem> {
+  return saveConversation(conversation, dir).pipe(
+    Effect.as(conversation.conversationId),
+    Effect.catchIf(
+      (error) => error instanceof ConversationChangedError,
+      () => {
+        const forkedId = generateConversationId();
+        return saveConversation(
+          {
+            ...conversation,
+            conversationId: forkedId,
+            startedAt: new Date().toISOString(),
+            basedOn: EMPTY_CONVERSATION_REVISION,
+          },
+          dir,
+        ).pipe(Effect.as(forkedId));
+      },
+    ),
+  );
+}
+
+/**
  * Save the transcript a run produced into its conversation. `prior` is the conversation as it
- * was loaded for the run: its title and start time are kept, and a new conversation is named
- * with `fallbackTitle`.
+ * was loaded for the run: its title and start time are kept, a new conversation is named with
+ * `fallbackTitle`, and the save builds on `prior`'s messages (see `saveConversationOrFork`).
+ * Succeeds with the id the transcript was saved under.
  */
 export function saveRunTranscript(
   options: {
@@ -374,17 +449,17 @@ export function saveRunTranscript(
     readonly messages: readonly ChatMessage[];
   },
   dir?: string,
-): Effect.Effect<void, Error, FileSystem.FileSystem> {
-  const now = new Date().toISOString();
-  return saveConversation(
+): Effect.Effect<string, Error, FileSystem.FileSystem> {
+  return saveConversationOrFork(
     {
       agentId: options.agentId,
       conversationId: options.conversationId,
       title:
         options.prior?.title ??
         Array.from(options.fallbackTitle).slice(0, MAX_RUN_TITLE_CHARS).join(""),
-      startedAt: options.prior?.startedAt ?? now,
+      startedAt: options.prior?.startedAt ?? new Date().toISOString(),
       messages: [...options.messages],
+      basedOn: conversationRevision(options.prior?.messages ?? []),
     },
     dir,
   );

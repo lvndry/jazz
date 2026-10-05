@@ -15,9 +15,19 @@ import {
 import { getOwnedGoal } from "@jazz/adapters/goals/goal-actions";
 import { claimChatGoalTurn, settleChatGoalTurn } from "@jazz/adapters/goals/goal-worker";
 import {
+  ConversationChangedError,
+  conversationRevision,
+  EMPTY_CONVERSATION_REVISION,
   loadConversationOrNull,
+  type ConversationRevision,
   type ConversationUiEntry,
+  sameRevision,
+  savedConversationRevision,
 } from "@jazz/adapters/history/conversation-history-service";
+import {
+  ConversationBusyError,
+  withConversationTurn,
+} from "@jazz/adapters/history/conversation-lease";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { carryEgressTaint, detachedResultMessage } from "@jazz/core/agent/execution/egress-taint";
@@ -311,6 +321,9 @@ export class ChatServiceImpl implements ChatService {
         }
       });
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
+      // The saved transcript this session builds on. Every save names it, so the session can
+      // only replace history it has read; a log saved elsewhere since makes the save fork.
+      let savedRevision: ConversationRevision = conversationRevision(conversationHistory);
       let conversationTitle = ephemeral
         ? undefined
         : (yield* loadConversationOrNull(agent.id, conversationId))?.title;
@@ -341,7 +354,9 @@ export class ChatServiceImpl implements ChatService {
       // Recall always draws from the saved model history, whichever transcript
       // repaints the screen. A fresh conversation seeds an empty list so it
       // does not leak the previous session's recall.
-      if (options?.initialUiTranscript?.length) {
+      // A saved snapshot repaints the screen even when empty (`/clear` saved it so); only a
+      // conversation that never saved scrollback is repainted from its messages.
+      if (options?.initialUiTranscript !== undefined) {
         hydrateTranscriptFromUiEntries(options.initialUiTranscript, `${conversationId}:main`);
       } else if (conversationHistory.length > 0) {
         hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
@@ -391,10 +406,37 @@ export class ChatServiceImpl implements ChatService {
             ...(saveOptions.uiTranscript !== undefined
               ? { uiTranscript: saveOptions.uiTranscript }
               : {}),
+            basedOn: savedRevision,
           },
           undefined,
           saveOptions.housekeeping === false ? { housekeeping: false } : undefined,
         ).pipe(
+          Effect.tap((revision) =>
+            Effect.sync(() => {
+              if (revision !== null) savedRevision = revision;
+            }),
+          ),
+          Effect.asVoid,
+          Effect.catchIf(
+            (error) => error instanceof ConversationChangedError,
+            () =>
+              Effect.gen(function* () {
+                const changedId = conversationId;
+                conversationId = generateConversationId();
+                savedRevision = EMPTY_CONVERSATION_REVISION;
+                store.setCurrentConversation({ agentId: agent.id, conversationId });
+                yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
+                yield* logger.warn("Conversation saved elsewhere; continuing as a new one", {
+                  changedConversationId: changedId,
+                  conversationId,
+                });
+                yield* terminal.warn(
+                  "This conversation was also saved from somewhere else, so this session " +
+                    "continues as a new conversation. Nothing was overwritten.",
+                );
+                yield* saveSession(history, saveOptions);
+              }),
+          ),
           Effect.catchAll((error) =>
             Effect.gen(function* () {
               yield* logger.error("Conversation save failed", {
@@ -412,6 +454,36 @@ export class ChatServiceImpl implements ChatService {
           ),
           Effect.provideService(FileSystem.FileSystem, fileSystem),
         );
+
+      /**
+       * Another session may have continued this conversation while this one waited for its
+       * turn. Reload what it saved, so the next turn builds on it rather than forking beside it.
+       */
+      const pickUpTurnsSavedElsewhere = Effect.gen(function* () {
+        if (ephemeral) {
+          return;
+        }
+        const onDisk = yield* savedConversationRevision(agent.id, conversationId).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.option,
+        );
+        if (Option.isNone(onDisk) || sameRevision(onDisk.value, savedRevision)) {
+          return;
+        }
+        const latest = yield* loadConversationOrNull(agent.id, conversationId).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+        );
+        if (latest === null) {
+          return;
+        }
+        conversationHistory = [
+          ...conversationHistory.filter((message) => message.role === "system"),
+          ...latest.messages,
+        ];
+        loggedMessageCount = conversationHistory.length;
+        savedRevision = conversationRevision(latest.messages);
+        yield* terminal.info("Picked up what another session added to this conversation.");
+      });
 
       // Load persistent auto-approved commands from config
       if (appConfig.autoApprovedCommands?.length) {
@@ -495,6 +567,7 @@ export class ChatServiceImpl implements ChatService {
         agent,
         conversationId,
         conversationTitle,
+        conversationRevision: savedRevision,
         ephemeral,
         conversationHistory,
         queuedAfterCommand: store.peekQueue().length > 0,
@@ -741,8 +814,15 @@ export class ChatServiceImpl implements ChatService {
               context,
             );
 
-            if (commandResult.newConversationTitle !== undefined) {
-              conversationTitle = commandResult.newConversationTitle;
+            // A command that switches conversations brings the next conversation's title; it is
+            // applied with the switch below, so the conversation being left is saved under its own.
+            if (commandResult.newConversationId === undefined) {
+              if (commandResult.newConversationTitle !== undefined) {
+                conversationTitle = commandResult.newConversationTitle;
+              }
+              if (commandResult.conversationRevision !== undefined) {
+                savedRevision = commandResult.conversationRevision;
+              }
             }
 
             // Slash commands are UI interactions, not model turns. Snapshot the rendered
@@ -750,7 +830,15 @@ export class ChatServiceImpl implements ChatService {
             // inserting operational output into the next LLM request.
             store.flushOutputBatchNow();
             const uiTranscript = uiTranscriptFromStore();
-            yield* saveSession(conversationHistory, { uiTranscript });
+            // A command that reshaped this conversation (`/tree`, `/compact`, `/retry`) is saved
+            // with its new history: the revision it returned already describes that history,
+            // so saving the old one on top of it would undo the command.
+            const historyAfterCommand =
+              commandResult.newConversationId === undefined &&
+              commandResult.newHistory !== undefined
+                ? commandResult.newHistory
+                : conversationHistory;
+            yield* saveSession(historyAfterCommand, { uiTranscript });
 
             if (commandResult.saveCurrentHistory) {
               yield* saveSession(conversationHistory);
@@ -767,6 +855,7 @@ export class ChatServiceImpl implements ChatService {
               yield* stopSubagents;
               subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
               conversationTitle = commandResult.newConversationTitle;
+              savedRevision = commandResult.conversationRevision ?? EMPTY_CONVERSATION_REVISION;
               if (!ephemeral) {
                 yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
                 yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
@@ -797,6 +886,8 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newAgent !== undefined) {
               agent = commandResult.newAgent;
+              // Conversations are kept per agent, so the next save starts this one's log.
+              savedRevision = EMPTY_CONVERSATION_REVISION;
               store.updateRunStats({
                 provider: agent.config.llm.provider,
                 model: agent.config.llm.model,
@@ -819,7 +910,14 @@ export class ChatServiceImpl implements ChatService {
               // /compact opts out (skipTranscriptRepaint): it only shrinks the model's
               // context, and the user's scrollback stays as their record of the session.
               if (!commandResult.skipTranscriptRepaint) {
-                hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
+                if (commandResult.newUiTranscript !== undefined) {
+                  hydrateTranscriptFromUiEntries(
+                    commandResult.newUiTranscript,
+                    `${conversationId}:main`,
+                  );
+                } else {
+                  hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
+                }
                 // The agent now sees a different history, so ↑ must recall it —
                 // /new recalls nothing, /resume recalls the resumed turns.
                 hydrateInputHistoryFromMessages(conversationHistory);
@@ -833,9 +931,6 @@ export class ChatServiceImpl implements ChatService {
                 // Reset logged message count when history is cleared (e.g., /new command)
                 loggedMessageCount = 0;
               }
-            }
-            if (commandResult.resetStartedAt) {
-              startedAt = new Date().toISOString();
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
               autoApprovePolicy = commandResult.newAutoApprovePolicy;
@@ -866,6 +961,9 @@ export class ChatServiceImpl implements ChatService {
 
             if (commandResult.keepDraft === true && terminal.isInteractive) {
               draftToRestore = userMessage;
+            }
+            if (commandResult.composerDraft !== undefined && terminal.isInteractive) {
+              draftToRestore = commandResult.composerDraft;
             }
 
             if (commandResult.attendGoal !== undefined) {
@@ -933,7 +1031,8 @@ export class ChatServiceImpl implements ChatService {
         );
         sessionTurnCount += 1;
 
-        yield* Effect.gen(function* () {
+        const chatTurn = Effect.gen(function* () {
+          yield* pickUpTurnsSavedElsewhere;
           // Set only when the turn fails: its work so far, so "continue" doesn't revert to
           // the pre-turn history.
           let failedTurnMessages: ChatMessage[] | undefined;
@@ -1207,6 +1306,21 @@ export class ChatServiceImpl implements ChatService {
               : saveSession(inFlightTranscript, { uiTranscript: uiTranscriptFromStore() }),
           ),
         );
+        // A turn holds the conversation from before it runs until it is saved, so a turn from
+        // another session (a second terminal, a goal cycle, a delivery) waits and then
+        // continues this conversation instead of forking it.
+        yield* ephemeral
+          ? chatTurn
+          : withConversationTurn(agent.id, conversationId, chatTurn, {
+              onBusy: terminal.info(
+                "This conversation is busy in another session; your message goes once it finishes.",
+              ),
+            }).pipe(
+              Effect.catchIf(
+                (error): error is ConversationBusyError => error instanceof ConversationBusyError,
+                (error) => Effect.die(error),
+              ),
+            );
       }
 
       yield* stopSubagents;

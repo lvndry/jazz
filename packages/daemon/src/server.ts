@@ -34,6 +34,7 @@ import {
   loadConversationOrNull,
   saveRunTranscript,
 } from "@jazz/adapters/history/conversation-history-service";
+import { withConversationTurn } from "@jazz/adapters/history/conversation-lease";
 import { listModelsForProvider } from "@jazz/adapters/llm/model-fetcher";
 import {
   controlLoop,
@@ -1883,50 +1884,58 @@ function fireWebhook(
     const threaded = webhook.conversation === "threaded";
     const conversationId = webhookConversationId(webhook, threadKey);
 
-    // A history read that fails must not fail the fire: the run is still perfectly valid
-    // without its past, and refusing to answer a webhook because an old log is unreadable
-    // trades a degraded turn for no turn at all.
-    const priorRecord = threaded
-      ? yield* loadConversationOrNull(webhook.agentId, conversationId)
-      : null;
+    const turn = Effect.gen(function* () {
+      // A history read that fails must not fail the fire: the run is still perfectly valid
+      // without its past, and refusing to answer a webhook because an old log is unreadable
+      // trades a degraded turn for no turn at all.
+      const priorRecord = threaded
+        ? yield* loadConversationOrNull(webhook.agentId, conversationId)
+        : null;
 
-    const options = yield* webhookRunOptions({
-      webhook,
-      payload,
-      conversationId,
-      ...(priorRecord !== null ? { history: priorRecord.messages } : {}),
-      ...(progressUrl !== undefined
-        ? {
-            onToolEvent: (event: ToolProgressEvent) =>
-              reportProgress(progressUrl, wantedProgress, event),
-          }
-        : {}),
-    });
-
-    const response = yield* AgentRunner.run(options);
-
-    if (threaded) {
-      yield* saveRunTranscript({
-        agentId: webhook.agentId,
+      const options = yield* webhookRunOptions({
+        webhook,
+        payload,
         conversationId,
-        prior: priorRecord,
-        fallbackTitle: `webhook: ${webhook.name}`,
-        messages: response.messages ?? priorRecord?.messages ?? [],
-      }).pipe(
-        Effect.catchAll((error) =>
-          Effect.gen(function* () {
-            const logger = yield* Effect.serviceOption(LoggerServiceTag);
-            if (logger._tag === "Some") {
-              yield* logger.value.warn("Webhook conversation save failed", {
-                webhook: webhook.name,
-                conversationId,
-                error: String(error),
-              });
+        ...(priorRecord !== null ? { history: priorRecord.messages } : {}),
+        ...(progressUrl !== undefined
+          ? {
+              onToolEvent: (event: ToolProgressEvent) =>
+                reportProgress(progressUrl, wantedProgress, event),
             }
-          }),
-        ),
-      );
-    }
+          : {}),
+      });
+
+      const response = yield* AgentRunner.run(options);
+
+      if (threaded) {
+        yield* saveRunTranscript({
+          agentId: webhook.agentId,
+          conversationId,
+          prior: priorRecord,
+          fallbackTitle: `webhook: ${webhook.name}`,
+          messages: response.messages ?? priorRecord?.messages ?? [],
+        }).pipe(
+          Effect.catchAll((error) =>
+            Effect.gen(function* () {
+              const logger = yield* Effect.serviceOption(LoggerServiceTag);
+              if (logger._tag === "Some") {
+                yield* logger.value.warn("Webhook conversation save failed", {
+                  webhook: webhook.name,
+                  conversationId,
+                  error: String(error),
+                });
+              }
+            }),
+          ),
+        );
+      }
+      return response;
+    });
+    // A threaded conversation is held from the load to the save, so two fires on one thread
+    // take turns instead of the second forking beside the first.
+    const response = threaded
+      ? yield* withConversationTurn(webhook.agentId, conversationId, turn)
+      : yield* turn;
 
     return json({
       ok: true,

@@ -5,6 +5,8 @@ import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
 import {
+  conversationRevision,
+  EMPTY_CONVERSATION_REVISION,
   loadConversation,
   saveConversation,
 } from "@jazz/adapters/history/conversation-history-service";
@@ -107,6 +109,7 @@ const testRecord = {
     { role: "user" as const, content: "Hello" },
     { role: "assistant" as const, content: "Hi there" },
   ] as ChatMessage[],
+  basedOn: EMPTY_CONVERSATION_REVISION,
 };
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
@@ -165,6 +168,7 @@ describe("handleSpecialCommand /skills", () => {
     agent: testAgent,
     conversationHistory: [],
     conversationId: "test-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -239,6 +243,7 @@ describe("agent creation and fresh conversations", () => {
     agent: testAgent,
     conversationHistory: testRecord.messages,
     conversationId: "current-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -411,6 +416,7 @@ describe("handleSpecialCommand /rename", () => {
     agent: testAgent,
     conversationHistory: [],
     conversationId: "rename-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -469,8 +475,16 @@ describe("handleSpecialCommand /rename", () => {
         tmpDir,
       ),
     );
-    const rename = run([], { conversationHistory: testRecord.messages }, "New  title 🪷");
-    await rename.outcome;
+    const rename = run(
+      [],
+      {
+        conversationHistory: testRecord.messages,
+        conversationRevision: conversationRevision(testRecord.messages),
+      },
+      "New  title 🪷",
+    );
+    const renamed = await rename.outcome;
+    expect(renamed.conversationRevision).toEqual(conversationRevision(testRecord.messages));
     expect(rename.options()?.defaultValue).toBe(testRecord.title);
     expect(rename.options()?.cancellable).toBe(true);
     const saved = await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir));
@@ -511,7 +525,7 @@ describe("handleSpecialCommand /rename", () => {
 });
 
 describe("handleSpecialCommand resume", () => {
-  test("sets resetStartedAt on the result when a conversation is successfully resumed", async () => {
+  test("switches the chat to the resumed conversation instead of copying it into the current one", async () => {
     await runEffect(saveConversation(testRecord, tmpDir));
 
     const mockTerminal: Partial<TerminalService> = {
@@ -536,6 +550,7 @@ describe("handleSpecialCommand resume", () => {
       agent: testAgent,
       conversationHistory: [],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -550,13 +565,47 @@ describe("handleSpecialCommand resume", () => {
       ) as Effect.Effect<CommandResult, unknown, never>,
     );
 
-    expect(result.resetStartedAt).toBe(true);
+    expect(result.newConversationId).toBe(testRecord.conversationId);
+    expect(result.conversationRevision).toEqual(conversationRevision(testRecord.messages));
+    expect(result.saveCurrentHistory).toBe(true);
     expect(result.newConversationTitle).toBe(testRecord.title);
     expect(result.newHistory?.map((message) => message.content)).toEqual([
       expect.stringContaining("Resuming conversation from"),
       "Hello",
       "Hi there",
     ]);
+  });
+
+  /** The regression: `/retry` resent the model-facing content, source tag and all. */
+  test("/retry resends what was typed, without the memory-source tag", async () => {
+    const terminalLayer = Layer.succeed(TerminalServiceTag, {
+      warn: mock(() => Effect.void),
+      log: mock(() => Effect.void),
+    } as unknown as TerminalService);
+    const context: CommandContext = {
+      agent: testAgent,
+      conversationHistory: [
+        {
+          role: "user",
+          content: "pick a fruit\n\n[memory source user:abc]",
+          memorySource: { id: "user:abc", text: "pick a fruit" },
+        },
+        { role: "assistant", content: "MANGO" },
+      ],
+      conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 0,
+      sessionLimits: {},
+      sessionStartedAt: new Date(),
+    };
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "retry", args: [] }, context).pipe(
+        Effect.provide(Layer.mergeAll(terminalLayer, NodeFileSystem.layer)),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+    expect(result.resendMessage).toBe("pick a fruit");
+    expect(result.newHistory).toEqual([]);
   });
 
   test("does not replace history when this agent has no past conversations", async () => {
@@ -581,6 +630,7 @@ describe("handleSpecialCommand resume", () => {
       agent: testAgent,
       conversationHistory: [{ role: "user", content: "still on screen" }],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -613,6 +663,7 @@ describe("handleSpecialCommand /detach", () => {
     const context: CommandContext = {
       agent: testAgent,
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       conversationHistory: [{ role: "user", content: "Keep working" }],
       queuedAfterCommand: true,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
@@ -661,6 +712,7 @@ describe("handleSpecialCommand shell escape", () => {
           agent: testAgent,
           conversationHistory: [],
           conversationId: "test-session",
+          conversationRevision: EMPTY_CONVERSATION_REVISION,
           sessionUsage: { promptTokens: 0, completionTokens: 0 },
           sessionTurnCount: 0,
           sessionLimits: {},
@@ -700,6 +752,7 @@ describe("handleSpecialCommand shell escape", () => {
           agent: testAgent,
           conversationHistory: [],
           conversationId: "test-session",
+          conversationRevision: EMPTY_CONVERSATION_REVISION,
           sessionUsage: { promptTokens: 0, completionTokens: 0 },
           sessionTurnCount: 0,
           sessionLimits: {},
@@ -733,6 +786,7 @@ describe("handleSpecialCommand shell escape", () => {
           agent: testAgent,
           conversationHistory: [],
           conversationId: "test-session",
+          conversationRevision: EMPTY_CONVERSATION_REVISION,
           sessionUsage: { promptTokens: 0, completionTokens: 0 },
           sessionTurnCount: 0,
           sessionLimits: {},
@@ -754,6 +808,7 @@ describe("handleSpecialCommand /reasoning", () => {
     },
     conversationHistory: [],
     conversationId: "test-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -886,6 +941,7 @@ describe("handleSpecialCommand /compact", () => {
     agent: testAgent,
     conversationHistory: history,
     conversationId: "conv-compact",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -1125,6 +1181,7 @@ describe("handleSpecialCommand /tools", () => {
       agent: { ...testAgent, config: { ...testAgent.config, tools: ["http_request"] } },
       conversationHistory: [],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -1186,6 +1243,7 @@ describe("handleSpecialCommand /agents", () => {
       agent: testAgent,
       conversationHistory: [],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -1234,6 +1292,7 @@ describe("handleSpecialCommand /peers", () => {
       agent: testAgent,
       conversationHistory: [],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -1280,6 +1339,7 @@ describe("handleSpecialCommand /peers", () => {
       agent: testAgent,
       conversationHistory: [],
       conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionTurnCount: 0,
       sessionLimits: {},
@@ -1301,6 +1361,7 @@ describe("handleSpecialCommand /runPluginCommand", () => {
     agent: testAgent,
     conversationHistory: [],
     conversationId: "test-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},
@@ -1376,6 +1437,7 @@ describe("handleSpecialCommand /mode", () => {
     agent: testAgent,
     conversationHistory: [],
     conversationId: "test-session",
+    conversationRevision: EMPTY_CONVERSATION_REVISION,
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
     sessionTurnCount: 0,
     sessionLimits: {},

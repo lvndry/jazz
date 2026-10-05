@@ -10,12 +10,19 @@
  */
 import type { FileSystem } from "@effect/platform";
 import {
+  ConversationChangedError,
+  conversationRevision,
+  displayConversationTitle,
   loadConversation,
+  moveConversationLeaf,
+  readConversationBranches,
   loadConversationOrNull,
   loadHistory,
   saveConversation,
 } from "@jazz/adapters/history/conversation-history-service";
+import { formatRelativeWhen } from "@jazz/adapters/history/conversation-search";
 import { report, type TerminalService } from "@jazz/core/interfaces/terminal";
+import { typedText } from "@jazz/core/memory/source-trust";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { Effect } from "effect";
@@ -65,12 +72,20 @@ export function handleRenameCommand(
           ...(loaded.right?.uiTranscript !== undefined
             ? { uiTranscript: loaded.right.uiTranscript }
             : {}),
+          basedOn: context.conversationRevision,
         }),
       );
       if (saved._tag === "Left") {
         yield* terminal.error(`Could not rename conversation: ${saved.left.message}`);
         return { shouldContinue: true, skipTranscriptRepaint: true };
       }
+      yield* terminal.success(`Renamed conversation: ${title}`);
+      return {
+        shouldContinue: true,
+        newConversationTitle: title,
+        conversationRevision: saved.right,
+        skipTranscriptRepaint: true,
+      };
     }
     yield* terminal.success(`Renamed conversation: ${title}`);
     return { shouldContinue: true, newConversationTitle: title, skipTranscriptRepaint: true };
@@ -163,8 +178,107 @@ export function handleForkCommand(
 }
 
 /**
- * Select a saved transcript, reading its full log only after the user chooses it. Restored
- * history carries the resume notice; the runner rebuilds the live system prompt for each run.
+ * `/tree`: continue the conversation from another of its branches, or rewind to just before an
+ * earlier message of yours and put it back in the composer to edit. Branches are the
+ * alternatives the log keeps (an answer `/retry` replaced, the turns an edit left behind).
+ * Switching appends a `leaf` event; editing writes nothing until the edited message is sent,
+ * when the save branches from where it was.
+ */
+export function handleTreeCommand(terminal: TerminalService, context: CommandContext) {
+  return Effect.gen(function* () {
+    if (context.ephemeral === true) {
+      yield* terminal.info("This session is not saved, so it has no branches.");
+      return { shouldContinue: true, skipTranscriptRepaint: true };
+    }
+    const agentId = context.agent.id;
+    const branches = yield* readConversationBranches(agentId, context.conversationId).pipe(
+      Effect.either,
+    );
+    if (branches._tag === "Left") {
+      yield* terminal.error(`Could not read this conversation: ${branches.left.message}`);
+      return { shouldContinue: true, skipTranscriptRepaint: true };
+    }
+    const nowMs = Date.now();
+    const editable = context.conversationHistory.flatMap((message, index) =>
+      message.role === "user" && message.entryId !== undefined ? [{ message, index }] : [],
+    );
+    const choices = [
+      ...branches.right.map((branch) => ({
+        name: `${branch.current ? "current · " : ""}${branch.label || "(empty)"}`,
+        description: `${String(branch.messageCount)} messages${branch.lastAt === null ? "" : ` · ${formatRelativeWhen(Date.parse(branch.lastAt), nowMs)}`}`,
+        value: `branch:${branch.tipId}`,
+      })),
+      ...editable.reverse().map(({ message, index }) => ({
+        name: `edit · ${typedText(message).replace(/\s+/g, " ").trim().slice(0, 72)}`,
+        description: "rewind to before this message and edit it",
+        value: `edit:${String(index)}`,
+      })),
+    ];
+    if (branches.right.length <= 1 && editable.length === 0) {
+      yield* terminal.info("This conversation has no other branches yet.");
+      return { shouldContinue: true, skipTranscriptRepaint: true };
+    }
+    const selection = yield* terminal.search<string>("Continue from which branch?", {
+      choices,
+      placeholder: "Type to filter",
+    });
+    if (selection === undefined || selection === null) {
+      return { shouldContinue: true, skipTranscriptRepaint: true };
+    }
+    const separator = selection.indexOf(":");
+    const action = selection.slice(0, separator);
+    const target = selection.slice(separator + 1);
+
+    if (action === "edit") {
+      const index = Number(target);
+      const message = context.conversationHistory[index];
+      if (message === undefined) {
+        return { shouldContinue: true, skipTranscriptRepaint: true };
+      }
+      yield* terminal.info(
+        "Rewound to before that message. Edit it and send to branch from there.",
+      );
+      return {
+        shouldContinue: true,
+        newHistory: context.conversationHistory.slice(0, index),
+        composerDraft: typedText(message),
+      };
+    }
+
+    const branch = branches.right.find((candidate) => candidate.tipId === target);
+    if (branch === undefined || branch.current) {
+      return { shouldContinue: true, skipTranscriptRepaint: true };
+    }
+    const moved = yield* moveConversationLeaf({
+      agentId,
+      conversationId: context.conversationId,
+      to: branch.tipId,
+      basedOn: context.conversationRevision,
+    }).pipe(Effect.either);
+    if (moved._tag === "Left") {
+      yield* terminal.error(
+        moved.left instanceof ConversationChangedError
+          ? "This conversation was saved from somewhere else meanwhile; run /tree again."
+          : `Could not switch branches: ${moved.left.message}`,
+      );
+      return { shouldContinue: true, skipTranscriptRepaint: true };
+    }
+    yield* terminal.success(`Continuing from: ${branch.label || "(empty)"}`);
+    return {
+      shouldContinue: true,
+      newHistory: [
+        ...context.conversationHistory.filter((message) => message.role === "system"),
+        ...moved.right.messages,
+      ],
+      conversationRevision: conversationRevision(moved.right.messages),
+    };
+  });
+}
+
+/**
+ * Select a saved transcript, reading its full log only after the user chooses it, and switch
+ * the chat to that conversation so later turns append to its own log. Restored history carries
+ * the resume notice; the runner rebuilds the live system prompt for each run.
  */
 export function handleResumeCommand(
   terminal: TerminalService,
@@ -190,7 +304,7 @@ export function handleResumeCommand(
         minute: "2-digit",
       });
       return {
-        name: `${conv.title}  (${dateStr}, ${conv.messageCount} messages)`,
+        name: `${displayConversationTitle(conv.title)}  (${dateStr}, ${conv.messageCount} messages)`,
         value: conv.conversationId,
       };
     });
@@ -219,19 +333,23 @@ export function handleResumeCommand(
 
     const resumeSystemMessage = {
       role: "system" as const,
-      content: `Resuming conversation from ${new Date(selected.startedAt).toLocaleString()}: ${selected.title}`,
+      content: `Resuming conversation from ${new Date(selected.startedAt).toLocaleString()}: ${displayConversationTitle(selected.title)}`,
     };
 
     const newHistory = [resumeSystemMessage, ...conversation.messages];
 
-    yield* terminal.success(`Resumed: ${selected.title}`);
+    yield* terminal.success(`Resumed: ${displayConversationTitle(selected.title)}`);
     yield* terminal.log("");
     return {
       shouldContinue: true,
+      newConversationId: selected.conversationId,
+      conversationRevision: conversationRevision(conversation.messages),
       newHistory,
-      newConversationTitle: conversation.title,
+      ...(conversation.title === undefined ? {} : { newConversationTitle: conversation.title }),
+      ...(conversation.uiTranscript !== undefined
+        ? { newUiTranscript: conversation.uiTranscript }
+        : {}),
       saveCurrentHistory: true,
-      resetStartedAt: true,
     };
   });
 }

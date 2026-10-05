@@ -27,7 +27,11 @@ import { withFileLock } from "@jazz/core/utils/file-lock";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 import { appendDetachEvent, DetachEventRecorder, recordingPresentationService } from "./events";
-import { loadConversation, saveConversation } from "../history/conversation-history-service";
+import {
+  conversationRevision,
+  loadConversation,
+  saveConversation,
+} from "../history/conversation-history-service";
 import { detectKeyringBackend, keyringGet } from "../secrets/keyring";
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -493,12 +497,14 @@ function runTurn(record: DetachedJobRecord, userInput: string, limits: TurnLimit
         return saveConversation({
           ...prior,
           messages: withoutPreamble(error.messages),
+          basedOn: conversationRevision(prior.messages),
         }).pipe(Effect.flatMap(() => Effect.fail(error)));
       }),
     );
     yield* saveConversation({
       ...prior,
       messages: withoutPreamble(response.messages ?? prior.messages),
+      basedOn: conversationRevision(prior.messages),
     });
     return {
       content: response.content,
@@ -568,12 +574,14 @@ function resumeOne(record: DetachedJobRecord) {
         return saveConversation({
           ...prior,
           messages: withoutPreamble(error.messages),
+          basedOn: conversationRevision(prior.messages),
         }).pipe(Effect.flatMap(() => Effect.fail(error)));
       }),
     );
     yield* saveConversation({
       ...prior,
       messages: withoutPreamble(response.messages ?? prior.messages),
+      basedOn: conversationRevision(prior.messages),
     });
     return {
       content: response.content,

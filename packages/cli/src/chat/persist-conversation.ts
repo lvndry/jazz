@@ -1,6 +1,7 @@
 /**
  * Decides whether a chat session's history is worth writing to disk, and
- * saves it — skipped for ephemeral sessions or empty, unnamed conversations.
+ * saves it — skipped for ephemeral sessions or empty, unnamed conversations. Succeeds with
+ * the revision the log is at after the save, or null when nothing was saved.
  *
  * Explicit session titles are preserved without truncation. Otherwise the log derives its
  * title from the first user message. Naming an empty conversation makes it worth saving too.
@@ -9,6 +10,7 @@
 import { FileSystem } from "@effect/platform";
 import {
   saveConversation,
+  type ConversationRevision,
   type ConversationToSave,
   type SaveConversationOptions,
   type ConversationUiEntry,
@@ -24,6 +26,8 @@ export interface PersistConversationInput {
   readonly agentId: string;
   readonly startedAt: string;
   readonly uiTranscript?: readonly ConversationUiEntry[];
+  /** The saved revision the session built this history on. */
+  readonly basedOn: ConversationRevision;
 }
 
 export function shouldPersistConversation(input: PersistConversationInput): boolean {
@@ -52,9 +56,9 @@ export function persistConversationIfNeeded(
   input: PersistConversationInput,
   dir?: string,
   options?: SaveConversationOptions,
-): Effect.Effect<void, Error, FileSystem.FileSystem> {
+): Effect.Effect<ConversationRevision | null, Error, FileSystem.FileSystem> {
   if (!shouldPersistConversation(input)) {
-    return Effect.void;
+    return Effect.succeed(null);
   }
 
   const conversation: ConversationToSave = {
@@ -64,6 +68,7 @@ export function persistConversationIfNeeded(
     startedAt: input.startedAt,
     messages: [...input.conversationHistory],
     ...(input.uiTranscript !== undefined ? { uiTranscript: input.uiTranscript } : {}),
+    basedOn: input.basedOn,
   };
 
   return saveConversation(conversation, dir, options);

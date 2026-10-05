@@ -17,9 +17,12 @@ import {
   withRemoteTurnsInUiTranscript,
 } from "./snapshot";
 import {
+  conversationRevision,
+  EMPTY_CONVERSATION_REVISION,
   loadConversation,
   saveConversation,
   type Conversation,
+  type ConversationRevision,
 } from "../history/conversation-history-service";
 
 let root: string;
@@ -62,9 +65,9 @@ function load() {
   );
 }
 
-function save(conversation: Conversation) {
+function save(conversation: Conversation, basedOn: ConversationRevision) {
   return Effect.runPromise(
-    saveConversation(conversation).pipe(Effect.provide(NodeFileSystem.layer)),
+    saveConversation({ ...conversation, basedOn }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 }
 
@@ -79,7 +82,10 @@ async function handOffAndWorkRemotely(localEdit?: () => Promise<void>) {
     ...ids,
     workspaceRoot,
     bundleDirectory: initialDirectory,
-    history: [{ role: "user", content: "start" }],
+    history: {
+      messages: [{ role: "user", content: "start" }],
+      basedOn: EMPTY_CONVERSATION_REVISION,
+    },
   });
 
   useHome("remote-home");
@@ -89,14 +95,17 @@ async function handOffAndWorkRemotely(localEdit?: () => Promise<void>) {
   await fs.rm(path.join(remoteWorkspace, "gone.txt"));
   await fs.writeFile(path.join(remoteWorkspace, "new.txt"), "fresh");
   const remote = await load();
-  await save({
-    ...remote!,
-    messages: [
-      ...remote!.messages,
-      { role: "user", content: "keep going" },
-      { role: "assistant", content: "done remotely" },
-    ],
-  });
+  await save(
+    {
+      ...remote!,
+      messages: [
+        ...remote!.messages,
+        { role: "user", content: "keep going" },
+        { role: "assistant", content: "done remotely" },
+      ],
+    },
+    conversationRevision(remote!.messages),
+  );
   const resultDirectory = path.join(root, "result");
   await createDetachSnapshot({
     ...ids,
@@ -183,7 +192,7 @@ describe("reclaiming a detached conversation", () => {
     await prepareDetach(fence);
     await commitDetach(fence);
     const current = await load();
-    await expect(save(current!)).rejects.toThrow("remote");
+    await expect(save(current!, conversationRevision(current!.messages))).rejects.toThrow("remote");
 
     const outcome = await applyDetachResult({
       initialDirectory,
@@ -262,7 +271,10 @@ describe("user skills and custom personas travel with the handoff", () => {
       ...ids,
       workspaceRoot,
       bundleDirectory,
-      history: [{ role: "user", content: "start" }],
+      history: {
+        messages: [{ role: "user", content: "start" }],
+        basedOn: EMPTY_CONVERSATION_REVISION,
+      },
     });
     expect(manifest.entries.map((entry) => entry.relativePath)).toEqual(
       expect.arrayContaining(["jazz/skills/triage/SKILL.md", "jazz/personas/editor/PERSONA.md"]),
@@ -294,7 +306,10 @@ describe("user skills and custom personas travel with the handoff", () => {
       ...ids,
       workspaceRoot,
       bundleDirectory,
-      history: [{ role: "user", content: "start" }],
+      history: {
+        messages: [{ role: "user", content: "start" }],
+        basedOn: EMPTY_CONVERSATION_REVISION,
+      },
     });
 
     useHome("remote-home");
@@ -316,7 +331,10 @@ describe("user skills and custom personas travel with the handoff", () => {
         ...ids,
         workspaceRoot,
         bundleDirectory: path.join(root, "bundle"),
-        history: [{ role: "user", content: "start" }],
+        history: {
+          messages: [{ role: "user", content: "start" }],
+          basedOn: EMPTY_CONVERSATION_REVISION,
+        },
       }),
     ).rejects.toThrow("plugin-acme-reviewer");
   });

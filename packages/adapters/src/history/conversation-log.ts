@@ -17,18 +17,20 @@
  * - **Crash tolerance.** A process killed mid-write leaves a partial final line. Readers
  *   drop unparseable lines rather than rejecting the file, and the next append
  *   re-terminates the record, so at most the interrupted turn is lost.
- * - **Monotonic history.** Nothing is rewritten in place. Compaction, which legitimately
- *   replaces the transcript, appends a `rewrite` marker: readers reset their accumulator
- *   and the superseded lines stay on disk where search can still find them.
+ * - **Monotonic history.** A save only adds. Each message names the entry it follows, so the
+ *   log is a tree (see `conversation-tree.ts`): `/retry` and edits branch, and compaction or
+ *   the history cap append a `context` entry naming what the model sees from then on. Nothing
+ *   said is ever hidden or removed, and search reads every branch.
  * - **Only what was said.** System prompts are not recorded. They are rebuilt from the
  *   persona, tools and skills on every run, so a stored copy is stale the moment it lands,
  *   and the one reader that ever saw them filtered them straight back out.
  *
- * The UI scrollback follows the same rule as messages. A save appends a `ui-append` event
- * with the entries added since the last save, and writes a full `ui-transcript` snapshot only
- * when the scrollback no longer extends what the log holds (after `/clear`, or when a resumed
- * session re-renders it). Snapshots supersede everything before them, so the first save of a
- * process that finds superseded UI events rewrites the log once without them.
+ * The UI scrollback follows the same rule as messages: a save only adds. It appends a
+ * `ui-append` with the entries added since the last save, a `ui-update` for saved entries whose
+ * content changed, and a `ui-reset` when the scrollback starts over (`/clear`); readers show what
+ * follows the last reset, and what came before stays in the file. Logs from before version 4
+ * wrote whole `ui-transcript` snapshots instead; the first save of such a log drops the UI events
+ * an older snapshot superseded.
  *
  * A save needs to know what the log already holds. The process that last wrote a log caches
  * that, keyed by the file's size, modification time and inode, so a chat that saves every
@@ -41,6 +43,7 @@ import * as path from "node:path";
 import { gzipSync } from "node:zlib";
 import { FileSystem } from "@effect/platform";
 import { isTerminalOutputKind } from "@jazz/core/interfaces/terminal";
+import { typedText } from "@jazz/core/memory/source-trust";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { PresentationEntry } from "@jazz/core/types/presentation-content";
 import { presentationEntrySchema } from "@jazz/core/types/presentation-content-schema";
@@ -50,11 +53,26 @@ import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect, Option } from "effect";
+import {
+  buildConversationTree,
+  contextPath,
+  conversationBranches,
+  type ConversationBranch,
+  legacyMessageId,
+  planSave,
+  treeAppendState,
+  type KeepRun,
+  type TreeAppendState,
+  type TreeEvent,
+} from "./conversation-tree";
 
 const CONVERSATION_LOCKS_DIRECTORY_NAME = "conversation-locks";
 
 /**
  * Schema version stamped on every header.
+ *
+ * 4 gives every message an `id` and the `parentId` it follows, adds `context` and `leaf`
+ * entries, and retires `rewrite`. Older logs read as chains and are upgraded on the next save.
  *
  * 3 stores semantic presentation entries with source IDs and structured facts.
  * Version 2 UI text remains readable; the next save upgrades it atomically.
@@ -64,7 +82,7 @@ const CONVERSATION_LOCKS_DIRECTORY_NAME = "conversation-locks";
  *
  * The version only guards events this version may misread or, by appending, corrupt.
  */
-export const CONVERSATION_LOG_VERSION = 3;
+export const CONVERSATION_LOG_VERSION = 4;
 
 const CONVERSATIONS_DIRECTORY_NAME = "conversations";
 const CONVERSATION_LOG_EXTENSION = ".jsonl";
@@ -76,6 +94,24 @@ const MESSAGE_FINGERPRINT_CHARS = 12;
 
 /** Characters of the first user message used when a conversation was never given a title. */
 const DERIVED_TITLE_CHARS = 48;
+
+/**
+ * Shown for a conversation with neither a title nor a user message yet. A display string only:
+ * a conversation without a title has `title: undefined`, so this is never saved.
+ */
+export const UNTITLED_CONVERSATION_TITLE = "untitled conversation";
+
+/**
+ * Header `titleFormat` of logs whose stored titles are all real. Jazz before it saved
+ * {@link UNTITLED_CONVERSATION_TITLE} as a title, so in a log without it that string is read as
+ * no title; the first save of such a log drops those records and stamps the format.
+ */
+export const REAL_TITLES_FORMAT = 2;
+
+/** How a conversation is named on screen. */
+export function displayConversationTitle(title: string | undefined): string {
+  return title ?? UNTITLED_CONVERSATION_TITLE;
+}
 
 /** Bytes read at a time while looking for the end of a log's header line. */
 const HEADER_READ_CHUNK_BYTES = 4096;
@@ -128,6 +164,23 @@ export function archivedConversationLogPath(
   );
 }
 
+/**
+ * Cross-process lock held for a whole turn on one conversation (see `conversation-lease.ts`);
+ * beside the save locks, out of `conversations/` so listing never sees it.
+ */
+export function conversationTurnLockPath(
+  agentId: string,
+  conversationId: string,
+  historyDirectory?: string,
+): string {
+  return path.join(
+    historyDirectory ?? getHistoryDirectory(),
+    CONVERSATION_LOCKS_DIRECTORY_NAME,
+    storageSafeSegment(agentId),
+    `${storageSafeSegment(conversationId)}.turn`,
+  );
+}
+
 /** Cross-process lock path for one agent's saves; kept out of `conversations/` so listing never sees it. */
 export function agentConversationLockPath(agentId: string, historyDirectory?: string): string {
   return path.join(
@@ -144,12 +197,34 @@ export interface ConversationLogHeader {
   readonly conversationId: string;
   readonly startedAt: string;
   readonly title?: string;
+  /** {@link REAL_TITLES_FORMAT} once every stored title is a real one. */
+  readonly titleFormat?: number;
 }
 
 export interface ConversationLogMessage {
   readonly type: "message";
   readonly at: string;
   readonly message: ChatMessage;
+  /** Absent in logs before version 4; see `legacyMessageId`. */
+  readonly id?: string;
+  /** The entry this message follows; null starts a root. */
+  readonly parentId?: string | null;
+}
+
+/** What the model sees from here on: the kept runs, then what follows this entry. */
+export interface ConversationLogContext {
+  readonly type: "context";
+  readonly at: string;
+  readonly id: string;
+  readonly parentId: string | null;
+  readonly keep: readonly KeepRun[];
+}
+
+/** The conversation continues from `id` (null: from nothing) instead of the last entry. */
+export interface ConversationLogLeaf {
+  readonly type: "leaf";
+  readonly at: string;
+  readonly id: string | null;
 }
 
 export interface ConversationLogMeta {
@@ -158,7 +233,7 @@ export interface ConversationLogMeta {
   readonly title?: string;
 }
 
-/** Compaction replaced the transcript; readers reset and keep only what follows. */
+/** Version 3 and older: compaction replaced the transcript, and what follows starts over. */
 export interface ConversationLogRewrite {
   readonly type: "rewrite";
   readonly at: string;
@@ -181,12 +256,35 @@ export interface ConversationLogUiAppend {
   readonly entries: readonly ConversationUiEntry[];
 }
 
+/**
+ * Entries already in the scrollback whose content changed since they were saved. Readers replace
+ * each one in place, by id.
+ */
+export interface ConversationLogUiUpdate {
+  readonly type: "ui-update";
+  readonly at: string;
+  readonly entries: readonly ConversationUiEntry[];
+}
+
+/**
+ * The scrollback starts over here (`/clear`, a repaint that is not a continuation). What came
+ * before stays in the file; readers show only what follows.
+ */
+export interface ConversationLogUiReset {
+  readonly type: "ui-reset";
+  readonly at: string;
+}
+
 export type ConversationLogEvent =
   | ConversationLogHeader
   | ConversationLogMessage
+  | ConversationLogContext
+  | ConversationLogLeaf
   | ConversationLogMeta
   | ConversationLogRewrite
   | ConversationLogUiTranscript
+  | ConversationLogUiUpdate
+  | ConversationLogUiReset
   | ConversationLogUiAppend;
 
 export type ConversationUiEntry = PresentationEntry;
@@ -195,7 +293,8 @@ export type ConversationUiEntry = PresentationEntry;
 export interface Conversation {
   readonly agentId: string;
   readonly conversationId: string;
-  readonly title: string;
+  /** Undefined until it is given one or its first user message names it. */
+  readonly title: string | undefined;
   readonly startedAt: string;
   /** When the newest message was recorded, or null before anything was said. */
   readonly lastMessageAt: string | null;
@@ -204,8 +303,13 @@ export interface Conversation {
   readonly uiTranscript?: readonly ConversationUiEntry[];
 }
 
-/** A conversation as handed to a save: the log stamps each message with when it was recorded. */
-export type ConversationToSave = Omit<Conversation, "lastMessageAt">;
+/**
+ * A conversation as handed to a save: the log stamps each message with when it was recorded,
+ * and refuses the save unless `basedOn` is the revision it holds.
+ */
+export type ConversationToSave = Omit<Conversation, "lastMessageAt"> & {
+  readonly basedOn: ConversationRevision;
+};
 
 /**
  * A conversation without its transcript.
@@ -217,7 +321,8 @@ export type ConversationToSave = Omit<Conversation, "lastMessageAt">;
 export interface ConversationSummary {
   readonly agentId: string;
   readonly conversationId: string;
-  readonly title: string;
+  /** Undefined until it is given one or its first user message names it. */
+  readonly title: string | undefined;
   readonly startedAt: string;
   /** When the newest message was recorded, or null before anything was said. */
   readonly lastMessageAt: string | null;
@@ -278,6 +383,9 @@ export function parseConversationLogLine(
         conversationId,
         startedAt: optionalString(parsed["startedAt"]) ?? at,
         ...(title === undefined ? {} : { title }),
+        ...(typeof parsed["titleFormat"] === "number"
+          ? { titleFormat: parsed["titleFormat"] }
+          : {}),
       };
     }
     case "message": {
@@ -289,7 +397,41 @@ export function parseConversationLogLine(
       if (role !== "user" && role !== "assistant" && role !== "tool") return null;
       // `role`/`content` are checked above, but narrowing a variable read out of `message`
       // doesn't narrow `message` itself — the checks already guarantee this at runtime.
-      return { type: "message", at, message: message as unknown as ChatMessage };
+      const id = optionalString(parsed["id"]);
+      const parentId = parsed["parentId"];
+      return {
+        type: "message",
+        at,
+        message: message as unknown as ChatMessage,
+        ...(id === undefined ? {} : { id }),
+        ...(typeof parentId === "string" || parentId === null ? { parentId } : {}),
+      };
+    }
+    case "context": {
+      const id = optionalString(parsed["id"]);
+      const parentId = parsed["parentId"];
+      const keep = parsed["keep"];
+      if (id === undefined || !Array.isArray(keep)) return null;
+      const runs: KeepRun[] = [];
+      for (const run of keep) {
+        if (!isRecordObject(run)) return null;
+        const from = optionalString(run["from"]);
+        const through = optionalString(run["through"]);
+        if (from === undefined || through === undefined) return null;
+        runs.push({ from, through });
+      }
+      return {
+        type: "context",
+        at,
+        id,
+        parentId: typeof parentId === "string" ? parentId : null,
+        keep: runs,
+      };
+    }
+    case "leaf": {
+      const id = parsed["id"];
+      if (typeof id !== "string" && id !== null) return null;
+      return { type: "leaf", at, id };
     }
     case "meta": {
       const title = optionalString(parsed["title"]);
@@ -298,8 +440,11 @@ export function parseConversationLogLine(
     }
     case "rewrite":
       return { type: "rewrite", at };
+    case "ui-reset":
+      return { type: "ui-reset", at };
     case "ui-transcript":
-    case "ui-append": {
+    case "ui-append":
+    case "ui-update": {
       const entries = parsed["entries"];
       if (!Array.isArray(entries)) return null;
       const accepted: ConversationUiEntry[] = [];
@@ -342,6 +487,19 @@ export function parseConversationLogLine(
   }
 }
 
+/** Accept an update only when every entry it replaces is in the scrollback, each once. */
+function acceptUiUpdateIds(
+  entries: readonly ConversationUiEntry[],
+  ids: ReadonlySet<string>,
+): boolean {
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (!ids.has(entry.id) || seen.has(entry.id)) return false;
+    seen.add(entry.id);
+  }
+  return true;
+}
+
 /** Accept all IDs or leave the current set unchanged when any entry conflicts. */
 function acceptUiEntryIds(entries: readonly ConversationUiEntry[], ids: Set<string>): boolean {
   const added = new Set<string>();
@@ -365,27 +523,68 @@ function parseConversationLogRecords(lines: readonly string[]): (ConversationLog
       if (!acceptUiEntryIds(event.entries, nextIds)) return null;
       uiIds = nextIds;
     }
+    if (event?.type === "ui-update" && !acceptUiUpdateIds(event.entries, uiIds)) return null;
+    if (event?.type === "ui-reset") uiIds = new Set<string>();
     return event;
   });
 }
 
-/** First line of the first user message, used when a conversation has no title. */
+/**
+ * Whether a header or meta title is a real one. In a log from before
+ * {@link REAL_TITLES_FORMAT}, the placeholder was stored as if it were a title.
+ */
+export function isStoredTitle(
+  title: string | undefined,
+  header: Pick<ConversationLogHeader, "titleFormat"> | null,
+): title is string {
+  return (
+    title !== undefined &&
+    (header?.titleFormat === REAL_TITLES_FORMAT || title !== UNTITLED_CONVERSATION_TITLE)
+  );
+}
+
+/**
+ * The conversation's title, else the first line of its first user message; undefined when
+ * there is neither.
+ */
 export function deriveConversationTitle(
   title: string | undefined,
   messages: readonly ChatMessage[],
-): string {
+): string | undefined {
   const explicit = title?.trim();
-  if (explicit && explicit.length > 0) return explicit;
+  if (explicit && explicit.length > 0) {
+    return explicit;
+  }
 
   const firstUserMessage = messages.find((message) => message.role === "user");
-  // The model-facing content can carry an appended memory-source tag; the source holds
-  // exactly what the person typed.
-  const typed = firstUserMessage?.memorySource?.text ?? firstUserMessage?.content ?? "";
+  const typed = firstUserMessage === undefined ? "" : typedText(firstUserMessage);
   const firstLine = typed.replace(/\s+/g, " ").trim();
-  if (firstLine.length === 0) return "untitled conversation";
+  if (firstLine.length === 0) return undefined;
   return firstLine.length > DERIVED_TITLE_CHARS
     ? `${firstLine.slice(0, DERIVED_TITLE_CHARS - 1).trimEnd()}…`
     : firstLine;
+}
+
+/** The part of a log event the conversation tree is built from. */
+function treeEvent(event: ConversationLogEvent): TreeEvent {
+  switch (event.type) {
+    case "message":
+      return {
+        type: "message",
+        at: event.at,
+        message: event.message,
+        ...(event.id === undefined ? {} : { id: event.id }),
+        ...(event.parentId === undefined ? {} : { parentId: event.parentId }),
+      };
+    case "context":
+      return { type: "context", id: event.id, parentId: event.parentId, keep: event.keep };
+    case "leaf":
+      return { type: "leaf", id: event.id };
+    case "rewrite":
+      return { type: "rewrite" };
+    default:
+      return { type: "other" };
+  }
 }
 
 /** Folds a log's events into the conversation's current state. */
@@ -395,25 +594,28 @@ export function reduceConversationLog(
   let header: ConversationLogHeader | null = null;
   let title: string | undefined;
   let lastMessageAt: string | null = null;
-  let messages: ChatMessage[] = [];
-  let uiTranscript: ConversationUiEntry[] = [];
+  // Undefined until a UI event is read: a log that never saved scrollback is repainted from its
+  // messages, while a saved empty snapshot (after `/clear`) must stay empty.
+  let uiTranscript: ConversationUiEntry[] | undefined;
   let uiIds = new Set<string>();
 
   for (const event of events) {
     switch (event.type) {
       case "conversation":
         header = event;
-        title = event.title ?? title;
+        title = isStoredTitle(event.title, header) ? event.title : title;
         break;
       case "message":
-        messages.push(event.message);
         lastMessageAt = event.at;
         break;
       case "meta":
-        if (event.title !== undefined) title = event.title;
+        if (isStoredTitle(event.title, header)) {
+          title = event.title;
+        }
         break;
       case "rewrite":
-        messages = [];
+      case "context":
+      case "leaf":
         break;
       case "ui-transcript": {
         const nextIds = new Set<string>();
@@ -424,12 +626,26 @@ export function reduceConversationLog(
       }
       case "ui-append":
         if (!acceptUiEntryIds(event.entries, uiIds)) break;
+        uiTranscript ??= [];
         uiTranscript.push(...event.entries);
+        break;
+      case "ui-update": {
+        if (uiTranscript === undefined || !acceptUiUpdateIds(event.entries, uiIds)) break;
+        const replacements = new Map(event.entries.map((entry) => [entry.id, entry]));
+        uiTranscript = uiTranscript.map((entry) => replacements.get(entry.id) ?? entry);
+        break;
+      }
+      case "ui-reset":
+        uiTranscript = [];
+        uiIds = new Set<string>();
         break;
     }
   }
 
   if (!header) return null;
+  const messages = contextPath(
+    buildConversationTree(events.map(treeEvent), header.conversationId),
+  ).messages.map(({ id, message }) => ({ ...message, entryId: id }));
   return {
     agentId: header.agentId,
     conversationId: header.conversationId,
@@ -437,7 +653,7 @@ export function reduceConversationLog(
     startedAt: header.startedAt,
     lastMessageAt,
     messages,
-    uiTranscript,
+    ...(uiTranscript === undefined ? {} : { uiTranscript }),
   };
 }
 
@@ -662,10 +878,9 @@ export function archiveConversationLog(
 }
 
 interface AppendState {
-  readonly messageCount: number;
-  readonly lastMessageFingerprint: string;
-  readonly title: string;
-  readonly uiEntryCount: number;
+  readonly tree: TreeAppendState;
+  readonly title: string | undefined;
+  readonly uiEntryIds: readonly string[];
   readonly uiEntryFingerprints: readonly string[];
 }
 
@@ -676,6 +891,50 @@ function messageFingerprint(message: ChatMessage): string {
 function fingerprintAt(messages: readonly ChatMessage[], index: number): string {
   const message = messages[index];
   return message ? messageFingerprint(message) : "";
+}
+
+/**
+ * Which saved transcript a writer is building on: how many messages a reader sees and which
+ * one is last. A save names the revision it started from, and the log refuses it when the
+ * file has moved on since, so a writer can only replace history it has actually read.
+ */
+export interface ConversationRevision {
+  readonly messageCount: number;
+  readonly lastMessageFingerprint: string;
+}
+
+/** The revision of a transcript, counting only the messages a reader of the log sees. */
+export function conversationRevision(messages: readonly ChatMessage[]): ConversationRevision {
+  const recorded = messages.filter((message) => message.role !== "system");
+  return {
+    messageCount: recorded.length,
+    lastMessageFingerprint: fingerprintAt(recorded, recorded.length - 1),
+  };
+}
+
+/** The revision of a conversation that has no saved messages, or no log at all. */
+export const EMPTY_CONVERSATION_REVISION: ConversationRevision = conversationRevision([]);
+
+export function sameRevision(left: ConversationRevision, right: ConversationRevision): boolean {
+  return (
+    left.messageCount === right.messageCount &&
+    left.lastMessageFingerprint === right.lastMessageFingerprint
+  );
+}
+
+/**
+ * A save built on a transcript the log no longer holds: another session, run or process
+ * saved this conversation after the writer read it, or the writer never read it at all.
+ * Nothing is written, so the writer can keep its work under another conversation instead.
+ */
+export class ConversationChangedError extends Error {
+  readonly conversationId: string;
+
+  constructor(conversationId: string) {
+    super(`Conversation ${conversationId} was saved elsewhere since this copy of it was read`);
+    this.name = "ConversationChangedError";
+    this.conversationId = conversationId;
+  }
 }
 
 /** Entries are immutable source facts, so unchanged entries need no repeat serialization. */
@@ -692,18 +951,34 @@ function uiEntryFingerprint(entry: ConversationUiEntry): string {
   return result;
 }
 
-/** Compare every persisted entry: changing an earlier fact must replace the snapshot too. */
-function uiPrefixHolds(
+/**
+ * What to append so the logged scrollback reads as `entries`, adding only. When the saved
+ * entries are still there in order, the ones whose content changed are updated in place and the
+ * rest is appended; otherwise (`/clear`) the scrollback resets and starts over, and what came
+ * before stays in the file.
+ */
+function uiEvents(
   entries: readonly ConversationUiEntry[],
-  previous: readonly string[],
-): boolean {
-  return (
-    entries.length >= previous.length &&
-    previous.every((hash, index) => {
-      const entry = entries[index];
-      return entry !== undefined && uiEntryFingerprint(entry) === hash;
-    })
-  );
+  saved: Pick<AppendState, "uiEntryIds" | "uiEntryFingerprints">,
+  at: string,
+): ConversationLogEvent[] {
+  const continues =
+    entries.length >= saved.uiEntryIds.length &&
+    saved.uiEntryIds.every((id, index) => entries[index]?.id === id);
+  if (!continues) {
+    return [
+      { type: "ui-reset", at },
+      ...(entries.length > 0 ? [{ type: "ui-append" as const, at, entries }] : []),
+    ];
+  }
+  const changed = entries
+    .slice(0, saved.uiEntryIds.length)
+    .filter((entry, index) => uiEntryFingerprint(entry) !== saved.uiEntryFingerprints[index]);
+  const added = entries.slice(saved.uiEntryIds.length);
+  return [
+    ...(changed.length > 0 ? [{ type: "ui-update" as const, at, entries: changed }] : []),
+    ...(added.length > 0 ? [{ type: "ui-append" as const, at, entries: added }] : []),
+  ];
 }
 
 function serializeEvent(event: ConversationLogEvent): string {
@@ -711,7 +986,12 @@ function serializeEvent(event: ConversationLogEvent): string {
 }
 
 function isUiEvent(event: ConversationLogEvent | null): boolean {
-  return event?.type === "ui-transcript" || event?.type === "ui-append";
+  return (
+    event?.type === "ui-transcript" ||
+    event?.type === "ui-append" ||
+    event?.type === "ui-update" ||
+    event?.type === "ui-reset"
+  );
 }
 
 /** What identifies one version of a log file on disk, so a cached append state can be trusted. */
@@ -806,27 +1086,73 @@ export function migratePresentationLog(content: string): string | null {
   const events = parseConversationLogRecords(lines);
   const header = events.find((event) => event?.type === "conversation");
   if (header?.type !== "conversation" || header.version >= CONVERSATION_LOG_VERSION) return null;
-  return lines
-    .map((line, index) => {
-      const event = events[index];
-      if (event?.type === "conversation")
-        return JSON.stringify({ ...event, version: CONVERSATION_LOG_VERSION });
-      if (event?.type === "ui-transcript" || event?.type === "ui-append")
-        return JSON.stringify(event);
-      return line;
-    })
-    .join("\n");
+  // Messages get the ids and parents a reader of the old format derives (see
+  // `conversation-tree.ts`), so a conversation read before the upgrade keeps its ids after it.
+  let ordinal = 0;
+  let previous: string | null = null;
+  const upgraded: string[] = [];
+  lines.forEach((line, index) => {
+    const event = events[index];
+    if (event?.type === "conversation") {
+      upgraded.push(JSON.stringify({ ...event, version: CONVERSATION_LOG_VERSION }));
+    } else if (event?.type === "ui-transcript" || event?.type === "ui-append") {
+      upgraded.push(JSON.stringify(event));
+    } else if (event?.type === "message" && event.id === undefined) {
+      const id = legacyMessageId(header.conversationId, ordinal);
+      upgraded.push(JSON.stringify({ ...event, id, parentId: previous }));
+      previous = id;
+      ordinal += 1;
+    } else if (event?.type === "rewrite") {
+      previous = null;
+    } else {
+      if (event?.type === "message") ordinal += 1;
+      upgraded.push(line);
+    }
+  });
+  return upgraded.join("\n");
+}
+
+/**
+ * Drop the placeholder titles Jazz before {@link REAL_TITLES_FORMAT} stored, and stamp the
+ * header with that format, so a later title of the same text is read as a real one. Null when
+ * the log is already in that format.
+ */
+export function migrateLegacyTitles(content: string): string | null {
+  const lines = content.split("\n");
+  const events = parseConversationLogRecords(lines);
+  const header = events.find((event) => event?.type === "conversation");
+  if (header?.type !== "conversation" || header.titleFormat === REAL_TITLES_FORMAT) return null;
+  const kept: string[] = [];
+  lines.forEach((line, index) => {
+    const event = events[index];
+    if (event?.type === "conversation") {
+      const { title, ...rest } = event;
+      kept.push(
+        JSON.stringify({
+          ...rest,
+          ...(isStoredTitle(title, event) ? { title } : {}),
+          titleFormat: REAL_TITLES_FORMAT,
+        }),
+      );
+    } else if (event?.type !== "meta" || isStoredTitle(event.title, header)) {
+      kept.push(line);
+    }
+  });
+  return kept.join("\n");
 }
 
 function appendStateFromContent(content: string): AppendState | null {
-  const conversation = reduceConversationLog(parseConversationLog(content));
+  const events = parseConversationLog(content);
+  const conversation = reduceConversationLog(events);
   if (!conversation) return null;
   const uiTranscript = conversation.uiTranscript ?? [];
   return {
-    messageCount: conversation.messages.length,
-    lastMessageFingerprint: fingerprintAt(conversation.messages, conversation.messages.length - 1),
+    tree: treeAppendState(
+      buildConversationTree(events.map(treeEvent), conversation.conversationId),
+      messageFingerprint,
+    ),
     title: conversation.title,
-    uiEntryCount: uiTranscript.length,
+    uiEntryIds: uiTranscript.map((entry) => entry.id),
     uiEntryFingerprints: uiTranscript.map(uiEntryFingerprint),
   };
 }
@@ -848,6 +1174,7 @@ function loadAppendState(
 
     yield* requireReadableLogVersion(parseConversationLog(read), logPath);
     let content = migratePresentationLog(read) ?? read;
+    content = migrateLegacyTitles(content) ?? content;
     const collapsed = collapseSupersededUiEvents(content);
     if (collapsed !== null) content = collapsed;
     if (content !== read) {
@@ -863,29 +1190,134 @@ function loadAppendState(
   });
 }
 
+/**
+ * The revision a conversation's log holds now: a stat when this process wrote the log last and
+ * nobody touched it since, a full read otherwise. For a writer checking whether someone else
+ * saved before it starts a turn.
+ */
+export function savedConversationRevision(
+  agentId: string,
+  conversationId: string,
+  historyDirectory?: string,
+): Effect.Effect<ConversationRevision, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const logPath = conversationLogPath(agentId, conversationId, historyDirectory);
+    const identity = yield* statLogFile(fs, logPath);
+    const cached = appendStateCache.get(logPath);
+    if (identity !== null && cached !== undefined && sameIdentity(cached.identity, identity)) {
+      return pathRevision(cached.state.tree);
+    }
+    const conversation = yield* readConversationLog(agentId, conversationId, historyDirectory);
+    return conversationRevision(conversation?.messages ?? []);
+  });
+}
+
+function pathRevision(tree: TreeAppendState): ConversationRevision {
+  return {
+    messageCount: tree.path.length,
+    lastMessageFingerprint: tree.path[tree.path.length - 1]?.fingerprint ?? "",
+  };
+}
+
+/** Every place a saved conversation can continue from, for `/tree`. */
+export function readConversationBranches(
+  agentId: string,
+  conversationId: string,
+  historyDirectory?: string,
+): Effect.Effect<readonly ConversationBranch[], Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const read = yield* readLogContent(
+      fs,
+      conversationLogPath(agentId, conversationId, historyDirectory),
+    );
+    if (read === null) return [];
+    const events = parseConversationLog(read);
+    return conversationBranches(buildConversationTree(events.map(treeEvent), conversationId));
+  });
+}
+
+/**
+ * Continue the conversation from entry `to` (null: from nothing) by appending a `leaf` event:
+ * the entries after it stay in the file, on the branch left behind. Refused like a save when
+ * the log moved on since `basedOn`, and when `to` names no entry. Succeeds with the
+ * conversation as it now reads.
+ */
+export function recordLeafMove(
+  input: {
+    readonly agentId: string;
+    readonly conversationId: string;
+    readonly to: string | null;
+    readonly basedOn: ConversationRevision;
+  },
+  historyDirectory?: string,
+): Effect.Effect<Conversation, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const logPath = conversationLogPath(input.agentId, input.conversationId, historyDirectory);
+    const loaded = yield* loadAppendState(fs, logPath);
+    if (loaded.state === null) {
+      return yield* Effect.fail(new Error(`Conversation ${input.conversationId} is not saved.`));
+    }
+    if (!sameRevision(input.basedOn, pathRevision(loaded.state.tree))) {
+      return yield* Effect.fail(new ConversationChangedError(input.conversationId));
+    }
+    if (input.to !== null && !loaded.state.tree.parents.has(input.to)) {
+      return yield* Effect.fail(
+        new Error(`Conversation ${input.conversationId} has no entry ${input.to}.`),
+      );
+    }
+    const chunks = [
+      ...(loaded.needsLeadingNewline ? ["\n"] : []),
+      serializeEvent({ type: "leaf", at: new Date().toISOString(), id: input.to }),
+    ];
+    yield* fs
+      .writeFileString(logPath, chunks.join(""), { flag: "a", mode: stateFileMode() })
+      .pipe(Effect.mapError(toError));
+    appendStateCache.delete(logPath);
+    const conversation = yield* readConversationLog(
+      input.agentId,
+      input.conversationId,
+      historyDirectory,
+    );
+    if (conversation === null) {
+      return yield* Effect.fail(
+        new Error(`Conversation ${input.conversationId} could not be read.`),
+      );
+    }
+    return conversation;
+  });
+}
+
 export interface ConversationTranscriptInput {
   readonly agentId: string;
   readonly conversationId: string;
-  readonly title: string;
+  readonly title: string | undefined;
   readonly startedAt: string;
   readonly messages: readonly ChatMessage[];
   readonly uiTranscript?: readonly ConversationUiEntry[];
+  /** The saved revision these messages were built on; see {@link ConversationRevision}. */
+  readonly basedOn: ConversationRevision;
 }
 
 /**
  * Records the current state of a conversation, appending only what is new.
  *
- * Callers hand over the whole transcript — that is the shape the chat loop already has —
- * and this compares it against the log and appends the tail. When the prefix no longer
- * matches, because compaction replaced the transcript, a `rewrite` marker and the full new
- * transcript are appended instead. The UI scrollback is compared the same way: new entries
- * are appended as `ui-append`, and a scrollback that no longer extends the logged one is
- * written as a fresh `ui-transcript` snapshot.
+ * Callers hand over the whole transcript — that is the shape the chat loop already has — and
+ * `planSave` works out what to add: the new messages after the leaf, a branch when the
+ * transcript cut back and continued, or a `context` entry when it reshaped what the model sees
+ * (compaction, the history cap). Each message is stamped with its `entryId`, so the next save
+ * recognises it. The UI scrollback is compared the same way (see `uiEvents`).
+ *
+ * A save whose `basedOn` is not the log's current revision fails with
+ * {@link ConversationChangedError} and writes nothing, so a writer only builds on history it
+ * has read. Succeeds with the revision the log now holds, for the next save.
  */
 export function recordConversationTranscript(
   input: ConversationTranscriptInput,
   historyDirectory?: string,
-): Effect.Effect<void, Error, FileSystem.FileSystem> {
+): Effect.Effect<ConversationRevision, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const logPath = conversationLogPath(input.agentId, input.conversationId, historyDirectory);
@@ -926,12 +1358,18 @@ export function recordConversationTranscript(
 
     const loaded = yield* loadAppendState(fs, logPath);
 
+    const savedRevision =
+      loaded.state === null ? EMPTY_CONVERSATION_REVISION : pathRevision(loaded.state.tree);
+    if (!sameRevision(input.basedOn, savedRevision)) {
+      return yield* Effect.fail(new ConversationChangedError(input.conversationId));
+    }
+
     let state = loaded.state;
     const chunks: string[] = [];
     if (loaded.needsLeadingNewline) chunks.push("\n");
 
     if (!state) {
-      const title = input.title.trim();
+      const title = (input.title ?? "").trim();
       chunks.push(
         serializeEvent({
           type: "conversation",
@@ -940,56 +1378,64 @@ export function recordConversationTranscript(
           conversationId: input.conversationId,
           startedAt: input.startedAt,
           ...(title.length === 0 ? {} : { title }),
+          titleFormat: REAL_TITLES_FORMAT,
         }),
       );
       state = {
-        messageCount: 0,
-        lastMessageFingerprint: "",
+        tree: { leafId: null, path: [], afterContext: 0, contextId: null, parents: new Map() },
         title: deriveConversationTitle(title, messages),
-        uiEntryCount: 0,
+        uiEntryIds: [],
         uiEntryFingerprints: [],
       };
     }
 
-    const prefixHolds =
-      messages.length >= state.messageCount &&
-      fingerprintAt(messages, state.messageCount - 1) === state.lastMessageFingerprint;
-
     const now = new Date().toISOString();
-    let firstNewMessage = state.messageCount;
-    if (!prefixHolds) {
-      chunks.push(serializeEvent({ type: "rewrite", at: now }));
-      firstNewMessage = 0;
+    const plan = planSave(state.tree, messages, messageFingerprint);
+    for (const entry of plan.entries) {
+      switch (entry.type) {
+        case "message": {
+          const { entryId: _entryId, ...message } = entry.message;
+          chunks.push(
+            serializeEvent({
+              type: "message",
+              at: now,
+              id: entry.id,
+              parentId: entry.parentId,
+              message,
+            }),
+          );
+          break;
+        }
+        case "context":
+          chunks.push(
+            serializeEvent({
+              type: "context",
+              at: now,
+              id: entry.id,
+              parentId: entry.parentId,
+              keep: entry.keep,
+            }),
+          );
+          break;
+        case "leaf":
+          chunks.push(serializeEvent({ type: "leaf", at: now, id: entry.id }));
+          break;
+      }
     }
 
-    for (let index = firstNewMessage; index < messages.length; index++) {
-      const message = messages[index];
-      if (!message) continue;
-      chunks.push(serializeEvent({ type: "message", at: now, message }));
-    }
-
-    const nextTitle = deriveConversationTitle(input.title, messages);
-    if (nextTitle !== state.title) {
+    const nextTitle = deriveConversationTitle(input.title, messages) ?? state.title;
+    if (nextTitle !== undefined && nextTitle !== state.title) {
       chunks.push(serializeEvent({ type: "meta", at: now, title: nextTitle }));
     }
 
-    let uiEntryCount = state.uiEntryCount;
+    let nextUiEntryIds = state.uiEntryIds;
     let nextUiEntryFingerprints = state.uiEntryFingerprints;
     const uiTranscript = input.uiTranscript;
     if (uiTranscript !== undefined) {
-      const prefixHolds = uiPrefixHolds(uiTranscript, state.uiEntryFingerprints);
-      if (!prefixHolds) {
-        chunks.push(serializeEvent({ type: "ui-transcript", at: now, entries: uiTranscript }));
-      } else if (uiTranscript.length > state.uiEntryCount) {
-        chunks.push(
-          serializeEvent({
-            type: "ui-append",
-            at: now,
-            entries: uiTranscript.slice(state.uiEntryCount),
-          }),
-        );
+      for (const event of uiEvents(uiTranscript, state, now)) {
+        chunks.push(serializeEvent(event));
       }
-      uiEntryCount = uiTranscript.length;
+      nextUiEntryIds = uiTranscript.map((entry) => entry.id);
       nextUiEntryFingerprints = uiTranscript.map(uiEntryFingerprint);
     }
 
@@ -999,18 +1445,25 @@ export function recordConversationTranscript(
         .pipe(Effect.mapError(toError));
     }
 
+    plan.ids.forEach((id, index) => {
+      const message = messages[index];
+      if (message !== undefined && Object.isExtensible(message)) {
+        message.entryId = id;
+      }
+    });
+
     const identity = yield* statLogFile(fs, logPath);
     if (identity !== null) {
       rememberAppendState(logPath, {
         identity,
         state: {
-          messageCount: messages.length,
-          lastMessageFingerprint: fingerprintAt(messages, messages.length - 1),
+          tree: plan.state,
           title: nextTitle,
-          uiEntryCount,
+          uiEntryIds: nextUiEntryIds,
           uiEntryFingerprints: nextUiEntryFingerprints,
         },
       });
     }
+    return conversationRevision(messages);
   });
 }

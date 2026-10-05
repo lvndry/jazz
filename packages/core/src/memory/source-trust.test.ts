@@ -10,6 +10,7 @@ import {
   isSensitiveUserClaim,
   quoteNamesEntry,
   requestsMemoryChange,
+  typedText,
   verifyMemorySourceQuote,
 } from "./source-trust";
 
@@ -149,5 +150,23 @@ describe("quotedSentenceKeys", () => {
 
   test("never contains the quoted words", () => {
     expect(quotedSentenceKeys(message, "I like tea.").join("")).not.toContain("tea");
+  });
+});
+
+describe("typedText", () => {
+  test("is the memory source's text when the message has one", () => {
+    expect(
+      typedText({
+        content: "book Basel\n\n[memory source user:abc]",
+        memorySource: { id: "user:abc", text: "book Basel" },
+      }),
+    ).toBe("book Basel");
+  });
+
+  test("drops a trailing source tag from a message that lost its source", () => {
+    expect(typedText({ content: "book Basel\n\n[memory source user:abc]" })).toBe("book Basel");
+    expect(typedText({ content: "quote [memory source x] mid-sentence stays" })).toBe(
+      "quote [memory source x] mid-sentence stays",
+    );
   });
 });

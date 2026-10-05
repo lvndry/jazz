@@ -1,6 +1,7 @@
 import { controlGoal, listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
 import {
-  loadConversationOrNull,
+  displayConversationTitle,
+  loadConversation,
   loadHistory,
 } from "@jazz/adapters/history/conversation-history-service";
 import { formatRelativeWhen } from "@jazz/adapters/history/conversation-search";
@@ -111,8 +112,9 @@ function wizardSession() {
       // Handle the selected action
       switch (selection) {
         case "resume-conversation": {
-          yield* resumeConversation(agents, terminal);
-          yield* terminal.clear();
+          if (yield* resumeConversation(agents, terminal)) {
+            yield* terminal.clear();
+          }
           break;
         }
 
@@ -279,8 +281,9 @@ function wizardSession() {
             shouldExit = true;
             break;
           }
-          yield* openConversation(agent, opened.conversationId);
-          yield* terminal.clear();
+          if (yield* openConversation(agent, opened.conversationId)) {
+            yield* terminal.clear();
+          }
           break;
         }
       }
@@ -340,7 +343,7 @@ function conversationActivity(agents: readonly Agent[]) {
         Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
       );
       for (const conversation of history.conversations) {
-        titles.set(conversation.conversationId, conversation.title);
+        titles.set(conversation.conversationId, displayConversationTitle(conversation.title));
         const at = new Date(conversation.lastMessageAt ?? conversation.startedAt).getTime();
         if (Number.isFinite(at) && at > (lastUsedMs.get(agent.id) ?? -1)) {
           lastUsedMs.set(agent.id, at);
@@ -607,6 +610,8 @@ const MAX_RESUME_CHOICES = 50;
 /**
  * Every saved conversation across agents, titled by what it is about, with the ones waiting on
  * you first and what each needs. A waiting goal can be ended here while keeping its history.
+ * Returns whether a chat was opened, so the caller clears the screen only then and leaves
+ * anything this printed (a failed load, an ended goal) on screen.
  */
 function resumeConversation(agents: readonly Agent[], terminal: TerminalService) {
   return Effect.gen(function* () {
@@ -625,11 +630,11 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
         Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
       );
       for (const conversation of history.conversations) {
-        titles.set(conversation.conversationId, conversation.title);
+        titles.set(conversation.conversationId, displayConversationTitle(conversation.title));
         entries.push({
           agent,
           conversationId: conversation.conversationId,
-          title: conversation.title,
+          title: displayConversationTitle(conversation.title),
           startedAt: conversation.startedAt,
           lastMessageAt: conversation.lastMessageAt,
         });
@@ -638,7 +643,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
 
     if (entries.length === 0) {
       yield* terminal.info("There are no saved conversations yet. Start one with enter on home.");
-      return;
+      return false;
     }
 
     const nowMs = Date.now();
@@ -699,23 +704,23 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       },
     );
     if (selection === null || selection === undefined) {
-      return;
+      return false;
     }
 
     const [action, rawIndex] = selection.split(":");
     const index = Number(rawIndex);
     if (!Number.isInteger(index) || index < 0) {
-      return;
+      return false;
     }
     const selected = entries[index];
     if (!selected) {
-      return;
+      return false;
     }
 
     if (action === "end") {
       const work = waiting.get(selected.conversationId);
       if (work?.goalId === undefined) {
-        return;
+        return false;
       }
       const outcome = yield* controlGoal(work.goalId, "cancel").pipe(
         Effect.provide(makeFileGoalStoreLayer()),
@@ -723,33 +728,46 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       );
       if (outcome.kind === "refused") {
         yield* terminal.warn(`Could not end ${readableTitle(work)}: ${outcome.reason}`);
-        return;
+        return false;
       }
       yield* terminal.info(`Ended ${readableTitle(work)}. Conversation history kept.`);
-      return;
+      return false;
     }
     if (action !== "resume") {
-      return;
+      return false;
     }
 
-    yield* openConversation(selected.agent, selected.conversationId);
+    return yield* openConversation(selected.agent, selected.conversationId);
   });
 }
 
 /**
  * Continue one saved conversation. Its messages are read here, on demand: pickers need titles
- * and dates, not transcripts, so the chosen conversation is the only one ever loaded.
+ * and dates, not transcripts, so the chosen conversation is the only one ever loaded. A log that
+ * cannot be read is reported rather than opened empty, because the chat would then save over it.
+ * Returns whether the chat was opened.
  */
 function openConversation(agent: Agent, conversationId: string) {
   return Effect.gen(function* () {
-    const conversation = yield* loadConversationOrNull(agent.id, conversationId);
+    const terminal = yield* TerminalServiceTag;
+    const loaded = yield* Effect.either(loadConversation(agent.id, conversationId));
+    if (loaded._tag === "Left") {
+      yield* terminal.error(`Could not open this conversation: ${loaded.left.message}`);
+      return false;
+    }
+    const conversation = loaded.right;
+    if (conversation === null) {
+      yield* terminal.warn("That conversation is no longer saved.");
+      return false;
+    }
     yield* startChatWithAgent(agent, {
       conversationId,
-      initialHistory: conversation?.messages ?? [],
-      ...(conversation?.uiTranscript !== undefined
+      initialHistory: conversation.messages,
+      ...(conversation.uiTranscript !== undefined
         ? { initialUiTranscript: conversation.uiTranscript }
         : {}),
     });
+    return true;
   });
 }
 

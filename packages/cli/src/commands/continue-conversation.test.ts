@@ -2,7 +2,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
-import { saveConversation } from "@jazz/adapters/history/conversation-history-service";
+import {
+  EMPTY_CONVERSATION_REVISION,
+  saveConversation,
+} from "@jazz/adapters/history/conversation-history-service";
 import type { Agent } from "@jazz/core/types";
 import { afterAll, describe, expect, it } from "bun:test";
 import { Effect, Either } from "effect";
@@ -51,6 +54,7 @@ describe("continuedSessionOptions", () => {
             { role: "user", content: "add milk" },
             { role: "assistant", content: "Added." },
           ],
+          basedOn: EMPTY_CONVERSATION_REVISION,
         },
         historyDirectory,
       ).pipe(Effect.provide(NodeFileSystem.layer)),

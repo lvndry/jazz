@@ -223,6 +223,12 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
     note: "Titles keep their text without a length limit. This does not call the model.",
   },
   { name: "resume", type: "resume", description: "Browse and resume a past conversation" },
+  {
+    name: "tree",
+    type: "tree",
+    description: "Switch to another branch of this conversation, or edit an earlier message",
+    note: "Nothing is deleted: the branch you leave stays in the conversation's history.",
+  },
   { name: "retry", type: "retry", description: "Re-send your last message" },
   {
     name: "new",

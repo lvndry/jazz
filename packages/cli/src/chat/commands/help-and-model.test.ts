@@ -1,3 +1,4 @@
+import { EMPTY_CONVERSATION_REVISION } from "@jazz/adapters/history/conversation-history-service";
 import { type LLMService, LLMServiceTag } from "@jazz/core/interfaces/llm";
 import {
   isTerminalReport,
@@ -27,6 +28,7 @@ const context: CommandContext = {
   agent,
   conversationHistory: [],
   conversationId: "help-model-session",
+  conversationRevision: EMPTY_CONVERSATION_REVISION,
   sessionUsage: { promptTokens: 0, completionTokens: 0 },
   sessionTurnCount: 0,
   sessionLimits: {},

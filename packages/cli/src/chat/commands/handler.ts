@@ -8,7 +8,11 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
-import { loadConversationOrNull } from "@jazz/adapters/history/conversation-history-service";
+import {
+  conversationRevision,
+  displayConversationTitle,
+  loadConversationOrNull,
+} from "@jazz/adapters/history/conversation-history-service";
 import { getLogsDirectory } from "@jazz/adapters/logger";
 import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
 import {
@@ -75,6 +79,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@jazz/core/interfaces/tool-registry";
+import { typedText } from "@jazz/core/memory/source-trust";
 import { redactSecretText } from "@jazz/core/secrets/redaction";
 import { SkillServiceTag, type SkillService } from "@jazz/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
@@ -141,6 +146,7 @@ import {
   handleStartCommand,
   handleForkCommand,
   handleResumeCommand,
+  handleTreeCommand,
 } from "./conversation";
 import { handleGoalCommand } from "./goal";
 import { handleLoopCommand } from "./loop";
@@ -294,6 +300,9 @@ export function handleSpecialCommand(
       case "resume":
         return yield* handleResumeCommand(terminal, agent);
 
+      case "tree":
+        return yield* handleTreeCommand(terminal, context);
+
       case "theme":
         return yield* handleThemeCommand(terminal, command.args);
 
@@ -370,7 +379,10 @@ function handleDetachCommand(
         prepareDetachTransfer({
           agentId: context.agent.id,
           conversationId: context.conversationId,
-          history: context.conversationHistory,
+          history: {
+            messages: context.conversationHistory,
+            basedOn: context.conversationRevision,
+          },
           hostName,
           cwd,
           continuation: continuation.trim(),
@@ -383,6 +395,8 @@ function handleDetachCommand(
     }
 
     const preview = prepared.right;
+    // Preparing saved the terminal's history, so the log now holds exactly these messages.
+    const savedRevision = conversationRevision(context.conversationHistory);
     const shownFiles = preview.manifest.entries.slice(0, DETACH_FILES_SHOWN);
     const hiddenFiles = preview.manifest.entries.length - shownFiles.length;
     yield* terminal.log(
@@ -431,7 +445,7 @@ function handleDetachCommand(
         yield* terminal.warn(`Could not remove the staged copy: ${String(canceled.left)}`);
       }
       yield* terminal.info("Detach cancelled. This conversation remains local.");
-      return { shouldContinue: true };
+      return { shouldContinue: true, conversationRevision: savedRevision };
     }
 
     yield* terminal.info("Transferring and starting the remote run…");
@@ -447,7 +461,7 @@ function handleDetachCommand(
         yield* terminal.info(
           "The transfer stopped before remote ownership. This conversation is still local.",
         );
-        return { shouldContinue: true };
+        return { shouldContinue: true, conversationRevision: savedRevision };
       }
       yield* terminal.warn(
         `Check jazz detach status ${preview.handoffId} before retrying; remote ownership may be uncertain.`,
@@ -638,7 +652,9 @@ function handleRetryCommand(
         return {
           shouldContinue: true,
           newHistory: conversationHistory.slice(0, index),
-          resendMessage: message.content,
+          // The typed words, not the model-facing content: resending the source tag would
+          // make it read as typed and leave the retried message with no memory source.
+          resendMessage: typedText(message),
         };
       }
     }
@@ -2477,7 +2493,11 @@ function handleInfoCommand(
         {
           kind: "field",
           key: "title",
-          value: context.conversationTitle ?? conversation?.title ?? "not saved yet",
+          value:
+            context.conversationTitle ??
+            (conversation === null
+              ? "not saved yet"
+              : displayConversationTitle(conversation.title)),
           ...(context.conversationTitle === undefined && conversation?.title === undefined
             ? { tone: "muted" as const }
             : {}),

@@ -41,6 +41,18 @@ export function formatMemorySourceTag(sourceId: string): string {
   return `[memory source ${sourceId}]`;
 }
 
+/** A memory-source tag appended to the end of a user message's model-facing content. */
+const TRAILING_MEMORY_SOURCE_TAG = /\s*\[memory source [^\]\s]+\]\s*$/;
+
+/**
+ * What the person typed in a user message: its memory source when it has one, else its content
+ * without a trailing source tag. For resending or editing a message, where the tag would
+ * otherwise come back as if typed.
+ */
+export function typedText(message: Pick<ChatMessage, "content" | "memorySource">): string {
+  return message.memorySource?.text ?? message.content.replace(TRAILING_MEMORY_SOURCE_TAG, "");
+}
+
 /** Return the cited span and its source, or why the citation cannot be used. */
 export function verifyMemorySourceQuote(
   sources: readonly MemorySource[] | undefined,

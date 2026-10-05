@@ -6,7 +6,11 @@ import { NodeFileSystem } from "@effect/platform-node";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
-import { conversationLogPath, recordConversationTranscript } from "./conversation-log";
+import {
+  conversationLogPath,
+  EMPTY_CONVERSATION_REVISION,
+  recordConversationTranscript,
+} from "./conversation-log";
 import { formatRelativeWhen, search } from "./conversation-search";
 
 let tmpDir: string;
@@ -42,6 +46,7 @@ async function writeSession(
         title: options.title ?? "",
         startedAt: "2026-08-01T10:00:00.000Z",
         messages,
+        basedOn: EMPTY_CONVERSATION_REVISION,
       },
       tmpDir,
     ),

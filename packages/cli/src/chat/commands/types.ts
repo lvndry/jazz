@@ -2,6 +2,10 @@
  * Shared types for chat slash-command parsing, dispatch, and results.
  */
 
+import type {
+  ConversationRevision,
+  ConversationUiEntry,
+} from "@jazz/adapters/history/conversation-history-service";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
@@ -36,6 +40,7 @@ export type CommandType =
   | "mcp"
   | "mode"
   | "resume"
+  | "tree"
   | "rename"
   | "theme"
   | "export"
@@ -81,11 +86,21 @@ export interface CommandResult {
   newConversationTitle?: string;
   /** New conversation history if history was modified */
   newHistory?: ChatMessage[];
+  /** Saved on-screen transcript to repaint instead of one rebuilt from `newHistory`. */
+  newUiTranscript?: readonly ConversationUiEntry[];
+  /**
+   * The revision the conversation's log is at after this command read or saved it: the
+   * resumed conversation's for a switch, the current one's after a command saved it. A switch
+   * without one starts from an empty log.
+   */
+  conversationRevision?: ConversationRevision;
   /**
    * Put the message back in the composer at the next prompt, so a mistyped
    * command can be fixed instead of retyped.
    */
   keepDraft?: boolean;
+  /** Text to put in the composer at the next prompt (`/tree` editing an earlier message). */
+  composerDraft?: string;
   /** Leave the on-screen chat as-is instead of redrawing it. */
   skipTranscriptRepaint?: boolean;
   /** New agent if agent was switched */
@@ -98,8 +113,6 @@ export interface CommandResult {
   removeAutoApprovedCommand?: string;
   /** Save current conversation history before resetting state */
   saveCurrentHistory?: boolean;
-  /** Reset the startedAt timestamp to now (used when resuming a saved conversation) */
-  resetStartedAt?: boolean;
   /** Message to re-send to the agent immediately (set by /retry) */
   resendMessage?: string;
   /** Message to send to the agent after a user-side command has completed. */
@@ -138,6 +151,8 @@ export interface CommandContext {
   conversationId: string;
   /** Stored or explicitly assigned title for the current session. */
   conversationTitle?: string | undefined;
+  /** The saved revision of this conversation the session builds on; passed to every save. */
+  conversationRevision: ConversationRevision;
   /** Ephemeral conversations keep renamed titles in memory only. */
   ephemeral?: boolean;
   conversationHistory: ChatMessage[];

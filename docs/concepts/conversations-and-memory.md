@@ -23,18 +23,27 @@ the conversation goes. Ask it to forget a preference when it no longer applies, 
 
 Jazz keeps five kinds of state:
 
-| Kind                     | Written by                     | Scope            | Survives                  |
-| ------------------------ | ------------------------------ | ---------------- | ------------------------- |
-| **Conversation history** | the runtime, every turn        | one conversation | until compaction trims it |
-| **Work state**           | the model, `update_work_state` | one conversation | compaction                |
-| **Todos**                | the model, `manage_todos`      | one conversation | compaction                |
-| **Scratchpad**           | the model, `manage_scratchpad` | one agent        | forever, until deleted    |
-| **Memory**               | the model, `manage_memory`     | one memory scope | forever, until deleted    |
+| Kind                     | Written by                     | Scope            | Survives                |
+| ------------------------ | ------------------------------ | ---------------- | ----------------------- |
+| **Conversation history** | the runtime, every turn        | one conversation | forever, until archived |
+| **Work state**           | the model, `update_work_state` | one conversation | compaction              |
+| **Todos**                | the model, `manage_todos`      | one conversation | compaction              |
+| **Scratchpad**           | the model, `manage_scratchpad` | one agent        | forever, until deleted  |
+| **Memory**               | the model, `manage_memory`     | one memory scope | forever, until deleted  |
 
 ## Conversation history
 
 Conversation history contains your messages, the agent's replies, and its tool results.
 In the terminal, use `/resume` to return to earlier work and `/new` for a new conversation.
+
+A save only ever adds to a conversation; nothing said in it is removed or hidden. `/retry` and
+editing an earlier message start a branch, and the answer they replace stays in the
+conversation. Use `/tree` to switch to another branch or to rewind and edit one of your earlier
+messages.
+
+One turn runs at a time on a conversation. If another terminal, a goal, or a background wake-up
+is already running a turn on it, your message waits ("busy in another session") and then
+continues from what that turn saved, so the conversation stays one conversation.
 
 In scripts, pass the same `--conversation` value to continue a thread:
 
@@ -45,8 +54,9 @@ jazz run --agent assistant --conversation release-plan "Update the plan: the lau
 
 Without a conversation key, each `jazz run` starts a separate thread.
 
-As context fills, Jazz summarizes older messages. Use work state and todos to preserve
-important task details through compaction.
+As context fills, Jazz summarizes older messages for the model. The original messages stay in
+the conversation's history and in search; the model works from the summary. Use work state and
+todos to preserve important task details through compaction.
 
 ## Work state
 

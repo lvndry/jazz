@@ -1,7 +1,10 @@
 import { RunParkRequested } from "@jazz/core/agent/run/park-signal";
+import type { RunRecord } from "@jazz/core/agent/run/run-record";
+import { RunStoreTag, type RunStore } from "@jazz/core/interfaces/run-store";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, expect, it } from "bun:test";
-import { classifyTurnOutcome } from "./unattended-resume";
+import { Effect } from "effect";
+import { classifyTurnOutcome, hasParkedRun } from "./unattended-resume";
 
 const TRANSCRIPT: ChatMessage[] = [
   { role: "user", content: "batch finished" },
@@ -76,5 +79,27 @@ describe("classifyTurnOutcome", () => {
     const outcome = classifyTurnOutcome({ ok: true });
 
     expect(outcome).toEqual({ kind: "finished", messages: [] });
+  });
+});
+
+describe("hasParkedRun", () => {
+  function storeWith(states: readonly string[]): RunStore {
+    const runs = states.map((kind) => ({ state: { kind } }) as unknown as RunRecord);
+    return { list: () => Effect.succeed(runs) } as unknown as RunStore;
+  }
+
+  it("holds a delivery back behind a run parked on an approval", async () => {
+    const parked = hasParkedRun("conv-1").pipe(
+      Effect.provideService(RunStoreTag, storeWith(["working", "input-required"])),
+    );
+    expect(await Effect.runPromise(parked)).toBe(true);
+  });
+
+  it("lets a delivery through when nothing in the conversation is parked", async () => {
+    const working = hasParkedRun("conv-1").pipe(
+      Effect.provideService(RunStoreTag, storeWith(["working"])),
+    );
+    expect(await Effect.runPromise(working)).toBe(false);
+    expect(await Effect.runPromise(hasParkedRun("conv-1"))).toBe(false);
   });
 });

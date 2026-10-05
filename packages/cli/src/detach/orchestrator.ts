@@ -29,6 +29,7 @@ import {
   type DetachManifest,
 } from "@jazz/adapters/detach/snapshot";
 import { encodeDetachBundle, receiveDetachBundle } from "@jazz/adapters/detach/transfer-protocol";
+import type { ConversationRevision } from "@jazz/adapters/history/conversation-history-service";
 import { detectKeyringBackend, keyringGet } from "@jazz/adapters/secrets/keyring";
 import {
   abortDetach,
@@ -262,7 +263,10 @@ async function agentUsesCustomTools(agentId: string): Promise<boolean> {
 export async function prepareDetachTransfer(input: {
   readonly agentId: string;
   readonly conversationId: string;
-  readonly history: readonly ChatMessage[];
+  readonly history: {
+    readonly messages: readonly ChatMessage[];
+    readonly basedOn: ConversationRevision;
+  };
   readonly hostName: string;
   readonly cwd: string;
   readonly continuation: string;

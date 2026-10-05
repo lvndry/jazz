@@ -40,6 +40,7 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { currentProcessOwner } from "@jazz/core/utils/process";
 import { Cause, Effect, Fiber } from "effect";
+import { withConversationTurn } from "@/adapters/history/conversation-lease";
 import { claimOwnerStatus, inFlight } from "@/adapters/runs/runs-in-flight";
 import {
   loadConversationOrNull,
@@ -116,22 +117,32 @@ function runLoop(loop: LoopRecord, runId: string) {
       });
       return;
     }
-    const prior = yield* loadConversationOrNull(loop.agentId, loop.conversationId);
-    const outcome = yield* runToOutcome(
-      AgentRunner.run({
-        agent: agent.right,
-        runId,
-        userInput: loopRunPrompt(loop),
-        conversationId: loop.conversationId,
-        conversationHistory: [...(prior?.messages ?? [])],
-        ...caps.caps,
-        ...(loop.approvalPolicy !== undefined ? { autoApprovePolicy: loop.approvalPolicy } : {}),
-        parkWhenUnattended: true,
-        startedBy: "loop",
-        origin: { source: "loop", name: loop.name },
+    // Held from the load to the save, so the run builds on the conversation's last turn
+    // instead of forking beside it.
+    yield* withConversationTurn(
+      loop.agentId,
+      loop.conversationId,
+      Effect.gen(function* () {
+        const prior = yield* loadConversationOrNull(loop.agentId, loop.conversationId);
+        const outcome = yield* runToOutcome(
+          AgentRunner.run({
+            agent: agent.right,
+            runId,
+            userInput: loopRunPrompt(loop),
+            conversationId: loop.conversationId,
+            conversationHistory: [...(prior?.messages ?? [])],
+            ...caps.caps,
+            ...(loop.approvalPolicy !== undefined
+              ? { autoApprovePolicy: loop.approvalPolicy }
+              : {}),
+            parkWhenUnattended: true,
+            startedBy: "loop",
+            origin: { source: "loop", name: loop.name },
+          }),
+        );
+        yield* finishLoopRun(loop, runId, prior, outcome);
       }),
     );
-    yield* finishLoopRun(loop, runId, prior, outcome);
   });
 }
 
@@ -298,15 +309,21 @@ export function resumeLoopRun(options: ResumeRunOptions) {
         reason: `Loop ${loop.name} reached its ${caps.limit} budget while waiting, so its run was dropped; \`jazz loop resume ${loop.name}\` extends the budget.`,
       } as const;
     }
-    const prior = yield* loadConversationOrNull(loop.agentId, loop.conversationId);
-    const outcome = yield* inFlight(
-      options.runId,
+    const outcome = yield* withConversationTurn(
+      loop.agentId,
+      loop.conversationId,
       Effect.gen(function* () {
-        const settled = yield* runToOutcome(
-          resumeRun({ ...options, ...caps.caps, startedBy: "loop" }),
+        const prior = yield* loadConversationOrNull(loop.agentId, loop.conversationId);
+        return yield* inFlight(
+          options.runId,
+          Effect.gen(function* () {
+            const settled = yield* runToOutcome(
+              resumeRun({ ...options, ...caps.caps, startedBy: "loop" }),
+            );
+            yield* finishLoopRun(loop, options.runId, prior, settled);
+            return settled;
+          }),
         );
-        yield* finishLoopRun(loop, options.runId, prior, settled);
-        return settled;
       }),
     );
     return { kind: "resumed", owner: { loopId: loop.loopId }, outcome } as const;

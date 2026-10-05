@@ -14,15 +14,27 @@ import { describe, test, expect, beforeEach, afterEach, setSystemTime } from "bu
 import { Effect } from "effect";
 import {
   archiveLegacyHistory,
+  ConversationChangedError,
+  conversationRevision,
+  EMPTY_CONVERSATION_REVISION,
   saveConversation,
+  saveConversationOrFork,
+  saveRunTranscript,
   loadConversation,
   loadHistory,
   setConversationRetentionLimit,
   type ConversationToSave,
   type ConversationsInUse,
+  moveConversationLeaf,
+  readConversationBranches,
 } from "./conversation-history-service";
 import { archivedConversationLogPath, conversationLogPath } from "./conversation-log";
 import { search } from "./conversation-search";
+
+/** Messages as a reader sees them, without the log ids the reader stamps on them. */
+function withoutEntryIds(messages: readonly ChatMessage[] | undefined) {
+  return messages?.map(({ entryId: _entryId, ...message }) => message);
+}
 
 let tmpDir: string;
 
@@ -49,13 +61,14 @@ function makeConversation(overrides: Partial<ConversationToSave> = {}): Conversa
     agentId: "agent-1",
     startedAt: new Date().toISOString(),
     messages: [{ role: "user", content: "Hello world" } as ChatMessage],
+    basedOn: EMPTY_CONVERSATION_REVISION,
     ...overrides,
   };
 }
 
 describe("saveConversation", () => {
   test("retains egress approval when compaction rewrites and reloads a conversation", async () => {
-    await runEffect(
+    const beforeCompaction = await runEffect(
       saveConversation(
         makeConversation({
           messages: [
@@ -69,6 +82,7 @@ describe("saveConversation", () => {
     await runEffect(
       saveConversation(
         makeConversation({
+          basedOn: beforeCompaction,
           messages: [
             {
               role: "assistant",
@@ -107,10 +121,15 @@ describe("saveConversation", () => {
       { role: "user", content: "one" },
       { role: "assistant", content: "1" },
     ];
-    await runEffect(saveConversation(makeConversation({ messages: first }), tmpDir));
+    const afterFirst = await runEffect(
+      saveConversation(makeConversation({ messages: first }), tmpDir),
+    );
     await runEffect(
       saveConversation(
-        makeConversation({ messages: [...first, { role: "user", content: "two" }] }),
+        makeConversation({
+          messages: [...first, { role: "user", content: "two" }],
+          basedOn: afterFirst,
+        }),
         tmpDir,
       ),
     );
@@ -118,6 +137,68 @@ describe("saveConversation", () => {
     const history = await runEffect(loadHistory("agent-1", tmpDir));
     expect(history.conversations).toHaveLength(1);
     expect(history.conversations[0]?.messageCount).toBe(3);
+  });
+
+  test("switching branches continues from the chosen one and keeps the other in the file", async () => {
+    const question: ChatMessage = { role: "user", content: "summarize the PR" };
+    const first = await runEffect(
+      saveConversation(
+        makeConversation({ messages: [question, { role: "assistant", content: "It adds X" }] }),
+        tmpDir,
+      ),
+    );
+    const second = await runEffect(
+      saveConversation(
+        makeConversation({
+          messages: [question, { role: "assistant", content: "It fixes Y" }],
+          basedOn: first,
+        }),
+        tmpDir,
+      ),
+    );
+    const branches = await runEffect(readConversationBranches("agent-1", "conv-1", tmpDir));
+    const older = branches.find((branch) => !branch.current);
+    expect(older?.label).toBe("It adds X");
+
+    const moved = await runEffect(
+      moveConversationLeaf(
+        { agentId: "agent-1", conversationId: "conv-1", to: older?.tipId ?? null, basedOn: second },
+        tmpDir,
+      ),
+    );
+    expect(moved.messages.map((message) => message.content)).toEqual([
+      "summarize the PR",
+      "It adds X",
+    ]);
+    const reread = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(reread?.messages.map((message) => message.content)).toEqual([
+      "summarize the PR",
+      "It adds X",
+    ]);
+    const stale = await runEffect(
+      moveConversationLeaf(
+        { agentId: "agent-1", conversationId: "conv-1", to: null, basedOn: second },
+        tmpDir,
+      ).pipe(Effect.either),
+    );
+    expect(stale._tag).toBe("Left");
+  });
+
+  /** The regression: one log from a newer Jazz failed the listing, and every picker read empty. */
+  test("a log it cannot read is left out without hiding the others", async () => {
+    await runEffect(saveConversation(makeConversation({ conversationId: "conv-ok" }), tmpDir));
+    await runEffect(saveConversation(makeConversation({ conversationId: "conv-newer" }), tmpDir));
+    const newer = conversationLogPath("agent-1", "conv-newer", tmpDir);
+    const [header, ...rest] = fs.readFileSync(newer, "utf8").split("\n");
+    fs.writeFileSync(
+      newer,
+      [JSON.stringify({ ...JSON.parse(header ?? "{}"), version: 99 }), ...rest].join("\n"),
+    );
+
+    const history = await runEffect(loadHistory("agent-1", tmpDir));
+    expect(history.conversations.map((conversation) => conversation.conversationId)).toEqual([
+      "conv-ok",
+    ]);
   });
 
   test("archives the oldest conversation instead of deleting it", async () => {
@@ -253,11 +334,11 @@ describe("saveConversation under concurrency", () => {
     expect(history.conversations).toHaveLength(MAX_CONVERSATION_HISTORY_PER_AGENT);
   });
 
-  test("concurrent writes to the same conversation never corrupt the log", async () => {
+  test("concurrent writes to the same conversation save one and refuse the rest", async () => {
     const agentId = "agent-racer";
     const conversationId = "conv-racer";
-    // Each candidate is a superset of the shorter ones, mimicking isolated callers that
-    // resumed the same conversation and each observed a different amount of history.
+    // Isolated callers that each started this conversation from nothing: the lock lets one
+    // land, and every other one built on a log that no longer exists, so it is refused.
     const candidates: ChatMessage[][] = Array.from({ length: 6 }, (_, index) =>
       Array.from(
         { length: index + 1 },
@@ -265,17 +346,25 @@ describe("saveConversation under concurrency", () => {
       ),
     );
 
-    await runEffect(
+    const outcomes = await runEffect(
       Effect.all(
         candidates.map((messages) =>
-          saveConversation(makeConversation({ agentId, conversationId, messages }), tmpDir),
+          saveConversation(makeConversation({ agentId, conversationId, messages }), tmpDir).pipe(
+            Effect.either,
+          ),
         ),
         { concurrency: 6 },
       ),
     );
+    expect(outcomes.filter((outcome) => outcome._tag === "Right")).toHaveLength(1);
+    for (const outcome of outcomes) {
+      if (outcome._tag === "Left") {
+        expect(outcome.left).toBeInstanceOf(ConversationChangedError);
+      }
+    }
 
-    // Whichever candidate's transaction the lock let land last, the log must read back as
-    // exactly that transcript — never a byte-level interleave of two writers' output.
+    // Whichever candidate the lock let land, the log must read back as exactly that
+    // transcript — never a byte-level interleave of two writers' output.
     const loaded = await runEffect(loadConversation(agentId, conversationId, tmpDir));
     expect(loaded).not.toBeNull();
     const finalContents = loaded?.messages.map((message) => message.content) ?? [];
@@ -325,7 +414,7 @@ describe("loadConversation", () => {
     await runEffect(saveConversation(makeConversation({ messages }), tmpDir));
 
     const loaded = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
-    expect(loaded?.messages).toEqual(messages);
+    expect(withoutEntryIds(loaded?.messages)).toEqual(withoutEntryIds(messages));
   });
 
   test("returns null for a conversation that was never saved", async () => {
@@ -360,13 +449,19 @@ describe("loadHistory", () => {
   test("lists the conversation spoken in most recently first, however recently another was saved", async () => {
     try {
       setSystemTime(new Date("2026-08-01T10:00:00.000Z"));
-      await runEffect(saveConversation(makeConversation({ conversationId: "older" }), tmpDir));
+      const olderRevision = await runEffect(
+        saveConversation(makeConversation({ conversationId: "older" }), tmpDir),
+      );
       setSystemTime(new Date("2026-08-01T11:00:00.000Z"));
       await runEffect(saveConversation(makeConversation({ conversationId: "newer" }), tmpDir));
       setSystemTime(new Date("2026-08-01T12:00:00.000Z"));
       await runEffect(
         saveConversation(
-          makeConversation({ conversationId: "older", title: "Renamed, nothing said" }),
+          makeConversation({
+            conversationId: "older",
+            title: "Renamed, nothing said",
+            basedOn: olderRevision,
+          }),
           tmpDir,
         ),
       );
@@ -425,5 +520,107 @@ describe("searching what was saved", () => {
 
     const hits = await search("basel", { scope: "all", dir: tmpDir });
     expect(hits.map((hit) => hit.agentId).sort()).toEqual(["agent-1", "agent-2"]);
+  });
+});
+
+describe("saving a run's transcript", () => {
+  const priorMessages: ChatMessage[] = [{ role: "user", content: "Hello world" }];
+  const runMessages: ChatMessage[] = [
+    ...priorMessages,
+    { role: "user", content: "check the deploy" },
+    { role: "assistant", content: "deployed" },
+  ];
+
+  test("saves into the conversation the run loaded when nothing changed since", async () => {
+    await runEffect(saveConversation(makeConversation({ messages: priorMessages }), tmpDir));
+    const prior = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+
+    const savedId = await runEffect(
+      saveRunTranscript(
+        {
+          agentId: "agent-1",
+          conversationId: "conv-1",
+          prior,
+          fallbackTitle: "goal",
+          messages: runMessages,
+        },
+        tmpDir,
+      ),
+    );
+
+    expect(savedId).toBe("conv-1");
+    const saved = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(saved?.messages.map((message) => message.content)).toEqual(
+      runMessages.map((message) => message.content),
+    );
+  });
+
+  test("keeps the run in a new conversation when the one it loaded was saved elsewhere", async () => {
+    const loadedRevision = await runEffect(
+      saveConversation(makeConversation({ messages: priorMessages }), tmpDir),
+    );
+    const prior = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    await runEffect(
+      saveConversation(
+        makeConversation({
+          messages: [
+            ...priorMessages,
+            { role: "assistant", content: "said in the chat meanwhile" },
+          ],
+          basedOn: loadedRevision,
+        }),
+        tmpDir,
+      ),
+    );
+    const before = fs.readFileSync(conversationLogPath("agent-1", "conv-1", tmpDir), "utf8");
+
+    const savedId = await runEffect(
+      saveRunTranscript(
+        {
+          agentId: "agent-1",
+          conversationId: "conv-1",
+          prior,
+          fallbackTitle: "goal",
+          messages: runMessages,
+        },
+        tmpDir,
+      ),
+    );
+
+    expect(savedId).not.toBe("conv-1");
+    expect(fs.readFileSync(conversationLogPath("agent-1", "conv-1", tmpDir), "utf8")).toBe(before);
+    const forked = await runEffect(loadConversation("agent-1", savedId, tmpDir));
+    expect(forked?.messages.map((message) => message.content)).toEqual(
+      runMessages.map((message) => message.content),
+    );
+    expect(forked?.title).toBe("Hello world");
+  });
+
+  test("saveConversationOrFork forks a writer that never read the conversation", async () => {
+    await runEffect(saveConversation(makeConversation({ messages: priorMessages }), tmpDir));
+
+    const savedId = await runEffect(
+      saveConversationOrFork(makeConversation({ messages: runMessages }), tmpDir),
+    );
+
+    expect(savedId).not.toBe("conv-1");
+    const original = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(withoutEntryIds(original?.messages)).toEqual(withoutEntryIds(priorMessages));
+  });
+
+  test("saveConversationOrFork returns the original id for a save built on the current revision", async () => {
+    await runEffect(saveConversation(makeConversation({ messages: priorMessages }), tmpDir));
+
+    const savedId = await runEffect(
+      saveConversationOrFork(
+        makeConversation({
+          messages: runMessages,
+          basedOn: conversationRevision(priorMessages),
+        }),
+        tmpDir,
+      ),
+    );
+
+    expect(savedId).toBe("conv-1");
   });
 });
