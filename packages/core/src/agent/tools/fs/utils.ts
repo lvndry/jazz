@@ -20,6 +20,12 @@ const DEFAULT_IGNORE_PATTERNS = ["**/node_modules/**", "**/.git/**"];
 // ---------------------------------------------------------------------------
 
 /**
+ * Cap for a single tool probe. A `--version` call that needs more than this to
+ * answer is not a usable fast-path tool.
+ */
+const EXTERNAL_TOOL_PROBE_TIMEOUT_MS = 5_000;
+
+/**
  * Cache for external tool availability checks.
  * Each entry stores whether the tool was found (`true`), not found (`false`),
  * or hasn't been checked yet (`undefined`).
@@ -29,6 +35,8 @@ const externalToolCache = new Map<string, boolean>();
 /**
  * Check whether an external CLI tool is available on the system PATH.
  * The result is cached globally so subsequent calls return instantly.
+ * The probe is capped at {@link EXTERNAL_TOOL_PROBE_TIMEOUT_MS}; a hang
+ * resolves `false` instead of stalling the caller.
  *
  * @param name - The binary name to probe (e.g. "rg", "fd", "fzf").
  * @param versionFlag - The flag to pass to verify the binary works (default "--version").
@@ -39,19 +47,30 @@ export function checkExternalTool(name: string, versionFlag = "--version"): Prom
   if (cached !== undefined) return Promise.resolve(cached);
 
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (available: boolean) => {
+      if (settled) return;
+      settled = true;
+      externalToolCache.set(name, available);
+      clearTimeout(timer);
+      resolve(available);
+    };
+
     const child = spawn(name, [versionFlag], {
       stdio: ["ignore", "ignore", "ignore"],
-      timeout: 5_000,
+      timeout: EXTERNAL_TOOL_PROBE_TIMEOUT_MS,
     });
-    child.on("close", (code) => {
-      const available = code === 0;
-      externalToolCache.set(name, available);
-      resolve(available);
-    });
-    child.on("error", () => {
-      externalToolCache.set(name, false);
-      resolve(false);
-    });
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // The child may already be gone; the timeout still settles the probe.
+      }
+      finish(false);
+    }, EXTERNAL_TOOL_PROBE_TIMEOUT_MS);
+
+    child.on("close", (code) => finish(code === 0));
+    child.on("error", () => finish(false));
   });
 }
 

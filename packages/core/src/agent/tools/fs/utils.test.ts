@@ -118,7 +118,8 @@ node_modules/
       // echo --help should succeed (exit 0) on most systems
       // On some systems echo --help prints --help as text but still exits 0
       expect(typeof result).toBe("boolean");
-    });
+      // Headroom above the probe cap so a loaded runner cannot race the two timers.
+    }, 15_000);
 
     it("should return false for non-existent tool", async () => {
       const result = await checkExternalTool("nonexistent_tool_xyz_12345");
@@ -135,6 +136,16 @@ node_modules/
       expect(result).toBe(false);
       expect(elapsed).toBeLessThan(50); // Cached = essentially instant
     });
+
+    it("should resolve false when the probe hangs instead of stalling", async () => {
+      // `sleep 10` never answers in time; the probe cap must settle the promise
+      // instead of letting it dangle. Takes ~5s by design, so allow room.
+      const start = Date.now();
+      const result = await checkExternalTool("sleep", "10");
+      const elapsed = Date.now() - start;
+      expect(result).toBe(false);
+      expect(elapsed).toBeLessThan(9_000);
+    }, 15_000);
   });
 
   // ---------------------------------------------------------------
