@@ -397,6 +397,37 @@ describe("recordConversationTranscript", () => {
     ).toEqual([]);
   });
 
+  test("reads scrollback updates by id and starts over after a reset", () => {
+    const header = {
+      type: "conversation" as const,
+      version: CONVERSATION_LOG_VERSION,
+      agentId: AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      startedAt: "2026-08-01T10:00:00.000Z",
+    };
+    const entry = (id: string, text: string) => ({
+      id,
+      timestamp: "2026-08-01T10:00:00.000Z",
+      content: { kind: "notice" as const, tone: "info" as const, text },
+    });
+    const at = "2026-08-01T10:00:01.000Z";
+    const updated = reduceConversationLog([
+      header,
+      { type: "ui-append", at, entries: [entry("a", "a"), entry("b", "b")] },
+      { type: "ui-update", at, entries: [entry("b", "b, done")] },
+      { type: "ui-update", at, entries: [entry("unknown", "ignored")] },
+    ]);
+    expect(updated?.uiTranscript).toEqual([entry("a", "a"), entry("b", "b, done")]);
+
+    const restarted = reduceConversationLog([
+      header,
+      { type: "ui-append", at, entries: [entry("a", "a")] },
+      { type: "ui-reset", at },
+      { type: "ui-append", at, entries: [entry("a", "a, again")] },
+    ]);
+    expect(restarted?.uiTranscript).toEqual([entry("a", "a, again")]);
+  });
+
   test("a recorded untitled placeholder does not hide the title before it", () => {
     const conversation = reduceConversationLog([
       {
@@ -606,7 +637,7 @@ describe("UI scrollback growth", () => {
     expect(withoutEntryIds(loaded?.messages)).toEqual(withoutEntryIds(messages));
   });
 
-  test("appends new scrollback entries and snapshots a scrollback that was cleared", async () => {
+  test("appends new scrollback entries and resets a scrollback that was cleared, keeping the old", async () => {
     const first = [
       {
         id: "hi",
@@ -643,8 +674,10 @@ describe("UI scrollback growth", () => {
     expect(uiLines.map((line) => (JSON.parse(line) as { type: string }).type)).toEqual([
       "ui-append",
       "ui-append",
-      "ui-transcript",
+      "ui-reset",
+      "ui-append",
     ]);
+    expect(uiLines.join("\n")).toContain('"id":"hello"');
     const loaded = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(loaded?.uiTranscript).toEqual(cleared);
   });
@@ -1095,7 +1128,7 @@ describe("semantic presentation persistence", () => {
     expect(history?.uiTranscript).toEqual([receipt]);
   });
 
-  test("an earlier fact change replaces the snapshot even when the last entry is unchanged", async () => {
+  test("an earlier fact change is updated in place even when the last entry is unchanged", async () => {
     await runEffect(
       recordConversationTranscript({ ...record([]), uiTranscript: [receipt, answer] }, tmpDir),
     );
@@ -1109,8 +1142,9 @@ describe("semantic presentation persistence", () => {
     expect(logLines().map((line) => JSON.parse(line).type)).toEqual([
       "conversation",
       "ui-append",
-      "ui-transcript",
+      "ui-update",
     ]);
+    expect(JSON.parse(logLines().at(-1) ?? "{}").entries).toEqual([changed]);
     expect(
       (await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir)))?.uiTranscript,
     ).toEqual([changed, answer]);

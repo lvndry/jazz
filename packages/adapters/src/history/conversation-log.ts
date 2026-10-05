@@ -25,11 +25,12 @@
  *   persona, tools and skills on every run, so a stored copy is stale the moment it lands,
  *   and the one reader that ever saw them filtered them straight back out.
  *
- * The UI scrollback follows the same rule as messages. A save appends a `ui-append` event
- * with the entries added since the last save, and writes a full `ui-transcript` snapshot only
- * when the scrollback no longer extends what the log holds (after `/clear`, or when a resumed
- * session re-renders it). Snapshots supersede everything before them, so the first save of a
- * process that finds superseded UI events rewrites the log once without them.
+ * The UI scrollback follows the same rule as messages: a save only adds. It appends a
+ * `ui-append` with the entries added since the last save, a `ui-update` for saved entries whose
+ * content changed, and a `ui-reset` when the scrollback starts over (`/clear`); readers show what
+ * follows the last reset, and what came before stays in the file. Logs from before version 4
+ * wrote whole `ui-transcript` snapshots instead; the first save of such a log drops the UI events
+ * an older snapshot superseded.
  *
  * A save needs to know what the log already holds. The process that last wrote a log caches
  * that, keyed by the file's size, modification time and inode, so a chat that saves every
@@ -252,6 +253,25 @@ export interface ConversationLogUiAppend {
   readonly entries: readonly ConversationUiEntry[];
 }
 
+/**
+ * Entries already in the scrollback whose content changed since they were saved. Readers replace
+ * each one in place, by id.
+ */
+export interface ConversationLogUiUpdate {
+  readonly type: "ui-update";
+  readonly at: string;
+  readonly entries: readonly ConversationUiEntry[];
+}
+
+/**
+ * The scrollback starts over here (`/clear`, a repaint that is not a continuation). What came
+ * before stays in the file; readers show only what follows.
+ */
+export interface ConversationLogUiReset {
+  readonly type: "ui-reset";
+  readonly at: string;
+}
+
 export type ConversationLogEvent =
   | ConversationLogHeader
   | ConversationLogMessage
@@ -260,6 +280,8 @@ export type ConversationLogEvent =
   | ConversationLogMeta
   | ConversationLogRewrite
   | ConversationLogUiTranscript
+  | ConversationLogUiUpdate
+  | ConversationLogUiReset
   | ConversationLogUiAppend;
 
 export type ConversationUiEntry = PresentationEntry;
@@ -415,8 +437,11 @@ export function parseConversationLogLine(
     }
     case "rewrite":
       return { type: "rewrite", at };
+    case "ui-reset":
+      return { type: "ui-reset", at };
     case "ui-transcript":
-    case "ui-append": {
+    case "ui-append":
+    case "ui-update": {
       const entries = parsed["entries"];
       if (!Array.isArray(entries)) return null;
       const accepted: ConversationUiEntry[] = [];
@@ -459,6 +484,19 @@ export function parseConversationLogLine(
   }
 }
 
+/** Accept an update only when every entry it replaces is in the scrollback, each once. */
+function acceptUiUpdateIds(
+  entries: readonly ConversationUiEntry[],
+  ids: ReadonlySet<string>,
+): boolean {
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (!ids.has(entry.id) || seen.has(entry.id)) return false;
+    seen.add(entry.id);
+  }
+  return true;
+}
+
 /** Accept all IDs or leave the current set unchanged when any entry conflicts. */
 function acceptUiEntryIds(entries: readonly ConversationUiEntry[], ids: Set<string>): boolean {
   const added = new Set<string>();
@@ -482,6 +520,8 @@ function parseConversationLogRecords(lines: readonly string[]): (ConversationLog
       if (!acceptUiEntryIds(event.entries, nextIds)) return null;
       uiIds = nextIds;
     }
+    if (event?.type === "ui-update" && !acceptUiUpdateIds(event.entries, uiIds)) return null;
+    if (event?.type === "ui-reset") uiIds = new Set<string>();
     return event;
   });
 }
@@ -587,6 +627,16 @@ export function reduceConversationLog(
         if (!acceptUiEntryIds(event.entries, uiIds)) break;
         uiTranscript ??= [];
         uiTranscript.push(...event.entries);
+        break;
+      case "ui-update": {
+        if (uiTranscript === undefined || !acceptUiUpdateIds(event.entries, uiIds)) break;
+        const replacements = new Map(event.entries.map((entry) => [entry.id, entry]));
+        uiTranscript = uiTranscript.map((entry) => replacements.get(entry.id) ?? entry);
+        break;
+      }
+      case "ui-reset":
+        uiTranscript = [];
+        uiIds = new Set<string>();
         break;
     }
   }
@@ -829,7 +879,7 @@ export function archiveConversationLog(
 interface AppendState {
   readonly tree: TreeAppendState;
   readonly title: string | undefined;
-  readonly uiEntryCount: number;
+  readonly uiEntryIds: readonly string[];
   readonly uiEntryFingerprints: readonly string[];
 }
 
@@ -900,18 +950,34 @@ function uiEntryFingerprint(entry: ConversationUiEntry): string {
   return result;
 }
 
-/** Compare every persisted entry: changing an earlier fact must replace the snapshot too. */
-function uiPrefixHolds(
+/**
+ * What to append so the logged scrollback reads as `entries`, adding only. When the saved
+ * entries are still there in order, the ones whose content changed are updated in place and the
+ * rest is appended; otherwise (`/clear`) the scrollback resets and starts over, and what came
+ * before stays in the file.
+ */
+function uiEvents(
   entries: readonly ConversationUiEntry[],
-  previous: readonly string[],
-): boolean {
-  return (
-    entries.length >= previous.length &&
-    previous.every((hash, index) => {
-      const entry = entries[index];
-      return entry !== undefined && uiEntryFingerprint(entry) === hash;
-    })
-  );
+  saved: Pick<AppendState, "uiEntryIds" | "uiEntryFingerprints">,
+  at: string,
+): ConversationLogEvent[] {
+  const continues =
+    entries.length >= saved.uiEntryIds.length &&
+    saved.uiEntryIds.every((id, index) => entries[index]?.id === id);
+  if (!continues) {
+    return [
+      { type: "ui-reset", at },
+      ...(entries.length > 0 ? [{ type: "ui-append" as const, at, entries }] : []),
+    ];
+  }
+  const changed = entries
+    .slice(0, saved.uiEntryIds.length)
+    .filter((entry, index) => uiEntryFingerprint(entry) !== saved.uiEntryFingerprints[index]);
+  const added = entries.slice(saved.uiEntryIds.length);
+  return [
+    ...(changed.length > 0 ? [{ type: "ui-update" as const, at, entries: changed }] : []),
+    ...(added.length > 0 ? [{ type: "ui-append" as const, at, entries: added }] : []),
+  ];
 }
 
 function serializeEvent(event: ConversationLogEvent): string {
@@ -919,7 +985,12 @@ function serializeEvent(event: ConversationLogEvent): string {
 }
 
 function isUiEvent(event: ConversationLogEvent | null): boolean {
-  return event?.type === "ui-transcript" || event?.type === "ui-append";
+  return (
+    event?.type === "ui-transcript" ||
+    event?.type === "ui-append" ||
+    event?.type === "ui-update" ||
+    event?.type === "ui-reset"
+  );
 }
 
 /** What identifies one version of a log file on disk, so a cached append state can be trusted. */
@@ -1080,7 +1151,7 @@ function appendStateFromContent(content: string): AppendState | null {
       messageFingerprint,
     ),
     title: conversation.title,
-    uiEntryCount: uiTranscript.length,
+    uiEntryIds: uiTranscript.map((entry) => entry.id),
     uiEntryFingerprints: uiTranscript.map(uiEntryFingerprint),
   };
 }
@@ -1162,16 +1233,15 @@ export interface ConversationTranscriptInput {
 /**
  * Records the current state of a conversation, appending only what is new.
  *
- * Callers hand over the whole transcript — that is the shape the chat loop already has —
- * and this compares it against the log and appends the tail. When the prefix no longer
- * matches, because compaction replaced the transcript, a `rewrite` marker and the full new
- * transcript are appended instead. The UI scrollback is compared the same way: new entries
- * are appended as `ui-append`, and a scrollback that no longer extends the logged one is
- * written as a fresh `ui-transcript` snapshot.
+ * Callers hand over the whole transcript — that is the shape the chat loop already has — and
+ * `planSave` works out what to add: the new messages after the leaf, a branch when the
+ * transcript cut back and continued, or a `context` entry when it reshaped what the model sees
+ * (compaction, the history cap). Each message is stamped with its `entryId`, so the next save
+ * recognises it. The UI scrollback is compared the same way (see `uiEvents`).
  *
  * A save whose `basedOn` is not the log's current revision fails with
- * {@link ConversationChangedError} and writes nothing: replacing history is only allowed for
- * a writer that read it. Succeeds with the revision the log now holds, for the next save.
+ * {@link ConversationChangedError} and writes nothing, so a writer only builds on history it
+ * has read. Succeeds with the revision the log now holds, for the next save.
  */
 export function recordConversationTranscript(
   input: ConversationTranscriptInput,
@@ -1243,7 +1313,7 @@ export function recordConversationTranscript(
       state = {
         tree: { leafId: null, path: [], afterContext: 0, contextId: null, parents: new Map() },
         title: deriveConversationTitle(title, messages),
-        uiEntryCount: 0,
+        uiEntryIds: [],
         uiEntryFingerprints: [],
       };
     }
@@ -1287,23 +1357,14 @@ export function recordConversationTranscript(
       chunks.push(serializeEvent({ type: "meta", at: now, title: nextTitle }));
     }
 
-    let uiEntryCount = state.uiEntryCount;
+    let nextUiEntryIds = state.uiEntryIds;
     let nextUiEntryFingerprints = state.uiEntryFingerprints;
     const uiTranscript = input.uiTranscript;
     if (uiTranscript !== undefined) {
-      const prefixHolds = uiPrefixHolds(uiTranscript, state.uiEntryFingerprints);
-      if (!prefixHolds) {
-        chunks.push(serializeEvent({ type: "ui-transcript", at: now, entries: uiTranscript }));
-      } else if (uiTranscript.length > state.uiEntryCount) {
-        chunks.push(
-          serializeEvent({
-            type: "ui-append",
-            at: now,
-            entries: uiTranscript.slice(state.uiEntryCount),
-          }),
-        );
+      for (const event of uiEvents(uiTranscript, state, now)) {
+        chunks.push(serializeEvent(event));
       }
-      uiEntryCount = uiTranscript.length;
+      nextUiEntryIds = uiTranscript.map((entry) => entry.id);
       nextUiEntryFingerprints = uiTranscript.map(uiEntryFingerprint);
     }
 
@@ -1327,7 +1388,7 @@ export function recordConversationTranscript(
         state: {
           tree: plan.state,
           title: nextTitle,
-          uiEntryCount,
+          uiEntryIds: nextUiEntryIds,
           uiEntryFingerprints: nextUiEntryFingerprints,
         },
       });
