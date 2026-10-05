@@ -22,6 +22,10 @@ import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { carryEgressTaint, detachedResultMessage } from "@jazz/core/agent/execution/egress-taint";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
+import {
+  createSubagentSupervisor,
+  subagentWakeMessage,
+} from "@jazz/core/agent/subagents/supervisor";
 import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { apiKeyHint } from "@jazz/core/constants/provider-env-vars";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -293,6 +297,19 @@ export class ChatServiceImpl implements ChatService {
           Effect.forkDaemon,
         );
       }
+      // The chat's sub-agents keep working after the turn that started them, and finishing while
+      // the chat waits for the user starts a turn. They belong to one conversation: leaving it
+      // or ending the session stops them.
+      let subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
+      const stopSubagents = Effect.gen(function* () {
+        const live = subagents.liveCount();
+        yield* subagents.close();
+        if (live > 0) {
+          yield* terminal.warn(
+            `Stopped ${String(live)} sub-agent${live === 1 ? "" : "s"} that ${live === 1 ? "was" : "were"} still working.`,
+          );
+        }
+      });
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
       let conversationTitle = ephemeral
         ? undefined
@@ -437,6 +454,11 @@ export class ChatServiceImpl implements ChatService {
           Effect.runSync(terminal.user(queued));
           return queued;
         },
+        awaitQueuedMessage: () =>
+          Effect.async<void>((resume) => {
+            const cancel = store.onceQueuedProse(() => resume(Effect.void));
+            return Effect.sync(cancel);
+          }),
         // A Ctrl+B-detached tool call reports back here, possibly long after this run has
         // ended. Queuing it through the same path as text typed mid-run means it surfaces
         // automatically — at the next tool-phase boundary if a run is still going, or as the
@@ -531,6 +553,9 @@ export class ChatServiceImpl implements ChatService {
       let attendedGoalId: string | undefined;
       let goalContinues = false;
 
+      /** Set when the idle prompt gave way to sub-agents finishing; the next turn is theirs. */
+      let subagentWake = false;
+
       let endReason: ChatSessionEnd["reason"] = "exit";
       let messagesReceived = 0;
 
@@ -592,7 +617,7 @@ export class ChatServiceImpl implements ChatService {
             ...(draft !== undefined ? { defaultValue: draft } : {}),
           };
           yield* emitLifecycle("awaiting-input");
-          userMessage = yield* terminal.ask("You:", askOptions).pipe(
+          const asked = terminal.ask("You:", askOptions).pipe(
             Effect.catchAll((error: unknown) => {
               // Handle ExitPromptError from inquirer when user presses Ctrl+C
               if (
@@ -607,12 +632,33 @@ export class ChatServiceImpl implements ChatService {
               return Effect.fail(toError(error));
             }),
           );
+          // A draft seeded from the queue is the user's to edit and send; nothing preempts it.
+          const idleInput =
+            queued.length > 0
+              ? Effect.map(asked, (text) => ({ kind: "typed", text }) as const)
+              : Effect.raceFirst(
+                  Effect.map(asked, (text) => ({ kind: "typed", text }) as const),
+                  Effect.as(subagents.awaitFinished(), { kind: "subagents-finished" } as const),
+                );
+          const idle = yield* idleInput;
+          if (idle.kind === "subagents-finished") {
+            const finished = subagents.takeFinished();
+            yield* terminal.info(
+              `${finished.map((child) => `${child.name} ${child.status}`).join(", ")}; back to the agent.`,
+            );
+            userMessage = subagentWakeMessage(finished);
+            subagentWake = true;
+          } else {
+            userMessage = idle.text;
+          }
           // Whatever the user submitted supersedes the seeded queue content.
           if (queued.length > 0) {
             store.clearQueue();
           }
         }
         lastTurnErrored = false;
+        const wokenBySubagents = subagentWake;
+        subagentWake = false;
 
         const input = classifyChatInput(userMessage, terminal.isInteractive);
         const trimmedMessage = (userMessage ?? "").trim();
@@ -626,6 +672,7 @@ export class ChatServiceImpl implements ChatService {
               terminal.warn(`Could not hand paused goals to the daemon: ${error.message}`),
             ),
           );
+          yield* stopSubagents;
           yield* terminal.log(chalk.dim.italic("— fin —"));
 
           // Cleanup: Disconnect all MCP servers and unregister mode handler before exiting
@@ -660,13 +707,14 @@ export class ChatServiceImpl implements ChatService {
         messagesReceived += 1;
 
         let messageForAgent = userMessage;
-        let trustMessageAsMemorySource = goalTurn === undefined;
+        let trustMessageAsMemorySource = goalTurn === undefined && !wokenBySubagents;
 
         // A message with interior newlines (multi-line composition or a
         // combined prose drain) is prose even when it starts with "/" or "! ":
         // command parsing would silently discard everything after line one.
         if (
           goalTurn === undefined &&
+          !wokenBySubagents &&
           isCommandInput(trimmedMessage) &&
           (!trimmedMessage.includes("\n") || parseSpecialCommand(trimmedMessage).type === "rename")
         ) {
@@ -716,6 +764,8 @@ export class ChatServiceImpl implements ChatService {
                 goalContinues = false;
               }
               conversationId = commandResult.newConversationId;
+              yield* stopSubagents;
+              subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
               conversationTitle = commandResult.newConversationTitle;
               if (!ephemeral) {
                 yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
@@ -844,7 +894,7 @@ export class ChatServiceImpl implements ChatService {
           }
         }
 
-        if (goalTurn === undefined && messageForAgent === userMessage) {
+        if (goalTurn === undefined && !wokenBySubagents && messageForAgent === userMessage) {
           const typedMessage = messageForAgent;
           const workingDirectory = yield* (yield* FileSystemContextServiceTag).getCwd({
             agentId: agent.id,
@@ -896,6 +946,8 @@ export class ChatServiceImpl implements ChatService {
             conversationId,
             conversationHistory,
             origin: { source: goalTurn === undefined ? "chat" : "goal" },
+            // A goal cycle is charged as one run, so its sub-agents end with it.
+            ...(goalTurn === undefined ? { subagents } : {}),
             onFailedTurn: (messages) => {
               failedTurnMessages = [...messages];
             },
@@ -1157,6 +1209,7 @@ export class ChatServiceImpl implements ChatService {
         );
       }
 
+      yield* stopSubagents;
       yield* emitLifecycle("session-end");
       yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
       // Stop mirroring state to the pane product once the session is over;

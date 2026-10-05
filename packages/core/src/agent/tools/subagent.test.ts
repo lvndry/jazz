@@ -19,6 +19,7 @@ import { frameUntrusted } from "@/core/utils/untrusted-content";
 import { AgentRunner } from "../agent-runner";
 import { createSubagentTools } from "./subagent";
 import { createEgressTaint } from "../execution/egress-taint";
+import type { RunCost, RunSpendReport } from "../metrics/agent-run-metrics";
 import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunnerOptions } from "../types";
 
@@ -95,14 +96,18 @@ function runSpawnArgs(
     Layer.succeed(LoggerServiceTag, silentLogger),
     Layer.succeed(PresentationServiceTag, presentation),
   );
+  const { chargeSpend, ...toolContext } = context as {
+    readonly chargeSpend?: (spend: RunCost) => void;
+  } & Record<string, unknown>;
   return Effect.runPromise(
     Effect.gen(function* () {
       const supervisor = yield* createSubagentSupervisor();
+      supervisor.attachRun({ chargeSpend: chargeSpend ?? (() => {}) });
       const spawned = yield* tool.execute(args, {
         agentId: parentAgent.id,
         parentAgent,
         subagents: supervisor,
-        ...context,
+        ...toolContext,
       }) as Effect.Effect<ToolExecutionResult, unknown, LoggerService | PresentationService>;
       const agentId = (spawned.result as { agentId?: string } | null)?.agentId;
       if (!spawned.success || agentId === undefined) {
@@ -419,8 +424,7 @@ describe("spawn_subagent time budget", () => {
   });
 
   it("charges the parent for a child that failed", async () => {
-    const charged: number[] = [];
-    let unknown = 0;
+    const charged: RunSpendReport[] = [];
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
       options.onRunSpend?.({ costUSD: 0.07, costIncomplete: true, totalTokens: 4_000 });
       return Effect.fail(new Error("child crashed")) as ReturnType<typeof AgentRunner.runRecursive>;
@@ -428,14 +432,10 @@ describe("spawn_subagent time budget", () => {
     try {
       const { presentation } = createPresentationHarness();
       await runSpawn(presentation, {
-        recordChildCost: (costUSD: number) => charged.push(costUSD),
-        recordChildCostUnknown: () => {
-          unknown += 1;
-        },
+        chargeSpend: (spend: RunSpendReport) => charged.push(spend),
       }).catch(() => undefined);
 
-      expect(charged).toEqual([0.07]);
-      expect(unknown).toBe(1);
+      expect(charged).toEqual([{ costUSD: 0.07, costIncomplete: true, totalTokens: 4_000 }]);
     } finally {
       spy.mockRestore();
     }
@@ -1097,7 +1097,9 @@ describe("spawn_subagent steering", () => {
     const { restore } = captureChildOptions();
     try {
       await runSpawnArgs(recording, { task, persona: "default" });
-      expect(opened).toEqual([{ agentRun: { task, acceptsMessages: true } }]);
+      expect(opened).toEqual([
+        { agentRun: { task, acceptsMessages: true, cancel: expect.any(Function) } },
+      ]);
     } finally {
       restore();
     }

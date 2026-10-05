@@ -376,6 +376,9 @@ export class InkTerminalService implements TerminalService {
       }
 
       store.setPrompt(promptState);
+      // Interrupted (the chat starting a turn of its own while idle), the prompt goes away
+      // unanswered; the composer keeps whatever was typed in it.
+      return Effect.sync(() => store.withdrawPrompt(promptState));
     });
   }
 

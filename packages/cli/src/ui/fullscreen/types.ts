@@ -243,6 +243,8 @@ export interface SubagentListItem {
   /** Newest line of output, so a row says what the agent is doing, not just that it is. */
   readonly activity: string;
   readonly elapsedMs: number;
+  /** It is running and the user can stop it from the list. */
+  readonly cancellable?: boolean;
 }
 
 /** A pending wait or queued job, listed after the sub-agents. */

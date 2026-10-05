@@ -569,9 +569,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
    *   metrics/cost/idle work needs to come AFTER the finalize.
    * - `usage_update`: no visible output; settling here would prematurely commit
    *   the pending tail to scrollback when usage events fire mid-stream.
+   * - `thinking_complete`: a model that thinks again part-way through its answer
+   *   is still writing one message, so the answer keeps streaming into one block.
    */
   private static readonly SETTLE_BEFORE: ReadonlySet<StreamEvent["type"]> = new Set([
-    "thinking_complete",
     "text_start",
     "tools_detected",
     "tool_execution_start",
@@ -1238,6 +1239,9 @@ export class InkPresentationService implements PresentationService {
 
   // Signal for tool execution start synchronization
   private pendingExecutionSignal: (() => void) | null = null;
+  /** The request whose card or follow-up prompt is showing, until it is answered. */
+  private activeApprovalResume: ((effect: Effect.Effect<ApprovalOutcome, never>) => void) | null =
+    null;
 
   constructor(
     private readonly displayConfig: DisplayConfig,
@@ -1494,7 +1498,26 @@ export class InkPresentationService implements PresentationService {
       // Add to queue and process
       this.approvalQueue.push({ request, resume });
       this.processNextApproval();
+      // A caller stopped while it waits (a sub-agent cancelled mid-approval) takes its request
+      // back, so its card never lingers and the approvals queued behind it still get asked.
+      return Effect.sync(() => this.withdrawApproval(resume));
     });
+  }
+
+  private withdrawApproval(resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void): void {
+    const queued = this.approvalQueue.findIndex((entry) => entry.resume === resume);
+    if (queued !== -1) {
+      this.approvalQueue.splice(queued, 1);
+      return;
+    }
+    if (this.activeApprovalResume !== resume) {
+      return;
+    }
+    this.activeApprovalResume = null;
+    store.setPrompt(null);
+    store.setApprovalRequest(null);
+    this.isProcessingApproval = false;
+    this.processNextApproval();
   }
 
   /**
@@ -1505,6 +1528,7 @@ export class InkPresentationService implements PresentationService {
     resume: (effect: Effect.Effect<ApprovalOutcome, never>) => void,
     outcome: ApprovalOutcome,
   ): void {
+    this.activeApprovalResume = null;
     resume(Effect.succeed(outcome));
 
     // If approved, wait for the tool execution to start before processing next approval
@@ -1535,11 +1559,13 @@ export class InkPresentationService implements PresentationService {
 
     this.isProcessingApproval = true;
     const { request, resume } = this.approvalQueue.shift()!;
+    this.activeApprovalResume = resume;
 
     // Re-check auto-approve status at dequeue time. A parallel tool's
     // "always approve" choice may have updated the shared allowlist while
     // this request was waiting in the queue.
     if (request.isAutoApproved?.()) {
+      this.activeApprovalResume = null;
       resume(Effect.succeed({ approved: true as const }));
       this.isProcessingApproval = false;
       this.processNextApproval();

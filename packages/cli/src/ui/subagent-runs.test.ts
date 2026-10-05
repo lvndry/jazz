@@ -185,6 +185,39 @@ describe("UIStore sub-agent runs", () => {
     ]);
   });
 
+  test("keeps a sub-agent that outlives the turn open when the turn is interrupted", () => {
+    const store = new UIStore();
+    const turnBound = store.openEphemeral("subagent", "Haiku", 12, steerable());
+    const background = store.openEphemeral("subagent", "Opus", 12, {
+      ...steerable(),
+      outlivesTurn: true,
+    });
+    store.collapseAllEphemeral();
+    expect(store.getSubagentsSnapshot().runs.map((run) => [run.id, run.status])).toEqual([
+      [turnBound, "interrupted"],
+      [background, "running"],
+    ]);
+    expect(store.getEphemeralSnapshot().regions.map((region) => region.id)).toEqual([background]);
+  });
+
+  test("cancels a running sub-agent once, through the hook its region was opened with", () => {
+    const store = new UIStore();
+    let cancelled = 0;
+    const id = store.openEphemeral("subagent", "Opus", 12, {
+      ...steerable(),
+      cancel: () => {
+        cancelled += 1;
+      },
+    });
+    expect(store.getSubagentsSnapshot().runs[0]?.cancellable).toBe(true);
+    expect(store.cancelSubagent(id)).toBe(true);
+    expect(store.cancelSubagent(id)).toBe(false);
+    expect(cancelled).toBe(1);
+
+    const plain = store.openEphemeral("subagent", "Haiku", 12, steerable());
+    expect(store.cancelSubagent(plain)).toBe(false);
+  });
+
   test("starts the list over when a new turn begins, keeping any still running", () => {
     const store = new UIStore();
     const finished = store.openEphemeral("subagent", "Done", 12, steerable());

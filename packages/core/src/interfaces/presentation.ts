@@ -435,6 +435,13 @@ export interface EphemeralRegionOptions {
     readonly task: string;
     /** True when the run polls `takeEphemeralRegionMessage`, so a message can reach it. */
     readonly acceptsMessages: boolean;
+    /**
+     * True when the run keeps working after the turn that started it ends, so stopping that
+     * turn leaves its region open.
+     */
+    readonly outlivesTurn?: boolean;
+    /** Stops the run, for a person cancelling it from the region's surface. */
+    readonly cancel?: () => void;
   };
 }
 

@@ -24,6 +24,7 @@ export function subagentListItem(run: SubagentRun, now: number): SubagentListIte
     status: run.status,
     activity: stripAnsiCodes(run.activity),
     elapsedMs: subagentElapsedMs(run, now),
+    ...(run.cancellable && run.status === "running" ? { cancellable: true } : {}),
   };
 }
 

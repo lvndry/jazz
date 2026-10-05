@@ -2,7 +2,7 @@ import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
 import type { ChatCompletionResponse } from "@jazz/core/types/chat";
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import chalk from "chalk";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { renderToString } from "ink";
 import React from "react";
 import { InkPresentationService, InkStreamingRenderer } from "./ink-presentation-service";
@@ -89,6 +89,39 @@ describe("InkStreamingRenderer", () => {
     store.setActivity = originalSetActivity;
     store.printOutput = originalPrintOutput;
     store.setCollapseReasoning(true);
+  });
+
+  test("an answer the model pauses to think in the middle of stays one block", () => {
+    store.clearOutputs();
+    const renderer = createRenderer();
+    emitStreamStart(renderer);
+    Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "text_chunk",
+        delta: "Started it. I",
+        accumulated: "Started it. I",
+        sequence: 0,
+      }),
+    );
+    Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
+    Effect.runSync(
+      renderer.handleEvent({ type: "thinking_chunk", content: "Already replied.", sequence: 0 }),
+    );
+    Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "text_chunk",
+        delta: "'ll report back.",
+        accumulated: "Started it. I'll report back.",
+        sequence: 1,
+      }),
+    );
+    Effect.runSync(renderer.flush());
+
+    const entries = store.getDocumentSnapshot().entries.map((entry) => entry.content);
+    expect(entries.map((content) => content.kind)).toEqual(["header", "reasoning", "agent"]);
+    expect(entries[2]).toMatchObject({ markdown: "Started it. I'll report back." });
   });
 
   test("child lifecycle events do not settle or relabel the concurrent main stream", () => {
@@ -1904,6 +1937,50 @@ describe("InkPresentationService approval rejection", () => {
       }),
     );
   }
+
+  test("a request whose caller stops takes its card back and the next request is asked", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const chat: PromptState = { type: "chat", message: "You:", resolve: () => undefined };
+    store.setPrompt(chat);
+    const first = Effect.runFork(
+      service.requestApproval({
+        toolCallId: "call-stopped",
+        toolName: "execute_command",
+        message: "Command: sleep 120",
+        executeToolName: "execute_execute_command",
+        executeArgs: { command: "sleep 120" },
+      }),
+    );
+    const queued = Effect.runFork(
+      service.requestApproval({
+        toolCallId: "call-queued-stopped",
+        toolName: "execute_command",
+        message: "Command: sleep 5",
+        executeToolName: "execute_execute_command",
+        executeArgs: { command: "sleep 5" },
+      }),
+    );
+    await waitForPromptType("select");
+    await Effect.runPromise(Fiber.interrupt(queued));
+    await Effect.runPromise(Fiber.interrupt(first));
+    expect(store.getPromptSnapshot()).toBe(chat);
+    expect(store.getSessionSnapshot().approvalRequest).toBeNull();
+
+    const next = Effect.runPromise(
+      service.requestApproval({
+        toolCallId: "call-next",
+        toolName: "execute_command",
+        message: "Command: ls",
+        executeToolName: "execute_execute_command",
+        executeArgs: { command: "ls" },
+      }),
+    );
+    (await waitForPromptType("select")).resolve("yes");
+    expect(await next).toEqual({ approved: true });
+    await Effect.runPromise(service.signalToolExecutionStarted());
+    expect(store.getPromptSnapshot()).toBe(chat);
+    store.setPrompt(null);
+  });
 
   test("the Ink card states the same facts and verbs as the fullscreen card", async () => {
     const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
