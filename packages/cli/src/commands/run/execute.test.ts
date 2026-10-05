@@ -63,7 +63,7 @@ describe("--conversation persistence", () => {
     expect(saved).not.toBeNull();
     expect(saved?.conversationId).toBe("telegram-42");
     expect(saved?.title).toBe("Remember my name is Ada");
-    expect(saved?.messages).toEqual([
+    expect(saved?.messages).toMatchObject([
       { role: "user", content: "Remember my name is Ada" },
       { role: "assistant", content: "Noted, Ada!" },
     ]);
@@ -82,14 +82,17 @@ describe("--conversation persistence", () => {
       responseContent: "Your name is Ada.",
     });
 
-    expect(priorRecord?.messages).toEqual([
+    expect(priorRecord?.messages).toMatchObject([
       { role: "user", content: "Remember my name is Ada" },
       { role: "assistant", content: "Noted, Ada!" },
     ]);
 
     const saved = await runEffect(loadConversation("agent-1", "telegram-42", tmpDir));
     expect(saved?.messages).toHaveLength(4);
-    expect(saved?.messages.at(-1)).toEqual({ role: "assistant", content: "Your name is Ada." });
+    expect(saved?.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "Your name is Ada.",
+    });
   });
 
   it("repeated turns append to one conversation instead of duplicating", async () => {
@@ -128,7 +131,7 @@ describe("--conversation persistence", () => {
 
     // The system prompt is rebuilt every run, so it is never recorded.
     const saved = await runEffect(loadConversation("agent-1", "telegram-42", tmpDir));
-    expect(saved?.messages).toEqual([
+    expect(saved?.messages).toMatchObject([
       { role: "user", content: "hi" },
       { role: "assistant", content: "hello" },
     ]);

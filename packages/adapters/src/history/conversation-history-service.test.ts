@@ -29,6 +29,11 @@ import {
 import { archivedConversationLogPath, conversationLogPath } from "./conversation-log";
 import { search } from "./conversation-search";
 
+/** Messages as a reader sees them, without the log ids the reader stamps on them. */
+function withoutEntryIds(messages: readonly ChatMessage[] | undefined) {
+  return messages?.map(({ entryId: _entryId, ...message }) => message);
+}
+
 let tmpDir: string;
 
 beforeEach(() => {
@@ -362,7 +367,7 @@ describe("loadConversation", () => {
     await runEffect(saveConversation(makeConversation({ messages }), tmpDir));
 
     const loaded = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
-    expect(loaded?.messages).toEqual(messages);
+    expect(withoutEntryIds(loaded?.messages)).toEqual(withoutEntryIds(messages));
   });
 
   test("returns null for a conversation that was never saved", async () => {
@@ -553,7 +558,7 @@ describe("saving a run's transcript", () => {
 
     expect(savedId).not.toBe("conv-1");
     const original = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
-    expect(original?.messages).toEqual(priorMessages);
+    expect(withoutEntryIds(original?.messages)).toEqual(withoutEntryIds(priorMessages));
   });
 
   test("saveConversationOrFork returns the original id for a save built on the current revision", async () => {

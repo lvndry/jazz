@@ -29,6 +29,12 @@ import {
   reduceConversationLog,
   UNTITLED_CONVERSATION_TITLE,
 } from "./conversation-log";
+import { legacyMessageId } from "./conversation-tree";
+
+/** Messages as a reader sees them, without the log ids the reader stamps on them. */
+function withoutEntryIds(messages: readonly ChatMessage[] | undefined) {
+  return messages?.map(({ entryId: _entryId, ...message }) => message);
+}
 
 let tmpDir: string;
 
@@ -264,7 +270,7 @@ describe("recordConversationTranscript", () => {
 
     expect(afterCompaction).toEqual(conversationRevision(compacted));
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
-    expect(session?.messages).toEqual(compacted);
+    expect(withoutEntryIds(session?.messages)).toEqual(withoutEntryIds(compacted));
   });
 
   test("of two writers building on the same revision, only the first is saved", async () => {
@@ -521,7 +527,7 @@ describe("recordConversationTranscript", () => {
     );
 
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
-    expect(session?.messages).toEqual([userMessage("hi")]);
+    expect(withoutEntryIds(session?.messages)).toEqual(withoutEntryIds([userMessage("hi")]));
     expect(session?.uiTranscript).toEqual([
       {
         id: "/info",
@@ -597,7 +603,7 @@ describe("UI scrollback growth", () => {
 
     const loaded = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(loaded?.uiTranscript).toEqual(uiTranscript);
-    expect(loaded?.messages).toEqual(messages);
+    expect(withoutEntryIds(loaded?.messages)).toEqual(withoutEntryIds(messages));
   });
 
   test("appends new scrollback entries and snapshots a scrollback that was cleared", async () => {
@@ -718,7 +724,7 @@ describe("UI scrollback growth", () => {
     expect(types).toEqual(["conversation", "message", "ui-transcript", "ui-append"]);
     const loaded = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(loaded?.uiTranscript).toEqual(nextScrollback);
-    expect(loaded?.messages).toEqual([userMessage("hi")]);
+    expect(withoutEntryIds(loaded?.messages)).toEqual(withoutEntryIds([userMessage("hi")]));
   });
 
   test("collapsing keeps every non-UI line, unreadable ones included", () => {
@@ -1009,7 +1015,9 @@ describe("semantic presentation persistence", () => {
       entries: [answer, answer],
     });
     expect(history?.uiTranscript).toEqual([receipt]);
-    expect(history?.messages).toEqual([userMessage("model-facing text")]);
+    expect(withoutEntryIds(history?.messages)).toEqual(
+      withoutEntryIds([userMessage("model-facing text")]),
+    );
   });
 
   test("rejects a whole append that republishes an existing source ID", () => {
@@ -1019,7 +1027,9 @@ describe("semantic presentation persistence", () => {
       entries: [answer, receipt],
     });
     expect(history?.uiTranscript).toEqual([receipt]);
-    expect(history?.messages).toEqual([userMessage("model-facing text")]);
+    expect(withoutEntryIds(history?.messages)).toEqual(
+      withoutEntryIds([userMessage("model-facing text")]),
+    );
   });
 
   test("rejects duplicate IDs within an append without reserving IDs from the rejected batch", () => {
@@ -1049,7 +1059,7 @@ describe("semantic presentation persistence", () => {
         { type: "ui-append", at: timestamp, entries: [answer] },
       );
       expect(history?.uiTranscript).toEqual([receipt, answer]);
-      expect(history?.messages).toEqual([
+      expect(withoutEntryIds(history?.messages)).toEqual([
         userMessage("model-facing text"),
         assistantMessage("still model-facing"),
       ]);
@@ -1176,7 +1186,13 @@ describe("semantic presentation persistence", () => {
     const upgraded = migratePresentationLog(body);
     expect(upgraded).not.toBeNull();
     if (upgraded === null) throw new Error("Migration expected");
-    expect(upgraded).toContain(message + "\nunreadable record\n");
+    expect(upgraded).toContain(
+      JSON.stringify({
+        ...JSON.parse(message),
+        id: legacyMessageId("conv-1", 0),
+        parentId: null,
+      }) + "\nunreadable record\n",
+    );
     expect(migratePresentationLog(upgraded)).toBeNull();
     const uiEvent = parseConversationLog(upgraded).find((event) => event.type === "ui-transcript");
     expect(uiEvent?.type === "ui-transcript" ? uiEvent.entries : []).toEqual([

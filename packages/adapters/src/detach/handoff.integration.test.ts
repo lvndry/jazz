@@ -93,7 +93,7 @@ test("local handoff preserves Git state and conversation through a queued remote
           loadConversation(agentId, conversationId).pipe(Effect.provide(NodeFileSystem.layer)),
         )
       )?.messages,
-    ).toEqual(originalMessages);
+    ).toMatchObject(originalMessages);
 
     const queued = await Effect.runPromise(
       enqueueDetachedJob({
@@ -142,7 +142,7 @@ test("local handoff preserves Git state and conversation through a queued remote
           loadConversation(agentId, conversationId).pipe(Effect.provide(NodeFileSystem.layer)),
         )
       )?.messages,
-    ).toEqual(completedMessages);
+    ).toMatchObject(completedMessages);
   } finally {
     if (previousHome === undefined) {
       delete process.env["JAZZ_HOME"];

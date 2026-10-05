@@ -55,6 +55,11 @@ export interface MemoryDelivery extends MemoryExposure {
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /**
+   * This message's id in its conversation log, set by the log when it is read or saved. Lets a
+   * save append only what the log does not hold yet. Storage bookkeeping: never sent to a model.
+   */
+  entryId?: string;
   /** Retained through compaction so a later turn can still quote it; tool output never carries one. */
   memorySource?: MemorySource;
   /**

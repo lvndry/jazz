@@ -91,7 +91,7 @@ describe("portable detach snapshot", () => {
       const history = await Effect.runPromise(
         loadConversation("agent", "conversation").pipe(Effect.provide(NodeFileSystem.layer)),
       );
-      expect(history?.messages).toEqual([{ role: "user", content: "Write the draft" }]);
+      expect(history?.messages).toMatchObject([{ role: "user", content: "Write the draft" }]);
       expect(
         await fs.readFile(path.join(root, "remote-home", "agents", "agent.json"), "utf8"),
       ).not.toContain("secret-key");
