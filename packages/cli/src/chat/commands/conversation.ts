@@ -163,8 +163,9 @@ export function handleForkCommand(
 }
 
 /**
- * Select a saved transcript, reading its full log only after the user chooses it. Restored
- * history carries the resume notice; the runner rebuilds the live system prompt for each run.
+ * Select a saved transcript, reading its full log only after the user chooses it, and switch
+ * the chat to that conversation so later turns append to its own log. Restored history carries
+ * the resume notice; the runner rebuilds the live system prompt for each run.
  */
 export function handleResumeCommand(
   terminal: TerminalService,
@@ -228,10 +229,11 @@ export function handleResumeCommand(
     yield* terminal.log("");
     return {
       shouldContinue: true,
+      newConversationId: selected.conversationId,
       newHistory,
       newConversationTitle: conversation.title,
+      ...(conversation.uiTranscript?.length ? { newUiTranscript: conversation.uiTranscript } : {}),
       saveCurrentHistory: true,
-      resetStartedAt: true,
     };
   });
 }

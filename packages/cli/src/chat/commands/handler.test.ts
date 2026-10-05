@@ -511,7 +511,7 @@ describe("handleSpecialCommand /rename", () => {
 });
 
 describe("handleSpecialCommand resume", () => {
-  test("sets resetStartedAt on the result when a conversation is successfully resumed", async () => {
+  test("switches the chat to the resumed conversation instead of copying it into the current one", async () => {
     await runEffect(saveConversation(testRecord, tmpDir));
 
     const mockTerminal: Partial<TerminalService> = {
@@ -550,7 +550,8 @@ describe("handleSpecialCommand resume", () => {
       ) as Effect.Effect<CommandResult, unknown, never>,
     );
 
-    expect(result.resetStartedAt).toBe(true);
+    expect(result.newConversationId).toBe(testRecord.conversationId);
+    expect(result.saveCurrentHistory).toBe(true);
     expect(result.newConversationTitle).toBe(testRecord.title);
     expect(result.newHistory?.map((message) => message.content)).toEqual([
       expect.stringContaining("Resuming conversation from"),

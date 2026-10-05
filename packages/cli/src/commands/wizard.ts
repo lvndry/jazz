@@ -1,8 +1,5 @@
 import { controlGoal, listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
-import {
-  loadConversationOrNull,
-  loadHistory,
-} from "@jazz/adapters/history/conversation-history-service";
+import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
 import { formatRelativeWhen } from "@jazz/adapters/history/conversation-search";
 import { loopsWaitingOnUser, pendingLoopInput } from "@jazz/adapters/loops/loop-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
@@ -279,8 +276,9 @@ function wizardSession() {
             shouldExit = true;
             break;
           }
-          yield* openConversation(agent, opened.conversationId);
-          yield* terminal.clear();
+          if (yield* openConversation(agent, opened.conversationId)) {
+            yield* terminal.clear();
+          }
           break;
         }
       }
@@ -738,18 +736,31 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
 
 /**
  * Continue one saved conversation. Its messages are read here, on demand: pickers need titles
- * and dates, not transcripts, so the chosen conversation is the only one ever loaded.
+ * and dates, not transcripts, so the chosen conversation is the only one ever loaded. A log that
+ * cannot be read is reported rather than opened empty, because the chat would then save over it.
+ * Returns whether the chat was opened.
  */
 function openConversation(agent: Agent, conversationId: string) {
   return Effect.gen(function* () {
-    const conversation = yield* loadConversationOrNull(agent.id, conversationId);
+    const terminal = yield* TerminalServiceTag;
+    const loaded = yield* Effect.either(loadConversation(agent.id, conversationId));
+    if (loaded._tag === "Left") {
+      yield* terminal.error(`Could not open this conversation: ${loaded.left.message}`);
+      return false;
+    }
+    const conversation = loaded.right;
+    if (conversation === null) {
+      yield* terminal.warn("That conversation is no longer saved.");
+      return false;
+    }
     yield* startChatWithAgent(agent, {
       conversationId,
-      initialHistory: conversation?.messages ?? [],
-      ...(conversation?.uiTranscript !== undefined
+      initialHistory: conversation.messages,
+      ...(conversation.uiTranscript !== undefined
         ? { initialUiTranscript: conversation.uiTranscript }
         : {}),
     });
+    return true;
   });
 }
 

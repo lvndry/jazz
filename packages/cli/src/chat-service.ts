@@ -693,7 +693,12 @@ export class ChatServiceImpl implements ChatService {
               context,
             );
 
-            if (commandResult.newConversationTitle !== undefined) {
+            // A command that switches conversations brings the next conversation's title; it is
+            // applied with the switch below, so the conversation being left is saved under its own.
+            if (
+              commandResult.newConversationTitle !== undefined &&
+              commandResult.newConversationId === undefined
+            ) {
               conversationTitle = commandResult.newConversationTitle;
             }
 
@@ -769,7 +774,14 @@ export class ChatServiceImpl implements ChatService {
               // /compact opts out (skipTranscriptRepaint): it only shrinks the model's
               // context, and the user's scrollback stays as their record of the session.
               if (!commandResult.skipTranscriptRepaint) {
-                hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
+                if (commandResult.newUiTranscript !== undefined) {
+                  hydrateTranscriptFromUiEntries(
+                    commandResult.newUiTranscript,
+                    `${conversationId}:main`,
+                  );
+                } else {
+                  hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
+                }
                 // The agent now sees a different history, so ↑ must recall it —
                 // /new recalls nothing, /resume recalls the resumed turns.
                 hydrateInputHistoryFromMessages(conversationHistory);
@@ -783,9 +795,6 @@ export class ChatServiceImpl implements ChatService {
                 // Reset logged message count when history is cleared (e.g., /new command)
                 loggedMessageCount = 0;
               }
-            }
-            if (commandResult.resetStartedAt) {
-              startedAt = new Date().toISOString();
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
               autoApprovePolicy = commandResult.newAutoApprovePolicy;

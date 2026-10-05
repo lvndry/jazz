@@ -77,6 +77,12 @@ const MESSAGE_FINGERPRINT_CHARS = 12;
 /** Characters of the first user message used when a conversation was never given a title. */
 const DERIVED_TITLE_CHARS = 48;
 
+/**
+ * Shown for a conversation with neither a title nor a user message yet. Never recorded as a
+ * title: it would outrank the title the first user message later gives the conversation.
+ */
+export const UNTITLED_CONVERSATION_TITLE = "untitled conversation";
+
 /** Bytes read at a time while looking for the end of a log's header line. */
 const HEADER_READ_CHUNK_BYTES = 4096;
 
@@ -375,14 +381,16 @@ export function deriveConversationTitle(
   messages: readonly ChatMessage[],
 ): string {
   const explicit = title?.trim();
-  if (explicit && explicit.length > 0) return explicit;
+  if (explicit && explicit.length > 0 && explicit !== UNTITLED_CONVERSATION_TITLE) {
+    return explicit;
+  }
 
   const firstUserMessage = messages.find((message) => message.role === "user");
   // The model-facing content can carry an appended memory-source tag; the source holds
   // exactly what the person typed.
   const typed = firstUserMessage?.memorySource?.text ?? firstUserMessage?.content ?? "";
   const firstLine = typed.replace(/\s+/g, " ").trim();
-  if (firstLine.length === 0) return "untitled conversation";
+  if (firstLine.length === 0) return UNTITLED_CONVERSATION_TITLE;
   return firstLine.length > DERIVED_TITLE_CHARS
     ? `${firstLine.slice(0, DERIVED_TITLE_CHARS - 1).trimEnd()}…`
     : firstLine;
@@ -410,7 +418,9 @@ export function reduceConversationLog(
         lastMessageAt = event.at;
         break;
       case "meta":
-        if (event.title !== undefined) title = event.title;
+        if (event.title !== undefined && event.title !== UNTITLED_CONVERSATION_TITLE) {
+          title = event.title;
+        }
         break;
       case "rewrite":
         messages = [];
@@ -939,7 +949,7 @@ export function recordConversationTranscript(
           agentId: input.agentId,
           conversationId: input.conversationId,
           startedAt: input.startedAt,
-          ...(title.length === 0 ? {} : { title }),
+          ...(title.length === 0 || title === UNTITLED_CONVERSATION_TITLE ? {} : { title }),
         }),
       );
       state = {
@@ -951,9 +961,13 @@ export function recordConversationTranscript(
       };
     }
 
+    // A save with no messages for a log that has some comes from a session that never loaded
+    // them; recording it would hide everything said so far behind an empty rewrite.
+    const keepsSavedMessages = messages.length === 0 && state.messageCount > 0;
     const prefixHolds =
-      messages.length >= state.messageCount &&
-      fingerprintAt(messages, state.messageCount - 1) === state.lastMessageFingerprint;
+      keepsSavedMessages ||
+      (messages.length >= state.messageCount &&
+        fingerprintAt(messages, state.messageCount - 1) === state.lastMessageFingerprint);
 
     const now = new Date().toISOString();
     let firstNewMessage = state.messageCount;
@@ -968,7 +982,8 @@ export function recordConversationTranscript(
       chunks.push(serializeEvent({ type: "message", at: now, message }));
     }
 
-    const nextTitle = deriveConversationTitle(input.title, messages);
+    const derivedTitle = deriveConversationTitle(input.title, messages);
+    const nextTitle = derivedTitle === UNTITLED_CONVERSATION_TITLE ? state.title : derivedTitle;
     if (nextTitle !== state.title) {
       chunks.push(serializeEvent({ type: "meta", at: now, title: nextTitle }));
     }
@@ -1004,8 +1019,10 @@ export function recordConversationTranscript(
       rememberAppendState(logPath, {
         identity,
         state: {
-          messageCount: messages.length,
-          lastMessageFingerprint: fingerprintAt(messages, messages.length - 1),
+          messageCount: keepsSavedMessages ? state.messageCount : messages.length,
+          lastMessageFingerprint: keepsSavedMessages
+            ? state.lastMessageFingerprint
+            : fingerprintAt(messages, messages.length - 1),
           title: nextTitle,
           uiEntryCount,
           uiEntryFingerprints: nextUiEntryFingerprints,

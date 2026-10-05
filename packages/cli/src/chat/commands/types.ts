@@ -2,6 +2,7 @@
  * Shared types for chat slash-command parsing, dispatch, and results.
  */
 
+import type { ConversationUiEntry } from "@jazz/adapters/history/conversation-history-service";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
@@ -81,6 +82,8 @@ export interface CommandResult {
   newConversationTitle?: string;
   /** New conversation history if history was modified */
   newHistory?: ChatMessage[];
+  /** Saved on-screen transcript to repaint instead of one rebuilt from `newHistory`. */
+  newUiTranscript?: readonly ConversationUiEntry[];
   /**
    * Put the message back in the composer at the next prompt, so a mistyped
    * command can be fixed instead of retyped.
@@ -98,8 +101,6 @@ export interface CommandResult {
   removeAutoApprovedCommand?: string;
   /** Save current conversation history before resetting state */
   saveCurrentHistory?: boolean;
-  /** Reset the startedAt timestamp to now (used when resuming a saved conversation) */
-  resetStartedAt?: boolean;
   /** Message to re-send to the agent immediately (set by /retry) */
   resendMessage?: string;
   /** Message to send to the agent after a user-side command has completed. */

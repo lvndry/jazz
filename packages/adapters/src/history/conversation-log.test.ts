@@ -186,6 +186,49 @@ describe("recordConversationTranscript", () => {
     expect(session?.title).toBe("plan the trip");
   });
 
+  test("a save with no messages leaves the saved ones in place", async () => {
+    const said = [userMessage("plan the trip"), assistantMessage("Where to?")];
+    await runEffect(recordConversationTranscript(record(said, ""), tmpDir));
+    await runEffect(recordConversationTranscript(record([], ""), tmpDir));
+
+    const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(session?.messages).toEqual(said);
+    expect(session?.title).toBe("plan the trip");
+    const lines = fs
+      .readFileSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir), "utf8")
+      .trim()
+      .split("\n");
+    expect(lines.some((line) => line.includes('"type":"rewrite"'))).toBe(false);
+  });
+
+  test("never records the untitled placeholder as a title", async () => {
+    await runEffect(recordConversationTranscript(record([], "untitled conversation"), tmpDir));
+    await runEffect(
+      recordConversationTranscript(record([userMessage("book the flights")], ""), tmpDir),
+    );
+
+    const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(session?.title).toBe("book the flights");
+    const content = fs.readFileSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir), "utf8");
+    expect(content).not.toContain("untitled conversation");
+  });
+
+  test("a recorded untitled placeholder does not hide the title before it", () => {
+    const conversation = reduceConversationLog([
+      {
+        type: "conversation",
+        version: CONVERSATION_LOG_VERSION,
+        agentId: AGENT_ID,
+        conversationId: CONVERSATION_ID,
+        startedAt: "2026-08-01T10:00:00.000Z",
+      },
+      { type: "message", at: "2026-08-01T10:00:01.000Z", message: userMessage("plan the trip") },
+      { type: "meta", at: "2026-08-01T10:00:02.000Z", title: "Trip planning" },
+      { type: "meta", at: "2026-08-02T10:00:00.000Z", title: "untitled conversation" },
+    ]);
+    expect(conversation?.title).toBe("Trip planning");
+  });
+
   test("records a title change as metadata", async () => {
     await runEffect(
       recordConversationTranscript(record([userMessage("hi")], "First title"), tmpDir),
