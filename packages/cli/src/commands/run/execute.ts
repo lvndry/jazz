@@ -5,6 +5,7 @@ import {
   type Conversation,
   type ConversationToSave,
 } from "@jazz/adapters/history/conversation-history-service";
+import { holdConversationTurn } from "@jazz/adapters/history/conversation-lease";
 import { drainNotifyOutbox } from "@jazz/adapters/notification/outbox-drain";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
@@ -392,6 +393,17 @@ export function runAgentOnceCommand(
       return yield* failOneShot("Invalid --conversation id: must be non-empty.", outputOptions);
     }
 
+    if (conversationKey !== undefined) {
+      // Held until the command ends, from the load to the save: a second run on the same
+      // conversation waits for this one and builds on its turn instead of forking beside it.
+      yield* holdConversationTurn(agent.id, conversationKey, {
+        onBusy: Effect.sync(() => {
+          process.stderr.write(
+            `Conversation "${conversationKey}" is busy in another session; waiting for it to finish.\n`,
+          );
+        }),
+      });
+    }
     const priorRecord =
       conversationKey !== undefined ? yield* loadConversation(agent.id, conversationKey) : null;
 
@@ -596,6 +608,7 @@ export function runAgentOnceCommand(
       ),
     );
   }).pipe(
+    Effect.scoped,
     Effect.catchIf(
       // A park that never reached the store carries no run id, so there is nothing to
       // resume and it falls through to the ordinary failure path below.

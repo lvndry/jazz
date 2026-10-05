@@ -71,6 +71,8 @@ export {
   conversationRevision,
   displayConversationTitle,
   EMPTY_CONVERSATION_REVISION,
+  sameRevision,
+  savedConversationRevision,
 } from "./conversation-log";
 
 export interface AgentConversationHistory {

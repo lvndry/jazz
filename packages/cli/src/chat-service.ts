@@ -21,7 +21,13 @@ import {
   loadConversationOrNull,
   type ConversationRevision,
   type ConversationUiEntry,
+  sameRevision,
+  savedConversationRevision,
 } from "@jazz/adapters/history/conversation-history-service";
+import {
+  ConversationBusyError,
+  withConversationTurn,
+} from "@jazz/adapters/history/conversation-lease";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { carryEgressTaint, detachedResultMessage } from "@jazz/core/agent/execution/egress-taint";
@@ -431,6 +437,36 @@ export class ChatServiceImpl implements ChatService {
           ),
           Effect.provideService(FileSystem.FileSystem, fileSystem),
         );
+
+      /**
+       * Another session may have continued this conversation while this one waited for its
+       * turn. Reload what it saved, so the next turn builds on it rather than forking beside it.
+       */
+      const pickUpTurnsSavedElsewhere = Effect.gen(function* () {
+        if (ephemeral) {
+          return;
+        }
+        const onDisk = yield* savedConversationRevision(agent.id, conversationId).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.option,
+        );
+        if (Option.isNone(onDisk) || sameRevision(onDisk.value, savedRevision)) {
+          return;
+        }
+        const latest = yield* loadConversationOrNull(agent.id, conversationId).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+        );
+        if (latest === null) {
+          return;
+        }
+        conversationHistory = [
+          ...conversationHistory.filter((message) => message.role === "system"),
+          ...latest.messages,
+        ];
+        loggedMessageCount = conversationHistory.length;
+        savedRevision = conversationRevision(latest.messages);
+        yield* terminal.info("Picked up what another session added to this conversation.");
+      });
 
       // Load persistent auto-approved commands from config
       if (appConfig.autoApprovedCommands?.length) {
@@ -934,7 +970,8 @@ export class ChatServiceImpl implements ChatService {
         );
         sessionTurnCount += 1;
 
-        yield* Effect.gen(function* () {
+        const chatTurn = Effect.gen(function* () {
+          yield* pickUpTurnsSavedElsewhere;
           // Set only when the turn fails: its work so far, so "continue" doesn't revert to
           // the pre-turn history.
           let failedTurnMessages: ChatMessage[] | undefined;
@@ -1206,6 +1243,21 @@ export class ChatServiceImpl implements ChatService {
               : saveSession(inFlightTranscript, { uiTranscript: uiTranscriptFromStore() }),
           ),
         );
+        // A turn holds the conversation from before it runs until it is saved, so a turn from
+        // another session (a second terminal, a goal cycle, a delivery) waits and then
+        // continues this conversation instead of forking it.
+        yield* ephemeral
+          ? chatTurn
+          : withConversationTurn(agent.id, conversationId, chatTurn, {
+              onBusy: terminal.info(
+                "This conversation is busy in another session; your message goes once it finishes.",
+              ),
+            }).pipe(
+              Effect.catchIf(
+                (error): error is ConversationBusyError => error instanceof ConversationBusyError,
+                (error) => Effect.die(error),
+              ),
+            );
       }
 
       yield* emitLifecycle("session-end");

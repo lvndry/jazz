@@ -13,6 +13,10 @@ import {
   saveRunTranscript,
   type Conversation,
 } from "@jazz/adapters/history/conversation-history-service";
+import {
+  ConversationBusyError,
+  withConversationTurn,
+} from "@jazz/adapters/history/conversation-lease";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import {
@@ -25,11 +29,12 @@ import { classifyRunError } from "@jazz/core/agent/run/park-signal";
 import type { AgentResponse } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { enqueueNotification, notifyTargets } from "@jazz/core/notify/outbox";
 import type { SpendSource } from "@jazz/core/spend/sources";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 
 export type UnattendedTurnSource = "job batch" | "wake trigger";
 
@@ -225,6 +230,28 @@ function notifyTurnNotDelivered(turn: UnattendedTurn, error: string) {
  * Run one unattended turn and report whether it delivered the item that caused it. A missing
  * agent fails without retrying, since there is nothing to resume into.
  */
+/**
+ * How long an unattended turn waits for another turn on its conversation (a chat turn, a goal
+ * cycle) before giving the item back for a later retry.
+ */
+const UNATTENDED_LEASE_MAX_WAIT_MS = 30 * 60_000;
+
+/**
+ * Exported for test: whether a run on this conversation is parked on an approval. Its resume
+ * builds on the history it parked with, so a turn run meanwhile would make that resume fork; the
+ * turn waits for it.
+ */
+export function hasParkedRun(conversationId: string) {
+  return Effect.gen(function* () {
+    const store = yield* Effect.serviceOption(RunStoreTag);
+    if (Option.isNone(store)) {
+      return false;
+    }
+    const runs = yield* store.value.list({ conversationId });
+    return runs.some((run) => run.state.kind === "input-required");
+  });
+}
+
 export function runUnattendedTurn(turn: UnattendedTurn) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -243,72 +270,102 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
     }
     const agent = agentResult.right;
 
-    const priorRecord = yield* loadConversationOrNull(turn.agentId, turn.conversationId);
+    // The lease spans the load and the save, so the turn builds on whatever the turn before it
+    // saved instead of forking beside it.
+    const leased = yield* withConversationTurn(
+      turn.agentId,
+      turn.conversationId,
+      Effect.gen(function* () {
+        if (yield* hasParkedRun(turn.conversationId)) {
+          return { kind: "behind-park" } as const;
+        }
+        const priorRecord = yield* loadConversationOrNull(turn.agentId, turn.conversationId);
 
-    const outcome = yield* AgentRunner.run({
-      agent,
-      userInput: turn.prompt,
-      conversationId: turn.conversationId,
-      parkWhenUnattended: true,
-      origin: { source: TURN_SPEND_SOURCES[turn.source], name: turn.sourceId },
-      ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
-    }).pipe(
-      Effect.map(classifyTurnResponse),
-      Effect.catchAll((error) => Effect.succeed(classifyTurnOutcome({ ok: false, error }))),
+        const outcome = yield* AgentRunner.run({
+          agent,
+          userInput: turn.prompt,
+          conversationId: turn.conversationId,
+          parkWhenUnattended: true,
+          origin: { source: TURN_SPEND_SOURCES[turn.source], name: turn.sourceId },
+          ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
+        }).pipe(
+          Effect.map(classifyTurnResponse),
+          Effect.catchAll((error) => Effect.succeed(classifyTurnOutcome({ ok: false, error }))),
+        );
+
+        switch (outcome.kind) {
+          case "failed":
+            yield* logger.warn("Unattended run failed", {
+              source: logSource(turn.source),
+              errorType: "run_failed",
+              error: outcome.error,
+            });
+            break;
+
+          case "unanswered":
+            yield* logger.warn(
+              outcome.ranTools
+                ? "Unattended run called tools but gave no answer; not retrying"
+                : "Unattended run gave no answer",
+              {
+                source: logSource(turn.source),
+                errorType: outcome.code,
+                error: outcome.error,
+              },
+            );
+            if (outcome.ranTools && outcome.messages.length > 0) {
+              yield* persist(turn, priorRecord, outcome.messages);
+            }
+            break;
+
+          case "unresumable":
+            yield* logger.warn("Unattended run could not save required approval", {
+              source: logSource(turn.source),
+              errorType: "approval_save_failed",
+            });
+            break;
+
+          case "parked": {
+            yield* logger.info("Unattended run parked waiting for approval", {
+              source: logSource(turn.source),
+              status: "awaiting_approval",
+            });
+            if (outcome.messages !== undefined) {
+              yield* persist(turn, priorRecord, outcome.messages);
+            }
+            // The daemon's notifier announces every parked run, with how to answer it.
+            break;
+          }
+
+          case "finished":
+            yield* persist(
+              turn,
+              priorRecord,
+              outcome.messages.length > 0 ? outcome.messages : (priorRecord?.messages ?? []),
+            );
+            break;
+        }
+        return outcome;
+      }),
+      { maxWaitMs: UNATTENDED_LEASE_MAX_WAIT_MS },
+    ).pipe(
+      Effect.catchIf(
+        (error): error is ConversationBusyError => error instanceof ConversationBusyError,
+        (error) => Effect.succeed({ kind: "busy", error: error.message } as const),
+      ),
     );
-
-    switch (outcome.kind) {
-      case "failed":
-        yield* logger.warn("Unattended run failed", {
-          source: logSource(turn.source),
-          errorType: "run_failed",
-          error: outcome.error,
-        });
-        break;
-
-      case "unanswered":
-        yield* logger.warn(
-          outcome.ranTools
-            ? "Unattended run called tools but gave no answer; not retrying"
-            : "Unattended run gave no answer",
-          {
-            source: logSource(turn.source),
-            errorType: outcome.code,
-            error: outcome.error,
-          },
-        );
-        if (outcome.ranTools && outcome.messages.length > 0) {
-          yield* persist(turn, priorRecord, outcome.messages);
-        }
-        break;
-
-      case "unresumable":
-        yield* logger.warn("Unattended run could not save required approval", {
-          source: logSource(turn.source),
-          errorType: "approval_save_failed",
-        });
-        break;
-
-      case "parked": {
-        yield* logger.info("Unattended run parked waiting for approval", {
-          source: logSource(turn.source),
-          status: "awaiting_approval",
-        });
-        if (outcome.messages !== undefined) {
-          yield* persist(turn, priorRecord, outcome.messages);
-        }
-        // The daemon's notifier announces every parked run, with how to answer it.
-        break;
-      }
-
-      case "finished":
-        yield* persist(
-          turn,
-          priorRecord,
-          outcome.messages.length > 0 ? outcome.messages : (priorRecord?.messages ?? []),
-        );
-        break;
+    if (leased.kind === "behind-park" || leased.kind === "busy") {
+      const deferred: DeliveryOutcome = {
+        delivered: false,
+        error:
+          leased.kind === "busy"
+            ? leased.error
+            : "A run in this conversation is waiting for an approval; this turn follows it once it is answered.",
+        retryable: true,
+      };
+      return deferred;
     }
+    const outcome = leased;
     const delivery = turnDeliveryOutcome(outcome);
     if (!delivery.delivered && outcome.kind !== "failed") {
       yield* notifyTurnNotDelivered(turn, delivery.error);

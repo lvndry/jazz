@@ -47,6 +47,7 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { currentProcessOwner, localOwnerStatus } from "@jazz/core/utils/process";
 import { Cause, Effect, Fiber } from "effect";
+import { withConversationTurn } from "@/adapters/history/conversation-lease";
 import { claimOwnerStatus, inFlight } from "@/adapters/runs/runs-in-flight";
 import {
   loadConversationOrNull,
@@ -390,28 +391,38 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string) {
       );
       return "settled";
     }
-    const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
-    const outcome = yield* runToOutcome(
-      AgentRunner.run({
-        agent,
-        runId,
-        userInput: goalCyclePrompt(goal, runId),
-        conversationId: goal.conversationId,
-        ...(goal.approvalPolicy !== undefined ? { autoApprovePolicy: goal.approvalPolicy } : {}),
-        parkWhenUnattended: true,
-        startedBy: "goal",
-        origin: { source: "goal", name: goalName(goal) },
-        conversationHistory: [...(prior?.messages ?? [])],
+    // Held from the load to the save, so the cycle builds on the chat's last turn instead of
+    // forking beside it.
+    return yield* withConversationTurn(
+      goal.agentId,
+      goal.conversationId,
+      Effect.gen(function* () {
+        const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
+        const outcome = yield* runToOutcome(
+          AgentRunner.run({
+            agent,
+            runId,
+            userInput: goalCyclePrompt(goal, runId),
+            conversationId: goal.conversationId,
+            ...(goal.approvalPolicy !== undefined
+              ? { autoApprovePolicy: goal.approvalPolicy }
+              : {}),
+            parkWhenUnattended: true,
+            startedBy: "goal",
+            origin: { source: "goal", name: goalName(goal) },
+            conversationHistory: [...(prior?.messages ?? [])],
+          }),
+        );
+        if (outcome.kind === "finished" && outcome.response.interrupted === true) {
+          yield* settleInterruptedCycle(goal, runId, outcome.response.messages ?? [], {
+            saveOnto: prior,
+          });
+          return "interrupted" as const;
+        }
+        yield* settleRunOutcome(goal, runId, outcome, { saveOnto: prior });
+        return "settled" as const;
       }),
     );
-    if (outcome.kind === "finished" && outcome.response.interrupted === true) {
-      yield* settleInterruptedCycle(goal, runId, outcome.response.messages ?? [], {
-        saveOnto: prior,
-      });
-      return "interrupted";
-    }
-    yield* settleRunOutcome(goal, runId, outcome, { saveOnto: prior });
-    return "settled";
   });
 }
 
@@ -752,13 +763,19 @@ export function resumeGoalRun(options: ResumeRunOptions) {
         reason: `Goal ${goal.goalId} changed while answering; check /goal list and retry.`,
       } as const;
     }
-    const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
-    const outcome = yield* inFlight(
-      options.runId,
+    const outcome = yield* withConversationTurn(
+      goal.agentId,
+      goal.conversationId,
       Effect.gen(function* () {
-        const settled = yield* runToOutcome(resumeRun({ ...options, startedBy: "goal" }));
-        yield* settleRunOutcome(working.right, options.runId, settled, { saveOnto: prior });
-        return settled;
+        const prior = yield* loadConversationOrNull(goal.agentId, goal.conversationId);
+        return yield* inFlight(
+          options.runId,
+          Effect.gen(function* () {
+            const settled = yield* runToOutcome(resumeRun({ ...options, startedBy: "goal" }));
+            yield* settleRunOutcome(working.right, options.runId, settled, { saveOnto: prior });
+            return settled;
+          }),
+        );
       }),
     );
     return { kind: "resumed", owner: { goalId: goal.goalId }, outcome } as const;

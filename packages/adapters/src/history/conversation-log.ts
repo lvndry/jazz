@@ -160,6 +160,23 @@ export function archivedConversationLogPath(
   );
 }
 
+/**
+ * Cross-process lock held for a whole turn on one conversation (see `conversation-lease.ts`);
+ * beside the save locks, out of `conversations/` so listing never sees it.
+ */
+export function conversationTurnLockPath(
+  agentId: string,
+  conversationId: string,
+  historyDirectory?: string,
+): string {
+  return path.join(
+    historyDirectory ?? getHistoryDirectory(),
+    CONVERSATION_LOCKS_DIRECTORY_NAME,
+    storageSafeSegment(agentId),
+    `${storageSafeSegment(conversationId)}.turn`,
+  );
+}
+
 /** Cross-process lock path for one agent's saves; kept out of `conversations/` so listing never sees it. */
 export function agentConversationLockPath(agentId: string, historyDirectory?: string): string {
   return path.join(
@@ -847,7 +864,7 @@ export function conversationRevision(messages: readonly ChatMessage[]): Conversa
 /** The revision of a conversation that has no saved messages, or no log at all. */
 export const EMPTY_CONVERSATION_REVISION: ConversationRevision = conversationRevision([]);
 
-function sameRevision(left: ConversationRevision, right: ConversationRevision): boolean {
+export function sameRevision(left: ConversationRevision, right: ConversationRevision): boolean {
   return (
     left.messageCount === right.messageCount &&
     left.lastMessageFingerprint === right.lastMessageFingerprint
@@ -1101,6 +1118,36 @@ function loadAppendState(
   });
 }
 
+/**
+ * The revision a conversation's log holds now: a stat when this process wrote the log last and
+ * nobody touched it since, a full read otherwise. For a writer checking whether someone else
+ * saved before it starts a turn.
+ */
+export function savedConversationRevision(
+  agentId: string,
+  conversationId: string,
+  historyDirectory?: string,
+): Effect.Effect<ConversationRevision, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const logPath = conversationLogPath(agentId, conversationId, historyDirectory);
+    const identity = yield* statLogFile(fs, logPath);
+    const cached = appendStateCache.get(logPath);
+    if (identity !== null && cached !== undefined && sameIdentity(cached.identity, identity)) {
+      return pathRevision(cached.state.tree);
+    }
+    const conversation = yield* readConversationLog(agentId, conversationId, historyDirectory);
+    return conversationRevision(conversation?.messages ?? []);
+  });
+}
+
+function pathRevision(tree: TreeAppendState): ConversationRevision {
+  return {
+    messageCount: tree.path.length,
+    lastMessageFingerprint: tree.path[tree.path.length - 1]?.fingerprint ?? "",
+  };
+}
+
 export interface ConversationTranscriptInput {
   readonly agentId: string;
   readonly conversationId: string;
@@ -1170,11 +1217,8 @@ export function recordConversationTranscript(
 
     const loaded = yield* loadAppendState(fs, logPath);
 
-    const savedPath = loaded.state?.tree.path ?? [];
-    const savedRevision: ConversationRevision = {
-      messageCount: savedPath.length,
-      lastMessageFingerprint: savedPath[savedPath.length - 1]?.fingerprint ?? "",
-    };
+    const savedRevision =
+      loaded.state === null ? EMPTY_CONVERSATION_REVISION : pathRevision(loaded.state.tree);
     if (!sameRevision(input.basedOn, savedRevision)) {
       return yield* Effect.fail(new ConversationChangedError(input.conversationId));
     }
