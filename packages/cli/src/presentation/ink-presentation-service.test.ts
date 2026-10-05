@@ -91,6 +91,39 @@ describe("InkStreamingRenderer", () => {
     store.setCollapseReasoning(true);
   });
 
+  test("an answer the model pauses to think in the middle of stays one block", () => {
+    store.clearOutputs();
+    const renderer = createRenderer();
+    emitStreamStart(renderer);
+    Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "text_chunk",
+        delta: "Started it. I",
+        accumulated: "Started it. I",
+        sequence: 0,
+      }),
+    );
+    Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
+    Effect.runSync(
+      renderer.handleEvent({ type: "thinking_chunk", content: "Already replied.", sequence: 0 }),
+    );
+    Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "text_chunk",
+        delta: "'ll report back.",
+        accumulated: "Started it. I'll report back.",
+        sequence: 1,
+      }),
+    );
+    Effect.runSync(renderer.flush());
+
+    const entries = store.getDocumentSnapshot().entries.map((entry) => entry.content);
+    expect(entries.map((content) => content.kind)).toEqual(["header", "reasoning", "agent"]);
+    expect(entries[2]).toMatchObject({ markdown: "Started it. I'll report back." });
+  });
+
   test("child lifecycle events do not settle or relabel the concurrent main stream", () => {
     store.clearOutputs();
     const regionId = store.openEphemeral("subagent", "Child", 8, {

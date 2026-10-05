@@ -15,6 +15,7 @@ import { isHttpApprovalTool } from "@jazz/core/utils/http-approval";
 import { isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { filterCommandsByPrefix, slashCommandQuery } from "@jazz/cli/chat/commands";
 import packageJson from "../../../../../package.json";
 import type { ActivityState, TodoSnapshotItem } from "../activity-state";
@@ -800,7 +801,7 @@ export function blocksFrom(
         id: region.id,
         seq: seq++,
         kind: "reasoning",
-        text: region.tail.join("\n"),
+        text: stripAnsiCodes(region.tail.join("\n")),
         collapsed: false,
         live: true,
       });
@@ -810,7 +811,8 @@ export function blocksFrom(
         seq: seq++,
         kind: "lane",
         name: region.label,
-        ask: region.tail.at(-1) ?? "",
+        // The tail holds the Ink panel's colored lines; this surface styles text itself.
+        ask: stripAnsiCodes(region.tail.at(-1) ?? ""),
         lane: lane++,
         state: "running",
       });

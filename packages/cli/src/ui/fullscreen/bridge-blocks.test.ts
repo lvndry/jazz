@@ -235,3 +235,21 @@ describe("the waiting label", () => {
     expect(waitingLabel("awaiting", 4_000)).not.toBe(first);
   });
 });
+
+describe("sub-agent lanes", () => {
+  it("show the panel's newest line without the terminal colors the Ink panel keeps", () => {
+    const region: EphemeralRegion = {
+      id: "eph-1",
+      kind: "subagent",
+      label: "sleeper",
+      startedAt: 0,
+      tail: [
+        "Task: sleep",
+        "execute_command  \u001b[2mcommand:\u001b[22m \u001b[36msleep 45\u001b[39m",
+      ],
+      maxLines: 8,
+    };
+    const [lane] = blocksFrom([], "", [region]);
+    expect(lane).toMatchObject({ kind: "lane", ask: "execute_command  command: sleep 45" });
+  });
+});

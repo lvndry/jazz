@@ -569,9 +569,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
    *   metrics/cost/idle work needs to come AFTER the finalize.
    * - `usage_update`: no visible output; settling here would prematurely commit
    *   the pending tail to scrollback when usage events fire mid-stream.
+   * - `thinking_complete`: a model that thinks again part-way through its answer
+   *   is still writing one message, so the answer keeps streaming into one block.
    */
   private static readonly SETTLE_BEFORE: ReadonlySet<StreamEvent["type"]> = new Set([
-    "thinking_complete",
     "text_start",
     "tools_detected",
     "tool_execution_start",

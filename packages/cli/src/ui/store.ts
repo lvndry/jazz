@@ -25,6 +25,7 @@ import {
 import type { CommandPanel, CommandPanelEntry } from "./command-panel";
 import {
   appendDocumentEntries,
+  insertBeforeDocumentStream,
   appendDocumentStream,
   settleDocumentStream,
   contentFromOutput,
@@ -1147,13 +1148,16 @@ export class UIStore {
     if (kind === "reasoning") {
       this.liveReasoningIds.add(id);
       this.deferredReasoningIds.add(id);
-      this.printOutput({
-        id,
-        type: "streamContent",
-        message: { kind: "reasoning", text: "", label },
-        timestamp: new Date(),
-      });
+      // A model can go back to thinking part-way through its answer. The answer is still one
+      // message, so it stays one block: the reasoning goes in before it instead of ending it.
       this.flushOutputBatchNow();
+      this.publishDocument(
+        insertBeforeDocumentStream(this.document, {
+          id,
+          content: { kind: "reasoning", text: "", label },
+          timestamp: new Date().toISOString(),
+        }),
+      );
     }
     this.publishEphemeralRegions();
     if (agentRun !== undefined) {
