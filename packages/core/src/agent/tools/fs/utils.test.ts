@@ -135,6 +135,16 @@ node_modules/
       expect(result).toBe(false);
       expect(elapsed).toBeLessThan(50); // Cached = essentially instant
     });
+
+    it("should resolve false quickly when the probe hangs instead of stalling", async () => {
+      // `sleep 10` never answers in time; the probe cap must settle the promise
+      // well before the default 5s test timeout, even on a loaded runner.
+      const start = Date.now();
+      const result = await checkExternalTool("sleep", "10");
+      const elapsed = Date.now() - start;
+      expect(result).toBe(false);
+      expect(elapsed).toBeLessThan(4_000);
+    });
   });
 
   // ---------------------------------------------------------------
