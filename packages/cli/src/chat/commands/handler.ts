@@ -10,6 +10,7 @@ import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import {
   conversationRevision,
+  displayConversationTitle,
   loadConversationOrNull,
 } from "@jazz/adapters/history/conversation-history-service";
 import { getLogsDirectory } from "@jazz/adapters/logger";
@@ -2485,7 +2486,11 @@ function handleInfoCommand(
         {
           kind: "field",
           key: "title",
-          value: context.conversationTitle ?? conversation?.title ?? "not saved yet",
+          value:
+            context.conversationTitle ??
+            (conversation === null
+              ? "not saved yet"
+              : displayConversationTitle(conversation.title)),
           ...(context.conversationTitle === undefined && conversation?.title === undefined
             ? { tone: "muted" as const }
             : {}),

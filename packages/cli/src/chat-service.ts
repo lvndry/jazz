@@ -331,7 +331,9 @@ export class ChatServiceImpl implements ChatService {
       // Recall always draws from the saved model history, whichever transcript
       // repaints the screen. A fresh conversation seeds an empty list so it
       // does not leak the previous session's recall.
-      if (options?.initialUiTranscript?.length) {
+      // A saved snapshot repaints the screen even when empty (`/clear` saved it so); only a
+      // conversation that never saved scrollback is repainted from its messages.
+      if (options?.initialUiTranscript !== undefined) {
         hydrateTranscriptFromUiEntries(options.initialUiTranscript, `${conversationId}:main`);
       } else if (conversationHistory.length > 0) {
         hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);

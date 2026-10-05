@@ -69,6 +69,7 @@ export type {
 export {
   ConversationChangedError,
   conversationRevision,
+  displayConversationTitle,
   EMPTY_CONVERSATION_REVISION,
 } from "./conversation-log";
 
@@ -325,6 +326,9 @@ export function saveConversation(
  * Summaries rather than conversations because a listing is what this is for. A caller that
  * needs what was said asks for one conversation by id, instead of every transcript on disk
  * being read to draw a picker.
+ *
+ * A log that cannot be read (one written by a newer Jazz) is left out and logged, so one bad
+ * file never empties the whole list.
  */
 export function loadHistory(
   agentId: string,
@@ -334,7 +338,14 @@ export function loadHistory(
     const logs = yield* listConversationLogs(agentId, dir);
     const conversations: ConversationSummary[] = [];
     for (const log of logs) {
-      const conversation = yield* readConversationLog(log.agentId, log.conversationId, dir);
+      const conversation = yield* readConversationLog(log.agentId, log.conversationId, dir).pipe(
+        Effect.catchAll((error) =>
+          logHousekeeping("warn", "Conversation left out of history: its log cannot be read", {
+            conversationId: log.conversationId,
+            error: error.message,
+          }).pipe(Effect.as(null)),
+        ),
+      );
       if (conversation) conversations.push(summarize(conversation));
     }
     conversations.sort((left, right) => lastActivityMs(right) - lastActivityMs(left));

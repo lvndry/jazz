@@ -11,6 +11,7 @@
 import type { FileSystem } from "@effect/platform";
 import {
   conversationRevision,
+  displayConversationTitle,
   loadConversation,
   loadConversationOrNull,
   loadHistory,
@@ -200,7 +201,7 @@ export function handleResumeCommand(
         minute: "2-digit",
       });
       return {
-        name: `${conv.title}  (${dateStr}, ${conv.messageCount} messages)`,
+        name: `${displayConversationTitle(conv.title)}  (${dateStr}, ${conv.messageCount} messages)`,
         value: conv.conversationId,
       };
     });
@@ -229,20 +230,22 @@ export function handleResumeCommand(
 
     const resumeSystemMessage = {
       role: "system" as const,
-      content: `Resuming conversation from ${new Date(selected.startedAt).toLocaleString()}: ${selected.title}`,
+      content: `Resuming conversation from ${new Date(selected.startedAt).toLocaleString()}: ${displayConversationTitle(selected.title)}`,
     };
 
     const newHistory = [resumeSystemMessage, ...conversation.messages];
 
-    yield* terminal.success(`Resumed: ${selected.title}`);
+    yield* terminal.success(`Resumed: ${displayConversationTitle(selected.title)}`);
     yield* terminal.log("");
     return {
       shouldContinue: true,
       newConversationId: selected.conversationId,
       conversationRevision: conversationRevision(conversation.messages),
       newHistory,
-      newConversationTitle: conversation.title,
-      ...(conversation.uiTranscript?.length ? { newUiTranscript: conversation.uiTranscript } : {}),
+      ...(conversation.title === undefined ? {} : { newConversationTitle: conversation.title }),
+      ...(conversation.uiTranscript !== undefined
+        ? { newUiTranscript: conversation.uiTranscript }
+        : {}),
       saveCurrentHistory: true,
     };
   });

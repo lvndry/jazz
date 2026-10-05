@@ -17,6 +17,7 @@ import {
   EMPTY_CONVERSATION_REVISION,
   deleteConversationLog,
   deriveConversationTitle,
+  displayConversationTitle,
   conversationLogPath,
   listConversationLogs,
   migratePresentationLog,
@@ -24,7 +25,9 @@ import {
   parseConversationLogLine,
   readConversationLog,
   recordConversationTranscript,
+  REAL_TITLES_FORMAT,
   reduceConversationLog,
+  UNTITLED_CONVERSATION_TITLE,
 } from "./conversation-log";
 
 let tmpDir: string;
@@ -286,16 +289,106 @@ describe("recordConversationTranscript", () => {
     expect(session?.messages.map((message) => message.content)).toEqual(["hi", "from the chat"]);
   });
 
-  test("never records the untitled placeholder as a title", async () => {
-    await runEffect(recordConversationTranscript(record([], "untitled conversation"), tmpDir));
+  test("a conversation with nothing to name it by has no title, and records none", async () => {
+    await runEffect(recordConversationTranscript(record([], ""), tmpDir));
+    expect(
+      (await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir)))?.title,
+    ).toBeUndefined();
+
     await runEffect(
       recordConversationTranscript(record([userMessage("book the flights")], ""), tmpDir),
     );
-
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(session?.title).toBe("book the flights");
     const content = fs.readFileSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir), "utf8");
-    expect(content).not.toContain("untitled conversation");
+    expect(content).not.toContain(UNTITLED_CONVERSATION_TITLE);
+  });
+
+  /** The regression: the placeholder's text was reserved, so a rename to it never stuck. */
+  test("a conversation can be titled with the placeholder's text", async () => {
+    await runEffect(
+      recordConversationTranscript(
+        record([userMessage("plan the trip")], UNTITLED_CONVERSATION_TITLE),
+        tmpDir,
+      ),
+    );
+    const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(session?.title).toBe(UNTITLED_CONVERSATION_TITLE);
+  });
+
+  test("a log from before real titles drops its stored placeholders on the next save", async () => {
+    const logPath = conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir);
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(
+      logPath,
+      [
+        JSON.stringify({
+          type: "conversation",
+          version: CONVERSATION_LOG_VERSION,
+          agentId: AGENT_ID,
+          conversationId: CONVERSATION_ID,
+          startedAt: "2026-08-01T10:00:00.000Z",
+          title: UNTITLED_CONVERSATION_TITLE,
+        }),
+        JSON.stringify({
+          type: "message",
+          at: "2026-08-01T10:00:01.000Z",
+          message: userMessage("plan the trip"),
+        }),
+        JSON.stringify({
+          type: "meta",
+          at: "2026-08-01T10:00:02.000Z",
+          title: UNTITLED_CONVERSATION_TITLE,
+        }),
+        "",
+      ].join("\n"),
+    );
+    const legacy = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(legacy?.title).toBe("plan the trip");
+
+    await runEffect(
+      recordConversationTranscript(
+        {
+          ...record([userMessage("plan the trip")], UNTITLED_CONVERSATION_TITLE),
+          basedOn: conversationRevision([userMessage("plan the trip")]),
+        },
+        tmpDir,
+      ),
+    );
+    const content = fs.readFileSync(logPath, "utf8");
+    expect(JSON.parse(content.split("\n")[0] ?? "{}")).toMatchObject({
+      titleFormat: REAL_TITLES_FORMAT,
+    });
+    expect(JSON.parse(content.split("\n")[0] ?? "{}").title).toBeUndefined();
+    const renamed = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(renamed?.title).toBe(UNTITLED_CONVERSATION_TITLE);
+  });
+
+  /**
+   * The regression: an empty snapshot read the same as none, so resuming after `/clear`
+   * repainted the cleared scrollback from the messages.
+   */
+  test("tells a conversation that never saved scrollback from one that saved it empty", () => {
+    const header = {
+      type: "conversation" as const,
+      version: CONVERSATION_LOG_VERSION,
+      agentId: AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      startedAt: "2026-08-01T10:00:00.000Z",
+    };
+    const message = {
+      type: "message" as const,
+      at: "2026-08-01T10:00:01.000Z",
+      message: userMessage("plan the trip"),
+    };
+    expect(reduceConversationLog([header, message])?.uiTranscript).toBeUndefined();
+    expect(
+      reduceConversationLog([
+        header,
+        message,
+        { type: "ui-transcript", at: "2026-08-01T10:00:02.000Z", entries: [] },
+      ])?.uiTranscript,
+    ).toEqual([]);
   });
 
   test("a recorded untitled placeholder does not hide the title before it", () => {
@@ -833,8 +926,10 @@ describe("deriveConversationTitle", () => {
     ).toBe("book the flights");
   });
 
-  test("names an empty conversation rather than returning nothing", () => {
-    expect(deriveConversationTitle(undefined, [])).toBe("untitled conversation");
+  test("has no title for a conversation with nothing to name it by; the screen shows one", () => {
+    expect(deriveConversationTitle(undefined, [])).toBeUndefined();
+    expect(displayConversationTitle(undefined)).toBe(UNTITLED_CONVERSATION_TITLE);
+    expect(displayConversationTitle("Trip planning")).toBe("Trip planning");
   });
 });
 

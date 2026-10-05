@@ -78,10 +78,22 @@ const MESSAGE_FINGERPRINT_CHARS = 12;
 const DERIVED_TITLE_CHARS = 48;
 
 /**
- * Shown for a conversation with neither a title nor a user message yet. Never recorded as a
- * title: it would outrank the title the first user message later gives the conversation.
+ * Shown for a conversation with neither a title nor a user message yet. A display string only:
+ * a conversation without a title has `title: undefined`, so this is never saved.
  */
 export const UNTITLED_CONVERSATION_TITLE = "untitled conversation";
+
+/**
+ * Header `titleFormat` of logs whose stored titles are all real. Jazz before it saved
+ * {@link UNTITLED_CONVERSATION_TITLE} as a title, so in a log without it that string is read as
+ * no title; the first save of such a log drops those records and stamps the format.
+ */
+export const REAL_TITLES_FORMAT = 2;
+
+/** How a conversation is named on screen. */
+export function displayConversationTitle(title: string | undefined): string {
+  return title ?? UNTITLED_CONVERSATION_TITLE;
+}
 
 /** Bytes read at a time while looking for the end of a log's header line. */
 const HEADER_READ_CHUNK_BYTES = 4096;
@@ -150,6 +162,8 @@ export interface ConversationLogHeader {
   readonly conversationId: string;
   readonly startedAt: string;
   readonly title?: string;
+  /** {@link REAL_TITLES_FORMAT} once every stored title is a real one. */
+  readonly titleFormat?: number;
 }
 
 export interface ConversationLogMessage {
@@ -201,7 +215,8 @@ export type ConversationUiEntry = PresentationEntry;
 export interface Conversation {
   readonly agentId: string;
   readonly conversationId: string;
-  readonly title: string;
+  /** Undefined until it is given one or its first user message names it. */
+  readonly title: string | undefined;
   readonly startedAt: string;
   /** When the newest message was recorded, or null before anything was said. */
   readonly lastMessageAt: string | null;
@@ -228,7 +243,8 @@ export type ConversationToSave = Omit<Conversation, "lastMessageAt"> & {
 export interface ConversationSummary {
   readonly agentId: string;
   readonly conversationId: string;
-  readonly title: string;
+  /** Undefined until it is given one or its first user message names it. */
+  readonly title: string | undefined;
   readonly startedAt: string;
   /** When the newest message was recorded, or null before anything was said. */
   readonly lastMessageAt: string | null;
@@ -289,6 +305,9 @@ export function parseConversationLogLine(
         conversationId,
         startedAt: optionalString(parsed["startedAt"]) ?? at,
         ...(title === undefined ? {} : { title }),
+        ...(typeof parsed["titleFormat"] === "number"
+          ? { titleFormat: parsed["titleFormat"] }
+          : {}),
       };
     }
     case "message": {
@@ -380,13 +399,30 @@ function parseConversationLogRecords(lines: readonly string[]): (ConversationLog
   });
 }
 
-/** First line of the first user message, used when a conversation has no title. */
+/**
+ * Whether a header or meta title is a real one. In a log from before
+ * {@link REAL_TITLES_FORMAT}, the placeholder was stored as if it were a title.
+ */
+export function isStoredTitle(
+  title: string | undefined,
+  header: Pick<ConversationLogHeader, "titleFormat"> | null,
+): title is string {
+  return (
+    title !== undefined &&
+    (header?.titleFormat === REAL_TITLES_FORMAT || title !== UNTITLED_CONVERSATION_TITLE)
+  );
+}
+
+/**
+ * The conversation's title, else the first line of its first user message; undefined when
+ * there is neither.
+ */
 export function deriveConversationTitle(
   title: string | undefined,
   messages: readonly ChatMessage[],
-): string {
+): string | undefined {
   const explicit = title?.trim();
-  if (explicit && explicit.length > 0 && explicit !== UNTITLED_CONVERSATION_TITLE) {
+  if (explicit && explicit.length > 0) {
     return explicit;
   }
 
@@ -395,7 +431,7 @@ export function deriveConversationTitle(
   // exactly what the person typed.
   const typed = firstUserMessage?.memorySource?.text ?? firstUserMessage?.content ?? "";
   const firstLine = typed.replace(/\s+/g, " ").trim();
-  if (firstLine.length === 0) return UNTITLED_CONVERSATION_TITLE;
+  if (firstLine.length === 0) return undefined;
   return firstLine.length > DERIVED_TITLE_CHARS
     ? `${firstLine.slice(0, DERIVED_TITLE_CHARS - 1).trimEnd()}…`
     : firstLine;
@@ -409,21 +445,23 @@ export function reduceConversationLog(
   let title: string | undefined;
   let lastMessageAt: string | null = null;
   let messages: ChatMessage[] = [];
-  let uiTranscript: ConversationUiEntry[] = [];
+  // Undefined until a UI event is read: a log that never saved scrollback is repainted from its
+  // messages, while a saved empty snapshot (after `/clear`) must stay empty.
+  let uiTranscript: ConversationUiEntry[] | undefined;
   let uiIds = new Set<string>();
 
   for (const event of events) {
     switch (event.type) {
       case "conversation":
         header = event;
-        title = event.title ?? title;
+        title = isStoredTitle(event.title, header) ? event.title : title;
         break;
       case "message":
         messages.push(event.message);
         lastMessageAt = event.at;
         break;
       case "meta":
-        if (event.title !== undefined && event.title !== UNTITLED_CONVERSATION_TITLE) {
+        if (isStoredTitle(event.title, header)) {
           title = event.title;
         }
         break;
@@ -439,6 +477,7 @@ export function reduceConversationLog(
       }
       case "ui-append":
         if (!acceptUiEntryIds(event.entries, uiIds)) break;
+        uiTranscript ??= [];
         uiTranscript.push(...event.entries);
         break;
     }
@@ -452,7 +491,7 @@ export function reduceConversationLog(
     startedAt: header.startedAt,
     lastMessageAt,
     messages,
-    uiTranscript,
+    ...(uiTranscript === undefined ? {} : { uiTranscript }),
   };
 }
 
@@ -679,7 +718,7 @@ export function archiveConversationLog(
 interface AppendState {
   readonly messageCount: number;
   readonly lastMessageFingerprint: string;
-  readonly title: string;
+  readonly title: string | undefined;
   readonly uiEntryCount: number;
   readonly uiEntryFingerprints: readonly string[];
 }
@@ -877,6 +916,35 @@ export function migratePresentationLog(content: string): string | null {
     .join("\n");
 }
 
+/**
+ * Drop the placeholder titles Jazz before {@link REAL_TITLES_FORMAT} stored, and stamp the
+ * header with that format, so a later title of the same text is read as a real one. Null when
+ * the log is already in that format.
+ */
+export function migrateLegacyTitles(content: string): string | null {
+  const lines = content.split("\n");
+  const events = parseConversationLogRecords(lines);
+  const header = events.find((event) => event?.type === "conversation");
+  if (header?.type !== "conversation" || header.titleFormat === REAL_TITLES_FORMAT) return null;
+  const kept: string[] = [];
+  lines.forEach((line, index) => {
+    const event = events[index];
+    if (event?.type === "conversation") {
+      const { title, ...rest } = event;
+      kept.push(
+        JSON.stringify({
+          ...rest,
+          ...(isStoredTitle(title, event) ? { title } : {}),
+          titleFormat: REAL_TITLES_FORMAT,
+        }),
+      );
+    } else if (event?.type !== "meta" || isStoredTitle(event.title, header)) {
+      kept.push(line);
+    }
+  });
+  return kept.join("\n");
+}
+
 function appendStateFromContent(content: string): AppendState | null {
   const conversation = reduceConversationLog(parseConversationLog(content));
   if (!conversation) return null;
@@ -907,6 +975,7 @@ function loadAppendState(
 
     yield* requireReadableLogVersion(parseConversationLog(read), logPath);
     let content = migratePresentationLog(read) ?? read;
+    content = migrateLegacyTitles(content) ?? content;
     const collapsed = collapseSupersededUiEvents(content);
     if (collapsed !== null) content = collapsed;
     if (content !== read) {
@@ -925,7 +994,7 @@ function loadAppendState(
 export interface ConversationTranscriptInput {
   readonly agentId: string;
   readonly conversationId: string;
-  readonly title: string;
+  readonly title: string | undefined;
   readonly startedAt: string;
   readonly messages: readonly ChatMessage[];
   readonly uiTranscript?: readonly ConversationUiEntry[];
@@ -1006,7 +1075,7 @@ export function recordConversationTranscript(
     if (loaded.needsLeadingNewline) chunks.push("\n");
 
     if (!state) {
-      const title = input.title.trim();
+      const title = (input.title ?? "").trim();
       chunks.push(
         serializeEvent({
           type: "conversation",
@@ -1014,7 +1083,8 @@ export function recordConversationTranscript(
           agentId: input.agentId,
           conversationId: input.conversationId,
           startedAt: input.startedAt,
-          ...(title.length === 0 || title === UNTITLED_CONVERSATION_TITLE ? {} : { title }),
+          ...(title.length === 0 ? {} : { title }),
+          titleFormat: REAL_TITLES_FORMAT,
         }),
       );
       state = {
@@ -1043,9 +1113,8 @@ export function recordConversationTranscript(
       chunks.push(serializeEvent({ type: "message", at: now, message }));
     }
 
-    const derivedTitle = deriveConversationTitle(input.title, messages);
-    const nextTitle = derivedTitle === UNTITLED_CONVERSATION_TITLE ? state.title : derivedTitle;
-    if (nextTitle !== state.title) {
+    const nextTitle = deriveConversationTitle(input.title, messages) ?? state.title;
+    if (nextTitle !== undefined && nextTitle !== state.title) {
       chunks.push(serializeEvent({ type: "meta", at: now, title: nextTitle }));
     }
 

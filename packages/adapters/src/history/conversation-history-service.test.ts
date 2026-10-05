@@ -132,6 +132,23 @@ describe("saveConversation", () => {
     expect(history.conversations[0]?.messageCount).toBe(3);
   });
 
+  /** The regression: one log from a newer Jazz failed the listing, and every picker read empty. */
+  test("a log it cannot read is left out without hiding the others", async () => {
+    await runEffect(saveConversation(makeConversation({ conversationId: "conv-ok" }), tmpDir));
+    await runEffect(saveConversation(makeConversation({ conversationId: "conv-newer" }), tmpDir));
+    const newer = conversationLogPath("agent-1", "conv-newer", tmpDir);
+    const [header, ...rest] = fs.readFileSync(newer, "utf8").split("\n");
+    fs.writeFileSync(
+      newer,
+      [JSON.stringify({ ...JSON.parse(header ?? "{}"), version: 99 }), ...rest].join("\n"),
+    );
+
+    const history = await runEffect(loadHistory("agent-1", tmpDir));
+    expect(history.conversations.map((conversation) => conversation.conversationId)).toEqual([
+      "conv-ok",
+    ]);
+  });
+
   test("archives the oldest conversation instead of deleting it", async () => {
     for (let index = 0; index <= MAX_CONVERSATION_HISTORY_PER_AGENT; index++) {
       await runEffect(
