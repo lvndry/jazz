@@ -21,10 +21,9 @@ const DEFAULT_IGNORE_PATTERNS = ["**/node_modules/**", "**/.git/**"];
 
 /**
  * Cap for a single tool probe. A `--version` call that needs more than this to
- * answer is not a usable fast-path tool, and the cap must stay well under the
- * default test timeout so a slow probe cannot time out its own test.
+ * answer is not a usable fast-path tool.
  */
-const EXTERNAL_TOOL_PROBE_TIMEOUT_MS = 2_000;
+const EXTERNAL_TOOL_PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Cache for external tool availability checks.
