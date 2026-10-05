@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildConversationTree,
   contextPath,
+  conversationBranches,
   keepRuns,
   legacyMessageId,
   planSave,
@@ -263,5 +264,31 @@ describe("keepRuns", () => {
       { from: "a", through: "s" },
       { from: "c", through: "d" },
     ]);
+  });
+});
+
+describe("conversationBranches", () => {
+  test("a retried answer is a branch, beside the current one", () => {
+    const log = new Log();
+    const question = user("summarize the PR");
+    log.save([question, assistant("It adds X")]);
+    log.save([question, assistant("It fixes Y")]);
+
+    const branches = conversationBranches(buildConversationTree(log.events, "conv-1"));
+    expect(branches.map((branch) => [branch.label, branch.current])).toEqual([
+      ["It fixes Y", true],
+      ["It adds X", false],
+    ]);
+  });
+
+  test("a compaction summary is not a branch of its own", () => {
+    const log = new Log();
+    const history = [user("a"), assistant("b"), user("c"), assistant("d")];
+    log.save(history);
+    log.save([assistant("summary of a-b"), ...history.slice(2)]);
+
+    const branches = conversationBranches(buildConversationTree(log.events, "conv-1"));
+    expect(branches).toHaveLength(1);
+    expect(branches[0]).toMatchObject({ current: true, label: "d", messageCount: 3 });
   });
 });

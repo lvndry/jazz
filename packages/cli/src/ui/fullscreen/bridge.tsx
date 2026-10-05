@@ -1140,6 +1140,19 @@ export function FullscreenBridge(): React.ReactNode {
     },
     [updateHistory],
   );
+  // A chat prompt can open with a draft (a mistyped command put back, a message `/tree` is
+  // editing); it goes into an empty composer once, and never over what is already typed.
+  const seededPromptRef = useRef<PromptState | null>(null);
+  useEffect(() => {
+    if (prompt?.type !== "chat" || seededPromptRef.current === prompt) {
+      return;
+    }
+    seededPromptRef.current = prompt;
+    const seeded = prompt.options?.["defaultValue"];
+    if (typeof seeded === "string" && seeded.length > 0 && composerRef.current.text.length === 0) {
+      commitComposer(composerFromText(seeded));
+    }
+  }, [prompt, commitComposer]);
   const [commandIndex, commandIndexRef, setCommandIndex] = useSynchronizedState(0);
   const connectors = session.connectors;
   const currentConversation = session.currentConversation;

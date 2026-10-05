@@ -49,6 +49,7 @@ import {
   listConversationLogs,
   readConversationLog,
   recordConversationTranscript,
+  recordLeafMove,
   summarize,
   type Conversation,
   type ConversationRevision,
@@ -71,9 +72,11 @@ export {
   conversationRevision,
   displayConversationTitle,
   EMPTY_CONVERSATION_REVISION,
+  readConversationBranches,
   sameRevision,
   savedConversationRevision,
 } from "./conversation-log";
+export type { ConversationBranch } from "./conversation-tree";
 
 export interface AgentConversationHistory {
   readonly agentId: string;
@@ -320,6 +323,22 @@ export function saveConversation(
       }),
     );
   });
+}
+
+/**
+ * Continue a conversation from another entry (see `recordLeafMove`), under the same lock as a
+ * save so it never lands between another writer's read and write.
+ */
+export function moveConversationLeaf(
+  input: {
+    readonly agentId: string;
+    readonly conversationId: string;
+    readonly to: string | null;
+    readonly basedOn: ConversationRevision;
+  },
+  dir?: string,
+): Effect.Effect<Conversation, Error, FileSystem.FileSystem> {
+  return withLock(agentConversationLockPath(input.agentId, dir), recordLeafMove(input, dir));
 }
 
 /**

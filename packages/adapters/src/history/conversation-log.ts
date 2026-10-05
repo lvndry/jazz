@@ -43,6 +43,7 @@ import * as path from "node:path";
 import { gzipSync } from "node:zlib";
 import { FileSystem } from "@effect/platform";
 import { isTerminalOutputKind } from "@jazz/core/interfaces/terminal";
+import { typedText } from "@jazz/core/memory/source-trust";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { PresentationEntry } from "@jazz/core/types/presentation-content";
 import { presentationEntrySchema } from "@jazz/core/types/presentation-content-schema";
@@ -55,6 +56,8 @@ import { Effect, Option } from "effect";
 import {
   buildConversationTree,
   contextPath,
+  conversationBranches,
+  type ConversationBranch,
   legacyMessageId,
   planSave,
   treeAppendState,
@@ -554,9 +557,7 @@ export function deriveConversationTitle(
   }
 
   const firstUserMessage = messages.find((message) => message.role === "user");
-  // The model-facing content can carry an appended memory-source tag; the source holds
-  // exactly what the person typed.
-  const typed = firstUserMessage?.memorySource?.text ?? firstUserMessage?.content ?? "";
+  const typed = firstUserMessage === undefined ? "" : typedText(firstUserMessage);
   const firstLine = typed.replace(/\s+/g, " ").trim();
   if (firstLine.length === 0) return undefined;
   return firstLine.length > DERIVED_TITLE_CHARS
@@ -1217,6 +1218,76 @@ function pathRevision(tree: TreeAppendState): ConversationRevision {
     messageCount: tree.path.length,
     lastMessageFingerprint: tree.path[tree.path.length - 1]?.fingerprint ?? "",
   };
+}
+
+/** Every place a saved conversation can continue from, for `/tree`. */
+export function readConversationBranches(
+  agentId: string,
+  conversationId: string,
+  historyDirectory?: string,
+): Effect.Effect<readonly ConversationBranch[], Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const read = yield* readLogContent(
+      fs,
+      conversationLogPath(agentId, conversationId, historyDirectory),
+    );
+    if (read === null) return [];
+    const events = parseConversationLog(read);
+    return conversationBranches(buildConversationTree(events.map(treeEvent), conversationId));
+  });
+}
+
+/**
+ * Continue the conversation from entry `to` (null: from nothing) by appending a `leaf` event:
+ * the entries after it stay in the file, on the branch left behind. Refused like a save when
+ * the log moved on since `basedOn`, and when `to` names no entry. Succeeds with the
+ * conversation as it now reads.
+ */
+export function recordLeafMove(
+  input: {
+    readonly agentId: string;
+    readonly conversationId: string;
+    readonly to: string | null;
+    readonly basedOn: ConversationRevision;
+  },
+  historyDirectory?: string,
+): Effect.Effect<Conversation, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const logPath = conversationLogPath(input.agentId, input.conversationId, historyDirectory);
+    const loaded = yield* loadAppendState(fs, logPath);
+    if (loaded.state === null) {
+      return yield* Effect.fail(new Error(`Conversation ${input.conversationId} is not saved.`));
+    }
+    if (!sameRevision(input.basedOn, pathRevision(loaded.state.tree))) {
+      return yield* Effect.fail(new ConversationChangedError(input.conversationId));
+    }
+    if (input.to !== null && !loaded.state.tree.parents.has(input.to)) {
+      return yield* Effect.fail(
+        new Error(`Conversation ${input.conversationId} has no entry ${input.to}.`),
+      );
+    }
+    const chunks = [
+      ...(loaded.needsLeadingNewline ? ["\n"] : []),
+      serializeEvent({ type: "leaf", at: new Date().toISOString(), id: input.to }),
+    ];
+    yield* fs
+      .writeFileString(logPath, chunks.join(""), { flag: "a", mode: stateFileMode() })
+      .pipe(Effect.mapError(toError));
+    appendStateCache.delete(logPath);
+    const conversation = yield* readConversationLog(
+      input.agentId,
+      input.conversationId,
+      historyDirectory,
+    );
+    if (conversation === null) {
+      return yield* Effect.fail(
+        new Error(`Conversation ${input.conversationId} could not be read.`),
+      );
+    }
+    return conversation;
+  });
 }
 
 export interface ConversationTranscriptInput {

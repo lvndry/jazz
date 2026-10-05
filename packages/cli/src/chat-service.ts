@@ -782,7 +782,15 @@ export class ChatServiceImpl implements ChatService {
             // inserting operational output into the next LLM request.
             store.flushOutputBatchNow();
             const uiTranscript = uiTranscriptFromStore();
-            yield* saveSession(conversationHistory, { uiTranscript });
+            // A command that reshaped this conversation (`/tree`, `/compact`, `/retry`) is saved
+            // with its new history: the revision it returned already describes that history,
+            // so saving the old one on top of it would undo the command.
+            const historyAfterCommand =
+              commandResult.newConversationId === undefined &&
+              commandResult.newHistory !== undefined
+                ? commandResult.newHistory
+                : conversationHistory;
+            yield* saveSession(historyAfterCommand, { uiTranscript });
 
             if (commandResult.saveCurrentHistory) {
               yield* saveSession(conversationHistory);
@@ -903,6 +911,9 @@ export class ChatServiceImpl implements ChatService {
 
             if (commandResult.keepDraft === true && terminal.isInteractive) {
               draftToRestore = userMessage;
+            }
+            if (commandResult.composerDraft !== undefined && terminal.isInteractive) {
+              draftToRestore = commandResult.composerDraft;
             }
 
             if (commandResult.attendGoal !== undefined) {

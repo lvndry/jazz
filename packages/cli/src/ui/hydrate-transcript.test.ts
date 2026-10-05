@@ -86,6 +86,22 @@ describe("hydrateInputHistoryFromMessages", () => {
     expect(sink.history).toEqual(["first question", "second question"]);
   });
 
+  /** The regression: a repaint showed, and ↑ recalled, the model-facing memory-source tag. */
+  test("shows and recalls what was typed, not the memory-source tag", () => {
+    const tagged: ChatMessage = {
+      role: "user",
+      content: "pick a fruit\n\n[memory source user:abc]",
+      memorySource: { id: "user:abc", text: "pick a fruit" },
+    };
+    expect(presentationEntriesFromHistory([tagged], "conversation:main")[0]?.content).toEqual({
+      kind: "user",
+      text: "pick a fruit",
+    });
+    const sink = historySink();
+    hydrateInputHistoryFromMessages(messages([tagged]), sink);
+    expect(sink.history).toEqual(["pick a fruit"]);
+  });
+
   test("empty history drops whatever recall was seeded before", () => {
     const sink = historySink();
     sink.pushInputHistory("leftover from the previous conversation");

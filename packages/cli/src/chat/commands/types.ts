@@ -40,6 +40,7 @@ export type CommandType =
   | "mcp"
   | "mode"
   | "resume"
+  | "tree"
   | "rename"
   | "theme"
   | "export"
@@ -98,6 +99,8 @@ export interface CommandResult {
    * command can be fixed instead of retyped.
    */
   keepDraft?: boolean;
+  /** Text to put in the composer at the next prompt (`/tree` editing an earlier message). */
+  composerDraft?: string;
   /** Leave the on-screen chat as-is instead of redrawing it. */
   skipTranscriptRepaint?: boolean;
   /** New agent if agent was switched */

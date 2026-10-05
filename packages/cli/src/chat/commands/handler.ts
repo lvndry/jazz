@@ -79,6 +79,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@jazz/core/interfaces/tool-registry";
+import { typedText } from "@jazz/core/memory/source-trust";
 import { redactSecretText } from "@jazz/core/secrets/redaction";
 import { SkillServiceTag, type SkillService } from "@jazz/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
@@ -145,6 +146,7 @@ import {
   handleStartCommand,
   handleForkCommand,
   handleResumeCommand,
+  handleTreeCommand,
 } from "./conversation";
 import { handleGoalCommand } from "./goal";
 import { handleLoopCommand } from "./loop";
@@ -297,6 +299,9 @@ export function handleSpecialCommand(
 
       case "resume":
         return yield* handleResumeCommand(terminal, agent);
+
+      case "tree":
+        return yield* handleTreeCommand(terminal, context);
 
       case "theme":
         return yield* handleThemeCommand(terminal, command.args);
@@ -647,7 +652,9 @@ function handleRetryCommand(
         return {
           shouldContinue: true,
           newHistory: conversationHistory.slice(0, index),
-          resendMessage: message.content,
+          // The typed words, not the model-facing content: resending the source tag would
+          // make it read as typed and leave the retried message with no memory source.
+          resendMessage: typedText(message),
         };
       }
     }

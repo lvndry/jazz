@@ -442,3 +442,76 @@ export function keepRuns(
   }
   return runs;
 }
+
+/** Characters of a message shown to name a branch in a picker. */
+const BRANCH_LABEL_CHARS = 72;
+
+/** One place the conversation can continue from, for `/tree`. */
+export interface ConversationBranch {
+  /** The entry the conversation would continue after. */
+  readonly tipId: string;
+  /** The last thing said on the branch, one line. */
+  readonly label: string;
+  readonly messageCount: number;
+  /** When its newest message was written. */
+  readonly lastAt: string | null;
+  readonly current: boolean;
+}
+
+function oneLine(text: string): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > BRANCH_LABEL_CHARS
+    ? `${line.slice(0, BRANCH_LABEL_CHARS - 1).trimEnd()}…`
+    : line;
+}
+
+/**
+ * Every place the conversation can continue from: each entry nothing follows, plus the current
+ * leaf. Messages that only exist inside a `context` entry's view (a compaction summary) are not
+ * branches of their own. Newest first, the current one marked.
+ */
+export function conversationBranches(tree: ConversationTree): ConversationBranch[] {
+  const hasChildren = new Set<string>();
+  const kept = new Set<string>();
+  for (const node of tree.nodes.values()) {
+    if (node.parentId !== null) {
+      hasChildren.add(node.parentId);
+    }
+    if (node.kind === "context") {
+      for (const entry of resolveKeep(tree, node.keep)) {
+        kept.add(entry.id);
+      }
+    }
+  }
+  const tips = [...tree.nodes.values()]
+    .filter((node) => !hasChildren.has(node.id) && !(node.kind === "message" && kept.has(node.id)))
+    .map((node) => node.id);
+  if (tree.leafId !== null && !tips.includes(tree.leafId)) {
+    tips.push(tree.leafId);
+  }
+  const branches = tips.map((tipId): ConversationBranch => {
+    const path = contextPath({ nodes: tree.nodes, leafId: tipId }).messages;
+    const last = path.at(-1)?.message;
+    let lastAt: string | null = null;
+    for (const entry of path) {
+      const node = tree.nodes.get(entry.id);
+      if (node?.kind === "message" && (lastAt === null || node.at > lastAt)) {
+        lastAt = node.at;
+      }
+    }
+    return {
+      tipId,
+      label: oneLine(last?.content ?? ""),
+      messageCount: path.length,
+      lastAt,
+      current: tipId === tree.leafId,
+    };
+  });
+  return branches.sort((left, right) =>
+    left.current !== right.current
+      ? left.current
+        ? -1
+        : 1
+      : (right.lastAt ?? "").localeCompare(left.lastAt ?? ""),
+  );
+}

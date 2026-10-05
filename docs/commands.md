@@ -997,6 +997,7 @@ shows every form of one command. The table below is generated from the same list
 | `/reasoning [minimal\|low\|medium\|high\|xhigh\|max\|disable]`                       | Change reasoning for this session only.                                                                       |
 | `/rename [title]`                                                                    | Rename the current conversation.                                                                              |
 | `/resume`                                                                            | Browse and resume a past conversation.                                                                        |
+| `/tree`                                                                              | Switch to another branch of this conversation, or edit an earlier message.                                    |
 | `/retry`                                                                             | Re-send your last message.                                                                                    |
 | `/new`                                                                               | Start a fresh conversation with the current agent.                                                            |
 | `/create`                                                                            | Create a new agent.                                                                                           |

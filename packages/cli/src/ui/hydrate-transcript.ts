@@ -5,6 +5,7 @@
  * Model continuation nudges, tool protocol messages, and system prompts are not
  * conversation presentation and never become visible user turns.
  */
+import { typedText } from "@jazz/core/memory/source-trust";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { PresentationEntry } from "@jazz/core/types/presentation-content";
 import { store } from "./store";
@@ -31,7 +32,7 @@ export function presentationEntriesFromHistory(
       timestamp: new Date(0).toISOString(),
       content:
         message.role === "user"
-          ? { kind: "user", text: message.content }
+          ? { kind: "user", text: typedText(message) }
           : { kind: "agent", markdown: message.content },
     });
   }
@@ -65,7 +66,7 @@ export function hydrateInputHistoryFromMessages(
   for (const message of messages) {
     if (message.role !== "user" || message.kind === "continuation") continue;
     if (message.content.trim().length === 0) continue;
-    target.pushInputHistory(message.content);
+    target.pushInputHistory(typedText(message));
   }
 }
 

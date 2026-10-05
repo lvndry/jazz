@@ -25,6 +25,8 @@ import {
   setConversationRetentionLimit,
   type ConversationToSave,
   type ConversationsInUse,
+  moveConversationLeaf,
+  readConversationBranches,
 } from "./conversation-history-service";
 import { archivedConversationLogPath, conversationLogPath } from "./conversation-log";
 import { search } from "./conversation-search";
@@ -135,6 +137,51 @@ describe("saveConversation", () => {
     const history = await runEffect(loadHistory("agent-1", tmpDir));
     expect(history.conversations).toHaveLength(1);
     expect(history.conversations[0]?.messageCount).toBe(3);
+  });
+
+  test("switching branches continues from the chosen one and keeps the other in the file", async () => {
+    const question: ChatMessage = { role: "user", content: "summarize the PR" };
+    const first = await runEffect(
+      saveConversation(
+        makeConversation({ messages: [question, { role: "assistant", content: "It adds X" }] }),
+        tmpDir,
+      ),
+    );
+    const second = await runEffect(
+      saveConversation(
+        makeConversation({
+          messages: [question, { role: "assistant", content: "It fixes Y" }],
+          basedOn: first,
+        }),
+        tmpDir,
+      ),
+    );
+    const branches = await runEffect(readConversationBranches("agent-1", "conv-1", tmpDir));
+    const older = branches.find((branch) => !branch.current);
+    expect(older?.label).toBe("It adds X");
+
+    const moved = await runEffect(
+      moveConversationLeaf(
+        { agentId: "agent-1", conversationId: "conv-1", to: older?.tipId ?? null, basedOn: second },
+        tmpDir,
+      ),
+    );
+    expect(moved.messages.map((message) => message.content)).toEqual([
+      "summarize the PR",
+      "It adds X",
+    ]);
+    const reread = await runEffect(loadConversation("agent-1", "conv-1", tmpDir));
+    expect(reread?.messages.map((message) => message.content)).toEqual([
+      "summarize the PR",
+      "It adds X",
+    ]);
+    const stale = await runEffect(
+      moveConversationLeaf(
+        { agentId: "agent-1", conversationId: "conv-1", to: null, basedOn: second },
+        tmpDir,
+      ).pipe(Effect.either),
+    );
+    expect(stale._tag).toBe("Left");
   });
 
   /** The regression: one log from a newer Jazz failed the listing, and every picker read empty. */

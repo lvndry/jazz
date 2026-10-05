@@ -576,6 +576,38 @@ describe("handleSpecialCommand resume", () => {
     ]);
   });
 
+  /** The regression: `/retry` resent the model-facing content, source tag and all. */
+  test("/retry resends what was typed, without the memory-source tag", async () => {
+    const terminalLayer = Layer.succeed(TerminalServiceTag, {
+      warn: mock(() => Effect.void),
+      log: mock(() => Effect.void),
+    } as unknown as TerminalService);
+    const context: CommandContext = {
+      agent: testAgent,
+      conversationHistory: [
+        {
+          role: "user",
+          content: "pick a fruit\n\n[memory source user:abc]",
+          memorySource: { id: "user:abc", text: "pick a fruit" },
+        },
+        { role: "assistant", content: "MANGO" },
+      ],
+      conversationId: "test-session",
+      conversationRevision: EMPTY_CONVERSATION_REVISION,
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 0,
+      sessionLimits: {},
+      sessionStartedAt: new Date(),
+    };
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "retry", args: [] }, context).pipe(
+        Effect.provide(Layer.mergeAll(terminalLayer, NodeFileSystem.layer)),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+    expect(result.resendMessage).toBe("pick a fruit");
+    expect(result.newHistory).toEqual([]);
+  });
+
   test("does not replace history when this agent has no past conversations", async () => {
     const info = mock(() => Effect.void);
     const mockTerminal: Partial<TerminalService> = {
