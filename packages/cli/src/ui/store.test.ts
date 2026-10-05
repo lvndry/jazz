@@ -603,6 +603,27 @@ describe("UIStore", () => {
       expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
 
+    test("expandLastReasoning opens the current turn's folded steps before earlier turns", () => {
+      const s = new UIStore();
+
+      const earlier = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(earlier, { durationMs: 500, fullText: "earlier turn" });
+      s.settleTurnThought();
+      const firstStep = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(firstStep, { durationMs: 300, fullText: "step one" });
+      const secondStep = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(secondStep, { durationMs: 400, fullText: "step two" });
+
+      expect(s.expandLastReasoning()).toBe(true);
+      expect(s.isReasoningExpanded(firstStep)).toBe(true);
+      expect(s.isReasoningExpanded(secondStep)).toBe(true);
+      expect(s.isReasoningExpanded(earlier)).toBe(false);
+
+      s.settleTurnThought();
+      expect(s.expandLastReasoning()).toBe(true);
+      expect(s.isReasoningExpanded(earlier)).toBe(true);
+    });
+
     test("Ctrl+R during a live panel pins it so collapse stays expanded", () => {
       const s = new UIStore();
 
