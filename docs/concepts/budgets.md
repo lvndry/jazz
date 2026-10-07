@@ -107,17 +107,24 @@ spend cap counts failed, timed-out and cancelled runs, not only answered ones.
 or tool phase can cross them before the next iteration stops. Budget `--max-cost-usd` with that
 in mind.
 
-`maxDurationMs` is a deadline. When it passes, Jazz interrupts whatever is running: the model
-call is aborted, a shell command is killed with every process it started, and a sub-agent stops
-with it. Unfinished tool calls are closed with a note, and the run returns what it had with
-`durationCapped: true`. A sub-agent is given only the time its parent has left, so delegating
-work never extends the deadline.
+`maxDurationMs` is a deadline. Work stops at 85% of it: Jazz interrupts whatever is running (the
+model call is aborted, a shell command is killed with every process it started, and a sub-agent
+stops with it), and unfinished tool calls are closed with a note. The last 15% is for the answer.
+The run returns with `durationCapped: true`. A sub-agent is given only the work time its parent
+has left, so delegating work never extends the deadline.
 
-`--timeout` is a harder wall around the whole run, including start-up. It ends the run as a
-failure, with the same cleanup: running commands are killed and the provider request is aborted.
+`--timeout` is a harder wall around the whole run, including start-up. The run treats it like
+`maxDurationMs`: work stops at 85% of it and the agent answers in the rest. If the run is still
+going at the deadline, it ends as a failure, with the same cleanup. Time spent waiting for a
+person to approve a tool pushes the deadline out.
+
+Whatever stops the run (a budget, the iteration limit, or the agent repeating itself), Jazz makes
+one more model call without tools. It asks the agent to answer from what it has gathered, mark
+what it did not verify, and say what is left undone. A run that was mid-research hands back a
+partial answer instead of nothing. A user interrupt (Esc) skips that call.
 
 Jazz warns the agent at 50%, 80%, and 90% of its cost, token, and duration limits, and at
-70% and 90% of its iteration limit. Warnings are not saved in conversation history.
+50%, 70% and 90% of its iteration limit. Warnings are not saved in conversation history.
 
 ## When the figure is unknown
 

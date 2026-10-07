@@ -145,12 +145,13 @@ finishes, and are configured via `maxCostUSD`, `maxTokens`, and `maxDurationMs`;
   unknown. It never guess-aborts a run it cannot verify the spend of.
 - **`maxTokens`** just sums `totalPromptTokens + totalCompletionTokens`. No pricing lookup, so
   it still enforces on a local/unpriced model where `maxCostUSD` cannot.
-- **`maxDurationMs`** is a deadline. Each iteration races the time left
-  (`Date.now() - runMetrics.startedAt` against the budget) with `Effect.timeoutOption`, so it
-  interrupts a model call, a tool batch or a sub-agent in flight. Dangling tool calls are
-  closed with a note and the loop finalizes normally. It also gets an ephemeral pressure
-  message inside `runIteration` (`buildTimeBudgetPressureMessage`) at 50%, 80%, and 90%
-  elapsed, and `spawn_subagent` hands the child the time left through `remainingRunBudget`.
+- **`maxDurationMs`** is a deadline. Each iteration races `timeRunsOut`, which polls
+  `workTimeLeftMs`: the budget less `ANSWER_RESERVE_RATIO` (15%), counted from
+  `runMetrics.startedAt`. So it interrupts a model call, a tool batch or a sub-agent in flight.
+  Dangling tool calls are closed with a note and the loop moves on to the final answer. It also
+  gets an ephemeral pressure message inside `runIteration` (`buildTimeBudgetPressureMessage`) at
+  50%, 80%, and 90% of the work time, and `spawn_subagent` hands the child the work time left
+  through `remainingRunBudget`.
 
 `maxCostUSD` and `maxTokens` share the iteration budget's timing: checked _between_
 iterations, not a preemptive interrupt. A single expensive iteration (a costly tool call, or a
@@ -163,12 +164,28 @@ batch's ledger: completed calls keep their results, the others say whether they 
 interrupted while running or never started, and the response lists them as `stoppedToolCalls`
 ([stopping a batch](./tool-lifecycle.md#stopping-a-batch)).
 
-`--timeout` lives outside the loop entirely: the CLI races the whole run against a deadline
-(`packages/core/src/utils/run-deadline.ts`) with `Effect.raceFirst` and ends it as a failure
-with no warning to the agent. Interrupting the run interrupts its tool fibers (the shell kills
-the command's process group) and the LLM stream's finalizer aborts the provider request.
-`--timeout` is the hard outer safety net; `maxDurationMs` is the warned budget that still
-returns a result.
+`--timeout` is enforced outside the loop: the CLI races the whole run against a deadline
+(`packages/core/src/utils/run-deadline.ts`) with `Effect.raceFirst` and ends it as a failure.
+Interrupting the run interrupts its tool fibers (the shell kills the command's process group)
+and the LLM stream's finalizer aborts the provider request. The CLI also hands the deadline to
+the loop as `AgentRunnerOptions.deadline`, and `workTimeLeftMs` takes the smaller of the two
+limits. The deadline's work time is its remaining time less 15% of its original budget, re-read
+on every poll. An approval wait that extends the deadline (`deadline.extend`) therefore pushes
+the work stop out with it. The kill only fires when the run is still going after its answer
+reserve, for example a dead provider or start-up that hangs.
+
+### The final answer after a stop
+
+A run stopped by a cap, the iteration limit, or a stall would otherwise return whatever its last
+step said. That step was usually a tool call, so the answer would be empty. Before
+`finalizeRun`, the loop sets `state.finalAnswerReason` and runs one more `runIteration`. That
+step asks `getCompletion` for text only (`toolsOffered` is false), appends
+`finalAnswerInstruction` to the ephemeral nudges, drops any tool calls the provider returns
+anyway, and does not wait on running sub-agents or take queued guidance. It is bounded by
+`timeLeftMs(deps, 0)`, the time limits with no reserve held back, and skipped when none is left.
+A failure or timeout of that step is logged, and the run returns what it had. The cap flags
+(`iterationLimited`, `costCapped`, `tokenCapped`, `durationCapped`, `stalled`) stay set, so
+callers still see the answer as partial. Esc skips the step.
 
 ---
 
