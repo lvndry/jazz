@@ -22,7 +22,7 @@ flowchart TD
     START(["Iteration i of 100"]) --> COMPACT
 
     COMPACT["<b>Compact if needed</b><br/>tokens &gt; 80% of window?<br/>→ summarize, then resume"]
-    COMPACT --> PRESSURE["<b>Build budget pressure</b><br/>just compacted → 'continue the task'<br/>else i/100 ≥ 70% → 'consolidate'<br/>i/100 ≥ 90% → 'finish now'<br/><i>ephemeral, not stored</i>"]
+    COMPACT --> PRESSURE["<b>Build budget pressure</b><br/>just compacted → 'continue the task'<br/>else i/100 ≥ 50% → 'plan to wrap up'<br/>i/100 ≥ 70% → 'consolidate'<br/>i/100 ≥ 90% → 'finish now'<br/><i>ephemeral, not stored, repeats every iteration</i>"]
     PRESSURE --> ASK["<b>Ask the model</b><br/>messages + tools + reasoning effort"]
 
     ASK --> INT{"Interrupted?<br/>(double-Esc)"}
@@ -104,13 +104,23 @@ produce nothing. So Jazz tells it where it stands:
 ```mermaid
 timeline
     title Iteration budget (100 iterations)
-    section 1–69 · Free rein
+    section 1–49 · Free rein
         No pressure : explore, research, spawn sub-agents
+    section 50–69 · 50% notice
+        "30 iterations left. The budget is a hard stop." : agent plans for the finish
     section 70–89 · 70% warning
-        "Begin consolidating results. Stop spawning new research subagents." : agent shifts to synthesis
+        "18 iterations left. Begin consolidating results. Stop re-reading covered files."
+        : agent shifts to synthesis
     section 90–100 · 90% critical
-        "Write your final output NOW. Use what you have collected so far." : agent lands the plane
+        "6 iterations left. Write your final output NOW."
+        : agent lands the plane, nudge repeats every iteration
 ```
+
+The tiers are cumulative, not one-shot: a model at 93% sees the critical message on its
+next iteration too, instead of the silence that followed the single 90% nudge. Each
+message names the remaining count in absolute terms — "90% used" is not actionable
+while "6 iterations left" is — and every tier is re-sent on every remaining iteration,
+so a run that is about to die of an empty loop keeps hearing about the wall.
 
 The important detail: **the pressure message is ephemeral.** It's appended to the array
 sent to the model for that one call and never pushed into the stored conversation:

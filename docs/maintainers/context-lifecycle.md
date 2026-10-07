@@ -244,6 +244,8 @@ The summary is a fixed checkpoint rather than free-form prose. Every compaction 
 
 ## Constraints & Preferences
 
+## Covered So Far
+
 ## Progress
 
 ### Done
@@ -263,6 +265,21 @@ On later compactions Jazz merges new evidence into that same schema: completed i
 to **Done**, resolved blockers disappear, and **Next Steps** is refreshed. The source
 transcript and prior checkpoint are passed as untrusted reference material, not
 instructions for the summarizer to execute.
+
+**Covered So Far** is the anti-repetition section. Its failure mode: a review or audit
+pass compacts mid-work, the model's "which files have I read" record dies with the
+summarized messages, and it restarts the pass — re-reading every file it just read and
+looping out of its iteration budget on its own repetition. The checkpoint must therefore
+carry the list of covered sources (exact paths), and the merge rule is cumulative:
+anything an earlier checkpoint says was covered stays covered, so the second compaction
+of a long pass does not drop the first half's list.
+
+The checkpoint covers the _summarized_ half of the history. The _kept_ half is handled
+mechanically instead: after a compaction the next request appends a progress note
+built from the kept messages' own tool calls (`extractRunProgress`) — files read,
+files modified, commands run, most recent action — prefixed with "do not redo it".
+Together the two records mean the resumed model never has to guess what it already
+did.
 
 **Why summarize rather than slide a window?** A sliding window drops the _plan_. Forty
 minutes into a research run, the early messages contain the task definition and the
