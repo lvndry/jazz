@@ -75,6 +75,8 @@ const SUMMARY_CHECKPOINT_FORMAT = `## Goal
 
 ## Constraints & Preferences
 
+## Covered So Far
+
 ## Progress
 
 ### Done
@@ -89,12 +91,20 @@ const SUMMARY_CHECKPOINT_FORMAT = `## Goal
 
 ## Critical Context`;
 
-/** Instructions shared by the initial and iterative compaction prompts. */
+/**
+ * Instructions shared by the initial and iterative compaction prompts.
+ *
+ * "Covered So Far" is the anti-repetition section: when the transcript shows the
+ * agent reading or searching through a set of files (a review pass, an audit, a
+ * migration), the list of what it already covered goes here, exact paths included,
+ * so the resumed agent knows not to re-read them rather than discovering they
+ * disappeared from context and starting the pass over.
+ */
 const SUMMARY_CHECKPOINT_INSTRUCTIONS = `Output only a Markdown checkpoint using this EXACT structure:
 
 ${SUMMARY_CHECKPOINT_FORMAT}
 
-Include every heading, even when its content is \`(none)\`. Keep each section concise. Preserve exact file paths, function names, commands, IDs, values, and error messages where they matter. ${UNTRUSTED_DATA_INSTRUCTION}`;
+Include every heading, even when its content is \`(none)\`. Keep each section concise. Preserve exact file paths, function names, commands, IDs, values, and error messages where they matter. In \`## Covered So Far\`, list every file or source the transcript shows was read, searched, or examined (with exact paths), and anything that was explicitly skipped or left unread. ${UNTRUSTED_DATA_INSTRUCTION}`;
 
 /**
  * Build the throwaway agent that performs summarization.
@@ -1008,7 +1018,7 @@ export const Summarizer = {
     return Effect.gen(function* () {
       const historyText = Summarizer.renderTranscript(messagesToSummarize);
 
-      // What task state already holds is safe on disk. Saying so lets the summary spend
+      // What task state already holds is durable on disk. Saying so lets the summary spend
       // its budget on what the transcript adds rather than restating the plan.
       const recordedStateBlock = recordedState
         ? `## Already recorded durably (do not restate)\n\n${recordedState}\n\n` +
@@ -1017,7 +1027,7 @@ export const Summarizer = {
         : "";
 
       const userInput = priorSummary?.content
-        ? "Update an existing checkpoint for an ongoing conversation. Carry forward everything in the prior checkpoint that remains true, fold in the new transcript, and explicitly replace facts contradicted by newer evidence. Do not drop earlier facts merely because the new transcript does not mention them. Move completed work from In Progress to Done, remove resolved blockers, and update Next Steps.\n\n" +
+        ? "Update an existing checkpoint for an ongoing conversation. Carry forward everything in the prior checkpoint that remains true, fold in the new transcript, and explicitly replace facts contradicted by newer evidence. Do not drop earlier facts merely because the new transcript does not mention them. Move completed work from In Progress to Done, remove resolved blockers, and update Next Steps. Keep Covered So Far cumulative: anything the prior checkpoint says was already covered stays covered — never remove entries, so the resumed agent never re-reads a file it already read.\n\n" +
           SUMMARY_CHECKPOINT_INSTRUCTIONS +
           "\n\n" +
           recordedStateBlock +

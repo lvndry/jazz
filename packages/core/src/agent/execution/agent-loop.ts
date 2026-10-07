@@ -78,6 +78,7 @@ import {
   describeContextWindowShortfall,
   resolveEffectiveContextWindow,
 } from "../context/effective-context-window";
+import { extractRunProgress } from "../context/run-progress";
 import { Summarizer, type AutoCompaction, type RecursiveRunner } from "../context/summarizer";
 import { hydrateTokenCalibration, saveTokenCalibration } from "../context/token-calibration-state";
 import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
@@ -109,24 +110,38 @@ import type { SubagentSupervisor } from "../subagents/supervisor";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 /**
- * Returns an ephemeral budget pressure message at 70%/90% iteration thresholds.
- * Returns null below 70%. Must NOT be pushed to currentMessages — pass ephemerally only.
+ * Returns an ephemeral budget pressure message at 50%/70%/90% iteration thresholds.
+ * Returns null below 50%. Must NOT be pushed to currentMessages — pass ephemerally only.
+ *
+ * Tiers are cumulative rather than one-shot per threshold: a model at 93% sees the
+ * critical message again on its next iteration instead of the silence that follows a
+ * single 90% nudge, and the run is more likely to end with an answer than with an
+ * empty loop exit. Each tier states the remaining count in absolute terms, because
+ * "90% used" is not actionable while "7 iterations left, each tool call spends one" is.
  */
 export function buildBudgetPressureMessage(
   iteration: number,
   maxIterations: number,
 ): { role: "user"; content: string } | null {
   const pct = iteration / maxIterations;
+  const percent = Math.round(pct * 100);
+  const remaining = maxIterations - iteration;
   if (pct >= 0.9) {
     return {
       role: "user",
-      content: `[BUDGET CRITICAL: Iteration ${iteration}/${maxIterations} (${Math.round(pct * 100)}%). Write your final output NOW. No further research or subagent spawning. Use what you have collected so far.]`,
+      content: `[BUDGET CRITICAL: Iteration ${iteration}/${maxIterations} (${percent}%) — only ${remaining} iteration${remaining === 1 ? "" : "s"} left. Write your final output NOW, within the next ${Math.max(remaining, 1)} iteration${Math.max(remaining, 1) === 1 ? "" : "s"}. No further research, re-reading, or subagent spawning. Finish with what you have collected so far; a partial answer beats no answer.]`,
     };
   }
   if (pct >= 0.7) {
     return {
       role: "user",
-      content: `[BUDGET WARNING: Iteration ${iteration}/${maxIterations} (${Math.round(pct * 100)}%). Begin consolidating results. Stop spawning new research subagents. Move to consolidation and output phases.]`,
+      content: `[BUDGET WARNING: Iteration ${iteration}/${maxIterations} (${percent}%) — ${remaining} iteration${remaining === 1 ? "" : "s"} left. Begin consolidating results now. Stop spawning new research subagents and stop re-reading files already covered. Move to consolidation and output phases.]`,
+    };
+  }
+  if (pct >= 0.5) {
+    return {
+      role: "user",
+      content: `[BUDGET NOTICE: Iteration ${iteration}/${maxIterations} (${percent}%) — ${remaining} iteration${remaining === 1 ? "" : "s"} left. The iteration budget is a hard stop: when it runs out, the run ends with whatever output exists. Plan to reach your final output with headroom to spare.]`,
     };
   }
   return null;
@@ -258,10 +273,20 @@ export function buildContextPressureMessage(
  * The current usage is always stated. Below the warn threshold no other nudge
  * reports a figure, so without it the model keeps quoting the pre-compaction
  * percentage it last saw and acts as if context were still nearly full.
+ *
+ * `runProgress` (when present) is the mechanical record of what the kept messages
+ * already covered, so the resumed run continues the pass instead of re-reading
+ * everything and looping out of its iteration budget on its own repetition.
  */
+/** The "do not redo this work" tail shared by both branches of the message. */
+function progressNote(runProgress: string | undefined): string {
+  return runProgress ? `\n\n${runProgress}` : "";
+}
+
 export function buildPostCompactionMessage(
   currentTokens: number,
   budgetTokens: number,
+  runProgress?: string,
 ): { role: "user"; content: string } {
   const resume =
     "[CONTEXT COMPACTED: Older history was summarized to free space. The original task is still in progress. Continue from the summary and recent messages until the user's request is fully complete. Do not treat this compaction as a reason to wrap up.]";
@@ -275,13 +300,13 @@ export function buildPostCompactionMessage(
   if (ratio < CONTEXT_CRITICAL_RATIO) {
     return {
       role: "user",
-      content: `${resume} Context is now ${percent}% of the ${budget}-token budget; any earlier usage figure is out of date.`,
+      content: `${resume} Context is now ${percent}% of the ${budget}-token budget; any earlier usage figure is out of date.${progressNote(runProgress)}`,
     };
   }
 
   return {
     role: "user",
-    content: `${resume} Context is still ${percent}% of the ${budget}-token budget — prefer finishing current work over opening new investigations, but do not stop short of the original request.`,
+    content: `${resume} Context is still ${percent}% of the ${budget}-token budget — prefer finishing current work over opening new investigations, but do not stop short of the original request.${progressNote(runProgress)}`,
   };
 }
 
@@ -1642,7 +1667,6 @@ function runIteration(
     }
 
     yield* logger.debug("Sending LLM request", {
-      agentId: agent.id,
       conversationId: actualConversationId,
       iteration: iterationIndex + 1,
       provider,
@@ -1657,10 +1681,16 @@ function runIteration(
     // history. A persisted warning would cost tokens exactly when they are scarce,
     // be re-sent every turn, and end up summarized into the compaction it warned about.
     const postCompactionUsage = runContextWindowManager.usage(state.currentMessages);
+    // After a compaction the history was rewritten, and with it the model's record of what
+    // it already covered. Rebuild that record from the messages the split kept verbatim, so
+    // the resumed run continues instead of re-reading everything and looping out of its
+    // budget on its own repetition.
+    const runProgress = justCompacted ? extractRunProgress(state.currentMessages) : undefined;
     const contextMsg = justCompacted
       ? buildPostCompactionMessage(
           postCompactionUsage.currentTokens,
           postCompactionUsage.budgetTokens,
+          runProgress?.summary,
         )
       : buildContextPressureMessage(
           postCompactionUsage.currentTokens,

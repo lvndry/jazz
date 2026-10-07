@@ -1087,6 +1087,21 @@ describe("executeAgentLoop", () => {
     expect(message.content).not.toContain("%");
   });
 
+  it("appends the run progress so the model does not re-cover already-read files", () => {
+    const progress =
+      "Work already done since the last compaction — do not redo it:\n- Files read/inspected: /ksyl/patches/cli__airgap.sh.patch";
+    const message = buildPostCompactionMessage(4_000, 10_000, progress);
+    expect(message.content).toContain("CONTEXT COMPACTED");
+    expect(message.content).toContain(progress);
+    // Without progress the message is unchanged — no empty tail.
+    expect(buildPostCompactionMessage(4_000, 10_000).content).not.toContain("do not redo it");
+  });
+
+  it("appends the run progress even when context stays critical after compaction", () => {
+    const message = buildPostCompactionMessage(9_500, 10_000, "do not redo it");
+    expect(message.content).toContain("do not redo it");
+  });
+
   it("still asks the model to finish the task when context stays critical after compaction", () => {
     const message = buildPostCompactionMessage(9_500, 10_000);
     expect(message.content).toContain("CONTEXT COMPACTED");
@@ -2242,9 +2257,18 @@ describe("executeAgentLoop", () => {
 });
 
 describe("buildBudgetPressureMessage", () => {
-  it("returns null below 70%", () => {
+  it("returns null below 50%", () => {
     expect(buildBudgetPressureMessage(10, 60)).toBeNull();
-    expect(buildBudgetPressureMessage(41, 60)).toBeNull();
+    expect(buildBudgetPressureMessage(29, 60)).toBeNull();
+  });
+
+  it("returns a notice at exactly 50% naming the remaining count", () => {
+    const msg = buildBudgetPressureMessage(30, 60);
+    expect(msg).not.toBeNull();
+    expect(msg?.content).toContain("BUDGET NOTICE");
+    expect(msg?.content).toContain("50%");
+    expect(msg?.content).toContain("30 iterations left");
+    expect(msg?.content).toContain("hard stop");
   });
 
   it("returns caution message at 70%", () => {
@@ -2252,6 +2276,7 @@ describe("buildBudgetPressureMessage", () => {
     expect(msg).not.toBeNull();
     expect(msg?.content).toContain("70%");
     expect(msg?.content).toContain("consolidat");
+    expect(msg?.content).toContain("18 iterations left");
   });
 
   it("returns critical message at 90%", () => {
@@ -2259,11 +2284,20 @@ describe("buildBudgetPressureMessage", () => {
     expect(msg).not.toBeNull();
     expect(msg?.content).toContain("CRITICAL");
     expect(msg?.content).toContain("NOW");
+    expect(msg?.content).toContain("6 iterations left");
   });
 
-  it("returns critical at exact 90% boundary", () => {
-    const msg = buildBudgetPressureMessage(54, 60);
-    expect(msg?.content).toContain("CRITICAL");
+  it("repeats the critical message while still at 90%+ (tiers are cumulative)", () => {
+    // The ksyl failure mode: one 90% nudge, then silence. Every iteration after
+    // the 90% line must keep telling the model it is out of budget.
+    for (const iteration of [54, 55, 56, 58, 59]) {
+      expect(buildBudgetPressureMessage(iteration, 60)?.content).toContain("CRITICAL");
+    }
+  });
+
+  it("singularizes the remaining count at one iteration left", () => {
+    const msg = buildBudgetPressureMessage(59, 60);
+    expect(msg?.content).toContain("only 1 iteration left");
   });
 });
 
