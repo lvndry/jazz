@@ -12,6 +12,10 @@ function toolCall(id: string, name: string, arguments_: Record<string, unknown>)
   };
 }
 
+function toolResult(id: string, content: string): ChatMessage {
+  return { role: "tool", tool_call_id: id, content };
+}
+
 function userMessage(content: string): ChatMessage {
   return { role: "user", content };
 }
@@ -26,10 +30,14 @@ describe("extractRunProgress", () => {
   it("lists files read or searched, deduplicated, in order first seen", () => {
     const messages = [
       toolCall("1", "read_file", { path: "/ksyl/patches/a.sh.patch" }),
+      toolResult("1", "1|hello"),
       toolCall("2", "grep", { path: "/repo/ansible", pattern: "docker" }),
+      toolResult("2", "found"),
       // Re-read of the same file is not repeated.
       toolCall("3", "read_file", { path: "/ksyl/patches/a.sh.patch" }),
+      toolResult("3", "1|hello"),
       toolCall("4", "read_file", { path: "/ksyl/patches/b.sh.patch" }),
+      toolResult("4", "1|world"),
     ];
     const progress = extractRunProgress(messages);
     expect(progress.filesRead).toEqual([
@@ -44,8 +52,8 @@ describe("extractRunProgress", () => {
   });
 
   it("separates modified files from read ones and caps the list", () => {
-    const messages = [
-      ...Array.from({ length: 20 }, (_, i) =>
+    const messages: ChatMessage[] = [
+      ...Array.from({ length: 20 }, (_, i): ChatMessage =>
         toolCall(`r${i}`, "read_file", { path: `/f/${i}.txt` }),
       ),
       toolCall("w1", "edit_file", { path: "/f/0.txt" }),
@@ -60,15 +68,38 @@ describe("extractRunProgress", () => {
     expect(progress.summary).not.toContain("/f/19.txt");
   });
 
-  it("records execute_command targets and the most recent action", () => {
-    const messages = [
-      toolCall("1", "execute_command", { command: "git status" }),
-      toolCall("2", "read_file", { path: "/x.txt" }),
+  it("tracks a tool call with no recorded result as covered", () => {
+    // The result is outside the kept window (the split dropped it); the call is
+    // still evidence the file was handled.
+    const progress = extractRunProgress([
+      toolCall("1", "read_file", { path: "/x.txt" }),
+      toolCall("2", "execute_command", { command: "git status" }),
       userMessage("thanks"),
-    ];
-    const progress = extractRunProgress(messages);
+    ]);
+    expect(progress.filesRead).toEqual(["/x.txt"]);
     expect(progress.summary).toContain("git status");
-    expect(progress.lastAction).toContain("read_file");
+    expect(progress.lastAction).toContain("execute_command");
+  });
+
+  it("does not count a failed call as covered", () => {
+    const progress = extractRunProgress([
+      toolCall("1", "read_file", { path: "/missing.txt" }),
+      toolResult("1", "error: File not found"),
+      toolCall("2", "read_file", { path: "/ok.txt" }),
+      toolResult("2", "1|fine"),
+    ]);
+    expect(progress.filesRead).toEqual(["/ok.txt"]);
+  });
+
+  it("tracks plugin tools whose arguments use the *Path naming convention", () => {
+    // No tool-name list to maintain: any path-shaped argument is tracked.
+    const progress = extractRunProgress([
+      toolCall("1", "myplugin__read_log", { log_path: "/var/log/app.log" }),
+      toolResult("1", "log lines"),
+      toolCall("2", "myplugin__list", { filter: "app" }),
+      toolResult("2", "entries"),
+    ]);
+    expect(progress.filesRead).toEqual(["/var/log/app.log"]);
   });
 
   it("ignores malformed tool arguments instead of throwing", () => {
@@ -81,14 +112,9 @@ describe("extractRunProgress", () => {
         ],
       },
       toolCall("2", "read_file", { path: "/y.txt" }),
+      toolResult("2", "1|y"),
     ];
     const progress = extractRunProgress(messages);
     expect(progress.filesRead).toEqual(["/y.txt"]);
-  });
-
-  it("returns an empty summary for a window of only commands", () => {
-    // Commands are tracked, so a command-only window still produces a record.
-    const progress = extractRunProgress([toolCall("1", "execute_command", { command: "ls" })]);
-    expect(progress.summary).toContain("Commands run");
   });
 });
