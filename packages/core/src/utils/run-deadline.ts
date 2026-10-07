@@ -15,6 +15,10 @@ export interface RunDeadline {
    * before the wait began is never allowed to fire while still waiting.
    */
   readonly extend: (minMs: number) => void;
+  /** Milliseconds until the deadline as it stands now, extensions included; negative once passed. */
+  readonly remainingMs: () => number;
+  /** The timeout the deadline was created with, before any extension. */
+  readonly budgetMs: number;
   /** Effect that fails once the deadline passes. Race it against the run with `Effect.raceFirst`. */
   readonly watch: Effect.Effect<never, Error>;
 }
@@ -42,5 +46,5 @@ export function createRunDeadline(timeoutMs: number): RunDeadline {
     }
   });
 
-  return { extend, watch };
+  return { extend, watch, remainingMs: () => deadline - Date.now(), budgetMs: timeoutMs };
 }

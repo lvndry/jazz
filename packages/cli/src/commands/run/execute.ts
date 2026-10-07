@@ -486,6 +486,7 @@ export function runAgentOnceCommand(
       ...(options.maxCostUSD != null ? { maxCostUSD: options.maxCostUSD } : {}),
       ...(options.maxTokens != null ? { maxTokens: options.maxTokens } : {}),
       ...(options.maxDurationMs != null ? { maxDurationMs: options.maxDurationMs } : {}),
+      ...(deadline !== undefined ? { deadline } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
       ...(interactiveInput.interactive ? {} : { withholdInteractiveTools: true }),
       ...(ephemeral ? { disablePersistence: true } : {}),

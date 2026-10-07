@@ -217,7 +217,8 @@ the bridge by replacing a published composition or another readable store with a
   the Jazz data directory.
 - **Exact cost and token caps:** iteration, token, and cost limits are checked between
   iterations, so one in-flight call may cross a limit. `maxDurationMs` interrupts the active
-  iteration at its deadline, including model calls and running commands.
+  iteration at 85% of its deadline, including model calls and running commands, and the
+  final tool-less answer is bounded by the deadline itself.
 
 ## Deployment checklist
 

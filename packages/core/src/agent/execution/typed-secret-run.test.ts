@@ -184,6 +184,7 @@ function runContext(): AgentRunContext {
     maxCostUSD: undefined,
     maxTokens: undefined,
     maxDurationMs: undefined,
+    deadline: undefined,
   };
 }
 
