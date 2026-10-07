@@ -343,6 +343,11 @@ interface LoopState {
    * next step is told to read them first, instead of the answer standing.
    */
   unreadSubagentNotice: string | undefined;
+  /**
+   * Set once a budget, the iteration limit or a stall has stopped the run. The step that
+   * follows is asked for text only, from what the run gathered, and is the run's last.
+   */
+  finalAnswerReason: string | undefined;
 }
 
 interface LoopDeps {
@@ -366,6 +371,7 @@ interface LoopDeps {
   maxCostUSD: number | undefined;
   maxTokens: number | undefined;
   maxDurationMs: number | undefined;
+  deadline: AgentRunContext["deadline"];
   /** Provider-only routing hint for iteration zero; never part of canonical messages. */
   initialProviderAdvisory: string | undefined;
   workspaceContext:
@@ -826,22 +832,103 @@ function closeStoppedBatch(state: LoopState, options: LoopDeps["options"], reaso
 }
 
 /**
- * What is left of a run's own budgets right now, never below 0. Duration counts from the run's
- * start. Cost is left out while the run's spend cannot be priced: handing a child a figure
+ * Share of a time limit (`maxDurationMs` or an external deadline) held back for the final
+ * answer. Work stops once the rest is spent, so the answer is written inside the limit. A local
+ * model at medium reasoning can spend minutes on one long answer, so the reserve scales with
+ * the limit rather than being a fixed few seconds.
+ */
+const ANSWER_RESERVE_RATIO = 0.15;
+
+/**
+ * The least time held back for the final answer, whatever the limit. A live run on a 40s
+ * `--timeout` against an Ollama cloud model left a 6s reserve, and the answer did not arrive
+ * before the kill.
+ */
+const ANSWER_RESERVE_FLOOR_MS = 30_000;
+
+/** The reserve never takes more than this share of a limit, so a short limit still leaves work time. */
+const ANSWER_RESERVE_MAX_RATIO = 0.5;
+
+/** Milliseconds of `limitMs` held back for the final answer. */
+function answerReserveMs(limitMs: number): number {
+  return Math.min(
+    Math.max(limitMs * ANSWER_RESERVE_RATIO, ANSWER_RESERVE_FLOOR_MS),
+    limitMs * ANSWER_RESERVE_MAX_RATIO,
+  );
+}
+
+/** How often a time watcher re-reads a deadline that a human approval wait may have moved. */
+const TIME_LIMIT_POLL_MS = 1000;
+
+type TimeLimitDeps = Pick<LoopDeps, "runMetrics" | "maxDurationMs" | "deadline">;
+
+/** Which part of the time limits to measure: up to the answer reserve, or up to the limits themselves. */
+type TimeSpan = "work" | "answer";
+
+/**
+ * Milliseconds left in `span` of the run's time limits, never below 0. The work span ends
+ * where each limit's answer reserve begins. `maxDurationMs` counts from the run's start; the
+ * external deadline is read as it stands now, extensions included. Undefined when neither
+ * limit is set.
+ */
+function timeLeftMs(deps: TimeLimitDeps, span: TimeSpan): number | undefined {
+  const { runMetrics, maxDurationMs, deadline } = deps;
+  const reserve = (limitMs: number) => (span === "work" ? answerReserveMs(limitMs) : 0);
+  const limits: number[] = [];
+  if (maxDurationMs !== undefined) {
+    const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
+    limits.push(maxDurationMs - reserve(maxDurationMs) - elapsedMs);
+  }
+  if (deadline !== undefined) {
+    limits.push(deadline.remainingMs() - reserve(deadline.budgetMs));
+  }
+  return limits.length === 0 ? undefined : Math.max(0, Math.min(...limits));
+}
+
+/** Milliseconds the run may keep working before it must stop and write its answer. */
+function workTimeLeftMs(deps: TimeLimitDeps): number | undefined {
+  return timeLeftMs(deps, "work");
+}
+
+/**
+ * Completes once `timeLeftMs(deps, span)` reaches 0. Re-reads the limits on every poll, so a
+ * deadline pushed out during a human approval wait moves the stop with it.
+ */
+function timeRunsOut(deps: TimeLimitDeps, span: TimeSpan): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    for (;;) {
+      const leftMs = timeLeftMs(deps, span) ?? 0;
+      if (leftMs <= 0) {
+        return;
+      }
+      yield* Effect.sleep(Duration.millis(Math.min(leftMs, TIME_LIMIT_POLL_MS)));
+    }
+  });
+}
+
+/**
+ * What is left of a run's own budgets right now, never below 0. Duration is the work time left
+ * (see `workTimeLeftMs`). Cost is left out while the run's spend cannot be priced: handing a child a figure
  * computed from a partial total would let it spend what the parent cannot account for, and
  * the child's own cap still applies.
  */
 function remainingRunBudget(
   deps: Pick<
     LoopDeps,
-    "runMetrics" | "maxDurationMs" | "maxCostUSD" | "maxTokens" | "modelMetadata" | "subagents"
+    | "runMetrics"
+    | "maxDurationMs"
+    | "deadline"
+    | "maxCostUSD"
+    | "maxTokens"
+    | "modelMetadata"
+    | "subagents"
   >,
 ): RemainingRunBudget {
-  const { runMetrics, maxDurationMs, maxCostUSD, maxTokens, modelMetadata, subagents } = deps;
+  const { runMetrics, maxCostUSD, maxTokens, modelMetadata, subagents } = deps;
   const remaining: { maxDurationMs?: number; maxCostUSD?: number; maxTokens?: number } = {};
-  if (maxDurationMs !== undefined) {
-    const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
-    remaining.maxDurationMs = Math.max(0, maxDurationMs - elapsedMs);
+  const timeLeftMs = workTimeLeftMs(deps);
+  if (timeLeftMs !== undefined) {
+    remaining.maxDurationMs = timeLeftMs;
   }
   if (maxCostUSD !== undefined) {
     const spent = computeRunCost(runMetrics, modelMetadata);
@@ -1361,6 +1448,16 @@ function handleToolPhase(
   );
 }
 
+/** Whether the next completion may call tools: not while a goal awaits a decision or the run is writing its final answer. */
+function toolsOffered(state: LoopState): boolean {
+  return !state.awaitingGoalDecision && state.finalAnswerReason === undefined;
+}
+
+/** The instruction appended to the run's final, tool-less request. */
+export function finalAnswerInstruction(reason: string): string {
+  return `[RUN STOPPED: ${reason}. Write your final answer now, from what you have already gathered. Tools are no longer available. Mark anything you did not verify as unverified, and say what is left undone.]`;
+}
+
 function withoutToolCalls(completion: ChatCompletionResponse): ChatCompletionResponse {
   const { toolCalls: _dropped, ...rest } = completion;
   return rest;
@@ -1492,21 +1589,23 @@ function runIteration(
     maxIterations,
     maxCostUSD,
     maxTokens,
-    maxDurationMs,
     modelMetadata,
     runRecursive,
     reduceToolResults,
     compactPluginName,
   } = deps;
+  const finalAnswerReason = state.finalAnswerReason;
 
   return Effect.gen(function* () {
     // Only take guidance when an iteration will actually make another model call.
     // Taking it after the last tool batch would clear the UI queue even though
     // the iteration or run budget can stop the child before it reads the message.
-    if (options.beforeStep !== undefined) {
+    // The final-answer step leaves guidance queued: it has no tools to act on it with.
+    if (options.beforeStep !== undefined && finalAnswerReason === undefined) {
       yield* options.beforeStep();
     }
-    const queuedMessage = options.checkQueuedMessage?.();
+    const queuedMessage =
+      finalAnswerReason === undefined ? options.checkQueuedMessage?.() : undefined;
     if (queuedMessage) {
       const queued: ChatMessage = { role: "user", content: queuedMessage };
       state.currentMessages.push(queued);
@@ -1698,9 +1797,11 @@ function runIteration(
           runContextWindowManager.thresholdRatios,
         );
     const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
+    const timeLeftMs = workTimeLeftMs(deps);
+    const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
     const timeBudgetMsg =
-      maxDurationMs !== undefined
-        ? buildTimeBudgetPressureMessage(Date.now() - runMetrics.startedAt.getTime(), maxDurationMs)
+      timeLeftMs !== undefined
+        ? buildTimeBudgetPressureMessage(elapsedMs, elapsedMs + timeLeftMs)
         : null;
     const tokenBudgetMsg =
       maxTokens !== undefined
@@ -1755,6 +1856,7 @@ function runIteration(
       costBudgetMsg?.content,
       ...deps.subagents.takeNotices(),
       state.unreadSubagentNotice,
+      finalAnswerReason !== undefined ? finalAnswerInstruction(finalAnswerReason) : undefined,
     ]
       .filter(Boolean)
       .join("\n");
@@ -1780,7 +1882,7 @@ function runIteration(
           );
     const completionStartTime = Date.now();
     const attempt = yield* strategy
-      .getCompletion(messagesForLLM, iterationIndex, !state.awaitingGoalDecision)
+      .getCompletion(messagesForLLM, iterationIndex, toolsOffered(state))
       .pipe(Effect.either);
     if (attempt._tag === "Left") {
       const error = attempt.left;
@@ -1835,7 +1937,7 @@ function runIteration(
     }
 
     const completion =
-      state.awaitingGoalDecision && result.completion.toolCalls !== undefined
+      !toolsOffered(state) && result.completion.toolCalls !== undefined
         ? withoutToolCalls(result.completion)
         : result.completion;
 
@@ -1925,7 +2027,9 @@ function runIteration(
 
     // An answer given before sub-agents' results were read goes back to the model once, so the
     // answer can use them. A supervisor of this run alone first waits for children still working.
-    const unreadSubagents = yield* deps.subagents.settleBeforeAnswer();
+    // The final-answer step is the run's last, so it does not wait on sub-agents still working.
+    const unreadSubagents =
+      finalAnswerReason === undefined ? yield* deps.subagents.settleBeforeAnswer() : undefined;
     if (unreadSubagents !== undefined) {
       state.unreadSubagentNotice = unreadSubagents;
       return { kind: "continue" } as const;
@@ -2047,6 +2151,7 @@ export function executeAgentLoop(
           maxCostUSD,
           maxTokens,
           maxDurationMs,
+          deadline,
           initialProviderAdvisory,
           workspaceContext,
           reduceToolResults,
@@ -2128,6 +2233,7 @@ export function executeAgentLoop(
           activeToolBatch: undefined,
           awaitingGoalDecision: false,
           unreadSubagentNotice: undefined,
+          finalAnswerReason: undefined,
         };
         let finished = false;
         let interrupted = false;
@@ -2165,6 +2271,7 @@ export function executeAgentLoop(
           maxCostUSD,
           maxTokens,
           maxDurationMs,
+          deadline,
           initialProviderAdvisory,
           workspaceContext,
           recentWorkspaceFiles: new Map(),
@@ -2228,22 +2335,25 @@ export function executeAgentLoop(
                 reportFailedTurn(error, state, options, deps.context.egressTaint),
               ),
             );
-            const remainingMs = remainingRunBudget(deps).maxDurationMs;
-            // The deadline interrupts the iteration wherever it is (a model call, a tool
-            // batch, a sub-agent), so `maxDurationMs` is a wall-clock limit rather than a
-            // check that only runs once an iteration has finished.
+            // Running out of work time interrupts the iteration wherever it is (a model call,
+            // a tool batch, a sub-agent), so the time budget is a wall-clock limit rather than
+            // a check that only runs once an iteration has finished.
             const outcome =
-              remainingMs === undefined
+              workTimeLeftMs(deps) === undefined
                 ? Option.some(yield* iteration)
-                : yield* iteration.pipe(Effect.timeoutOption(Duration.millis(remainingMs)));
+                : yield* Effect.raceFirst(
+                    iteration.pipe(Effect.map(Option.some)),
+                    timeRunsOut(deps, "work").pipe(Effect.as(Option.none<RunIterationResult>())),
+                  );
             if (Option.isNone(outcome)) {
               closeStoppedBatch(state, options, "the run reached its time budget");
               durationCapped = true;
               state.iterationsUsed = i + 1;
+              const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
               yield* observer.onDurationCapReached(
                 agent.name,
-                maxDurationMs ?? 0,
-                Date.now() - runMetrics.startedAt.getTime(),
+                maxDurationMs ?? elapsedMs,
+                elapsedMs,
               );
               break;
             }
@@ -2308,15 +2418,64 @@ export function executeAgentLoop(
           // An iteration that finished right at the deadline stops here rather than
           // starting another with no time left. The 50/80/90% pressure nudges are
           // injected per-iteration inside runIteration (see buildTimeBudgetPressureMessage).
-          if (maxDurationMs !== undefined) {
+          if (workTimeLeftMs(deps) === 0) {
             const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
-            if (elapsedMs >= maxDurationMs) {
-              durationCapped = true;
-              state.iterationsUsed = i + 1;
-              yield* observer.onDurationCapReached(agent.name, maxDurationMs, elapsedMs);
-              break;
-            }
+            durationCapped = true;
+            state.iterationsUsed = i + 1;
+            yield* observer.onDurationCapReached(agent.name, maxDurationMs ?? elapsedMs, elapsedMs);
+            break;
           }
+        }
+
+        // A run stopped by a budget, the iteration limit or a stall would otherwise hand back
+        // whatever its last step said, which is usually nothing: that step was a tool call.
+        // One more request without tools turns what the run gathered into an answer.
+        const stoppedReason = interrupted
+          ? undefined
+          : stalled
+            ? "you kept repeating the same tool calls"
+            : finished
+              ? undefined
+              : durationCapped
+                ? "the time budget is used up"
+                : costCapped
+                  ? "the cost budget is used up"
+                  : tokenCapped
+                    ? "the token budget is used up"
+                    : "the iteration budget is used up";
+        if (stoppedReason !== undefined && timeLeftMs(deps, "answer") !== 0) {
+          state.finalAnswerReason = stoppedReason;
+          // Every stop but the iteration limit records the iterations it used; that one used them all.
+          const finalIteration =
+            durationCapped || costCapped || tokenCapped || stalled
+              ? state.iterationsUsed
+              : maxIterations;
+          yield* Effect.sync(() => beginIteration(runMetrics, finalIteration + 1));
+          const finalRequest = runIteration(state, finalIteration, deps);
+          // Bounded by the time limits themselves: the answer reserve is all the time left.
+          const finalStep = yield* (
+            timeLeftMs(deps, "answer") === undefined
+              ? finalRequest.pipe(Effect.map(Option.some))
+              : Effect.raceFirst(
+                  finalRequest.pipe(Effect.map(Option.some)),
+                  timeRunsOut(deps, "answer").pipe(Effect.as(Option.none<RunIterationResult>())),
+                )
+          ).pipe(Effect.either, Effect.ensuring(Effect.sync(() => completeIteration(runMetrics))));
+          if (finalStep._tag === "Left") {
+            yield* logger.warn("Final answer request failed; returning what the run had", {
+              agentId: agent.id,
+              conversationId: runContext.actualConversationId,
+              error: String(finalStep.left),
+            });
+          } else if (Option.isNone(finalStep.right)) {
+            yield* logger.warn("Final answer ran out of time; returning what the run had", {
+              agentId: agent.id,
+              conversationId: runContext.actualConversationId,
+            });
+          } else if (finalStep.right.value.kind === "interrupted") {
+            interrupted = true;
+          }
+          yield* reportCheckpoint(state, options, deps.context.egressTaint);
         }
 
         // Before finalizeRun, which may rewrite the transcript: whether a

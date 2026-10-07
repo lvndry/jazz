@@ -158,6 +158,7 @@ describe("executeWithStreaming", () => {
       maxCostUSD: undefined,
       maxTokens: undefined,
       maxDurationMs: undefined,
+      deadline: undefined,
       maxRetries: 1,
     };
 
@@ -416,6 +417,7 @@ describe("executeWithStreaming", () => {
       maxCostUSD: undefined,
       maxTokens: undefined,
       maxDurationMs: undefined,
+      deadline: undefined,
     };
 
     const displayConfig = {
@@ -538,6 +540,7 @@ describe("executeWithStreaming", () => {
       maxCostUSD: undefined,
       maxTokens: undefined,
       maxDurationMs: undefined,
+      deadline: undefined,
     };
 
     const mockLLMService: LLMService = {
@@ -671,6 +674,7 @@ function makeStreamingHarness(input: {
     maxCostUSD: undefined,
     maxTokens: undefined,
     maxDurationMs: input.maxDurationMs,
+    deadline: undefined,
     maxRetries: input.maxRetries ?? 1,
   };
   const layer = Layer.mergeAll(
@@ -832,7 +836,8 @@ describe("executeWithStreaming cancellation", () => {
     const result = await harness.run();
 
     expect(result.durationCapped).toBe(true);
-    expect(abandoned).toBe(1);
+    // The working call, then the final-answer call cut off by the same budget.
+    expect(abandoned).toBe(2);
     expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 });

@@ -1016,6 +1016,7 @@ function initializeAgentRun(
       maxCostUSD: resolvedMaxCostUSD,
       maxTokens: resolvedMaxTokens,
       maxDurationMs: resolvedMaxDurationMs,
+      deadline: options.deadline,
       knownSkills: relevantSkills,
     };
   });

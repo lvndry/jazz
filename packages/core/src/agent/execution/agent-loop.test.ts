@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Effect, Fiber, Layer } from "effect";
+import { Duration, Effect, Fiber, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors";
@@ -260,6 +260,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
     maxCostUSD: undefined,
     maxTokens: undefined,
     maxDurationMs: undefined,
+    deadline: undefined,
     ...overrides,
   };
 }
@@ -2843,7 +2844,8 @@ describe("executeAgentLoop cost and token caps", () => {
 
     ToolExecutor.executeToolCalls = originalExecute;
 
-    expect(calls()).toBe(1);
+    // One working call, then the tool-less final answer.
+    expect(calls()).toBe(2);
     expect(result.costCapped).toBe(true);
     expect(result.costUSD).toBeGreaterThanOrEqual(0.15);
   });
@@ -2910,7 +2912,8 @@ describe("executeAgentLoop cost and token caps", () => {
 
     ToolExecutor.executeToolCalls = originalExecute;
 
-    expect(calls()).toBe(3);
+    // Three working calls, then the tool-less final answer at the iteration limit.
+    expect(calls()).toBe(4);
     expect(result.costCapped).toBeUndefined();
   });
 
@@ -2935,7 +2938,8 @@ describe("executeAgentLoop cost and token caps", () => {
 
     ToolExecutor.executeToolCalls = originalExecute;
 
-    expect(calls()).toBe(1);
+    // One working call, then the tool-less final answer.
+    expect(calls()).toBe(2);
     expect(result.tokenCapped).toBe(true);
   });
 
@@ -3005,6 +3009,205 @@ describe("executeAgentLoop cost and token caps", () => {
 
     expect(result.content).toBe("done");
     expect(result.durationCapped).toBeUndefined();
+  });
+
+  describe("the final answer after a stop", () => {
+    interface FinalAnswerRequest {
+      readonly toolsAllowed: boolean | undefined;
+      readonly lastMessage: string | undefined;
+    }
+
+    /** Calls a tool on every request that offers tools; answers in text on one that does not. */
+    function finalAnswerStrategy(answer: string): {
+      strategy: CompletionStrategy;
+      requests: FinalAnswerRequest[];
+    } {
+      const requests: FinalAnswerRequest[] = [];
+      const strategy: CompletionStrategy = {
+        shouldShowReasoning: false,
+        getCompletion: (messages, _iteration, toolsAllowed) => {
+          requests.push({ toolsAllowed, lastMessage: messages.at(-1)?.content });
+          const callNumber = requests.length;
+          return Effect.succeed({
+            completion: {
+              id: `c${callNumber}`,
+              model: "gpt-4",
+              content: toolsAllowed === false ? answer : "",
+              usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+              toolCalls: [
+                {
+                  id: `call_${callNumber}`,
+                  type: "function" as const,
+                  function: { name: "test_tool", arguments: JSON.stringify({ page: callNumber }) },
+                },
+              ],
+            },
+            interrupted: false,
+          });
+        },
+        presentResponse: () => Effect.void,
+        onComplete: () => Effect.void,
+        getRenderer: () => null,
+      };
+      return { strategy, requests };
+    }
+
+    it("asks for a tool-less answer at the iteration limit and returns it", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+        succeedWithToolResults(toolCalls),
+      );
+      const { strategy, requests } = finalAnswerStrategy("partial findings");
+
+      try {
+        const result = await Effect.runPromise(
+          executeAgentLoop(
+            makeOptions({ maxIterations: 2 }),
+            makeRunContext({ maxIterations: 2 }),
+            displayConfig,
+            strategy,
+            defaultObserver,
+            runRecursive,
+          ).pipe(Effect.provide(TestLayer)),
+        );
+
+        expect(requests.map((request) => request.toolsAllowed)).toEqual([true, true, false]);
+        expect(requests[2]?.lastMessage).toContain("RUN STOPPED: the iteration budget is used up");
+        expect(result.content).toBe("partial findings");
+        expect(result.iterationLimited).toBe(true);
+        expect(ToolExecutor.executeToolCalls).toHaveBeenCalledTimes(2);
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("stops working inside an external deadline and answers in the reserve", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      let deadlineAt = Date.now() + 60_000;
+      ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) => {
+        // 6s of the 60s budget left: inside the 30s answer reserve, outside the deadline.
+        deadlineAt = Date.now() + 6_000;
+        return succeedWithToolResults(toolCalls);
+      });
+      const { strategy, requests } = finalAnswerStrategy("answer from the reserve");
+
+      try {
+        const result = await Effect.runPromise(
+          executeAgentLoop(
+            makeOptions({ maxIterations: 10 }),
+            makeRunContext({
+              maxIterations: 10,
+              deadline: { budgetMs: 60_000, remainingMs: () => deadlineAt - Date.now() },
+            }),
+            displayConfig,
+            strategy,
+            defaultObserver,
+            runRecursive,
+          ).pipe(Effect.provide(TestLayer)),
+        );
+
+        expect(requests.map((request) => request.toolsAllowed)).toEqual([true, false]);
+        expect(requests[1]?.lastMessage).toContain("RUN STOPPED: the time budget is used up");
+        expect(result.durationCapped).toBe(true);
+        expect(result.content).toBe("answer from the reserve");
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("keeps working when the deadline is pushed out during a tool call", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      // 50ms of work time: 550ms left, less the 500ms reserve of a 1s budget (half, at most).
+      let deadlineAt = Date.now() + 550;
+      ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) => {
+        // An approval wait extends the deadline, then the tool outlives the original work time.
+        deadlineAt = Date.now() + 60_000;
+        return succeedWithToolResults(toolCalls).pipe(Effect.delay(Duration.millis(150)));
+      });
+      let calls = 0;
+      const strategy: CompletionStrategy = {
+        shouldShowReasoning: false,
+        getCompletion: () => {
+          calls++;
+          return Effect.succeed({
+            completion: {
+              id: `c${calls}`,
+              model: "gpt-4",
+              content: calls === 1 ? "" : "done",
+              ...(calls === 1
+                ? {
+                    toolCalls: [
+                      {
+                        id: "call_1",
+                        type: "function" as const,
+                        function: { name: "test_tool", arguments: "{}" },
+                      },
+                    ],
+                  }
+                : {}),
+            },
+            interrupted: false,
+          });
+        },
+        presentResponse: () => Effect.void,
+        onComplete: () => Effect.void,
+        getRenderer: () => null,
+      };
+
+      try {
+        const result = await Effect.runPromise(
+          executeAgentLoop(
+            makeOptions({ maxIterations: 10 }),
+            makeRunContext({
+              maxIterations: 10,
+              deadline: { budgetMs: 1_000, remainingMs: () => deadlineAt - Date.now() },
+            }),
+            displayConfig,
+            strategy,
+            defaultObserver,
+            runRecursive,
+          ).pipe(Effect.provide(TestLayer)),
+        );
+
+        expect(result.durationCapped).toBeUndefined();
+        expect(result.content).toBe("done");
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("returns what the run had when the final answer request fails", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+        succeedWithToolResults(toolCalls),
+      );
+      const { strategy: answering } = finalAnswerStrategy("never sent");
+      const strategy: CompletionStrategy = {
+        ...answering,
+        getCompletion: (messages, iteration, toolsAllowed) =>
+          toolsAllowed === false
+            ? Effect.fail(new Error("provider unavailable"))
+            : answering.getCompletion(messages, iteration, toolsAllowed),
+      };
+
+      try {
+        const result = await Effect.runPromise(
+          executeAgentLoop(
+            makeOptions({ maxIterations: 1 }),
+            makeRunContext({ maxIterations: 1 }),
+            displayConfig,
+            strategy,
+            defaultObserver,
+            runRecursive,
+          ).pipe(Effect.provide(TestLayer)),
+        );
+
+        expect(result.iterationLimited).toBe(true);
+        expect(result.content).toBe("");
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
   });
 
   it("warns the model with a token-budget pressure message once past 50% of maxTokens", async () => {
@@ -3168,7 +3371,8 @@ describe("executeAgentLoop cost and token caps", () => {
       );
 
       expect(response.stalled).toBe(true);
-      expect(completions).toBe(2 * MELTDOWN_WINDOW_SIZE);
+      // The repeating calls, then the tool-less final answer.
+      expect(completions).toBe(2 * MELTDOWN_WINDOW_SIZE + 1);
       expect(calls).toContain("stalled:test-agent");
       expect(calls.some((entry) => entry.startsWith("limit:"))).toBe(false);
     } finally {
@@ -3582,7 +3786,8 @@ describe("sub-agents in the loop", () => {
           runRecursive,
         ).pipe(Effect.provide(TestLayer)),
       );
-      expect(modelCalls).toBe(1);
+      // One working call, then the tool-less final answer.
+      expect(modelCalls).toBe(2);
       expect(response.costCapped).toBe(true);
     } finally {
       ToolExecutor.executeToolCalls = originalExecute;

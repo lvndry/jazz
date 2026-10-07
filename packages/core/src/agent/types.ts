@@ -25,6 +25,7 @@ import type {
   ToolDefinition,
   ToolExecutionContext,
 } from "@/core/types/tools";
+import type { RunDeadline } from "@/core/utils/run-deadline";
 import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import type { Agent } from "../types";
 import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
@@ -151,12 +152,19 @@ export interface AgentRunnerOptions {
    */
   readonly maxTokens?: number;
   /**
-   * Wall-clock spend budget in ms. The agent gets ephemeral pressure nudges at 50/80/90%
-   * elapsed (mirroring the iteration and context budget nudges); once the budget is reached
-   * the run is stopped wherever it is, a model call or tool included, and returns what it had.
+   * Wall-clock spend budget in ms. The agent gets ephemeral pressure nudges at 50/80/90% of
+   * its work time, which is 85% of the budget; once that is spent the run is stopped wherever
+   * it is, a model call or tool included, and writes its answer in the remaining 15%.
    * If not specified, falls back to `maxDurationMs` in app config; unset at both means uncapped.
    */
   readonly maxDurationMs?: number;
+  /**
+   * A wall-clock deadline enforced outside the run (`jazz run --timeout`), which kills the
+   * process when it passes. The run treats it as a time budget that can move: it stops working
+   * while part of the deadline is still left and spends that part writing its answer. An
+   * extension (a human approval wait) pushes the stop out with it.
+   */
+  readonly deadline?: Pick<RunDeadline, "remainingMs" | "budgetMs">;
   /**
    * Called once when the run ends, however it ends (answer, failure, interruption), with what
    * it spent. The one place a caller learns the cost of a run that produced no response.
@@ -583,6 +591,8 @@ export interface AgentRunContext {
   readonly maxTokens: number | undefined;
   /** Wall-clock budget in ms, already resolved from the call site and config. Undefined = uncapped. */
   readonly maxDurationMs: number | undefined;
+  /** The external deadline from `AgentRunnerOptions.deadline`. Undefined = none. */
+  readonly deadline: Pick<RunDeadline, "remainingMs" | "budgetMs"> | undefined;
   readonly knownSkills: readonly {
     readonly name: string;
     readonly description: string;
