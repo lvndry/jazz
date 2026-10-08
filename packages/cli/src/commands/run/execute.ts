@@ -29,6 +29,7 @@ import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { ApprovalPolicyLevel, AutoApprovePolicy } from "@jazz/core/types/tools";
 import type { StoppedToolCall } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { reportProgramCwd, reportProgramStatus } from "@jazz/core/utils/program-status";
 import { createRunDeadline } from "@jazz/core/utils/run-deadline";
 import { Effect, Layer, Option } from "effect";
 import { describeReasoningAdjustment } from "@/cli/helpers/reasoning";
@@ -263,9 +264,27 @@ const failOneShot = (
     } else {
       process.stderr.write(formatted);
     }
+    // The terminal inbox keeps the failure where the next prompt can't hide it.
+    reportProgramStatus({ state: "error" });
     process.exitCode = ONE_SHOT_EXIT.failed;
   });
 
+/** Map a parked run's pending input onto the program status a terminal badge shows. */
+function pendingInputStatus(pending: RunParkRequested["pending"]): {
+  kind: "permission" | "question" | "auth";
+  msg: string;
+} {
+  switch (pending.kind) {
+    case "tool-approval":
+      return { kind: "permission", msg: pending.request.message };
+    case "question":
+      return { kind: "question", msg: pending.request.question };
+    case "secret":
+      return { kind: "auth", msg: pending.request.prompt };
+    case "file-picker":
+      return { kind: "question", msg: pending.request.message };
+  }
+}
 /** Inline history comes from the caller, so any memory source in it is forged. */
 export function stripMemorySources(history: readonly ChatMessage[]): ChatMessage[] {
   return history.map((message) => {
@@ -300,6 +319,8 @@ export function runAgentOnceCommand(
   let runSpend: OneShotSpend | undefined;
   // Set when a tool batch is stopped part-way, so a failure envelope can say what ran.
   let stoppedToolCalls: readonly StoppedToolCall[] | undefined;
+  // Where this run lives, for the terminal's tab title and cwd-aware tooling.
+  reportProgramCwd();
 
   return Effect.gen(function* () {
     const normalizedIdentifier = agentIdentifier.trim();
@@ -630,6 +651,9 @@ export function runAgentOnceCommand(
           } else {
             process.stderr.write(formatted);
           }
+          // A detached run parked for a person: the terminal says so with what it wants.
+          const status = pendingInputStatus(parked.pending);
+          reportProgramStatus({ state: "blocked", ...status });
           // Distinct from 1 so a caller can tell "come back to this" from "this failed".
           process.exitCode = ONE_SHOT_EXIT.parked;
         }),

@@ -90,6 +90,7 @@ import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { toError } from "@jazz/core/utils/errors";
 import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
+import { reportProgramCwd } from "@jazz/core/utils/program-status";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
 import { Effect, Layer, Option, Runtime } from "effect";
@@ -1149,6 +1150,9 @@ export class ChatServiceImpl implements ChatService {
 
           // Run the agent with proper error handling
           yield* emitLifecycle("user-prompt", { prompt: trimmedMessage.slice(0, 2000) });
+          // The tab title and cwd-aware terminal tooling track where the run lives;
+          // idempotent per turn, skipped when stdout is piped.
+          reportProgramCwd();
           store.setChatBusy(true);
           const turn = AgentRunner.run(runnerOptions);
           // A goal turn is recorded as a run, which is how the goal is charged for it.

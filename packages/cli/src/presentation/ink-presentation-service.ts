@@ -36,6 +36,7 @@ import type { ApprovalOutcome, ApprovalRequest } from "@jazz/core/types/tools";
 import { toError } from "@jazz/core/utils/errors";
 import { isHttpApprovalTool } from "@jazz/core/utils/http-approval";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@jazz/core/utils/models-dev";
+import { reportProgramStatus } from "@jazz/core/utils/program-status";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { formatCompactCount } from "@jazz/core/utils/string";
 import {
@@ -803,10 +804,20 @@ export class InkStreamingRenderer implements StreamingRenderer {
         const phase = result.activity.phase;
         if (phase === "thinking" || phase === "streaming") {
           this.throttledSetActivity(result.activity);
+          // A model turn or streaming answer is the run working. Deduped by the
+          // emitter, so the steady state costs nothing.
+          reportProgramStatus({ state: "working" });
         } else {
           this.lastUpdateTime = Date.now();
           this.pendingActivity = null;
           store.setActivity(result.activity);
+          // A tool is running: the run is working on it, and the tool name is the
+          // one piece of state a tab badge can actually use.
+          const activeTool =
+            result.activity.phase === "tool-execution" ? result.activity.tools[0] : undefined;
+          if (activeTool !== undefined) {
+            reportProgramStatus({ state: "working", msg: activeTool.toolName });
+          }
         }
       }
     }).pipe(
@@ -1268,6 +1279,10 @@ export class InkPresentationService implements PresentationService {
     // Intentionally silent: the turn outro line (duration · tokens · cost)
     // already marks completion — a second "completed successfully" banner
     // was pure noise.
+    // The terminal inbox does keep a "finished, unviewed" record for turns that
+    // ran while the person was in another tab; the outro is what they read, the
+    // badge is what gets them back.
+    reportProgramStatus({ state: "done" });
     return Effect.void;
   }
 
@@ -1572,6 +1587,11 @@ export class InkPresentationService implements PresentationService {
       return;
     }
 
+    // The terminal's own inbox: a tab badge with the action waiting, so a run
+    // parked on an approval in another tab is findable without hunting for it.
+    // A sub-agent's approval is a step inside its parent's run; it reports under
+    // its own id in a later revision.
+    reportProgramStatus({ state: "blocked", kind: "permission", msg: request.message });
     // Send system notification for approval request.
     if (notify && this.notificationService) {
       Effect.runFork(
@@ -1900,6 +1920,9 @@ export class InkPresentationService implements PresentationService {
     };
     this.questionsWaiting = this.userInputQueue.length;
 
+    // The terminal's own inbox: the question is what a tab badge can show.
+    reportProgramStatus({ state: "blocked", kind: "question", msg: request.question });
+
     // Send system notification for user input request.
     if (this.notificationService) {
       Effect.runFork(
@@ -1976,6 +1999,8 @@ export class InkPresentationService implements PresentationService {
    */
   requestSecretInput(request: SecretInputRequest): Effect.Effect<SecretInputOutcome, never> {
     return Effect.async((resume) => {
+      // Badge the tab; the prompt names the ask, never the value typed.
+      reportProgramStatus({ state: "blocked", kind: "auth", msg: request.prompt });
       if (this.notificationService) {
         Effect.runFork(
           this.notificationService
@@ -2032,6 +2057,8 @@ export class InkPresentationService implements PresentationService {
 
   requestFilePicker(request: FilePickerRequest): Effect.Effect<string, never> {
     return Effect.async((resume) => {
+      // Badge the tab; the picker's own message is what a badge can show.
+      reportProgramStatus({ state: "blocked", kind: "question", msg: request.message });
       // Show the file picker prompt
       const separator = chalk.dim(separatorLine(50));
       store.printOutput({
