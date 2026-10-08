@@ -17,6 +17,8 @@ Choose a job to set up. If you have not run Jazz yet, complete the
   find new work, check sources, and produce a cited briefing.
 - [Reach your agent from a chat app](./deploy-a-chat-agent.md): connect Telegram, Discord,
   iMessage, or WhatsApp and answer approvals from your phone.
+- [See what a run is doing in your terminal](./program-status.md): how Jazz reports
+  working, blocked, and finished state to the tab via OSC 7501 and notifications.
 
 ## Code and media
 

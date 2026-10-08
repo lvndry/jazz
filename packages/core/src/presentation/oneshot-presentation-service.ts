@@ -22,6 +22,7 @@ import { readConcealedLine } from "@/core/presentation/concealed-line";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
+import { reportProgramStatus } from "@/core/utils/program-status";
 
 const MAX_EVENT_STRING_LENGTH = 200;
 
@@ -294,6 +295,8 @@ export class OneShotPresentationService implements PresentationService {
   }
 
   presentCompletion(_agentName: string): Effect.Effect<void, never> {
+    // The terminal inbox keeps a finished record the next prompt can't hide.
+    reportProgramStatus({ state: "done" });
     return Effect.void;
   }
 
@@ -492,6 +495,8 @@ export class OneShotPresentationService implements PresentationService {
     // run's deadline expires — onApprovalWaitStart pushes that deadline out
     // first, so time spent waiting on a human doesn't count against the same
     // budget as the agent's own work).
+    // The terminal inbox shows the same wait to whoever has a tab open here.
+    reportProgramStatus({ state: "blocked", kind: "permission", msg: request.message });
     this.onApprovalWaitStart?.();
     this.ensureStdinReaderStarted();
     const toolCallId = request.toolCallId;
@@ -505,6 +510,8 @@ export class OneShotPresentationService implements PresentationService {
   }
 
   signalToolExecutionStarted(): Effect.Effect<void, never> {
+    // A tool just started: the run is working again after any blocked pause.
+    reportProgramStatus({ state: "working" });
     return Effect.void;
   }
 
@@ -524,6 +531,7 @@ export class OneShotPresentationService implements PresentationService {
       return Effect.succeed({ kind: "unavailable" });
     }
 
+    reportProgramStatus({ state: "blocked", kind: "question", msg: request.question });
     this.userInputSequence += 1;
     const requestId = `ui-${this.userInputSequence}`;
     if (this.askMode === "tty") {
@@ -595,6 +603,8 @@ export class OneShotPresentationService implements PresentationService {
     if (this.askMode === "protocol" && !this.eventsActive) {
       return Effect.succeed({ kind: "unavailable" });
     }
+    // The prompt names the ask; the value itself is never in the badge.
+    reportProgramStatus({ state: "blocked", kind: "auth", msg: request.prompt });
     this.onApprovalWaitStart?.();
     if (this.askMode === "tty") {
       return Effect.promise(async (): Promise<SecretInputOutcome> => {
