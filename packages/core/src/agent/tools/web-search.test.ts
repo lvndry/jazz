@@ -17,10 +17,14 @@ mock.module("exa-js", () => {
 
 // Mock @perplexity-ai/perplexity_ai
 const mockPerplexitySearchCreate = mock();
+const mockPerplexityConstructor = mock();
 mock.module("@perplexity-ai/perplexity_ai", () => {
   return {
     default: class {
       search = { create: mockPerplexitySearchCreate };
+      constructor(options: unknown) {
+        mockPerplexityConstructor(options);
+      }
     },
   };
 });
@@ -188,6 +192,11 @@ describe("WebSearchTool", () => {
           });
         },
         verifyMock: (args: WebSearchArgs) => {
+          expect(mockPerplexityConstructor).toHaveBeenCalledWith(
+            expect.objectContaining({
+              defaultHeaders: { "X-Pplx-Integration": "jazz" },
+            }),
+          );
           expect(mockPerplexitySearchCreate).toHaveBeenCalledWith(
             expect.objectContaining({
               max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
