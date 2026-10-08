@@ -558,7 +558,10 @@ function executePerplexitySearch(
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const client = new Perplexity({ apiKey });
+    const client = new Perplexity({
+      apiKey,
+      defaultHeaders: { "X-Pplx-Integration": "jazz" },
+    });
 
     yield* logger.debug("Web search provider request started", {
       provider: "perplexity",
