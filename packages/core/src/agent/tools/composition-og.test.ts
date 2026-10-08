@@ -9,8 +9,8 @@ import { injectOgMeta, renderCompositionOg, titleFromHtml } from "./composition-
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
 describe("renderCompositionOg", () => {
-  test("returns PNG bytes for a real title", () => {
-    const png = renderCompositionOg("Weekly Spending");
+  test("returns PNG bytes for a real title", async () => {
+    const png = await renderCompositionOg("Weekly Spending");
     if (png.length === 0) {
       // Fonts unavailable in this environment — the enhancement degrades to
       // "no card" and the publish proceeds without one.
@@ -21,14 +21,14 @@ describe("renderCompositionOg", () => {
     expect(png.length).toBeGreaterThan(4000);
   });
 
-  test("is deterministic for the same title", () => {
-    const a = renderCompositionOg("Determinism Check");
-    const b = renderCompositionOg("Determinism Check");
+  test("is deterministic for the same title", async () => {
+    const a = await renderCompositionOg("Determinism Check");
+    const b = await renderCompositionOg("Determinism Check");
     expect(a.equals(b)).toBe(true);
   });
 
-  test("wraps long titles without throwing", () => {
-    const png = renderCompositionOg(
+  test("wraps long titles without throwing", async () => {
+    const png = await renderCompositionOg(
       "A Very Long Composition Title That Should Wrap Across Multiple Lines Nicely",
     );
     expect(png.length).toBeGreaterThanOrEqual(0);

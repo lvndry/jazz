@@ -10,7 +10,14 @@
  * stay decoupled from the website package.
  */
 import { createRequire } from "node:module";
-import { Resvg } from "@resvg/resvg-js";
+
+// @resvg/resvg-js loads a per-platform .node binary. It is imported lazily
+// inside renderCompositionOg rather than at module scope: the tool registry
+// imports this module on every run (even `--version`), and a missing native —
+// which happens in a cross-compiled binary whose platform package was not
+// embedded — throws at *module load*, not at render time, taking down the
+// whole binary. A lazy import keeps the failure inside the try/catch below,
+// where it degrades to "no card".
 
 const WIDTH = 1200;
 const HEIGHT = 630;
@@ -92,7 +99,10 @@ export type CompositionOgOptions = {
 };
 
 /** Render the composition OG card as PNG bytes. */
-export function renderCompositionOg(title: string, options: CompositionOgOptions = {}): Buffer {
+export async function renderCompositionOg(
+  title: string,
+  options: CompositionOgOptions = {},
+): Promise<Buffer> {
   const seed = hash(title);
   const barWidth = (WIDTH - BAR_GAP * (BAR_COUNT - 1)) / BAR_COUNT;
   const bars = Array.from({ length: BAR_COUNT }, (_, index) => {
@@ -129,6 +139,7 @@ export function renderCompositionOg(title: string, options: CompositionOgOptions
 </svg>`;
 
   try {
+    const { Resvg } = await import("@resvg/resvg-js");
     const resvg = new Resvg(svg, {
       fitTo: { mode: "width", value: WIDTH },
       font: { fontFiles: resolveFontFiles(), loadSystemFonts: false },
