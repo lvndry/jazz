@@ -93,13 +93,18 @@ describe("nativePackagesForTarget", () => {
     expect(Object.keys(providers)).toContain("@resvg/resvg-js");
     const declared = Object.keys(flattenProviders(providers));
     expect(declared).toContain(`@opentui/core-${process.platform}-${process.arch}`);
-    expect(declared).toContain(`@resvg/resvg-js-${process.platform}-${process.arch}`);
+    // resvg names its glibc builds with a -gnu suffix, but only from 2.6.3 on;
+    // older releases shipped the bare <platform>-<arch> package.
+    const resvgNative =
+      process.platform === "linux"
+        ? `@resvg/resvg-js-linux-${process.arch}-gnu`
+        : `@resvg/resvg-js-${process.platform}-${process.arch}`;
+    expect(declared).toContain(resvgNative);
     expect(nativePackagesForTarget(`bun-${process.platform}-${process.arch}`, providers)).toContain(
       `@opentui/core-${process.platform}-${process.arch}`,
     );
   });
 });
-
 describe("flattenProviders", () => {
   it("merges every provider's declarations by package name", () => {
     const merged = flattenProviders({
