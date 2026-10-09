@@ -3,7 +3,7 @@
  * registration, process transport, and approved WorkspaceEdit path execute.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -36,6 +36,21 @@ await writeFile(
     ],
   }),
 );
+
+/** Poll the fake server's watch-event log until it has flushed. */
+async function readWatchEvents(watchLog: string): Promise<Array<[string, number]>> {
+  let raw = "";
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      raw = await readFile(watchLog, "utf8");
+      break;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+  if (raw === "") throw new Error("fake server never recorded a watch event");
+  return JSON.parse(raw).events as Array<[string, number]>;
+}
 process.env["JAZZ_LSP_CONFIG"] = config;
 
 const registrations = new Map<string, PluginToolRegistration>();
@@ -158,6 +173,114 @@ describe("LSP plugin", () => {
       expect(JSON.stringify(diagnostics)).toContain("changed warning: foo = 2;");
       expect(JSON.stringify(diagnostics)).not.toContain("missing incremental range");
       await opened.server.transport.close();
+    } finally {
+      process.env["JAZZ_LSP_CONFIG"] = config;
+    }
+  });
+
+  it("forgets a deleted file and tells the server, dropping its stale diagnostics", async () => {
+    const root = join(temp, "lifecycle");
+    await mkdir(root);
+    const source = join(root, "gone.ts");
+    await writeFile(source, "foo = 1;\n");
+    await writeFile(join(root, "package.json"), "{}");
+    const watchLog = join(root, "watch-log.json");
+    const lifecycleConfig = join(root, "lsp.json");
+    await writeFile(
+      lifecycleConfig,
+      JSON.stringify({
+        servers: [
+          {
+            id: "lifecycle",
+            command: process.execPath,
+            args: [
+              join(import.meta.dir, "fake-server.ts"),
+              source,
+              join(root, "started"),
+              "1",
+              watchLog,
+            ],
+            extensions: { ".ts": "typescript" },
+            rootMarkers: ["package.json"],
+          },
+        ],
+      }),
+    );
+    process.env["JAZZ_LSP_CONFIG"] = lifecycleConfig;
+    // The server sees the realpathed URI (/var -> /private/var on macOS);
+    // capture it before the delete so the assertion can compare against it.
+    const canonical = await realpath(source);
+    try {
+      // Tracking is shared across the plugin's message scope, so assert on
+      // this test's own file's lines, not on absence from the header. The
+      // path displays relative to the (canonicalized) cwd, so it is the bare
+      // filename on every platform.
+      const tracked = await workspace!(
+        { cwd: root, files: [{ path: source, kind: "read" }] },
+        { signal: context.signal },
+      );
+      expect(tracked?.content).toContain("gone.ts");
+      expect(tracked?.content).toContain("fake warning");
+      await rm(source);
+      const afterDelete = await workspace!({ cwd: root, files: [] }, { signal: context.signal });
+      expect(afterDelete?.content ?? "").not.toContain("gone.ts");
+      // Asking a tool about the gone file no longer throws ENOENT: the client
+      // forgets it and the server gets the deleted watch event (type 3).
+      const diagnostics = await registrations
+        .get("diagnostics")!
+        .handler({ file: source }, { ...context, cwd: root });
+      expect(diagnostics.isError).toBeUndefined();
+      expect(await readWatchEvents(watchLog)).toContainEqual([`file://${canonical}`, 3]);
+    } finally {
+      process.env["JAZZ_LSP_CONFIG"] = config;
+    }
+  });
+
+  it("tells the server which files an approved rename changed on disk", async () => {
+    const root = join(temp, "edited");
+    await mkdir(root);
+    const source = join(root, "sample.ts");
+    await writeFile(source, "foo = 1;\n");
+    await writeFile(join(root, "package.json"), "{}");
+    const watchLog = join(root, "watch-log.json");
+    const editedConfig = join(root, "lsp.json");
+    await writeFile(
+      editedConfig,
+      JSON.stringify({
+        servers: [
+          {
+            id: "edited",
+            command: process.execPath,
+            args: [
+              join(import.meta.dir, "fake-server.ts"),
+              source,
+              join(root, "started"),
+              "1",
+              watchLog,
+            ],
+            extensions: { ".ts": "typescript" },
+            rootMarkers: ["package.json"],
+          },
+        ],
+      }),
+    );
+    process.env["JAZZ_LSP_CONFIG"] = editedConfig;
+    try {
+      const tool = registrations.get("rename_symbol")!;
+      const args = { file: source, line: 1, character: 1, newName: "bar" };
+      const proposal = await tool.prepare!(args, { ...context, cwd: root });
+      const applied = await tool.executePrepared!(args, proposal.prepared, {
+        ...context,
+        cwd: root,
+      });
+      expect(applied.isError).toBeUndefined();
+      expect(await readFile(source, "utf8")).toBe("bar = 1;\n");
+      const events = await readWatchEvents(watchLog);
+      // A Changed watch event (type 1) for the file the edit touched, so the
+      // server rereads the new text instead of diagnosing the old one. The
+      // server sees the realpathed URI (/var -> /private/var on macOS).
+      const canonical = await realpath(source);
+      expect(events).toContainEqual([`file://${canonical}`, 1]);
     } finally {
       process.env["JAZZ_LSP_CONFIG"] = config;
     }

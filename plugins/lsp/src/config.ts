@@ -9,7 +9,7 @@
 
 import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
 export interface ServerConfig {
   readonly id: string;
@@ -94,7 +94,19 @@ export async function loadServers(): Promise<readonly ServerConfig[]> {
 
 /** Resolve a source path from the agent cwd and choose the nearest configured project root. */
 export async function selectServer(file: string, cwd: string): Promise<SelectedServer> {
-  const path = await realpath(isAbsolute(file) ? file : resolve(cwd, file));
+  const absolute = isAbsolute(file) ? file : resolve(cwd, file);
+  let path: string;
+  try {
+    path = await realpath(absolute);
+  } catch {
+    // A deleted or renamed path must still resolve to a server, so the
+    // plugin can clear its stale state instead of erroring on realpath.
+    // Realpath the surviving parent: the server last saw the file under the
+    // canonical URI (/private/var/...), so the close event must target the
+    // same URI or it is a no-op for the server.
+    const parent = await realpath(dirname(absolute)).catch(() => dirname(absolute));
+    path = join(parent, basename(absolute));
+  }
   const extension = extname(path);
   const servers = await loadServers();
   const config = servers.find((server) => extension in server.extensions);

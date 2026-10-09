@@ -74,6 +74,8 @@ process.stdin.on("data", (chunk: Buffer) => {
           ],
         },
       });
+      // A late notification for the previous version must be discarded by the
+      // client's version guard.
       send({
         jsonrpc: "2.0",
         method: "textDocument/publishDiagnostics",
@@ -83,6 +85,16 @@ process.stdin.on("data", (chunk: Buffer) => {
           diagnostics: [{ message: "stale warning" }],
         },
       });
+    }
+    if (message.method === "workspace/didChangeWatchedFiles" && process.argv[5]) {
+      writeFileSync(
+        process.argv[5],
+        JSON.stringify({
+          events: (message.params?.["changes"] as Array<{ uri: string; type: number }>).map(
+            (entry) => [entry.uri, entry.type],
+          ),
+        }),
+      );
     }
     if (message.id === undefined || !message.method) continue;
     if (message.method === "initialize" && process.argv[3])
