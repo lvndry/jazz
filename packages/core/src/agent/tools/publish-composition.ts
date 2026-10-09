@@ -389,7 +389,7 @@ async function runPublish(
       : undefined;
     const url = prepared?.url ?? publishedUrl(repo, slug, visibility);
     const title = titleFromHtml(source);
-    const ogPng = renderCompositionOg(title);
+    const ogPng = await renderCompositionOg(title);
     const hasOg = ogPng.length > 0;
     const finalHtml = hasOg ? injectOgMeta(source, title, ogImageUrlFor(url)) : source;
     const pageTmp = join(repoDir, pageDir);

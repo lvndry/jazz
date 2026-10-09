@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { ensureNativeLibrariesForTarget } from "./opentui-natives";
+import { ensureNativeLibrariesForTarget } from "./compile-natives";
 
 /**
  * Shared pieces of the standalone-binary build pipeline.
