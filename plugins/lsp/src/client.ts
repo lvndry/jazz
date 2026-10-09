@@ -1,7 +1,10 @@
 /**
  * Generic LSP client operations and lazy server pool. Every request synchronizes
  * the file's current disk contents before asking the configured language server.
- * The pool is keyed by server command and workspace root, and idle children exit.
+ * A file that vanishes is forgotten and announced to the server (didClose plus
+ * a deleted watch notification) so its cached copy stops producing stale
+ * diagnostics. The pool is keyed by server command and workspace root, and
+ * idle children exit.
  */
 
 import { readFile } from "node:fs/promises";
@@ -152,14 +155,45 @@ export async function activateWorkspace(
   );
 }
 
+export interface DocumentSyncResult {
+  readonly server: RunningServer;
+  readonly uri: string;
+  /** Undefined when the file is gone from disk; the client forgot it (see document). */
+  readonly text: string | undefined;
+  readonly changed: boolean;
+}
+
 /** Get a live server and synchronize the named document from disk. */
 export async function document(
   selected: SelectedServer,
   signal: AbortSignal,
-): Promise<{ server: RunningServer; uri: string; text: string; changed: boolean }> {
+): Promise<DocumentSyncResult> {
   const server = await runningServer(selected, signal);
   const uri = pathToFileURL(selected.path).href;
-  const text = await readFile(selected.path, "utf8");
+  let text: string;
+  try {
+    text = await readFile(selected.path, "utf8");
+  } catch (cause) {
+    // A file that vanished (renamed, deleted) is not an error: forget it here
+    // so the server drops its cached copy instead of serving file-deleted
+    // diagnostics for it on every later turn.
+    if (
+      cause instanceof Error &&
+      "code" in cause &&
+      (cause.code === "ENOENT" || cause.code === "ENOTDIR")
+    ) {
+      const previous = server.documents.get(uri);
+      if (previous !== undefined) {
+        server.documents.delete(uri);
+        if (documentSync(server.capabilities).openClose)
+          server.transport.notify("textDocument/didClose", { textDocument: { uri } });
+      }
+      server.transport.forgetDocument(uri);
+      server.transport.notifyDeleted(uri);
+      return { server, uri, text: undefined, changed: false };
+    }
+    throw cause;
+  }
   const previous = server.documents.get(uri);
   const changed = previous?.text !== text;
   const sync = documentSync(server.capabilities);
@@ -194,12 +228,32 @@ export async function document(
   return { server, uri, text, changed };
 }
 
+/**
+ * After an approved edit lands, tell the server the files changed on disk so it
+ * rereads them instead of serving diagnostics for the pre-edit text. No disk I/O
+ * and no open or version bump: the files were already synced by the prepare step
+ * or by an earlier document() call.
+ */
+export async function notifyEdited(
+  selected: SelectedServer,
+  paths: readonly string[],
+  signal: AbortSignal,
+): Promise<void> {
+  const server = await runningServer(selected, signal);
+  for (const path of paths) {
+    server.transport.notify("workspace/didChangeWatchedFiles", {
+      changes: [{ uri: pathToFileURL(path).href, type: 1 }],
+    });
+  }
+}
+
 /** Synchronize a touched file and collect diagnostics without a model tool call. */
 export async function ambientDiagnostics(
   selected: SelectedServer,
   signal: AbortSignal,
 ): Promise<unknown[]> {
-  const { server, uri, changed } = await document(selected, signal);
+  const { server, uri, text, changed } = await document(selected, signal);
+  if (text === undefined) return [];
   if (server.capabilities["diagnosticProvider"]) {
     const response = await server.transport.request(
       "textDocument/diagnostic",
@@ -242,8 +296,10 @@ export async function query(
   args: Record<string, unknown>,
   signal: AbortSignal,
 ): Promise<unknown> {
-  const { server, uri } = await document(selected, signal);
+  const { server, uri, text } = await document(selected, signal);
   const textDocument = { uri };
+  // The file vanished after selection: nothing to ask it about.
+  if (text === undefined) return null;
   if (method === "textDocument/diagnostic") {
     if (server.capabilities["diagnosticProvider"]) {
       return server.transport.request(method, { textDocument }, signal);

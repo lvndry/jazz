@@ -6,7 +6,7 @@
  * output is data, never a command. Mutations carry a diff and a snapshot-bound edit plan.
  */
 
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { extname, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { JazzPluginModule, JsonValue, PluginToolResult } from "@jazz/plugin-sdk";
@@ -14,6 +14,7 @@ import {
   activateWorkspace,
   ambientDiagnostics,
   document,
+  notifyEdited,
   query,
   resolveCodeAction,
 } from "./client";
@@ -98,6 +99,48 @@ function error(cause: unknown): PluginToolResult {
   return { content: cause instanceof Error ? cause.message : String(cause), isError: true };
 }
 
+/** The source text of a prepared edit, or a clear error when the file vanished meanwhile. */
+function sourceText(path: string, source: { readonly text: string | undefined }): string {
+  if (source.text === undefined)
+    throw new Error(`${path} no longer exists; re-run the tool for a fresh proposal`);
+  return source.text;
+}
+
+/** Paths an approved edit touched, as recorded in the prepared payload. */
+function preparedPaths(prepared: JsonValue): string[] {
+  if (typeof prepared !== "object" || prepared === null || Array.isArray(prepared)) return [];
+  const files = (prepared as { readonly files?: unknown }).files;
+  if (!Array.isArray(files)) return [];
+  const paths: string[] = [];
+  for (const entry of files) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+    const path = (entry as { readonly path?: unknown }).path;
+    if (typeof path === "string") paths.push(path);
+  }
+  return paths;
+}
+
+/**
+ * Tell the language server an approved edit landed so it rereads the files it
+ * changed on disk instead of serving diagnostics for the pre-edit text. Never
+ * fails the approved mutation: the edit is already on disk.
+ */
+async function notifyEdit(
+  cwd: string,
+  fileArg: unknown,
+  prepared: JsonValue,
+  signal: AbortSignal,
+): Promise<void> {
+  const paths = preparedPaths(prepared);
+  if (paths.length === 0) return;
+  try {
+    const selected = await selectServer(String(fileArg), cwd);
+    await notifyEdited(selected, paths, signal);
+  } catch {
+    // The next document() syncs the changed text anyway.
+  }
+}
+
 const plugin: JazzPluginModule = {
   apiVersion: 1,
   register(api) {
@@ -111,7 +154,16 @@ const plugin: JazzPluginModule = {
         lines.push(...(await activateWorkspace(input.cwd, context.signal)).map(failureLine));
         const configured = await loadServers();
         const extensions = new Set(configured.flatMap((server) => Object.keys(server.extensions)));
-        for (const file of input.files) {
+        // Canonicalize before tracking: servers and the files they diagnose
+        // resolve symlinks (/var -> /private/var on macOS), so a tracked path
+        // must match the resolved one or a deletion would never be seen here.
+        const canonical = await Promise.all(
+          input.files.map(async (file) => ({
+            kind: file.kind,
+            path: await realpath(file.path).catch(() => file.path),
+          })),
+        );
+        for (const file of canonical) {
           if (!extensions.has(extname(file.path))) continue;
           trackedFiles.delete(file.path);
           trackedFiles.add(file.path);
@@ -128,8 +180,8 @@ const plugin: JazzPluginModule = {
             try {
               await stat(path);
             } catch {
-              // Deleted between tracking and now: drop it so its ENOENT is
-              // never reported again (that line is noise, not a finding).
+              // Deleted since it was tracked. document() already told the
+              // server the file is gone, so this line never prints again.
               trackedFiles.delete(path);
               reportedFailures.delete(path);
               return undefined;
@@ -191,7 +243,7 @@ const plugin: JazzPluginModule = {
         const edit = await query(selected, "textDocument/rename", args, context.signal);
         const { prepared, previewDiff } = await prepareWorkspaceEdit(edit, selected.root, {
           path: selected.path,
-          text: source.text,
+          text: sourceText(selected.path, source),
         });
         return {
           message: `Rename symbol to ${String(args["newName"])} in ${prepared.files.length} file(s)`,
@@ -199,9 +251,11 @@ const plugin: JazzPluginModule = {
           prepared: prepared as unknown as JsonValue,
         };
       },
-      executePrepared: async (_args, prepared) => {
+      executePrepared: async (args, prepared, context) => {
         try {
-          return { content: await applyWorkspaceEdit(prepared) };
+          const applied = await applyWorkspaceEdit(prepared);
+          await notifyEdit(context.cwd, args["file"], prepared, context.signal);
+          return { content: applied };
         } catch (cause) {
           return error(cause);
         }
@@ -245,7 +299,7 @@ const plugin: JazzPluginModule = {
           throw new Error("Code action includes an executable command; no files were changed");
         const { prepared, previewDiff } = await prepareWorkspaceEdit(action.edit, selected.root, {
           path: selected.path,
-          text: source.text,
+          text: sourceText(selected.path, source),
         });
         return {
           message: `Apply code action: ${String(args["title"])} (${prepared.files.length} file(s))`,
@@ -253,9 +307,11 @@ const plugin: JazzPluginModule = {
           prepared: prepared as unknown as JsonValue,
         };
       },
-      executePrepared: async (_args, prepared) => {
+      executePrepared: async (args, prepared, context) => {
         try {
-          return { content: await applyWorkspaceEdit(prepared) };
+          const applied = await applyWorkspaceEdit(prepared);
+          await notifyEdit(context.cwd, args["file"], prepared, context.signal);
+          return { content: applied };
         } catch (cause) {
           return error(cause);
         }
@@ -282,7 +338,7 @@ const plugin: JazzPluginModule = {
         const { prepared, previewDiff } = await prepareWorkspaceEdit(
           { changes: { [uri]: edits } },
           selected.root,
-          { path: selected.path, text: source.text },
+          { path: selected.path, text: sourceText(selected.path, source) },
         );
         return {
           message: `Format ${selected.path}`,
@@ -290,9 +346,11 @@ const plugin: JazzPluginModule = {
           prepared: prepared as unknown as JsonValue,
         };
       },
-      executePrepared: async (_args, prepared) => {
+      executePrepared: async (args, prepared, context) => {
         try {
-          return { content: await applyWorkspaceEdit(prepared) };
+          const applied = await applyWorkspaceEdit(prepared);
+          await notifyEdit(context.cwd, args["file"], prepared, context.signal);
+          return { content: applied };
         } catch (cause) {
           return error(cause);
         }

@@ -72,6 +72,22 @@ export class LspTransport {
     this.diagnostics.delete(uri);
   }
 
+  /**
+   * Forget a document that was deleted or renamed away. The last seen version
+   * is kept: a late publishDiagnostics for the old file still carries the
+   * version the server saw, and discarding it only works while the version
+   * guard can compare against it. Diagnostics and listeners go now.
+   */
+  forgetDocument(uri: string): void {
+    this.diagnostics.delete(uri);
+    this.listeners.delete(uri);
+  }
+  /** Tell the server a file disappeared so it drops its cached module. */
+  notifyDeleted(uri: string): void {
+    if (!this.closed)
+      this.notify("workspace/didChangeWatchedFiles", { changes: [{ uri, type: 3 }] });
+  }
+
   currentDiagnostics(uri: string): unknown[] | undefined {
     return this.diagnostics.get(uri)?.diagnostics;
   }
