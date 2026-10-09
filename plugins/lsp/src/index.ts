@@ -155,8 +155,11 @@ const plugin: JazzPluginModule = {
         const configured = await loadServers();
         const extensions = new Set(configured.flatMap((server) => Object.keys(server.extensions)));
         // Canonicalize before tracking: servers and the files they diagnose
-        // resolve symlinks (/var -> /private/var on macOS), so a tracked path
-        // must match the resolved one or a deletion would never be seen here.
+        // resolve symlinks (/var -> /private/var on macOS, /tmp on many
+        // containers), so a tracked path must match the resolved one or a
+        // deletion would never be seen here. displayPath compares against cwd,
+        // which must be resolved the same way for relative display.
+        const canonicalCwd = await realpath(input.cwd).catch(() => input.cwd);
         const canonical = await Promise.all(
           input.files.map(async (file) => ({
             kind: file.kind,
@@ -195,7 +198,7 @@ const plugin: JazzPluginModule = {
                 .map(diagnosticLine)
                 .filter((line): line is string => line !== undefined);
               return rendered.length > 0
-                ? `${displayPath(input.cwd, selected.path)}:\n${rendered.map((line) => `  ${line}`).join("\n")}`
+                ? `${displayPath(canonicalCwd, selected.path)}:\n${rendered.map((line) => `  ${line}`).join("\n")}`
                 : undefined;
             } catch (cause) {
               const line = failureLine(cause);
@@ -205,7 +208,7 @@ const plugin: JazzPluginModule = {
                 const oldest = reportedFailures.keys().next().value;
                 if (oldest !== undefined) reportedFailures.delete(oldest);
               }
-              return `${displayPath(input.cwd, path)}: ${line}`;
+              return `${displayPath(canonicalCwd, path)}: ${line}`;
             }
           }),
         );

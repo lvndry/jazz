@@ -212,16 +212,18 @@ describe("LSP plugin", () => {
     const canonical = await realpath(source);
     try {
       // Tracking is shared across the plugin's message scope, so assert on
-      // this test's own file's lines, not on absence from the header.
+      // this test's own file's lines, not on absence from the header. The
+      // path displays relative to the (canonicalized) cwd, so it is the bare
+      // filename on every platform.
       const tracked = await workspace!(
         { cwd: root, files: [{ path: source, kind: "read" }] },
         { signal: context.signal },
       );
-      expect(tracked?.content).toContain("lifecycle/gone.ts");
+      expect(tracked?.content).toContain("gone.ts");
       expect(tracked?.content).toContain("fake warning");
       await rm(source);
       const afterDelete = await workspace!({ cwd: root, files: [] }, { signal: context.signal });
-      expect(afterDelete?.content ?? "").not.toContain("lifecycle/gone.ts");
+      expect(afterDelete?.content ?? "").not.toContain("gone.ts");
       // Asking a tool about the gone file no longer throws ENOENT: the client
       // forgets it and the server gets the deleted watch event (type 3).
       const diagnostics = await registrations
