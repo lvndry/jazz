@@ -196,6 +196,119 @@ export function CaretValue({
   );
 }
 
+/**
+ * Split a value into rows of at most `width` cells, with the caret's grapheme
+ * kept in the row that owns it. A trailing space is appended so a caret at the
+ * end of the value has a cell to invert.
+ */
+export function wrapCaretRows(
+  display: string,
+  caret: number,
+  width: number,
+): { readonly rows: readonly CaretCells[]; readonly caretRow: number } {
+  const budget = Math.max(1, width);
+  const graphemes = [...terminalGraphemes(display), " "];
+  const rowGraphemes: string[][] = [[]];
+  const rowCells: number[] = [0];
+  let caretGraphemeIndex = graphemes.length - 1;
+  let codePoints = 0;
+  let caretFound = false;
+  graphemes.forEach((grapheme, index) => {
+    if (!caretFound && codePoints + [...grapheme].length > caret) {
+      caretGraphemeIndex = index;
+      caretFound = true;
+    }
+    codePoints += [...grapheme].length;
+    const cells = terminalCellWidth(grapheme);
+    const last = rowGraphemes.length - 1;
+    if ((rowCells[last] ?? 0) + cells > budget && (rowGraphemes[last]?.length ?? 0) > 0) {
+      rowGraphemes.push([]);
+      rowCells.push(0);
+    }
+    const target = rowGraphemes.length - 1;
+    (rowGraphemes[target] as string[]).push(grapheme);
+    rowCells[target] = (rowCells[target] ?? 0) + cells;
+  });
+
+  let seen = 0;
+  let caretRow = rowGraphemes.length - 1;
+  const rows = rowGraphemes.map((row, rowIndex) => {
+    const caretInRow = caretGraphemeIndex - seen;
+    if (caretInRow >= 0 && caretInRow < row.length) {
+      caretRow = rowIndex;
+      seen += row.length;
+      return {
+        before: row.slice(0, caretInRow).join(""),
+        at: row[caretInRow] as string,
+        after: row.slice(caretInRow + 1).join(""),
+      };
+    }
+    seen += row.length;
+    return { before: row.join(""), at: "", after: "" };
+  });
+  return { rows, caretRow };
+}
+
+export interface WrappedCaretValueProps {
+  readonly value: string;
+  readonly caret: number;
+  /** Columns each row may occupy. The value wraps onto further rows. */
+  readonly width: number;
+  readonly placeholder?: string | undefined;
+  /** Rows the value may occupy; the window follows the caret past it. */
+  readonly maxRows: number;
+}
+
+/** Rows a wrapped value needs, so the parent can reserve the height before rendering. */
+export function wrappedCaretRowCount(
+  value: string,
+  caret: number,
+  width: number,
+  maxRows: number,
+): number {
+  return Math.min(Math.max(1, maxRows), wrapCaretRows(value, caret, width).rows.length);
+}
+
+/**
+ * The free-text answer row: the value wraps instead of scrolling sideways, so a
+ * long answer stays readable in full. Rows beyond `maxRows` scroll with the caret.
+ */
+export function WrappedCaretValue({
+  value,
+  caret,
+  width,
+  placeholder,
+  maxRows,
+}: WrappedCaretValueProps): ReactNode {
+  if (value.length === 0) {
+    return (
+      <CaretValue
+        value={value}
+        caret={caret}
+        width={width}
+        {...(placeholder === undefined ? {} : { placeholder })}
+      />
+    );
+  }
+  const { rows, caretRow } = wrapCaretRows(value, caret, width);
+  const visibleRows = Math.min(Math.max(1, maxRows), rows.length);
+  const windowStart = Math.max(0, Math.min(caretRow - visibleRows + 1, rows.length - visibleRows));
+  return (
+    <box style={{ flexDirection: "column", flexShrink: 0, height: visibleRows }}>
+      {rows.slice(windowStart, windowStart + visibleRows).map((row, offset) => (
+        <text
+          key={windowStart + offset}
+          style={{ flexShrink: 0 }}
+        >
+          <span style={{ fg: THEME.selected }}>{row.before}</span>
+          <span style={{ fg: THEME.primary, attributes: TextAttributes.INVERSE }}>{row.at}</span>
+          <span style={{ fg: THEME.selected }}>{row.after}</span>
+        </text>
+      ))}
+    </box>
+  );
+}
+
 export interface Hint {
   readonly key: string;
   readonly label: string;

@@ -35,7 +35,13 @@ import type { ReactNode } from "react";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
 import { BAND_CHROME_COLUMNS, bandStyle, overlayWidth, placeOverlay } from "./overlay-frame";
 import { stepperSegments, type QuestionStep } from "./stepper";
-import { CaretValue, HintRow, type Hint } from "./TextPrompt";
+import {
+  CaretValue,
+  HintRow,
+  WrappedCaretValue,
+  wrappedCaretRowCount,
+  type Hint,
+} from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
 import { CUSTOM_ANSWER_LABEL, questionKeys, questionPositionLabel } from "../../models/question";
 import { alignTabColumns } from "../../prompt-core/description-columns";
@@ -69,6 +75,9 @@ const DESCRIPTION_GAP = 2;
 
 /** A long question is worth two rows; past that it is not a question. */
 const MESSAGE_MAX_ROWS = 3;
+
+/** A long free-text answer wraps onto this many rows before the window follows the caret. */
+const CUSTOM_MAX_ROWS = 6;
 
 /** Keep this much context past the selection before the list starts to follow it. */
 const LIST_MARGIN = 1;
@@ -244,8 +253,9 @@ function layoutChoice(
   choice: QuestionChoice | null,
   labelWidth: number,
   descriptionWidth: number,
+  customRows = 1,
 ): ChoiceLayout {
-  if (choice === null) return { labelLines: [""], descriptionLines: [], rows: 1 };
+  if (choice === null) return { labelLines: [""], descriptionLines: [], rows: customRows };
   const labelLines = wrapLines(oneLine(choice.label), labelWidth);
   const descriptionLines =
     descriptionWidth > 0 && (choice.description ?? "").length > 0
@@ -363,7 +373,20 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
   const items: readonly (QuestionChoice | null)[] = custom
     ? [...model.choices, null]
     : model.choices;
-  const layouts = items.map((choice) => layoutChoice(choice, labelWidth, descriptionWidth));
+  const customSelected = custom && selected === model.choices.length;
+  const customValue = model.customValue ?? "";
+  const customCaret = model.customCaret ?? displayWidth(customValue);
+  const customRows = customSelected
+    ? wrappedCaretRowCount(
+        customValue,
+        customCaret,
+        Math.max(4, inner - GUTTER - (model.buttons === true ? 0 : NUMBER_COLUMN)),
+        CUSTOM_MAX_ROWS,
+      )
+    : 1;
+  const layouts = items.map((choice) =>
+    layoutChoice(choice, labelWidth, descriptionWidth, choice === null ? customRows : 1),
+  );
   const heights = layouts.map((layout) => layout.rows);
 
   const filterRows = filterable ? 1 : 0;
@@ -371,7 +394,7 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
   const stepRows = model.step === undefined ? 0 : 2;
   const fixedRows = FIXED_CARD_ROWS + message.length + filterRows + stepRows;
   if (model.buttons === true) {
-    const buttonRows = custom ? 3 : 1;
+    const buttonRows = custom ? 2 + customRows : 1;
     const placed = placeOverlay(viewport, frame, fixedRows + buttonRows + HINT_ROWS);
     return {
       fullscreen,
@@ -420,7 +443,10 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
   const widestOptionRow = visible.reduce((widest, choice, offset) => {
     const index = start + offset;
     if (choice === null) {
-      return Math.max(widest, GUTTER + NUMBER_COLUMN + displayWidth(CUSTOM_HINT));
+      const customWidth = customSelected
+        ? Math.max(displayWidth(CUSTOM_HINT), displayWidth(customValue) + 1)
+        : displayWidth(CUSTOM_HINT);
+      return Math.max(widest, GUTTER + NUMBER_COLUMN + customWidth);
     }
     const layout = layouts[index] ?? layoutChoice(choice, labelWidth, descriptionWidth);
     const description = layout.descriptionLines[0] ?? "";
@@ -734,7 +760,10 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                     <box style={{ height: 1, flexShrink: 0 }} />
                     <box
                       style={{
-                        height: 1,
+                        height:
+                          selected === model.choices.length
+                            ? (heights[model.choices.length] ?? 1)
+                            : 1,
                         flexShrink: 0,
                         flexDirection: "row",
                         ...(selected === model.choices.length
@@ -748,11 +777,12 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                           : " ".repeat(GUTTER)}
                       </text>
                       {selected === model.choices.length ? (
-                        <CaretValue
+                        <WrappedCaretValue
                           value={model.customValue ?? ""}
                           caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
                           width={Math.max(4, inner - GUTTER)}
                           placeholder={CUSTOM_HINT}
+                          maxRows={CUSTOM_MAX_ROWS}
                         />
                       ) : (
                         <text style={{ fg: THEME.muted, attributes: TextAttributes.ITALIC }}>
@@ -779,7 +809,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                     <box
                       key="custom"
                       style={{
-                        height: 1,
+                        height: shownRows,
                         flexShrink: 0,
                         flexDirection: "row",
                         ...(isSelected ? { backgroundColor: THEME.surfaceStrong } : {}),
@@ -792,11 +822,12 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                         {windowChoiceNumber(offset)}
                       </text>
                       {isSelected ? (
-                        <CaretValue
+                        <WrappedCaretValue
                           value={model.customValue ?? ""}
                           caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
                           width={Math.max(4, inner - GUTTER - NUMBER_COLUMN)}
                           placeholder={CUSTOM_HINT}
+                          maxRows={CUSTOM_MAX_ROWS}
                         />
                       ) : (
                         <text
