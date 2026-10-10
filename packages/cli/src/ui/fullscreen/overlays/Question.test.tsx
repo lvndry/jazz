@@ -118,3 +118,38 @@ describe("Question — preview pane rendering", () => {
     }
   });
 });
+
+describe("Question — long free-text answer", () => {
+  const longAnswer =
+    "this answer is long enough that a single row cannot hold it and it has to wrap onto more rows";
+  const customModel: QuestionModel = {
+    kind: "question",
+    mode: "select",
+    message: "Pick one:",
+    choices: [{ label: "Alpha", value: "alpha" }],
+    allowCustom: true,
+    selected: 1,
+    customValue: longAnswer,
+    customCaret: longAnswer.length,
+  };
+
+  it("grows the custom row to hold the wrapped answer", () => {
+    const wrapped = questionLayout(customModel, COMPACT);
+    const empty = questionLayout({ ...customModel, customValue: "", customCaret: 0 }, COMPACT);
+    expect(wrapped.heights[1]).toBeGreaterThan(1);
+    expect(empty.heights[1]).toBe(1);
+  });
+
+  it("paints the whole answer across rows without clipping", async () => {
+    const setup = await draw(
+      <Question
+        model={customModel}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("this answer is long");
+    expect(frame).toContain("onto more");
+  });
+});
