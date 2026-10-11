@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect, Ref } from "effect";
 import type { LlmRetryNotice } from "@/core/interfaces/presentation";
 import { LLMRequestError } from "@/core/types/errors";
-import { makeUserVisibleLlmRetrySchedule } from "./llm-retry-present";
+import { makeUserVisibleLlmRetrySchedule, withLongRunningLlmNotice } from "./llm-retry-present";
 
 /**
  * The retry notice is the only thing the user sees while an agent is stalled, so it has to
@@ -122,4 +122,32 @@ describe("makeUserVisibleLlmRetrySchedule", () => {
     });
     expect(structured[0]?.retryInMs).toBeGreaterThan(0);
   }, 20_000);
+});
+
+describe("withLongRunningLlmNotice", () => {
+  const runSlowBody = async (hasStartedResponding: boolean): Promise<string[]> => {
+    const messages: string[] = [];
+    const presentStatus = (message: string) =>
+      Effect.sync(() => {
+        messages.push(message);
+      });
+    await Effect.runPromise(
+      withLongRunningLlmNotice(
+        "bonsai-2",
+        presentStatus,
+        Effect.sleep("60 millis"),
+        Effect.succeed(hasStartedResponding),
+        0.01,
+      ),
+    );
+    return messages;
+  };
+
+  it("announces a wait when no output has arrived", async () => {
+    expect(await runSlowBody(false)).toHaveLength(1);
+  });
+
+  it("stays silent once output is streaming, so it cannot split the text", async () => {
+    expect(await runSlowBody(true)).toEqual([]);
+  });
 });

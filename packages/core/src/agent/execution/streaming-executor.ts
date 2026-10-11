@@ -160,7 +160,10 @@ export function executeWithStreaming(
             presentationService.presentRetry,
           );
 
+          const outputStartedRef = yield* Ref.make(false);
+
           const streamingAttempt = Effect.gen(function* () {
+            yield* Ref.set(outputStartedRef, false);
             yield* Ref.set(completionRef, undefined);
             yield* Ref.set(textAccumulatorRef, "");
 
@@ -171,6 +174,7 @@ export function executeWithStreaming(
             const streamFiber = yield* Effect.fork(
               Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
                 Effect.gen(function* () {
+                  yield* Ref.set(outputStartedRef, true);
                   yield* renderer.handleEvent(event);
                   if (event.type === "text_chunk") {
                     yield* Ref.set(textAccumulatorRef, event.accumulated);
@@ -301,7 +305,12 @@ export function executeWithStreaming(
           // One retry budget and one wall-clock limit for the whole step, whichever mode
           // each attempt uses.
           const completionWithRetries = Effect.retry(
-            withLongRunningLlmNotice(agent.name, showSlowModelNotice, attempt),
+            withLongRunningLlmNotice(
+              agent.name,
+              showSlowModelNotice,
+              attempt,
+              Ref.get(outputStartedRef),
+            ),
             retrySchedule,
           ).pipe(
             Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
