@@ -9,7 +9,7 @@ export const MAX_JOBS_PER_BATCH = 20;
 export const WAIT_RECENT_CHECKS_KEPT = 20;
 
 /** Maximum number of batches with at least one non-terminal job, per agent. */
-export const MAX_ACTIVE_BATCHES_PER_AGENT = 5;
+export const MAX_ACTIVE_BATCHES_PER_AGENT = 20;
 
 /** Maximum length, in characters, of a single job's shell command. */
 export const JOB_COMMAND_MAX_LENGTH = 4000;
