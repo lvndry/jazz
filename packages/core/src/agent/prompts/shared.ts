@@ -83,7 +83,10 @@ for every agent, and the user can always ask you to remember something.
 
 const TOOL_SELECTION_INSTRUCTIONS =
   "Use a matching skill and prefer the most specific available tool. Run independent operations " +
-  "in parallel when supported; sequence only dependencies.";
+  "in parallel when supported; sequence only dependencies. Split work that could run long into " +
+  "smaller steps: several small writes or edits rather than one large one, and a narrow, fast " +
+  "command rather than a slow broad one. A single step that takes minutes to produce or run can " +
+  "time out and is lost whole.";
 
 const TOOL_SEARCH_INSTRUCTIONS = `
 Tools listed below are available but not yet in your schema. Before using one, call search_tools

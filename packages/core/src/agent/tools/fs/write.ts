@@ -107,7 +107,6 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
     disclosure: "public",
     description:
       "Create a UTF-8 file or replace one entirely, creating missing parent directories. To change part of a file, use edit_file. " +
-      "Keep one call under about 400 lines: a very long call takes minutes to generate and can time out, especially on local models. For a larger file, write the outline with a placeholder per section, then fill each with edit_file. " +
       "Secret values in files you read appear as `[redacted:<name>]`; change files holding them with edit_file, editing the lines around those placeholders.",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
