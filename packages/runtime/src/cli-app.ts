@@ -2693,7 +2693,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
         "<name> is your own bookkeeping — the name you'll call them under afterward.",
     )
     .requiredOption(
-      "--disclosure <tier>",
+      "--disclosure <none|public|internal|private>",
       `What the invitee may learn once they accept: ${PEER_TIERS.join(", ")}`,
     )
     .option(
