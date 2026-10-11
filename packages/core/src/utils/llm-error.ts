@@ -523,6 +523,14 @@ export function convertToLLMError(
     }
   }
 
+  if (error instanceof Error && error.name === "StreamIdleTimeoutError") {
+    return new LLMRequestError({
+      provider: providerName,
+      message: cleanMessage || error.message,
+      streamStalled: true,
+    });
+  }
+
   if (APICallError.isInstance(error)) {
     if (isProviderAuthFailure(error.statusCode, cleanMessage)) {
       return new LLMAuthenticationError({

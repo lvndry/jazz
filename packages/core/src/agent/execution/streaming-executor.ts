@@ -277,7 +277,10 @@ export function executeWithStreaming(
            * One attempt of the shared retry loop. After STREAMING_FAILURES_BEFORE_FALLBACK
            * transient streaming failures the remaining attempts go non-streaming, which
            * survives the stalls and dropped streams a plain request does not have. A 429
-           * never counts toward that: a rate limit applies to both modes alike.
+           * never counts toward that: a rate limit applies to both modes alike. An idle
+           * stall goes straight to the fallback: streaming again would repeat the same
+           * silence, and the server may be midway through a tool call it will not send until
+           * it is whole.
            */
           const attempt = Effect.gen(function* () {
             const streamingFailures = yield* Ref.get(streamingFailuresRef);
@@ -287,7 +290,11 @@ export function executeWithStreaming(
             return yield* streamingAttempt.pipe(
               Effect.tapError((error) =>
                 isRetryableLLMError(error) && !(error instanceof LLMRateLimitError)
-                  ? Ref.updateAndGet(streamingFailuresRef, (count) => count + 1).pipe(
+                  ? Ref.updateAndGet(streamingFailuresRef, (count) =>
+                      error instanceof LLMRequestError && error.streamStalled === true
+                        ? Math.max(count + 1, STREAMING_FAILURES_BEFORE_FALLBACK)
+                        : count + 1,
+                    ).pipe(
                       Effect.flatMap((count) =>
                         count === STREAMING_FAILURES_BEFORE_FALLBACK
                           ? logger.warn("Streaming failed, falling back to non-streaming mode", {
