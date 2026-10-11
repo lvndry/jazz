@@ -155,7 +155,19 @@ The default API base URL is `http://127.0.0.1:11434/api`. The first time `jazz a
 }
 ```
 
-During agent creation Jazz asks for `llm.numCtx`, the context window sent to Ollama as `num_ctx`. Set it to a value the model and host can actually sustain. Without it, Jazz cannot know a server-level `OLLAMA_CONTEXT_LENGTH` override and may compact later than the server truncates.
+During agent creation Jazz asks for `llm.numCtx`, the context window sent to Ollama as `num_ctx`. Set it to a value the model and host can actually sustain. Without it, Jazz reads the window Ollama is running the model at from `/api/ps` once the model is loaded, which reflects a server-level `OLLAMA_CONTEXT_LENGTH`. Before the model is loaded, or when the server does not answer, it falls back to the estimate and may compact later than the server truncates.
+
+To point one agent at a different Ollama server than the global `llm.ollama.base_url`, set `llm.baseUrls` in its agent file. The same field works for `llamacpp`, `vllm` and `sglang`; the agent's URL wins over the global setting and the provider's environment variable.
+
+```json
+{
+  "llm": {
+    "provider": "ollama",
+    "model": "saluki-27b",
+    "baseUrls": { "ollama": "http://ollama.internal:11434" }
+  }
+}
+```
 
 `keep_alive` controls how long Ollama keeps the model loaded. `-1` keeps it resident; an omitted value uses Ollama's default.
 

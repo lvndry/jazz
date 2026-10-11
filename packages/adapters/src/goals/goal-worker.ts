@@ -198,6 +198,9 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
         ...(agent.config.llm.apiKeys !== undefined
           ? { providerApiKeys: agent.config.llm.apiKeys }
           : {}),
+        ...(agent.config.llm.baseUrls !== undefined
+          ? { providerBaseUrls: agent.config.llm.baseUrls }
+          : {}),
       })
       .pipe(Effect.either);
     const repairMs = Date.now() - startedAt;

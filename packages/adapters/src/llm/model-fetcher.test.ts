@@ -5,6 +5,7 @@ import {
   createModelFetcher,
   fetchLlamaCppServerModel,
   fetchOllamaModelDetails,
+  fetchOllamaRunningContextWindow,
   fetchSglangServerModel,
   LOCAL_SERVER_PROBE_TIMEOUT_MS,
   fetchVllmServerModel,
@@ -505,6 +506,45 @@ describe("ModelFetcher", () => {
     expect(result[0]!.id).toBe("llama3:latest");
     expect(result[0]!.contextWindow).toBe(4096);
     expect(result[0]!.supportsTemperature).toBe(true);
+  });
+
+  it("reads Ollama's server-wide /api/ps once however many models are installed", async () => {
+    const requestedUrls: string[] = [];
+    global.fetch = mock((url: string) => {
+      requestedUrls.push(url);
+      if (url.endsWith("/api/tags")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              models: ["a", "b", "c", "d", "e", "f", "g"].map((name) => ({
+                name: `${name}:latest`,
+              })),
+            }),
+        });
+      }
+      if (url.endsWith("/api/ps")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ models: [{ name: "c:latest", context_length: 16384 }] }),
+        });
+      }
+      if (url.endsWith("/api/show")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ model_info: { "llama.context_length": 4096 } }),
+        });
+      }
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const result = await Effect.runPromise(
+      fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags"),
+    );
+
+    expect(requestedUrls.filter((url) => url.endsWith("/api/ps"))).toHaveLength(1);
+    expect(requestedUrls.filter((url) => url.endsWith("/api/show"))).toHaveLength(7);
+    expect(result).toHaveLength(7);
   });
 
   it("reports the window llama-server was started with, not the catalog maximum", async () => {
@@ -1304,7 +1344,7 @@ describe("local server probes against a server that never answers", () => {
     await fetchSglangServerModel("http://localhost:30000/v1", "model");
     await fetchOllamaModelDetails("http://localhost:11434/api", "model");
 
-    expect(signals.length).toBe(5);
+    expect(signals.length).toBe(6);
     expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true);
   });
 
@@ -1328,5 +1368,57 @@ describe("local server probes against a server that never answers", () => {
     } finally {
       server.stop(true);
     }
+  });
+});
+
+describe("fetchOllamaRunningContextWindow", () => {
+  function serveRunningModels(models: unknown[]): void {
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/ps")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ models }) });
+      }
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+  }
+
+  it("reads the window the server runs the model at, matching an untagged name to :latest", async () => {
+    serveRunningModels([
+      { name: "phi4:latest", context_length: 8192 },
+      { name: "saluki-27b:latest", model: "saluki-27b:latest", context_length: 32768 },
+    ]);
+    expect(await fetchOllamaRunningContextWindow("http://h:11434/api", "saluki-27b")).toBe(32768);
+  });
+
+  it("is undefined while the model is not loaded", async () => {
+    serveRunningModels([{ name: "phi4:latest", context_length: 8192 }]);
+    expect(
+      await fetchOllamaRunningContextWindow("http://h:11434/api", "saluki-27b"),
+    ).toBeUndefined();
+  });
+
+  it("is undefined when the server does not answer", async () => {
+    global.fetch = mock(() => Promise.reject(new Error("down"))) as unknown as typeof fetch;
+    expect(
+      await fetchOllamaRunningContextWindow("http://h:11434/api", "saluki-27b"),
+    ).toBeUndefined();
+  });
+
+  it("is carried on the model details beside the trained maximum", async () => {
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/ps")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ models: [{ name: "m:latest", context_length: 32768 }] }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ model_info: { "qwen35.context_length": 262144 } }),
+      });
+    }) as unknown as typeof fetch;
+    expect(await fetchOllamaModelDetails("http://h:11434/api", "m")).toEqual({
+      contextWindow: 262144,
+      runningContextWindow: 32768,
+    });
   });
 });

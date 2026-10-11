@@ -6,6 +6,7 @@ import {
   AgentRunner,
   createNestedRunExecutor,
   renderSkillRoutingAdvisory,
+  resolveOllamaRunningContextWindow,
   resolveSglangServerModel,
   resolveVllmServerModel,
   runContextBoundary,
@@ -297,6 +298,79 @@ describe("resolveVllmServerModel", () => {
       ),
     );
     expect(served).toEqual({});
+  });
+});
+
+describe("resolveOllamaRunningContextWindow", () => {
+  function ollamaService(
+    fetchDetails: LLMService["fetchOllamaModelDetails"],
+    seenBaseUrls: unknown[] = [],
+  ): LLMService {
+    return {
+      ...mockLlmService,
+      resolveLocalProviderBaseUrl: (_provider, llmConfig) => {
+        seenBaseUrls.push(llmConfig?.ollama?.base_url);
+        return "http://gpu-box:11434/api";
+      },
+      fetchOllamaModelDetails: fetchDetails,
+    };
+  }
+
+  it("returns the window the server runs the loaded model at", async () => {
+    const seenBaseUrls: unknown[] = [];
+    const window = await Effect.runPromise(
+      resolveOllamaRunningContextWindow("llama3", {
+        ollama: { base_url: "http://gpu-box:11434" },
+      }).pipe(
+        Effect.provideService(
+          LLMServiceTag,
+          ollamaService(() => Effect.succeed({ runningContextWindow: 32768 }), seenBaseUrls),
+        ),
+      ),
+    );
+    expect(window).toBe(32768);
+    expect(seenBaseUrls).toEqual(["http://gpu-box:11434"]);
+  });
+
+  it("is undefined while the model is not loaded, so the caller keeps its estimate", async () => {
+    const window = await Effect.runPromise(
+      resolveOllamaRunningContextWindow("llama3").pipe(
+        Effect.provideService(
+          LLMServiceTag,
+          ollamaService(() => Effect.succeed({ contextWindow: 262144 })),
+        ),
+      ),
+    );
+    expect(window).toBeUndefined();
+  });
+
+  it("is undefined when the server lookup fails", async () => {
+    const window = await Effect.runPromise(
+      resolveOllamaRunningContextWindow("llama3").pipe(
+        Effect.provideService(
+          LLMServiceTag,
+          ollamaService(() => Effect.fail(new Error("server unavailable"))),
+        ),
+      ),
+    );
+    expect(window).toBeUndefined();
+  });
+
+  it("skips the probe for an Ollama cloud model", async () => {
+    let probed = false;
+    const window = await Effect.runPromise(
+      resolveOllamaRunningContextWindow("gpt-oss:120b-cloud").pipe(
+        Effect.provideService(
+          LLMServiceTag,
+          ollamaService(() => {
+            probed = true;
+            return Effect.succeed({ runningContextWindow: 1 });
+          }),
+        ),
+      ),
+    );
+    expect(window).toBeUndefined();
+    expect(probed).toBe(false);
   });
 });
 

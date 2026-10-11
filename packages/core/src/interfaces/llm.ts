@@ -18,6 +18,12 @@ import type { LLMProvider, LLMProviderListItem, StreamingResult } from "../types
  */
 export interface OllamaShowExtras {
   readonly contextWindow?: number;
+  /**
+   * The window the server is actually running this model at, from `/api/ps`. Present only while
+   * the model is loaded; it reflects `OLLAMA_CONTEXT_LENGTH` and any `num_ctx`, unlike
+   * `contextWindow`, which is the model's trained maximum.
+   */
+  readonly runningContextWindow?: number;
   readonly template?: string;
   readonly capabilities?: readonly string[];
 }
