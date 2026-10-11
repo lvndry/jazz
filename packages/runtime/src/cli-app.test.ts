@@ -68,6 +68,15 @@ describe("createCLIApp help path", () => {
     expect(flags).toContain("--watch <categories>");
   });
 
+  it("spells out the disclosure tiers in `peers invite create`", () => {
+    const program = createCLIApp();
+    const peers = program.commands.find((command) => command.name() === "peers");
+    const invite = peers?.commands.find((command) => command.name() === "invite");
+    const create = invite?.commands.find((command) => command.name() === "create");
+    const disclosure = create?.options.find((option) => option.long === "--disclosure");
+    expect(disclosure?.flags).toBe("--disclosure <none|public|internal|private>");
+  });
+
   it("offers --watch as the alias of --events on both `jazz run` and `workflow run`", () => {
     const program = createCLIApp();
     const flagsOf = (command: import("commander").Command | undefined) =>
