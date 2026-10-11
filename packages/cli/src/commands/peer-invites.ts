@@ -11,7 +11,12 @@
 
 import * as os from "node:os";
 import { upsertPeer } from "@jazz/adapters/peers/config";
-import { createInvite, getInvitesDirectory } from "@jazz/adapters/peers/invites";
+import {
+  createInvite,
+  getInvitesDirectory,
+  listInvites,
+  revokeInvite,
+} from "@jazz/adapters/peers/invites";
 import { detectKeyringBackend, keyringSet } from "@jazz/adapters/secrets/keyring";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
@@ -19,17 +24,26 @@ import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { peerTokenPath } from "@jazz/core/secrets/registry";
 import { CLIError } from "@jazz/core/types/errors";
 import { isPeerTier, PEER_TIERS, type PeerTier } from "@jazz/core/types/peer";
+import { inviteStatus, isInviteId } from "@jazz/core/types/peer-invite";
 import { toError } from "@jazz/core/utils/errors";
 import { Effect } from "effect";
+import { generate as generateQrCode } from "qrcode-terminal";
 import { describeTier } from "./peers";
+
+function renderQrCode(text: string): Promise<string> {
+  return new Promise((resolve) => {
+    generateQrCode(text, { small: true }, resolve);
+  });
+}
 
 /**
  * Loopback, RFC1918 LAN ranges, and Tailscale's CGNAT range (`100.64.0.0/10`) plus MagicDNS
- * names — every host this command already treats as safe enough for plain HTTP. Anything else
- * on plain HTTP is a genuinely new plaintext wire transfer this feature introduces that manual
- * `set-token` never had.
+ * names — every host `docs/guide/peers-setup.md` already documents as "no encryption needed"
+ * because either nothing can intercept it (loopback) or the network itself already does the
+ * encrypting (WireGuard). Anything else on plain HTTP is a genuinely new plaintext wire
+ * transfer this feature introduces that manual `set-token` never had.
  */
-function isSafeInviteNetwork(host: string): boolean {
+function isEncryptedOrUnreachableNetwork(host: string): boolean {
   if (host === "127.0.0.1" || host === "::1" || host === "localhost") return true;
   const octets = host.split(".");
   const ipv4 =
@@ -45,7 +59,7 @@ function isSafeInviteNetwork(host: string): boolean {
 }
 
 function plaintextWarning(host: string): string | undefined {
-  if (isSafeInviteNetwork(host)) return undefined;
+  if (isEncryptedOrUnreachableNetwork(host)) return undefined;
   return (
     "Warning: this endpoint is not loopback or a private/Tailscale network and uses plain " +
     "HTTP — the invite secret and the resulting peer token will cross the network " +
@@ -125,6 +139,9 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       localMode = true;
     }
 
+    // Fail fast on a persona typo now, at the one point a human is actively watching —
+    // otherwise it surfaces only when a peer actually asks a question, as an opaque refusal
+    // this operator has to go dig out of `jazz peers log` to explain.
     if (options.persona !== undefined) {
       const personaService = yield* PersonaServiceTag;
       const resolved = yield* personaService
@@ -167,7 +184,7 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       originUrl = undefined;
     }
     const warning =
-      localMode || (originUrl !== undefined && originUrl.protocol === "https:")
+      originUrl !== undefined && originUrl.protocol === "https:"
         ? undefined
         : plaintextWarning(originUrl?.hostname ?? options.host);
     if (warning !== undefined) process.stderr.write(warning);
@@ -177,11 +194,17 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
         `(${options.disclosure}), expiring ${formatRelative(created.record.expiresAt, new Date())}.\n\n` +
         (localMode
           ? "Local test invite: this uses loopback and only works on the same machine.\n\n"
-          : "Share this link (it embeds your endpoint and a one-time secret — send it somewhere the recipient will actually see it, not a public channel):\n\n") +
+          : "Share this link (it embeds your endpoint and a one-time secret — send it somewhere " +
+            "the recipient will actually see it, not a public channel):\n\n") +
         `  ${url}\n\n` +
         "This link is single-use and cannot be reused after it is accepted, or after it " +
         'expires. Nobody who does not have everything after the "#" can redeem it.\n',
     );
+
+    if (options.qr) {
+      const qr = yield* Effect.promise(() => renderQrCode(url));
+      process.stdout.write(`\nQR:\n${qr}\n`);
+    }
   }).pipe(
     Effect.catchAll((error) =>
       Effect.sync(() => {
@@ -190,6 +213,60 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       }),
     ),
   );
+}
+
+export function listInvitesCommand(options: { readonly json: boolean }) {
+  return Effect.gen(function* () {
+    const invites = yield* listInvites();
+    const now = new Date();
+
+    if (options.json) {
+      process.stdout.write(
+        `${JSON.stringify({
+          ok: true,
+          invites: invites.map((invite) => ({ ...invite, status: inviteStatus(invite, now) })),
+        })}\n`,
+      );
+      return;
+    }
+
+    if (invites.length === 0) {
+      process.stdout.write("No invites created on this machine.\n");
+      return;
+    }
+
+    for (const invite of invites) {
+      const status = inviteStatus(invite, now);
+      const statusLabel =
+        status === "active"
+          ? `expires ${formatRelative(invite.expiresAt, now)}`
+          : status === "expired"
+            ? `expired ${formatRelative(invite.expiresAt, now)}`
+            : status;
+      process.stdout.write(
+        `${invite.id}  ${invite.inviteeName}  ${invite.proposedTier}  ${statusLabel}\n`,
+      );
+    }
+  });
+}
+
+export function revokeInviteCommand(options: { readonly id: string }) {
+  return Effect.gen(function* () {
+    if (!isInviteId(options.id)) {
+      process.stderr.write(`"${options.id}" is not an invite id.\n`);
+      process.exitCode = 1;
+      return;
+    }
+    const revoked = yield* revokeInvite(options.id);
+    if (!revoked) {
+      process.stderr.write(
+        "No active invite with that id — it may not exist, or is already used or revoked.\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write("Revoked the invite. The link is now dead.\n");
+  });
 }
 
 interface ParsedInviteUrl {
@@ -405,8 +482,8 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
     const stored = yield* keyringSet(backend, peerTokenPath(localName), body.token);
     if (!stored) {
       process.stderr.write(
-        "The invite was accepted, but Jazz could not store the token in the keyring. " +
-          "Check keyring access and retry the accept command.\n",
+        "The invite was accepted, but Jazz could not store the token. Finish setup manually:\n" +
+          `  JAZZ_PEER_TOKEN=${body.token} jazz peers set-token ${localName}\n`,
       );
       process.exitCode = 1;
       return;
