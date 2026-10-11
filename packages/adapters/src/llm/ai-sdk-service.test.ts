@@ -41,6 +41,7 @@ import {
   createAISDKServiceLayer,
   makeOllamaAuthorizedFetch,
   makeOllamaKeepAliveFetch,
+  mergeProviderOverridesIntoLLMConfig,
   safeLLMErrorMetadata,
   toCoreMessages,
   applyConversationCacheBreakpoint,
@@ -2254,5 +2255,37 @@ describe("toCoreMessages - conversation prefix cache", () => {
     expect(parts[parts.length - 1]?.providerOptions?.anthropic?.cacheControl).toEqual({
       type: "ephemeral",
     });
+  });
+});
+
+describe("mergeProviderOverridesIntoLLMConfig", () => {
+  it("returns the global config untouched without overrides", () => {
+    const base = { ollama: { base_url: "http://global:11434" } };
+    expect(mergeProviderOverridesIntoLLMConfig(base, {})).toBe(base);
+  });
+
+  it("applies a per-agent base URL and key without losing the rest of the provider config", () => {
+    const merged = mergeProviderOverridesIntoLLMConfig(
+      { ollama: { base_url: "http://global:11434", keep_alive: "30m" } },
+      {
+        providerBaseUrls: { ollama: "http://server:11434" },
+        providerApiKeys: { ollama: "secret" },
+      },
+    );
+    expect(merged?.ollama).toEqual({
+      base_url: "http://server:11434",
+      keep_alive: "30m",
+      api_key: "secret",
+    });
+  });
+
+  it("gives agents on different servers different provider cache fingerprints", () => {
+    const base = { ollama: { base_url: "http://global:11434" } };
+    const pinned = mergeProviderOverridesIntoLLMConfig(base, {
+      providerBaseUrls: { ollama: "http://server:11434" },
+    });
+    expect(buildProviderCacheFingerprint("ollama", pinned)).not.toBe(
+      buildProviderCacheFingerprint("ollama", base),
+    );
   });
 });

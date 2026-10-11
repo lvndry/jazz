@@ -249,6 +249,21 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
+      if (config.llm.baseUrls) {
+        for (const [provider, baseUrl] of Object.entries(config.llm.baseUrls)) {
+          if (typeof baseUrl !== "string" || !URL.canParse(baseUrl)) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: `config.llm.baseUrls.${provider}`,
+                message: "LLM base URL overrides must be absolute URLs",
+                suggestion: "Set a URL such as http://host:11434 or remove the provider override.",
+              }),
+            );
+          }
+        }
+      }
+
       const summarizerModel: unknown = config.llm.summarizerModel;
       if (summarizerModel !== undefined && summarizerModel !== null) {
         if (typeof summarizerModel !== "string" || parseProviderModel(summarizerModel) === null) {

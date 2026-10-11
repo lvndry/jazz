@@ -234,6 +234,9 @@ export function proposeGoal(options: {
         ...(options.agent.config.llm.apiKeys !== undefined
           ? { providerApiKeys: options.agent.config.llm.apiKeys }
           : {}),
+        ...(options.agent.config.llm.baseUrls !== undefined
+          ? { providerBaseUrls: options.agent.config.llm.baseUrls }
+          : {}),
       })
       .pipe(Effect.either);
     if (completion._tag === "Left") {

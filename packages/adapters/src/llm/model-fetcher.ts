@@ -419,6 +419,21 @@ export async function fetchOllamaModelDetails(
   modelName: string,
   signal?: AbortSignal,
 ): Promise<OllamaShowExtras> {
+  const [shown, runningContextWindow] = await Promise.all([
+    fetchOllamaShow(baseUrl, modelName, signal),
+    fetchOllamaRunningContextWindow(baseUrl, modelName, signal),
+  ]);
+  return {
+    ...shown,
+    ...(runningContextWindow !== undefined ? { runningContextWindow } : {}),
+  };
+}
+
+async function fetchOllamaShow(
+  baseUrl: string,
+  modelName: string,
+  signal?: AbortSignal,
+): Promise<OllamaShowExtras> {
   try {
     const response = await fetch(`${baseUrl}/show`, {
       method: "POST",
@@ -436,6 +451,35 @@ export async function fetchOllamaModelDetails(
     };
   } catch {
     return {};
+  }
+}
+
+/** `/api/ps` names models with an explicit tag, so an untagged request means `:latest`. */
+function withOllamaTag(modelName: string): string {
+  return modelName.includes(":") ? modelName : `${modelName}:latest`;
+}
+
+/** The window Ollama is running `modelName` at, or undefined when it is not loaded. */
+export async function fetchOllamaRunningContextWindow(
+  baseUrl: string,
+  modelName: string,
+  signal?: AbortSignal,
+): Promise<number | undefined> {
+  try {
+    const response = await fetch(`${baseUrl}/ps`, {
+      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
+    });
+    if (!response.ok) return undefined;
+    const data = (await response.json()) as {
+      models?: { name?: string; model?: string; context_length?: number }[];
+    };
+    const wanted = withOllamaTag(modelName);
+    const running = data.models?.find((entry) => entry.name === wanted || entry.model === wanted);
+    return typeof running?.context_length === "number" && running.context_length > 0
+      ? running.context_length
+      : undefined;
+  } catch {
+    return undefined;
   }
 }
 

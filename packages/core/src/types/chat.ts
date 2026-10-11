@@ -90,4 +90,6 @@ export interface ChatCompletionOptions {
   num_ctx?: number;
   /** Optional per-request API key overrides by provider (typically from agent config). */
   providerApiKeys?: Partial<Record<ProviderName, string>>;
+  /** Optional per-request base URL overrides by provider (typically from agent config). */
+  providerBaseUrls?: Partial<Record<ProviderName, string>>;
 }
