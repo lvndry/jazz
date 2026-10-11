@@ -3,6 +3,7 @@
 import { Duration, Effect, Fiber, Ref, Schedule } from "effect";
 import { LLM_SLOW_MODEL_HINT_SECONDS } from "@/core/constants/agent";
 import type { LlmRetryNotice } from "@/core/interfaces/presentation";
+import type { StreamEvent } from "@/core/types/streaming";
 import { describeRetryableLLMError, llmRetryDelays } from "@/core/utils/llm-error";
 
 /** Keeps the retry notice on one terminal line while still naming the underlying failure. */
@@ -16,6 +17,19 @@ function retryNoticeDetail(error: unknown): string {
     return firstLine;
   }
   return `${firstLine.slice(0, RETRY_NOTICE_DETAIL_MAX_CHARS - 1)}…`;
+}
+
+const MODEL_OUTPUT_EVENT_TYPES: ReadonlySet<StreamEvent["type"]> = new Set([
+  "thinking_start",
+  "thinking_chunk",
+  "text_start",
+  "text_chunk",
+  "tool_call",
+]);
+
+/** True for events carrying what the model produced; lifecycle events such as `stream_start` fire before any output. */
+export function isModelOutputEvent(event: StreamEvent): boolean {
+  return MODEL_OUTPUT_EVENT_TYPES.has(event.type);
 }
 
 export type PresentStatusFn = (
