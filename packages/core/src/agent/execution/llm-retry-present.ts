@@ -23,20 +23,29 @@ export type PresentStatusFn = (
   level: "info" | "success" | "warning" | "error" | "progress",
 ) => Effect.Effect<void, never>;
 
+/**
+ * Runs `body` and, if it is still going after `slowHintAfterSeconds`, announces the wait.
+ * `hasStartedResponding` suppresses the notice once output is already flowing, so it never
+ * lands in the middle of streamed text.
+ */
 export function withLongRunningLlmNotice<A, E, R>(
   agentName: string,
   presentStatus: PresentStatusFn,
   body: Effect.Effect<A, E, R>,
+  hasStartedResponding: Effect.Effect<boolean> = Effect.succeed(false),
   slowHintAfterSeconds: number = LLM_SLOW_MODEL_HINT_SECONDS,
 ): Effect.Effect<A, E, R> {
   return Effect.gen(function* () {
     const noticeFiber = yield* Effect.fork(
       Effect.sleep(Duration.seconds(slowHintAfterSeconds)).pipe(
-        Effect.flatMap(() =>
-          presentStatus(
-            `${agentName} is taking longer than expected… still waiting on the model.`,
-            "progress",
-          ),
+        Effect.flatMap(() => hasStartedResponding),
+        Effect.flatMap((started) =>
+          started
+            ? Effect.void
+            : presentStatus(
+                `${agentName} is taking longer than expected… still waiting on the model.`,
+                "progress",
+              ),
         ),
       ),
     );
