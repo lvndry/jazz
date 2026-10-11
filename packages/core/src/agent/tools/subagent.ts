@@ -40,6 +40,7 @@ import {
   unknownSubagentNote,
   type SubagentHooks,
 } from "../subagents/supervisor";
+import { createSubagentWorkDigest, type SubagentWorkDigest } from "../subagents/work-digest";
 import type { AgentResponse } from "../types";
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -276,13 +277,15 @@ interface SubagentRun {
   readonly subagentLabel: string;
   /** The parent run's handle on this child, for steering and live spend. */
   readonly hooks?: SubagentHooks;
+  /** Fed by the child's tool events, so a failure can report what it got done. */
+  readonly workDigest: SubagentWorkDigest;
 }
 
 /**
  * Run one child to its end and turn its answer into the result `wait_subagents` returns.
  */
 function runSubagent(args: SpawnSubagentArgs, context: ToolExecutionContext, run: SubagentRun) {
-  const { parentAgent, currentDepth, remainingBudget, subagentLabel, hooks } = run;
+  const { parentAgent, currentDepth, remainingBudget, subagentLabel, hooks, workDigest } = run;
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const presentation = yield* PresentationServiceTag;
@@ -434,9 +437,12 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
                 }
               }),
             onIterationSpend: hooks.reportSpend,
-            onToolEvent: hooks.onToolEvent,
           }
         : {}),
+      onToolEvent: (event) => {
+        workDigest.record(event);
+        hooks?.onToolEvent(event);
+      },
       ...(context.subagents !== undefined
         ? { sharedCostExhausted: context.subagents.costExhausted }
         : {}),
@@ -735,6 +741,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
 
           const subagentLabel = args.name?.trim() || `Sub-Agent (${args.persona})`;
           const hooks = supervisor.register({ name: subagentLabel });
+          const workDigest = createSubagentWorkDigest();
           yield* supervisor.start(
             hooks.id,
             runSubagent(args, context, {
@@ -743,6 +750,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
               remainingBudget,
               subagentLabel,
               hooks,
+              workDigest,
             }).pipe(
               Effect.timeoutFail({
                 duration: Duration.millis(SUBAGENT_TIMEOUT_MS),
@@ -754,7 +762,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
                   result: null,
                   error: Cause.isInterruptedOnly(cause)
                     ? "The sub-agent was stopped."
-                    : toError(Cause.squash(cause)).message,
+                    : `${toError(Cause.squash(cause)).message}\n${workDigest.describe()}`,
                 }),
               ),
             ),
