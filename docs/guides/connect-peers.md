@@ -30,8 +30,8 @@ connection and shared credential. Each setup also includes manual configuration.
 **Where the token lives:** an OS keyring when one's reachable (Keychain on macOS,
 `secret-tool`/libsecret on Linux), otherwise a `chmod 600` file at `$JAZZ_HOME/secrets.json`.
 Not in `config.json`. The file fallback needs no D-Bus session or keyring unlock, so it works
-the same on a workstation and a headless server. `jazz peers invite accept` and
-`jazz peers set-token` need no special-casing either way. `$JAZZ_DISABLE_KEYRING` turns off
+the same on a workstation and a headless server. `jazz peers invite accept` stores the shared
+token automatically. `jazz peers set-token` still exists for manual setups. `$JAZZ_DISABLE_KEYRING` turns off
 both if you'd rather manage tokens yourself.
 
 ---
@@ -53,7 +53,10 @@ JAZZ_HOME=$BOB   jazz agent create   # name it "bob"
 JAZZ_HOME=$BOB jazz daemon --serve-peers bob --port 4748
 ```
 
-The daemon runs in the background and listens only on loopback.
+The daemon runs in the background and listens only on loopback. That is fine for a same-machine
+demo, but it is not a good default for a real invite you want to share with another machine.
+If you want a real remote peer, pass `--public-url` or bind the daemon to a reachable host instead
+of relying on loopback.
 Stop it with `JAZZ_HOME=$BOB jazz daemon stop --port 4748`.
 
 ### 2. Bob invites Alice
@@ -193,7 +196,8 @@ Stop it with Ctrl+C.
 jazz peers invite create alice --host 100.101.102.103 --disclosure internal --expires 1h
 ```
 
-The link uses `http://`; Tailscale encrypts traffic between the two machines.
+The link uses `http://`; Tailscale encrypts traffic between the two machines. As with loopback,
+the invite should point at a reachable host, not `127.0.0.1`.
 
 ### 4. Alice accepts
 

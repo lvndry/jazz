@@ -101,6 +101,7 @@ export interface CreateInviteCommandOptions {
 export function createInviteCommand(options: CreateInviteCommandOptions) {
   return Effect.gen(function* () {
     let origin = `http://${options.host}:${String(options.port)}`;
+    let localMode = false;
     if (options.publicUrl !== undefined) {
       let publicUrl: URL;
       try {
@@ -130,6 +131,12 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
         );
       }
       origin = publicUrl.origin;
+    } else if (
+      options.host === "127.0.0.1" ||
+      options.host === "localhost" ||
+      options.host === "::1"
+    ) {
+      localMode = true;
     }
 
     // Fail fast on a persona typo now, at the one point a human is actively watching —
@@ -185,8 +192,10 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
     process.stdout.write(
       `Created an invite for "${options.inviteeName}" — ${describeTier(options.disclosure)} ` +
         `(${options.disclosure}), expiring ${formatRelative(created.record.expiresAt, new Date())}.\n\n` +
-        "Share this link (it embeds your endpoint and a one-time secret — send it somewhere " +
-        "the recipient will actually see it, not a public channel):\n\n" +
+        (localMode
+          ? "Local test invite: this uses loopback and only works on the same machine.\n\n"
+          : "Share this link (it embeds your endpoint and a one-time secret — send it somewhere " +
+            "the recipient will actually see it, not a public channel):\n\n") +
         `  ${url}\n\n` +
         "This link is single-use and cannot be reused after it is accepted, or after it " +
         'expires. Nobody who does not have everything after the "#" can redeem it.\n',
