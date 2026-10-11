@@ -314,7 +314,7 @@ export function acceptInviteOnInviterSide(
     // Store before consuming the invite. If persisting `redeemedAt` fails, no peer entry is
     // granted and a retry simply replaces this unused token with a freshly minted one.
     const token = randomBytes(24).toString("hex");
-    const stored = yield* keyring.storeToken(backend, peerTokenPath(candidate.inviteeName), token);
+    const stored = yield* keyring.storeToken(backend, peerTokenPath(input.redeemedAs), token);
     if (!stored) return { kind: "storage-write-failed" } as const;
 
     // `outcome.record.inviteeName` — the name *this* side (the inviter) chose at creation

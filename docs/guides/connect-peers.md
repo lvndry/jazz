@@ -27,11 +27,11 @@ Choose the setup that matches your network:
 The answering side creates an invite link; the caller accepts it to configure the
 connection and shared credential. Each setup also includes manual configuration.
 
-**Where the token lives:** an OS keyring when one's reachable (Keychain on macOS,
+The token lives in an OS keyring when one's reachable (Keychain on macOS,
 `secret-tool`/libsecret on Linux), otherwise a `chmod 600` file at `$JAZZ_HOME/secrets.json`.
 Not in `config.json`. The file fallback needs no D-Bus session or keyring unlock, so it works
-the same on a workstation and a headless server. `jazz peers invite accept` and
-`jazz peers set-token` need no special-casing either way. `$JAZZ_DISABLE_KEYRING` turns off
+the same on a workstation and a headless server. `jazz peers invite accept` stores the shared
+token automatically. `jazz peers set-token` still exists for manual setups. `$JAZZ_DISABLE_KEYRING` turns off
 both if you'd rather manage tokens yourself.
 
 ---
@@ -53,8 +53,8 @@ JAZZ_HOME=$BOB   jazz agent create   # name it "bob"
 JAZZ_HOME=$BOB jazz daemon --serve-peers bob --port 4748
 ```
 
-The daemon runs in the background and listens only on loopback.
-Stop it with `JAZZ_HOME=$BOB jazz daemon stop --port 4748`.
+The daemon runs in the background and listens only on loopback. That is fine for a same-machine
+demo, but it is not a good default for a real invite you want to share with another machine.
 
 ### 2. Bob invites Alice
 
@@ -65,6 +65,8 @@ JAZZ_HOME=$BOB jazz peers invite create alice --port 4748 --disclosure internal 
 `disclosure` is the tier. See the [tier table](../security/index.md#how-the-ceiling-is-computed).
 Start at `internal`, not `private`: you want to see a refusal happen before you see an
 answer. This prints a link; send it to Alice out of band (a chat message, not a commit).
+If you want a real remote peer, pass `--public-url` or bind the daemon to a reachable host instead
+of relying on loopback.
 
 ### 3. Alice accepts
 
@@ -96,8 +98,8 @@ present as Alice":
 ```bash
 export TOKEN=$(openssl rand -hex 24)
 
-JAZZ_HOME=$BOB   JAZZ_PEER_TOKEN=$TOKEN jazz peers set-token alice
-JAZZ_HOME=$ALICE JAZZ_PEER_TOKEN=$TOKEN jazz peers set-token bob
+JAZZ_HOME=$BOB   jazz peers set-token alice
+JAZZ_HOME=$ALICE jazz peers set-token bob
 ```
 
 Then add the same peer to `$ALICE/config.json`, this time from her side (url pointing at Bob's
@@ -190,7 +192,8 @@ Stop it with Ctrl+C.
 ### 3. Bob invites Alice
 
 ```bash
-jazz peers invite create alice --host 100.101.102.103 --disclosure internal --expires 1h
+The link uses `http://`; Tailscale encrypts traffic between the two machines. As with loopback,
+the invite should point at a reachable host, not `127.0.0.1`.
 ```
 
 The link uses `http://`; Tailscale encrypts traffic between the two machines.
@@ -227,8 +230,8 @@ In Bob's `~/.jazz/config.json`:
 Then the shared token, one command per side (both stored under the _other's_ name):
 
 ```bash
-JAZZ_PEER_TOKEN=<shared-secret> jazz peers set-token alice   # on Bob's machine
-JAZZ_PEER_TOKEN=<shared-secret> jazz peers set-token bob     # on Alice's machine
+jazz peers set-token alice   # on Bob's machine
+jazz peers set-token bob     # on Alice's machine
 ```
 
 </details>
@@ -316,8 +319,8 @@ jazz peers invite accept <the-link-bob-sent>
 ```
 
 ```bash
-JAZZ_PEER_TOKEN=<shared-secret> jazz peers set-token alice   # on Bob's machine
-JAZZ_PEER_TOKEN=<shared-secret> jazz peers set-token bob     # on Alice's machine
+jazz peers set-token alice   # on Bob's machine
+jazz peers set-token bob     # on Alice's machine
 ```
 
 Send that secret out of band: a chat message, not a commit, not a URL. It's a bearer
