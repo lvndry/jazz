@@ -1,5 +1,6 @@
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Queue, Ref, Stream } from "effect";
 import {
+  isModelOutputEvent,
   makeUserVisibleLlmRetrySchedule,
   withLongRunningLlmNotice,
 } from "@/core/agent/execution/llm-retry-present";
@@ -175,7 +176,9 @@ export function executeWithStreaming(
             const streamFiber = yield* Effect.fork(
               Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
                 Effect.gen(function* () {
-                  yield* Ref.set(outputStartedRef, true);
+                  if (isModelOutputEvent(event)) {
+                    yield* Ref.set(outputStartedRef, true);
+                  }
                   yield* renderer.handleEvent(event);
                   if (event.type === "text_chunk") {
                     yield* Ref.set(textAccumulatorRef, event.accumulated);
