@@ -101,6 +101,7 @@ export function executeWithoutStreaming(
               ? { num_ctx: agent.config.llm.numCtx }
               : {}),
             ...(agent.config.llm.apiKeys ? { providerApiKeys: agent.config.llm.apiKeys } : {}),
+            ...(agent.config.llm.baseUrls ? { providerBaseUrls: agent.config.llm.baseUrls } : {}),
           };
 
           const showAgentStatus = (

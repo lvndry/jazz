@@ -16,6 +16,7 @@ import {
 } from "@/core/constants/agent";
 import { isLocalServerProvider, isZeroCostLocalModel } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
+import { isOllamaCloudModel } from "@/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import {
@@ -65,6 +66,7 @@ import {
 } from "@/core/types/plugin";
 import { runBudgetOptions } from "@/core/types/remote-door";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
+import { withAgentBaseUrls } from "@/core/utils/agent-llm-config";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { resolveOllamaAttachmentSupport } from "@/core/utils/ollama-attachment-support";
@@ -220,6 +222,7 @@ function resolveCanGenerateMedia(
 
 function resolveSupportedAttachmentKinds(
   agent: AgentRunnerOptions["agent"],
+  llmConfig: LLMConfig | undefined,
 ): Effect.Effect<readonly AttachmentKind[], never, LLMService> {
   return Effect.gen(function* () {
     const metadata = yield* Effect.tryPromise({
@@ -233,7 +236,7 @@ function resolveSupportedAttachmentKinds(
     // send it an image it can read perfectly well.
     if (agent.config.llm.provider === "ollama") {
       const llmService = yield* LLMServiceTag;
-      const baseUrl = llmService.resolveLocalProviderBaseUrl("ollama", undefined);
+      const baseUrl = llmService.resolveLocalProviderBaseUrl("ollama", llmConfig);
       const extras = yield* llmService
         .fetchOllamaModelDetails(baseUrl, agent.config.llm.model)
         .pipe(Effect.catchAll(() => Effect.succeed<OllamaShowExtras>({})));
@@ -297,6 +300,26 @@ export function resolveVllmServerModel(
     return yield* llmService
       .fetchVllmServerModel(baseUrl, preferredModelId, llmConfig?.vllm?.api_key)
       .pipe(Effect.catchAll(() => Effect.succeed<VllmServerModel>({})));
+  });
+}
+
+/**
+ * The window Ollama is running the agent's model at, so context accounting follows the server's
+ * `OLLAMA_CONTEXT_LENGTH` instead of the model's trained maximum. Empty when the model is not
+ * loaded yet or the server does not answer; the caller then keeps its estimate.
+ */
+export function resolveOllamaRunningContextWindow(
+  model: string,
+  llmConfig?: LLMConfig,
+): Effect.Effect<number | undefined, never, LLMService> {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    if (isOllamaCloudModel(model)) return undefined;
+    const baseUrl = llmService.resolveLocalProviderBaseUrl("ollama", llmConfig);
+    const extras = yield* llmService
+      .fetchOllamaModelDetails(baseUrl, model)
+      .pipe(Effect.catchAll(() => Effect.succeed<OllamaShowExtras>({})));
+    return extras.runningContextWindow;
   });
 }
 
@@ -464,25 +487,31 @@ function initializeAgentRun(
     const provider: ProviderName = agent.config.llm.provider;
     // Local servers can change models between runs. The live model and window flow into
     // metrics, the footer, and context accounting; the saved ID is a fallback.
+    const agentLLMConfig = withAgentBaseUrls(appConfig.llm, agent.config.llm.baseUrls);
     const servedLlamaCppModel =
-      provider === "llamacpp" ? yield* resolveLlamaCppServerModel(appConfig.llm) : undefined;
+      provider === "llamacpp" ? yield* resolveLlamaCppServerModel(agentLLMConfig) : undefined;
     const servedVllmModel =
       provider === "vllm"
-        ? yield* resolveVllmServerModel(agent.config.llm.model, appConfig.llm)
+        ? yield* resolveVllmServerModel(agent.config.llm.model, agentLLMConfig)
         : undefined;
     const servedSglangModel =
       provider === "sglang"
-        ? yield* resolveSglangServerModel(agent.config.llm.model, appConfig.llm)
+        ? yield* resolveSglangServerModel(agent.config.llm.model, agentLLMConfig)
         : undefined;
     const model =
       servedLlamaCppModel?.modelId ??
       servedVllmModel?.modelId ??
       servedSglangModel?.modelId ??
       agent.config.llm.model;
+    const runningOllamaContextWindow =
+      provider === "ollama"
+        ? yield* resolveOllamaRunningContextWindow(agent.config.llm.model, agentLLMConfig)
+        : undefined;
     const serverContextWindow =
       servedLlamaCppModel?.contextWindow ??
       servedVllmModel?.contextWindow ??
-      servedSglangModel?.contextWindow;
+      servedSglangModel?.contextWindow ??
+      runningOllamaContextWindow;
 
     // Resolve persona service early so we can read the persona's tool profile
     // before building the tool set. Falls back gracefully if the service is
@@ -787,7 +816,7 @@ function initializeAgentRun(
       ? yield* resolveAgentWorkingDirectory(agent.id, options)
       : undefined;
     const supportedAttachmentKinds = ingestsAttachments
-      ? yield* resolveSupportedAttachmentKinds(agent)
+      ? yield* resolveSupportedAttachmentKinds(agent, agentLLMConfig)
       : [];
     // Whether this model can produce media itself. Drives one line of prompt guidance so a
     // text-only agent can point the user at one that can, instead of dead-ending.

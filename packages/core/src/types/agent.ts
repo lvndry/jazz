@@ -46,6 +46,11 @@ export interface AgentLlmConfig {
   /** Optional per-agent API key overrides by provider. Falls back to global config, then env vars. */
   readonly apiKeys?: Partial<Record<ProviderName, string>>;
   /**
+   * Optional per-agent base URL overrides by provider, for local servers (Ollama, llama.cpp,
+   * vLLM, SGLang). Falls back to the global `llm.<provider>.base_url`, then the provider's env var.
+   */
+  readonly baseUrls?: Partial<Record<ProviderName, string>>;
+  /**
    * The model-neutral reasoning control requested for this agent. The selected
    * provider/model capability profile validates and serializes it at request time.
    */

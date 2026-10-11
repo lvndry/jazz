@@ -24,6 +24,7 @@ import { describeAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { JsonValue } from "@/core/types/plugin";
 import type { EgressTaint } from "@/core/types/tools";
+import { withAgentBaseUrls } from "@/core/utils/agent-llm-config";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { UNTRUSTED_DATA_INSTRUCTION } from "@/core/utils/untrusted-content";
@@ -238,6 +239,7 @@ export function selectSummarizerModel(parentAgent: Agent): {
 function resolveLocalSummarizerModel(
   provider: ProviderName,
   preferredModelId: string,
+  baseUrls: Partial<Record<ProviderName, string>> | undefined,
 ): Effect.Effect<
   LlamaCppServerModel | VllmServerModel | SglangServerModel,
   never,
@@ -248,19 +250,20 @@ function resolveLocalSummarizerModel(
     const configService = yield* AgentConfigServiceTag;
     const llmService = yield* LLMServiceTag;
     const appConfig = yield* configService.appConfig;
-    const baseUrl = llmService.resolveLocalProviderBaseUrl(provider, appConfig.llm);
+    const llmConfig = withAgentBaseUrls(appConfig.llm, baseUrls);
+    const baseUrl = llmService.resolveLocalProviderBaseUrl(provider, llmConfig);
     if (provider === "llamacpp") {
       return yield* llmService
-        .fetchLlamaCppServerModel(baseUrl, appConfig.llm?.llamacpp?.api_key)
+        .fetchLlamaCppServerModel(baseUrl, llmConfig?.llamacpp?.api_key)
         .pipe(Effect.catchAll(() => Effect.succeed<LlamaCppServerModel>({})));
     }
     if (provider === "vllm") {
       return yield* llmService
-        .fetchVllmServerModel(baseUrl, preferredModelId, appConfig.llm?.vllm?.api_key)
+        .fetchVllmServerModel(baseUrl, preferredModelId, llmConfig?.vllm?.api_key)
         .pipe(Effect.catchAll(() => Effect.succeed<VllmServerModel>({})));
     }
     return yield* llmService
-      .fetchSglangServerModel(baseUrl, preferredModelId, appConfig.llm?.sglang?.api_key)
+      .fetchSglangServerModel(baseUrl, preferredModelId, llmConfig?.sglang?.api_key)
       .pipe(Effect.catchAll(() => Effect.succeed<SglangServerModel>({})));
   });
 }
@@ -939,6 +942,7 @@ export const Summarizer = {
       const servedModel = yield* resolveLocalSummarizerModel(
         summarizerModelConfig.provider,
         summarizerModelConfig.model,
+        summarizer.config.llm.baseUrls,
       );
       const summarizerHint: ModelHint = {
         provider: summarizerModelConfig.provider,

@@ -1310,6 +1310,44 @@ describe("bounded summarizer input", () => {
     }
   });
 
+  it("looks up the summarizer's server at the agent's own base URL, not the global one", async () => {
+    const resolvedFor: unknown[] = [];
+    const lookedUpAt: string[] = [];
+    const llm: LLMService = {
+      ...mockLLMService,
+      resolveLocalProviderBaseUrl: (_provider, llmConfig) => {
+        resolvedFor.push(llmConfig?.vllm?.base_url);
+        return llmConfig?.vllm?.base_url ?? "http://global:8000/v1";
+      },
+      fetchVllmServerModel: (baseUrl) => {
+        lookedUpAt.push(baseUrl);
+        return Effect.succeed({ modelId: "agent-model", contextWindow: 512 });
+      },
+    };
+    const agent = createMockAgent({
+      config: {
+        llm: {
+          provider: "vllm",
+          model: "agent-model",
+          baseUrls: { vllm: "http://agent-box:8000/v1" },
+        },
+        persona: "default",
+        tools: [],
+      },
+    });
+    const runner: RecursiveRunner = () =>
+      Effect.succeed({ content: "summary", conversationId: "test-conv" });
+
+    await Effect.runPromise(
+      Summarizer.summarizeHistory(messages(8, 400), agent, "conv-1", runner).pipe(
+        Effect.provide(createTestLayer({ llm })),
+      ) as Effect.Effect<ChatMessage, Error, never>,
+    );
+
+    expect(resolvedFor).toEqual(["http://agent-box:8000/v1"]);
+    expect(lookedUpAt).toEqual(["http://agent-box:8000/v1"]);
+  });
+
   it("chunks against a newly served vLLM window instead of the saved model estimate", async () => {
     const preferredModels: string[] = [];
     const llm: LLMService = {

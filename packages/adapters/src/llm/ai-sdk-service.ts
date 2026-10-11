@@ -216,25 +216,36 @@ interface AISDKConfig {
   webSearchConfig?: WebSearchConfig;
 }
 
-function mergeProviderApiKeysIntoLLMConfig(
+export function mergeProviderOverridesIntoLLMConfig(
   baseLLMConfig: LLMConfig | undefined,
-  providerApiKeys: ChatCompletionOptions["providerApiKeys"] | undefined,
+  overrides: {
+    readonly providerApiKeys?: ChatCompletionOptions["providerApiKeys"];
+    readonly providerBaseUrls?: ChatCompletionOptions["providerBaseUrls"];
+  },
 ): LLMConfig | undefined {
-  if (!providerApiKeys || Object.keys(providerApiKeys).length === 0) {
+  const fieldsByOverride = [
+    ["api_key", overrides.providerApiKeys],
+    ["base_url", overrides.providerBaseUrls],
+  ] as const;
+  if (
+    fieldsByOverride.every(([, byProvider]) => !byProvider || Object.keys(byProvider).length === 0)
+  ) {
     return baseLLMConfig;
   }
 
   const merged: Record<string, unknown> = { ...(baseLLMConfig ?? {}) };
-  for (const [provider, apiKey] of Object.entries(providerApiKeys)) {
-    if (typeof apiKey !== "string" || apiKey.length === 0) continue;
-    const existingProviderConfig =
-      merged[provider] && typeof merged[provider] === "object"
-        ? (merged[provider] as Record<string, unknown>)
-        : {};
-    merged[provider] = {
-      ...existingProviderConfig,
-      api_key: apiKey,
-    };
+  for (const [field, byProvider] of fieldsByOverride) {
+    for (const [provider, value] of Object.entries(byProvider ?? {})) {
+      if (typeof value !== "string" || value.length === 0) continue;
+      const existingProviderConfig =
+        merged[provider] && typeof merged[provider] === "object"
+          ? (merged[provider] as Record<string, unknown>)
+          : {};
+      merged[provider] = {
+        ...existingProviderConfig,
+        [field]: value,
+      };
+    }
   }
 
   return merged;
@@ -1686,7 +1697,7 @@ class AISDKService implements LLMService {
   private lastSeenConfigRevision = -1;
   // Model instance cache: key = "provider:modelId"
   private readonly modelCache = new Map<string, LanguageModel>();
-  private readonly modelInfoCache = new Map<ProviderName, readonly ModelInfo[]>();
+  private readonly modelInfoCache = new Map<string, readonly ModelInfo[]>();
   private readonly reportedReasoningClamps = new Set<string>();
 
   constructor(
@@ -1725,19 +1736,21 @@ class AISDKService implements LLMService {
 
   private getProviderModels(
     providerName: ProviderName,
+    llmConfig: LLMConfig | undefined = this.config.llmConfig,
   ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never> {
-    const cached = this.modelInfoCache.get(providerName);
+    const cacheKey = `${providerName}:${buildProviderCacheFingerprint(providerName, llmConfig)}`;
+    const cached = this.modelInfoCache.get(cacheKey);
     if (cached) {
       return Effect.succeed(cached);
     }
 
     return listModelsForProvider(providerName, {
-      apiKey: configuredProviderApiKey(this.config.llmConfig, providerName),
-      llmConfig: this.config.llmConfig,
+      apiKey: configuredProviderApiKey(llmConfig, providerName),
+      llmConfig,
     }).pipe(
       Effect.tap((models) =>
         Effect.sync(() => {
-          this.modelInfoCache.set(providerName, models);
+          this.modelInfoCache.set(cacheKey, models);
         }),
       ),
     );
@@ -1829,9 +1842,10 @@ class AISDKService implements LLMService {
     providerName: ProviderName,
     modelId: ModelName,
     signal?: AbortSignal,
+    llmConfig?: LLMConfig,
   ): Promise<ModelInfo | undefined> {
     const models = await Effect.runPromise(
-      this.getProviderModels(providerName).pipe(
+      this.getProviderModels(providerName, llmConfig).pipe(
         Effect.timeout(
           Duration.millis(resolveStreamIdleTimeoutMs(this.config.llmConfig?.streamIdleTimeoutMs)),
         ),
@@ -2020,9 +2034,9 @@ class AISDKService implements LLMService {
     return Effect.tryPromise({
       try: async (signal) => {
         await this.refreshRuntimeConfigIfChanged();
-        const effectiveLLMConfig = mergeProviderApiKeysIntoLLMConfig(
+        const effectiveLLMConfig = mergeProviderOverridesIntoLLMConfig(
           this.config.llmConfig,
-          options.providerApiKeys,
+          options,
         );
         attemptedUrl = localRequestBaseUrl(providerName, options.model, effectiveLLMConfig);
         const timingStart = Date.now();
@@ -2034,7 +2048,12 @@ class AISDKService implements LLMService {
           this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );
 
-        const modelInfo = await this.resolveModelInfo(providerName, options.model, signal);
+        const modelInfo = await this.resolveModelInfo(
+          providerName,
+          options.model,
+          signal,
+          effectiveLLMConfig,
+        );
         const resolvedCapabilities = this.resolveCapabilities(
           providerName,
           options.model,
@@ -2305,9 +2324,9 @@ class AISDKService implements LLMService {
     return Effect.tryPromise({
       try: async (signal) => {
         await this.refreshRuntimeConfigIfChanged();
-        const effectiveLLMConfig = mergeProviderApiKeysIntoLLMConfig(
+        const effectiveLLMConfig = mergeProviderOverridesIntoLLMConfig(
           this.config.llmConfig,
-          options.providerApiKeys,
+          options,
         );
         attemptedUrl = localRequestBaseUrl(providerName, options.model, effectiveLLMConfig);
         const timingStart = Date.now();
@@ -2321,7 +2340,12 @@ class AISDKService implements LLMService {
           this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );
 
-        const modelInfo = await this.resolveModelInfo(providerName, options.model, signal);
+        const modelInfo = await this.resolveModelInfo(
+          providerName,
+          options.model,
+          signal,
+          effectiveLLMConfig,
+        );
         const resolvedCapabilities = this.resolveCapabilities(
           providerName,
           options.model,
