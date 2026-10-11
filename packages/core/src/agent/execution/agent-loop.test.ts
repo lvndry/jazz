@@ -222,6 +222,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
       toolCalls: 0,
       toolCallCounts: {},
       toolsUsed: new Set(),
+      totalRequests: 0,
       totalPromptTokens: 0,
       totalCompletionTokens: 0,
       totalCacheReadTokens: 0,
@@ -2176,7 +2177,7 @@ describe("executeAgentLoop", () => {
       ).pipe(Effect.provide(TestLayer)),
     );
 
-    expect(result.usage).toEqual({ promptTokens: 42, completionTokens: 17 });
+    expect(result.usage).toEqual({ promptTokens: 42, completionTokens: 17, requests: 1 });
     expect(result.costUSD).toBeUndefined();
     expect(result.messages).toBeDefined();
   });

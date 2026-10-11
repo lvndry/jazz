@@ -143,6 +143,7 @@ function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
     maxIterations: 10,
     maxCostUSD: undefined,
     startedAt: new Date(),
+    totalRequests: 0,
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
     totalReasoningTokens: 0,

@@ -2480,7 +2480,7 @@ function handleInfoCommand(
       (count, message) => count + (message.tool_calls?.length ?? 0),
       0,
     );
-    const { promptTokens, completionTokens } = context.sessionUsage;
+    const { requests, promptTokens, completionTokens } = context.sessionUsage;
     const meta = yield* Effect.promise(() =>
       getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
     );
@@ -2526,6 +2526,7 @@ function handleInfoCommand(
         { kind: "gap" },
         { kind: "field", key: "duration", value: duration },
         { kind: "field", key: "messages", value: String(context.conversationHistory.length) },
+        { kind: "field", key: "requests", value: requests.toLocaleString() },
         { kind: "field", key: "tool calls", value: String(toolCalls) },
         { kind: "field", key: "tokens in", value: promptTokens.toLocaleString() },
         { kind: "field", key: "tokens out", value: completionTokens.toLocaleString() },
