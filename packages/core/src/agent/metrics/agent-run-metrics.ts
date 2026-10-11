@@ -67,6 +67,8 @@ export interface AgentRunMetrics {
   readonly maxIterations: number | undefined;
   readonly maxCostUSD: number | undefined;
   readonly startedAt: Date;
+  /** Model requests this run made itself (sub-agents' are not included). */
+  totalRequests: number;
   totalPromptTokens: number;
   totalCompletionTokens: number;
   totalReasoningTokens: number;
@@ -154,6 +156,7 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     maxIterations: iterationsCap,
     maxCostUSD,
     startedAt: new Date(),
+    totalRequests: 0,
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
     totalReasoningTokens: 0,

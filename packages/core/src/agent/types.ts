@@ -493,6 +493,8 @@ export interface AgentResponse {
   readonly usage?: {
     readonly promptTokens: number;
     readonly completionTokens: number;
+    /** Model requests the run made itself. */
+    readonly requests?: number;
     readonly cacheReadTokens?: number;
   };
   /** Total estimated cost for the full run in USD. Populated when model pricing is available. */

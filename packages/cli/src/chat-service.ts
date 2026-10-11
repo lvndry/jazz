@@ -401,7 +401,7 @@ export class ChatServiceImpl implements ChatService {
         yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
       }
       let loggedMessageCount = 0;
-      let sessionUsage = { promptTokens: 0, completionTokens: 0 };
+      let sessionUsage = { requests: 0, promptTokens: 0, completionTokens: 0 };
       let sessionTurnCount = 0;
       /** Spend caps already warned about this session, by window, so each warns once. */
       const warnedSpendCaps = new Set<string>();
@@ -931,7 +931,7 @@ export class ChatServiceImpl implements ChatService {
               // appending the next conversation to the previous one's.
               yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
               startedAt = new Date().toISOString();
-              sessionUsage = { promptTokens: 0, completionTokens: 0 };
+              sessionUsage = { requests: 0, promptTokens: 0, completionTokens: 0 };
               sessionTurnCount = 0;
               // Initialize the new conversation
               const fileSystemContext = yield* FileSystemContextServiceTag;
@@ -1255,6 +1255,7 @@ export class ChatServiceImpl implements ChatService {
           // Accumulate token usage for /cost (only on full AgentResponse, not error fallback)
           if ("usage" in response && response.usage) {
             sessionUsage = {
+              requests: sessionUsage.requests + (response.usage.requests ?? 0),
               promptTokens: sessionUsage.promptTokens + response.usage.promptTokens,
               completionTokens: sessionUsage.completionTokens + response.usage.completionTokens,
             };

@@ -669,6 +669,7 @@ function finalizeRun(
       usage: {
         promptTokens: runMetrics.totalPromptTokens,
         completionTokens: runMetrics.totalCompletionTokens,
+        requests: runMetrics.totalRequests,
         ...(runMetrics.totalCacheReadTokens > 0 && {
           cacheReadTokens: runMetrics.totalCacheReadTokens,
         }),
@@ -1950,6 +1951,8 @@ function runIteration(
       toolCallsCount: completion.toolCalls?.length ?? 0,
       tokenUsage: completion.usage,
     });
+
+    runMetrics.totalRequests += 1;
 
     if (completion.usage) {
       recordLLMUsage(runMetrics, completion.usage);

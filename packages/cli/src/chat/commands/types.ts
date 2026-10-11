@@ -125,6 +125,7 @@ export interface CommandResult {
 
 /** Token usage accumulated for the current conversation (for /cost). */
 export interface SessionUsage {
+  requests: number;
   promptTokens: number;
   completionTokens: number;
 }
