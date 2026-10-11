@@ -261,6 +261,17 @@ export class AgentServiceImpl implements AgentService {
               }),
             );
           }
+          const parsedBaseUrl = new URL(baseUrl);
+          if (parsedBaseUrl.username !== "" || parsedBaseUrl.password !== "") {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: `config.llm.baseUrls.${provider}`,
+                message: "LLM base URL overrides must not embed credentials",
+                suggestion: "Remove user:password@ from the URL and set llm.apiKeys instead.",
+              }),
+            );
+          }
         }
       }
 

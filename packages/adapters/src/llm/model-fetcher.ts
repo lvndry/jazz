@@ -418,10 +418,13 @@ export async function fetchOllamaModelDetails(
   baseUrl: string,
   modelName: string,
   signal?: AbortSignal,
+  runningModels?: readonly OllamaRunningModel[],
 ): Promise<OllamaShowExtras> {
   const [shown, runningContextWindow] = await Promise.all([
     fetchOllamaShow(baseUrl, modelName, signal),
-    fetchOllamaRunningContextWindow(baseUrl, modelName, signal),
+    runningModels === undefined
+      ? fetchOllamaRunningContextWindow(baseUrl, modelName, signal)
+      : runningContextWindowOf(runningModels, modelName),
   ]);
   return {
     ...shown,
@@ -459,28 +462,47 @@ function withOllamaTag(modelName: string): string {
   return modelName.includes(":") ? modelName : `${modelName}:latest`;
 }
 
+interface OllamaRunningModel {
+  readonly name?: string;
+  readonly model?: string;
+  readonly context_length?: number;
+}
+
+/** Everything Ollama has loaded right now (`/api/ps` is server-wide); empty when it does not answer. */
+export async function fetchOllamaRunningModels(
+  baseUrl: string,
+  signal?: AbortSignal,
+): Promise<readonly OllamaRunningModel[]> {
+  try {
+    const response = await fetch(`${baseUrl}/ps`, {
+      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
+    });
+    if (!response.ok) return [];
+    const data = (await response.json()) as { models?: OllamaRunningModel[] };
+    return data.models ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function runningContextWindowOf(
+  runningModels: readonly OllamaRunningModel[],
+  modelName: string,
+): number | undefined {
+  const wanted = withOllamaTag(modelName);
+  const running = runningModels.find((entry) => entry.name === wanted || entry.model === wanted);
+  return typeof running?.context_length === "number" && running.context_length > 0
+    ? running.context_length
+    : undefined;
+}
+
 /** The window Ollama is running `modelName` at, or undefined when it is not loaded. */
 export async function fetchOllamaRunningContextWindow(
   baseUrl: string,
   modelName: string,
   signal?: AbortSignal,
 ): Promise<number | undefined> {
-  try {
-    const response = await fetch(`${baseUrl}/ps`, {
-      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
-    });
-    if (!response.ok) return undefined;
-    const data = (await response.json()) as {
-      models?: { name?: string; model?: string; context_length?: number }[];
-    };
-    const wanted = withOllamaTag(modelName);
-    const running = data.models?.find((entry) => entry.name === wanted || entry.model === wanted);
-    return typeof running?.context_length === "number" && running.context_length > 0
-      ? running.context_length
-      : undefined;
-  } catch {
-    return undefined;
-  }
+  return runningContextWindowOf(await fetchOllamaRunningModels(baseUrl, signal), modelName);
 }
 
 const TOOL_PARAMS = new Set([
@@ -680,12 +702,13 @@ async function transformOllamaModels(
   const models = response.models ?? [];
   const CONCURRENCY_LIMIT = 5;
   const results: ModelInfo[] = [];
+  const runningModels = await fetchOllamaRunningModels(baseUrl, signal);
 
   for (let i = 0; i < models.length; i += CONCURRENCY_LIMIT) {
     const batch = models.slice(i, i + CONCURRENCY_LIMIT);
     const batchResults = await Promise.all(
       batch.map(async (model): Promise<ModelInfo> => {
-        const extras = await fetchOllamaModelDetails(baseUrl, model.name, signal);
+        const extras = await fetchOllamaModelDetails(baseUrl, model.name, signal, runningModels);
         const entry: RawModelEntry = { id: model.name, displayName: model.name };
         const dev = getMetadataFromMap(modelsDevMap, model.name);
         const supportsTools = resolveOllamaToolSupport(extras.capabilities, dev, model);

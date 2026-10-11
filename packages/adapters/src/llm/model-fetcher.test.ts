@@ -508,6 +508,45 @@ describe("ModelFetcher", () => {
     expect(result[0]!.supportsTemperature).toBe(true);
   });
 
+  it("reads Ollama's server-wide /api/ps once however many models are installed", async () => {
+    const requestedUrls: string[] = [];
+    global.fetch = mock((url: string) => {
+      requestedUrls.push(url);
+      if (url.endsWith("/api/tags")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              models: ["a", "b", "c", "d", "e", "f", "g"].map((name) => ({
+                name: `${name}:latest`,
+              })),
+            }),
+        });
+      }
+      if (url.endsWith("/api/ps")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ models: [{ name: "c:latest", context_length: 16384 }] }),
+        });
+      }
+      if (url.endsWith("/api/show")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ model_info: { "llama.context_length": 4096 } }),
+        });
+      }
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    const result = await Effect.runPromise(
+      fetcher.fetchModels("ollama", "http://localhost:11434/api", "/tags"),
+    );
+
+    expect(requestedUrls.filter((url) => url.endsWith("/api/ps"))).toHaveLength(1);
+    expect(requestedUrls.filter((url) => url.endsWith("/api/show"))).toHaveLength(7);
+    expect(result).toHaveLength(7);
+  });
+
   it("reports the window llama-server was started with, not the catalog maximum", async () => {
     modelsDevMetadata = {
       contextWindow: 262144,

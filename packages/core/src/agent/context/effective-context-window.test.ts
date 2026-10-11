@@ -56,6 +56,22 @@ describe("resolveEffectiveContextWindow", () => {
     ).toMatchObject({ tokens: 32768, source: "pinned" });
   });
 
+  it("accounts against the window Ollama runs the model at, below the trained maximum", () => {
+    expect(
+      resolveEffectiveContextWindow({
+        provider: "ollama",
+        modelMaxTokens: 262144,
+        serverContextWindow: 32768,
+      }),
+    ).toMatchObject({ tokens: 32768, source: "server" });
+  });
+
+  it("keeps the model's trained maximum while Ollama has not loaded the model", () => {
+    expect(
+      resolveEffectiveContextWindow({ provider: "ollama", modelMaxTokens: 262144 }),
+    ).toMatchObject({ tokens: 262144, source: "model-max" });
+  });
+
   it("prefers the pinned window over the one the server currently reports", () => {
     const effective = resolveEffectiveContextWindow({
       provider: "ollama",

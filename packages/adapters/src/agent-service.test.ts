@@ -593,6 +593,40 @@ describe("AgentService", () => {
     });
   });
 
+  describe("validateAgentConfig baseUrls", () => {
+    const configWithBaseUrl = (baseUrl: string): AgentConfig => ({
+      persona: "default",
+      llm: { provider: "ollama", model: "llama3", baseUrls: { ollama: baseUrl } },
+    });
+
+    it("accepts a plain host URL", async () => {
+      await expect(
+        Effect.runPromise(service.validateAgentConfig(configWithBaseUrl("http://gpu-box:11434"))),
+      ).resolves.toBeUndefined();
+    });
+
+    it("rejects a URL that is not absolute", async () => {
+      const result = await Effect.runPromiseExit(
+        service.validateAgentConfig(configWithBaseUrl("gpu-box")),
+      );
+      expect(result._tag).toBe("Failure");
+    });
+
+    it.each(["https://user:secret@gpu-box:11434", "https://token@gpu-box:11434"])(
+      "rejects credentials embedded in %s",
+      async (baseUrl) => {
+        const result = await Effect.runPromiseExit(
+          service.validateAgentConfig(configWithBaseUrl(baseUrl)),
+        );
+        expect(result._tag).toBe("Failure");
+        if (result._tag === "Failure") {
+          // @ts-expect-error - accessing error
+          expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        }
+      },
+    );
+  });
+
   describe("validateAgentConfig companions", () => {
     const baseConfig: AgentConfig = {
       persona: "default",
