@@ -69,7 +69,10 @@ describe("estimateSessionCostUSD", () => {
   it("returns 0 when pricing metadata is unavailable", async () => {
     metadata = undefined;
     const cost = await Effect.runPromise(
-      estimateSessionCostUSD({ promptTokens: 1_000_000, completionTokens: 1_000_000 }, testAgent),
+      estimateSessionCostUSD(
+        { requests: 1, promptTokens: 1_000_000, completionTokens: 1_000_000 },
+        testAgent,
+      ),
     );
     expect(cost).toBe(0);
   });
@@ -77,7 +80,10 @@ describe("estimateSessionCostUSD", () => {
   it("prices accumulated tokens against input/output rates", async () => {
     metadata = { inputPricePerMillion: 3, outputPricePerMillion: 15 } as ModelsDevMetadata;
     const cost = await Effect.runPromise(
-      estimateSessionCostUSD({ promptTokens: 1_000_000, completionTokens: 500_000 }, testAgent),
+      estimateSessionCostUSD(
+        { requests: 1, promptTokens: 1_000_000, completionTokens: 500_000 },
+        testAgent,
+      ),
     );
     expect(cost).toBeCloseTo(3 + 7.5);
   });
