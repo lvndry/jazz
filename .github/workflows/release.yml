@@ -73,6 +73,12 @@ jobs:
     needs: tag
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # ChatGPT refresh tokens rotate and are shared with the Jazz workflow, so both queue on
+    # one group and the rotated credential is saved before the next run starts.
+    concurrency:
+      group: jazz-chatgpt-oauth-${{ github.repository }}
+      queue: max
+      cancel-in-progress: false
     # The release is created with RELEASE_PAT, so GITHUB_TOKEN stays read-only in the job that
     # runs the auto-approving release-notes agent over commit text.
     permissions:
@@ -108,15 +114,48 @@ jobs:
           cat workflows/release-notes/WORKFLOW.md
 
       - name: Generate release notes
+        id: generate-notes
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
+          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
+          if [ -z "${JAZZ_CHATGPT_CREDENTIAL:-}" ]; then
+            echo "::error::Add the copied ChatGPT credential bundle as the JAZZ_CHATGPT_CREDENTIAL Actions secret. See .github/jazz/README.md."
+            exit 1
+          fi
+          set +e
           jazz --output raw workflow run release-notes --auto-approve --agent release-notes \
             --max-cost-usd 2 \
             2>&1 | tee /tmp/jazz-release-notes.txt
+          status="${PIPESTATUS[0]}"
+          set -e
+          if [ -s "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT" ]; then
+            echo "credential_rotated=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$status"
+
+      - name: Create ChatGPT secret updater token
+        id: chatgpt-app-token
+        if: always() && steps.generate-notes.outputs.credential_rotated == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.JAZZ_GITHUB_APP_ID }}
+          private-key: ${{ secrets.JAZZ_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.repository }}
+          permission-secrets: write
+
+      - name: Save rotated ChatGPT credential
+        if: always() && steps.generate-notes.outputs.credential_rotated == 'true'
+        env:
+          GH_TOKEN: ${{ steps.chatgpt-app-token.outputs.token }}
+          JAZZ_CHATGPT_CREDENTIAL_OUTPUT: ${{ runner.temp }}/jazz-chatgpt-credential.json
+        run: |
+          set -euo pipefail
+          gh secret set JAZZ_CHATGPT_CREDENTIAL --repo "$GITHUB_REPOSITORY" < "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
+          rm -f "$JAZZ_CHATGPT_CREDENTIAL_OUTPUT"
 
       - name: Create GitHub release
         uses: actions/github-script@v7
