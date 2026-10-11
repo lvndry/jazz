@@ -87,6 +87,7 @@ describe("tool guidance injection", () => {
     const result = build("default", { toolNames: ["http_request"] });
     expect(result).toContain("## Tools");
     expect(result).toContain("prefer the most specific available tool");
+    expect(result).toContain("several small writes or edits rather than one large one");
     expect(result).not.toContain("Use the shell");
     expect(result).not.toContain("subagents");
     expect(result).not.toContain("offloaded or cut tool results");

@@ -247,6 +247,13 @@ export class LLMRequestError extends Data.TaggedError("LLMRequestError")<{
   readonly contextOverflow?: boolean;
   /** How long the provider asked callers to wait before retrying (`Retry-After`), in ms. */
   readonly retryAfterMs?: number;
+  /**
+   * Set when a streamed response went silent for longer than the idle budget. The provider may
+   * still be generating: some servers hold a tool call back until it is complete, so a long one
+   * looks like a dead connection. Streaming the same request again repeats the same silence;
+   * a non-streaming request has no idle watchdog and can wait it out.
+   */
+  readonly streamStalled?: boolean;
 }> {}
 
 export class LLMRateLimitError extends Data.TaggedError("LLMRateLimitError")<{

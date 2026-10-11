@@ -910,6 +910,35 @@ describe("executeWithStreaming retries", () => {
     expect(fallbackAttempts).toBe(1);
   });
 
+  it("falls back after a single idle stall instead of streaming the same request again", async () => {
+    let streamingAttempts = 0;
+    let fallbackAttempts = 0;
+    const idleStall = new LLMRequestError({
+      provider: "ollama",
+      message: "Provider stream produced no additional part for 120s and was abandoned.",
+      streamStalled: true,
+    });
+    const harness = makeStreamingHarness({
+      maxRetries: 5,
+      llmService: scriptedLLMService(
+        () => {
+          streamingAttempts += 1;
+          return failingStream(idleStall);
+        },
+        () => {
+          fallbackAttempts += 1;
+          return Effect.succeed(completeResponse("from the fallback"));
+        },
+      ),
+    });
+
+    const result = await harness.run();
+
+    expect(result.content).toBe("from the fallback");
+    expect(streamingAttempts).toBe(1);
+    expect(fallbackAttempts).toBe(1);
+  });
+
   it("never falls back to non-streaming for a rate limit", async () => {
     let streamingAttempts = 0;
     let fallbackAttempts = 0;

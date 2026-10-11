@@ -441,6 +441,35 @@ describe("spawn_subagent time budget", () => {
     }
   });
 
+  it("tells the parent what a failed child had done before it stopped", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      for (const toolCallId of ["read-1", "read-2"]) {
+        options.onToolEvent?.({ kind: "tool-started", toolName: "read_file", toolCallId });
+        options.onToolEvent?.({
+          kind: "tool-finished",
+          toolName: "read_file",
+          toolCallId,
+          ok: true,
+        });
+      }
+      return Effect.fail(new Error("model stalled")) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawn(presentation)) as {
+        readonly success: boolean;
+        readonly error?: string;
+      };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("model stalled");
+      expect(result.error).toContain("read_file ×2");
+      expect(result.error).toContain("changed no files");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("refuses to delegate once the parent's money is spent", async () => {
     const spy = spyOn(AgentRunner, "runRecursive");
     try {
@@ -1014,7 +1043,10 @@ describe("spawn_subagent presentation", () => {
     try {
       const { presentation, calls } = createPresentationHarness();
       const result = (await runSpawn(presentation)) as { success: boolean; error?: string };
-      expect(result).toMatchObject({ success: false, error: "subagent exploded" });
+      expect(result).toMatchObject({
+        success: false,
+        error: "subagent exploded\nIt had made no tool calls before it stopped.",
+      });
       expect(calls.collapses).toHaveLength(1);
       expect(calls.collapses[0]?.outcome.status).toBe("failed");
     } finally {

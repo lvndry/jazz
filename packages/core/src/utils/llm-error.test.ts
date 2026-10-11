@@ -541,3 +541,26 @@ describe("convertToLLMError - credential failures never retry", () => {
     expect(isRetryableLLMError(converted)).toBe(true);
   });
 });
+
+describe("convertToLLMError - idle stream stalls", () => {
+  function idleTimeout(): Error {
+    const error = new Error("Provider stream produced no additional part for 120s");
+    error.name = "StreamIdleTimeoutError";
+    return error;
+  }
+
+  it("marks the converted error as a stall", () => {
+    const converted = convertToLLMError(idleTimeout(), "ollama");
+    expect(converted).toBeInstanceOf(LLMRequestError);
+    expect((converted as LLMRequestError).streamStalled).toBe(true);
+  });
+
+  it("stays retryable, since a genuinely dead connection looks the same", () => {
+    expect(isRetryableLLMError(convertToLLMError(idleTimeout(), "ollama"))).toBe(true);
+  });
+
+  it("does not mark an ordinary connection failure as a stall", () => {
+    const converted = convertToLLMError(new Error("fetch failed"), "ollama");
+    expect((converted as LLMRequestError).streamStalled).toBeUndefined();
+  });
+});
