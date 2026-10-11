@@ -2,7 +2,11 @@ import { describe, expect, it } from "bun:test";
 import { Effect, Ref } from "effect";
 import type { LlmRetryNotice } from "@/core/interfaces/presentation";
 import { LLMRequestError } from "@/core/types/errors";
-import { makeUserVisibleLlmRetrySchedule, withLongRunningLlmNotice } from "./llm-retry-present";
+import {
+  isModelOutputEvent,
+  makeUserVisibleLlmRetrySchedule,
+  withLongRunningLlmNotice,
+} from "./llm-retry-present";
 
 /**
  * The retry notice is the only thing the user sees while an agent is stalled, so it has to
@@ -149,5 +153,20 @@ describe("withLongRunningLlmNotice", () => {
 
   it("stays silent once output is streaming, so it cannot split the text", async () => {
     expect(await runSlowBody(true)).toEqual([]);
+  });
+});
+
+describe("isModelOutputEvent", () => {
+  it("does not count the stream opening as output", () => {
+    expect(
+      isModelOutputEvent({ type: "stream_start", provider: "ollama", model: "m", timestamp: 0 }),
+    ).toBe(false);
+  });
+
+  it.each([
+    { type: "thinking_chunk", content: "hm", sequence: 0 },
+    { type: "text_chunk", delta: "a", accumulated: "a", sequence: 0 },
+  ] as const)("counts a $type as output", (event) => {
+    expect(isModelOutputEvent(event)).toBe(true);
   });
 });
