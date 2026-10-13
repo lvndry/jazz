@@ -182,6 +182,14 @@ describe("PluginArtifactInstaller", () => {
     ).rejects.toThrow("resolves outside manifest directory");
   });
 
+  test("names a missing local manifest source and the command to repoint it", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-artifact-"));
+    const missingManifest = path.join(root, "gone", "jazz-plugin.json");
+    await expect(acquirePluginManifest(missingManifest)).rejects.toThrow(
+      `Plugin source no longer exists: ${missingManifest}`,
+    );
+  });
+
   test("rejects cross-origin redirects before reading an artifact", async () => {
     const fetchImpl = (async () =>
       new Response(null, {
