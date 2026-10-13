@@ -36,15 +36,15 @@ import {
   makeZodValidator,
 } from "../base-tool";
 import { resolveChromiumBrowser, type ChromiumCandidate } from "../chromium-default";
+import { advisePage, renderSnapshot } from "./page-hooks";
+import { combineFlags, describeFlags } from "./page-signals";
 import {
   findRealProfileLayout,
   snapshotRealProfile,
   type RealProfileSnapshot,
 } from "./real-profile";
+import { createSystemBrowserLookup } from "../composition";
 import { egressPolicyForContext, type EgressPolicy } from "../guarded-fetch";
-import { createSystemBrowserLookup } from "../web-app";
-import { advisePage, renderSnapshot } from "./page-hooks";
-import { combineFlags, describeFlags } from "./page-signals";
 import {
   BrowserSession,
   NO_TAB_MESSAGE,

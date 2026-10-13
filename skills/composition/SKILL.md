@@ -58,8 +58,13 @@ should improve the artifact, not delay a simple result with an exhaustive tour.
 ## Build and verify
 
 - Write a complete HTML document with inline CSS and JavaScript and no build
-  step or local-file dependencies. External libraries, fonts, and APIs may need
-  network access; use them when they earn that dependency and provide fallbacks.
+  step or local-file dependencies. JavaScript is expected, not exceptional —
+  canvas, WebGL, charts, and CDN libraries all work since the page runs in a
+  real WebView with network access. Use libraries when they earn that
+  dependency and provide fallbacks (a `static` screenshot is captured once,
+  after the network is idle, so content that only appears later —
+  `requestAnimationFrame` loops, async loads, long entrances — must already be
+  visible at capture time).
 - Choose `static` for a chart, diagram, or briefing that needs no interaction;
   choose `interactive` when inputs, exploration, navigation, or play matter.
   Static output must show the takeaway, labels, and legend without hover or
@@ -91,6 +96,12 @@ Call `create_composition` with a short, distinctive title. Explain what the
 person can learn or do with the result, including any material limitations.
 Jazz saves compositions under `~/.jazz/compositions/<session-id>/`; repeated
 titles keep earlier files by adding a numbered suffix.
+
+For large or iterated pages, write the HTML to a file with `write_file`
+first, iterate on it with `edit_file`, and pass `create_composition` the
+`htmlPath` argument — the tool reads the file, so you never re-send the whole
+document in a tool call. Use the `html` argument only for small one-shot
+documents.
 
 ## Task-specific mechanics
 

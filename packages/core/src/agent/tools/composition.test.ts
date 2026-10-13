@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
@@ -12,7 +12,7 @@ import {
   createCompositionTool,
   MISSING_BROWSER_ERROR,
   resolveBrowserExecutablePath,
-} from "./web-app";
+} from "./composition";
 
 const context: ToolExecutionContext = { agentId: "agent-1" };
 
@@ -68,7 +68,7 @@ describe("resolveBrowserExecutablePath", () => {
 });
 
 describe("create_composition without a browser", () => {
-  const jazzHome = mkdtempSync(join(tmpdir(), "jazz-web-app-"));
+  const jazzHome = mkdtempSync(join(tmpdir(), "jazz-composition-"));
   let previousJazzHome: string | undefined;
 
   beforeAll(() => {
@@ -157,6 +157,95 @@ describe("create_composition without a browser", () => {
     expect(second.result).toMatchObject({
       htmlPath: `${jazzHome}/compositions/agent-1/repeated-2.html`,
     });
+  });
+});
+
+describe("create_composition htmlPath source", () => {
+  const jazzHome = mkdtempSync(join(tmpdir(), "jazz-composition-path-"));
+  const sourceDir = mkdtempSync(join(tmpdir(), "jazz-composition-src-"));
+  let previousJazzHome: string | undefined;
+
+  beforeAll(() => {
+    previousJazzHome = process.env["JAZZ_HOME"];
+    process.env["JAZZ_HOME"] = jazzHome;
+  });
+
+  afterAll(() => {
+    if (previousJazzHome === undefined) delete process.env["JAZZ_HOME"];
+    else process.env["JAZZ_HOME"] = previousJazzHome;
+    rmSync(jazzHome, { recursive: true, force: true });
+    rmSync(sourceDir, { recursive: true, force: true });
+  });
+
+  test("reads the document from an existing file and preserves its content", async () => {
+    const sourcePath = join(sourceDir, "page.html");
+    writeFileSync(sourcePath, "<html><body>from disk</body></html>", "utf8");
+    const tool = createCompositionTool(() => lookupWithChannels({}));
+
+    const result = await runTool(tool, {
+      htmlPath: sourcePath,
+      title: "From path",
+      mode: "interactive",
+    });
+
+    expect(result.success).toBe(true);
+    const saved = result.result as { htmlPath: string };
+    expect(readFileSync(saved.htmlPath, "utf8")).toBe("<html><body>from disk</body></html>");
+  });
+
+  test("resolves a relative path against the process cwd when no fs context exists", async () => {
+    const sourcePath = join(sourceDir, "rel.html");
+    writeFileSync(sourcePath, "<html><body>relative</body></html>", "utf8");
+    const previousCwd = process.cwd();
+    process.chdir(sourceDir);
+    try {
+      const tool = createCompositionTool(() => lookupWithChannels({}));
+      const result = await runTool(tool, {
+        htmlPath: "rel.html",
+        title: "Relative",
+        mode: "interactive",
+      });
+      expect(result.success).toBe(true);
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+
+  test("fails with an actionable error when the file does not exist", async () => {
+    const tool = createCompositionTool(() => lookupWithChannels({}));
+
+    const result = await runTool(tool, {
+      htmlPath: join(sourceDir, "missing.html"),
+      title: "Missing",
+      mode: "interactive",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("does not exist");
+    expect(result.error).toContain("Write the document to a file first");
+  });
+
+  test("fails when both html and htmlPath are provided", async () => {
+    const tool = createCompositionTool(() => lookupWithChannels({}));
+
+    const result = await runTool(tool, {
+      html: MINIMAL_HTML,
+      htmlPath: join(sourceDir, "any.html"),
+      title: "Both",
+      mode: "interactive",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("both html and htmlPath");
+  });
+
+  test("fails when neither html nor htmlPath is provided", async () => {
+    const tool = createCompositionTool(() => lookupWithChannels({}));
+
+    const result = await runTool(tool, { title: "Neither", mode: "interactive" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("pass html, or htmlPath");
   });
 });
 
