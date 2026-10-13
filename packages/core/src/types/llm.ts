@@ -88,6 +88,12 @@ export function isCompanionRole(value: string): value is CompanionRole {
   return (COMPANION_ROLES as readonly string[]).includes(value);
 }
 
+/**
+ * Line that ends a companion task's instructions and starts the delegated brief. A model that
+ * takes the brief alone (an image endpoint) reads everything after it.
+ */
+export const COMPANION_BRIEF_MARKER = "BRIEF:\n";
+
 export function companionRole(action: MediaAction, modality: MediaModality): CompanionRole {
   return `${action}:${modality}`;
 }
