@@ -26,15 +26,15 @@ import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
-import { buildKeyFromContext } from "./context-utils";
-import { type EgressPolicy, egressPolicyForContext } from "./guarded-fetch";
-import { guardPageRequests } from "./guarded-page";
-import { toolKnownSecrets } from "./tool-secrets";
 import {
   type BrowserExecutableLookup,
   createSystemBrowserLookup,
   resolveBrowserExecutablePath,
-} from "./web-app";
+} from "./composition";
+import { buildKeyFromContext } from "./context-utils";
+import { type EgressPolicy, egressPolicyForContext } from "./guarded-fetch";
+import { guardPageRequests } from "./guarded-page";
+import { toolKnownSecrets } from "./tool-secrets";
 
 export const MISSING_BROWSER_FOR_PDF_ERROR =
   "create_pdf needs a Chrome or Chromium install to render the page, and none was found. " +

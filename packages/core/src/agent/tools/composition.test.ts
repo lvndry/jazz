@@ -12,7 +12,7 @@ import {
   createCompositionTool,
   MISSING_BROWSER_ERROR,
   resolveBrowserExecutablePath,
-} from "./web-app";
+} from "./composition";
 
 const context: ToolExecutionContext = { agentId: "agent-1" };
 
@@ -68,7 +68,7 @@ describe("resolveBrowserExecutablePath", () => {
 });
 
 describe("create_composition without a browser", () => {
-  const jazzHome = mkdtempSync(join(tmpdir(), "jazz-web-app-"));
+  const jazzHome = mkdtempSync(join(tmpdir(), "jazz-composition-"));
   let previousJazzHome: string | undefined;
 
   beforeAll(() => {
@@ -161,8 +161,8 @@ describe("create_composition without a browser", () => {
 });
 
 describe("create_composition htmlPath source", () => {
-  const jazzHome = mkdtempSync(join(tmpdir(), "jazz-web-app-path-"));
-  const sourceDir = mkdtempSync(join(tmpdir(), "jazz-web-app-src-"));
+  const jazzHome = mkdtempSync(join(tmpdir(), "jazz-composition-path-"));
+  const sourceDir = mkdtempSync(join(tmpdir(), "jazz-composition-src-"));
   let previousJazzHome: string | undefined;
 
   beforeAll(() => {

@@ -18,6 +18,7 @@ import {
   createBrowserSnapshotTool,
   createBrowserTabsTool,
 } from "./browser/browser-tools";
+import { createCompositionTool } from "./composition";
 import {
   createComputerAcknowledgeDriverTool,
   createComputerAppsTool,
@@ -85,7 +86,6 @@ import {
   createListTriggersTool,
   createRegisterTriggerTool,
 } from "./wake-trigger";
-import { createCompositionTool } from "./web-app";
 import { createWebFetchTool } from "./web-fetch";
 import { createWebSearchTool } from "./web-search";
 import { createUpdateWorkStateTool } from "./work-state";
