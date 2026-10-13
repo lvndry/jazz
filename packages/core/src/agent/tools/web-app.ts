@@ -1,12 +1,15 @@
+import { isAbsolute, join } from "node:path";
 import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import puppeteer, { type ChromeReleaseChannel } from "puppeteer-core";
 import shortuuid from "short-uuid";
 import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
+import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { KnownSecret } from "@/core/secrets/redaction";
 import type { GeneratedArtifact } from "@/core/types/artifact";
+import type { ToolExecutionContext } from "@/core/types/tools";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { getUserDataDirectory } from "@/core/utils/paths";
@@ -24,11 +27,15 @@ import { toolKnownSecrets } from "./tool-secrets";
  * self-contained webpage (a form, dashboard, small game, or explorable chart)
  * — for the terminal and chat surfaces that can present it.
  *
- * The agent writes the whole HTML document itself (inline CSS/JS, CDN
+ * The agent supplies the complete HTML document itself (inline CSS/JS, CDN
  * scripts for libraries like Chart.js are fine since the page runs in a real
- * WebView with network access). This tool only persists it and, for "static"
- * mode, rasterizes it once via a headless browser so it can be delivered as a
- * plain chat image with no tap required.
+ * WebView with network access), either as the `html` argument for small
+ * one-shot documents or as `htmlPath` pointing at a file the agent already
+ * wrote — the preferred path for large or iterated pages, since the document
+ * then only exists on disk once instead of being re-emitted in full in every
+ * tool call. This tool only persists it and, for "static" mode, rasterizes it
+ * once via a headless browser so it can be delivered as a plain chat image
+ * with no tap required.
  *
  * Surface-specific delivery (serving the interactive HTML over a public URL,
  * posting the static image, or opening a local browser) is the caller's job.
@@ -93,8 +100,19 @@ const createCompositionParameters = z
     html: z
       .string()
       .min(1)
+      .optional()
       .describe(
-        "Complete self-contained HTML document with <html>/<head>/<body>. Inline CSS/JS; CDN <script>/<link> tags are fine; reference no local files.",
+        "Complete self-contained HTML document with <html>/<head>/<body>. Inline CSS/JS; CDN <script>/<link> tags are fine; reference no local files. " +
+          "For small one-shot documents. Pass exactly one of html or htmlPath.",
+      ),
+    htmlPath: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Path to a complete HTML document you already wrote to disk, absolute or relative to the working directory. " +
+          "Prefer this for large or iterated pages: edit the file and re-call the tool instead of re-sending the whole document. " +
+          "Pass exactly one of html or htmlPath.",
       ),
     title: z
       .string()
@@ -123,6 +141,65 @@ const createCompositionParameters = z
       .describe("Viewport height in px for 'static' (default 600)."),
   })
   .strict();
+
+/**
+ * Resolve the caller's HTML source: either the inline `html` document or the
+ * file at `htmlPath` (absolute, or relative to the session working directory).
+ * Exactly one of the two must be provided — the schema keeps both optional so
+ * the error message can name both arguments, so the invariant is enforced here.
+ */
+function resolveHtmlSource(
+  fs: FileSystem.FileSystem,
+  args: CreateCompositionArgs,
+  context: ToolExecutionContext,
+) {
+  const hasHtml = args.html !== undefined;
+  const hasPath = args.htmlPath !== undefined;
+  if (hasHtml === hasPath) {
+    return Effect.fail(
+      new Error(
+        hasHtml
+          ? "create_composition received both html and htmlPath. Pass exactly one of them."
+          : "create_composition needs the HTML document: pass html, or htmlPath pointing at a file you already wrote.",
+      ),
+    );
+  }
+  if (hasHtml) return Effect.succeed(args.html as string);
+  const rawPath = args.htmlPath as string;
+  return Effect.gen(function* () {
+    const fileSystemContext = yield* Effect.serviceOption(FileSystemContextServiceTag);
+    const workingDirectory = Option.isSome(fileSystemContext)
+      ? yield* fileSystemContext.value.getCwd({
+          agentId: context.agentId,
+          ...(context.conversationId !== undefined
+            ? { conversationId: context.conversationId }
+            : {}),
+        })
+      : process.cwd();
+    const resolvedPath = isAbsolute(rawPath) ? rawPath : join(workingDirectory, rawPath);
+    const exists = yield* fs.exists(resolvedPath);
+    if (!exists) {
+      return yield* Effect.fail(
+        new Error(
+          `create_composition: htmlPath does not exist: ${resolvedPath}. Write the document to a file first and pass that file's path instead.`,
+        ),
+      );
+    }
+    const stats = yield* fs.stat(resolvedPath);
+    if (stats.type !== "File") {
+      return yield* Effect.fail(
+        new Error(`create_composition: htmlPath is not a regular file: ${resolvedPath}`),
+      );
+    }
+    const text = yield* fs.readFileString(resolvedPath);
+    if (text.length === 0) {
+      return yield* Effect.fail(
+        new Error(`create_composition: htmlPath is an empty file: ${resolvedPath}`),
+      );
+    }
+    return text;
+  });
+}
 
 type CreateCompositionArgs = z.infer<typeof createCompositionParameters>;
 
@@ -192,7 +269,9 @@ export function createCompositionTool(
       "Compose a visual artifact: chart, visualization, diagram, interactive explainer, dashboard, form or tool.",
     description:
       "Build a polished visual artifact when a visual is clearer than text. Make it finished: semantic HTML, responsive from 320px, clear labels and units, " +
-      "accessible contrast and focus, keyboard-operable, reduced-motion friendly. Use only real data at its real precision. Inline CSS/JS; add a library only when it clearly helps. A 'static' render must be legible with no hover, click or scroll, and needs Chrome " +
+      "accessible contrast and focus, keyboard-operable, reduced-motion friendly. Use only real data at its real precision. Inline CSS/JS; add a library only when it clearly helps. " +
+      "For small documents pass html directly; for large or iterated pages write the document to a file first, pass htmlPath, and re-call after editing the file instead of re-sending the whole document. " +
+      "A 'static' render must be legible with no hover, click or scroll, and needs Chrome " +
       "or Chromium (or PUPPETEER_EXECUTABLE_PATH). An 'interactive' page must be useful on its first screen without instructions.",
     tags: ["ui", "visualization", "composition"],
     // Existing agent configurations can keep working while the model sees and
@@ -210,9 +289,10 @@ export function createCompositionTool(
         yield* fs.makeDirectory(dir, { recursive: true, mode: stateDirectoryMode() });
 
         const id = shortuuid.generate();
+        const html = yield* resolveHtmlSource(fs, args, context);
         const htmlPath = yield* nextCompositionPath(fs, dir, args.title);
         const filename = htmlPath.slice(dir.length + 1);
-        yield* fs.writeFileString(htmlPath, args.html, { mode: stateFileMode() });
+        yield* fs.writeFileString(htmlPath, html, { mode: stateFileMode() });
 
         const htmlArtifact: GeneratedArtifact = {
           kind: "html",

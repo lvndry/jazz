@@ -24,6 +24,11 @@ You can also add `create_composition` to the agent's `config.tools` list:
 The tool needs low-risk approval. The bundled `composition` skill gives the agent
 instructions for designing the page.
 
+The agent supplies the page either as the `html` argument or as `htmlPath`, a
+file it writes and edits on disk first. For large or iterated pages it uses
+`htmlPath`, so revisions are file edits plus a short re-call instead of
+re-sending the whole document.
+
 ## Visual design
 
 Compositions have no mandatory house style. Jazz chooses typography, colors,
