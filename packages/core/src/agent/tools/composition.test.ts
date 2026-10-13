@@ -12,6 +12,7 @@ import {
   createCompositionTool,
   MISSING_BROWSER_ERROR,
   resolveBrowserExecutablePath,
+  withFavicon,
 } from "./composition";
 
 const context: ToolExecutionContext = { agentId: "agent-1" };
@@ -32,6 +33,50 @@ function lookupWithChannels(
     },
   };
 }
+describe("withFavicon", () => {
+  test("injects an inline SVG favicon into the head when none is declared", () => {
+    const out = withFavicon("<html><head><title>x</title></head><body>hi</body></html>");
+    expect(out).toContain('<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,');
+    expect(out).not.toContain(".ico");
+    expect(out.indexOf('<link rel="icon"')).toBeLessThan(out.indexOf("</head>"));
+  });
+
+  test("leaves the document untouched when it already declares an icon", () => {
+    const html =
+      '<html><head><link rel="icon" href="data:image/svg+xml,%3Csvg/%3E" /></head><body>hi</body></html>';
+    expect(withFavicon(html)).toBe(html);
+  });
+
+  test("recognizes single-quoted rel and shortcut icon variants", () => {
+    const single = withFavicon(
+      "<html><head><link rel='icon' href='a.svg' /></head><body>b</body></html>",
+    );
+    expect(single).not.toContain("data:image/svg+xml,%3Csvg");
+    const shortcut = withFavicon(
+      '<html><head><link rel="shortcut icon" href="a.ico" /></head><body>b</body></html>',
+    );
+    expect(shortcut).toContain('href="a.ico"');
+    expect(shortcut).not.toContain("data:image/svg+xml,%3Csvg");
+  });
+
+  test("falls back to before </html> when there is no head tag", () => {
+    const out = withFavicon("<html><body>hi</body></html>");
+    expect(out).toContain('rel="icon"');
+    expect(out.endsWith("</html>")).toBe(true);
+  });
+
+  test("appends the link for bare fragments and keeps the default decodable", () => {
+    const out = withFavicon("<div>hi</div>");
+    expect(out).toContain('rel="icon"');
+    const m = out.match(/data:image\/svg\+xml,([^"'\s]+)/);
+    const uri = m?.[1];
+    expect(uri).toBeDefined();
+    if (uri !== undefined) {
+      expect(decodeURIComponent(uri)).toContain("<svg");
+      expect(decodeURIComponent(uri)).toContain("</svg>");
+    }
+  });
+});
 
 function runTool(tool: ReturnType<typeof createCompositionTool>, args: Record<string, unknown>) {
   return Effect.runPromise(
@@ -190,7 +235,9 @@ describe("create_composition htmlPath source", () => {
 
     expect(result.success).toBe(true);
     const saved = result.result as { htmlPath: string };
-    expect(readFileSync(saved.htmlPath, "utf8")).toBe("<html><body>from disk</body></html>");
+    const content = readFileSync(saved.htmlPath, "utf8");
+    expect(content).toContain("from disk");
+    expect(content).toContain('<link rel="icon" type="image/svg+xml"');
   });
 
   test("resolves a relative path against the process cwd when no fs context exists", async () => {

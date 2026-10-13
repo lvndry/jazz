@@ -200,8 +200,45 @@ function resolveHtmlSource(
     return text;
   });
 }
-
 type CreateCompositionArgs = z.infer<typeof createCompositionParameters>;
+
+/** A neutral mark the browser can show in the tab: a ringed dot on a dark tile. */
+const DEFAULT_FAVICON =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0d1428"/><circle cx="16" cy="16" r="7.5" fill="none" stroke="#6fc0ff" stroke-width="2.4"/><circle cx="24.5" cy="7.5" r="2.4" fill="#ffd08a"/></svg>',
+  );
+
+const FAVICON_LINK_TAG = `<link rel="icon" type="image/svg+xml" href="${DEFAULT_FAVICON}" />`;
+
+/** True when the document already declares a favicon of any kind. */
+function hasFaviconLink(html: string): boolean {
+  return (
+    /<link\b[^>]*\brel\s*=\s*["'][^"']*(?:shortcut\s+)?icon/i.test(html) ||
+    /<link\b[^>]*\brel\s*=\s*["'][^"']*apple-touch-icon/i.test(html)
+  );
+}
+
+/**
+ * Every composition page gets a favicon, so tabs and browser previews never
+ * fall back to the generic globe. Documents that already declare one (any
+ * `rel="icon"` or `apple-touch-icon` link) pass through untouched; everything
+ * else gets an inline SVG data-URI default — no extra file, works on file://.
+ * The agent is still expected to design its own themed favicon; this is the
+ * safety net. Exported for tests; the handler applies it to both inline and
+ * htmlPath input.
+ */
+export function withFavicon(html: string): string {
+  if (hasFaviconLink(html)) return html;
+  const headMatch = html.match(/<head[^>]*>/i);
+  if (headMatch && headMatch.index !== undefined) {
+    const insertAt = headMatch.index + headMatch[0].length;
+    return html.slice(0, insertAt) + "\n" + FAVICON_LINK_TAG + html.slice(insertAt);
+  }
+  const closeHtml = html.toLowerCase().lastIndexOf("</html>");
+  if (closeHtml !== -1) return html.slice(0, closeHtml) + FAVICON_LINK_TAG + html.slice(closeHtml);
+  return html + FAVICON_LINK_TAG;
+}
 
 /** A readable, portable filename based on the composition's display name. */
 export function compositionFilenameFromTitle(title: string): string {
@@ -268,7 +305,7 @@ export function createCompositionTool(
     summary:
       "Compose a visual artifact: chart, visualization, diagram, interactive explainer, dashboard, form or tool.",
     description:
-      "Build a polished visual artifact when a visual is clearer than text. Make it finished: semantic HTML, responsive from 320px, clear labels and units, " +
+      "Build a polished visual artifact when a visual is clearer than text. Make it finished: semantic HTML, a <title>, and an inline SVG data-URI favicon, responsive from 320px, clear labels and units, " +
       "accessible contrast and focus, keyboard-operable, reduced-motion friendly. Use only real data at its real precision. Inline CSS/JS; add a library only when it clearly helps. " +
       "For small documents pass html directly; for large or iterated pages write the document to a file first, pass htmlPath, and re-call after editing the file instead of re-sending the whole document. " +
       "A 'static' render must be legible with no hover, click or scroll, and needs Chrome " +
@@ -289,7 +326,7 @@ export function createCompositionTool(
         yield* fs.makeDirectory(dir, { recursive: true, mode: stateDirectoryMode() });
 
         const id = shortuuid.generate();
-        const html = yield* resolveHtmlSource(fs, args, context);
+        const html = withFavicon(yield* resolveHtmlSource(fs, args, context));
         const htmlPath = yield* nextCompositionPath(fs, dir, args.title);
         const filename = htmlPath.slice(dir.length + 1);
         yield* fs.writeFileString(htmlPath, html, { mode: stateFileMode() });
