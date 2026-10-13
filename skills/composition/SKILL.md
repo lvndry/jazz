@@ -65,6 +65,12 @@ should improve the artifact, not delay a simple result with an exhaustive tour.
   after the network is idle, so content that only appears later —
   `requestAnimationFrame` loops, async loads, long entrances — must already be
   visible at capture time).
+- Give the page a `<title>` and an inline SVG favicon: a 32×32 mark in the
+  page's own visual language (subject glyph, title initial, or core motif),
+  declared as `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,…">`
+  right after `<head>`. The data-URI keeps it self-contained — no separate
+  file to 404 on `file://`. `create_composition` injects a neutral default
+  when one is missing, but that is a safety net, not the target.
 - Choose `static` for a chart, diagram, or briefing that needs no interaction;
   choose `interactive` when inputs, exploration, navigation, or play matter.
   Static output must show the takeaway, labels, and legend without hover or

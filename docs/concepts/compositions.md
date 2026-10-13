@@ -29,6 +29,12 @@ file it writes and edits on disk first. For large or iterated pages it uses
 `htmlPath`, so revisions are file edits plus a short re-call instead of
 re-sending the whole document.
 
+Every composition is expected to declare its own inline SVG favicon (a
+`<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,…">` right
+after `<head>`), so tabs and browser previews show a mark specific to the
+page. If the document arrives without one, the tool injects a neutral inline
+SVG default, so no composition is ever left with the browser's generic globe.
+
 ## Visual design
 
 Compositions have no mandatory house style. Jazz chooses typography, colors,
