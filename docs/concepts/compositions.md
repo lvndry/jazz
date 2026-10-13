@@ -24,6 +24,31 @@ You can also add `create_composition` to the agent's `config.tools` list:
 The tool needs low-risk approval. The bundled `composition` skill gives the agent
 instructions for designing the page.
 
+## Visual design
+
+Compositions have no mandatory house style. Jazz chooses typography, colors,
+layout, and motion for the content and audience, following your references or
+existing product design when provided.
+
+The composition skill links directly to [Refero Styles](https://styles.refero.design/)
+for design directions, [21st.dev](https://21st.dev/community/components) for
+component ideas, [Component Gallery](https://component.gallery/) for design-system
+examples, [Kinetics](https://kinetics.colorion.co/) for motion, and
+[Impeccable](https://impeccable.style/) for design guidance. The agent uses sources
+that help the task rather than following a fixed research pipeline. Browsing
+depends on the agent's available tools; a composition can still be created offline.
+
+You can name a source or describe the direction you want:
+
+```text
+Create a spending report with an editorial layout and expressive typography.
+Use Refero for inspiration and Component Gallery for the filter controls.
+```
+
+The design guidance still requires readable data, accessible controls, responsive
+layout, and working interactions. When a browser is available, the skill calls for
+checking the rendered page and controls before delivery.
+
 ## Ask for a composition
 
 Give Jazz the data and describe what you want to see or change:
