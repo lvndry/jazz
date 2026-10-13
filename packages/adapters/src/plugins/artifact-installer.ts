@@ -80,7 +80,18 @@ export async function acquirePluginManifest(
   let bytes: Uint8Array;
   let finalUrl = url;
   if (url.protocol === "file:") {
-    bytes = await readRegularFile(fileURLToPath(url), MAX_PLUGIN_MANIFEST_BYTES);
+    const manifestPath = fileURLToPath(url);
+    try {
+      bytes = await readRegularFile(manifestPath, MAX_PLUGIN_MANIFEST_BYTES);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(
+          `Plugin source no longer exists: ${manifestPath}. Point at its current location with \`jazz plugin update <id> <source>\`.`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
   } else {
     const remote = await fetchSameOrigin(url, MAX_PLUGIN_MANIFEST_BYTES, fetchImpl);
     bytes = remote.bytes;
