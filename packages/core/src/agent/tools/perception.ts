@@ -42,6 +42,7 @@ import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { Tool, ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types/agent";
 import type { MessageAttachment } from "@/core/types/attachment";
+import { COMPANION_BRIEF_MARKER } from "@/core/types/llm";
 import type { ApprovalOption, ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { resolveMediaAttachments } from "@/core/utils/media-attachments";
@@ -237,8 +238,7 @@ Rules:
 - If the brief is impossible or refused, say why in one line rather than producing something else
 - Do not ask follow-up questions; your response goes straight back to the parent
 
-BRIEF:
-${prompt}`;
+${COMPANION_BRIEF_MARKER}${prompt}`;
 }
 
 /**

@@ -123,6 +123,7 @@ import {
   createChatGPTFetch,
 } from "./chatgpt";
 import { saveModelGeneratedFiles } from "./generated-files";
+import { generateImageCompletion, isImageEndpointModel } from "./image-generation";
 import { llmFetch } from "./llm-fetch";
 import {
   resolveModelCapabilities,
@@ -2042,6 +2043,17 @@ class AISDKService implements LLMService {
         const timingStart = Date.now();
         Effect.runFork(this.logger.debug("LLM completion started", { provider: providerName }));
 
+        if (isImageEndpointModel(providerName, options.model)) {
+          return generateImageCompletion({
+            provider: providerName,
+            modelId: options.model,
+            apiKey: resolveProviderApiKey(providerName, effectiveLLMConfig),
+            messages: options.messages,
+            maxRetries: AI_SDK_MAX_RETRIES,
+            abortSignal: signal,
+          });
+        }
+
         const modelSelectStart = Date.now();
         const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
         Effect.runFork(
@@ -2316,11 +2328,56 @@ class AISDKService implements LLMService {
     return Effect.suspend(() => this.createStreamingChatCompletionAttempt(providerName, options));
   }
 
+  /**
+   * An image-endpoint model produces its picture in one request, so there is nothing to stream:
+   * the stream is empty and the picture arrives as the response.
+   */
+  private createImageGenerationResult(
+    providerName: ProviderName,
+    options: ChatCompletionOptions,
+  ): Effect.Effect<StreamingResult, LLMError> {
+    const abortController = new AbortController();
+    return Effect.succeed({
+      stream: Stream.empty,
+      response: Effect.tryPromise({
+        try: async () => {
+          await this.refreshRuntimeConfigIfChanged();
+          const effectiveLLMConfig = mergeProviderOverridesIntoLLMConfig(
+            this.config.llmConfig,
+            options,
+          );
+          return generateImageCompletion({
+            provider: providerName,
+            modelId: options.model,
+            apiKey: resolveProviderApiKey(providerName, effectiveLLMConfig),
+            messages: options.messages,
+            maxRetries: AI_SDK_MAX_RETRIES,
+            abortSignal: abortController.signal,
+          });
+        },
+        catch: (error) => {
+          const llmError = convertToLLMError(error, providerName, undefined);
+          Effect.runFork(
+            this.logger.error(
+              "LLM request failed",
+              safeLLMErrorMetadata(error, providerName, llmError._tag),
+            ),
+          );
+          return llmError;
+        },
+      }),
+      cancel: Effect.sync(() => abortController.abort()),
+    });
+  }
+
   private createStreamingChatCompletionAttempt(
     providerName: ProviderName,
     options: ChatCompletionOptions,
   ): Effect.Effect<StreamingResult, LLMError> {
     let attemptedUrl: string | undefined;
+    if (isImageEndpointModel(providerName, options.model)) {
+      return this.createImageGenerationResult(providerName, options);
+    }
     return Effect.tryPromise({
       try: async (signal) => {
         await this.refreshRuntimeConfigIfChanged();
