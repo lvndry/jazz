@@ -46,8 +46,10 @@ Use Refero for inspiration and Component Gallery for the filter controls.
 ```
 
 The design guidance still requires readable data, accessible controls, responsive
-layout, and working interactions. When a browser is available, the skill calls for
-checking the rendered page and controls before delivery.
+layout, and working interactions, including keyboard navigation for slide decks.
+The skill calls for checking inline JavaScript with `node --check`, independently
+of browser access, and reporting when that check cannot be run. When a browser is
+available, it also calls for checking the rendered page and controls before delivery.
 
 ## Ask for a composition
 

@@ -75,7 +75,11 @@ should improve the artifact, not delay a simple result with an exhaustive tour.
   keep content readable without animation, and render final values immediately
   in static mode. Static screenshots must not capture hidden or unfinished
   entrance effects.
-- Check JavaScript syntax. When a browser is available, inspect the rendered
+- Check JavaScript syntax without executing it: extract each inline JavaScript
+  block into a temporary `.js` file (`.mjs` for `type="module"`) and run
+  `node --check <file>`. Fix syntax errors before delivery. If the shell or Node
+  is unavailable, report that syntax validation could not be performed.
+- When a browser is available, inspect the rendered
   page at its intended viewport and a narrow width, exercise its controls, and
   fix clipping, unreadable labels, console errors, or broken interactions.
   Without a browser, report that limitation rather than claiming visual QA.

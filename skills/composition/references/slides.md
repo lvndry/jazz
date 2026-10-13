@@ -17,10 +17,11 @@ the canvas would make the content illegible.
 
 ## Navigation
 
-Provide visible previous/next controls and a current-slide count. Keyboard
-navigation can support arrows, Page Up/Down, Home, and End; don't intercept
-keystrokes inside inputs, editable content, or an open dialog. Keep navigation
-manual unless the person explicitly requests autoplay.
+Provide visible previous/next controls and a current-slide count. Require
+keyboard navigation: arrows and Page Up/Down move between slides; Home and End
+reach the first and last slides. Don't intercept keystrokes inside inputs,
+editable content, or an open dialog. Keep navigation manual unless the person
+explicitly requests autoplay.
 
 Hide inactive slides from display and the accessibility tree. If navigation
 hides the focused element, move focus to an appropriate visible control or
