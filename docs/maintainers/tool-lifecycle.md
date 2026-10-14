@@ -401,11 +401,21 @@ or SIGTERM. Each is a **clean stop**, not a crash:
 
 ### A built-in denylist
 
-Commands are matched against a denylist _before_ execution: privilege escalation (`sudo`,
-`su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),
-power/runlevel changes (`shutdown`), and reads or copies of `/etc/passwd`, `/etc/shadow`,
-`/etc/sudoers`. A blocked command returns the specific reason, so the agent learns why rather
-than retrying blindly.
+Commands are matched against a denylist _before_ approval is asked. A rule names one specific
+action whose damage reaches past the workspace or cannot be undone: privilege escalation
+(`sudo`, `su`), wiping disks or the home directory (`mkfs`, `rm -rf ~`), running a downloaded
+script unseen (`curl … | sh`), power changes (`shutdown`), reverse shells, persistence
+(`authorized_keys`, crontab), sending credentials to another host, and an agent granting itself
+authority (`jazz goal accept`). Recursive and wildcard `rm` are blocked too, because the `rm` tool
+shows what will be deleted at approval. A blocked command returns the specific reason, so the
+agent learns why rather than retrying blindly.
+
+How code is invoked is never a rule. `sh -c`, `python -c`, and `eval` run, because every command
+already runs as `sh -c <command>`: blocking a wrapper adds no protection and pushes the same code
+into a temp file the denylist cannot read. Reading files is not a rule either; tool output is
+redacted by value. Rules match a program where the shell runs it (after a control operator, a
+wrapper such as `env` or `xargs`, or inside `sh -c '…'`), not where its name appears in an
+argument, so `git commit -m "fix mount bug"` and `rg 'shutdown|halt'` pass.
 
 It carries one carve-out worth knowing: `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` passes, because
 temp-dir cleanup is routine and blocking it trains users to disable the denylist. `rm -rf`
@@ -413,8 +423,8 @@ against a real path (or a mix of temp and real paths) still blocks.
 
 **This is explicitly not a sandbox.** From the implementation:
 
-> It cannot stop a determined attacker: variable expansion, base64 obfuscation, eval, and
-> other indirection paths can route around any string matcher.
+> Variable expansion, quote splicing, and encoded payloads route around any string matcher, and
+> the approval gate is what governs arbitrary code.
 
 Its purpose is catching an accident from a confused model. Approval is the real control, and
 container isolation is the real boundary. The known bypasses are documented as a regression
