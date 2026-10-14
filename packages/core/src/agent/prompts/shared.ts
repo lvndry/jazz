@@ -94,8 +94,38 @@ with a short task description to load its schema; then call it normally. Do not 
 name directly or recreate its capability through the shell.
 `;
 
+/** The file tools that replace a shell program, in the order the prompt names them. */
+const SHELL_ALTERNATIVES: readonly { readonly tool: string; readonly use: string }[] = [
+  { tool: "grep", use: "search file contents with grep" },
+  { tool: "read_file", use: "read a file or a line range with read_file" },
+  { tool: "ls", use: "list a directory with ls" },
+  { tool: "find", use: "locate files by name with find" },
+  { tool: "edit_file", use: "change part of a file with edit_file" },
+  { tool: "write_file", use: "create or replace a file with write_file" },
+  { tool: "mv", use: "move or rename with mv" },
+  { tool: "cp", use: "copy with cp" },
+  { tool: "mkdir", use: "create directories with mkdir" },
+  { tool: "rm", use: "delete with rm" },
+];
+
+/** Which tool to reach for instead of the shell, naming only the file tools this run has. */
+function renderShellGuidance(toolNames: ReadonlySet<string>): string {
+  const uses = SHELL_ALTERNATIVES.filter((entry) => toolNames.has(entry.tool)).map(
+    (entry) => entry.use,
+  );
+  const shellUse =
+    "Use the shell for git, package managers, builds, tests, scripts, and programs no tool covers.";
+  if (uses.length === 0) {
+    return shellUse;
+  }
+  const fileToolUse = uses.join("; ");
+  return `${fileToolUse.charAt(0).toUpperCase()}${fileToolUse.slice(1)}. ${shellUse}`;
+}
+
 export interface HarnessPromptOptions {
   readonly hasTools: boolean;
+  /** Every tool name this run can call; decides which file tools the shell guidance names. */
+  readonly toolNames?: readonly string[];
   readonly hasShell?: boolean;
   readonly hasSubagents?: boolean;
   readonly hasToolResultRetrieval?: boolean;
@@ -111,7 +141,7 @@ export function renderHarnessPrompt(options: HarnessPromptOptions): string {
   if (options.hasTools) {
     const guidance = [TOOL_SELECTION_INSTRUCTIONS, UNTRUSTED_TOOL_OUTPUT_RULE];
     if (options.hasShell) {
-      guidance.push("Use the shell only when no dedicated or deferred tool covers the task.");
+      guidance.push(renderShellGuidance(new Set(options.toolNames ?? [])));
     }
     if (options.hasSubagents) {
       guidance.push("Delegate bulky independent investigation to subagents.");

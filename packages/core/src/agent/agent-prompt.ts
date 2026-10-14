@@ -411,6 +411,7 @@ export class AgentPromptBuilder {
             id: "harness",
             content: renderHarnessPrompt({
               hasTools: (options.toolNames?.length ?? 0) > 0,
+              ...(options.toolNames !== undefined ? { toolNames: options.toolNames } : {}),
               hasShell: options.toolNames?.includes("execute_command") === true,
               hasSubagents: options.toolNames?.includes("spawn_subagent") === true,
               hasToolResultRetrieval: options.toolNames?.includes("retrieve_tool_result") === true,

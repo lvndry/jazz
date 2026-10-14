@@ -38,6 +38,7 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
     description:
       "Create a directory; succeeds if it already exists. To create a file, use write_file, which creates missing parent directories.",
     tags: ["filesystem", "write"],
+    riskLevel: "low-risk",
     parameters: mkdirParameters,
     validate: makeZodValidator(mkdirParameters),
 

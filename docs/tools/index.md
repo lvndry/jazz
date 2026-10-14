@@ -21,8 +21,8 @@ and the [security model](../security/index.md).
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 20     |
 | Total registered                                                        | 98     |
 | `read-only`                                                             | 40     |
-| `low-risk`                                                              | 18     |
-| `high-risk`                                                             | 17     |
+| `low-risk`                                                              | 19     |
+| `high-risk`                                                             | 16     |
 | `unknown`                                                               | 3      |
 
 Plus, registered per agent rather than globally:
@@ -105,13 +105,13 @@ bookkeeping or start child runs, so a peer reaches them only when its `allow` na
 | Tool             | Risk        | Approval pair        | What it does                                                                                                              |
 | ---------------- | ----------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `cd`             | `read-only` | none                 | Change the working directory for this session. Persists across subsequent tool calls.                                     |
-| `cp`             | `high-risk` | `execute_cp`         | Copy a file or directory. Equivalent to shell cp/cp -r. Directories are copied recursively.                               |
+| `cp`             | `high-risk` | `execute_cp`         | Copy a file or directory recursively. `low-risk` unless `force` replaces an existing destination.                         |
 | `edit_file`      | `high-risk` | `execute_edit_file`  | Edit an existing file against the snapshot returned by `read_file`; reject stale state before approval or execution.      |
 | `find`           | `read-only` | none                 | Find files/directories by name, glob, or regex. Also advertised as `glob`. Searches names/paths, NOT contents (use grep). |
 | `grep`           | `read-only` | none                 | Search file contents for text patterns (ripgrep with grep fallback). Supports regex, file filters, context…               |
 | `ls`             | `read-only` | none                 | List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, c…              |
-| `mkdir`          | `high-risk` | `execute_mkdir`      | Create a directory. Parents created automatically by default.                                                             |
-| `mv`             | `high-risk` | `execute_mv`         | Move or rename a file or directory. Equivalent to shell mv.                                                               |
+| `mkdir`          | `low-risk`  | `execute_mkdir`      | Create a directory. Parents created automatically by default.                                                             |
+| `mv`             | `high-risk` | `execute_mv`         | Move or rename a file or directory. `low-risk` unless `force` replaces an existing destination.                           |
 | `pdf_page_count` | `read-only` | none                 | Get total page count of a PDF without reading content.                                                                    |
 | `pwd`            | `read-only` | none                 | Print the current working directory.                                                                                      |
 | `read_file`      | `read-only` | none                 | Read a UTF-8 text file with numbered lines and a full-file edit snapshot; sinceByte follows appended content.             |

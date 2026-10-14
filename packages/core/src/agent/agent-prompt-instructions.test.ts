@@ -101,6 +101,24 @@ describe("tool guidance injection", () => {
     expect(result).toContain("subagents");
     expect(result).toContain("offloaded or cut tool results");
   });
+
+  test("shell guidance names the file tool for each job, only for tools the agent has", () => {
+    const result = build("default", {
+      toolNames: ["execute_command", "grep", "read_file", "mv"],
+    });
+    expect(result).toContain(
+      "Search file contents with grep; read a file or a line range with read_file; move or rename with mv.",
+    );
+    expect(result).toContain("Use the shell for git, package managers, builds, tests, scripts");
+    expect(result).not.toContain("with edit_file");
+    expect(result).not.toContain("with ls");
+  });
+
+  test("shell guidance without file tools only says what the shell is for", () => {
+    const result = build("default", { toolNames: ["execute_command"] });
+    expect(result).toContain("Use the shell for git");
+    expect(result).not.toContain("with grep");
+  });
 });
 
 describe("skills playbook instructions", () => {

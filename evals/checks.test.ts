@@ -6,10 +6,12 @@ import {
   citationGroundingCheck,
   comprehensionCheck,
   constraintCheck,
+  dedicatedToolCheck,
   fileStateCheck,
   machineSpecGroundingCheck,
   plausibleFreeDiskGB,
   requiredAndForbiddenPatternCheck,
+  shellProgramsRun,
   toolGroundedAnswerCheck,
   toolUsedCheck,
 } from "./checks";
@@ -24,6 +26,42 @@ describe("toolUsedCheck", () => {
       ).pass,
     ).toBe(true);
     expect(toolUsedCheck(emptyResult(), "edit_file").pass).toBe(false);
+  });
+});
+
+function shellCall(command: string) {
+  return { id: command, name: "execute_command", arguments: JSON.stringify({ command }) };
+}
+
+describe("shellProgramsRun", () => {
+  it("names every program in a compound command, skipping cd and assignments", () => {
+    const result = emptyResult({
+      toolCalls: [
+        shellCall("cd src && LC_ALL=C /usr/bin/grep -rn TTL . | head -5; git status"),
+        { id: "r", name: "read_file", arguments: "{}" },
+      ],
+    });
+    expect(shellProgramsRun(result)).toEqual(["grep", "head", "git"]);
+  });
+});
+
+describe("dedicatedToolCheck", () => {
+  const grepCall = { id: "g", name: "grep", arguments: "{}" };
+
+  it("passes when the tool ran and no shell equivalent did", () => {
+    const result = emptyResult({ toolCalls: [grepCall, shellCall("git log -1")] });
+    expect(dedicatedToolCheck(result, "grep", ["grep", "rg"]).pass).toBe(true);
+  });
+
+  it("fails when a shell equivalent ran too", () => {
+    const result = emptyResult({ toolCalls: [grepCall, shellCall("rg TTL src")] });
+    const check = dedicatedToolCheck(result, "grep", ["grep", "rg"]);
+    expect(check.pass).toBe(false);
+    expect(check.detail).toContain("rg");
+  });
+
+  it("fails when the tool never ran", () => {
+    expect(dedicatedToolCheck(emptyResult(), "grep", ["grep"]).pass).toBe(false);
   });
 });
 
