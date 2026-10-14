@@ -1150,7 +1150,7 @@ describe("semantic presentation persistence", () => {
     ).toEqual([changed, answer]);
   });
 
-  test("receipt facts and throughput survive a save/read cycle", async () => {
+  test("receipt facts, throughput and finish time survive a save/read cycle", async () => {
     const stats = {
       id: "stats",
       timestamp,
@@ -1164,6 +1164,7 @@ describe("semantic presentation persistence", () => {
             tokensPerSecond: 100,
           },
         ],
+        finishedAt: 1_760_000_000_000,
       },
     };
     await runEffect(

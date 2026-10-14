@@ -78,6 +78,7 @@ const everyContent: ByKind<PresentationContent> = {
         tokensPerSecond: 62.5,
       },
     ],
+    finishedAt: 1_760_000_000_000,
   },
   stopped: { kind: "stopped", summary: { elapsedMs: 5, done: ["a"], notDone: ["b"] } },
   expanded: { kind: "expanded", text: "full output" },

@@ -58,3 +58,18 @@ export function formatCost(costUsd: number): string {
   }
   return `<$${SMALLEST_SHOWN_USD.toFixed(4)}`;
 }
+
+const HOURS_PER_HALF_DAY = 12;
+const CLOCK_FIELD_WIDTH = 2;
+
+/** A wall-clock moment in the local timezone on a 12-hour clock: `07:28 am`, `12:05 pm`. */
+export function formatClockTime(epochMs: number): string {
+  const moment = new Date(epochMs);
+  const hours = moment.getHours();
+  const meridiem = hours < HOURS_PER_HALF_DAY ? "am" : "pm";
+  const clockHour =
+    hours % HOURS_PER_HALF_DAY === 0 ? HOURS_PER_HALF_DAY : hours % HOURS_PER_HALF_DAY;
+  const hourText = String(clockHour).padStart(CLOCK_FIELD_WIDTH, "0");
+  const minuteText = String(moment.getMinutes()).padStart(CLOCK_FIELD_WIDTH, "0");
+  return `${hourText}:${minuteText} ${meridiem}`;
+}

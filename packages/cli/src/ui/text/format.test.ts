@@ -1,5 +1,24 @@
 import { describe, expect, it } from "bun:test";
-import { formatCost, formatElapsed, formatPreciseDuration } from "./format";
+import { formatClockTime, formatCost, formatElapsed, formatPreciseDuration } from "./format";
+
+function localTime(hours: number, minutes: number): number {
+  return new Date(2026, 9, 14, hours, minutes).getTime();
+}
+
+describe("formatClockTime", () => {
+  it("reads a morning time on a zero-padded 12-hour clock", () => {
+    expect(formatClockTime(localTime(7, 28))).toBe("07:28 am");
+  });
+
+  it("reads an afternoon time in pm", () => {
+    expect(formatClockTime(localTime(19, 5))).toBe("07:05 pm");
+  });
+
+  it("shows midnight and noon as twelve, not zero", () => {
+    expect(formatClockTime(localTime(0, 0))).toBe("12:00 am");
+    expect(formatClockTime(localTime(12, 30))).toBe("12:30 pm");
+  });
+});
 
 describe("formatPreciseDuration", () => {
   it("keeps tenths of a second under a minute, a short run included", () => {

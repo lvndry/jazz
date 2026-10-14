@@ -114,6 +114,11 @@ average per-step rates. Missing timing omits throughput instead of substituting
 wall-clock turn time. Accepted timing and token counts persist with the receipt,
 so resume uses the same calculation.
 
+The receipt also stores `finishedAt`, the epoch milliseconds when the turn's
+last step completed, and ends with that moment as a local 12-hour clock time
+(`07:28 am`). A resumed transcript shows when the turn finished, not when it
+was redrawn. Receipts saved before `finishedAt` existed render without a time.
+
 Source: [turn receipt](../../packages/cli/src/presentation/turn-receipt.ts) and
 [formatter tests](../../packages/cli/src/presentation/turn-receipt.test.ts).
 
