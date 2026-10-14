@@ -400,6 +400,22 @@ describe("footer hints", () => {
     expect(hintsFor("input", false).some((hint) => hint.includes("interrupt"))).toBe(false);
   });
 
+  it("offers Ctrl+B only once a long tool call holds the turn", () => {
+    expect(hintsFor("input", true)).not.toContain("ctrl+b to background");
+    expect(hintsFor("input", true, false, undefined, false, false, true)).toEqual([
+      "ctrl+b to background",
+      "esc esc to interrupt",
+      "^o to expand",
+      "^c to stop",
+    ]);
+    expect(hintsFor("input", true, true, undefined, false, false, true)).toContain(
+      "ctrl+b to background",
+    );
+    expect(hintsFor("input", false, false, "approval", false, false, true)).toEqual([
+      "waiting for you",
+    ]);
+  });
+
   it("never advertises actions that do not exist", () => {
     const advertised = [
       ...hintsFor("input", false),

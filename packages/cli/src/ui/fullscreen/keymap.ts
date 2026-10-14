@@ -462,7 +462,8 @@ export function isPrintableSequence(sequence: string, ctrl = false, superKey = f
 
 /**
  * Hints for the footer, resolved from focus so the footer only ever advertises
- * what is actually pressable right now.
+ * what is actually pressable right now. `detachOffered` (see `offersDetach`) puts
+ * Ctrl+B in place of the reasoning hint while a long tool call holds the turn.
  *
  * Key names stay ASCII. `⏎` and `↑` live in Miscellaneous Technical and Arrows
  * — 7/256 and 11/112 in SF Mono — and would shift the cost column.
@@ -474,6 +475,7 @@ export function hintsFor(
   overlay?: "panel" | "approval" | "search" | "question" | "text" | "filepicker" | "theme",
   commandsOpen = false,
   hasQueued = false,
+  detachOffered = false,
 ): readonly string[] {
   // A card that waits on a person carries its own legend under it; the footer says what
   // state the session is in rather than repeating the card's keys a second time.
@@ -491,11 +493,16 @@ export function hintsFor(
   }
   if (runActive) {
     if (queueing) {
-      return hasQueued
-        ? ["esc esc to send all", "enter to queue", "up to recall", "^x to clear"]
+      if (hasQueued) {
+        return ["esc esc to send all", "enter to queue", "up to recall", "^x to clear"];
+      }
+      return detachOffered
+        ? ["enter to queue", "ctrl+b to background", "esc esc to interrupt", "^c to stop"]
         : ["enter to queue", "esc esc to interrupt", "^r for reasoning", "^c to stop"];
     }
-    return ["esc esc to interrupt", "^r for reasoning", "^o to expand", "^c to stop"];
+    return detachOffered
+      ? ["ctrl+b to background", "esc esc to interrupt", "^o to expand", "^c to stop"]
+      : ["esc esc to interrupt", "^r for reasoning", "^o to expand", "^c to stop"];
   }
   return ["enter to send", "up for history", "^f to search", "^r for reasoning"];
 }
