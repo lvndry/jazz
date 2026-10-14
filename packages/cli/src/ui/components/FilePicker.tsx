@@ -3,6 +3,7 @@ import { Box, Text, useInput } from "ink";
 import React, { useEffect, useState } from "react";
 import {
   type FilePickerEntry,
+  narrowFilePickerEntries,
   resolveFilePickerPath,
   scanFilePickerEntries,
 } from "../file-picker-files";
@@ -54,8 +55,9 @@ export function FilePicker({
 
   // Scan for files matching the query asynchronously
   useEffect(() => {
-    let cancelled = false;
+    const scan = new AbortController();
     setIsLoading(true);
+    setFiles((previous) => narrowFilePickerEntries(previous, query));
 
     async function doScan() {
       const result = await scanFilePickerEntries({
@@ -63,9 +65,10 @@ export function FilePicker({
         query,
         ...(extensions === undefined ? {} : { extensions }),
         includeDirectories,
+        signal: scan.signal,
       });
 
-      if (!cancelled) {
+      if (!scan.signal.aborted) {
         setFiles(result);
         setIsLoading(false);
       }
@@ -73,7 +76,7 @@ export function FilePicker({
 
     void doScan();
     return () => {
-      cancelled = true;
+      scan.abort();
     };
   }, [basePath, query, extensions, includeDirectories]);
 

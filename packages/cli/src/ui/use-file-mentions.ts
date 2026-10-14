@@ -43,18 +43,19 @@ export function useFileMentions(text: string, caret: number): FileMentions {
       return;
     }
 
-    let cancelled = false;
+    const scan = new AbortController();
     // A keystroke lands faster than a directory walk finishes, so the scan is
-    // held back briefly and any in-flight result is discarded on the next one.
+    // held back briefly and any in-flight walk is abandoned on the next one.
     const timer = setTimeout(() => {
       void scanFilePickerEntries({
         basePath: process.cwd(),
         query,
         includeDirectories: true,
         maxResults: MENTION_MAX_RESULTS,
+        signal: scan.signal,
       })
         .then((entries) => {
-          if (cancelled) return;
+          if (scan.signal.aborted) return;
           setItems(
             entries.map((entry) => ({
               name: entry.name,
@@ -65,12 +66,12 @@ export function useFileMentions(text: string, caret: number): FileMentions {
         .catch(() => {
           // An unreadable directory is not worth surfacing mid-keystroke; the
           // menu simply stays empty.
-          if (!cancelled) setItems([]);
+          if (!scan.signal.aborted) setItems([]);
         });
     }, MENTION_SCAN_DEBOUNCE_MS);
 
     return () => {
-      cancelled = true;
+      scan.abort();
       clearTimeout(timer);
     };
   }, [query]);
