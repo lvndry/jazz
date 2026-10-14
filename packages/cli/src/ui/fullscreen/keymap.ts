@@ -489,20 +489,20 @@ export function hintsFor(
     return ["enter to keep", "esc to revert", "left right for dark or light"];
   if (commandsOpen) return ["up down to choose", "enter to run", "tab to complete"];
   if (focus === "transcript") {
-    return ["up down to scroll", "pgup to page", "type to input", "^f to search"];
+    return ["up down to scroll", "pgup to page", "type to input", "ctrl+f to search"];
   }
   if (runActive) {
     if (queueing) {
       if (hasQueued) {
-        return ["esc esc to send all", "enter to queue", "up to recall", "^x to clear"];
+        return ["esc esc to send all", "enter to queue", "up to recall", "ctrl+x to clear"];
       }
       return detachOffered
-        ? ["enter to queue", "ctrl+b to background", "esc esc to interrupt", "^c to stop"]
-        : ["enter to queue", "esc esc to interrupt", "^r for reasoning", "^c to stop"];
+        ? ["enter to queue", "ctrl+b to background", "esc esc to interrupt", "ctrl+c to stop"]
+        : ["enter to queue", "esc esc to interrupt", "ctrl+r for reasoning", "ctrl+c to stop"];
     }
     return detachOffered
-      ? ["ctrl+b to background", "esc esc to interrupt", "^o to expand", "^c to stop"]
-      : ["esc esc to interrupt", "^r for reasoning", "^o to expand", "^c to stop"];
+      ? ["ctrl+b to background", "esc esc to interrupt", "ctrl+o to expand", "ctrl+c to stop"]
+      : ["esc esc to interrupt", "ctrl+r for reasoning", "ctrl+o to expand", "ctrl+c to stop"];
   }
-  return ["enter to send", "up for history", "^f to search", "^r for reasoning"];
+  return ["enter to send", "up for history", "ctrl+f to search", "ctrl+r for reasoning"];
 }
