@@ -775,7 +775,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
         // Gate the approval prompt on the denylist: a command that the execution
         // tool will refuse should never be put in front of the user to approve.
         // Returning `skipApproval` sends the blocked error straight back to the
-        // model so it can adapt (e.g. write code to a temp file instead of -e).
+        // model so it can adapt.
         const blocked = denylistBlockedError(args.command);
         if (blocked) {
           return {
