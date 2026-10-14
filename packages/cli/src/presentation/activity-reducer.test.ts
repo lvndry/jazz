@@ -305,6 +305,38 @@ describe("activity-reducer", () => {
       expect(outputText(result.outputs[0])).toContain("/mcp reconnect slack");
     });
 
+    test("a backgrounded call's late completion keeps the name the model called", () => {
+      const a = acc();
+      a.activeTools.set("tc-bg", {
+        toolName: "execute_command",
+        startedAt: Date.now(),
+        argsPreview: 'command: "sleep 25"',
+      });
+      reduceEvent(a, {
+        type: "tool_execution_complete",
+        toolCallId: "tc-bg",
+        toolName: "execute_command",
+        result: "Running in the background",
+        durationMs: 0,
+        success: true,
+        summary: "→ backgrounded",
+        backgrounded: true,
+      });
+      expect(a.activeTools.has("tc-bg")).toBe(false);
+
+      const late = reduceEvent(a, {
+        type: "tool_execution_complete",
+        toolCallId: "tc-bg",
+        toolName: "execute_execute_command",
+        result: JSON.stringify({ stdout: "done", exitCode: 0 }),
+        durationMs: 25_000,
+        success: true,
+      });
+      const toolFacts = receipt(late.outputs[0]) as { app?: string } | undefined;
+      expect(toolFacts?.app).toBe("execute_command");
+      expect(a.backgroundedTools.has("tc-bg")).toBe(false);
+    });
+
     test("tool_execution_complete receipt carries the classifier verdict", () => {
       const a = acc();
       a.activeTools.set("tc-1", {

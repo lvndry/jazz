@@ -1108,8 +1108,17 @@ keys. In both, interrupting work takes a double Esc or one Ctrl+C.
 | Ctrl+O                           | Expand the last truncated tool output                              |
 | Up (agent busy)                  | Recall queued messages for editing                                 |
 | Ctrl+X (agent busy, empty input) | Clear the message queue                                            |
+| Ctrl+B (tool running)            | Move the running tool call to the background                       |
 
 <!-- keys-classic:end -->
+
+### Sending a tool call to the background
+
+Once a tool call has been running for a few seconds, the interface shows `ctrl+b to background`.
+Ctrl+B leaves the call running and lets the agent carry on: it is told the call is still going
+and that it will hear back. When the call finishes, the chat shows one line naming it, and the
+agent gets its result at its next step. If the chat is idle by then, the result starts a turn
+on its own, so you do not have to send a message to get the agent to read it.
 
 ### Commands that answer right away
 

@@ -59,27 +59,32 @@ function pickAwaitingLabel(): string {
 // Accumulator — mutable internal state carried between events
 // ---------------------------------------------------------------------------
 
+/** A tool call the live zone is tracking, from its start event to its completion. */
+export interface ActiveToolEntry {
+  toolName: string;
+  /** Name with backend folded in (e.g. web_search(brave)); falls back to toolName. */
+  displayName?: string;
+  startedAt: number;
+  argsPreview?: string;
+  todoSnapshot?: TodoSnapshotItem[];
+  classifying?: boolean;
+  classifiedRisk?: string;
+  /** Hidden from the live zone while the approval card owns this call. */
+  awaitingApproval?: boolean;
+}
+
 export interface ReducerAccumulator {
   agentName: string;
   isThinking: boolean;
   lastAgentHeaderWritten: boolean;
   /** Sequence number for ordering out-of-order text chunks from the stream. */
   lastAppliedTextSequence: number;
-  activeTools: Map<
-    string,
-    {
-      toolName: string;
-      /** Name with backend folded in (e.g. web_search(brave)); falls back to toolName. */
-      displayName?: string;
-      startedAt: number;
-      argsPreview?: string;
-      todoSnapshot?: TodoSnapshotItem[];
-      classifying?: boolean;
-      classifiedRisk?: string;
-      /** Hidden from the live zone while the approval card owns this call. */
-      awaitingApproval?: boolean;
-    }
-  >;
+  /**
+   * Calls moved to the background, kept by id until their real completion arrives so its
+   * receipt names the tool the model called and shows its arguments.
+   */
+  backgroundedTools: Map<string, ActiveToolEntry>;
+  activeTools: Map<string, ActiveToolEntry>;
   /** Provider id captured from stream_start for cost calculation. */
   currentProvider: string | null;
   /** Model id captured from stream_start for cost calculation. */
@@ -97,6 +102,7 @@ export function createAccumulator(agentName: string): ReducerAccumulator {
     lastAgentHeaderWritten: false,
     lastAppliedTextSequence: -1,
     activeTools: new Map(),
+    backgroundedTools: new Map(),
     currentProvider: null,
     currentModel: null,
     cumulativeCostUSD: 0,
@@ -390,7 +396,13 @@ export function reduceEvent(acc: ReducerAccumulator, event: StreamEvent): Reduce
     }
 
     case "tool_execution_complete": {
-      const toolEntry = acc.activeTools.get(event.toolCallId);
+      const toolEntry =
+        acc.activeTools.get(event.toolCallId) ?? acc.backgroundedTools.get(event.toolCallId);
+      if (event.backgrounded === true && toolEntry !== undefined) {
+        acc.backgroundedTools.set(event.toolCallId, toolEntry);
+      } else {
+        acc.backgroundedTools.delete(event.toolCallId);
+      }
       // A call refused before it started never sent a start event; the completion names it.
       const toolName = toolEntry?.toolName ?? event.toolName;
       acc.activeTools.delete(event.toolCallId);
