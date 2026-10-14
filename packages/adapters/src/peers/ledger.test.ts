@@ -95,10 +95,10 @@ describe("the peer ledger", () => {
     expect(questions).toContain("after the crash");
   });
 
-  it("never throws when the ledger cannot be written", async () => {
+  it("never throws when the ledger cannot be written", () => {
     // A full disk or a read-only home must not fail the request that produced the entry.
     process.env["JAZZ_HOME"] = "/proc/nonexistent-and-unwritable";
-    await expect(run(record(entry()))).resolves.toBeUndefined();
+    expect(run(record(entry()))).resolves.toBeUndefined();
     process.env["JAZZ_HOME"] = jazzHome;
   });
 });
