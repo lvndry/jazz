@@ -6,6 +6,7 @@ import type {
   TerminalOutputKind,
 } from "@jazz/core/interfaces/terminal";
 import type { PresentationContent } from "@jazz/core/types/presentation-content";
+import type { Effect } from "effect";
 
 export type OutputType = TerminalOutputKind;
 
@@ -55,6 +56,8 @@ export interface PromptOptions<T = unknown> {
   commandSuggestions?: boolean;
   /** Present on a `select` that accepts typed text as its answer; submitting that text calls it. */
   resolveTypedAnswer?: (text: string) => void;
+  /** Present on a `search` whose choices ctrl+d can delete; see `choice-removal.ts`. */
+  remove?: (value: T) => Effect.Effect<void, Error>;
   [key: string]: unknown;
 }
 

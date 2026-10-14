@@ -44,6 +44,7 @@ import {
 } from "./TextPrompt";
 import { getGlyphs } from "../../glyphs";
 import { CUSTOM_ANSWER_LABEL, questionKeys, questionPositionLabel } from "../../models/question";
+import { REMOVAL_HINT } from "../../prompt-core/choice-removal";
 import { alignTabColumns } from "../../prompt-core/description-columns";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../text/picker-window";
 import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../../text/terminal-cells";
@@ -178,6 +179,12 @@ export interface QuestionModel {
   readonly skippable?: boolean;
   /** Shown as a stepper row above the question. */
   readonly step?: QuestionStep;
+  /** ctrl+d deletes the highlighted choice, after a confirmation. */
+  readonly removable?: boolean;
+  /** Keys that replace the usual legend while a deletion waits for an answer. */
+  readonly pendingKeys?: readonly { readonly key: string; readonly label: string }[];
+  /** A short problem to show in place of the tally, such as why a deletion was refused. */
+  readonly notice?: string;
 }
 
 function tagColor(tone: QuestionTagTone | undefined): string {
@@ -595,33 +602,39 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     ["space", 2],
     ["type", 2],
   ]);
-  const keys = filterable
-    ? [
-        { key: "up/down", label: "choose" },
-        { key: "type", label: "filter" },
-        { key: "enter", label: "select" },
-        { key: "esc", label: model.skippable === true ? "skip question" : "cancel" },
-      ]
-    : questionKeys({
-        binary: model.buttons === true,
-        multiple: checkbox,
-        choiceCount: model.choices.length,
-        skippable: model.skippable === true,
-      });
+  const keys = model.pendingKeys
+    ? model.pendingKeys
+    : filterable
+      ? [
+          { key: "up/down", label: "choose" },
+          { key: "type", label: "filter" },
+          { key: "enter", label: "select" },
+          ...(model.removable === true ? [REMOVAL_HINT] : []),
+          { key: "esc", label: model.skippable === true ? "skip question" : "cancel" },
+        ]
+      : questionKeys({
+          binary: model.buttons === true,
+          multiple: checkbox,
+          choiceCount: model.choices.length,
+          skippable: model.skippable === true,
+        });
   const hints: readonly Hint[] = keys.map((entry) => ({
     ...entry,
     expendable: expendable.get(entry.key) ?? 3,
   }));
 
-  const tally = checkbox
-    ? `${String(checked.size)} selected`
-    : total === 0
-      ? filterable
-        ? "no matches"
-        : undefined
-      : model.buttons !== true && total > visible.length
-        ? `${String(selected + 1)} of ${String(total)}`
-        : undefined;
+  const tally =
+    model.notice !== undefined
+      ? model.notice
+      : checkbox
+        ? `${String(checked.size)} selected`
+        : total === 0
+          ? filterable
+            ? "no matches"
+            : undefined
+          : model.buttons !== true && total > visible.length
+            ? `${String(selected + 1)} of ${String(total)}`
+            : undefined;
   const positionLabel = questionPositionLabel(model.position);
   const messageBudget = Math.max(
     4,

@@ -222,7 +222,7 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
     ],
     note: "Titles keep their text without a length limit. This does not call the model.",
   },
-  { name: "resume", type: "resume", description: "Browse and resume a past conversation" },
+  { name: "resume", type: "resume", description: "Browse, resume, or delete a past conversation" },
   {
     name: "tree",
     type: "tree",

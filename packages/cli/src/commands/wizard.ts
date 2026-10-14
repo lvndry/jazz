@@ -1,3 +1,4 @@
+import { FileSystem } from "@effect/platform";
 import { controlGoal, listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
 import {
   displayConversationTitle,
@@ -5,6 +6,7 @@ import {
   loadHistory,
 } from "@jazz/adapters/history/conversation-history-service";
 import { formatRelativeWhen } from "@jazz/adapters/history/conversation-search";
+import { deleteConversation } from "@jazz/adapters/history/delete-conversation";
 import { loopsWaitingOnUser, pendingLoopInput } from "@jazz/adapters/loops/loop-actions";
 import { makeFileGoalStoreLayer } from "@jazz/adapters/storage/goal-store";
 import { makeFileLoopStoreLayer } from "@jazz/adapters/storage/loop-store";
@@ -615,6 +617,7 @@ const MAX_RESUME_CHOICES = 50;
  */
 function resumeConversation(agents: readonly Agent[], terminal: TerminalService) {
   return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
     type ConversationEntry = {
       agent: Agent;
       conversationId: string;
@@ -701,6 +704,14 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       {
         choices,
         placeholder: "Type to filter by title",
+        remove: (value) => {
+          const entry = entries[Number(value.split(":")[1])];
+          return entry === undefined
+            ? Effect.void
+            : deleteConversation(entry.agent.id, entry.conversationId).pipe(
+                Effect.provideService(FileSystem.FileSystem, fileSystem),
+              );
+        },
       },
     );
     if (selection === null || selection === undefined) {

@@ -8,7 +8,7 @@
  * result fields so the chat loop owns transcript repainting, saving the original conversation,
  * and session lifecycle. Formatting and storage use the existing shared services directly.
  */
-import type { FileSystem } from "@effect/platform";
+import { FileSystem } from "@effect/platform";
 import {
   ConversationChangedError,
   conversationRevision,
@@ -21,6 +21,7 @@ import {
   saveConversation,
 } from "@jazz/adapters/history/conversation-history-service";
 import { formatRelativeWhen } from "@jazz/adapters/history/conversation-search";
+import { deleteConversation } from "@jazz/adapters/history/delete-conversation";
 import { report, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { typedText } from "@jazz/core/memory/source-trust";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
@@ -278,13 +279,16 @@ export function handleTreeCommand(terminal: TerminalService, context: CommandCon
 /**
  * Select a saved transcript, reading its full log only after the user chooses it, and switch
  * the chat to that conversation so later turns append to its own log. Restored history carries
- * the resume notice; the runner rebuilds the live system prompt for each run.
+ * the resume notice; the runner rebuilds the live system prompt for each run. ctrl+d in the
+ * list deletes a conversation other than the one the chat is in.
  */
 export function handleResumeCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
+  currentConversationId: string,
 ): Effect.Effect<CommandResult, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
     const history = yield* loadHistory(agent.id).pipe(
       Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
     );
@@ -312,6 +316,12 @@ export function handleResumeCommand(
     const selectedId = yield* terminal.search<string>("Select a conversation to resume:", {
       choices,
       placeholder: "Type to filter conversations…",
+      remove: (conversationId) =>
+        conversationId === currentConversationId
+          ? Effect.fail(new Error("This is the conversation you're in. Switch away to delete it."))
+          : deleteConversation(agent.id, conversationId).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+            ),
     });
 
     if (!selectedId) {

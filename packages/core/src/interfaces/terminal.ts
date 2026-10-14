@@ -280,6 +280,11 @@ export interface TerminalService {
       placeholder?: string;
       /** Where this prompt sits in a multi-step flow. */
       step?: PromptStep;
+      /**
+       * Lets ctrl+d delete the highlighted choice once the person confirms; the choice then
+       * leaves the list. Fail with the message to show when it cannot be deleted.
+       */
+      remove?: (value: T) => Effect.Effect<void, Error>;
     },
   ) => Effect.Effect<T | undefined, never>;
 

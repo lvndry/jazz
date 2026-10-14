@@ -36,6 +36,12 @@ Jazz keeps five kinds of state:
 Conversation history contains your messages, the agent's replies, and its tool results.
 In the terminal, use `/resume` to return to earlier work and `/new` for a new conversation.
 
+To delete a conversation, highlight it in the `/resume` list, press Ctrl+D, and confirm with
+Enter (Esc keeps it). Deleting removes its history, its archived copy, its working state and
+logs, and the screenshots taken in it. Jazz refuses while something still uses the conversation:
+the chat you are in, another open chat, a turn that is running, a goal or loop still working in
+it, a run waiting to finish, a scheduled wake-up, or background work still reporting back to it.
+
 A save only ever adds to a conversation; nothing said in it is removed or hidden. `/retry` and
 editing an earlier message start a branch, and the answer they replace stays in the
 conversation. Use `/tree` to switch to another branch or to rewind and edit one of your earlier

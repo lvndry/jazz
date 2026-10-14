@@ -205,6 +205,7 @@ export type PickerIntent =
   | { readonly kind: "last" }
   | { readonly kind: "toggle" }
   | { readonly kind: "quickPick"; readonly index: number }
+  | { readonly kind: "setChoices"; readonly choices: readonly PickerChoice[] }
   | { readonly kind: "submit" };
 
 function clampCursor(cursor: number, length: number): number {
@@ -276,6 +277,11 @@ export function reducePicker(state: PickerState, intent: PickerIntent): PickerSt
       if (target < 0 || target >= filtered.length) return state;
       if (filtered[target]?.choice.disabled) return state;
       return { ...state, cursor: target };
+    }
+    case "setChoices": {
+      const next = { ...state, choices: intent.choices, checked: new Set<number>() };
+      const remaining = filterAndRank(next.choices, next.query).length;
+      return { ...next, cursor: clampCursor(state.cursor, remaining) };
     }
     case "submit": {
       return state;

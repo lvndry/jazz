@@ -1,10 +1,19 @@
 import type { ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
+import type { Effect } from "effect";
 import { Box, Text, useInput } from "ink";
-import React, { useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChoiceMeta } from "./PromptParts";
 import { getGlyphs } from "../glyphs";
 import { useTextInput } from "../hooks/use-input-service";
 import {
+  INITIAL_CHOICE_REMOVAL,
+  pendingRemovalHints,
+  reduceChoiceRemoval,
+  REMOVAL_HINT,
+  removalError,
+  runRemoval,
+  withoutRemoved,
+  type ChoiceRemovalIntent,
   originalValueFromPicker,
   toPickerChoices,
   TYPED_ANSWER_DESCRIPTION,
@@ -25,6 +34,8 @@ interface SearchSelectProps<T = unknown> {
   readonly onCancel?: () => void;
   /** Where the cursor starts, as an index into `options`. */
   readonly initialIndex?: number;
+  /** When set, ctrl+d deletes the highlighted choice once confirmed; see `choice-removal.ts`. */
+  readonly remove?: ((value: T) => Effect.Effect<void, Error>) | undefined;
 }
 
 /**
@@ -40,8 +51,14 @@ export function SearchSelect<T = unknown>({
   onTypedAnswer,
   onCancel,
   initialIndex = 0,
+  remove,
 }: SearchSelectProps<T>): React.ReactElement {
-  const choices = useMemo(() => toPickerChoices(options), [options]);
+  const [removal, setRemoval] = useState(INITIAL_CHOICE_REMOVAL);
+  const dispatchRemoval = useCallback((intent: ChoiceRemovalIntent) => {
+    setRemoval((current) => reduceChoiceRemoval(current, intent));
+  }, []);
+  const visibleOptions = useMemo(() => withoutRemoved(options, removal), [options, removal]);
+  const choices = useMemo(() => toPickerChoices(visibleOptions), [visibleOptions]);
   const picker = usePicker({
     type: "search",
     choices,
@@ -49,7 +66,7 @@ export function SearchSelect<T = unknown>({
     allowCustom: onTypedAnswer !== undefined,
     onResolve: (resolution) => {
       if (resolution.kind === "single") {
-        const value = originalValueFromPicker(options, resolution.value);
+        const value = originalValueFromPicker(visibleOptions, resolution.value);
         if (value !== undefined) onSelect(value);
       } else if (resolution.kind === "custom") {
         onTypedAnswer?.(resolution.value);
@@ -60,13 +77,32 @@ export function SearchSelect<T = unknown>({
 
   const { view, state, dispatch } = picker;
 
+  const shownChoices = useRef(choices);
+  useEffect(() => {
+    if (shownChoices.current !== choices) {
+      shownChoices.current = choices;
+      dispatch({ kind: "setChoices", choices });
+    }
+  }, [choices, dispatch]);
+
+  const pending = removal.status;
+  const startRemoval = (): void => {
+    if (remove === undefined || pending.phase !== "confirming") {
+      return;
+    }
+    dispatchRemoval({ kind: "start" });
+    void runRemoval(remove as (value: unknown) => Effect.Effect<void, Error>, pending.value).then(
+      dispatchRemoval,
+    );
+  };
+
   const {
     value: query,
     cursor: queryCursor,
     setValue: setQueryValue,
   } = useTextInput({
     id: "search-select-query",
-    isActive: true,
+    isActive: pending.phase === "idle",
     onSubmit: () => dispatch({ kind: "submit" }),
   });
 
@@ -82,7 +118,30 @@ export function SearchSelect<T = unknown>({
     }
   }, [query, state.query, dispatch]);
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
+    if (pending.phase === "confirming") {
+      if (key.return) {
+        startRemoval();
+      } else if (key.escape) {
+        dispatchRemoval({ kind: "keep" });
+      }
+      return;
+    }
+    if (pending.phase === "removing") {
+      return;
+    }
+    if (remove !== undefined && key.ctrl && input === "d") {
+      const row = view.rows[view.cursor];
+      const choice = row === undefined ? undefined : choices[row.originalIndex];
+      if (row !== undefined && choice !== undefined && !row.disabled) {
+        dispatchRemoval({
+          kind: "ask",
+          value: originalValueFromPicker(visibleOptions, choice.value),
+          label: row.label,
+        });
+      }
+      return;
+    }
     if (key.escape) {
       onCancel?.();
       return;
@@ -170,8 +229,26 @@ export function SearchSelect<T = unknown>({
         </Box>
       )}
 
+      {removalError(removal) === undefined ? null : (
+        <Box marginTop={1}>
+          <Text color={THEME.warning}>{removalError(removal)}</Text>
+        </Box>
+      )}
+
       <Box marginTop={1}>
-        <Text dimColor>Type to filter · ↑/↓ navigate · Enter select · Esc cancel</Text>
+        {pendingRemovalHints(removal) === undefined ? (
+          <Text dimColor>
+            Type to filter · ↑/↓ navigate · Enter select
+            {remove === undefined ? "" : ` · ${REMOVAL_HINT.key} ${REMOVAL_HINT.label}`} · Esc
+            cancel
+          </Text>
+        ) : (
+          <Text color={THEME.warning}>
+            {(pendingRemovalHints(removal) ?? [])
+              .map((hint) => (hint.key.length === 0 ? hint.label : `${hint.key} ${hint.label}`))
+              .join(" · ")}
+          </Text>
+        )}
       </Box>
     </Box>
   );
