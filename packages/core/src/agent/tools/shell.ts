@@ -494,7 +494,7 @@ export function isDangerousCommand(command: string): boolean {
 export function denylistBlockedError(command: string): string | null {
   const forbidden = matchForbiddenCommand(command);
   if (!forbidden) return null;
-  return `Command blocked by the built-in safety denylist: ${forbidden.reason}. This is a specific pattern match on this command — not a general restriction on running shell commands (other commands still run normally), and tool approval does not override it. If this command is genuinely safe and necessary, ask the user to run it manually.`;
+  return `Command blocked by the built-in safety denylist: ${forbidden.reason}. This is a specific pattern match on this command — not a general restriction on running shell commands (other commands still run normally), and tool approval does not override it. If this command is genuinely safe and necessary, ask the user to run it themselves with \`! <command>\`.`;
 }
 
 const executeCommandParameters = z

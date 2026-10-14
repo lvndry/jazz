@@ -28,9 +28,10 @@ Interactive terminal users can explicitly run a command with `! <command>`; `isS
 requires the space, so `!!! urgent` is prose. This path runs
 before the model turn and feeds the bounded result back as tagged command context. It shares
 the shell executor's working-directory resolution, sanitized environment, timeout, interruption
-handling, denylist, and stdout/stderr caps. Because the operator authored the command directly,
-the `!` path is an explicit operator action rather than a model-issued approval request; it does
-not make the command safe or weaken the denylist. Shell output is untrusted data and must be
+handling, and stdout/stderr caps. Because the operator authored the command directly, the `!`
+path is an explicit operator action rather than a model-issued approval request, and the agent
+denylist does not apply to it: that list guards what a model may run, and a blocked agent command
+tells the model to ask the person to run it with `!`. Shell output is untrusted data and must be
 treated as context, not as instructions. This syntax is available only in the interactive
 terminal; headless and remote surfaces retain their own authorization contracts.
 
