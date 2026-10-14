@@ -52,6 +52,14 @@ export function jobBatchDirectory(): string {
   return `${getJazzHomeDirectory()}/job-batches`;
 }
 
+/** Adds a check to a wait's history, oldest first, dropping the oldest past `WAIT_RECENT_CHECKS_KEPT`. */
+export function appendRecentCheck(
+  recentChecks: readonly JobCheck[],
+  check: JobCheck,
+): readonly JobCheck[] {
+  return [...recentChecks, check].slice(-WAIT_RECENT_CHECKS_KEPT);
+}
+
 function formatWaitLine(job: JobRecord, tail: (output: string) => string): string {
   const output = (job.result?.stdout?.trim() || job.result?.stderr?.trim()) ?? "";
   const lastOutput = output ? `\n\`\`\`\n${tail(output)}\n\`\`\`` : "";
@@ -242,10 +250,12 @@ function runJobCommand(claimed: ClaimedJob, leaseOwner: string) {
         onCheck: (check) => {
           const now = Date.now();
           const output = progressOutputLine(check.stdout, check.stderr, known);
-          recentChecks = [
-            ...recentChecks,
-            { check: check.attempts, at: now, exitCode: check.exitCode, output },
-          ].slice(-WAIT_RECENT_CHECKS_KEPT);
+          recentChecks = appendRecentCheck(recentChecks, {
+            check: check.attempts,
+            at: now,
+            exitCode: check.exitCode,
+            output,
+          });
           if (now - lastRecordedAt < PROGRESS_RECORD_MIN_INTERVAL_MS) {
             return Effect.void;
           }

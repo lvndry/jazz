@@ -1,7 +1,8 @@
 import { TOOL_OUTPUT_TAIL_CHARS } from "@jazz/core/agent/tools/capped-output";
-import type { JobBatchRecord, JobRecord } from "@jazz/core/interfaces/job-queue-service";
+import { WAIT_RECENT_CHECKS_KEPT } from "@jazz/core/constants/job-queue";
+import type { JobBatchRecord, JobCheck, JobRecord } from "@jazz/core/interfaces/job-queue-service";
 import { describe, expect, it } from "bun:test";
-import { pollTimeoutMessage, summarizeBatch } from "./job-worker";
+import { appendRecentCheck, pollTimeoutMessage, summarizeBatch } from "./job-worker";
 
 function job(overrides: Partial<JobRecord> & Pick<JobRecord, "id" | "command">): JobRecord {
   return {
@@ -208,5 +209,29 @@ describe("pollTimeoutMessage", () => {
 
     expect(message).toContain("Every check exited 1 with identical output");
     expect(message).toContain("confirm it can exit 0");
+  });
+});
+
+describe("appendRecentCheck", () => {
+  function checkNumbered(check: number): JobCheck {
+    return { check, at: check, exitCode: 1, output: "" };
+  }
+
+  it("appends the newest check last", () => {
+    const history = appendRecentCheck([checkNumbered(1)], checkNumbered(2));
+
+    expect(history.map((entry) => entry.check)).toEqual([1, 2]);
+  });
+
+  it("drops the oldest checks once the history is full, keeping the newest", () => {
+    let history: readonly JobCheck[] = [];
+    const total = WAIT_RECENT_CHECKS_KEPT + 5;
+    for (let checkNumber = 1; checkNumber <= total; checkNumber++) {
+      history = appendRecentCheck(history, checkNumbered(checkNumber));
+    }
+
+    expect(history).toHaveLength(WAIT_RECENT_CHECKS_KEPT);
+    expect(history[0]?.check).toBe(6);
+    expect(history[history.length - 1]?.check).toBe(total);
   });
 });
