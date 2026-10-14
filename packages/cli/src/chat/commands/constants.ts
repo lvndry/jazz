@@ -177,8 +177,17 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
   {
     name: "memory",
     type: "memory",
-    description: "Show what this agent has remembered about you, or forget one file",
-    usage: "[forget <path>]",
+    description:
+      "Show what this agent has remembered about you, forget one file, or review lessons it proposed",
+    usage: "[forget <path> | review | accept <id> | reject <id>]",
+    forms: [
+      { form: "/memory", meaning: "Every memory file" },
+      { form: "/memory <path>", meaning: "One file, exactly as the agents read it" },
+      { form: "/memory forget <path>", meaning: "Delete one file" },
+      { form: "/memory review", meaning: "Lessons agents proposed from their own mistakes" },
+      { form: "/memory accept <id>", meaning: "Save a proposed lesson to memory" },
+      { form: "/memory reject <id>", meaning: "Drop a proposed lesson" },
+    ],
   },
   {
     name: "limit",

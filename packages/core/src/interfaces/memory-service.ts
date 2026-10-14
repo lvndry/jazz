@@ -9,6 +9,12 @@
  */
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
+import type {
+  LessonProposal,
+  LessonProposalInput,
+  LessonProposalOutcome,
+  LessonResolutionOutcome,
+} from "./lesson-proposal";
 import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provenance";
 
 /** A memory entry as listings and the prompt see it: where it lives and its first line. */
@@ -170,6 +176,30 @@ export interface MemoryService {
     newVirtualPath: string,
     writeContext: MemoryWriteContext,
   ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
+
+  /** Queue a lesson for the person to review. Nothing is written to memory. */
+  readonly proposeLesson: (
+    input: LessonProposalInput,
+  ) => Effect.Effect<LessonProposalOutcome, Error, FileSystem.FileSystem>;
+
+  /** Lessons waiting for review, oldest first. */
+  readonly pendingLessons: () => Effect.Effect<
+    readonly LessonProposal[],
+    Error,
+    FileSystem.FileSystem
+  >;
+
+  /**
+   * Write a pending lesson into memory and take it off the queue. Only person-facing
+   * commands call this: the person's accept is what authorizes the agent's wording.
+   */
+  readonly acceptLesson: (
+    id: string,
+  ) => Effect.Effect<LessonResolutionOutcome, Error, FileSystem.FileSystem>;
+
+  readonly rejectLesson: (
+    id: string,
+  ) => Effect.Effect<LessonResolutionOutcome, Error, FileSystem.FileSystem>;
 }
 
 export const MemoryServiceTag = Context.GenericTag<MemoryService>("MemoryService");

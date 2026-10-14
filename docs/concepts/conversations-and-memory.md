@@ -144,7 +144,8 @@ answering and how many entries were injected per run.
 
 ### How the agent learns
 
-Memory is written in two passes, both automatic. Neither needs a command from you.
+Memory is written in two passes, both automatic. Neither needs a command from you. Separately,
+the agent proposes lessons from its own mistakes, which you accept or reject.
 
 **During the conversation.** When you state a preference, opinion, relationship, or personal
 fact ("I'm allergic to shellfish", "I prefer dark mode"), or correct how it did something ("too
@@ -182,13 +183,40 @@ does not run it.
 Both passes can write only what they can quote from your messages (see below), and neither runs
 when persistence is off: `--ephemeral` on `jazz run` or `jazz agent chat`, or a run answering a peer.
 
+### Lessons from the agent's own mistakes
+
+When the agent changes course because it got something wrong (it withdraws a recommendation,
+you or a search show its approach was mistaken, or a check it skipped would have caught the
+problem), it proposes a lesson with `propose_lesson`: a general rule, and the mistake it
+prevents. You do not have to say "remember".
+
+A lesson is written in the agent's words, not yours, so it is not saved on the agent's say-so.
+It waits for review:
+
+- In a chat, `/memory review` lists waiting lessons, `/memory accept <id>` saves one and
+  `/memory reject <id>` drops it.
+- From the shell, `jazz memory review`, `jazz memory accept <id>` and `jazz memory reject <id>`
+  do the same.
+- A chat opens with a line saying how many lessons are waiting.
+
+No tool can accept a lesson. An accepted lesson is filed like any other entry, under the
+situation it applies to, and `jazz memory explain` shows its origin as `lesson`.
+
+Lessons are also proposed after a conversation ends. When you close a chat or switch away from
+a conversation, Jazz starts a background process that reads what was said since the last
+review and proposes a lesson for each mistake the agent made. You do not wait for it, and it
+never saves facts or asks for approval. Its proposals appear at your next chat. It does not run
+for `--ephemeral` chats.
+
 Memory holds facts and preferences. It does not turn a procedure the agent worked out into a
 reusable [skill](./skills.md).
 
 ### Saving, correcting, and forgetting
 
-Every save must quote your message. Tool output, web pages, model summaries, and synthetic
-subagent prompts cannot establish facts about you. Secrets and sensitive claims are refused.
+Every save must quote your message, apart from a lesson you accepted. Tool output, web pages,
+model summaries, and synthetic subagent prompts cannot establish facts about you. Secrets and
+sensitive claims are refused. A request to remember at the start of a quote ("keep in mind
+that …", "remember to …") is left out of the saved entry, so it states the rule itself.
 
 To correct an entry, tell the agent what changed. To remove one, ask it to forget that
 specific fact. Jazz also revokes the quoted source so later compaction cannot save the

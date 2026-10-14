@@ -65,8 +65,11 @@ export const EMPTY_MEMORY_ENTRY_CREDIT: MemoryEntryCredit = {
   everFired: false,
 };
 
-/** Whether an entry was written by the extraction pass or by a person. */
-export type MemoryEntryOrigin = "auto" | "user";
+/**
+ * Who an entry's words come from: `user` and `auto` quote the person (in a turn, or by the
+ * extraction pass), `lesson` is an agent's wording that the person accepted.
+ */
+export type MemoryEntryOrigin = "auto" | "user" | "lesson";
 
 export interface MemoryFileProvenance {
   /** Stable through Jazz-managed edits and renames; files created outside Jazz get one on first snapshot. */

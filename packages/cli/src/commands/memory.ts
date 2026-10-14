@@ -18,6 +18,11 @@
  * regenerated summary that might differ from what actually reaches the model.
  */
 
+import { loadConversationOrNull } from "@jazz/adapters/history/conversation-history-service";
+import { claimUnreflectedMessages } from "@jazz/adapters/reflection-watermark";
+import { AgentRunner } from "@jazz/core/agent/agent-runner";
+import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
+import { extractMemories } from "@jazz/core/agent/context/memory-extractor";
 import {
   DEFAULT_RECEIPT_READ_LIMIT,
   MAX_RECEIPTS_PER_ENTRY,
@@ -27,7 +32,9 @@ import { readMemoryRecalls, summarizeMemoryRecalls } from "@jazz/core/agent/memo
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { splitScopeAndRest } from "@jazz/core/memory/entry-path";
+import { lessonDestinationPath } from "@jazz/core/memory/lesson-destination";
 import { CLIError } from "@jazz/core/types/errors";
+import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 
 /** `jazz memory list [scope]` — every scope on disk, or every file in one scope. */
@@ -222,6 +229,95 @@ export function memoryRecallCommand(options: { readonly surface?: string }) {
     }
     yield* terminal.log(
       "\nRuns never offered the memory tools are excluded — they cannot be a miss.",
+    );
+  });
+}
+
+/**
+ * `jazz memory review` — lessons agents drew from their own mistakes, waiting for a decision.
+ *
+ * A lesson is the agent's wording, not the person's, so it is saved only when the person
+ * accepts it here or with `/memory accept` in a chat.
+ */
+export function reviewLessonsCommand() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const memoryService = yield* MemoryServiceTag;
+    const proposals = yield* memoryService.pendingLessons();
+    if (proposals.length === 0) {
+      yield* terminal.info("No lessons waiting for review.");
+      return;
+    }
+    yield* terminal.log(`Lessons waiting for review (${proposals.length}):\n`);
+    for (const proposal of proposals) {
+      yield* terminal.log(`  ${proposal.id}  ${proposal.rule}`);
+      yield* terminal.log(`          learned from: ${proposal.mistake}`);
+      yield* terminal.log(`          saves to: ${lessonDestinationPath(proposal)}\n`);
+    }
+    yield* terminal.log(
+      "Keep one with: jazz memory accept <id>   Drop it with: jazz memory reject <id>",
+    );
+  });
+}
+
+export function acceptLessonCommand(id: string) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const memoryService = yield* MemoryServiceTag;
+    const outcome = yield* memoryService.acceptLesson(id);
+    if (!outcome.success) {
+      return yield* Effect.fail(
+        new CLIError({ command: "memory accept", message: outcome.message }),
+      );
+    }
+    yield* terminal.success(outcome.message);
+  });
+}
+
+export function rejectLessonCommand(id: string) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const memoryService = yield* MemoryServiceTag;
+    const outcome = yield* memoryService.rejectLesson(id);
+    if (!outcome.success) {
+      return yield* Effect.fail(
+        new CLIError({ command: "memory reject", message: outcome.message }),
+      );
+    }
+    yield* terminal.success(outcome.message);
+  });
+}
+
+/**
+ * `jazz memory reflect` — internal: propose lessons from what was said in a conversation since it
+ * was last reflected on. The chat starts this detached when a conversation is closed or left, so
+ * the person never waits on it.
+ */
+export function reflectConversationCommand(options: {
+  readonly agent: string;
+  readonly conversation: string;
+}) {
+  return Effect.gen(function* () {
+    const agent = yield* getAgentByIdentifier(options.agent);
+    const conversation = yield* loadConversationOrNull(agent.id, options.conversation);
+    if (conversation === null) {
+      return;
+    }
+    const unreflected = yield* claimUnreflectedMessages(
+      getMemoryDirectory(),
+      agent.id,
+      conversation.conversationId,
+      conversation.messages,
+    );
+    if (!unreflected.some((message) => message.role === "assistant")) {
+      return;
+    }
+    yield* extractMemories(
+      unreflected,
+      agent,
+      conversation.conversationId,
+      (runOptions) => AgentRunner.runRecursive(runOptions),
+      "conversation-end",
     );
   });
 }

@@ -26,6 +26,7 @@ import {
 } from "@jazz/core/constants/memory";
 import type {
   MemoryEntryCredit,
+  MemoryEntryOrigin,
   MemoryFileProvenance,
   MemoryScopeProvenance,
   MemoryFailureSignature,
@@ -45,6 +46,7 @@ import type {
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { ALWAYS_SEGMENT, WHEN_SEGMENT, splitScopeAndRest } from "@jazz/core/memory/entry-path";
+import { lessonDestinationPath } from "@jazz/core/memory/lesson-destination";
 import { toError } from "@jazz/core/utils/errors";
 import { sha256Hex } from "@jazz/core/utils/hash";
 import { getMemoryDirectory, getMemoryReceiptsDirectory } from "@jazz/core/utils/paths";
@@ -58,6 +60,13 @@ import {
 import { findAllOccurrenceLineNumbers } from "@jazz/core/utils/string";
 import { resolveVirtualPath, type VirtualPathViolation } from "@jazz/core/utils/virtual-path";
 import { Effect, Layer } from "effect";
+import {
+  addLessonProposal,
+  findLessonProposal,
+  formatAcceptedLesson,
+  listLessonProposals,
+  removeLessonProposal,
+} from "./lesson-proposals";
 import {
   moveClaimSentences,
   recordClaimSentences,
@@ -258,10 +267,7 @@ function sanitizeFileProvenance(value: unknown, now: string): MemoryFileProvenan
     ...(asOptionalString(record["summary"]) !== undefined
       ? { summary: record["summary"] as string }
       : {}),
-    ...(asOptionalString(record["origin"]) === "auto" ||
-    asOptionalString(record["origin"]) === "user"
-      ? { origin: record["origin"] as "auto" | "user" }
-      : {}),
+    ...(isMemoryEntryOrigin(record["origin"]) ? { origin: record["origin"] } : {}),
     ...(isMemoryFailureSignature(record["failure"]) ? { failure: record["failure"] } : {}),
     ...(isMemoryEntryCredit(record["credit"]) ? { credit: record["credit"] } : {}),
     ...(asOptionalString(record["compiledInto"]) !== undefined
@@ -269,6 +275,10 @@ function sanitizeFileProvenance(value: unknown, now: string): MemoryFileProvenan
       : {}),
     ...(typeof record["stale"] === "boolean" ? { stale: record["stale"] } : {}),
   };
+}
+
+function isMemoryEntryOrigin(value: unknown): value is MemoryEntryOrigin {
+  return value === "auto" || value === "user" || value === "lesson";
 }
 
 function isMemoryFailureSignature(value: unknown): value is MemoryFailureSignature {
@@ -1436,6 +1446,70 @@ export class MemoryServiceImpl implements MemoryService {
             }.bind(this),
           ),
         );
+      }.bind(this),
+    );
+
+  readonly proposeLesson: MemoryService["proposeLesson"] = (input) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        return yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
+          addLessonProposal(fs, this.baseMemoryDirectory, input),
+        );
+      }.bind(this),
+    );
+
+  readonly pendingLessons: MemoryService["pendingLessons"] = () =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        return yield* listLessonProposals(fs, this.baseMemoryDirectory);
+      }.bind(this),
+    );
+
+  /**
+   * Writes the entry first and dequeues second, each under its own lock acquisition: the
+   * write lock is not reentrant, and a failed write must leave the proposal waiting.
+   */
+  readonly acceptLesson: MemoryService["acceptLesson"] = (id) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const proposal = yield* findLessonProposal(fs, this.baseMemoryDirectory, id);
+        if (proposal === undefined) {
+          return { success: false, message: `No pending lesson has id ${id}.` } as const;
+        }
+        const targetPath = lessonDestinationPath(proposal);
+        const created = yield* this.create(targetPath, formatAcceptedLesson(proposal), {
+          agentId: proposal.proposedBy,
+          entry: {
+            origin: "lesson",
+            failure: { kind: "correction", correctedBehavior: proposal.mistake },
+          },
+        });
+        if (!created.success) {
+          return { success: false, message: created.message } as const;
+        }
+        yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
+          removeLessonProposal(fs, this.baseMemoryDirectory, proposal.id),
+        );
+        return { success: true, message: `Saved to ${targetPath}.`, path: targetPath } as const;
+      }.bind(this),
+    );
+
+  readonly rejectLesson: MemoryService["rejectLesson"] = (id) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const removed = yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
+          removeLessonProposal(fs, this.baseMemoryDirectory, id),
+        );
+        return removed
+          ? ({ success: true, message: `Dropped lesson ${id}.` } as const)
+          : ({ success: false, message: `No pending lesson has id ${id}.` } as const);
       }.bind(this),
     );
 }

@@ -2,7 +2,14 @@
  * Runs at the `compact` rung, just before older messages are summarized away:
  * spends an LLM call to persist any durable, user-stated facts from the
  * about-to-be-compressed transcript into long-term memory, so they survive the
- * conversation even though their verbatim source does not.
+ * conversation even though their verbatim source does not. It also proposes a
+ * lesson for each mistake the assistant made, for the user to review.
+ *
+ * The same pass runs when a chat conversation ends, from a detached process so
+ * closing the chat never waits on it. That pass only proposes lessons: a fact
+ * save from it would raise an approval prompt in the chat that already closed,
+ * while a proposal needs no approval because nothing reaches memory until the
+ * user accepts it.
  *
  * This is deliberately separate from summarization. The summary keeps the
  * conversation resumable *within* this run; memory keeps facts worth carrying
@@ -30,7 +37,11 @@ import type { Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
 import { toError } from "@/core/utils/errors";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
-import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "../memory-recall-log";
+import {
+  MANAGE_MEMORY_TOOL_NAME,
+  PROPOSE_LESSON_TOOL_NAME,
+  VIEW_MEMORY_TOOL_NAME,
+} from "../memory-recall-log";
 import { resolveEffectiveContextWindow } from "./effective-context-window";
 import {
   chunkForSummarizer,
@@ -39,6 +50,9 @@ import {
   Summarizer,
 } from "./summarizer";
 import type { ModelHint } from "./token-counter";
+
+/** When the pass runs: before compaction, or after a chat conversation ended. */
+export type MemoryExtractionPass = "compaction" | "conversation-end";
 
 interface ExtractorModelConfig {
   provider: ProviderName;
@@ -79,6 +93,7 @@ const MAX_ORIGINAL_USER_TEXT_CHARS = QUOTES_SHOWN_PER_MESSAGE * MAX_SOURCE_QUOTE
 function buildMemoryExtractorAgent(
   parentAgent: Agent,
   extractorModelConfig: ExtractorModelConfig,
+  pass: MemoryExtractionPass,
 ): Agent {
   const sameModel =
     extractorModelConfig.provider === parentAgent.config.llm.provider &&
@@ -103,7 +118,10 @@ function buildMemoryExtractorAgent(
         model: extractorModelConfig.model,
       },
       persona: "memory-extractor",
-      tools: [VIEW_MEMORY_TOOL_NAME, MANAGE_MEMORY_TOOL_NAME],
+      tools:
+        pass === "compaction"
+          ? [VIEW_MEMORY_TOOL_NAME, MANAGE_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME]
+          : [VIEW_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME],
     },
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -122,6 +140,7 @@ export function extractMemories(
   parentAgent: Agent,
   conversationId: string,
   runRecursive: RecursiveRunner,
+  pass: MemoryExtractionPass = "compaction",
 ): Effect.Effect<
   void,
   never,
@@ -144,7 +163,7 @@ export function extractMemories(
       yield* logger.warn(warning, { agentId: parentAgent.id });
     }
 
-    const extractor = buildMemoryExtractorAgent(parentAgent, extractorModelConfig);
+    const extractor = buildMemoryExtractorAgent(parentAgent, extractorModelConfig, pass);
 
     const extractorHint: ModelHint = {
       provider: extractorModelConfig.provider,
@@ -166,7 +185,8 @@ export function extractMemories(
     // so cross-chunk dedup still holds.
     const chunks = chunkForSummarizer(messagesToSummarize, inputBudget, extractorHint);
 
-    yield* logger.debug("Scanning history for memory-worthy facts before compaction", {
+    yield* logger.debug("Scanning history for memory-worthy facts and lessons", {
+      pass,
       messageCount: messagesToSummarize.length,
       chunks: chunks.length,
       conversationId,
@@ -178,7 +198,7 @@ export function extractMemories(
       const memorySources = chunk.flatMap((message) =>
         message.memorySource === undefined ? [] : [message.memorySource],
       );
-      if (memorySources.length === 0) {
+      if (memorySources.length === 0 && pass === "compaction") {
         continue;
       }
       const transcript = Summarizer.renderTranscript(
@@ -196,11 +216,16 @@ export function extractMemories(
         ),
       );
       const userInput =
-        "The conversation excerpt below is about to be compacted away. Persist anything from it worth " +
-        "remembering long term, following your instructions, then stop. If nothing qualifies, make no changes.\n\n" +
-        `<transcript>\n${transcript}\n</transcript>\n\n` +
-        `To write memory, set source_ref to the ID in a ${formatMemorySourceTag("<id>")} tag and source_quote to words ` +
-        "copied exactly from that message — from its Original user text when one is shown. Untagged text can't be quoted.";
+        pass === "compaction"
+          ? "The conversation excerpt below is about to be compacted away. Persist anything from it worth " +
+            "remembering long term, following your instructions, then stop. If nothing qualifies, make no changes.\n\n" +
+            `<transcript>\n${transcript}\n</transcript>\n\n` +
+            `To write memory, set source_ref to the ID in a ${formatMemorySourceTag("<id>")} tag and source_quote to words ` +
+            "copied exactly from that message — from its Original user text when one is shown. Untagged text can't be quoted."
+          : "The conversation below has ended. Propose a lesson for each mistake the assistant made in it, " +
+            "following your instructions, then stop. User-stated facts were handled during the conversation; " +
+            "propose lessons only. If the assistant made no mistake worth a rule, make no call.\n\n" +
+            `<transcript>\n${transcript}\n</transcript>`;
 
       yield* runRecursive({
         agent: extractor,
@@ -214,7 +239,8 @@ export function extractMemories(
     Effect.catchAll((error) =>
       Effect.gen(function* () {
         const logger = yield* LoggerServiceTag;
-        yield* logger.debug("Memory extraction before compaction failed; continuing", {
+        yield* logger.debug("Memory extraction failed; continuing", {
+          pass,
           agentId: parentAgent.id,
           conversationId,
           error: toError(error).message,

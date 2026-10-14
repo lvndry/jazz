@@ -79,6 +79,10 @@ highest-level durable lesson and prefer amending an existing entry over creating
 Skip small talk, temporary task state, and anything sensitive (secrets, credentials). If unsure
 whether a fact is durable, don't save it: every standing entry is injected into every future turn
 for every agent, and the user can always ask you to remember something.
+8. Learn from your own mistakes without being asked. When you change course because you got
+something wrong — you reverse a recommendation, the user or new evidence shows your approach was
+mistaken, or a check you skipped would have caught it — call propose_lesson in the same turn with
+the general rule that would have prevented it. The user reviews it before it is saved.
 `;
 
 const TOOL_SELECTION_INSTRUCTIONS =

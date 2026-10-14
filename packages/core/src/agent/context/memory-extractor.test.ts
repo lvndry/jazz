@@ -7,7 +7,11 @@ import { PresentationServiceTag, type PresentationService } from "../../interfac
 import type { Agent, AgentConfig, AppConfig } from "../../types";
 import { LLMRequestError } from "../../types/errors";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
-import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "../memory-recall-log";
+import {
+  MANAGE_MEMORY_TOOL_NAME,
+  PROPOSE_LESSON_TOOL_NAME,
+  VIEW_MEMORY_TOOL_NAME,
+} from "../memory-recall-log";
 import type { AgentResponse } from "../types";
 import { extractMemories } from "./memory-extractor";
 import { Summarizer, type AutoCompaction, type RecursiveRunner } from "./summarizer";
@@ -158,6 +162,29 @@ describe("extractMemories", () => {
     expect(capturedAgent?.config.tools).toContain(VIEW_MEMORY_TOOL_NAME);
     expect(capturedAgent?.config.tools).toContain(MANAGE_MEMORY_TOOL_NAME);
     expect(capturedMaxIterations).toBeGreaterThan(0);
+  });
+
+  it("a conversation-end pass can only propose lessons, never write memory", async () => {
+    let capturedAgent: Agent | undefined;
+    let capturedInput: string | undefined;
+    const mockRunner: RecursiveRunner = (options) => {
+      capturedAgent = options.agent;
+      capturedInput = options.userInput;
+      return Effect.succeed({ content: "", conversationId: "conv-1" } as AgentResponse);
+    };
+    const messages: ChatMessage[] = [
+      { role: "assistant", content: "Build it from scratch." },
+      { role: "assistant", content: "Correction: an open-source app already does this." },
+    ];
+
+    await Effect.runPromise(
+      extractMemories(messages, createMockAgent(), "conv-1", mockRunner, "conversation-end").pipe(
+        Effect.provide(createTestLayer()),
+      ) as Effect.Effect<void, never, never>,
+    );
+
+    expect(capturedAgent?.config.tools).toEqual([VIEW_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME]);
+    expect(capturedInput).toContain("an open-source app already does this");
   });
 
   it("does nothing when there are no messages to scan", async () => {

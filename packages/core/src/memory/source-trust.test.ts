@@ -57,6 +57,27 @@ describe("verifyMemorySourceQuote", () => {
       'The user said: "My favorite fruit is banana."\n',
     );
   });
+
+  test("stores the rule rather than the request to remember it", () => {
+    expect(
+      formatStoredUserClaim(
+        "keep in memory to check for existing products before suggesting building a new one",
+      ),
+    ).toBe('The user said: "Check for existing products before suggesting building a new one"\n');
+    expect(formatStoredUserClaim("Please remember that my sister is Ana.")).toBe(
+      'The user said: "My sister is Ana."\n',
+    );
+  });
+
+  test("keeps a quote that is nothing but the request", () => {
+    expect(formatStoredUserClaim("Remember that.")).toBe('The user said: "Remember that."\n');
+  });
+
+  test("keeps a quote whose verb is part of the fact", () => {
+    expect(formatStoredUserClaim("I remember names better than faces.")).toBe(
+      'The user said: "I remember names better than faces."\n',
+    );
+  });
 });
 
 describe("requestsMemoryChange", () => {

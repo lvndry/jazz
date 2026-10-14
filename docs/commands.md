@@ -753,6 +753,9 @@ Memory is shared by every agent, so these commands address scopes and paths dire
 | `jazz memory forget <path>`  | Permanently delete one memory file                            |
 | `jazz memory explain <path>` | Show provenance and recent opportunity receipts for one entry |
 | `jazz memory recall`         | Report memory consultation; `--surface <name>` filters it     |
+| `jazz memory review`         | List lessons agents proposed from their own mistakes          |
+| `jazz memory accept <id>`    | Save a proposed lesson to memory                              |
+| `jazz memory reject <id>`    | Drop a proposed lesson without saving it                      |
 
 Conversation history and current working state are separate. See [Conversations, working state, and memory](./concepts/conversations-and-memory.md).
 
@@ -990,7 +993,7 @@ shows every form of one command. The table below is generated from the same list
 | `/help [command]`                                                                    | Show available commands and shortcuts.                                                                        |
 | `/loop <every> <prompt>\|cron\|list\|approve\|reject\|answer\|pause\|resume\|cancel` | Rerun a prompt on a schedule in the background. See [Loops in chat](#loops-in-chat).                          |
 | `/waits [list\|show <number>\|cancel <number>]`                                      | List what is waiting in the background, show a wait's checks, or cancel one.                                  |
-| `/memory [forget <path>]`                                                            | Show what this agent has remembered about you, or forget one file.                                            |
+| `/memory [forget <path> \| review \| accept <id> \| reject <id>]`                    | Show what this agent has remembered about you, forget one file, or review lessons it proposed.                |
 | `/limit [turns\|usd\|tokens <value>\|clear]`                                         | Set a session turn, cost, or token limit (applied immediately).                                               |
 | `/mcp [reconnect <server>]`                                                          | Show MCP servers, or reconnect one.                                                                           |
 | `/mode [allow\|disallow <cmd>]`                                                      | Switch between safe mode and yolo mode for tool approvals (also Shift+Tab).                                   |

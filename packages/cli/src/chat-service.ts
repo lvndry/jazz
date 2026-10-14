@@ -108,6 +108,7 @@ import {
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { backgroundItems } from "@/cli/ui/models/background-work";
 import { store } from "@/cli/ui/store";
+import { announcePendingLessons } from "./chat/announce-pending-lessons";
 import { classifyChatInput } from "./chat/chat-input";
 import {
   handleSpecialCommand,
@@ -148,6 +149,7 @@ import {
 } from "./chat/detached-results";
 import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
+import { reflectInBackground } from "./chat/reflect-in-background";
 import {
   initializeSession,
   logMessageToSession,
@@ -401,6 +403,9 @@ export class ChatServiceImpl implements ChatService {
         hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
       }
       hydrateInputHistoryFromMessages(conversationHistory);
+      if (!ephemeral) {
+        yield* announcePendingLessons().pipe(Effect.catchAllCause(() => Effect.void));
+      }
       if (!ephemeral && conversationHistory.length > 0) {
         yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
         yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
@@ -949,6 +954,9 @@ export class ChatServiceImpl implements ChatService {
                 attendedGoalId = undefined;
                 goalContinues = false;
               }
+              if (!ephemeral && sessionTurnCount > 0) {
+                yield* reflectInBackground(agent.id, conversationId);
+              }
               conversationId = commandResult.newConversationId;
               yield* stopSubagents;
               subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
@@ -1455,6 +1463,9 @@ export class ChatServiceImpl implements ChatService {
       yield* stopSubagents;
       yield* emitLifecycle("session-end");
       yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
+      if (!ephemeral && sessionTurnCount > 0) {
+        yield* reflectInBackground(agent.id, conversationId);
+      }
       // Stop mirroring state to the pane product once the session is over;
       // the exit hooks handle the pane release.
       detachPaneStateReporting();

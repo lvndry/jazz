@@ -40,7 +40,7 @@ import { toError } from "@/core/utils/errors";
 import { sha256Hex } from "@/core/utils/hash";
 import { formatByteSize } from "@/core/utils/string";
 import { diffExceedsPreview } from "@/core/utils/tool-formatter";
-import { MANAGE_MEMORY_TOOL_NAME } from "../memory-recall-log";
+import { MANAGE_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME } from "../memory-recall-log";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type MemoryToolDeps = MemoryService | FileSystem.FileSystem;
@@ -444,6 +444,113 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
       if (!result.success) return undefined;
       const data = result.result as { message: string };
       return data.message;
+    },
+  });
+}
+
+const proposeLessonParameters = z
+  .object({
+    subject: z
+      .string()
+      .min(1)
+      .describe('A few words naming the lesson, e.g. "prior art before building".'),
+    rule: z
+      .string()
+      .min(1)
+      .describe(
+        'What to do from now on, as a general rule a future conversation can act on, e.g. "Search for existing products before proposing to build a new one."',
+      ),
+    mistake: z
+      .string()
+      .min(1)
+      .describe("What went wrong in this conversation that the rule prevents, in one sentence."),
+    topic: z
+      .string()
+      .min(1)
+      .describe(
+        'The situation the rule applies to, in a few words, e.g. "planning-a-new-project". ' +
+          `"${ALWAYS_SEGMENT}" only for rules that shape nearly every task.`,
+      ),
+    scope: z.string().optional().describe('Defaults to the shared "personal" scope.'),
+  })
+  .strict();
+
+type ProposeLessonArgs = z.infer<typeof proposeLessonParameters>;
+
+/**
+ * Lets an agent turn its own mistake into a rule without the user having to say "remember".
+ * The lesson is queued, not saved: the user accepts or rejects it with `/memory review` or
+ * `jazz memory review`, because the rule is the agent's wording rather than quoted user words.
+ */
+export function createProposeLessonTool(): Tool<MemoryToolDeps> {
+  return defineTool<MemoryToolDeps, ProposeLessonArgs>({
+    name: PROPOSE_LESSON_TOOL_NAME,
+    disclosure: "private",
+    summary: "Propose a rule learned from your own mistake, for the user to review.",
+    description:
+      "Call this when you got something wrong and had to change course: you reversed a recommendation, " +
+      "the user or new evidence showed your approach was mistaken, or a check you skipped would have caught it. " +
+      "State the general rule that would have prevented it and the mistake it prevents. " +
+      "The user reviews each proposal before it is saved, so propose only rules worth keeping for months, one per mistake.",
+    parameters: proposeLessonParameters,
+    riskLevel: "read-only",
+    hidden: false,
+    validate: makeZodValidator(proposeLessonParameters),
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const unusableSubject = describeUnusableSubject(args.subject);
+        if (unusableSubject !== undefined) {
+          return {
+            success: false,
+            result: null,
+            error: unusableSubject,
+          } satisfies ToolExecutionResult;
+        }
+        if (args.topic !== ALWAYS_SEGMENT) {
+          const unusableTopic = describeUnusableTopic(args.topic);
+          if (unusableTopic !== undefined) {
+            return {
+              success: false,
+              result: null,
+              error: unusableTopic,
+            } satisfies ToolExecutionResult;
+          }
+        }
+        const memoryService = yield* MemoryServiceTag;
+        const outcome = yield* memoryService.proposeLesson({
+          subject: args.subject,
+          rule: args.rule,
+          mistake: args.mistake,
+          topic: args.topic,
+          scope: args.scope ?? DEFAULT_MEMORY_SCOPE,
+          proposedBy: context.agentId,
+          ...(context.conversationId !== undefined
+            ? { conversationId: context.conversationId }
+            : {}),
+        });
+        return outcome.success
+          ? ({
+              success: true,
+              result: { message: outcome.message, id: outcome.proposal.id },
+            } satisfies ToolExecutionResult)
+          : ({
+              success: false,
+              result: null,
+              error: outcome.message,
+            } satisfies ToolExecutionResult);
+      }).pipe(
+        Effect.catchAll((error) =>
+          Effect.succeed({
+            success: false,
+            result: null,
+            error: toError(error).message,
+          } satisfies ToolExecutionResult),
+        ),
+      ),
+    createSummary: (result) => {
+      if (!result.success) return undefined;
+      const data = result.result as { id: string };
+      return `Proposed lesson ${data.id}: the user reviews it with /memory review`;
     },
   });
 }
