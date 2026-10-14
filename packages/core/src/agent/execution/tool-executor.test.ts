@@ -43,6 +43,7 @@ import type { ApprovalRequest, ToolCall, ToolExecutionResult } from "../../types
 import { AgentRunner } from "../agent-runner";
 import type { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import { createPerceptionTools } from "../tools/perception";
+import type { DetachedToolResult } from "../types";
 
 /** Result shape of executeToolCall / executeToolCalls items */
 type ToolCallExecutionResult = {
@@ -673,7 +674,7 @@ describe("ToolExecutor.executeToolCalls", () => {
 
     const program = Effect.gen(function* () {
       const backgroundDeferred = yield* Deferred.make<void>();
-      const completions: string[] = [];
+      const completions: DetachedToolResult[] = [];
 
       const fiber = yield* Effect.fork(
         ToolExecutor.executeToolCalls(
@@ -687,8 +688,8 @@ describe("ToolExecutor.executeToolCalls", () => {
           "test-agent",
           undefined,
           Deferred.await(backgroundDeferred),
-          (summary: string) => {
-            completions.push(summary);
+          (result: DetachedToolResult) => {
+            completions.push(result);
           },
         ),
       );
@@ -714,7 +715,7 @@ describe("ToolExecutor.executeToolCalls", () => {
             success: boolean;
             name: string;
           }[];
-          completions: readonly string[];
+          completions: readonly DetachedToolResult[];
         },
         unknown,
         never
@@ -729,7 +730,8 @@ describe("ToolExecutor.executeToolCalls", () => {
     // The tool itself was never interrupted — the detached fiber ran to completion and
     // reported its real result back through onDetachedToolComplete.
     expect(completions).toHaveLength(1);
-    expect(completions[0]).toContain("real result");
+    expect(completions[0]?.toolName).toBe("background_tool");
+    expect(completions[0]?.summary).toContain("real result");
     expect(
       emittedEvents.some(
         (event) =>
