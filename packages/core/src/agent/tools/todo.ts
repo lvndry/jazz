@@ -46,7 +46,7 @@ type TodoItem = z.infer<typeof TodoItemSchema>;
  * They used to be keyed by a per-sitting id that `/new` did not change, so starting a new
  * conversation silently inherited the previous one's list.
  */
-function getTodoFilePath(conversationId: string): string {
+export function getTodoFilePath(conversationId: string): string {
   return path.join(os.tmpdir(), `jazz-todos-${conversationId}.json`);
 }
 

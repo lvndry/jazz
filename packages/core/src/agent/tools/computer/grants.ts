@@ -17,6 +17,7 @@ import { z } from "zod";
 import { writeJsonFileDurably } from "@/core/utils/durable-file";
 import { withFileLock } from "@/core/utils/file-lock";
 import { getJazzHomeDirectory } from "@/core/utils/paths";
+import { storageSafeSegment } from "@/core/utils/storage-id";
 
 /** How long a grant lasts when the operator does not say: one working day. */
 export const DEFAULT_GRANT_EXPIRY_MS = 8 * 60 * 60 * 1000;
@@ -63,6 +64,11 @@ export const EMPTY_COMPUTER_STATE: ComputerState = { version: 1, grants: [] };
 
 export function computerDirectory(): string {
   return path.join(getJazzHomeDirectory(), "computer");
+}
+
+/** Where a computer session keyed by `owner` (its conversation, else its agent) saves captures. */
+export function computerCapturesDirectory(owner: string): string {
+  return path.join(computerDirectory(), "captures", storageSafeSegment(owner));
 }
 
 export function grantsFilePath(): string {

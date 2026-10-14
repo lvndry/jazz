@@ -8,14 +8,12 @@
  * message the operator can act on, and nothing is left running or locked.
  */
 
-import * as path from "node:path";
-import { storageSafeSegment } from "@/core/utils/storage-id";
 import { acquireComputerLock, clearStopRequest, writeSessionInfo } from "./control";
 import { CuaDriver } from "./cua-driver";
 import type { ComputerDriver } from "./driver";
 import { checkDriverPin, computerUseSupported, UNSUPPORTED_PLATFORM_MESSAGE } from "./driver-pin";
 import {
-  computerDirectory,
+  computerCapturesDirectory,
   readComputerState,
   updateComputerState,
   withAcknowledgement,
@@ -112,11 +110,7 @@ export async function openComputerSession(
       releaseLock,
       agentId: options.agentId,
       conversationId: options.conversationId,
-      capturesDirectory: path.join(
-        computerDirectory(),
-        "captures",
-        storageSafeSegment(options.conversationId ?? options.agentId),
-      ),
+      capturesDirectory: computerCapturesDirectory(options.conversationId ?? options.agentId),
       announce: options.announce,
       ancestorPids: processAncestry(),
       ...(options.now === undefined ? {} : { now: options.now }),
