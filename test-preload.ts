@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { afterEach } from "bun:test";
 
 /**
  * Bun test preload — runs before every test file.
@@ -40,3 +41,15 @@ process.env["JAZZ_DISABLE_KEYRING"] ??= "1";
  * `??=` so a test that exercises home-directory resolution can still set its own.
  */
 process.env["JAZZ_HOME"] ??= mkdtempSync(path.join(tmpdir(), "jazz-test-home-"));
+const suiteJazzHome = process.env["JAZZ_HOME"];
+
+/**
+ * A test that clears `JAZZ_HOME` instead of restoring it sends every later test in the process to
+ * `~/.jazz`. Putting the throwaway home back after each test keeps one forgetful teardown from
+ * reaching the developer's real history; a test that sets its own home is left alone.
+ */
+afterEach(() => {
+  if (process.env["JAZZ_HOME"] === undefined) {
+    process.env["JAZZ_HOME"] = suiteJazzHome;
+  }
+});
