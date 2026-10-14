@@ -1,5 +1,5 @@
 ---
-description: "Why Jazz memory learns what you state and the lessons you accept, keeps tastes in scopes, separates standing rules from conditional ones, and stays in files you can read, correct, and forget."
+description: "Why Jazz memory learns what you state and the lessons you accept, keeps tastes in scopes, and stays in files you can read, correct, and forget."
 ---
 
 # Why memory works this way
