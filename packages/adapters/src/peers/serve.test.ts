@@ -1,11 +1,32 @@
+import * as nodeFs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import type { AgentRunnerOptions } from "@jazz/core/agent/types";
 import { ToolRegistryTag, type Tool, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types/agent";
 import type { PeerConfig } from "@jazz/core/types/peer";
-import { describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Effect } from "effect";
 import { extractClarificationQuestion, servePeerRequest } from "./serve";
+
+// `servePeerRequest` appends to the peer ledger through the production path; the ledger lives
+// under `$JAZZ_HOME/peers`, so without a temp home every run writes its fixtures into the
+// operator's real `~/.jazz` — the "2 new from sam" footer is what that pollution looks like.
+let jazzHome: string;
+let previousHome: string | undefined;
+
+beforeEach(async () => {
+  jazzHome = await nodeFs.mkdtemp(path.join(os.tmpdir(), "jazz-peer-serve-"));
+  previousHome = process.env["JAZZ_HOME"];
+  process.env["JAZZ_HOME"] = jazzHome;
+});
+
+afterEach(async () => {
+  if (previousHome === undefined) delete process.env["JAZZ_HOME"];
+  else process.env["JAZZ_HOME"] = previousHome;
+  await nodeFs.rm(jazzHome, { recursive: true, force: true });
+});
 
 describe("recognizing a parked answer from toolResults", () => {
   it("finds nothing when request_clarification was never called", () => {
