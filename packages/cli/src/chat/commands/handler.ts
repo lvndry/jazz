@@ -298,7 +298,7 @@ export function handleSpecialCommand(
         );
 
       case "resume":
-        return yield* handleResumeCommand(terminal, agent);
+        return yield* handleResumeCommand(terminal, agent, context.conversationId);
 
       case "tree":
         return yield* handleTreeCommand(terminal, context);

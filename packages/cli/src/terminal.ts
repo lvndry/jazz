@@ -481,8 +481,10 @@ export class InkTerminalService implements TerminalService {
       choices: readonly PromptChoiceInput<T>[];
       placeholder?: string;
       step?: PromptStep;
+      remove?: (value: T) => Effect.Effect<void, Error>;
     },
   ): Effect.Effect<T | undefined, never> {
+    const remove = options.remove;
     return Effect.async<T | undefined>((resume) => {
       const choices = normalizeChoices(options.choices);
       store.setPrompt({
@@ -492,6 +494,7 @@ export class InkTerminalService implements TerminalService {
           choices,
           placeholder: options.placeholder,
           ...(options.step === undefined ? {} : { step: options.step }),
+          ...(remove === undefined ? {} : { remove: (value: unknown) => remove(value as T) }),
         },
         resolve: (val: unknown) => {
           const choice = choices.find((c) => c.value === val);

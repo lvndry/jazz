@@ -14,6 +14,7 @@ import type { SkillMetadata } from "@jazz/core/skills/skill-service";
 import { isHttpApprovalTool } from "@jazz/core/utils/http-approval";
 import { isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
 import { useTerminalDimensions } from "@opentui/react";
+import type { Effect } from "effect";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { filterCommandsByPrefix, slashCommandQuery } from "@jazz/cli/chat/commands";
@@ -101,6 +102,16 @@ import { retryBand, retryBandHeight } from "../models/retry";
 import { settledPlan } from "../models/todo";
 import { offersDetach } from "../models/tool-detach";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
+import {
+  INITIAL_CHOICE_REMOVAL,
+  isRemovalKey,
+  pendingRemovalHints,
+  reduceChoiceRemoval,
+  removalError,
+  runRemoval,
+  withoutRemoved,
+  type ChoiceRemovalState,
+} from "../prompt-core/choice-removal";
 import { initialChoiceIndex } from "../prompt-core/picker-adapter";
 import { readPromptStep } from "../prompt-core/stepper";
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
@@ -178,6 +189,8 @@ interface PromptQuestionState {
   readonly custom: PromptEditorState;
   readonly filter: string;
   readonly filterCaret: number;
+  /** A deletion asked for with ctrl+d in a `search` that offers one, and the rows it removed. */
+  readonly removal: ChoiceRemovalState;
 }
 
 interface PromptFileState {
@@ -202,6 +215,7 @@ const EMPTY_QUESTION: PromptQuestionState = {
   custom: EMPTY_EDITOR,
   filter: "",
   filterCaret: 0,
+  removal: INITIAL_CHOICE_REMOVAL,
 };
 const EMPTY_FILE: PromptFileState = {
   filter: "",
@@ -294,6 +308,7 @@ function promptSuggestions(prompt: PromptState): readonly Suggestion[] {
 function choicesForQuestion(
   prompt: PromptState,
   suggestions: readonly Suggestion[],
+  removal: ChoiceRemovalState,
 ): readonly Choice[] {
   if (prompt.type === "confirm") {
     return [
@@ -308,7 +323,14 @@ function choicesForQuestion(
       ...(suggestion.description === undefined ? {} : { description: suggestion.description }),
     }));
   }
-  return promptChoices(prompt);
+  return withoutRemoved(promptChoices(prompt), removal);
+}
+
+/** The deletion a `search` prompt offers on ctrl+d, if it offers one. */
+function promptRemoval(
+  prompt: PromptState,
+): ((value: unknown) => Effect.Effect<void, Error>) | undefined {
+  return prompt.type === "search" ? prompt.options?.remove : undefined;
 }
 
 /**
@@ -573,7 +595,10 @@ function overlayFromPrompt(
     case "select":
     case "search":
     case "checkbox": {
-      const choices = promptChoices(prompt);
+      const choices = withoutRemoved(promptChoices(prompt), question.removal);
+      const removable = promptRemoval(prompt) !== undefined;
+      const removalHints = pendingRemovalHints(question.removal);
+      const removalProblem = removalError(question.removal);
       const filterable = prompt.type !== "checkbox";
       const indices = filterable
         ? matchingChoiceIndices(choices, question.filter)
@@ -605,6 +630,9 @@ function overlayFromPrompt(
         ...(prompt.type === "checkbox"
           ? { checked: question.checked.map((index) => `choice-${String(index)}`) }
           : {}),
+        ...(removable ? { removable: true } : {}),
+        ...(removalHints === undefined ? {} : { pendingKeys: removalHints }),
+        ...(removalProblem === undefined ? {} : { notice: removalProblem }),
         ...stepField(prompt),
       };
     }
@@ -612,7 +640,7 @@ function overlayFromPrompt(
       const suggestions = promptSuggestions(prompt);
       const allowMultiple = allowsMultipleAnswers(prompt);
       const allowCustom = allowsCustomAnswer(prompt);
-      const choices = choicesForQuestion(prompt, suggestions);
+      const choices = choicesForQuestion(prompt, suggestions, question.removal);
       const position = questionPosition(prompt);
       return {
         kind: "question",
@@ -1654,7 +1682,11 @@ export function FullscreenBridge(): React.ReactNode {
         if (promptIsFilterable(active)) {
           const flat = flattenPaste(pasted);
           const suggestions = promptSuggestions(active);
-          const sourceChoices = choicesForQuestion(active, suggestions);
+          const sourceChoices = choicesForQuestion(
+            active,
+            suggestions,
+            promptControlsRef.current.question.removal,
+          );
           updatePromptQuestion((state) => {
             const nextFilter = insertTextAt(state.filter, state.filterCaret, flat);
             const choices = choicesAtIndices(
@@ -1671,7 +1703,11 @@ export function FullscreenBridge(): React.ReactNode {
           return true;
         }
         const suggestions = promptSuggestions(active);
-        const sourceChoices = choicesForQuestion(active, suggestions);
+        const sourceChoices = choicesForQuestion(
+          active,
+          suggestions,
+          promptControlsRef.current.question.removal,
+        );
         const visibleChoices = choicesAtIndices(
           sourceChoices,
           sourceChoices.map((_choice, index) => index),
@@ -2216,6 +2252,14 @@ export function FullscreenBridge(): React.ReactNode {
       if (active !== null && active.type !== "chat") {
         if (name === "pageup" || name === "pagedown") return false;
         if (name === "escape") {
+          const pendingRemoval = promptControlsRef.current.question.removal.status.phase;
+          if (pendingRemoval !== "idle") {
+            updatePromptQuestion((state) => ({
+              ...state,
+              removal: reduceChoiceRemoval(state.removal, { kind: "keep" }),
+            }));
+            return true;
+          }
           if (active.reject !== undefined) {
             active.reject();
           } else if (active.type === "hidden") {
@@ -2346,7 +2390,11 @@ export function FullscreenBridge(): React.ReactNode {
 
         const questionState = promptControlsRef.current.question;
         const suggestions = promptSuggestions(active);
-        const sourceChoices = choicesForQuestion(active, suggestions);
+        const sourceChoices = choicesForQuestion(
+          active,
+          suggestions,
+          promptControlsRef.current.question.removal,
+        );
         const filteredIndices = promptIsFilterable(active)
           ? matchingChoiceIndices(sourceChoices, questionState.filter)
           : sourceChoices.map((_choice, index) => index);
@@ -2358,6 +2406,53 @@ export function FullscreenBridge(): React.ReactNode {
         const binary = binaryAnswers(active, sourceChoices);
         const typingCustom = allowCustom && questionState.selected === visibleChoices.length;
         const plainKey = !ctrl && !meta && !option && !superKey;
+
+        const remove = promptRemoval(active);
+        const removalStatus = questionState.removal.status;
+        if (removalStatus.phase !== "idle") {
+          if (
+            remove !== undefined &&
+            removalStatus.phase === "confirming" &&
+            (name === "return" || name === "enter")
+          ) {
+            updatePromptQuestion((state) => ({
+              ...state,
+              removal: reduceChoiceRemoval(state.removal, { kind: "start" }),
+            }));
+            void runRemoval(remove, removalStatus.value).then((outcome) => {
+              if (promptRef.current !== active) {
+                return;
+              }
+              updatePromptQuestion((state) => {
+                const removal = reduceChoiceRemoval(state.removal, outcome);
+                const remaining = matchingChoiceIndices(
+                  withoutRemoved(promptChoices(active), removal),
+                  state.filter,
+                ).length;
+                return {
+                  ...state,
+                  removal,
+                  selected: Math.max(0, Math.min(state.selected, remaining - 1)),
+                };
+              });
+            });
+          }
+          return true;
+        }
+        if (remove !== undefined && isRemovalKey({ name, ctrl })) {
+          const highlighted = visibleChoices[questionState.selected];
+          if (highlighted !== undefined && highlighted.disabled !== true) {
+            updatePromptQuestion((state) => ({
+              ...state,
+              removal: reduceChoiceRemoval(state.removal, {
+                kind: "ask",
+                value: highlighted.value,
+                label: highlighted.label,
+              }),
+            }));
+          }
+          return true;
+        }
 
         if (binary !== undefined && !typingCustom && plainKey && (name === "y" || name === "n")) {
           const answer = sourceChoices[name === "y" ? binary.yes : binary.no];

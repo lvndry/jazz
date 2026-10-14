@@ -60,6 +60,11 @@ import {
   tabNameProblem,
 } from "./tabs";
 
+/** Where screenshots taken for `owner` (a conversation, else an agent) are saved. */
+export function browserScreenshotDirectory(owner: string): string {
+  return path.join(getUserDataDirectory(), "browser", storageSafeSegment(owner));
+}
+
 export const BROWSER_NAVIGATE_TOOL_NAME = "browser_navigate";
 export const BROWSER_ACT_TOOL_NAME = "browser_act";
 export const BROWSER_TABS_TOOL_NAME = "browser_tabs";
@@ -368,9 +373,7 @@ export function createBrowserScreenshotTool(): Tool<AgentConfigService> {
     hidden: false,
     handler: (args, context) =>
       Effect.gen(function* () {
-        const directory = `${getUserDataDirectory()}/browser/${storageSafeSegment(
-          context.conversationId ?? context.agentId,
-        )}`;
+        const directory = browserScreenshotDirectory(context.conversationId ?? context.agentId);
         yield* Effect.tryPromise({
           try: () => mkdir(directory, { recursive: true, mode: stateDirectoryMode() }),
           catch: toError,

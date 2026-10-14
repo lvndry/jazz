@@ -468,6 +468,7 @@ function PromptComponent({
             options={prompt.options?.choices ?? []}
             pageSize={PICKER_WINDOW_SIZE}
             placeholder={(prompt.options?.["placeholder"] as string) ?? "Type to search..."}
+            remove={prompt.options?.remove}
             onSelect={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
           />

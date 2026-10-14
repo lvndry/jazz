@@ -827,7 +827,7 @@ export function listAgentsWithConversations(
   });
 }
 
-/** Removes one conversation log. Nothing else references it, so this is the whole delete. */
+/** Removes one conversation's live log. `deleteConversation` removes the rest of what was kept for it. */
 export function deleteConversationLog(
   agentId: string,
   conversationId: string,

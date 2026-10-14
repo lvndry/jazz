@@ -66,6 +66,19 @@ export function attachChat(
   }
 }
 
+/** Remove the record of a chat having `conversationId` open, unless a live chat elsewhere holds it. */
+export function forgetChatAttachment(
+  agentId: string,
+  conversationId: string,
+  baseDirectory: string = chatAttachmentDirectory(),
+): void {
+  const filePath = attachmentPath(baseDirectory, agentId, conversationId);
+  if (filePath === undefined || heldByChatElsewhere(agentId, conversationId, baseDirectory)) {
+    return;
+  }
+  nodeFs.rmSync(filePath, { force: true });
+}
+
 /** Remove this process's attachment to `conversationId`; another chat's is left alone. */
 export function detachChat(
   agentId: string,

@@ -9,3 +9,4 @@
 export * from "./picker-core";
 export * from "./use-picker";
 export * from "./picker-adapter";
+export * from "./choice-removal";
