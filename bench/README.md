@@ -9,6 +9,7 @@ bun run bench                 # all suites
 bun run bench transcript      # filename filter
 BENCH_ITERATIONS=500 bun run bench markdown
 bun run bench --samples 3 --output head-report.json
+bun run bench --samples 5 --base /path/to/base --base-output base-report.json --output head-report.json
 bun scripts/performance-check.ts base-report.json head-report.json
 bun scripts/performance-check.ts --absolute head-report.json
 bun scripts/performance-check.ts --binary /path/to/base-jazz /path/to/head-jazz
@@ -163,12 +164,14 @@ Only matching suite/name rows participate in the relative comparison. Reports
 with different OS, architecture or Bun version are rejected. Results remain CI
 artifacts for 14 days; the workflow does not post comments or update baselines.
 
-CPU scaling, runner contention and filesystem caches still affect measurements.
-A local repeat of six suites using matched inputs and three processes passed
-all comparison gates; reversing the order removed or reversed apparent tail
-regressions in unchanged hashing/compaction code. That host also had an unrelated
-long-running test consuming one CPU core, so these are reproducibility checks,
-not measurements from an idle host.
+CPU scaling, runner contention and filesystem caches still affect measurements,
+and measuring all of base before all of head hands any drift to one side.
+CI therefore runs `bun run bench --samples 5 --base ../base --base-output
+../base-report.json --output ../head-report.json` from the head checkout: each
+suite alternates base and head processes, swapping which side goes first every
+sample, and each row records its per-sample p50/p95. A row fails only when the
+medians exceed 30% and 0.5ms and every one of the five pairs does too, so a
+single noisy process cannot fail a pull request.
 The disk suites measure a real scan after fixture creation, with warm OS caches;
 they are not physical-disk cold-read benchmarks. Model discovery uses a synthetic disk metadata catalog and in-memory
 HTTP Responses, exercising production JSON decode, extraction and metadata

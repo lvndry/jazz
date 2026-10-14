@@ -43,25 +43,14 @@ jobs:
         run: |
           (cd base && bun run build:binary)
           (cd head && bun run build:binary)
-      - name: Measure baseline
-        working-directory: base
-        env:
-          NO_COLOR: ""
-          FORCE_COLOR: "3"
-          JAZZ_OFFLINE: "1"
-          BENCH_PROFILE: smoke
-          BENCH_STARTUP_BASELINE: "1"
-          JAZZ_BENCH_BINARY: ${{ github.workspace }}/base/deploy/binaries/jazz-linux-x64
-        run: bun run bench --samples 5 --output ../base-report.json
-      - name: Measure pull request
+      - name: Measure baseline and pull request in alternating pairs
         working-directory: head
         env:
           NO_COLOR: ""
           FORCE_COLOR: "3"
           JAZZ_OFFLINE: "1"
           BENCH_PROFILE: smoke
-          JAZZ_BENCH_BINARY: ${{ github.workspace }}/head/deploy/binaries/jazz-linux-x64
-        run: bun run bench --samples 5 --output ../head-report.json
+        run: bun run bench --samples 5 --base ../base --base-output ../base-report.json --output ../head-report.json
       - name: Enforce latency and release size budgets
         run: |
           bun head/scripts/performance-check.ts --absolute head-report.json

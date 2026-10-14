@@ -40,6 +40,7 @@ const rowSchema = z.object({
   p50Ms: nonnegative,
   p95Ms: nonnegative,
   metrics: z.record(z.string(), z.number().finite()).optional(),
+  perSample: z.array(z.object({ p50Ms: nonnegative, p95Ms: nonnegative })).min(1),
 });
 const reportSchema = z.object({
   version: z.literal(1),
@@ -48,7 +49,19 @@ const reportSchema = z.object({
 });
 export type PerformanceReport = z.infer<typeof reportSchema>;
 
-/** Fail a slowdown only when it exceeds both 30% and 0.5ms; never compare runtimes. */
+function slower(baseMs: number, headMs: number): boolean {
+  return (
+    headMs > baseMs * (1 + budgets.latencyRelativeAllowance) &&
+    headMs > baseMs + budgets.latencyNoiseMs
+  );
+}
+
+/**
+ * Fail a slowdown only when the medians exceed both 30% and 0.5ms and every
+ * interleaved base/head pair shows it too. One noisy process on a shared
+ * runner moves a single pair; a real regression moves all of them. Never
+ * compare runtimes.
+ */
 export function regressions(base: PerformanceReport, head: PerformanceReport): readonly string[] {
   if (JSON.stringify(base.runtime) !== JSON.stringify(head.runtime)) {
     throw new Error("Performance reports have different runtime identities");
@@ -60,13 +73,23 @@ export function regressions(base: PerformanceReport, head: PerformanceReport): r
     const key = `${row.suite}/${row.name}`;
     const previous = prior.get(key);
     if (previous === undefined) continue;
+    if (previous.perSample.length !== row.perSample.length) {
+      throw new Error(
+        `${key} has unpaired samples: ${previous.perSample.length} base, ${row.perSample.length} head`,
+      );
+    }
     compared += 1;
     for (const metric of ["p50Ms", "p95Ms"] as const) {
-      if (
-        row[metric] > previous[metric] * (1 + budgets.latencyRelativeAllowance) &&
-        row[metric] > previous[metric] + budgets.latencyNoiseMs
-      ) {
-        failures.push(`${key} ${metric}: ${previous[metric]} → ${row[metric]} ms`);
+      const everyPairSlower = row.perSample.every((sample, index) =>
+        slower(previous.perSample[index]![metric], sample[metric]),
+      );
+      if (slower(previous[metric], row[metric]) && everyPairSlower) {
+        const pairs = previous.perSample
+          .map((sample, index) => `${sample[metric]}→${row.perSample[index]![metric]}`)
+          .join(", ");
+        failures.push(
+          `${key} ${metric}: ${previous[metric]} → ${row[metric]} ms (pairs: ${pairs})`,
+        );
       }
     }
   }

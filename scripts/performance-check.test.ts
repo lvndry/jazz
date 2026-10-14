@@ -7,19 +7,30 @@ import {
   type PerformanceReport,
 } from "./performance-check";
 
-function report(p50Ms: number, p95Ms = p50Ms): PerformanceReport {
+function report(p50Ms: number, p95Ms = p50Ms, perSample = [{ p50Ms, p95Ms }]): PerformanceReport {
   return {
     version: 1,
     runtime: { platform: "linux", arch: "x64", bun: "1.4.0" },
-    results: [{ suite: "stream", name: "frame", meanMs: p50Ms, p50Ms, p95Ms }],
+    results: [{ suite: "stream", name: "frame", meanMs: p50Ms, p50Ms, p95Ms, perSample }],
   };
 }
+const pairs = (...values: number[]) => values.map((value) => ({ p50Ms: value, p95Ms: value }));
 describe("performance regression gate", () => {
   test("allows runner noise and detects latency regressions including tail-only regressions", () => {
     expect(regressions(report(2), report(2.5))).toEqual([]);
     expect(regressions(report(0.01), report(0.03))).toEqual([]);
     expect(regressions(report(2), report(3))).toHaveLength(2);
     expect(regressions(report(2), report(2, 4))).toHaveLength(1);
+  });
+  test("ignores a slowdown that only some interleaved pairs show", () => {
+    const base = report(2, 2, pairs(2, 2, 2, 2, 2));
+    expect(regressions(base, report(3, 3, pairs(3, 3, 3, 2, 3)))).toEqual([]);
+    expect(regressions(base, report(3, 3, pairs(3, 3, 3, 3, 3)))).toHaveLength(2);
+  });
+  test("rejects reports whose samples cannot be paired", () => {
+    expect(() => regressions(report(2, 2, pairs(2, 2)), report(2, 2, pairs(2, 2, 2)))).toThrow(
+      "unpaired samples",
+    );
   });
   test("rejects comparisons with incompatible runtimes or no shared workload", () => {
     expect(() =>
@@ -35,6 +46,7 @@ describe("performance regression gate", () => {
             meanMs: 2,
             p50Ms: 2,
             p95Ms: 2,
+            perSample: pairs(2),
             suite: "stream",
           },
         ],
@@ -51,6 +63,7 @@ describe("performance regression gate", () => {
           meanMs: p95Ms,
           p50Ms: p95Ms,
           p95Ms,
+          perSample: pairs(p95Ms),
         },
       ],
     });
@@ -71,6 +84,7 @@ describe("performance regression gate", () => {
       meanMs: p95Ms,
       p50Ms: p95Ms,
       p95Ms,
+      perSample: pairs(p95Ms),
     });
     const fixture: PerformanceReport = {
       ...report(1),
@@ -112,13 +126,21 @@ describe("performance regression gate", () => {
     const fixture: PerformanceReport = {
       ...report(1),
       results: [
-        { suite: "filesystem-config-models", name: "scan", meanMs: 1, p50Ms: 1, p95Ms: 1 },
+        {
+          suite: "filesystem-config-models",
+          name: "scan",
+          meanMs: 1,
+          p50Ms: 1,
+          p95Ms: 1,
+          perSample: pairs(1),
+        },
         {
           suite: "conversation-memory",
           name: "500 turns",
           meanMs: 1,
           p50Ms: 1,
           p95Ms: 1,
+          perSample: pairs(1),
           metrics: { peakRssBytes: 100_000_000, postClearHeapBytes: -1000 },
         },
       ],

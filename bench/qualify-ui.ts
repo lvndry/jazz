@@ -55,6 +55,7 @@ export interface BenchRow {
   readonly p95Ms: number;
   readonly metrics: Readonly<Record<string, number>>;
   readonly observedMs?: readonly number[];
+  readonly perSample?: { readonly p50Ms: number; readonly p95Ms: number }[];
 }
 
 /** The four exact pipeline workloads, in the order the worker publishes them. */
@@ -525,6 +526,7 @@ export function aggregateObservations(
         meanMs: round(medianOf(rows.map((sample) => sample.meanMs))),
         p50Ms: round(medianOf(rows.map((sample) => sample.p50Ms))),
         p95Ms: round(medianOf(rows.map((sample) => sample.p95Ms))),
+        perSample: rows.map((sample) => ({ p50Ms: sample.p50Ms, p95Ms: sample.p95Ms })),
         metrics: Object.fromEntries(
           metricKeys.map((key) => [
             key,
@@ -533,7 +535,7 @@ export function aggregateObservations(
         ),
       };
     })
-    .filter((row): row is BenchRow => row !== undefined);
+    .filter((row) => row !== undefined);
 }
 
 /**
