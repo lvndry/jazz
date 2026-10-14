@@ -88,7 +88,7 @@ describe("tool guidance injection", () => {
     expect(result).toContain("## Tools");
     expect(result).toContain("prefer the most specific available tool");
     expect(result).toContain("several small writes or edits rather than one large one");
-    expect(result).not.toContain("Use the shell");
+    expect(result).not.toContain("Prefer the file tools");
     expect(result).not.toContain("subagents");
     expect(result).not.toContain("offloaded or cut tool results");
   });
@@ -97,15 +97,15 @@ describe("tool guidance injection", () => {
     const result = build("default", {
       toolNames: ["execute_command", "spawn_subagent", "retrieve_tool_result"],
     });
-    expect(result).toContain("Use the shell");
+    expect(result).toContain("Prefer the file tools");
     expect(result).toContain("subagents");
     expect(result).toContain("offloaded or cut tool results");
   });
 
   test("shell guidance sends file work to the file tools", () => {
     const result = build("default", { toolNames: ["execute_command"] });
-    expect(result).toContain("Do file work");
-    expect(result).toContain("Use the shell for git");
+    expect(result).toContain("Prefer the file tools");
+    expect(result).toContain("use execute_command only when they don't cover the task");
   });
 });
 

@@ -112,7 +112,7 @@ export function renderHarnessPrompt(options: HarnessPromptOptions): string {
     const guidance = [TOOL_SELECTION_INSTRUCTIONS, UNTRUSTED_TOOL_OUTPUT_RULE];
     if (options.hasShell) {
       guidance.push(
-        "Do file work (search, read, edit, write, list, move, copy, delete) with the file tools. Use the shell for git, package managers, builds, tests, scripts, and programs no tool covers.",
+        "Prefer the file tools (read_file, grep, mv, etc.); use execute_command only when they don't cover the task.",
       );
     }
     if (options.hasSubagents) {
