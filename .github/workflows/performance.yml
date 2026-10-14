@@ -1,21 +1,17 @@
 name: Performance budgets
 
 on:
-  pull_request:
-    paths:
-      - "packages/**"
-      - "bench/**"
-      - "scripts/**"
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/performance.yml"
   workflow_dispatch:
+    inputs:
+      base:
+        description: Ref to compare against
+        default: main
 
 permissions:
   contents: read
 
 concurrency:
-  group: performance-${{ github.event.pull_request.number || github.ref }}
+  group: performance-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -28,7 +24,7 @@ jobs:
           path: head
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+          ref: ${{ inputs.base || 'main' }}
           path: base
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:

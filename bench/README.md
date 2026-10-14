@@ -1,8 +1,11 @@
 # Benchmarks
 
 Benchmarks for Jazz's CPU, terminal, memory, disk and startup paths. Suites run
-separately from `bun test`; the Performance budgets workflow builds the actual
-release binary and compares base and head on the same runner.
+separately from `bun test`. The Performance budgets workflow does not run on
+pull requests: a full paired run takes over 15 minutes. Start it from the
+Actions tab (`gh workflow run performance.yml -f base=<ref>`) for changes on a
+hot path; it builds the actual release binary and compares base and head on
+the same runner.
 
 ```bash
 bun run bench                 # all suites
