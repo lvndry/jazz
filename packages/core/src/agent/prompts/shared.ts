@@ -111,7 +111,9 @@ export function renderHarnessPrompt(options: HarnessPromptOptions): string {
   if (options.hasTools) {
     const guidance = [TOOL_SELECTION_INSTRUCTIONS, UNTRUSTED_TOOL_OUTPUT_RULE];
     if (options.hasShell) {
-      guidance.push("Use the shell only when no dedicated or deferred tool covers the task.");
+      guidance.push(
+        "Prefer the file tools (read_file, grep, mv, etc.); use execute_command only when they don't cover the task.",
+      );
     }
     if (options.hasSubagents) {
       guidance.push("Delegate bulky independent investigation to subagents.");

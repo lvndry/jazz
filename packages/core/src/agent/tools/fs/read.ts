@@ -344,7 +344,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     name: "read_file",
     disclosure: "private",
     description:
-      "Read a file; for a directory, use ls. Text comes back as numbered `N|` lines plus a snapshot to pass to edit_file; copy only the text after `N|` into edits. " +
+      "Read a file, or a line range with startLine/endLine (negative counts from the end: startLine -20 reads the last 20 lines). Text comes back as numbered `N|` lines plus a snapshot to pass to edit_file; copy only the text after `N|` into edits. " +
       "Secret values appear as `[redacted:<name>]`. Images, PDFs, audio and video are attached when the model supports them. If truncated is true, read the next range. " +
       "To follow a growing file, pass sinceByte and sinceInode from the previous read; a reset field flags rotation or truncation.",
     tags: ["filesystem", "read"],

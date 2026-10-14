@@ -39,7 +39,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
     name: "ls",
     disclosure: "internal",
     description:
-      "List one directory. Skips .gitignore'd entries and node_modules; set showHidden to include them. To search a tree by name, use find; to search contents, use grep.",
+      "List one directory. Skips .gitignore'd entries and node_modules; set showHidden to include them.",
     tags: ["filesystem", "listing"],
     parameters,
     validate: makeZodValidator(parameters),

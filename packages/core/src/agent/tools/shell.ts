@@ -761,8 +761,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
     name: "execute_command",
     disclosure: "private",
     description:
-      "Run a non-interactive shell command; stdin is empty. Use a dedicated tool whenever one covers the task, including tools from search_tools; use this for git and everything else. " +
-      "Read-only commands may be auto-approved; anything that mutates needs approval. " +
+      "Run a non-interactive shell command; stdin is empty. Use it for git, package managers, builds, tests, scripts, and programs that no tool or search_tools result covers. " +
       "For anything that needs sudo, ask the person to run it. The environment has no secrets and takes no env vars. " +
       "Put a secret from ask_user_secret in the command as its placeholder; the person approves every such command. " +
       "A command is killed after 15 minutes; for longer work, background it and poll with wait_for.",

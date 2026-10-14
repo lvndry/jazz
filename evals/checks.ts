@@ -13,6 +13,67 @@ export function toolUsedCheck(result: OneShotResult, toolName: string): CheckRes
   };
 }
 
+/** Separators between the simple commands of one shell line. */
+const SHELL_COMMAND_SEPARATOR = /&&|\|\||[;|\n]/;
+
+/** The `command` argument of an `execute_command` call, or "" when it has none. */
+function commandArgument(argumentsJson: string): string {
+  try {
+    const parsed = JSON.parse(argumentsJson) as { command?: unknown };
+    return typeof parsed.command === "string" ? parsed.command : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The programs each `execute_command` call ran, one per simple command, with leading
+ * `NAME=value` assignments and directory paths stripped (`/usr/bin/grep` → `grep`). `cd` is
+ * left out: it only sets where the next program runs. Quoted separators split too, which can
+ * only add names, never hide one.
+ */
+export function shellProgramsRun(result: OneShotResult): string[] {
+  const programs: string[] = [];
+  for (const call of result.toolCalls) {
+    if (call.name !== "execute_command") {
+      continue;
+    }
+    const command = commandArgument(call.arguments);
+    for (const segment of command.split(SHELL_COMMAND_SEPARATOR)) {
+      const words = segment
+        .trim()
+        .split(/\s+/)
+        .filter((word) => !/^\w+=/.test(word));
+      const program = words[0]?.split("/").pop();
+      if (program !== undefined && program !== "" && program !== "cd") {
+        programs.push(program);
+      }
+    }
+  }
+  return programs;
+}
+
+/**
+ * The run used `toolName` and never ran any of `shellEquivalents` through
+ * `execute_command`: the dedicated tool was the agent's choice, not a fallback after the shell.
+ */
+export function dedicatedToolCheck(
+  result: OneShotResult,
+  toolName: string,
+  shellEquivalents: readonly string[],
+): CheckResult {
+  const used = result.toolCalls.some((call) => call.name === toolName);
+  const shellUses = shellProgramsRun(result).filter((program) =>
+    shellEquivalents.includes(program),
+  );
+  const pass = used && shellUses.length === 0;
+  return {
+    pass,
+    score: pass ? 1 : 0,
+    detail: `${toolName}=${used}, shell equivalents=${shellUses.length === 0 ? "none" : shellUses.join(",")}`,
+  };
+}
+
 /** A file exists in the workspace and contains all required substrings. */
 export function fileStateCheck(
   workspaceDir: string,

@@ -12,6 +12,7 @@ import {
 } from "../base-tool";
 import { replacePathAtomically } from "./atomic-replace";
 import { describeFootprint, measureFootprint } from "./footprint";
+import { overwriteRiskLevel } from "./utils";
 import { buildKeyFromContext } from "../context-utils";
 import { jazzStateApproval } from "./jazz-state-approval";
 
@@ -41,8 +42,10 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
   const config: ApprovalToolConfig<MvDeps, MvArgs> = {
     name: "mv",
     disclosure: "public",
-    description: "Rename or move a file or directory within one filesystem.",
+    description:
+      "Move or rename a file or directory. Pass force to replace an existing destination.",
     tags: ["filesystem", "write"],
+    resolveRiskLevel: overwriteRiskLevel,
     parameters: mvParameters,
     validate: makeZodValidator(mvParameters),
 
