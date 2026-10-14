@@ -988,6 +988,7 @@ function initializeAgentRun(
         attended ? Infinity : DEFAULT_MAX_SUBAGENT_ITERATIONS,
       ),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
+      ...(options.offersShellEscape === true ? { offersShellEscape: true } : {}),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??
         ((command: string) =>

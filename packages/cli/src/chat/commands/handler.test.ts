@@ -13,6 +13,7 @@ import {
 import { agentConversationsDirectory } from "@jazz/adapters/history/conversation-log";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { silentLogger } from "@jazz/core/agent/test-logger";
+import { matchForbiddenCommand } from "@jazz/core/agent/tools/shell";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import {
@@ -766,22 +767,31 @@ describe("handleSpecialCommand shell escape", () => {
     expect(result.messageForAgent).not.toContain("hunter2hunter2");
   });
 
-  test("does not execute a denylisted command", async () => {
-    const error = mock(() => Effect.void);
-    const mockTerminal: Partial<TerminalService> = { error };
+  test("runs the operator's command even when the agent denylist would block it", async () => {
+    const output: string[] = [];
+    const mockTerminal: Partial<TerminalService> = {
+      log: mock((message: string) => {
+        output.push(message);
+        return Effect.succeed(undefined);
+      }) as TerminalService["log"],
+      error: mock(() => Effect.void),
+    };
+    const mockLogger: Partial<LoggerService> = { info: mock(() => Effect.void) };
     const fsContextLayer = createFileSystemContextServiceLayer().pipe(
       Layer.provide(NodeFileSystem.layer),
     );
-    const mockLogger: Partial<LoggerService> = { info: () => Effect.void };
     const layers = Layer.mergeAll(
       Layer.succeed(TerminalServiceTag, mockTerminal as TerminalService),
       Layer.succeed(LoggerServiceTag, mockLogger as LoggerService),
       fsContextLayer,
     );
+    const missingDirectory = "./jazz-handler-test-missing-directory";
+    const command = `rm -rf ${missingDirectory} && printf removed`;
+    expect(matchForbiddenCommand(command)).not.toBeNull();
 
     const result = await Effect.runPromise(
       handleSpecialCommand(
-        { type: "shell", args: ["rm -rf /"] },
+        { type: "shell", args: [command] },
         {
           agent: testAgent,
           conversationHistory: [],
@@ -795,8 +805,8 @@ describe("handleSpecialCommand shell escape", () => {
       ).pipe(Effect.provide(layers)) as Effect.Effect<CommandResult, unknown, never>,
     );
 
-    expect(error).toHaveBeenCalled();
-    expect(result.messageForAgent).toContain("blocked");
+    expect(output).toEqual(["removed"]);
+    expect(result.messageForAgent).not.toContain("blocked");
   });
 });
 

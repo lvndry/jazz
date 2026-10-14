@@ -664,6 +664,12 @@ export interface ToolExecutionContext {
    * asking the model to supply a timezone string. Defaults to "UTC" when unset.
    */
   readonly timezone?: string;
+  /**
+   * Whether the person on this surface can run a shell command themselves with `! <command>`.
+   * Set only by the interactive terminal chat; tool errors that hand a command back to the
+   * person name `!` only when this is true.
+   */
+  readonly offersShellEscape?: boolean;
   readonly [key: string]: unknown;
 }
 
