@@ -196,22 +196,25 @@ describe("scanFilePickerEntries matching", () => {
 });
 
 describe("narrowFilePickerEntries", () => {
-  const entries = [
-    {
-      name: path.join(".jazz", "generated", "a.png"),
-      path: "/home/.jazz/generated/a.png",
-      isDirectory: false,
-    },
-    { name: path.join(".jazz", "skills"), path: "/home/.jazz/skills", isDirectory: true },
-  ];
+  const generatedImage = {
+    name: path.join(".jazz", "generated", "a.png"),
+    path: "/home/.jazz/generated/a.png",
+    isDirectory: false,
+  };
+  const skillsDirectory = {
+    name: path.join(".jazz", "skills"),
+    path: "/home/.jazz/skills",
+    isDirectory: true,
+  };
+  const entries = [generatedImage, skillsDirectory];
 
   test("drops entries the new query rules out", () => {
     expect(narrowFilePickerEntries(entries, ".jazz/skills/comp")).toEqual([]);
-    expect(narrowFilePickerEntries(entries, ".JAZZ/SK")).toEqual([entries[1]]);
+    expect(narrowFilePickerEntries(entries, ".JAZZ/SK")).toEqual([skillsDirectory]);
   });
 
   test("matches an absolute query against the full path", () => {
-    expect(narrowFilePickerEntries(entries, "/home/.jazz/gen")).toEqual([entries[0]]);
+    expect(narrowFilePickerEntries(entries, "/home/.jazz/gen")).toEqual([generatedImage]);
   });
 });
 
