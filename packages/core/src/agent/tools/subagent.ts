@@ -450,6 +450,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       ...(childTaint !== undefined ? { egressTaint: childTaint.taint } : {}),
       subagentDepth: currentDepth + 1,
       ...(outlivesTurn ? { outlivesTurn: true } : {}),
+      ...(context.offersShellEscape === true ? { offersShellEscape: true } : {}),
       ...(context.onAutoApproveCommand
         ? { onAutoApproveCommand: context.onAutoApproveCommand }
         : {}),

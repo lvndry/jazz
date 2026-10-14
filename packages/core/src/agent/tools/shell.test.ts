@@ -7,6 +7,7 @@ import { Effect, Fiber, Layer } from "effect";
 import { spawnOutputTruncationNotice } from "./capped-output";
 import {
   createShellCommandTools,
+  denylistBlockedError,
   EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
   matchForbiddenCommand,
 } from "./shell";
@@ -232,6 +233,16 @@ describe("Shell Tools", () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain("blocked by the built-in safety denylist");
     }
+  });
+
+  it("names `!` in the blocked error only where the person can type it", () => {
+    const inTerminalChat = denylistBlockedError("sudo ls", { offersShellEscape: true });
+    const elsewhere = denylistBlockedError("sudo ls", {});
+
+    expect(inTerminalChat).toContain("`! <command>`");
+    expect(elsewhere).not.toContain("!");
+    expect(elsewhere).toContain("give the user the exact command");
+    expect(denylistBlockedError("ls", {})).toBeNull();
   });
 
   it("should block forbidden commands before the approval prompt", async () => {

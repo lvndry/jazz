@@ -207,8 +207,8 @@ export function createWaitTools(): WaitTools {
     parameters: waitForParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(waitForParameters),
-    approvalMessage: (args) => {
-      const blocked = denylistBlockedError(args.command);
+    approvalMessage: (args, context) => {
+      const blocked = denylistBlockedError(args.command, context);
       if (blocked) {
         return Effect.succeed({
           skipApproval: true as const,
@@ -232,7 +232,7 @@ The command runs repeatedly and unattended, in the background, until it succeeds
     approvalErrorMessage: "Waiting on a repeated command requires explicit user approval.",
     handler: (args, context) =>
       Effect.gen(function* () {
-        const blocked = denylistBlockedError(args.command);
+        const blocked = denylistBlockedError(args.command, context);
         if (blocked) {
           return { success: false, result: null, error: blocked } satisfies ToolExecutionResult;
         }

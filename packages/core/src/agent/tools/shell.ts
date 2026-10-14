@@ -490,11 +490,23 @@ export function isDangerousCommand(command: string): boolean {
  * (1) before the approval prompt, so a command that will be denied never
  * asks the user to approve it, and (2) inside the execution tool as
  * defense-in-depth.
+ *
+ * The closing advice names `! <command>` only where the person can type it
+ * (`context.offersShellEscape`); elsewhere it has the model hand them the command.
  */
-export function denylistBlockedError(command: string): string | null {
+export function denylistBlockedError(
+  command: string,
+  context: Pick<ToolExecutionContext, "offersShellEscape">,
+): string | null {
   const forbidden = matchForbiddenCommand(command);
-  if (!forbidden) return null;
-  return `Command blocked by the built-in safety denylist: ${forbidden.reason}. This is a specific pattern match on this command — not a general restriction on running shell commands (other commands still run normally), and tool approval does not override it. If this command is genuinely safe and necessary, ask the user to run it themselves with \`! <command>\`.`;
+  if (!forbidden) {
+    return null;
+  }
+  const userRunsIt =
+    context.offersShellEscape === true
+      ? "ask the user to run it themselves with `! <command>`"
+      : "give the user the exact command so they can run it themselves";
+  return `Command blocked by the built-in safety denylist: ${forbidden.reason}. This is a specific pattern match on this command — not a general restriction on running shell commands (other commands still run normally), and tool approval does not override it. If this command is genuinely safe and necessary, ${userRunsIt}.`;
 }
 
 const executeCommandParameters = z
@@ -776,7 +788,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
         // tool will refuse should never be put in front of the user to approve.
         // Returning `skipApproval` sends the blocked error straight back to the
         // model so it can adapt.
-        const blocked = denylistBlockedError(args.command);
+        const blocked = denylistBlockedError(args.command, context);
         if (blocked) {
           return {
             skipApproval: true,
@@ -840,7 +852,7 @@ This command will be executed on your system. Only approve commands you trust.`;
           };
         }
 
-        const blocked = denylistBlockedError(command);
+        const blocked = denylistBlockedError(command, context);
         if (blocked) {
           return {
             success: false,
