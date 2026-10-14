@@ -902,6 +902,7 @@ export class ChatServiceImpl implements ChatService {
             trustMessageAsMemorySource = false;
             const latestConfig = yield* configService.appConfig;
             const context = commandContext(latestConfig.autoApprovedCommands);
+            const uiTranscriptBeforeCommand = uiTranscriptFromStore();
             const commandResult: CommandResult = yield* handleSpecialCommand(
               specialCommand,
               context,
@@ -920,9 +921,13 @@ export class ChatServiceImpl implements ChatService {
 
             // Slash commands are UI interactions, not model turns. Snapshot the rendered
             // text separately so resume restores their invocation and result without
-            // inserting operational output into the next LLM request.
-            store.flushOutputBatchNow();
-            const uiTranscript = uiTranscriptFromStore();
+            // inserting operational output into the next LLM request. A command that switches
+            // conversations (/new clears the screen) has already drawn the next conversation, so
+            // the one being left keeps the screen it had before the command ran.
+            const uiTranscript =
+              commandResult.newConversationId === undefined
+                ? uiTranscriptFromStore()
+                : uiTranscriptBeforeCommand;
             // A command that reshaped this conversation (`/tree`, `/compact`, `/retry`) is saved
             // with its new history: the revision it returned already describes that history,
             // so saving the old one on top of it would undo the command.
