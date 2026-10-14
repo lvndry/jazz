@@ -99,6 +99,7 @@ import { interruptSummary, type InterruptSnapshot, type ReceiptFacts } from "../
 import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
 import { retryBand, retryBandHeight } from "../models/retry";
 import { settledPlan } from "../models/todo";
+import { offersDetach } from "../models/tool-detach";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
 import { initialChoiceIndex } from "../prompt-core/picker-adapter";
 import { readPromptStep } from "../prompt-core/stepper";
@@ -1399,6 +1400,11 @@ export function FullscreenBridge(): React.ReactNode {
   }, [runActive]);
 
   const tools = useMemo(() => liveToolsFrom(activity, Date.now()), [activity, elapsedMs]);
+  const canDetach = session.backgroundHandler !== null;
+  const detachOffered = useMemo(
+    () => offersDetach(activity, canDetach, Date.now()),
+    [activity, canDetach, elapsedMs],
+  );
   const step = useMemo(() => stepFrom(activity), [activity]);
 
   // The checklist is worth reading once the turn has finished, not just while
@@ -3197,6 +3203,7 @@ export function FullscreenBridge(): React.ReactNode {
             : `child:${inspectedRun.id}`
       }`,
       runActive,
+      ...(detachOffered ? { detachOffered } : {}),
       live,
       input,
       footer,
@@ -3208,6 +3215,7 @@ export function FullscreenBridge(): React.ReactNode {
       header,
       blocks,
       runActive,
+      detachOffered,
       live,
       input,
       footer,

@@ -514,7 +514,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     disclosure: "internal",
     aliases: ["glob"],
     description:
-      "Locate files and directories by name or path; also callable as glob. For file contents, use grep. Pass path for project work. Honors .gitignore and skips node_modules and .git.",
+      "Locate files and directories by name or path; also callable as glob. Pass path for project work. Honors .gitignore and skips node_modules and .git.",
     tags: ["filesystem", "search"],
     parameters,
     validate: makeZodValidator(parameters),

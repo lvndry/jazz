@@ -47,11 +47,16 @@ import packageJson from "../../../../package.json";
 // ============================================================================
 
 function ActivityIslandComponent(): React.ReactElement | null {
-  const { activity } = useSessionSlice();
+  const { activity, backgroundHandler } = useSessionSlice();
 
   if (activity.phase === "idle" || activity.phase === "complete") return null;
 
-  return <ActivityView activity={activity} />;
+  return (
+    <ActivityView
+      activity={activity}
+      canDetach={backgroundHandler !== null}
+    />
+  );
 }
 
 const ActivityIsland = React.memo(ActivityIslandComponent);
@@ -400,12 +405,20 @@ function InkAgentDetailsView({
 }
 
 export function App(): React.ReactElement {
-  const { activeMenu: menu, commandPanel, interruptHandler, modeToast } = useSessionSlice();
+  const {
+    activeMenu: menu,
+    commandPanel,
+    interruptHandler,
+    backgroundHandler,
+    modeToast,
+  } = useSessionSlice();
   const commandPanelOpenRef = useRef(false);
   commandPanelOpenRef.current = commandPanel !== null;
   const { prompt } = usePromptSlice();
   const interruptHandlerRef = useRef(interruptHandler);
   interruptHandlerRef.current = interruptHandler;
+  const backgroundHandlerRef = useRef(backgroundHandler);
+  backgroundHandlerRef.current = backgroundHandler;
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
   const modeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -483,6 +496,15 @@ export function App(): React.ReactElement {
     } else {
       process.kill(process.pid, "SIGINT");
     }
+  });
+
+  // Ctrl+B: detach the in-flight tool call into the background instead of killing it.
+  // A press with no tool running is dropped by the executor, so this needs no state of its own.
+  useInput((input, key) => {
+    if (input !== "b" || !key.ctrl || key.meta || key.shift) {
+      return;
+    }
+    backgroundHandlerRef.current?.();
   });
 
   // Handle interrupt (double-tap Escape)

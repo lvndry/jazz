@@ -330,7 +330,7 @@ describe("Footer", () => {
       <Footer
         model={footer({
           background: "watching 2",
-          hints: ["enter send", "up scroll", "^f to search"],
+          hints: ["enter send", "up scroll", "ctrl+f to search"],
         })}
         viewport={{ width: 44, height: 24 }}
       />,

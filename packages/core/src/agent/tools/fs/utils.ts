@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
+import type { ToolRiskLevel } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { terminateProcessGroup } from "@/core/utils/process";
 import {
@@ -339,4 +340,12 @@ export function normalizeStatSize(size: unknown): number | string | null {
   }
 
   return null;
+}
+
+/**
+ * Risk of an mv or cp call: without `force` it fails rather than touch an existing
+ * destination, so the only change is a new path; with `force` it deletes what was there.
+ */
+export function overwriteRiskLevel(args: Record<string, unknown>): ToolRiskLevel {
+  return args["force"] === true ? "high-risk" : "low-risk";
 }

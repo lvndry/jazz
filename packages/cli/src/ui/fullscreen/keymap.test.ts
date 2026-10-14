@@ -351,25 +351,25 @@ describe("footer hints", () => {
       "up down to scroll",
       "pgup to page",
       "type to input",
-      "^f to search",
+      "ctrl+f to search",
     ]);
     expect(hintsFor("input", true, true)).toEqual([
       "enter to queue",
       "esc esc to interrupt",
-      "^r for reasoning",
-      "^c to stop",
+      "ctrl+r for reasoning",
+      "ctrl+c to stop",
     ]);
     expect(hintsFor("input", true, true, undefined, false, true)).toEqual([
       "esc esc to send all",
       "enter to queue",
       "up to recall",
-      "^x to clear",
+      "ctrl+x to clear",
     ]);
     expect(hintsFor("input", false)).toEqual([
       "enter to send",
       "up for history",
-      "^f to search",
-      "^r for reasoning",
+      "ctrl+f to search",
+      "ctrl+r for reasoning",
     ]);
     // The card carries its own legend; the footer states that the session is waiting.
     expect(hintsFor("input", false, false, "approval")).toEqual(["waiting for you"]);
@@ -398,6 +398,22 @@ describe("footer hints", () => {
   it("offers the interrupt only while a run is active", () => {
     expect(hintsFor("input", true).some((hint) => hint.includes("interrupt"))).toBe(true);
     expect(hintsFor("input", false).some((hint) => hint.includes("interrupt"))).toBe(false);
+  });
+
+  it("offers Ctrl+B only once a long tool call holds the turn", () => {
+    expect(hintsFor("input", true)).not.toContain("ctrl+b to background");
+    expect(hintsFor("input", true, false, undefined, false, false, true)).toEqual([
+      "ctrl+b to background",
+      "esc esc to interrupt",
+      "ctrl+o to expand",
+      "ctrl+c to stop",
+    ]);
+    expect(hintsFor("input", true, true, undefined, false, false, true)).toContain(
+      "ctrl+b to background",
+    );
+    expect(hintsFor("input", false, false, "approval", false, false, true)).toEqual([
+      "waiting for you",
+    ]);
   });
 
   it("never advertises actions that do not exist", () => {

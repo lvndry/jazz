@@ -12,6 +12,7 @@ import {
 } from "../base-tool";
 import { replacePathAtomically } from "./atomic-replace";
 import { describeFootprint, measureFootprint } from "./footprint";
+import { overwriteRiskLevel } from "./utils";
 import { buildKeyFromContext } from "../context-utils";
 import { jazzStateApproval } from "./jazz-state-approval";
 
@@ -40,8 +41,10 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
   const config: ApprovalToolConfig<CpDeps, CpArgs> = {
     name: "cp",
     disclosure: "public",
-    description: "Copy a file or directory.",
+    description:
+      "Copy a file or directory, recursively. Pass force to replace an existing destination.",
     tags: ["filesystem", "write"],
+    resolveRiskLevel: overwriteRiskLevel,
     parameters: cpParameters,
     validate: makeZodValidator(cpParameters),
 
