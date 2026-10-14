@@ -156,6 +156,27 @@ describe("viewport controller", () => {
     expect(resized.newBelow).toBe(0);
   });
 
+  it("scrolls line by line through a run of blank rows that share one source position", () => {
+    const blankRun: Block = {
+      id: "pasted",
+      seq: 1,
+      kind: "user",
+      text: `start${"\n".repeat(30)}end`,
+    };
+    const input = layout([blankRun], 80, 5);
+    let state = navigateViewport(undefined, input, -1, "end");
+    const tops: number[] = [];
+    for (let step = 0; step < input.index.length; step++) {
+      state = navigateViewport(state, input, 1);
+      tops.push(projectViewport(state, input).top);
+    }
+    expect(tops.slice(0, 5)).toEqual([1, 2, 3, 4, 5]);
+    expect(projectViewport(state, input).watchingLiveEdge).toBe(true);
+
+    const midRun = navigateViewport(navigateViewport(undefined, input, -1, "end"), input, 10);
+    expect(projectViewport(midRun, layout([blankRun], 80, 5)).top).toBe(10);
+  });
+
   it("submit returns to live and resets unseen baseline", () => {
     const input = layout();
     const detached = navigateViewport(undefined, input, -1, "page");
