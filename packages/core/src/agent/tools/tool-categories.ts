@@ -169,13 +169,16 @@ export function isUserSelectableToolCategory(displayName: string): boolean {
 }
 
 /**
- * The categories every agent gets by default: all the internal ones, plus Browser Use.
- * Browser is in this list but not in BUILTIN_TOOL_CATEGORIES, so it is on for new
- * agents yet stays in the tool picker where a user can turn it off.
+ * The categories every agent gets by default: all the internal ones, plus Browser Use and
+ * Peers. Both are in this list but not in BUILTIN_TOOL_CATEGORIES, so they are on for new
+ * agents yet stay in the tool picker where a user can turn them off. Peers is inert until a
+ * peer with a url is configured, so granting the category to every agent costs nothing on a
+ * machine with no peer setup.
  */
 export const DEFAULT_AGENT_TOOL_CATEGORIES: readonly ToolCategory[] = [
   ...BUILTIN_TOOL_CATEGORIES,
   BROWSER_CATEGORY,
+  PEERS_CATEGORY,
 ] as const;
 
 /**

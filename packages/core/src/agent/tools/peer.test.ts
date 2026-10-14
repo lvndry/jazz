@@ -162,6 +162,35 @@ describe("ask_peer", () => {
     expect(entry?.reason).toContain("503");
   });
 
+  it("says re-pair when the other side stopped accepting the pair (401)", async () => {
+    reply = { status: 401, body: "unauthorized" };
+    const result = await ask(peers(), { peer: "sam", question: "still paired?" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('no longer accepts the "sam" pairing');
+    expect(result.error).toContain("re-pair");
+    const [entry] = await Effect.runPromise(readLedger());
+    expect(entry?.reason).toContain("re-pair");
+  });
+
+  it("says re-pair on a 403 too, not just a 401", async () => {
+    reply = { status: 403, body: "peer revoked" };
+    const result = await ask(peers(), { peer: "sam", question: "still paired?" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("re-pair");
+    expect(result.error).toContain("jazz peers set-token sam");
+  });
+
+  it("keeps the bare status code for failures that are not a broken pairing", async () => {
+    reply = { status: 502, body: "bad gateway" };
+    const result = await ask(peers(), { peer: "sam", question: "there?" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("502");
+    expect(result.error).not.toContain("re-pair");
+  });
+
   it("refuses a peer it does not know rather than calling anything", async () => {
     const result = await ask(peers(), { peer: "stranger", question: "hello?" });
 

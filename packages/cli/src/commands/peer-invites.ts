@@ -18,10 +18,14 @@ import {
   revokeInvite,
 } from "@jazz/adapters/peers/invites";
 import { detectKeyringBackend, keyringSet } from "@jazz/adapters/secrets/keyring";
+import { askPeerToolName } from "@jazz/core/agent/tools/peer";
+import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
+import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { peerTokenPath } from "@jazz/core/secrets/registry";
+import type { Agent } from "@jazz/core/types/agent";
 import { CLIError } from "@jazz/core/types/errors";
 import { isPeerTier, PEER_TIERS, type PeerTier } from "@jazz/core/types/peer";
 import { inviteStatus, isInviteId } from "@jazz/core/types/peer-invite";
@@ -340,11 +344,37 @@ export interface AcceptInviteCommandOptions {
 }
 
 /**
- * Fetching the preview and posting the accept are both plain `fetch` calls to the inviter's
- * daemon, not Jazz's own agent stack — this command runs entirely on the redeemer's machine
- * and never needs an agent, a config service, or anything else beyond what it writes to its
- * own config and keyring at the end.
+ * Backfills `ask_peer` into every agent whose saved tools list omits it. An agent with an
+ * explicit tools list never inherits new categories after the fact, so agents created
+ * before the Peers category became a default could not reach a peer they just added: the
+ * tool was absent, and a model without it answers peer questions from its own knowledge
+ * without anyone noticing. Agents with no explicit list resolve tools by category default
+ * at run time and are left alone. Returns the names of the agents it updated so the
+ * caller can tell the user what changed.
  */
+export function backfillAskPeerTool(): Effect.Effect<readonly string[], never, AgentService> {
+  return Effect.gen(function* () {
+    const service = yield* AgentServiceTag;
+    const agents = yield* service
+      .listAgents()
+      .pipe(Effect.catchAll(() => Effect.succeed([] as readonly Agent[])));
+    const targets = agents.filter(
+      (agent) => agent.config.tools !== undefined && !agent.config.tools.includes(askPeerToolName),
+    );
+    if (targets.length === 0) return [] as readonly string[];
+    yield* Effect.all(
+      targets.map((agent) =>
+        service
+          .updateAgent(agent.id, {
+            config: { ...agent.config, tools: [...agent.config.tools!, askPeerToolName] },
+          })
+          .pipe(Effect.catchAll(() => Effect.void)),
+      ),
+    );
+    return targets.map((agent) => agent.name);
+  });
+}
+
 export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
   return Effect.gen(function* () {
     const parsed = parseInviteUrl(options.url);
@@ -489,14 +519,22 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
       return;
     }
 
+    const backfilled = yield* backfillAskPeerTool();
+
     if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ok: true, name: localName })}\n`);
+      process.stdout.write(`${JSON.stringify({ ok: true, name: localName, backfilled })}\n`);
       return;
     }
     process.stdout.write(
       `Added "${localName}" as a peer and stored the shared token.\n` +
         `Try: jazz run --agent <yours> "ask ${localName}'s agent ..."\n`,
     );
+    if (backfilled.length > 0) {
+      process.stdout.write(
+        `Added ask_peer to agent tools: ${backfilled.join(", ")}\n` +
+          "(agents created before the Peers category was a default don't pick it up on their own)\n",
+      );
+    }
   }).pipe(
     Effect.catchAll((error) =>
       Effect.sync(() => {
