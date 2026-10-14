@@ -43,6 +43,20 @@ describe("turn receipt", () => {
     expect(formatTurnReceipt(EMPTY_TURN)).toBeUndefined();
   });
 
+  test("closes with the wall-clock time the turn finished", () => {
+    const finishedAt = new Date(2026, 9, 14, 7, 28).getTime();
+    const turn = addStep(
+      { ...EMPTY_TURN, finishedAt },
+      { durationMs: 1_200, promptTokens: 900, completionTokens: 12, costUSD: 0 },
+    );
+    expect(formatTurnReceipt(turn)).toBe("1.2s · 900 in → 12 out · $0.00 · 07:28 am");
+  });
+
+  test("a finish time alone is not worth a receipt", () => {
+    const finishedAt = new Date(2026, 9, 14, 7, 28).getTime();
+    expect(formatTurnReceipt({ steps: [{ durationMs: 0 }], finishedAt })).toBeUndefined();
+  });
+
   test("the breakdown keeps per-step detail, speed included", () => {
     let turn = addStep(EMPTY_TURN, {
       durationMs: 4_100,

@@ -13,6 +13,7 @@ import { contentFromOutput } from "../ui/document";
 import { interruptSummaryLines } from "../ui/models/interrupt";
 import { OutputEntryView } from "../ui/OutputEntryView";
 import { store } from "../ui/store";
+import { formatClockTime } from "../ui/text/format";
 import type { OutputEntry, PromptState } from "../ui/types";
 
 function completeResponse(content: string): ChatCompletionResponse {
@@ -1103,6 +1104,7 @@ describe("InkStreamingRenderer", () => {
       try {
         emitStreamStart(renderer);
         const baseline = printOutputCalls.length;
+        const startedAt = Date.now();
         const toolStep: ChatCompletionResponse = {
           ...completeResponse(""),
           toolCalls: [
@@ -1132,8 +1134,12 @@ describe("InkStreamingRenderer", () => {
           .filter((entry) => contentFromOutput(entry).kind === "turn-receipt");
         expect(receipts).toHaveLength(1);
         const receipt = contentFromOutput(receipts[0]!);
-        expect(receipt.kind === "turn-receipt" ? formatTurnReceipt(receipt) : undefined).toBe(
-          "9.7s · 2 steps · 30k in → 102 out · 10.5 tok/s",
+        if (receipt.kind !== "turn-receipt" || receipt.finishedAt === undefined) {
+          throw new Error("expected a turn receipt carrying its finish time");
+        }
+        expect(receipt.finishedAt).toBeGreaterThanOrEqual(startedAt);
+        expect(formatTurnReceipt(receipt)).toBe(
+          `9.7s · 2 steps · 30k in → 102 out · 10.5 tok/s · ${formatClockTime(receipt.finishedAt)}`,
         );
       } finally {
         Effect.runSync(renderer.reset());

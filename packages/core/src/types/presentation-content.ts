@@ -72,7 +72,12 @@ export type PresentationContent =
       readonly provider?: string;
       readonly model?: string;
     }
-  | { readonly kind: "turn-receipt"; readonly steps: readonly PresentationStepStats[] }
+  | {
+      readonly kind: "turn-receipt";
+      readonly steps: readonly PresentationStepStats[];
+      /** Epoch ms when the turn's last step completed. */
+      readonly finishedAt?: number;
+    }
   | { readonly kind: "stopped"; readonly summary: StoppedFacts }
   | { readonly kind: "expanded"; readonly text: string };
 

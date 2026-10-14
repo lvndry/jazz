@@ -125,6 +125,7 @@ export const presentationContentSchema: z.ZodType<PresentationContent> = z
           tokensPerSecond: nonnegative.optional(),
         }),
       ),
+      finishedAt: nonnegative.int().optional(),
     }),
     z.strictObject({
       kind: z.literal("stopped"),

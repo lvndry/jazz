@@ -41,7 +41,8 @@ the same conversation; the agent keeps the earlier context.
 The closing turn summary shows time, model steps, input and output tokens, and
 cost. When generation timing is available it also shows `N tok/s`: output tokens
 per second of model generation, excluding tool work and time before the first
-token. The same summary remains available after resume.
+token. It ends with the local time the turn finished, such as `07:28 am`. The
+same summary, finish time included, remains available after resume.
 
 ## Give it files
 

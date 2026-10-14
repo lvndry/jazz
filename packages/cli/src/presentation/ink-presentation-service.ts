@@ -954,7 +954,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
     if ((event.response.toolCalls?.length ?? 0) > 0) return;
 
     if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
-    const turn = this.turn;
+    const finishedAt = Date.now();
+    const turn: TurnTotals = { ...this.turn, finishedAt };
     this.turn = EMPTY_TURN;
     const line = formatTurnReceipt(turn);
     if (line === undefined) return;
@@ -972,7 +973,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     store.printOutput({ type: "log", message: "", timestamp: new Date() });
     store.printOutput({
       type: "debug",
-      message: { kind: "turn-receipt", steps: turn.steps },
+      message: { kind: "turn-receipt", steps: turn.steps, finishedAt },
       timestamp: new Date(),
     });
     if (turn.steps.length > 1 && store.getExpandableDiff() === null) {

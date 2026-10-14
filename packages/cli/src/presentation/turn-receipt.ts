@@ -2,23 +2,25 @@
  * The totals a whole turn pays for, summed across every model step it took.
  *
  * A turn that calls tools is several model requests; the transcript closes it
- * with one quiet receipt — `12.3s · 4 steps · 65k in → 416 out · $0.08` —
+ * with one quiet receipt — `12.3s · 4 steps · 65k in → 416 out · $0.08 · 07:28 am` —
  * rather than a line after every request.
  */
 
 import { formatCompactCount } from "@jazz/core/utils/string";
-import { formatCost, formatPreciseDuration } from "../ui/text/format";
+import { formatClockTime, formatCost, formatPreciseDuration } from "../ui/text/format";
 
 export type StepStats = import("@jazz/core/types/presentation-content").PresentationStepStats;
 
 export interface TurnTotals {
   readonly steps: readonly StepStats[];
+  /** Epoch ms when the turn's last step completed, shown as its wall-clock finish time. */
+  readonly finishedAt?: number;
 }
 
 export const EMPTY_TURN: TurnTotals = { steps: [] };
 
 export function addStep(turn: TurnTotals, step: StepStats): TurnTotals {
-  return { steps: [...turn.steps, step] };
+  return { ...turn, steps: [...turn.steps, step] };
 }
 
 function sum(
@@ -98,6 +100,9 @@ export function formatTurnReceipt(turn: TurnTotals): string | undefined {
   const cost = sum(steps, (step) => step.costUSD);
   if (cost !== undefined) {
     parts.push(formatCost(cost));
+  }
+  if (turn.finishedAt !== undefined && parts.length > 0) {
+    parts.push(formatClockTime(turn.finishedAt));
   }
   return parts.length === 0 ? undefined : parts.join(" · ");
 }
