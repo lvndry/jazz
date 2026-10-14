@@ -408,8 +408,8 @@ action whose damage reaches past the workspace or cannot be undone: privilege es
 (`sudo`, `su`), wiping disks or the home directory (`mkfs`, `rm -rf ~`), running a downloaded
 script unseen (`curl … | sh`), power changes (`shutdown`), reverse shells, persistence
 (`authorized_keys`, crontab), sending credentials to another host, and an agent granting itself
-authority (`jazz goal accept`). Recursive and wildcard `rm` are blocked too, because the `rm` tool
-shows what will be deleted at approval. A blocked command returns the specific reason, so the
+authority (`jazz goal accept`). Deleting from the shell (`rm`, `unlink`, `find -delete`) is blocked
+too, because the `rm` tool shows what will be deleted at approval and refuses `/` and `~`. A blocked command returns the specific reason, so the
 agent learns why rather than retrying blindly.
 
 How code is invoked is never a rule. `sh -c`, `python -c`, and `eval` run, because every command
@@ -420,8 +420,8 @@ wrapper such as `env` or `xargs`, or inside `sh -c '…'`), not where its name a
 argument, so `git commit -m "fix mount bug"` and `rg 'shutdown|halt'` pass.
 
 It carries one carve-out worth knowing: `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` passes, because
-temp-dir cleanup is routine and blocking it trains users to disable the denylist. `rm -rf`
-against a real path (or a mix of temp and real paths) still blocks.
+temp-dir cleanup is routine and blocking it trains users to disable the denylist. `rm` against a
+real path, a mix of temp and real paths, or a temp path with `..` in it still blocks.
 
 **This is explicitly not a sandbox.** From the implementation:
 

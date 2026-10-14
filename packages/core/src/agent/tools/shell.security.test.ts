@@ -22,8 +22,12 @@ import { describe, expect, it } from "bun:test";
 import { isDangerousCommand, matchForbiddenCommand } from "./shell";
 
 describe("shell denylist — blocks dangerous commands", () => {
-  describe("rm with destructive flags", () => {
+  describe("deleting outside the rm tool", () => {
     const cases = [
+      "rm tmpfile.txt",
+      "rm file.txt~",
+      "unlink build.log",
+      "find . -name '*.log' -delete",
       "rm -rf /",
       "rm -rf /home/user",
       "rm -rf ~/Documents",
@@ -325,9 +329,6 @@ describe("shell denylist — allows safe commands", () => {
     // process listing (read-only)
     "ps -ef | grep node",
     "lsof -i :3000",
-    // legitimate rm of single files (no destructive flags)
-    "rm tmpfile.txt",
-    "rm ./build.log",
     // temp-dir cleanup — rm -rf against a mktemp/$TMPDIR target is exempt
     'tmp="$(mktemp -d)"; do_work "$tmp"; rm -rf "$tmp"',
     'rm -rf "$(mktemp -d)"',
@@ -336,10 +337,9 @@ describe("shell denylist — allows safe commands", () => {
     'tmpdir="$(mktemp -d)"\npdfseparate "$in" "$tmpdir/page-%d.pdf"\nrm -rf "$tmpdir"',
     'work=`mktemp -d`; rm -rf "$work"',
     'scratch="$(mktemp -d)"; rm -rf "$scratch"/*',
-    // editor backup files (trailing `~`) — must NOT be treated as a home-dir target
-    "rm file.txt~",
-    "rm ./notes.md~",
-    "rm foo bar~",
+    // commands that merely start with the letters rm
+    "rmdir empty-dir",
+    "find . -name '*.log' -print",
     // legitimate chmod
     "chmod +x ./script.sh",
     "chmod 644 file.txt",
@@ -372,7 +372,6 @@ describe("shell denylist — allows safe commands", () => {
     "cat ~/.ssh/known_hosts",
     "cp /etc/hosts ./hosts.bak",
     // workspace file operations
-    "rm -f build.log",
     "truncate -s 0 app.log",
     "dd if=/dev/zero of=test.img bs=1M count=10",
     "dd if=disk.img of=/dev/null bs=1M",
@@ -412,6 +411,9 @@ describe("shell denylist — temp-cleanup rm exemption boundaries", () => {
     // literal /tmp paths are intentionally NOT exempt
     "rm -rf /tmp/foo",
     "rm -rf /tmp",
+    // `..` climbs out of the temp dir
+    'rm -rf "$TMPDIR/../.."',
+    'tmp="$(mktemp -d)"; rm -rf "$tmp/../important"',
     // a second rm targets a real path
     'tmp="$(mktemp -d)"; rm -rf "$tmp"; rm -rf ./build',
   ];
@@ -423,10 +425,9 @@ describe("shell denylist — temp-cleanup rm exemption boundaries", () => {
 });
 
 describe("shell denylist — blocks carry a specific reason", () => {
-  it("names the rm rule when rm -rf is blocked", () => {
-    const match = matchForbiddenCommand("rm -rf /some/real/path");
-    expect(match).not.toBeNull();
-    expect(match?.reason).toContain("rm");
+  it("points a shell delete at the rm tool", () => {
+    const match = matchForbiddenCommand("rm build.log");
+    expect(match?.reason).toContain("use the rm tool");
   });
 
   it("names sudo when sudo is blocked", () => {

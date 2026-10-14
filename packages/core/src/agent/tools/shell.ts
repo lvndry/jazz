@@ -68,6 +68,9 @@ function collectMktempVars(command: string): Set<string> {
  */
 function isTempPathToken(token: string, mktempVars: Set<string>): boolean {
   if (token === MKTEMP_SENTINEL) return true; // inline $(mktemp …) / `mktemp …`
+  if (token.split("/").includes("..")) {
+    return false; // `$TMPDIR/../..` climbs out of the temp dir
+  }
   if (/^\$\{?TMPDIR\}?(?:\/.*)?$/.test(token)) return true; // $TMPDIR or ${TMPDIR}[/…]
   const varName = token.match(/^\$\{?(\w+)\}?(?:\/.*)?$/)?.[1]; // $var / ${var}[/…]
   return varName !== undefined && mktempVars.has(varName);
@@ -259,33 +262,21 @@ export const FORBIDDEN_COMMANDS: readonly ForbiddenRule[] = [
       "approving or answering a parked run (`jazz runs approve`, `jazz goal answer`, `jazz loop approve`) is the user's decision, not an agent's",
   },
 
-  // Recursive and wildcard deletes have an unknown blast radius; the rm tool measures it.
+  // Deletes go through the rm tool, which shows what will be removed before approval and
+  // refuses / and the home directory. Only temp-path cleanup stays in the shell.
   {
-    pattern: asCommand(
-      String.raw`rm\s+(?:${SAME_COMMAND}\s)?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?=\s|$)`,
-    ),
+    pattern: asCommand(String.raw`rm(?=\s|$)`),
     reason:
-      "recursive `rm` (-r) is on the blocked list; use the rm tool, which shows what will be deleted before approval (mktemp/$TMPDIR temp paths are exempt)",
+      "deleting with shell `rm` is on the blocked list; use the rm tool, which shows what will be deleted before approval (mktemp/$TMPDIR temp paths are exempt)",
     exemptions: [TEMP_CLEANUP_EXEMPTION],
   },
   {
-    pattern: asCommand(String.raw`rm\s+${SAME_COMMAND}\*`),
-    reason:
-      "`rm` with a wildcard (*) is on the blocked list; use the rm tool on each path (mktemp/$TMPDIR temp paths are exempt)",
-    exemptions: [TEMP_CLEANUP_EXEMPTION],
+    pattern: asCommand(String.raw`unlink\b`),
+    reason: "deleting with `unlink` is on the blocked list; use the rm tool",
   },
   {
-    pattern: asCommand(String.raw`rm\s+(?:${SAME_COMMAND}\s)?\/(?=\s|$)`),
-    reason: "`rm` targeting the filesystem root (/) is on the blocked list",
-  },
-  // `~` only counts when it starts an argument, so Emacs backups like `file.txt~` pass.
-  {
-    pattern: asCommand(String.raw`rm\s+(?:${SAME_COMMAND}\s)?~`),
-    reason: "`rm` targeting the home directory (~) is on the blocked list",
-  },
-  {
-    pattern: asCommand(String.raw`rm\b${SAME_COMMAND}--no-preserve-root`),
-    reason: "`rm --no-preserve-root` is on the blocked list",
+    pattern: asCommand(String.raw`find\b${SAME_COMMAND}\s-delete\b`),
+    reason: "deleting with `find -delete` is on the blocked list; use the rm tool on each path",
   },
 
   // Privilege escalation
