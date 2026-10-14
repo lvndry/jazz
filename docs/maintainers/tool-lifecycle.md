@@ -30,8 +30,9 @@ before the model turn and feeds the bounded result back as tagged command contex
 the shell executor's working-directory resolution, sanitized environment, timeout, interruption
 handling, and stdout/stderr caps. Because the operator authored the command directly, the `!`
 path is an explicit operator action rather than a model-issued approval request, and the agent
-denylist does not apply to it: that list guards what a model may run, and a blocked agent command
-tells the model to ask the person to run it with `!`. Shell output is untrusted data and must be
+denylist does not apply to it: that list guards what a model may run. In the terminal chat a
+blocked agent command tells the model to ask the person to run it with `!`; on surfaces without
+`!` (bots, `jazz run`, workflows) it tells the model to hand the person the exact command. Shell output is untrusted data and must be
 treated as context, not as instructions. This syntax is available only in the interactive
 terminal; headless and remote surfaces retain their own authorization contracts.
 

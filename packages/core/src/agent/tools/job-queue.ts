@@ -126,9 +126,9 @@ export function createJobQueueTools(): {
     parameters: enqueueBatchParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(enqueueBatchParameters),
-    approvalMessage: (args) => {
+    approvalMessage: (args, context) => {
       for (const job of args.jobs) {
-        const blocked = denylistBlockedError(job.command);
+        const blocked = denylistBlockedError(job.command, context);
         if (blocked) {
           return Effect.succeed({
             skipApproval: true as const,

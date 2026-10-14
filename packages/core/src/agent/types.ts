@@ -56,6 +56,7 @@ export type ChatTurnOptions = Pick<
   | "checkQueuedMessage"
   | "awaitQueuedMessage"
   | "onDetachedToolComplete"
+  | "offersShellEscape"
 >;
 
 /** A durable controller that starts runs on its own: a loop or a goal. */
@@ -214,6 +215,11 @@ export interface AgentRunnerOptions {
    * the rest of the run lost its tools.
    */
   readonly offersGoalProposals?: boolean;
+  /**
+   * Whether the person on this surface can run a shell command themselves with `! <command>`.
+   * Only the interactive terminal chat sets it; tools read it from their context.
+   */
+  readonly offersShellEscape?: boolean;
   /**
    * What started this run when it is not a person: a loop's runs get `end_loop`, a goal's
    * cycles get `report_goal_cycle`, and no other run gets either.

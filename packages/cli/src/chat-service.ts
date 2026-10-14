@@ -537,6 +537,7 @@ export class ChatServiceImpl implements ChatService {
         autoApprovePolicy: () => autoApprovePolicy,
         autoApprovedCommands,
         autoApprovedTools,
+        offersShellEscape: true,
         onAutoApproveCommand: (command: string) =>
           Effect.gen(function* () {
             if (!autoApprovedCommands.includes(command)) {
