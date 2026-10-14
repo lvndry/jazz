@@ -96,13 +96,20 @@ function useLinkPointer(segments: readonly Segment[]): {
   };
 }
 
-function Spans({ segments }: { segments: readonly Segment[] }): ReactNode {
+function Spans({
+  segments,
+  selectable = true,
+}: {
+  segments: readonly Segment[];
+  selectable?: boolean;
+}): ReactNode {
   const linkPointer = useLinkPointer(segments);
   const { hovered } = useContext(LinkHoverContext);
   if (segments.length === 0) return null;
   return (
     <text
       style={{ wrapMode: "none", truncate: true }}
+      selectable={selectable}
       {...linkPointer}
     >
       {segments.map((segment, index) => {
@@ -155,7 +162,10 @@ function Row({ row, width }: { row: RenderRow; width: number }): ReactNode {
       <box
         style={{ width: GUTTER, flexShrink: 0, ...(row.bandIncludesGutter === true ? band : {}) }}
       >
-        <Spans segments={row.gutter} />
+        <Spans
+          segments={row.gutter}
+          selectable={false}
+        />
       </box>
       <box style={{ width: row.contentWidth, flexShrink: 0, ...band }}>
         <Spans segments={row.content} />
