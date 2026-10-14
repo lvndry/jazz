@@ -39,6 +39,12 @@ export interface ViewportRowIndex<Row extends ViewportRow = ViewportRow> {
 
 interface Anchor {
   readonly source: RowSource;
+  /**
+   * Rows before this one that share its exact source. Blank lines in one part all
+   * map to the same position, so without this a run of them resolves to its first
+   * row and line-by-line scrolling can never move past it.
+   */
+  readonly occurrence?: number;
   readonly neighborBefore?: RowSource;
   readonly neighborAfter?: RowSource;
 }
@@ -78,14 +84,45 @@ export interface ViewportSnapshot<Row extends ViewportRow = ViewportRow> {
 const clampTop = (top: number, count: number, height: number): number =>
   Math.max(0, Math.min(Math.trunc(top), Math.max(0, count - height)));
 
+function sameSource(left: RowSource | undefined, right: RowSource): boolean {
+  return (
+    left !== undefined &&
+    left.blockId === right.blockId &&
+    left.partId === right.partId &&
+    left.start === right.start &&
+    left.end === right.end
+  );
+}
+
+/** The row of `source`, advanced through a run of rows sharing it by `occurrence`. */
+function occurrenceRow(
+  index: ViewportRowIndex,
+  source: RowSource,
+  occurrence: number | undefined,
+): number | undefined {
+  const first = index.sourceRow(source);
+  if (first === undefined) return undefined;
+  let row = first;
+  for (let step = 0; step < (occurrence ?? 0); step++) {
+    if (!sameSource(index.sourceAt(row + 1), source)) break;
+    row += 1;
+  }
+  return row;
+}
+
 function anchorAt(index: ViewportRowIndex, top: number): Anchor | undefined {
   const source = index.sourceAt(top);
   if (source === undefined) return undefined;
+  let occurrence = 0;
+  while (sameSource(index.sourceAt(top - occurrence - 1), source)) {
+    occurrence += 1;
+  }
   const bounds = index.blockBounds(source.blockId);
   const before = index.sourceAt((bounds?.first ?? top) - 1);
   const after = index.sourceAt((bounds?.last ?? top) + 1);
   return {
     source,
+    ...(occurrence === 0 ? {} : { occurrence }),
     ...(before === undefined ? {} : { neighborBefore: before }),
     ...(after === undefined ? {} : { neighborAfter: after }),
   };
@@ -98,7 +135,7 @@ function resolveAnchor(
 ): number {
   if (anchor === undefined) return fallback;
   return (
-    index.sourceRow(anchor.source) ??
+    occurrenceRow(index, anchor.source, anchor.occurrence) ??
     (anchor.neighborAfter === undefined ? undefined : index.sourceRow(anchor.neighborAfter)) ??
     (anchor.neighborBefore === undefined ? undefined : index.sourceRow(anchor.neighborBefore)) ??
     fallback
@@ -117,7 +154,7 @@ function tailSource(index: ViewportRowIndex): Anchor | undefined {
 /** A removed live tail resolves to its preceding receipt, not the start of its old document. */
 function seenTailRow(index: ViewportRowIndex, anchor: Anchor): number | undefined {
   const source = anchor.source;
-  if (index.hasPart(source)) return index.sourceRow(source);
+  if (index.hasPart(source)) return occurrenceRow(index, source, anchor.occurrence);
   const bounds = index.blockBounds(source.blockId);
   if (bounds !== undefined) return bounds.last;
   if (anchor.neighborBefore !== undefined) {
