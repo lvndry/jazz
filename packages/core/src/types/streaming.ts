@@ -101,6 +101,11 @@ export type StreamEvent =
        * verdict that decided whether this call was auto-approved.
        */
       classifiedRisk?: string;
+      /**
+       * Set when Ctrl+B moved the call to the background. The call is still running, and a
+       * second completion for the same `toolCallId` reports its real outcome later.
+       */
+      backgrounded?: boolean;
     }
 
   // Usage updates (optional, for real-time token tracking)

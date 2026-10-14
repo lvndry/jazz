@@ -215,6 +215,8 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
    * Defaults to "high-risk" for approval tools.
    */
   readonly riskLevel?: ToolRiskLevel;
+  /** The level of one call, when it depends on the arguments. See `Tool.resolveRiskLevel`. */
+  readonly resolveRiskLevel?: (args: Record<string, unknown>) => ToolRiskLevel;
   /** What an answer from this tool reveals about the operator. No default: decide. */
   readonly disclosure: ToolDisclosure;
   /**
@@ -320,6 +322,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     ...(config.tags ? { tags: config.tags } : {}),
     parameters: config.parameters,
     riskLevel,
+    ...(config.resolveRiskLevel !== undefined ? { resolveRiskLevel: config.resolveRiskLevel } : {}),
     disclosure: config.disclosure,
     ...(config.egress === true ? { egress: true } : {}),
     ...(config.userSecretArguments !== undefined
@@ -371,6 +374,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     ),
     hidden: true,
     riskLevel,
+    ...(config.resolveRiskLevel !== undefined ? { resolveRiskLevel: config.resolveRiskLevel } : {}),
     disclosure: config.disclosure,
     ...(config.egress === true ? { egress: true } : {}),
     ...(config.userSecretArguments !== undefined

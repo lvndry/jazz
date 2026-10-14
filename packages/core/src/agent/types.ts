@@ -56,10 +56,19 @@ export type ChatTurnOptions = Pick<
   | "checkQueuedMessage"
   | "awaitQueuedMessage"
   | "onDetachedToolComplete"
+  | "offersShellEscape"
 >;
 
 /** A durable controller that starts runs on its own: a loop or a goal. */
 export type RunStarter = "loop" | "goal";
+
+/** A Ctrl+B-detached tool call that has since finished. */
+export interface DetachedToolResult {
+  /** The tool name the model called, as it appears in the conversation. */
+  readonly toolName: string;
+  /** One-line outcome with the result body, framed as untrusted when the tool marked it so. */
+  readonly summary: string;
+}
 
 export interface AgentRunnerOptions {
   /**
@@ -215,6 +224,11 @@ export interface AgentRunnerOptions {
    */
   readonly offersGoalProposals?: boolean;
   /**
+   * Whether the person on this surface can run a shell command themselves with `! <command>`.
+   * Only the interactive terminal chat sets it; tools read it from their context.
+   */
+  readonly offersShellEscape?: boolean;
+  /**
    * What started this run when it is not a person: a loop's runs get `end_loop`, a goal's
    * cycles get `report_goal_cycle`, and no other run gets either.
    */
@@ -350,14 +364,12 @@ export interface AgentRunnerOptions {
   /** Told the run's cost so far after each iteration, so a parent can count a child's live spend. */
   readonly onIterationSpend?: (costUSD: number | undefined) => void;
   /**
-   * Callback invoked when a tool call the user detached with Ctrl+B (see
-   * `getBackgroundSignal` on `CompletionStrategy`) finishes running. Receives a
-   * human-readable summary of the outcome. The default CLI wiring appends it to the
-   * same queue `checkQueuedMessage` drains, so it surfaces at the next tool-phase
-   * iteration if this run is still going, or at the start of the next turn otherwise —
-   * whichever comes first. Not called for internal (sub-agent) runs.
+   * Called once when a tool call the user detached with Ctrl+B (see `getBackgroundSignal`
+   * on `CompletionStrategy`) finishes running. The chat delivers it through
+   * `checkQueuedMessage` while a run is going, and starts a turn with it when the chat is
+   * idle. Not called for internal (sub-agent) runs.
    */
-  readonly onDetachedToolComplete?: (summary: string) => void;
+  readonly onDetachedToolComplete?: (result: DetachedToolResult) => void;
   /**
    * Called with this turn's transcript when the run fails, so the caller can keep the work
    * instead of reverting to the history it passed in. Dangling tool calls are closed. Not

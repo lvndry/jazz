@@ -43,6 +43,7 @@ const RUN_BINDINGS: readonly KeyBinding[] = [
   { keys: "Ctrl+O", action: "Expand the last truncated tool output" },
   { keys: "Up", action: "Recall queued messages for editing", when: "agent busy" },
   { keys: "Ctrl+X", action: "Clear the message queue", when: "agent busy, empty input" },
+  { keys: "Ctrl+B", action: "Move the running tool call to the background", when: "tool running" },
 ];
 
 /** The classic inline interface (`JAZZ_FULLSCREEN=0`, or a terminal fullscreen cannot use). */
@@ -78,7 +79,6 @@ export const FULLSCREEN_KEYMAP: readonly KeyBinding[] = [
     when: "agent busy, messages queued",
   },
   ...RUN_BINDINGS,
-  { keys: "Ctrl+B", action: "Move the running tool call to the background", when: "tool running" },
   {
     keys: "Down",
     action: "Pick a sub-agent under the input; Enter opens its log",

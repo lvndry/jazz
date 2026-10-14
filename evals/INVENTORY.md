@@ -13,8 +13,8 @@ removed; ablation decisions come later and must not regress a predeclared target
   (`mkdtemp`), optional web-cassette replay (`fixtures/web/`), and a private `JAZZ_HOME`
   for every sample, seeded with the eval agents and only the `llm` block of the user's
   config. Jobs run in a seeded shuffled order.
-- **Tasks (42, 9 domains)**: tooluse (`write-file`, `read-bound-edit`,
-  `ambient-lsp-receipt`), planning (`trip-budget`), productivity (`extract-fact`),
+- **Tasks (45, 9 domains)**: tooluse (`write-file`, `read-bound-edit`,
+  `ambient-lsp-receipt`, `dedicated-search`, `dedicated-line-range`, `dedicated-rename`), planning (`trip-budget`), productivity (`extract-fact`),
   tutoring (`explain-recursion`), grounding (`disk-space`, `latest-bun-version`,
   `machine-spec`, `repo-test-framework`), continuity (`kill-test`, `blind-successor`),
   personalization (`cross-scope-standing`, `preference-correction`), adversarial (twelve scenarios, see below). The `research` (web)

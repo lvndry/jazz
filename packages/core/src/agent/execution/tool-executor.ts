@@ -66,6 +66,7 @@ import {
   telemetryErrorCategory,
   type createAgentRunMetrics,
 } from "../metrics/agent-run-metrics";
+import type { DetachedToolResult } from "../types";
 
 /**
  * Display metadata for tools whose behavior depends on a configured backend.
@@ -1132,7 +1133,7 @@ export class ToolExecutor {
     agentName: string,
     interruptSignal?: Effect.Effect<void, never>,
     backgroundSignal?: Effect.Effect<void, never>,
-    onDetachedToolComplete?: (summary: string) => void,
+    onDetachedToolComplete?: (result: DetachedToolResult) => void,
     /** Records what each call did, for a batch that is stopped before it finishes. */
     ledger?: ToolBatchLedger,
   ): Effect.Effect<
@@ -1556,16 +1557,15 @@ export interface ToolCallOutcome {
  * is reported with its real result instead of a placeholder.
  *
  * `onDetachedToolComplete` fires later, once, per detached call, with a plain-text
- * summary — there is no live turn to splice a proper tool-result message into by then,
- * so the caller's job is just to get that summary in front of the model somehow (the CLI
- * wiring queues it the same way a message typed mid-run is queued).
+ * summary: there is no live turn to splice a proper tool-result message into by then,
+ * so the caller decides how that summary reaches the model.
  */
 function detachInFlightToolCalls(
   toolFibers: ReadonlyArray<Fiber.RuntimeFiber<ToolCallOutcome, Error>>,
   toolCalls: readonly ToolCall[],
   renderer: StreamingRenderer | null,
   displayConfig: DisplayConfig,
-  onDetachedToolComplete: ((summary: string) => void) | undefined,
+  onDetachedToolComplete: ((result: DetachedToolResult) => void) | undefined,
 ): Effect.Effect<ToolCallOutcome[], never> {
   return Effect.gen(function* () {
     const outcomes: ToolCallOutcome[] = [];
@@ -1588,7 +1588,8 @@ function detachInFlightToolCalls(
         toolCallId: toolCall.id,
         result: {
           backgrounded: true,
-          message: "Running in the background — you'll be told when it finishes.",
+          message:
+            "The user moved this call to the background, where it keeps running. Its result arrives as a message when it finishes. Continue with work that does not need it, or end your turn to wait for it.",
         },
         success: true,
         name,
@@ -1603,6 +1604,7 @@ function detachInFlightToolCalls(
           durationMs: 0,
           success: true,
           summary: "→ backgrounded",
+          backgrounded: true,
         });
       }
 
@@ -1611,9 +1613,9 @@ function detachInFlightToolCalls(
           Effect.flatMap((exit) =>
             Effect.sync(() => {
               const summary = Exit.isSuccess(exit)
-                ? summarizeDetachedOutcome(exit.value)
+                ? summarizeDetachedOutcome(name, exit.value)
                 : `Background task \`${name}\` failed to finish: ${Cause.pretty(exit.cause)}`;
-              onDetachedToolComplete?.(summary);
+              onDetachedToolComplete?.({ toolName: name, summary });
             }),
           ),
         ),
@@ -1624,13 +1626,17 @@ function detachInFlightToolCalls(
   });
 }
 
-/** Plain-text summary of a detached tool call's real outcome, for `onDetachedToolComplete`. */
-function summarizeDetachedOutcome(outcome: ToolCallOutcome): string {
+/**
+ * Plain-text summary of a detached tool call's real outcome, for `onDetachedToolComplete`.
+ * `toolName` is the name the model called: after an approval the outcome carries the
+ * internal `execute_*` counterpart, which the model never saw.
+ */
+function summarizeDetachedOutcome(toolName: string, outcome: ToolCallOutcome): string {
   const body = typeof outcome.result === "string" ? outcome.result : JSON.stringify(outcome.result);
   const truncated = body.length > 800 ? `${body.slice(0, 800)}…` : body;
   const shown =
     outcome.untrusted === undefined ? truncated : frameUntrusted(truncated, outcome.untrusted);
-  return `Background task \`${outcome.name}\` ${outcome.success ? "finished" : "failed"}: ${shown}`;
+  return `Background task \`${toolName}\` ${outcome.success ? "finished" : "failed"}: ${shown}`;
 }
 
 /**

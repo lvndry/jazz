@@ -36,7 +36,7 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
-import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell";
+import { runShellCommand } from "@jazz/core/agent/tools/shell";
 import {
   BUILTIN_TOOL_CATEGORIES,
   DEFAULT_AGENT_TOOL_CATEGORIES,
@@ -499,9 +499,10 @@ const DETACH_FILES_SHOWN = 12;
  * Execute a command explicitly entered by the operator with a leading `!`.
  *
  * This is intentionally outside the model tool loop: the operator authored the
- * command and its output is then handed to the model as context. It still uses
- * the shell tool's denylist, sanitized environment, cwd resolution, timeout,
- * and output cap so the two shell entry points share the same host boundary —
+ * command and its output is then handed to the model as context. The agent
+ * denylist does not apply: it guards what a model may run, and this command is
+ * the operator's own. It shares the shell tool's sanitized environment, cwd
+ * resolution, timeout, and output cap —
  * except it runs `interactive: true`, loading the operator's own shell rc file
  * (aliases, functions), since the operator typed this command themselves and
  * expects it to behave like their own terminal. The model-invoked
@@ -520,16 +521,6 @@ function handleShellCommand(
     if (!trimmedCommand) {
       yield* terminal.error("Usage: ! <shell command>");
       return { shouldContinue: true };
-    }
-
-    const forbidden = matchForbiddenCommand(trimmedCommand);
-    if (forbidden) {
-      const error = `Command blocked by the built-in safety denylist: ${forbidden.reason}`;
-      yield* terminal.error(error);
-      return {
-        shouldContinue: true,
-        messageForAgent: `The operator tried to run this shell command with \`!\`, but Jazz blocked it: ${error}`,
-      };
     }
 
     const workingDirectory = yield* shell.getCwd({

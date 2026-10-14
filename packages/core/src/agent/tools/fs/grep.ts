@@ -514,7 +514,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     name: "grep",
     disclosure: "private",
     description:
-      "Search file contents with ripgrep, falling back to grep; use it for every content search. For file names, use find. Recursion is unbounded: start from a narrow path. Skips hidden files unless path points at them.",
+      "Search file contents with ripgrep, falling back to grep; use it for every content search, with path set to a file or directory. Recursion is unbounded: start from a narrow path. Skips hidden files unless path points at them.",
     tags: ["search", "text"],
     parameters,
     validate: makeZodValidator(parameters),

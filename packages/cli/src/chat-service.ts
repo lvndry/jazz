@@ -30,7 +30,7 @@ import {
 } from "@jazz/adapters/history/conversation-lease";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
-import { carryEgressTaint, detachedResultMessage } from "@jazz/core/agent/execution/egress-taint";
+import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import {
   createSubagentSupervisor,
@@ -141,6 +141,11 @@ import {
   detachConversation,
   type ConversationDelivery,
 } from "./chat/conversation-deliveries";
+import {
+  createDetachedResultInbox,
+  detachedResultsMessage,
+  detachedResultsNotice,
+} from "./chat/detached-results";
 import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import {
@@ -526,6 +531,7 @@ export class ChatServiceImpl implements ChatService {
 
       const fileSystem = yield* FileSystem.FileSystem;
       const fileSystemLayer = Layer.succeed(FileSystem.FileSystem, fileSystem);
+      const detachedResults = createDetachedResultInbox();
       /**
        * What every run this chat starts shares, built fresh per run because the remembered
        * approvals are replaced as the user edits them: the chat's own turns and a goal's cycles
@@ -537,6 +543,7 @@ export class ChatServiceImpl implements ChatService {
         autoApprovePolicy: () => autoApprovePolicy,
         autoApprovedCommands,
         autoApprovedTools,
+        offersShellEscape: true,
         onAutoApproveCommand: (command: string) =>
           Effect.gen(function* () {
             if (!autoApprovedCommands.includes(command)) {
@@ -556,22 +563,23 @@ export class ChatServiceImpl implements ChatService {
         },
         checkQueuedMessage: () => {
           const queued = store.takeQueuedProse().join("\n");
-          if (queued.length === 0) return undefined;
-          Effect.runSync(terminal.user(queued));
-          return queued;
+          const detached = detachedResults.take();
+          if (queued.length > 0) {
+            Effect.runSync(terminal.user(queued));
+          }
+          if (detached.length > 0) {
+            Effect.runSync(terminal.info(detachedResultsNotice(detached)));
+          }
+          const parts = detached.length > 0 ? [queued, detachedResultsMessage(detached)] : [queued];
+          const message = parts.filter((part) => part.length > 0).join("\n\n");
+          return message.length > 0 ? message : undefined;
         },
         awaitQueuedMessage: () =>
           Effect.async<void>((resume) => {
             const cancel = store.onceQueuedProse(() => resume(Effect.void));
             return Effect.sync(cancel);
           }),
-        // A Ctrl+B-detached tool call reports back here, possibly long after this run has
-        // ended. Queuing it through the same path as text typed mid-run means it surfaces
-        // automatically — at the next tool-phase boundary if a run is still going, or as the
-        // opening line of the next turn otherwise.
-        onDetachedToolComplete: (summary: string) => {
-          store.appendToQueue(detachedResultMessage(summary));
-        },
+        onDetachedToolComplete: detachedResults.push,
       });
 
       // Load last-used agent from runtime state for sorting /agents and /switch
@@ -664,8 +672,11 @@ export class ChatServiceImpl implements ChatService {
       let deliveryOwedAtLastLook = false;
       /** That look saw an item the claim after it could not take; wait before looking again. */
       let claimCameBackEmpty = false;
-      /** Set when the idle prompt gave way to sub-agents finishing; the next turn is theirs. */
-      let subagentWake = false;
+      /**
+       * Set when the idle prompt gave way to work finishing (sub-agents, a Ctrl+B background
+       * call); the next turn's message comes from the host, not the user.
+       */
+      let hostWake = false;
 
       let endReason: ChatSessionEnd["reason"] = "exit";
       let messagesReceived = 0;
@@ -753,12 +764,21 @@ export class ChatServiceImpl implements ChatService {
             }),
           );
           // A draft seeded from the queue is the user's to edit and send; nothing preempts it.
-          // Otherwise the prompt gives way to sub-agents finishing, and, in a chat that takes
-          // deliveries, to a finished wait or a due wake trigger for this conversation.
+          // Otherwise the prompt gives way to sub-agents or a Ctrl+B background call finishing,
+          // and, in a chat that takes deliveries, to a finished wait or a due wake trigger for
+          // this conversation.
           const typed = Effect.map(asked, (text) => ({ kind: "typed", text }) as const);
           const subagentsFinished = Effect.as(subagents.awaitFinished(), {
             kind: "subagents-finished",
           } as const);
+          const detachedFinished = Effect.async<{ readonly kind: "detached-finished" }>(
+            (resume) => {
+              const cancel = detachedResults.once(() =>
+                resume(Effect.succeed({ kind: "detached-finished" } as const)),
+              );
+              return Effect.sync(cancel);
+            },
+          );
           const deliveryOwed = Effect.as(
             awaitOwedDelivery(agent.id, conversationId, BACKGROUND_WORK_POLL_INTERVAL_MS, {
               waitFirst: claimCameBackEmpty,
@@ -770,9 +790,12 @@ export class ChatServiceImpl implements ChatService {
               ? yield* typed
               : yield* Effect.raceFirst(
                   typed,
-                  takesDeliveries
-                    ? Effect.raceFirst(subagentsFinished, deliveryOwed)
-                    : subagentsFinished,
+                  Effect.raceFirst(
+                    detachedFinished,
+                    takesDeliveries
+                      ? Effect.raceFirst(subagentsFinished, deliveryOwed)
+                      : subagentsFinished,
+                  ),
                 );
           if (idle.kind === "subagents-finished") {
             const finished = subagents.takeFinished();
@@ -780,7 +803,12 @@ export class ChatServiceImpl implements ChatService {
               `${finished.map((child) => `${child.name} ${child.status}`).join(", ")}; back to the agent.`,
             );
             userMessage = subagentWakeMessage(finished);
-            subagentWake = true;
+            hostWake = true;
+          } else if (idle.kind === "detached-finished") {
+            const finished = detachedResults.take();
+            yield* terminal.info(detachedResultsNotice(finished));
+            userMessage = detachedResultsMessage(finished);
+            hostWake = true;
           } else if (idle.kind === "delivery-owed") {
             deliveryOwedAtLastLook = true;
             continue;
@@ -793,8 +821,8 @@ export class ChatServiceImpl implements ChatService {
           }
         }
         lastTurnErrored = false;
-        const wokenBySubagents = subagentWake;
-        subagentWake = false;
+        const wokenByHost = hostWake;
+        hostWake = false;
 
         const input = classifyChatInput(userMessage, terminal.isInteractive);
         const trimmedMessage = (userMessage ?? "").trim();
@@ -844,7 +872,7 @@ export class ChatServiceImpl implements ChatService {
 
         let messageForAgent = userMessage;
         let trustMessageAsMemorySource =
-          goalTurn === undefined && deliveryTurn === undefined && !wokenBySubagents;
+          goalTurn === undefined && deliveryTurn === undefined && !wokenByHost;
 
         // A message with interior newlines (multi-line composition or a
         // combined prose drain) is prose even when it starts with "/" or "! ":
@@ -852,7 +880,7 @@ export class ChatServiceImpl implements ChatService {
         if (
           goalTurn === undefined &&
           deliveryTurn === undefined &&
-          !wokenBySubagents &&
+          !wokenByHost &&
           isCommandInput(trimmedMessage) &&
           (!trimmedMessage.includes("\n") || parseSpecialCommand(trimmedMessage).type === "rename")
         ) {
@@ -1061,7 +1089,7 @@ export class ChatServiceImpl implements ChatService {
         if (
           goalTurn === undefined &&
           deliveryTurn === undefined &&
-          !wokenBySubagents &&
+          !wokenByHost &&
           messageForAgent === userMessage
         ) {
           const typedMessage = messageForAgent;

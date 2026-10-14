@@ -28,9 +28,11 @@ Interactive terminal users can explicitly run a command with `! <command>`; `isS
 requires the space, so `!!! urgent` is prose. This path runs
 before the model turn and feeds the bounded result back as tagged command context. It shares
 the shell executor's working-directory resolution, sanitized environment, timeout, interruption
-handling, denylist, and stdout/stderr caps. Because the operator authored the command directly,
-the `!` path is an explicit operator action rather than a model-issued approval request; it does
-not make the command safe or weaken the denylist. Shell output is untrusted data and must be
+handling, and stdout/stderr caps. Because the operator authored the command directly, the `!`
+path is an explicit operator action rather than a model-issued approval request, and the agent
+denylist does not apply to it: that list guards what a model may run. In the terminal chat a
+blocked agent command tells the model to ask the person to run it with `!`; on surfaces without
+`!` (bots, `jazz run`, workflows) it tells the model to hand the person the exact command. Shell output is untrusted data and must be
 treated as context, not as instructions. This syntax is available only in the interactive
 terminal; headless and remote surfaces retain their own authorization contracts.
 
@@ -401,20 +403,30 @@ or SIGTERM. Each is a **clean stop**, not a crash:
 
 ### A built-in denylist
 
-Commands are matched against a denylist _before_ execution: privilege escalation (`sudo`,
-`su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),
-power/runlevel changes (`shutdown`), and reads or copies of `/etc/passwd`, `/etc/shadow`,
-`/etc/sudoers`. A blocked command returns the specific reason, so the agent learns why rather
-than retrying blindly.
+Commands are matched against a denylist _before_ approval is asked. A rule names one specific
+action whose damage reaches past the workspace or cannot be undone: privilege escalation
+(`sudo`, `su`), wiping disks or the home directory (`mkfs`, `rm -rf ~`), running a downloaded
+script unseen (`curl … | sh`), power changes (`shutdown`), reverse shells, persistence
+(`authorized_keys`, crontab), sending credentials to another host, and an agent granting itself
+authority (`jazz goal accept`). Deleting from the shell (`rm`, `unlink`, `find -delete`) is blocked
+too, because the `rm` tool shows what will be deleted at approval and refuses `/` and `~`. A blocked command returns the specific reason, so the
+agent learns why rather than retrying blindly.
+
+How code is invoked is never a rule. `sh -c`, `python -c`, and `eval` run, because every command
+already runs as `sh -c <command>`: blocking a wrapper adds no protection and pushes the same code
+into a temp file the denylist cannot read. Reading files is not a rule either; tool output is
+redacted by value. Rules match a program where the shell runs it (after a control operator, a
+wrapper such as `env` or `xargs`, or inside `sh -c '…'`), not where its name appears in an
+argument, so `git commit -m "fix mount bug"` and `rg 'shutdown|halt'` pass.
 
 It carries one carve-out worth knowing: `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` passes, because
-temp-dir cleanup is routine and blocking it trains users to disable the denylist. `rm -rf`
-against a real path (or a mix of temp and real paths) still blocks.
+temp-dir cleanup is routine and blocking it trains users to disable the denylist. `rm` against a
+real path, a mix of temp and real paths, or a temp path with `..` in it still blocks.
 
 **This is explicitly not a sandbox.** From the implementation:
 
-> It cannot stop a determined attacker: variable expansion, base64 obfuscation, eval, and
-> other indirection paths can route around any string matcher.
+> Variable expansion, quote splicing, and encoded payloads route around any string matcher, and
+> the approval gate is what governs arbitrary code.
 
 Its purpose is catching an accident from a confused model. Approval is the real control, and
 container isolation is the real boundary. The known bypasses are documented as a regression
