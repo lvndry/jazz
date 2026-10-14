@@ -213,8 +213,7 @@ describe("waitReport", () => {
     });
   });
 
-  /** Oldest first, so the newest check sits at the transcript's live edge. */
-  test("lists every saved check oldest first, saying when one printed nothing", () => {
+  test("lists every saved check newest first, keeping each check's number", () => {
     const report = waitReport(
       watchWith([
         { check: 1, at: 20_000, exitCode: 1, output: "completed..." },
@@ -224,11 +223,23 @@ describe("waitReport", () => {
     );
 
     expect(report.rows.filter((row) => row.kind === "item")).toEqual([
-      { kind: "item", name: "check 1", detail: "exit 1 · 42s ago · completed..." },
       { kind: "item", name: "check 2", detail: "exit 1 · 12s ago · no output" },
+      { kind: "item", name: "check 1", detail: "exit 1 · 42s ago · completed..." },
     ]);
     expect(report.rows).toContainEqual({ kind: "group", label: "checks", count: "2" });
     expect(report.note).toBeUndefined();
+  });
+
+  test("leaves the item's saved history in stored order", () => {
+    const recentChecks = [
+      { check: 1, at: 0, exitCode: 1, output: "a" },
+      { check: 2, at: 0, exitCode: 1, output: "b" },
+    ];
+    const item = watchWith(recentChecks);
+
+    waitReport(item, 0);
+
+    expect(item.recentChecks?.map((check) => check.check)).toEqual([1, 2]);
   });
 
   test("notes how many earlier checks fell out of the saved history", () => {

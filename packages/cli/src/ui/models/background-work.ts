@@ -208,7 +208,7 @@ export function describeCheckResult(check: JobCheck, now: number): string {
 
 /**
  * A wait laid out in full: the command it re-runs and how often, then every saved check,
- * oldest first. The fullscreen wait view and `/waits show` both print this.
+ * newest first. The fullscreen wait view and `/waits show` both print this.
  */
 export function waitReport(item: BackgroundItem, now: number): TerminalReport {
   const checks = item.recentChecks ?? [];
@@ -231,7 +231,7 @@ export function waitReport(item: BackgroundItem, now: number): TerminalReport {
       },
       ...(checks.length === 0
         ? [{ kind: "text" as const, text: "no checks yet" }]
-        : checks.map((check) => ({
+        : [...checks].reverse().map((check) => ({
             kind: "item" as const,
             name: `check ${String(check.check)}`,
             detail: describeCheckResult(check, now),
