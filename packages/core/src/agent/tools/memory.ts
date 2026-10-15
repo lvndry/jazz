@@ -493,7 +493,7 @@ export function createProposeLessonTool(): Tool<MemoryToolDeps> {
       "State the general rule that would have prevented it and the mistake it prevents. " +
       "The user reviews each proposal before it is saved, so propose only rules worth keeping for months, one per mistake.",
     parameters: proposeLessonParameters,
-    riskLevel: "read-only",
+    riskLevel: "low-risk",
     hidden: false,
     validate: makeZodValidator(proposeLessonParameters),
     handler: (args, context) =>

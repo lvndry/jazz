@@ -149,4 +149,52 @@ describe("lesson proposals", () => {
     const outcome = await runEffect(service.proposeLesson(priorArt).pipe(Effect.either));
     expect(outcome._tag).toBe("Left");
   });
+
+  test("an accept and a reject racing on one lesson never both succeed", async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const service = makeService();
+      const proposed = await runEffect(
+        service.proposeLesson({ ...priorArt, subject: `prior art ${String(round)}` }),
+      );
+      if (!proposed.success) {
+        throw new Error(proposed.message);
+      }
+      const [accepted, rejected] = await Promise.all([
+        runEffect(service.acceptLesson(proposed.proposal.id)),
+        runEffect(service.rejectLesson(proposed.proposal.id)),
+      ]);
+      const saved = await runEffect(
+        service.view(`personal/when/planning-a-new-project/prior-art-${String(round)}.md`),
+      );
+
+      expect(accepted.success !== rejected.success).toBe(true);
+      expect(saved.kind === "file").toBe(accepted.success);
+      expect(await runEffect(service.pendingLessons())).toEqual([]);
+    }
+  });
+
+  test("stores proposal text without terminal control characters", async () => {
+    const service = makeService();
+    await runEffect(
+      service.proposeLesson({
+        ...priorArt,
+        rule: "Check first.\u001b[2J\u001b]8;;https://example.com\u0007 Then build.",
+        mistake: "Skipped\nthe check.",
+      }),
+    );
+
+    const [stored] = await runEffect(service.pendingLessons());
+    // eslint-disable-next-line no-control-regex
+    expect(stored?.rule).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    expect(stored?.rule).toStartWith("Check first.");
+    expect(stored?.mistake).toBe("Skipped the check.");
+  });
+
+  test("refuses a scope that cannot name a memory directory", async () => {
+    const service = makeService();
+    const outcome = await runEffect(service.proposeLesson({ ...priorArt, scope: "../outside" }));
+
+    expect(outcome.success).toBe(false);
+    expect(await runEffect(service.pendingLessons())).toEqual([]);
+  });
 });

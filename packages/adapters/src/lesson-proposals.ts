@@ -13,9 +13,10 @@ import type {
   LessonProposalInput,
   LessonProposalOutcome,
 } from "@jazz/core/interfaces/lesson-proposal";
+import { replaceControlCharacters } from "@jazz/core/utils/control-characters";
 import { toError } from "@jazz/core/utils/errors";
 import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
-import { writeFileStringAtomic } from "@jazz/core/utils/storage";
+import { isValidStorageKey, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 
 const QUEUE_FILENAME = ".pending-lessons.json";
@@ -136,8 +137,11 @@ export function addLessonProposal(
   input: LessonProposalInput,
 ): Effect.Effect<LessonProposalOutcome, Error> {
   return Effect.gen(function* () {
-    const rule = input.rule.trim();
-    const mistake = input.mistake.trim();
+    const rule = replaceControlCharacters(input.rule, " ").trim();
+    const mistake = replaceControlCharacters(input.mistake, " ").trim();
+    if (!isValidStorageKey(input.scope)) {
+      return { success: false, message: `Invalid memory scope name "${input.scope}".` };
+    }
     if (rule.length === 0 || rule.length > MAX_RULE_CHARS) {
       return { success: false, message: `A lesson's rule must be 1–${MAX_RULE_CHARS} characters.` };
     }

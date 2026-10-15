@@ -1089,6 +1089,14 @@ export function createNestedRunExecutor(
     AgentRunner.runRecursive({
       ...approvals,
       ...options,
+      ...(options.autoApprovedTools !== undefined
+        ? {
+            autoApprovedTools: [
+              ...(approvals.autoApprovedTools ?? []),
+              ...options.autoApprovedTools,
+            ],
+          }
+        : {}),
       telemetryParent: parent,
       onRunSpend: (spend) => recordSideSpend(parentMetrics, spend),
     });

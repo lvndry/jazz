@@ -326,10 +326,13 @@ chat process waits on it. That process loads the saved conversation and takes th
 after a per-conversation watermark (`.reflected-conversations.json` at the memory root). It
 claims them before the model call, so two reflections never cover the same messages. It then
 runs the extractor with only `view_memory` and `propose_lesson`. It cannot use `manage_memory`:
-a fact save would need an approval prompt in a chat that has already closed. A proposal needs
-none, because it lands in the review queue (`.pending-lessons.json`), not in memory, and only
-`MemoryService.acceptLesson`, reached from `/memory accept` and `jazz memory accept`, writes
-it. The chat skips the spawn for ephemeral sessions and for conversations with no turn in this
+a fact save would need an approval prompt in a chat that has already closed. `propose_lesson`
+is `low-risk`, since it writes the review queue (`.pending-lessons.json`), and both extractor
+passes list it in the sub-run's `autoApprovedTools`, so a proposal needs no prompt there.
+Nothing reaches memory from the queue except `MemoryService.acceptLesson`, reached from
+`/memory accept` and `jazz memory accept`, which looks up, writes and dequeues under one hold of
+the memory write lock so a concurrent reject cannot be overridden. The pass reads at most the
+two newest chunks of what it claimed and logs any it skipped. The chat skips the spawn for ephemeral sessions and for conversations with no turn in this
 session. A hard kill (SIGTERM mid-chat) skips it too; the next close of that conversation
 covers the missed messages.
 

@@ -20,8 +20,8 @@ and the [security model](../security/index.md).
 | **Agent-facing tools**                                                  | **79** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 20     |
 | Total registered                                                        | 99     |
-| `read-only`                                                             | 41     |
-| `low-risk`                                                              | 19     |
+| `read-only`                                                             | 40     |
+| `low-risk`                                                              | 20     |
 | `high-risk`                                                             | 16     |
 | `unknown`                                                               | 3      |
 
@@ -185,11 +185,11 @@ available through `jazz run` or remote chat surfaces.
 
 Memory tools are in the built-in bundle. Deny `manage_memory` to prevent writes, and `propose_lesson` to stop lesson proposals. See [Memory](../concepts/conversations-and-memory.md).
 
-| Tool             | Risk        | Approval pair | What it does                                                                                                                                                                                                                                           |
-| ---------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `view_memory`    | `read-only` | none          | Consult relevant memory when prior context could improve the answer.                                                                                                                                                                                   |
-| `manage_memory`  | `low-risk`  | none          | Create with an explicit relevance topic, or amend, delete, or rename, using an exact quote from authenticated user input. The receipt shows a diff of the entry: the new claim for a create, old and new for an amend, the removed claim for a delete. |
-| `propose_lesson` | `read-only` | none          | Queue a rule the agent drew from its own mistake for you to review. Writes nothing to memory: the lesson is saved only when you accept it with `/memory accept` or `jazz memory accept`.                                                               |
+| Tool             | Risk        | Approval pair | What it does                                                                                                                                                                                                                                                       |
+| ---------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `view_memory`    | `read-only` | none          | Consult relevant memory when prior context could improve the answer.                                                                                                                                                                                               |
+| `manage_memory`  | `low-risk`  | none          | Create with an explicit relevance topic, or amend, delete, or rename, using an exact quote from authenticated user input. The receipt shows a diff of the entry: the new claim for a create, old and new for an amend, the removed claim for a delete.             |
+| `propose_lesson` | `low-risk`  | none          | Queue a rule the agent drew from its own mistake for you to review. Writes nothing to memory: the lesson is saved only when you accept it with `/memory accept` or `jazz memory accept`. The end-of-conversation and compaction passes may call it without asking. |
 
 `update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations. See [Context management](../concepts/context-management.md).
 

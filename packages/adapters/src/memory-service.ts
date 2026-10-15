@@ -1101,69 +1101,75 @@ export class MemoryServiceImpl implements MemoryService {
 
         return yield* this.withMemoryWriteLock(
           scope,
-          Effect.gen(
-            function* (this: MemoryServiceImpl) {
-              const fs = yield* FileSystem.FileSystem;
-              const root = yield* this.ensureScopeRoot(scope);
-              const target = yield* resolveMemoryPath(root, rest);
-
-              const fileTextBytes = Buffer.byteLength(fileText, "utf-8");
-              if (fileTextBytes > this.maxFileBytes) {
-                return yield* Effect.fail(
-                  new MemoryGuardrailViolation(
-                    `File would be ${fileTextBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
-                  ),
-                );
-              }
-
-              const alreadyExists = yield* fs
-                .exists(target)
-                .pipe(Effect.catchAll(() => Effect.succeed(false)));
-              if (alreadyExists) {
-                // The filename is the entry's identity, so an existing file is
-                // the answer to "is this already recorded?". Returning what it
-                // says turns the refusal into something the caller can act on:
-                // amend the entry that exists rather than adding a second one
-                // beside it, which is how a store fragments into near-duplicates.
-                const existingText = yield* fs
-                  .readFileString(target)
-                  .pipe(Effect.catchAll(() => Effect.succeed("")));
-                return {
-                  success: false,
-                  message: [
-                    `Error: ${abbreviateHomePath(target)} already exists.`,
-                    "Amend the existing entry rather than adding a second one.",
-                    ...(existingText.length > 0
-                      ? [
-                          "",
-                          "Current content:",
-                          existingText.slice(0, MEMORY_SUMMARY_MAX_CHARS * 4),
-                        ]
-                      : []),
-                  ].join("\n"),
-                } satisfies MemoryMutationOutcome;
-              }
-
-              yield* this.requireScopeBudget(fs, root, {
-                addedBytes: fileTextBytes,
-                addsFile: true,
-                subject: "Creating this file",
-              });
-              if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
-                return REVOKED_CLAIM_OUTCOME;
-              }
-              yield* writeFileStringAtomic(target, fileText);
-              yield* recordWrite(fs, root, path.relative(root, target), writeContext);
-
-              return {
-                success: true,
-                message: `File created successfully at: ${abbreviateHomePath(target)}`,
-              } satisfies MemoryMutationOutcome;
-            }.bind(this),
-          ),
+          this.createWhileLocked(scope, rest, fileText, writeContext),
         );
       }.bind(this),
     );
+
+  /** `create`'s write, for callers already holding the memory write lock, which is not reentrant. */
+  private createWhileLocked(
+    scope: string,
+    rest: string,
+    fileText: string,
+    writeContext: MemoryWriteContext,
+  ): Effect.Effect<MemoryMutationOutcome, MemoryGuardrailViolation | Error, FileSystem.FileSystem> {
+    return Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* this.ensureScopeRoot(scope);
+        const target = yield* resolveMemoryPath(root, rest);
+
+        const fileTextBytes = Buffer.byteLength(fileText, "utf-8");
+        if (fileTextBytes > this.maxFileBytes) {
+          return yield* Effect.fail(
+            new MemoryGuardrailViolation(
+              `File would be ${fileTextBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
+            ),
+          );
+        }
+
+        const alreadyExists = yield* fs
+          .exists(target)
+          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+        if (alreadyExists) {
+          // The filename is the entry's identity, so an existing file is
+          // the answer to "is this already recorded?". Returning what it
+          // says turns the refusal into something the caller can act on:
+          // amend the entry that exists rather than adding a second one
+          // beside it, which is how a store fragments into near-duplicates.
+          const existingText = yield* fs
+            .readFileString(target)
+            .pipe(Effect.catchAll(() => Effect.succeed("")));
+          return {
+            success: false,
+            message: [
+              `Error: ${abbreviateHomePath(target)} already exists.`,
+              "Amend the existing entry rather than adding a second one.",
+              ...(existingText.length > 0
+                ? ["", "Current content:", existingText.slice(0, MEMORY_SUMMARY_MAX_CHARS * 4)]
+                : []),
+            ].join("\n"),
+          } satisfies MemoryMutationOutcome;
+        }
+
+        yield* this.requireScopeBudget(fs, root, {
+          addedBytes: fileTextBytes,
+          addsFile: true,
+          subject: "Creating this file",
+        });
+        if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
+          return REVOKED_CLAIM_OUTCOME;
+        }
+        yield* writeFileStringAtomic(target, fileText);
+        yield* recordWrite(fs, root, path.relative(root, target), writeContext);
+
+        return {
+          success: true,
+          message: `File created successfully at: ${abbreviateHomePath(target)}`,
+        } satisfies MemoryMutationOutcome;
+      }.bind(this),
+    );
+  }
 
   readonly strReplace: MemoryService["strReplace"] = (virtualPath, oldStr, newStr, writeContext) =>
     Effect.gen(
@@ -1469,34 +1475,44 @@ export class MemoryServiceImpl implements MemoryService {
     );
 
   /**
-   * Writes the entry first and dequeues second, each under its own lock acquisition: the
-   * write lock is not reentrant, and a failed write must leave the proposal waiting.
+   * Looks up, writes and dequeues under one hold of the memory write lock, so a reject racing
+   * this accept either removes the proposal first (and nothing is written) or finds it gone. A
+   * failed write leaves the proposal waiting.
    */
   readonly acceptLesson: MemoryService["acceptLesson"] = (id) =>
-    Effect.gen(
-      function* (this: MemoryServiceImpl) {
-        const fs = yield* FileSystem.FileSystem;
-        const proposal = yield* findLessonProposal(fs, this.baseMemoryDirectory, id);
-        if (proposal === undefined) {
-          return { success: false, message: `No pending lesson has id ${id}.` } as const;
-        }
-        const targetPath = lessonDestinationPath(proposal);
-        const created = yield* this.create(targetPath, formatAcceptedLesson(proposal), {
-          agentId: proposal.proposedBy,
-          entry: {
-            origin: "lesson",
-            failure: { kind: "correction", correctedBehavior: proposal.mistake },
-          },
-        });
-        if (!created.success) {
-          return { success: false, message: created.message } as const;
-        }
-        yield* withMemoryWriteLock(
-          this.baseMemoryDirectory,
-          removeLessonProposal(fs, this.baseMemoryDirectory, proposal.id),
-        );
-        return { success: true, message: `Saved to ${targetPath}.`, path: targetPath } as const;
-      }.bind(this),
+    withMemoryWriteLock(
+      this.baseMemoryDirectory,
+      Effect.gen(
+        function* (this: MemoryServiceImpl) {
+          const fs = yield* FileSystem.FileSystem;
+          const proposal = yield* findLessonProposal(fs, this.baseMemoryDirectory, id);
+          if (proposal === undefined) {
+            return { success: false, message: `No pending lesson has id ${id}.` } as const;
+          }
+          const targetPath = lessonDestinationPath(proposal);
+          const resolved = this.resolveScope(targetPath);
+          if (!resolved.ok) {
+            return { success: false, message: resolved.failure.message } as const;
+          }
+          const created = yield* this.createWhileLocked(
+            resolved.scope,
+            resolved.rest,
+            formatAcceptedLesson(proposal),
+            {
+              agentId: proposal.proposedBy,
+              entry: {
+                origin: "lesson",
+                failure: { kind: "correction", correctedBehavior: proposal.mistake },
+              },
+            },
+          );
+          if (!created.success) {
+            return { success: false, message: created.message } as const;
+          }
+          yield* removeLessonProposal(fs, this.baseMemoryDirectory, proposal.id);
+          return { success: true, message: `Saved to ${targetPath}.`, path: targetPath } as const;
+        }.bind(this),
+      ),
     );
 
   readonly rejectLesson: MemoryService["rejectLesson"] = (id) =>

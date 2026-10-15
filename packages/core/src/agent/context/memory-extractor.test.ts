@@ -13,7 +13,7 @@ import {
   VIEW_MEMORY_TOOL_NAME,
 } from "../memory-recall-log";
 import type { AgentResponse } from "../types";
-import { extractMemories } from "./memory-extractor";
+import { extractMemories, MAX_CONVERSATION_END_CHUNKS } from "./memory-extractor";
 import { Summarizer, type AutoCompaction, type RecursiveRunner } from "./summarizer";
 
 function createMockAgent(overrides: Partial<Agent> = {}): Agent {
@@ -185,6 +185,32 @@ describe("extractMemories", () => {
 
     expect(capturedAgent?.config.tools).toEqual([VIEW_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME]);
     expect(capturedInput).toContain("an open-source app already does this");
+  });
+
+  it("a conversation-end pass reads only the newest chunks, pre-approving lesson proposals", async () => {
+    const calls: { input: string; autoApprovedTools: readonly string[] | undefined }[] = [];
+    const mockRunner: RecursiveRunner = (options) => {
+      calls.push({ input: options.userInput, autoApprovedTools: options.autoApprovedTools });
+      return Effect.succeed({ content: "", conversationId: "conv-1" } as AgentResponse);
+    };
+    const longTurn = "word ".repeat(60_000);
+    const messages: ChatMessage[] = Array.from({ length: 12 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `turn-${String(index)} ${longTurn}`,
+    }));
+
+    await Effect.runPromise(
+      extractMemories(messages, createMockAgent(), "conv-1", mockRunner, "conversation-end").pipe(
+        Effect.provide(createTestLayer()),
+      ) as Effect.Effect<void, never, never>,
+    );
+
+    expect(calls).toHaveLength(MAX_CONVERSATION_END_CHUNKS);
+    expect(calls.at(-1)?.input).toContain("turn-11");
+    expect(calls.some((call) => call.input.includes("turn-0 "))).toBe(false);
+    expect(calls.every((call) => call.autoApprovedTools?.includes(PROPOSE_LESSON_TOOL_NAME))).toBe(
+      true,
+    );
   });
 
   it("does nothing when there are no messages to scan", async () => {

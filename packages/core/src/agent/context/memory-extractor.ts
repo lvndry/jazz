@@ -74,6 +74,15 @@ const EXTRACTOR_INPUT_BUDGET_RATIO = 0.5;
  */
 const EXTRACTION_MAX_ITERATIONS = 8;
 
+/**
+ * Chunks a conversation-end pass reads, newest first. Each chunk is one model call of up to half
+ * the extractor's window, and this pass runs on every chat close, so its cost is bounded by a
+ * count rather than by how long the conversation ran. Messages a compaction folded into a summary
+ * were already offered to the compaction pass, which proposes lessons too; any other skipped part
+ * is logged with how many chunks went unread.
+ */
+export const MAX_CONVERSATION_END_CHUNKS = 2;
+
 /** Quotes allowed per rewritten user message; the model can only copy words it was shown. */
 const QUOTES_SHOWN_PER_MESSAGE = 4;
 
@@ -183,7 +192,19 @@ export function extractMemories(
     // A transcript larger than the extractor's window is split so no message is
     // silently dropped from the scan; later chunks see earlier chunks' writes,
     // so cross-chunk dedup still holds.
-    const chunks = chunkForSummarizer(messagesToSummarize, inputBudget, extractorHint);
+    const allChunks = chunkForSummarizer(messagesToSummarize, inputBudget, extractorHint);
+    const chunks =
+      pass === "conversation-end" ? allChunks.slice(-MAX_CONVERSATION_END_CHUNKS) : allChunks;
+    if (chunks.length < allChunks.length) {
+      yield* logger.info(
+        "Conversation-end lesson pass read only the newest part of the conversation",
+        {
+          conversationId,
+          chunksRead: chunks.length,
+          chunksSkipped: allChunks.length - chunks.length,
+        },
+      );
+    }
 
     yield* logger.debug("Scanning history for memory-worthy facts and lessons", {
       pass,
@@ -233,6 +254,7 @@ export function extractMemories(
         conversationId,
         maxIterations: EXTRACTION_MAX_ITERATIONS,
         memorySources,
+        autoApprovedTools: [PROPOSE_LESSON_TOOL_NAME],
       });
     }
   }).pipe(
