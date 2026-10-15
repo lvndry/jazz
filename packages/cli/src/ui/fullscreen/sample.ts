@@ -156,6 +156,7 @@ export function sampleView(): ViewModel {
     documentId: "sample:main",
     header: {
       version: packageJson.version,
+      agentName: "sol",
       cwd: "~/github/jazz",
       model: "claude-opus-5",
       connectors: [

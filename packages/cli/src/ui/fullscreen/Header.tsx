@@ -3,10 +3,10 @@
 /**
  * The header: one row, five fact groups at most, never hidden.
  *
- *    jazz  model · host:port · ~/repo            apps 3 of 4   ━━━━━━━━━━ 47%
+ *    jazz  agent  model · host:port · ~/repo            apps 3 of 4   ━━━━━━━━━━ 47%
  *
- * The restraint is the design. The name is set bold and the model sits beside
- * it in the muted tone, because together they answer "who am I talking to".
+ * Jazz and the agent name are bold; the model sits beside them in the muted
+ * tone, because together they answer "who am I talking to".
  * The working directory answers "where is this happening" with the same
  * quietness. Health is flush right: connector health as a count rather than
  * four names with four status marks — a name appears only when that connector
@@ -105,7 +105,12 @@ export function headerGroups(model: HeaderModel, glyphs: GlyphSet = getGlyphs())
   const groups: HeaderGroup[] = [
     {
       key: "mark",
-      segments: [{ text: " jazz", fg: THEME.selected, bold: true }],
+      segments: [
+        { text: " jazz", fg: THEME.selected, bold: true },
+        ...(model.agentName === undefined || model.agentName === ""
+          ? []
+          : [{ text: `${NEAR_GAP}${model.agentName}`, fg: THEME.selected, bold: true }]),
+      ],
     },
     {
       key: "model",

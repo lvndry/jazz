@@ -143,9 +143,10 @@ describe("fullscreen bridge", () => {
     for (const row of rows) expect([...row]).toHaveLength(WIDTH);
   });
 
-  it("puts the model and the context meter in the header from run stats", async () => {
+  it("puts the active agent, model and context meter in the header from run stats", async () => {
     const text = await frame(() => {
       store.resetRunStats({
+        agentName: "chatgpt-sol",
         model: "claude-opus-5",
         tokensInContext: 82_100,
         maxContextTokens: 200_000,
@@ -154,10 +155,27 @@ describe("fullscreen bridge", () => {
         costUSD: 0.042,
       });
     });
-    expect(text).toContain("claude-opus-5");
+    expect(text.split("\n")[0]).toContain("jazz  chatgpt-sol  claude-opus-5");
     // 82.1k of 200k is 41%.
     expect(text).toContain("41%");
     expect(text).toContain(`20k in ${getGlyphs().bullet} 40k out ${getGlyphs().bullet} $0.04`);
+  });
+
+  it("updates the header when switching between agents using the same model", async () => {
+    store.resetRunStats({ agentName: "first-agent", model: "gpt-6-sol" });
+    const rendered = await renderForTest(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    try {
+      await rendered.renderOnce();
+      expect(rendered.captureCharFrame().split("\n")[0]).toContain("first-agent");
+      updateForTest(() => store.updateRunStats({ agentName: "second-agent" }));
+      await rendered.flush();
+      const row = rendered.captureCharFrame().split("\n")[0];
+      expect(row).toContain("second-agent");
+      expect(row).not.toContain("first-agent");
+      expect(row).toContain("gpt-6-sol");
+    } finally {
+      rendered.renderer.destroy();
+    }
   });
 
   it("names the reasoning effort beside the model in the composer", async () => {

@@ -286,6 +286,7 @@ export class ChatServiceImpl implements ChatService {
       const llmService = yield* LLMServiceTag;
       const reasoning = reasoningEffortLabel(agent.config.llm.reasoning);
       store.resetRunStats({
+        agentName: agent.name,
         provider: agent.config.llm.provider,
         model: agent.config.llm.model,
         ...(reasoning === undefined ? {} : { reasoning }),
@@ -999,6 +1000,7 @@ export class ChatServiceImpl implements ChatService {
               // Conversations are kept per agent, so the next save starts this one's log.
               savedRevision = EMPTY_CONVERSATION_REVISION;
               store.updateRunStats({
+                agentName: agent.name,
                 provider: agent.config.llm.provider,
                 model: agent.config.llm.model,
                 reasoning: reasoningEffortLabel(agent.config.llm.reasoning),

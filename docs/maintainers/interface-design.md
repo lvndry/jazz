@@ -328,7 +328,12 @@ runs with colour disabled, which makes ordinary colour assertions vacuous.
 └────────────────────────────────────────────┘
 ```
 
-The conversation header places a local model's resolved `host:port` immediately after its model
+The conversation header shows the active agent name beside `jazz`, followed by its model and
+working directory. The name updates when switching agents with `/switch`. On narrow terminals,
+the agent name stays ahead of the model and directory and is clipped when necessary to keep
+the context meter visible.
+
+The header places a local model's resolved `host:port` immediately after its model
 name. When width is tight, the host drops before the model or health facts. Ollama Cloud models
 do not get a local host label.
 
@@ -401,6 +406,10 @@ When an optional HTTP URL list requires approval, HTTP and web-fetch cards offer
 one-off approval or rejection; they cannot add a host or session exemption.
 
 ---
+
+Read-only command panels wrap their body after reserving a column for the vertical
+scrollbar. Their summary, including the full tool and group counts in `/tools`,
+remains readable at the bottom; scrolling reveals every tool group.
 
 ## Reach
 

@@ -165,10 +165,11 @@ export interface Connector {
 }
 
 /**
- * Four facts, one row. Identity carries version and cwd; the right-aligned
- * groups carry model, connector health, and context pressure.
+ * One row: Jazz, the active agent, model and cwd on the left; connector health
+ * and context pressure on the right. Version is available for session metadata.
  */
 export interface HeaderModel {
+  readonly agentName?: string;
   readonly version: string;
   readonly cwd: string;
   readonly model: string;

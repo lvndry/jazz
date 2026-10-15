@@ -972,6 +972,10 @@ plugin commands in their own sections, then the keys of the interface you are in
 shows every form of one command. The table below is generated from the same list
 (`bun run docs:chat-commands`).
 
+Configured peer tools are registered when chat starts, so `/tools` can list them
+before the first message. After editing an agent from another process, reload it
+with `/switch <agent>` to use the updated tool selection.
+
 <!-- chat-commands:start -->
 
 | Command                                                                              | Purpose                                                                                                       |
@@ -1009,7 +1013,7 @@ shows every form of one command. The table below is generated from the same list
 | `/info`                                                                              | Show conversation id, title, usage, and log file paths for this session. Also `/stats`.                       |
 | `/switch [agent]`                                                                    | Switch to a different agent in the same conversation.                                                         |
 | `/theme [name] [dark\|light]`                                                        | List themes, or switch to one and save it.                                                                    |
-| `/tools`                                                                             | List all agent tools by category.                                                                             |
+| `/tools`                                                                             | List agent tools by category, including configured peer tools.                                                |
 | `/workflows [action]`                                                                | List workflows, or send an action (e.g. create) to the agent.                                                 |
 | `! <command>`                                                                        | Run a shell command and give its output to the agent. See [Shell escapes](#shell-escapes).                    |
 
