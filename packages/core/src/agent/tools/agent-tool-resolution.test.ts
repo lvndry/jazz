@@ -1,14 +1,24 @@
+/**
+ * Verifies shared category grants and final tool denials used by runs and capability views.
+ * Configured-peer cases use the production registry and peer registration, covering defaults
+ * without depending on a model call.
+ */
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
-import type { Agent, AgentConfig } from "@/core/types";
+import type { Agent, AgentConfig, AppConfig } from "@/core/types";
 import {
   isAttendedRun,
   resolveAgentToolNames,
+  resolveAgentToolCategoryIds,
   runToolDenials,
   toolDenials,
 } from "./agent-tool-resolution";
 import { COMPUTER_TOOL_NAMES } from "./computer/tool-names";
+import { registerPeerTools } from "./register-tools";
+import { createCategoryMappings } from "./tool-categories";
+import { createToolRegistryLayer } from "./tool-registry";
 
 function agentWith(config: Partial<AgentConfig>): Agent {
   return {
@@ -186,4 +196,78 @@ describe("computer tools", () => {
     expect(denies({ origin: { source: "chat" }, startedBy: "goal" })).toBe(true);
     expect(denies({ origin: { source: "chat" }, startedBy: "loop" })).toBe(true);
   });
+});
+
+describe("selectable category defaults", () => {
+  it("inherits Browser and Peers only when no explicit tool list exists", () => {
+    expect(resolveAgentToolCategoryIds(agentWith({}), undefined)).toEqual(
+      expect.arrayContaining(["browser", "peers"]),
+    );
+    for (const tools of [[], ["ls"]]) {
+      const categories = resolveAgentToolCategoryIds(agentWith({ tools }), undefined);
+      expect(categories).not.toContain("browser");
+      expect(categories).not.toContain("peers");
+      expect(categories).toContain("skills");
+    }
+  });
+
+  it("honors persona restrictions without allowing selectable categories into a profile", () => {
+    expect(resolveAgentToolCategoryIds(agentWith({}), { categories: [] })).toEqual([]);
+    expect(resolveAgentToolCategoryIds(agentWith({ persona: "summarizer" }), undefined)).toEqual(
+      [],
+    );
+    expect(
+      resolveAgentToolCategoryIds(agentWith({}), {
+        categories: ["skills", "peers", "browser", "unknown"],
+      }),
+    ).toEqual(["skills"]);
+  });
+
+  it("maps the Peers picker label to the registered category", () => {
+    const mappings = createCategoryMappings();
+    expect(mappings.displayNameToId.get("Peers")).toBe("peers");
+    expect(mappings.idToDisplayName.get("peers")).toBe("Peers");
+  });
+
+  it.each([
+    { label: "default tools", config: {}, expected: true },
+    { label: "explicit tools", config: { tools: ["ls"] }, expected: false },
+    { label: "explicit peer grant", config: { tools: ["ask_peer"] }, expected: true },
+    { label: "denied peer", config: { deniedTools: ["ask_peer"] }, expected: false },
+    { label: "summarizer", config: { persona: "summarizer" }, expected: false },
+  ] satisfies readonly {
+    readonly label: string;
+    readonly config: Partial<AgentConfig>;
+    readonly expected: boolean;
+  }[])(
+    "resolves a configured peer using the real registry: $label",
+    async ({ config, expected }) => {
+      const names = await Effect.runPromise(
+        Effect.gen(function* () {
+          yield* registerPeerTools();
+          const registry = yield* ToolRegistryTag;
+          expect(yield* registry.getToolsInCategory("peers")).toContain("ask_peer");
+          return yield* resolveAgentToolNames(agentWith(config));
+        }).pipe(
+          Effect.provide(createToolRegistryLayer()),
+          Effect.provideService(AgentConfigServiceTag, {
+            get: () => Effect.dieMessage("unused config lookup"),
+            getOrFail: () => Effect.dieMessage("unused config lookup"),
+            getOrElse: (_key, fallback) => Effect.succeed(fallback),
+            has: () => Effect.succeed(false),
+            set: () => Effect.dieMessage("unexpected config mutation"),
+            revision: Effect.succeed(0),
+            secretStorageUnavailable: () => false,
+            reloadIfChanged: () => Effect.succeed(false),
+            appConfig: Effect.succeed<AppConfig>({
+              storage: { type: "file", path: "/unused" },
+              logging: { level: "info", format: "plain" },
+              peers: [{ name: "bob", url: "http://127.0.0.1:4747/peer/ask" }],
+            }),
+          }),
+        ),
+      );
+      expect(names.includes("ask_peer")).toBe(expected);
+    },
+  );
 });

@@ -103,7 +103,11 @@ import { withRunRecording } from "./run/run-recorder";
 import { ToolActivityTracker } from "./run/tool-activity";
 import { saveSubagentResult } from "./subagents/results";
 import { createSubagentSupervisor } from "./subagents/supervisor";
-import { isAttendedRun, runToolDenials } from "./tools/agent-tool-resolution";
+import {
+  isAttendedRun,
+  resolveAgentToolCategoryIds,
+  runToolDenials,
+} from "./tools/agent-tool-resolution";
 import { BrowserSessions } from "./tools/browser/session";
 import { resolveCommandRisk } from "./tools/command-risk";
 import { ComputerSessions } from "./tools/computer/session";
@@ -113,7 +117,6 @@ import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerBrowserAdoptionTools, registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
-import { BUILTIN_TOOL_CATEGORIES, DEFAULT_AGENT_TOOL_CATEGORIES } from "./tools/tool-categories";
 import { INTERACTIVE_TOOL_NAMES } from "./tools/user-interaction";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
@@ -670,22 +673,10 @@ function initializeAgentRun(
     // tool.
     yield* registerCustomToolsForAgent(agent, agentToolNames);
 
-    // Resolve which built-in categories the persona wants. Default = all of
-    // BUILTIN_TOOL_CATEGORIES (current behavior). If toolProfile.categories is
-    // explicitly an empty array, no built-in tools are included (replaces the
-    // legacy `persona === "summarizer" ? []` carve-out).
-    const requestedBuiltinCategoryIds: readonly string[] = (() => {
-      if (toolProfile?.categories !== undefined) return toolProfile.categories;
-      // Back-compat: summarizer with no profile keeps its empty bundle.
-      if (persona === "summarizer") return [];
-      return DEFAULT_AGENT_TOOL_CATEGORIES.map((c) => c.id);
-    })();
-
-    const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((c) => c.id));
     const builtInToolNames = (yield* Effect.all(
-      requestedBuiltinCategoryIds
-        .filter((id) => validBuiltinCategoryIds.has(id))
-        .map((id) => toolRegistry.getToolsInCategory(id)),
+      resolveAgentToolCategoryIds(agent, toolProfile).map((id) =>
+        toolRegistry.getToolsInCategory(id),
+      ),
     )).flat();
 
     // Combine agent tools with built-in tools and enabled-plugin tools, then apply persona deny

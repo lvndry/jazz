@@ -1,3 +1,8 @@
+/**
+ * Defines tool categories, picker visibility, and default grants. Built-in categories are
+ * always added unless narrowed by a persona; selectable defaults apply only without a saved
+ * tools list. Category mappings translate picker labels to registry IDs.
+ */
 import type { ToolCategory } from "@/core/types";
 import { toPascalCase } from "@/core/utils/string";
 
@@ -127,6 +132,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   TODO_CATEGORY,
   MEMORY_CATEGORY,
   WORKSPACE_CATEGORY,
+  PEERS_CATEGORY,
   REMINDER_CATEGORY,
   WAKE_TRIGGER_CATEGORY,
   JOB_QUEUE_CATEGORY,
@@ -169,11 +175,9 @@ export function isUserSelectableToolCategory(displayName: string): boolean {
 }
 
 /**
- * The categories every agent gets by default: all the internal ones, plus Browser Use and
- * Peers. Both are in this list but not in BUILTIN_TOOL_CATEGORIES, so they are on for new
- * agents yet stay in the tool picker where a user can turn them off. Peers is inert until a
- * peer with a url is configured, so granting the category to every agent costs nothing on a
- * machine with no peer setup.
+ * Categories inherited when an agent has no saved tools list. Browser Use and Peers remain
+ * selectable: an explicit tools list grants them by name instead. Peers registers no outbound
+ * tool until a peer with a URL exists.
  */
 export const DEFAULT_AGENT_TOOL_CATEGORIES: readonly ToolCategory[] = [
   ...BUILTIN_TOOL_CATEGORIES,

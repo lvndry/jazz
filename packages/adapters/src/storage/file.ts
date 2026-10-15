@@ -192,7 +192,9 @@ export class FileStorageService implements StorageService {
 
         const baseConfig = rawConfig as unknown as AgentConfig;
         const configWithNormalizedTools: AgentConfig =
-          normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
+          rawData.config.tools !== undefined
+            ? { ...baseConfig, tools: normalizedTools }
+            : baseConfig;
 
         const info = yield* this.fs.stat(path).pipe(Effect.option);
         const modified = Option.flatMap(info, (stat) => stat.mtime);

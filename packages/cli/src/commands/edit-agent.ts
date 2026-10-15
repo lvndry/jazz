@@ -1,6 +1,11 @@
+/**
+ * Runs the interactive agent editing wizard and persists its selected configuration. Registers
+ * configured peer tools before building the category picker so Peers can be selected and saved.
+ */
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { registerMCPServerTools } from "@jazz/core/agent/tools/mcp";
 import { getMCPServerCategories } from "@jazz/core/agent/tools/register-mcp-tools";
+import { registerPeerTools } from "@jazz/core/agent/tools/register-tools";
 import {
   createCategoryMappings,
   isUserSelectableToolCategory,
@@ -159,6 +164,15 @@ export function editAgentCommand(
 
       // Get available tools by category
       const toolRegistry = yield* ToolRegistryTag;
+      yield* registerPeerTools().pipe(
+        Effect.mapError(
+          (error) =>
+            new ValidationError({
+              field: "tools",
+              message: `Could not load peer tools: ${toError(error).message}`,
+            }),
+        ),
+      );
       let toolsByCategory = yield* toolRegistry.listToolsByCategory();
 
       // Create mappings between category display names and IDs
@@ -511,8 +525,7 @@ export function editAgentCommand(
             maxContextTokens: editAnswers.maxContextTokens,
           }),
         },
-        ...(editAnswers.tools &&
-          editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
+        ...(editAnswers.tools !== undefined && { tools: Array.from(new Set(editAnswers.tools)) }),
         ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
       };
       if (editAnswers.maxContextTokens === null) {
