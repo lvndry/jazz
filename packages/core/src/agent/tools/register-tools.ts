@@ -40,7 +40,7 @@ import { createReportGoalCycleTool } from "./goal-report";
 import { createHttpRequestTool } from "./http";
 import { createJobQueueTools } from "./job-queue";
 import { createEndLoopTool } from "./loop";
-import { createManageMemoryTool, createViewMemoryTool } from "./memory";
+import { createManageMemoryTool, createProposeLessonTool, createViewMemoryTool } from "./memory";
 import { createWhoIsHereTool } from "./occupancy";
 import { createAskPeerTool, createRequestClarificationTool } from "./peer";
 import { createPerceptionTools } from "./perception";
@@ -238,6 +238,7 @@ export function registerMemoryTools(): Effect.Effect<void, Error, ToolRegistry> 
 
     yield* registerTool(createViewMemoryTool());
     yield* registerTool(createManageMemoryTool());
+    yield* registerTool(createProposeLessonTool());
   });
 }
 

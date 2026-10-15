@@ -673,6 +673,53 @@ function registerMemoryCommands(program: Command): void {
     );
 
   memoryCommand
+    .command("review")
+    .description("List lessons agents proposed from their own mistakes, waiting for your decision")
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/memory").then((mod) => mod.reviewLessonsCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  memoryCommand
+    .command("accept <id>")
+    .description("Save a proposed lesson to memory")
+    .action((id: string) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/memory").then((mod) => mod.acceptLessonCommand(id)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  memoryCommand
+    .command("reject <id>")
+    .description("Drop a proposed lesson without saving it")
+    .action((id: string) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/memory").then((mod) => mod.rejectLessonCommand(id)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  memoryCommand
+    .command("reflect", { hidden: true })
+    .description(
+      "Internal: propose lessons from a conversation that just ended (started detached by the chat)",
+    )
+    .requiredOption("--agent <agentId>", "Agent the conversation belongs to")
+    .requiredOption("--conversation <conversationId>", "Conversation to reflect on")
+    .action((options: { agent: string; conversation: string }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/memory").then((mod) =>
+            mod.reflectConversationCommand(options),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  memoryCommand
     .command("recall")
     .description("Show how often runs consulted memory before answering, by surface")
     .option("--surface <name>", "Only report one surface (cli, telegram, discord)")

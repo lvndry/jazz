@@ -23,6 +23,7 @@
  */
 
 import type { TerminalNotificationSetting } from "@/core/types/config";
+import { replaceControlCharacters } from "@/core/utils/control-characters";
 
 export type TerminalNotificationProtocol = "osc99" | "osc777" | "osc9";
 
@@ -50,8 +51,6 @@ const OSC = `${ESC}]`;
 const STRING_TERMINATOR = `${ESC}\\`;
 const TRUNCATION_MARK = "…";
 const KITTY_APPLICATION_NAME = "jazz";
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARACTER_RUNS = /[\u0000-\u001f\u007f-\u009f]+/g;
 const OSC_FIELD_SEPARATOR = /;/g;
 
 export interface TerminalNotification {
@@ -125,7 +124,7 @@ function truncateCodePoints(text: string, maxCodePoints: number): string {
 
 /** Control characters (ESC, BEL, newlines, C1) become one space, so no text can end a sequence. */
 export function sanitizeTerminalNotificationText(text: string, maxCodePoints: number): string {
-  return truncateCodePoints(text.replace(CONTROL_CHARACTER_RUNS, " ").trim(), maxCodePoints);
+  return truncateCodePoints(replaceControlCharacters(text, " ").trim(), maxCodePoints);
 }
 
 function boundedTitle(title: string, stripSeparators: boolean): string {

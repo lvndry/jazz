@@ -1,5 +1,5 @@
 ---
-description: "Why Jazz memory learns only what you state, keeps tastes in scopes, separates standing rules from conditional ones, and stays in files you can read, correct, and forget."
+description: "Why Jazz memory learns what you state and the lessons you accept, keeps tastes in scopes, and stays in files you can read, correct, and forget."
 ---
 
 # Why memory works this way
@@ -20,6 +20,18 @@ talk itself into a preference. Every entry traces back to words you wrote, which
 
 The cost is deliberate: Jazz does not infer your taste from how you behave. It learns what you
 tell it, including corrections such as "too formal".
+
+## The agent proposes lessons; you decide
+
+The one thing memory holds in the agent's words is a lesson from its own mistake, such as
+"search for existing products before proposing to build one". You should not have to say
+"remember" for the agent to learn from a mistake it just corrected, so it proposes the rule
+without being asked, during the conversation and in a background pass after the conversation
+ends.
+
+A proposal is not a save. It waits until you accept it with a command you type, and no tool can
+accept one. That keeps the guarantee above: a web page can at most get a lesson proposed, and you
+read it before anything is saved.
 
 ## The agent decides when to remember
 
@@ -75,7 +87,8 @@ and it does not turn a procedure the agent worked out into a reusable
 
 - An entry under `when/` reaches the model when the agent looks it up. `jazz memory recall`
   reports how often a lookup happens before the first answer, per surface.
-- Only what you state is learned. Jazz does not infer preferences from your edits or choices.
+- Only what you state, and lessons you accept, is learned. Jazz does not infer preferences from
+  your edits or choices.
 - In-turn saving depends on the model following the save rule.
 
 ## Related

@@ -89,9 +89,15 @@ export function describeQuoteRejection(
 
 const STORED_CLAIM_PREFIX = "The user said: ";
 
-/** Save the user's words as a quoted assertion, never model-authored paraphrase. */
+/**
+ * Save the user's words as a quoted assertion, never model-authored paraphrase.
+ *
+ * A leading request to remember ("keep in memory to …", "remember that …") is
+ * dropped, so the entry states the rule the user gave rather than the act of
+ * asking for it to be saved. Every stored word is still the user's own.
+ */
 export function formatStoredUserClaim(quote: string): string {
-  return `${STORED_CLAIM_PREFIX}${JSON.stringify(quote)}\n`;
+  return `${STORED_CLAIM_PREFIX}${JSON.stringify(withoutMemoryRequestLeadIn(quote))}\n`;
 }
 
 /** The quoted words inside a stored claim, or the content itself for hand-written entries. */
@@ -244,6 +250,20 @@ const CHANGE_VERBS = {
 const MEMORY_ONLY_VERBS = "forget|erase";
 
 const POLITE_LEAD_IN = "(?:please\\s+|can you\\s+|could you\\s+|i want you to\\s+)?";
+
+const MEMORY_REQUEST_LEAD_IN = new RegExp(
+  `^\\s*${POLITE_LEAD_IN}(?:always\\s+)?(?:keep in (?:mind|memory)|remember|note|don't forget|do not forget|save (?:in|to) (?:your )?memory)(?:\\s+(?:that|to))?[\\s,:]+`,
+  "i",
+);
+
+/** The quote without a leading request to remember, unless too little would be left to state a fact. */
+function withoutMemoryRequestLeadIn(quote: string): string {
+  const rest = quote.replace(MEMORY_REQUEST_LEAD_IN, "").trim();
+  if (!/\s/.test(rest) || rest === quote.trim()) {
+    return quote;
+  }
+  return `${rest.charAt(0).toUpperCase()}${rest.slice(1)}`;
+}
 
 function startsWithVerb(text: string, verbs: string): boolean {
   return new RegExp(`^\\s*${POLITE_LEAD_IN}(?:${verbs})\\b`, "i").test(text);

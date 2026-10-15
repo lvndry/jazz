@@ -4,12 +4,13 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
+import type { LessonProposalInput } from "@/core/interfaces/lesson-proposal";
 import type { MemoryService } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import { quotedSentenceKeys } from "@/core/memory/source-trust";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { sha256Hex } from "@/core/utils/hash";
-import { createManageMemoryTool, createViewMemoryTool } from "./memory";
+import { createManageMemoryTool, createProposeLessonTool, createViewMemoryTool } from "./memory";
 
 const context: ToolExecutionContext = {
   agentId: "agent-1",
@@ -418,5 +419,60 @@ describe("manage_memory", () => {
       ),
     );
     expect(missingQuote.error).toContain("source_quote was not found in user:1");
+  });
+});
+
+describe("propose_lesson", () => {
+  const lesson = {
+    subject: "prior art before building",
+    rule: "Search for existing products before proposing to build a new one.",
+    mistake: "Planned a reader app without noticing an open-source one existed.",
+    topic: "planning-a-new-project",
+  };
+
+  test("queues the lesson without a quote and never writes memory", async () => {
+    const proposals: LessonProposalInput[] = [];
+    let writes = 0;
+    const service: Partial<MemoryService> = {
+      create: () => {
+        writes += 1;
+        return Effect.succeed({ success: true, message: "created" });
+      },
+      proposeLesson: (input) => {
+        proposals.push(input);
+        return Effect.succeed({
+          success: true,
+          message: "queued",
+          proposal: { ...input, id: "abc123", proposedAt: "2026-10-14T00:00:00.000Z" },
+        });
+      },
+    };
+    const result = await runWithMemory(
+      service as MemoryService,
+      createProposeLessonTool().execute(lesson, { ...context, conversationId: "conversation-1" }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(writes).toBe(0);
+    expect(proposals).toEqual([
+      { ...lesson, scope: "personal", proposedBy: "agent-1", conversationId: "conversation-1" },
+    ]);
+  });
+
+  test("refuses a topic that cannot name a directory", async () => {
+    let proposed = 0;
+    const service: Partial<MemoryService> = {
+      proposeLesson: () => {
+        proposed += 1;
+        return Effect.succeed({ success: false, message: "unexpected" });
+      },
+    };
+    const result = await runWithMemory(
+      service as MemoryService,
+      createProposeLessonTool().execute({ ...lesson, topic: "!!!" }, context),
+    );
+
+    expect(result.success).toBe(false);
+    expect(proposed).toBe(0);
   });
 });

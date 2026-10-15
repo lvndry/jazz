@@ -358,7 +358,7 @@ export function createAppLayer(
   const peerTokenServiceLayer = createPeerTokenServiceLayer();
   const savedSecretsLayer = Layer.sync(SavedSecretsServiceTag, () => createSavedSecretsService());
 
-  const chatLayer = createChatServiceLayer().pipe(
+  const chatLayer = createChatServiceLayer(configPath).pipe(
     Layer.provide(terminalLayer),
     Layer.provide(loggerLayer),
     Layer.provide(shellLayer),

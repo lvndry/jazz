@@ -21,6 +21,7 @@
 import { encodeTerminalNotification } from "@/core/notify/terminal-notification";
 import { resolveTerminalNotificationSetting } from "@/core/notify/terminal-notification";
 import { selectTerminalNotificationProtocol } from "@/core/notify/terminal-notification";
+import { replaceControlCharacters } from "./control-characters";
 import { writeControllingTerminal } from "./controlling-terminal";
 /** Terminal state carried by a status report. */
 export type ProgramStatusState = "idle" | "working" | "done" | "blocked" | "error" | "clear";
@@ -114,8 +115,7 @@ export function encodeProgramStatus(report: ProgramStatusReport): string {
 
 /** Strip C0 controls, DEL and C1 so they cannot escape a decoded free-text value. */
 function sanitize(text: string): string {
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/[\u0000-\u001f\u007f\u0080-\u009f]/g, "");
+  return replaceControlCharacters(text, "");
 }
 
 function base64(text: string): string {

@@ -197,7 +197,7 @@ export default [
     },
   },
   {
-    files: ["**/*.test.{ts,tsx}"],
+    files: ["**/*.test.{ts,tsx}", "test-preload.ts"],
     languageOptions: {
       parserOptions: {
         project: "./tsconfig.eslint.json",

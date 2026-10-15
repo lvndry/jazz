@@ -332,6 +332,8 @@ export type RecursiveRunner = (options: {
   conversationId: string;
   maxIterations?: number;
   memorySources?: readonly MemorySource[];
+  /** Tools this run may call without asking, on top of any the caller already approved. */
+  autoApprovedTools?: readonly string[];
 }) => Effect.Effect<
   AgentResponse,
   Error,

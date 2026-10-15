@@ -306,7 +306,7 @@ anything worth remembering long term and writes it to the agent's memory
 ([`memory-extractor.ts`](../../packages/core/src/agent/context/memory-extractor.ts)).
 
 It runs as a throwaway `memory-extractor` sub-agent on the summarizer model, and it uses the
-real `view_memory`/`manage_memory` tools rather than a bespoke write path — so it inherits
+real `view_memory`/`manage_memory`/`propose_lesson` tools rather than a bespoke write path — so it inherits
 their discipline: find the right scope, read the file before changing it, one file per subject,
 replace stale facts instead of appending duplicates. The scopes are the parent agent's; the
 writes are tagged to `memory-extractor`, so an auto-extracted fact is distinguishable from one
@@ -319,6 +319,24 @@ own user source.
 Corrected and forgotten claims revoke the sentences they quoted in the hidden cross-scope source
 ledger. An extractor attempting to re-save a superseded quote from those sentences receives a
 failed write; other sentences of the same message, and any new user message, can still be quoted.
+
+The same pass runs a second way, as `conversation-end`. When a chat conversation is closed or
+left, the chat spawns a detached `jazz memory reflect` (hidden), so neither the person nor the
+chat process waits on it. The application layer passes the chat's `--config` path through to
+the detached command; without an explicit path the child inherits normal environment-based
+config resolution. That process loads the saved conversation and takes the messages
+after a per-conversation watermark (`.reflected-conversations.json` at the memory root). It
+claims them before the model call, so two reflections never cover the same messages. It then
+runs the extractor with only `view_memory` and `propose_lesson`. It cannot use `manage_memory`:
+a fact save would need an approval prompt in a chat that has already closed. `propose_lesson`
+is `low-risk`, since it writes the review queue (`.pending-lessons.json`), and both extractor
+passes list it in the sub-run's `autoApprovedTools`, so a proposal needs no prompt there.
+Nothing reaches memory from the queue except `MemoryService.acceptLesson`, reached from
+`/memory accept` and `jazz memory accept`, which looks up, writes and dequeues under one hold of
+the memory write lock so a concurrent reject cannot be overridden. The pass reads at most the
+two newest chunks of what it claimed and logs any it skipped. The chat skips the spawn for ephemeral sessions and for conversations with no turn in this
+session. A hard kill (SIGTERM mid-chat) skips it too; the next close of that conversation
+covers the missed messages.
 
 **The bar is deliberately narrow.** Only facts the user themselves stated or decided —
 stable preferences, recurring facts, standing project decisions — qualify. The model's own

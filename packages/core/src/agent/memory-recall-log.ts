@@ -27,6 +27,7 @@ export const MEMORY_RECALL_LOG_MAX_BYTES = 4 * 1024 * 1024;
 
 export const VIEW_MEMORY_TOOL_NAME = "view_memory";
 export const MANAGE_MEMORY_TOOL_NAME = "manage_memory";
+export const PROPOSE_LESSON_TOOL_NAME = "propose_lesson";
 
 /** What one finished run did with memory. */
 export interface MemoryRecallObservation {

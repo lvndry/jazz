@@ -12,6 +12,7 @@ import {
 } from "./command-approval-tracker";
 
 let directory: string;
+const suiteJazzHome = process.env["JAZZ_HOME"];
 
 function run<A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem>) {
   return Effect.runPromise(effect.pipe(Effect.provide(NodeFileSystem.layer)));
@@ -23,7 +24,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  delete process.env["JAZZ_HOME"];
+  if (suiteJazzHome === undefined) {
+    delete process.env["JAZZ_HOME"];
+  } else {
+    process.env["JAZZ_HOME"] = suiteJazzHome;
+  }
   await rm(directory, { recursive: true, force: true });
 });
 

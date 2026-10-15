@@ -86,7 +86,11 @@ import { assertConversationWritable } from "./detach/ownership";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createEgressTaint, recordEgressTaint } from "./execution/egress-taint";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
-import { MANAGE_MEMORY_TOOL_NAME, VIEW_MEMORY_TOOL_NAME } from "./memory-recall-log";
+import {
+  MANAGE_MEMORY_TOOL_NAME,
+  PROPOSE_LESSON_TOOL_NAME,
+  VIEW_MEMORY_TOOL_NAME,
+} from "./memory-recall-log";
 import {
   computeRunCost,
   createAgentRunMetrics,
@@ -708,10 +712,12 @@ function initializeAgentRun(
     }
     combinedToolNames = combinedToolNames.filter((name) => !denied.has(name));
 
-    // Ephemeral runs (jazz run --ephemeral) withhold the memory-writing tool
+    // Ephemeral runs (jazz run --ephemeral) withhold the memory-writing tools
     // outright, so the model is never even offered a way to persist anything.
     if (options.disablePersistence === true) {
-      combinedToolNames = combinedToolNames.filter((name) => name !== MANAGE_MEMORY_TOOL_NAME);
+      combinedToolNames = combinedToolNames.filter(
+        (name) => name !== MANAGE_MEMORY_TOOL_NAME && name !== PROPOSE_LESSON_TOOL_NAME,
+      );
     }
 
     // Same reasoning for the tools that solicit an answer from a human. Failing the
@@ -1083,6 +1089,14 @@ export function createNestedRunExecutor(
     AgentRunner.runRecursive({
       ...approvals,
       ...options,
+      ...(options.autoApprovedTools !== undefined
+        ? {
+            autoApprovedTools: [
+              ...(approvals.autoApprovedTools ?? []),
+              ...options.autoApprovedTools,
+            ],
+          }
+        : {}),
       telemetryParent: parent,
       onRunSpend: (spend) => recordSideSpend(parentMetrics, spend),
     });

@@ -26,6 +26,7 @@ import {
 } from "@jazz/core/constants/memory";
 import type {
   MemoryEntryCredit,
+  MemoryEntryOrigin,
   MemoryFileProvenance,
   MemoryScopeProvenance,
   MemoryFailureSignature,
@@ -45,6 +46,7 @@ import type {
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { ALWAYS_SEGMENT, WHEN_SEGMENT, splitScopeAndRest } from "@jazz/core/memory/entry-path";
+import { lessonDestinationPath } from "@jazz/core/memory/lesson-destination";
 import { toError } from "@jazz/core/utils/errors";
 import { sha256Hex } from "@jazz/core/utils/hash";
 import { getMemoryDirectory, getMemoryReceiptsDirectory } from "@jazz/core/utils/paths";
@@ -58,6 +60,13 @@ import {
 import { findAllOccurrenceLineNumbers } from "@jazz/core/utils/string";
 import { resolveVirtualPath, type VirtualPathViolation } from "@jazz/core/utils/virtual-path";
 import { Effect, Layer } from "effect";
+import {
+  addLessonProposal,
+  findLessonProposal,
+  formatAcceptedLesson,
+  listLessonProposals,
+  removeLessonProposal,
+} from "./lesson-proposals";
 import {
   moveClaimSentences,
   recordClaimSentences,
@@ -258,10 +267,7 @@ function sanitizeFileProvenance(value: unknown, now: string): MemoryFileProvenan
     ...(asOptionalString(record["summary"]) !== undefined
       ? { summary: record["summary"] as string }
       : {}),
-    ...(asOptionalString(record["origin"]) === "auto" ||
-    asOptionalString(record["origin"]) === "user"
-      ? { origin: record["origin"] as "auto" | "user" }
-      : {}),
+    ...(isMemoryEntryOrigin(record["origin"]) ? { origin: record["origin"] } : {}),
     ...(isMemoryFailureSignature(record["failure"]) ? { failure: record["failure"] } : {}),
     ...(isMemoryEntryCredit(record["credit"]) ? { credit: record["credit"] } : {}),
     ...(asOptionalString(record["compiledInto"]) !== undefined
@@ -269,6 +275,10 @@ function sanitizeFileProvenance(value: unknown, now: string): MemoryFileProvenan
       : {}),
     ...(typeof record["stale"] === "boolean" ? { stale: record["stale"] } : {}),
   };
+}
+
+function isMemoryEntryOrigin(value: unknown): value is MemoryEntryOrigin {
+  return value === "auto" || value === "user" || value === "lesson";
 }
 
 function isMemoryFailureSignature(value: unknown): value is MemoryFailureSignature {
@@ -1091,69 +1101,75 @@ export class MemoryServiceImpl implements MemoryService {
 
         return yield* this.withMemoryWriteLock(
           scope,
-          Effect.gen(
-            function* (this: MemoryServiceImpl) {
-              const fs = yield* FileSystem.FileSystem;
-              const root = yield* this.ensureScopeRoot(scope);
-              const target = yield* resolveMemoryPath(root, rest);
-
-              const fileTextBytes = Buffer.byteLength(fileText, "utf-8");
-              if (fileTextBytes > this.maxFileBytes) {
-                return yield* Effect.fail(
-                  new MemoryGuardrailViolation(
-                    `File would be ${fileTextBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
-                  ),
-                );
-              }
-
-              const alreadyExists = yield* fs
-                .exists(target)
-                .pipe(Effect.catchAll(() => Effect.succeed(false)));
-              if (alreadyExists) {
-                // The filename is the entry's identity, so an existing file is
-                // the answer to "is this already recorded?". Returning what it
-                // says turns the refusal into something the caller can act on:
-                // amend the entry that exists rather than adding a second one
-                // beside it, which is how a store fragments into near-duplicates.
-                const existingText = yield* fs
-                  .readFileString(target)
-                  .pipe(Effect.catchAll(() => Effect.succeed("")));
-                return {
-                  success: false,
-                  message: [
-                    `Error: ${abbreviateHomePath(target)} already exists.`,
-                    "Amend the existing entry rather than adding a second one.",
-                    ...(existingText.length > 0
-                      ? [
-                          "",
-                          "Current content:",
-                          existingText.slice(0, MEMORY_SUMMARY_MAX_CHARS * 4),
-                        ]
-                      : []),
-                  ].join("\n"),
-                } satisfies MemoryMutationOutcome;
-              }
-
-              yield* this.requireScopeBudget(fs, root, {
-                addedBytes: fileTextBytes,
-                addsFile: true,
-                subject: "Creating this file",
-              });
-              if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
-                return REVOKED_CLAIM_OUTCOME;
-              }
-              yield* writeFileStringAtomic(target, fileText);
-              yield* recordWrite(fs, root, path.relative(root, target), writeContext);
-
-              return {
-                success: true,
-                message: `File created successfully at: ${abbreviateHomePath(target)}`,
-              } satisfies MemoryMutationOutcome;
-            }.bind(this),
-          ),
+          this.createWhileLocked(scope, rest, fileText, writeContext),
         );
       }.bind(this),
     );
+
+  /** `create`'s write, for callers already holding the memory write lock, which is not reentrant. */
+  private createWhileLocked(
+    scope: string,
+    rest: string,
+    fileText: string,
+    writeContext: MemoryWriteContext,
+  ): Effect.Effect<MemoryMutationOutcome, MemoryGuardrailViolation | Error, FileSystem.FileSystem> {
+    return Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* this.ensureScopeRoot(scope);
+        const target = yield* resolveMemoryPath(root, rest);
+
+        const fileTextBytes = Buffer.byteLength(fileText, "utf-8");
+        if (fileTextBytes > this.maxFileBytes) {
+          return yield* Effect.fail(
+            new MemoryGuardrailViolation(
+              `File would be ${fileTextBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
+            ),
+          );
+        }
+
+        const alreadyExists = yield* fs
+          .exists(target)
+          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+        if (alreadyExists) {
+          // The filename is the entry's identity, so an existing file is
+          // the answer to "is this already recorded?". Returning what it
+          // says turns the refusal into something the caller can act on:
+          // amend the entry that exists rather than adding a second one
+          // beside it, which is how a store fragments into near-duplicates.
+          const existingText = yield* fs
+            .readFileString(target)
+            .pipe(Effect.catchAll(() => Effect.succeed("")));
+          return {
+            success: false,
+            message: [
+              `Error: ${abbreviateHomePath(target)} already exists.`,
+              "Amend the existing entry rather than adding a second one.",
+              ...(existingText.length > 0
+                ? ["", "Current content:", existingText.slice(0, MEMORY_SUMMARY_MAX_CHARS * 4)]
+                : []),
+            ].join("\n"),
+          } satisfies MemoryMutationOutcome;
+        }
+
+        yield* this.requireScopeBudget(fs, root, {
+          addedBytes: fileTextBytes,
+          addsFile: true,
+          subject: "Creating this file",
+        });
+        if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
+          return REVOKED_CLAIM_OUTCOME;
+        }
+        yield* writeFileStringAtomic(target, fileText);
+        yield* recordWrite(fs, root, path.relative(root, target), writeContext);
+
+        return {
+          success: true,
+          message: `File created successfully at: ${abbreviateHomePath(target)}`,
+        } satisfies MemoryMutationOutcome;
+      }.bind(this),
+    );
+  }
 
   readonly strReplace: MemoryService["strReplace"] = (virtualPath, oldStr, newStr, writeContext) =>
     Effect.gen(
@@ -1436,6 +1452,80 @@ export class MemoryServiceImpl implements MemoryService {
             }.bind(this),
           ),
         );
+      }.bind(this),
+    );
+
+  readonly proposeLesson: MemoryService["proposeLesson"] = (input) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        return yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
+          addLessonProposal(fs, this.baseMemoryDirectory, input),
+        );
+      }.bind(this),
+    );
+
+  readonly pendingLessons: MemoryService["pendingLessons"] = () =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        return yield* listLessonProposals(fs, this.baseMemoryDirectory);
+      }.bind(this),
+    );
+
+  /**
+   * Looks up, writes and dequeues under one hold of the memory write lock, so a reject racing
+   * this accept either removes the proposal first (and nothing is written) or finds it gone. A
+   * failed write leaves the proposal waiting.
+   */
+  readonly acceptLesson: MemoryService["acceptLesson"] = (id) =>
+    withMemoryWriteLock(
+      this.baseMemoryDirectory,
+      Effect.gen(
+        function* (this: MemoryServiceImpl) {
+          const fs = yield* FileSystem.FileSystem;
+          const proposal = yield* findLessonProposal(fs, this.baseMemoryDirectory, id);
+          if (proposal === undefined) {
+            return { success: false, message: `No pending lesson has id ${id}.` } as const;
+          }
+          const targetPath = lessonDestinationPath(proposal);
+          const resolved = this.resolveScope(targetPath);
+          if (!resolved.ok) {
+            return { success: false, message: resolved.failure.message } as const;
+          }
+          const created = yield* this.createWhileLocked(
+            resolved.scope,
+            resolved.rest,
+            formatAcceptedLesson(proposal),
+            {
+              agentId: proposal.proposedBy,
+              entry: {
+                origin: "lesson",
+                failure: { kind: "correction", correctedBehavior: proposal.mistake },
+              },
+            },
+          );
+          if (!created.success) {
+            return { success: false, message: created.message } as const;
+          }
+          yield* removeLessonProposal(fs, this.baseMemoryDirectory, proposal.id);
+          return { success: true, message: `Saved to ${targetPath}.`, path: targetPath } as const;
+        }.bind(this),
+      ),
+    );
+
+  readonly rejectLesson: MemoryService["rejectLesson"] = (id) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const removed = yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
+          removeLessonProposal(fs, this.baseMemoryDirectory, id),
+        );
+        return removed
+          ? ({ success: true, message: `Dropped lesson ${id}.` } as const)
+          : ({ success: false, message: `No pending lesson has id ${id}.` } as const);
       }.bind(this),
     );
 }
