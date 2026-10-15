@@ -4,9 +4,9 @@
  *
  * `create`, `list`, and `revoke` are plain local file operations: the inviter already has a
  * shell on the machine whose invite store and config they are changing, so there is no
- * network round-trip to make here — the same reasoning `jazz peers log` uses to read the
- * ledger straight off disk. Only `accept` ever crosses the network, because only the
- * redeemer is, by construction, on a different machine.
+ * network round-trip to the daemon — the same reasoning `jazz peers log` uses to read the
+ * ledger straight off disk. `create` detects the public IP over HTTPS unless an address is
+ * supplied. `accept` fetches the remote preview and redeems the single-use credential.
  */
 
 import * as os from "node:os";
@@ -31,6 +31,7 @@ import { inviteStatus, isInviteId } from "@jazz/core/types/peer-invite";
 import { toError } from "@jazz/core/utils/errors";
 import { Effect } from "effect";
 import { generate as generateQrCode } from "qrcode-terminal";
+import { resolvePeerInviteOrigin } from "./peer-invite-origin";
 import { describeTier } from "./peers";
 
 function renderQrCode(text: string): Promise<string> {
@@ -47,7 +48,8 @@ function renderQrCode(text: string): Promise<string> {
  * transfer this feature introduces that manual `set-token` never had.
  */
 function isEncryptedOrUnreachableNetwork(host: string): boolean {
-  if (host === "127.0.0.1" || host === "::1" || host === "localhost") return true;
+  if (host === "127.0.0.1" || host === "::1" || host === "[::1]" || host === "localhost")
+    return true;
   const octets = host.split(".");
   const ipv4 =
     octets.length === 4 && octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
@@ -84,7 +86,7 @@ export interface CreateInviteCommandOptions {
   readonly inviteeName: string;
   readonly disclosure: PeerTier;
   readonly ttlMs: number;
-  readonly host: string;
+  readonly host?: string;
   readonly port: number;
   /**
    * Overrides the constructed `http://host:port` origin for both the embedded ask URL and the
@@ -103,44 +105,10 @@ export interface CreateInviteCommandOptions {
 
 export function createInviteCommand(options: CreateInviteCommandOptions) {
   return Effect.gen(function* () {
-    let origin = `http://${options.host}:${String(options.port)}`;
-    let localMode = false;
-    if (options.publicUrl !== undefined) {
-      let publicUrl: URL;
-      try {
-        publicUrl = new URL(options.publicUrl);
-      } catch {
-        return yield* Effect.fail(
-          new CLIError({
-            command: "peers invite create",
-            message: "--public-url must be an absolute HTTP(S) URL",
-          }),
-        );
-      }
-      if (
-        (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:") ||
-        publicUrl.pathname !== "/" ||
-        publicUrl.search !== "" ||
-        publicUrl.hash !== "" ||
-        publicUrl.username !== "" ||
-        publicUrl.password !== ""
-      ) {
-        return yield* Effect.fail(
-          new CLIError({
-            command: "peers invite create",
-            message:
-              "--public-url must be an HTTP(S) origin without a path, query, fragment, or credentials",
-          }),
-        );
-      }
-      origin = publicUrl.origin;
-    } else if (
-      options.host === "127.0.0.1" ||
-      options.host === "localhost" ||
-      options.host === "::1"
-    ) {
-      localMode = true;
-    }
+    const origin = yield* resolvePeerInviteOrigin(options);
+    const originHost = new URL(origin).hostname;
+    const localMode =
+      originHost === "127.0.0.1" || originHost === "localhost" || originHost === "[::1]";
 
     // Fail fast on a persona typo now, at the one point a human is actively watching —
     // otherwise it surfaces only when a peer actually asks a question, as an opaque refusal
@@ -189,7 +157,7 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
     const warning =
       originUrl !== undefined && originUrl.protocol === "https:"
         ? undefined
-        : plaintextWarning(originUrl?.hostname ?? options.host);
+        : plaintextWarning(originUrl?.hostname ?? originHost);
     if (warning !== undefined) process.stderr.write(warning);
 
     process.stdout.write(
@@ -212,6 +180,9 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
     Effect.catchAll((error) =>
       Effect.sync(() => {
         process.stderr.write(`${getErrorMessage(error)}\n`);
+        if (error instanceof CLIError && error.suggestion !== undefined) {
+          process.stderr.write(`${error.suggestion}\n`);
+        }
         process.exitCode = 1;
       }),
     ),

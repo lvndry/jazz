@@ -75,6 +75,49 @@ describe("createCLIApp help path", () => {
     const create = invite?.commands.find((command) => command.name() === "create");
     const disclosure = create?.options.find((option) => option.long === "--disclosure");
     expect(disclosure?.flags).toBe("--disclosure <none|public|internal|private>");
+    expect(disclosure?.mandatory).toBe(false);
+    expect(disclosure?.defaultValue).toBe("internal");
+    expect(create?.helpInformation()).toContain("default: 3h");
+    expect(create?.options.find((option) => option.long === "--expires")?.defaultValue).toBe(
+      3 * 60 * 60 * 1000,
+    );
+    expect(create?.options.find((option) => option.long === "--port")?.defaultValue).toBe(4747);
+  });
+
+  it("accepts the minimal peer invite command and lets every default be overridden", () => {
+    function parse(args: readonly string[]): Record<string, unknown> {
+      const program = createCLIApp().exitOverride();
+      const create = program.commands
+        .find((command) => command.name() === "peers")
+        ?.commands.find((command) => command.name() === "invite")
+        ?.commands.find((command) => command.name() === "create");
+      if (create === undefined) throw new Error("Missing peers invite create command");
+      let captured: Record<string, unknown> = {};
+      create.action((name: string, options: Record<string, unknown>) => {
+        captured = { name, ...options };
+      });
+      program.parse(["peers", "invite", "create", "alice", ...args], { from: "user" });
+      return captured;
+    }
+    expect(parse([])["host"]).toBeUndefined();
+    expect(parse([])).toMatchObject({
+      name: "alice",
+      disclosure: "internal",
+      expires: 10_800_000,
+      port: 4747,
+    });
+    expect(
+      parse([
+        "--disclosure",
+        "public",
+        "--expires",
+        "30m",
+        "--host",
+        "192.0.2.1",
+        "--port",
+        "8080",
+      ]),
+    ).toMatchObject({ disclosure: "public", expires: 1_800_000, host: "192.0.2.1", port: 8080 });
   });
 
   it("offers --watch as the alias of --events on both `jazz run` and `workflow run`", () => {

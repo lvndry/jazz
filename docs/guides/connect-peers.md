@@ -25,7 +25,24 @@ Choose the setup that matches your network:
 | [The internet](#over-the-internet)     | loopback, behind a proxy | TLS at the proxy      | yes             |
 
 The answering side creates an invite link; the caller accepts it to configure the
-connection and shared credential. Each setup also includes manual configuration.
+connection and shared credential. With a daemon already serving peers at a reachable address,
+the minimal command is:
+
+```bash
+jazz peers invite create alice
+```
+
+It detects your public IPv4 address, uses port `4747`, grants `internal` disclosure, and
+expires after three hours. `--host`, `--port`, `--disclosure`, and `--expires` override those
+defaults. `--public-url` takes precedence over host and port for a proxy or tunnel.
+
+Public-IP discovery makes a credential-free HTTPS request to [ipify](https://www.ipify.org/),
+with a five-second timeout and a bounded response. No invite secret or peer token is sent.
+If discovery fails, Jazz asks for an explicit address rather than printing a loopback link.
+Explicit `--host` or `--public-url` skips discovery entirely. For a same-machine demo, pass
+`--host 127.0.0.1`; for a LAN or tailnet, pass the reachable address on that network.
+Discovery does not change the daemon's bind address or open firewall/router ports. Each
+setup below also includes manual configuration.
 
 **Where the token lives:** an OS keyring when one's reachable (Keychain on macOS,
 `secret-tool`/libsecret on Linux), otherwise a `chmod 600` file at `$JAZZ_HOME/secrets.json`.
@@ -62,7 +79,7 @@ Stop it with `JAZZ_HOME=$BOB jazz daemon stop --port 4748`.
 ### 2. Bob invites Alice
 
 ```bash
-JAZZ_HOME=$BOB jazz peers invite create alice --port 4748 --disclosure internal --expires 1h
+JAZZ_HOME=$BOB jazz peers invite create alice --host 127.0.0.1 --port 4748 --as bob
 ```
 
 `disclosure` is the tier. See the [tier table](../security/index.md#how-the-ceiling-is-computed).
