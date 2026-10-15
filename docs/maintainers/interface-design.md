@@ -407,6 +407,10 @@ one-off approval or rejection; they cannot add a host or session exemption.
 
 ---
 
+Read-only command panels wrap their body after reserving a column for the vertical
+scrollbar. Their summary, including the full tool and group counts in `/tools`,
+remains readable at the bottom; scrolling reveals every tool group.
+
 ## Reach
 
 ### Any 256-color terminal, over SSH

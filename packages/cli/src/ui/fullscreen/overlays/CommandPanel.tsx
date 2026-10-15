@@ -9,7 +9,8 @@
  *    ┃             conversation   7f3c…
  *
  * Unlike the cards docked above the footer, nothing here waits on a person, so the
- * conversation keeps streaming around it and Esc puts it away.
+ * conversation keeps streaming around it and Esc puts it away. Layout reserves
+ * the vertical scrollbar before wrapping so every word remains in the body.
  */
 
 import type { ScrollBoxRenderable } from "@opentui/core";
@@ -32,6 +33,8 @@ const PADDING_ROWS = 2;
 const SCREEN_MARGIN = 2;
 /** Narrowest the panel is drawn, so a one-line answer still reads as a panel. */
 const MIN_INNER_WIDTH = 40;
+/** The vertical scrollbar takes one column from the report body. */
+const SCROLLBAR_COLUMNS = 1;
 
 /** The panel's size and placement, and its body wrapped to fit. */
 export function commandPanelLayout(
@@ -44,7 +47,14 @@ export function commandPanelLayout(
     Math.min(OVERLAY_MAX_WIDTH, viewport.width - SCREEN_MARGIN * 2),
   );
   const maxInner = maxWidth - BAND_CHROME_COLUMNS;
-  const rows = commandPanelRows(model.panel, glyphs, maxInner);
+  const maxHeight = Math.max(TITLE_ROWS + PADDING_ROWS + 1, viewport.height - SCREEN_MARGIN * 2);
+  const maxBodyRows = Math.max(1, maxHeight - TITLE_ROWS - PADDING_ROWS);
+  const unscrolledRows = commandPanelRows(model.panel, glyphs, maxInner);
+  const scrollbarColumns = unscrolledRows.length > maxBodyRows ? SCROLLBAR_COLUMNS : 0;
+  const rows =
+    scrollbarColumns === 0
+      ? unscrolledRows
+      : commandPanelRows(model.panel, glyphs, Math.max(1, maxInner - scrollbarColumns));
   const titleWidth = terminalCellWidth(`${model.panel.command}  ${COMMAND_PANEL_HINT}`);
   const widest = rows.reduce(
     (most, row) =>
@@ -54,9 +64,8 @@ export function commandPanelLayout(
       ),
     titleWidth,
   );
-  const inner = Math.min(maxInner, Math.max(MIN_INNER_WIDTH, widest));
+  const inner = Math.min(maxInner, Math.max(MIN_INNER_WIDTH, widest + scrollbarColumns));
   const width = Math.min(viewport.width, inner + BAND_CHROME_COLUMNS);
-  const maxHeight = Math.max(TITLE_ROWS + PADDING_ROWS + 1, viewport.height - SCREEN_MARGIN * 2);
   const height = Math.min(maxHeight, TITLE_ROWS + PADDING_ROWS + Math.max(1, rows.length));
   const bodyRows = Math.max(1, height - TITLE_ROWS - PADDING_ROWS);
   return {
@@ -120,7 +129,8 @@ export function CommandPanel({ model, viewport }: CommandPanelProps): ReactNode 
 
       <scrollbox
         style={{ height: bodyRows, flexShrink: 0 }}
-        scrollbarOptions={{ visible: maxOffset > 0 }}
+        verticalScrollbarOptions={{ visible: maxOffset > 0, width: SCROLLBAR_COLUMNS }}
+        horizontalScrollbarOptions={{ visible: false }}
         ref={(instance: ScrollBoxRenderable | null) => {
           body.current = instance;
         }}
