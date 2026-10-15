@@ -43,6 +43,7 @@ const LIVE: readonly Connector[] = [
 function header(overrides: Partial<HeaderModel> = {}): HeaderModel {
   return {
     version: "0.14.2",
+    agentName: "sol",
     cwd: "~/github/jazz",
     model: "opus-4",
     connectors: LIVE,
@@ -93,6 +94,30 @@ function colorOf(spans: readonly CapturedSpan[], needle: string): string {
 }
 
 describe("Header", () => {
+  it("names the active agent before its model", async () => {
+    const { row } = await render(
+      <Header
+        model={header({ agentName: "chatgpt-sol", model: "gpt-6-sol" })}
+        viewport={{ width: 100, height: 24 }}
+      />,
+      100,
+    );
+    expect(row).toContain("jazz  chatgpt-sol  gpt-6-sol");
+  });
+
+  it("keeps long agent names within the viewport without hiding the context meter", async () => {
+    const { row } = await render(
+      <Header
+        model={header({ agentName: "模型👨‍👩‍👧‍👦".repeat(30) })}
+        viewport={{ width: 32, height: 10 }}
+      />,
+      32,
+    );
+    expect(terminalCellWidth(row)).toBe(32);
+    expect(row).toContain("jazz");
+    expect(row.trimEnd()).toEndWith("40%");
+  });
+
   it("fills the row exactly and flushes the facts right", async () => {
     const { row, rows } = await render(
       <Header
@@ -149,14 +174,14 @@ describe("Header", () => {
     const narrow = await render(
       <Header
         model={local}
-        viewport={{ width: 48, height: 24 }}
+        viewport={{ width: 56, height: 24 }}
       />,
-      48,
+      56,
     );
     expect(narrow.row).toContain("qwen3");
     expect(narrow.row).not.toContain("gpu.example:8000");
     expect(narrow.row).not.toContain("~/github/jazz");
-    expect(terminalCellWidth(narrow.row)).toBe(48);
+    expect(terminalCellWidth(narrow.row)).toBe(56);
   });
 
   it("counts healthy connectors and names only the one needing action", async () => {

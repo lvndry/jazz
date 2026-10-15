@@ -271,6 +271,7 @@ export interface PendingApproval {
 }
 
 export interface RunStats {
+  readonly agentName?: string;
   readonly model?: string;
   readonly provider?: string;
   /** Reasoning effort the conversation runs at, e.g. `medium`; unset when reasoning is off. */

@@ -3098,6 +3098,7 @@ export function FullscreenBridge(): React.ReactNode {
     const localHost = hostForModel(stats.provider, stats.model, stats.localModelHosts);
     return {
       version: packageJson.version,
+      ...(stats.agentName === undefined ? {} : { agentName: stats.agentName }),
       cwd: compactWorkingDirectory(workingDirectory),
       model: stats.model ?? "no model",
       ...(localHost === undefined ? {} : { localHost }),
@@ -3108,6 +3109,7 @@ export function FullscreenBridge(): React.ReactNode {
     };
   }, [
     workingDirectory,
+    stats.agentName,
     stats.model,
     stats.provider,
     stats.reasoning,
