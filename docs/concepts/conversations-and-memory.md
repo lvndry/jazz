@@ -199,14 +199,16 @@ It waits for review:
   do the same.
 - A chat opens with a line saying how many lessons are waiting.
 
-No tool can accept a lesson. An accepted lesson is filed like any other entry, under the
-situation it applies to, and `jazz memory explain` shows its origin as `lesson`.
+No tool can accept a lesson. `jazz memory accept` refuses commands started by an agent, so a
+shell tool cannot approve its own proposal. An accepted lesson is filed like any other entry,
+under the situation it applies to, and `jazz memory explain` shows its origin as `lesson`.
 
 Lessons are also proposed after a conversation ends. When you close a chat or switch away from
 a conversation, Jazz starts a background process that reads what was said since the last
 review and proposes a lesson for each mistake the agent made. You do not wait for it, and it
 never saves facts or asks for approval. Its proposals appear at your next chat. It does not run
-for `--ephemeral` chats.
+for `--ephemeral` chats. A chat started with `--config` passes that same config file to the
+background process, retaining its agent store and provider settings.
 
 Memory holds facts and preferences. It does not turn a procedure the agent worked out into a
 reusable [skill](./skills.md).

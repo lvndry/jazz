@@ -182,6 +182,8 @@ export function capChatHistory(
 }
 
 export class ChatServiceImpl implements ChatService {
+  constructor(private readonly configPath?: string) {}
+
   startChatSession(
     agent: Agent,
     options?: {
@@ -213,6 +215,7 @@ export class ChatServiceImpl implements ChatService {
     | WorkflowService
     | PersonaService
   > {
+    const configPath = this.configPath;
     /** Leaves the conversation this chat holds; run however the session ends, interrupts too. */
     let releaseConversation: Effect.Effect<void> = Effect.void;
     return Effect.gen(function* () {
@@ -955,7 +958,7 @@ export class ChatServiceImpl implements ChatService {
                 goalContinues = false;
               }
               if (!ephemeral && sessionTurnCount > 0) {
-                yield* reflectInBackground(agent.id, conversationId);
+                yield* reflectInBackground(agent.id, conversationId, configPath);
               }
               conversationId = commandResult.newConversationId;
               yield* stopSubagents;
@@ -1464,7 +1467,7 @@ export class ChatServiceImpl implements ChatService {
       yield* emitLifecycle("session-end");
       yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
       if (!ephemeral && sessionTurnCount > 0) {
-        yield* reflectInBackground(agent.id, conversationId);
+        yield* reflectInBackground(agent.id, conversationId, configPath);
       }
       // Stop mirroring state to the pane product once the session is over;
       // the exit hooks handle the pane release.
@@ -1495,9 +1498,11 @@ function uiTranscriptFromStore(): readonly ConversationUiEntry[] {
 }
 
 /**
- * Create the chat service layer
+ * Create the chat service layer, retaining an explicit config path for detached reflection.
  */
-export function createChatServiceLayer(): Layer.Layer<
+export function createChatServiceLayer(
+  configPath?: string,
+): Layer.Layer<
   ChatService,
   never,
   | TerminalService
@@ -1509,7 +1514,7 @@ export function createChatServiceLayer(): Layer.Layer<
   | typeof ToolRegistryTag
   | typeof AgentServiceTag
 > {
-  return Layer.succeed(ChatServiceTag, new ChatServiceImpl());
+  return Layer.succeed(ChatServiceTag, new ChatServiceImpl(configPath));
 }
 
 /**

@@ -322,7 +322,9 @@ failed write; other sentences of the same message, and any new user message, can
 
 The same pass runs a second way, as `conversation-end`. When a chat conversation is closed or
 left, the chat spawns a detached `jazz memory reflect` (hidden), so neither the person nor the
-chat process waits on it. That process loads the saved conversation and takes the messages
+chat process waits on it. The application layer passes the chat's `--config` path through to
+the detached command; without an explicit path the child inherits normal environment-based
+config resolution. That process loads the saved conversation and takes the messages
 after a per-conversation watermark (`.reflected-conversations.json` at the memory root). It
 claims them before the model call, so two reflections never cover the same messages. It then
 runs the extractor with only `view_memory` and `propose_lesson`. It cannot use `manage_memory`:

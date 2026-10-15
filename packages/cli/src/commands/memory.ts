@@ -34,6 +34,7 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { splitScopeAndRest } from "@jazz/core/memory/entry-path";
 import { lessonDestinationPath } from "@jazz/core/memory/lesson-destination";
 import { CLIError } from "@jazz/core/types/errors";
+import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 
@@ -260,8 +261,18 @@ export function reviewLessonsCommand() {
   });
 }
 
+/** Accept only a person-started command; a shell tool cannot approve its own lesson. */
 export function acceptLessonCommand(id: string) {
   return Effect.gen(function* () {
+    if (isAgentStartedProcess()) {
+      return yield* Effect.fail(
+        new CLIError({
+          command: "memory accept",
+          message:
+            "Accepting a lesson is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.",
+        }),
+      );
+    }
     const terminal = yield* TerminalServiceTag;
     const memoryService = yield* MemoryServiceTag;
     const outcome = yield* memoryService.acceptLesson(id);

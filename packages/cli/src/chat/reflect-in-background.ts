@@ -11,9 +11,10 @@ import { Effect } from "effect";
  * A launch failure is logged rather than shown: the chat is closing or switching, and the
  * messages it would have reflected on stay unclaimed, so the next close covers them.
  */
-export function reflectInBackground(agentId: string, conversationId: string) {
+export function reflectInBackground(agentId: string, conversationId: string, configPath?: string) {
   return Effect.gen(function* () {
     const launch = yield* spawnDetachedJazz([
+      ...(configPath === undefined ? [] : ["--config", configPath]),
       "--output",
       "quiet",
       "memory",
