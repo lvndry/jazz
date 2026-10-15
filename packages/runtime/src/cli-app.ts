@@ -41,7 +41,7 @@ import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { securePrivateHome } from "@jazz/core/utils/private-home";
 import type { ShutdownSignal } from "@jazz/core/utils/process";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import packageJson from "../../../package.json";
 
 /**
@@ -2739,20 +2739,19 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
       "Create a one-time invite link that grants <name> a tier once they accept it. " +
         "<name> is your own bookkeeping — the name you'll call them under afterward.",
     )
-    .requiredOption(
+    .option(
       "--disclosure <none|public|internal|private>",
       `What the invitee may learn once they accept: ${PEER_TIERS.join(", ")}`,
+      "internal",
     )
-    .option(
-      "--expires <duration>",
-      "How long the link stays redeemable, e.g. 30m, 24h, 7d",
-      parseDurationMs("--expires"),
-      24 * 60 * 60 * 1000,
+    .addOption(
+      new Option("--expires <duration>", "How long the link stays redeemable, e.g. 30m, 24h, 7d")
+        .argParser(parseDurationMs("--expires"))
+        .default(3 * 60 * 60 * 1000, "3h"),
     )
     .option(
       "--host <address>",
-      "Interface your daemon answers on — must match how you're running (or will run) `jazz daemon`",
-      DEFAULT_DAEMON_HOST,
+      "Address the invitee can reach; defaults to automatic public-IP detection",
     )
     .option(
       "--port <n>",
@@ -2782,7 +2781,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
         options: {
           disclosure: string;
           expires: number;
-          host: string;
+          host?: string;
           port: number;
           publicUrl?: string;
           as?: string;
@@ -2803,7 +2802,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
                 inviteeName: name,
                 disclosure: options.disclosure,
                 ttlMs: options.expires,
-                host: options.host,
+                ...(options.host !== undefined ? { host: options.host } : {}),
                 port: options.port,
                 json: options.json === true,
                 qr: options.qr === true,
@@ -2821,7 +2820,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
     .description("Accept an invite link and become a peer of whoever sent it")
     .option("--as <name>", "What to call them locally. Defaults to the name they invited you as.")
     .option("--yes", "Skip the confirmation prompt")
-    .option("--json", "Emit a single JSON envelope { ok, name }")
+    .option("--json", "Emit a single JSON envelope { ok, name, backfilled, backfillErrors }")
     .action((url: string, options: { as?: string; yes?: boolean; json?: boolean }) =>
       runCliAction(
         () =>

@@ -110,6 +110,25 @@ export function runToolDenials(
   return denied;
 }
 
+/**
+ * Resolves category grants for live runs, capability cards, and `/tools`. An omitted tools
+ * list inherits selectable defaults; an explicit list opts into selectable tools by name.
+ * Persona category profiles remain limited to built-in categories and take precedence.
+ */
+export function resolveAgentToolCategoryIds(
+  agent: Agent,
+  toolProfile: PersonaToolProfile | undefined,
+): readonly string[] {
+  if (toolProfile?.categories !== undefined) {
+    const builtinIds = new Set(BUILTIN_TOOL_CATEGORIES.map((category) => category.id));
+    return toolProfile.categories.filter((id) => builtinIds.has(id));
+  }
+  if (agent.config.persona === "summarizer") return [];
+  const categories =
+    agent.config.tools === undefined ? DEFAULT_AGENT_TOOL_CATEGORIES : BUILTIN_TOOL_CATEGORIES;
+  return categories.map((category) => category.id);
+}
+
 export function resolveAgentToolNames(
   agent: Agent,
 ): Effect.Effect<readonly string[], never, ToolRegistry> {
@@ -128,18 +147,10 @@ export function resolveAgentToolNames(
       : null;
     const toolProfile = resolvedPersona?.toolProfile;
 
-    const requestedBuiltinCategoryIds: readonly string[] =
-      toolProfile?.categories !== undefined
-        ? toolProfile.categories
-        : agent.config.persona === "summarizer"
-          ? []
-          : DEFAULT_AGENT_TOOL_CATEGORIES.map((category) => category.id);
-
-    const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((category) => category.id));
     const builtInToolNames = (yield* Effect.all(
-      requestedBuiltinCategoryIds
-        .filter((id) => validBuiltinCategoryIds.has(id))
-        .map((id) => toolRegistry.getToolsInCategory(id)),
+      resolveAgentToolCategoryIds(agent, toolProfile).map((id) =>
+        toolRegistry.getToolsInCategory(id),
+      ),
     )).flat();
 
     const combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];

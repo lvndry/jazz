@@ -4,9 +4,9 @@
  *
  * `create`, `list`, and `revoke` are plain local file operations: the inviter already has a
  * shell on the machine whose invite store and config they are changing, so there is no
- * network round-trip to make here — the same reasoning `jazz peers log` uses to read the
- * ledger straight off disk. Only `accept` ever crosses the network, because only the
- * redeemer is, by construction, on a different machine.
+ * network round-trip to the daemon — the same reasoning `jazz peers log` uses to read the
+ * ledger straight off disk. `create` detects the public IP over HTTPS unless an address is
+ * supplied. `accept` fetches the remote preview and redeems the single-use credential.
  */
 
 import * as os from "node:os";
@@ -18,6 +18,9 @@ import {
   revokeInvite,
 } from "@jazz/adapters/peers/invites";
 import { detectKeyringBackend, keyringSet } from "@jazz/adapters/secrets/keyring";
+import { askPeerToolName } from "@jazz/core/agent/tools/peer";
+import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
+import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -28,6 +31,7 @@ import { inviteStatus, isInviteId } from "@jazz/core/types/peer-invite";
 import { toError } from "@jazz/core/utils/errors";
 import { Effect } from "effect";
 import { generate as generateQrCode } from "qrcode-terminal";
+import { resolvePeerInviteOrigin } from "./peer-invite-origin";
 import { describeTier } from "./peers";
 
 function renderQrCode(text: string): Promise<string> {
@@ -44,7 +48,8 @@ function renderQrCode(text: string): Promise<string> {
  * transfer this feature introduces that manual `set-token` never had.
  */
 function isEncryptedOrUnreachableNetwork(host: string): boolean {
-  if (host === "127.0.0.1" || host === "::1" || host === "localhost") return true;
+  if (host === "127.0.0.1" || host === "::1" || host === "[::1]" || host === "localhost")
+    return true;
   const octets = host.split(".");
   const ipv4 =
     octets.length === 4 && octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
@@ -81,7 +86,7 @@ export interface CreateInviteCommandOptions {
   readonly inviteeName: string;
   readonly disclosure: PeerTier;
   readonly ttlMs: number;
-  readonly host: string;
+  readonly host?: string;
   readonly port: number;
   /**
    * Overrides the constructed `http://host:port` origin for both the embedded ask URL and the
@@ -100,44 +105,10 @@ export interface CreateInviteCommandOptions {
 
 export function createInviteCommand(options: CreateInviteCommandOptions) {
   return Effect.gen(function* () {
-    let origin = `http://${options.host}:${String(options.port)}`;
-    let localMode = false;
-    if (options.publicUrl !== undefined) {
-      let publicUrl: URL;
-      try {
-        publicUrl = new URL(options.publicUrl);
-      } catch {
-        return yield* Effect.fail(
-          new CLIError({
-            command: "peers invite create",
-            message: "--public-url must be an absolute HTTP(S) URL",
-          }),
-        );
-      }
-      if (
-        (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:") ||
-        publicUrl.pathname !== "/" ||
-        publicUrl.search !== "" ||
-        publicUrl.hash !== "" ||
-        publicUrl.username !== "" ||
-        publicUrl.password !== ""
-      ) {
-        return yield* Effect.fail(
-          new CLIError({
-            command: "peers invite create",
-            message:
-              "--public-url must be an HTTP(S) origin without a path, query, fragment, or credentials",
-          }),
-        );
-      }
-      origin = publicUrl.origin;
-    } else if (
-      options.host === "127.0.0.1" ||
-      options.host === "localhost" ||
-      options.host === "::1"
-    ) {
-      localMode = true;
-    }
+    const origin = yield* resolvePeerInviteOrigin(options);
+    const originHost = new URL(origin).hostname;
+    const localMode =
+      originHost === "127.0.0.1" || originHost === "localhost" || originHost === "[::1]";
 
     // Fail fast on a persona typo now, at the one point a human is actively watching —
     // otherwise it surfaces only when a peer actually asks a question, as an opaque refusal
@@ -186,7 +157,7 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
     const warning =
       originUrl !== undefined && originUrl.protocol === "https:"
         ? undefined
-        : plaintextWarning(originUrl?.hostname ?? options.host);
+        : plaintextWarning(originUrl?.hostname ?? originHost);
     if (warning !== undefined) process.stderr.write(warning);
 
     process.stdout.write(
@@ -209,6 +180,9 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
     Effect.catchAll((error) =>
       Effect.sync(() => {
         process.stderr.write(`${getErrorMessage(error)}\n`);
+        if (error instanceof CLIError && error.suggestion !== undefined) {
+          process.stderr.write(`${error.suggestion}\n`);
+        }
         process.exitCode = 1;
       }),
     ),
@@ -339,12 +313,40 @@ export interface AcceptInviteCommandOptions {
   readonly json: boolean;
 }
 
+export interface PeerToolBackfillResult {
+  readonly updated: readonly string[];
+  readonly errors: readonly string[];
+}
+
 /**
- * Fetching the preview and posting the accept are both plain `fetch` calls to the inviter's
- * daemon, not Jazz's own agent stack — this command runs entirely on the redeemer's machine
- * and never needs an agent, a config service, or anything else beyond what it writes to its
- * own config and keyring at the end.
+ * Adds `ask_peer` to saved tool lists after pairing. Agents without a list inherit default
+ * categories at run time. Only persisted updates count as successes; errors are returned
+ * separately so a spent invite never conceals incomplete local tool setup.
  */
+export function backfillAskPeerTool(): Effect.Effect<PeerToolBackfillResult, never, AgentService> {
+  return Effect.gen(function* () {
+    const service = yield* AgentServiceTag;
+    const agents = yield* Effect.either(service.listAgents());
+    if (agents._tag === "Left") {
+      return { updated: [], errors: [`Could not list agents: ${getErrorMessage(agents.left)}`] };
+    }
+    const updated: string[] = [];
+    const errors: string[] = [];
+    for (const agent of agents.right) {
+      const tools = agent.config.tools;
+      if (tools === undefined || tools.includes(askPeerToolName)) continue;
+      const result = yield* Effect.either(
+        service.updateAgent(agent.id, {
+          config: { ...agent.config, tools: [...tools, askPeerToolName] },
+        }),
+      );
+      if (result._tag === "Right") updated.push(agent.name);
+      else errors.push(`Could not update "${agent.name}": ${getErrorMessage(result.left)}`);
+    }
+    return { updated, errors };
+  });
+}
+
 export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
   return Effect.gen(function* () {
     const parsed = parseInviteUrl(options.url);
@@ -489,14 +491,37 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
       return;
     }
 
+    const backfill = yield* backfillAskPeerTool();
+    if (backfill.errors.length > 0) process.exitCode = 1;
+
     if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ok: true, name: localName })}\n`);
+      process.stdout.write(
+        `${JSON.stringify({
+          ok: backfill.errors.length === 0,
+          name: localName,
+          backfilled: backfill.updated,
+          backfillErrors: backfill.errors,
+        })}\n`,
+      );
       return;
     }
     process.stdout.write(
       `Added "${localName}" as a peer and stored the shared token.\n` +
         `Try: jazz run --agent <yours> "ask ${localName}'s agent ..."\n`,
     );
+    if (backfill.updated.length > 0) {
+      process.stdout.write(
+        `Added ask_peer to agent tools: ${backfill.updated.join(", ")}\n` +
+          "(agents created before the Peers category was a default don't pick it up on their own)\n",
+      );
+    }
+    if (backfill.errors.length > 0) {
+      process.stderr.write(
+        `The peer and token were saved, but agent tool setup is incomplete:\n` +
+          `${backfill.errors.join("\n")}\n` +
+          "Fix agent storage, then run `jazz agent edit <name>` and select Peers. The invite is already consumed; do not accept it again.\n",
+      );
+    }
   }).pipe(
     Effect.catchAll((error) =>
       Effect.sync(() => {

@@ -126,7 +126,10 @@ file difficult to share safely. Prefer `jazz config set <provider>` (it prompts 
 
 `tools` adds named tools, MCP servers, or custom tools to the built-in bundle permitted by the
 persona. It is **not an allowlist**. Omitting `execute_command` from `tools` does not remove shell
-access.
+access. When `tools` is omitted, Jazz also inherits the selectable Browser Use and Peers
+categories. An explicit list (including `[]`) grants selectable tools only by name; the
+built-in bundle still applies. A persona's explicit category profile takes precedence over
+these defaults. Peers offers `ask_peer` only when a peer with a URL is configured.
 
 Use `deniedTools` for a hard per-agent restriction. Jazz applies it after built-in, persona, MCP,
 peer, and custom capabilities are assembled, so an earlier grant cannot add the tool back. Use

@@ -1,3 +1,12 @@
+/**
+ * Covers agent validation and mutations, including a file-backed round trip that preserves
+ * the distinction between inherited tool defaults and an explicit empty selectable list.
+ */
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { NodeFileSystem } from "@effect/platform-node";
+import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import { type StorageService } from "@jazz/core/interfaces/storage";
 import {
   AgentAlreadyExistsError,
@@ -7,8 +16,9 @@ import {
 } from "@jazz/core/types/errors";
 import { type Agent, type AgentConfig } from "@jazz/core/types/index";
 import { describe, expect, it, mock } from "bun:test";
-import { Effect } from "effect";
-import { AgentServiceImpl } from "./agent-service";
+import { Effect, Layer } from "effect";
+import { AgentServiceImpl, createAgentServiceLayer } from "./agent-service";
+import { createFileStorageLayer } from "./storage/file";
 
 // Mock Storage Service
 const mockStorage = {
@@ -847,4 +857,35 @@ describe("AgentService", () => {
       expect(mockStorage.deleteAgent).toHaveBeenCalledWith("id-1");
     });
   });
+});
+
+it("preserves omitted and empty tools lists across create, update, and file reload", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-tool-defaults-"));
+  try {
+    const layer = createAgentServiceLayer().pipe(
+      Layer.provide(createFileStorageLayer(home)),
+      Layer.provide(NodeFileSystem.layer),
+    );
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* AgentServiceTag;
+        const inherited = yield* service.createAgent("inherited", "default categories");
+        expect((yield* service.getAgent(inherited.id)).config.tools).toBeUndefined();
+        const explicit = yield* service.createAgent("explicit", "no selectable categories", {
+          tools: [],
+        });
+        expect((yield* service.getAgent(explicit.id)).config.tools).toEqual([]);
+        yield* service.updateAgent(explicit.id, {
+          config: { ...explicit.config, tools: ["ask_peer"] },
+        });
+        expect((yield* service.getAgent(explicit.id)).config.tools).toEqual(["ask_peer"]);
+        yield* service.updateAgent(explicit.id, { config: { ...explicit.config, tools: [] } });
+        expect((yield* service.getAgent(explicit.id)).config.tools).toEqual([]);
+        yield* service.updateAgent(explicit.id, { description: "still no selectable categories" });
+        expect((yield* service.getAgent(explicit.id)).config.tools).toEqual([]);
+      }).pipe(Effect.provide(layer)),
+    );
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
 });

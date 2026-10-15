@@ -36,11 +36,8 @@ import {
   workStateSizeBytes,
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
+import { resolveAgentToolCategoryIds } from "@jazz/core/agent/tools/agent-tool-resolution";
 import { runShellCommand } from "@jazz/core/agent/tools/shell";
-import {
-  BUILTIN_TOOL_CATEGORIES,
-  DEFAULT_AGENT_TOOL_CATEGORIES,
-} from "@jazz/core/agent/tools/tool-categories";
 import { toolKnownSecrets } from "@jazz/core/agent/tools/tool-secrets";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
@@ -885,9 +882,6 @@ function handleToolsCommand(
       agentId: agent.id,
     });
 
-    // Mirrors initializeAgentRun's category resolution (agent-runner.ts) so this
-    // display reflects the tools the agent actually gets at runtime, not just
-    // what's explicitly stored in its config.
     const personaServiceOption = yield* Effect.serviceOption(PersonaServiceTag);
     const resolvedPersona = Option.isSome(personaServiceOption)
       ? yield* personaServiceOption.value
@@ -896,18 +890,10 @@ function handleToolsCommand(
       : null;
     const toolProfile = resolvedPersona?.toolProfile;
 
-    const requestedBuiltinCategoryIds: readonly string[] =
-      toolProfile?.categories !== undefined
-        ? toolProfile.categories
-        : agent.config.persona === "summarizer"
-          ? []
-          : DEFAULT_AGENT_TOOL_CATEGORIES.map((c) => c.id);
-
-    const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((c) => c.id));
     const builtInToolNames = (yield* Effect.all(
-      requestedBuiltinCategoryIds
-        .filter((id) => validBuiltinCategoryIds.has(id))
-        .map((id) => toolRegistry.getToolsInCategory(id)),
+      resolveAgentToolCategoryIds(agent, toolProfile).map((id) =>
+        toolRegistry.getToolsInCategory(id),
+      ),
     )).flat();
 
     let combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];

@@ -162,6 +162,52 @@ describe("ask_peer", () => {
     expect(entry?.reason).toContain("503");
   });
 
+  it("says re-pair when the other side stopped accepting the pair (401)", async () => {
+    reply = { status: 401, body: "unauthorized" };
+    const result = await ask(peers(), { peer: "sam", question: "still paired?" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('authentication failed for "sam"');
+    expect(result.error).toContain("Re-pair");
+    const [entry] = await Effect.runPromise(readLedger());
+    expect(entry?.reason).toContain("Re-pair");
+  });
+
+  it("uses each machine's local name when explaining manual token recovery", async () => {
+    reply = { status: 401, body: "unauthorized" };
+    const result = await ask(peers(), { peer: "sam", question: "still paired?" });
+
+    expect(result.error).toContain("jazz peers set-token sam on this machine");
+    expect(result.error).toContain("jazz peers set-token <your-name-on-their-machine>");
+    expect(result.error).toContain("JAZZ_PEER_TOKEN");
+  });
+
+  it.each(["not accepting questions", "could not answer"])(
+    "explains a 403 refusal without prescribing re-pairing: %s",
+    async (error) => {
+      reply = { status: 403, body: JSON.stringify({ ok: false, error }) };
+      const result = await ask(peers(), { peer: "sam", question: "there?" });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("403");
+      expect(result.error).toContain("jazz peers log");
+      expect(result.error).toContain("daemon logs");
+      expect(result.error).not.toContain("Re-pair");
+      expect(result.error).not.toContain("set-token");
+      const [entry] = await Effect.runPromise(readLedger());
+      expect(entry?.reason).toContain("request was refused");
+    },
+  );
+
+  it("keeps the bare status code for failures that are not a broken pairing", async () => {
+    reply = { status: 502, body: "bad gateway" };
+    const result = await ask(peers(), { peer: "sam", question: "there?" });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("502");
+    expect(result.error).not.toContain("Re-pair");
+  });
+
   it("refuses a peer it does not know rather than calling anything", async () => {
     const result = await ask(peers(), { peer: "stranger", question: "hello?" });
 

@@ -185,7 +185,10 @@ refuse to reveal which webhook names exist, and answer failures without their ca
 get no operator preferences, no AGENTS.md, and no file attachments from paths in caller text, and
 each door has a budget, a concurrency cap, and a body cap. A parked remote run resumes with the
 tool list, caller, and remaining budget it parked with, or not at all. Invite secrets are one-time
-credentials. Telegram, Discord, iMessage, Photon, and
+credentials. Creating an invite without `--host` or `--public-url` discovers the public IPv4
+address with a bounded, five-second HTTPS request to `api.ipify.org`; the service sees the
+caller IP but receives no Jazz credentials, invite secrets, or questions. Discovery rejects
+redirects and non-IP responses. Explicit address flags skip the lookup. Telegram, Discord, iMessage, Photon, and
 WhatsApp bridges apply their own sender or conversation allowlists before a run starts.
 
 Bridge reads of sandbox-owned files reject symlinks and nonregular files. They open read

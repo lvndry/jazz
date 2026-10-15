@@ -77,6 +77,7 @@ type PostQuestionOutcome =
   | { readonly ok: "parked"; readonly question: string };
 
 async function postQuestion(
+  peerName: string,
   url: string,
   token: string | undefined,
   question: string,
@@ -97,7 +98,13 @@ async function postQuestion(
     });
 
     if (!response.ok) {
-      return { ok: false, reason: `peer replied ${String(response.status)}` };
+      const reason =
+        response.status === 401
+          ? `peer replied 401 — authentication failed for "${peerName}". Re-pair with a fresh invite link from the other machine, or restore the same shared secret on both sides: run jazz peers set-token ${peerName} on this machine, and jazz peers set-token <your-name-on-their-machine> on the other machine, with JAZZ_PEER_TOKEN set to the shared secret on each. The two sides can use different peer names.`
+          : response.status === 403
+            ? `peer replied 403 — the request was refused. Ask the other operator to check jazz peers log and the daemon logs for a suspended peer or a failed answering run.`
+            : `peer replied ${String(response.status)}`;
+      return { ok: false, reason };
     }
 
     const text = await response.text();
@@ -170,6 +177,13 @@ function clarificationProvenance(peerName: string): UntrustedProvenance {
 }
 
 /**
+ * The tool's registered name; the string the agent's saved tools list must contain for
+ * `ask_peer` to reach the model. `jazz peers invite accept` compares against it when
+ * backfilling existing agents.
+ */
+export const askPeerToolName = "ask_peer" as const;
+
+/**
  * Builds `ask_peer`, or nothing when no peer is configured.
  *
  * Absent rather than present-and-failing: a tool the model can see is a tool it will try,
@@ -192,7 +206,7 @@ export function createAskPeerTool(
     AgentConfigService | LoggerService | PeerLedgerService | PeerTokenService,
     AskPeerArgs
   >({
-    name: "ask_peer",
+    name: askPeerToolName,
     description:
       `Put one question to somebody else's agent and return their reply. Available peers: ${names}. ` +
       "The peer sees only the question, and all of it leaves this machine: include only what " +
@@ -230,7 +244,9 @@ export function createAskPeerTool(
 
         yield* logger.info("Asking a peer", { peer: peer.name });
 
-        const outcome = yield* Effect.promise(() => postQuestion(url, token, args.question));
+        const outcome = yield* Effect.promise(() =>
+          postQuestion(peer.name, url, token, args.question),
+        );
 
         if (outcome.ok === false) {
           yield* ledger(peer.name, args.question, "failed", { reason: outcome.reason });

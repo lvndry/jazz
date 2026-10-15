@@ -62,7 +62,7 @@ export class AgentServiceImpl implements AgentService {
         };
 
         const agentConfig: AgentConfig =
-          normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
+          config.tools !== undefined ? { ...baseConfig, tools: normalizedTools } : baseConfig;
 
         // Validate the complete agent configuration
         yield* this.validateAgentConfig(agentConfig);
@@ -159,7 +159,7 @@ export class AgentServiceImpl implements AgentService {
 
         const baseConfig: AgentConfig = configWithoutTools;
         const updatedConfig: AgentConfig =
-          normalizedTools.length > 0 ? { ...baseConfig, tools: normalizedTools } : baseConfig;
+          mergedConfig.tools !== undefined ? { ...baseConfig, tools: normalizedTools } : baseConfig;
 
         const updatedAgent: Agent = {
           ...existingAgent,
