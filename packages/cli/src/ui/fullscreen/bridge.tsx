@@ -23,6 +23,7 @@ import type { ActivityState, TodoSnapshotItem } from "../activity-state";
 import { applyAtMention, type AtMentionSpan } from "../at-mention";
 import {
   type FilePickerEntry,
+  narrowFilePickerEntries,
   resolveFilePickerPath,
   scanFilePickerEntries,
 } from "../file-picker-files";
@@ -1379,25 +1380,32 @@ export function FullscreenBridge(): React.ReactNode {
     const basePath = filePickerBasePath(prompt);
     const extensions = filePickerExtensions(prompt);
     const includeDirectories = prompt.options?.["includeDirectories"] === true;
-    let cancelled = false;
+    const scan = new AbortController();
     updatePromptFile((state) => {
       const { error: _error, ...rest } = state;
-      return { ...rest, scanning: true };
+      return {
+        ...rest,
+        entries: narrowFilePickerEntries(state.entries, promptFile.filter),
+        scanning: true,
+      };
     });
     void scanFilePickerEntries({
       basePath,
       query: promptFile.filter,
       ...(extensions === undefined ? {} : { extensions }),
       includeDirectories,
+      signal: scan.signal,
     }).then((entries) => {
-      if (cancelled) return;
+      if (scan.signal.aborted) {
+        return;
+      }
       updatePromptFile((state) => {
         const { error: _error, ...rest } = state;
         return { ...rest, entries, selected: 0, scanning: false };
       });
     });
     return () => {
-      cancelled = true;
+      scan.abort();
     };
   }, [prompt, promptFile.filter, updatePromptFile]);
 

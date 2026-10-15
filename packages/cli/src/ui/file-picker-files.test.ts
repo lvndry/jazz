@@ -2,7 +2,11 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { resolveFilePickerPath, scanFilePickerEntries } from "./file-picker-files";
+import {
+  narrowFilePickerEntries,
+  resolveFilePickerPath,
+  scanFilePickerEntries,
+} from "./file-picker-files";
 
 /**
  * The scan runs on every pause while typing an `@` mention, in both composers.
@@ -160,6 +164,27 @@ describe("scanFilePickerEntries matching", () => {
     }
   });
 
+  test("walks only the directory a path-shaped query names", async () => {
+    const entries = await scan({ query: "nested/one/", includeDirectories: true, maxDepth: 1 });
+    expect(entries.map((entry) => entry.name)).toEqual([
+      path.join("nested", "one", "two"),
+      path.join("nested", "one", "two", "three"),
+    ]);
+  });
+
+  test("falls back to a tree-wide fragment match when the named directory does not exist", async () => {
+    const entries = await scan({ query: "four/five", includeDirectories: true, maxDepth: 8 });
+    expect(entries.map((entry) => entry.name)).toContain(
+      path.join("nested", "one", "two", "three", "four", "five"),
+    );
+  });
+
+  test("returns nothing once aborted", async () => {
+    const aborted = new AbortController();
+    aborted.abort();
+    expect(await scan({ signal: aborted.signal })).toEqual([]);
+  });
+
   test("returns nothing for an unreadable base path", async () => {
     const entries = await scanFilePickerEntries({
       basePath: path.join(root, "does-not-exist"),
@@ -167,6 +192,29 @@ describe("scanFilePickerEntries matching", () => {
       includeDirectories: false,
     });
     expect(entries).toEqual([]);
+  });
+});
+
+describe("narrowFilePickerEntries", () => {
+  const generatedImage = {
+    name: path.join(".jazz", "generated", "a.png"),
+    path: "/home/.jazz/generated/a.png",
+    isDirectory: false,
+  };
+  const skillsDirectory = {
+    name: path.join(".jazz", "skills"),
+    path: "/home/.jazz/skills",
+    isDirectory: true,
+  };
+  const entries = [generatedImage, skillsDirectory];
+
+  test("drops entries the new query rules out", () => {
+    expect(narrowFilePickerEntries(entries, ".jazz/skills/comp")).toEqual([]);
+    expect(narrowFilePickerEntries(entries, ".JAZZ/SK")).toEqual([skillsDirectory]);
+  });
+
+  test("matches an absolute query against the full path", () => {
+    expect(narrowFilePickerEntries(entries, "/home/.jazz/gen")).toEqual([generatedImage]);
   });
 });
 

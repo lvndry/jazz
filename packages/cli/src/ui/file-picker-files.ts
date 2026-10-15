@@ -21,6 +21,8 @@ export interface FilePickerScanOptions {
   readonly includeDirectories: boolean;
   readonly maxResults?: number;
   readonly maxDepth?: number;
+  /** Abandons the walk; a superseded keystroke's scan should not keep the disk busy. */
+  readonly signal?: AbortSignal;
 }
 
 /** Loads `.gitignore` from `basePath`, if there is one. Missing file, no rules. */
@@ -52,6 +54,7 @@ async function scanDirectory(
   includeDirectories: boolean,
   maxResults: number,
   maxDepth: number,
+  signal: AbortSignal | undefined,
 ): Promise<FilePickerEntry[]> {
   const results: FilePickerEntry[] = [];
   const normalizedQuery = query.toLowerCase();
@@ -69,6 +72,9 @@ async function scanDirectory(
   let nextDirectory = 0;
 
   while (nextDirectory < directories.length && results.length < maxResults) {
+    if (signal?.aborted === true) {
+      return [];
+    }
     const current = directories[nextDirectory];
     nextDirectory += 1;
     if (current === undefined || current.depth > maxDepth) continue;
@@ -133,6 +139,34 @@ async function scanDirectory(
   return results;
 }
 
+/**
+ * Splits a path-shaped query into the directory it names and the fragment
+ * still being typed: `.jazz/skills/comp` walks `.jazz/skills` for `comp`, and
+ * a trailing separator walks the named directory itself. Without this, a
+ * query that matches nothing walks the whole base to `maxDepth`.
+ */
+function queryScope(
+  basePath: string,
+  query: string,
+): { readonly directory: string; readonly fragment: string } | undefined {
+  if (!query.includes("/") && !query.includes(path.sep)) {
+    return undefined;
+  }
+  const resolved = path.resolve(basePath, query);
+  if (query.endsWith("/") || query.endsWith(path.sep)) {
+    return { directory: resolved, fragment: "" };
+  }
+  return { directory: path.dirname(resolved), fragment: path.basename(resolved) };
+}
+
+async function isDirectory(candidate: string): Promise<boolean> {
+  try {
+    return (await fs.stat(candidate)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export async function scanFilePickerEntries({
   basePath,
   query,
@@ -140,37 +174,48 @@ export async function scanFilePickerEntries({
   includeDirectories,
   maxResults = 100,
   maxDepth = 5,
+  signal,
 }: FilePickerScanOptions): Promise<FilePickerEntry[]> {
-  if (!path.isAbsolute(query)) {
+  const scope = queryScope(basePath, query);
+  if (scope !== undefined && (await isDirectory(scope.directory))) {
     return scanDirectory(
-      basePath,
-      query,
+      scope.directory,
+      scope.fragment,
       basePath,
       extensions,
       includeDirectories,
       maxResults,
       maxDepth,
+      signal,
     );
   }
-
-  const queryDirectory = path.dirname(query);
-  const queryBase = path.basename(query);
-  try {
-    if ((await fs.stat(queryDirectory)).isDirectory()) {
-      return scanDirectory(
-        queryDirectory,
-        queryBase,
-        basePath,
-        extensions,
-        includeDirectories,
-        maxResults,
-        maxDepth,
-      );
-    }
-  } catch {
+  // A relative fragment like `src/ui` may still name a directory deeper in the tree.
+  if (path.isAbsolute(query)) {
     return [];
   }
-  return [];
+  return scanDirectory(
+    basePath,
+    query,
+    basePath,
+    extensions,
+    includeDirectories,
+    maxResults,
+    maxDepth,
+    signal,
+  );
+}
+
+/**
+ * The previous scan's entries that can still match `query`, shown while the
+ * new scan runs so the list never displays rows the filter has ruled out.
+ */
+export function narrowFilePickerEntries<Entry extends FilePickerEntry>(
+  entries: readonly Entry[],
+  query: string,
+): Entry[] {
+  const normalizedQuery = query.toLowerCase();
+  const field = path.isAbsolute(query) ? "path" : "name";
+  return entries.filter((entry) => entry[field].toLowerCase().includes(normalizedQuery));
 }
 
 export async function resolveFilePickerPath(
