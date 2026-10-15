@@ -7,7 +7,8 @@
  * takes as an attachment, so the chat reads it here and appends it to the
  * message in a `<file>` block the model can quote from. Only an explicit `@`
  * mention typed in the local terminal is read: a bare path in prose is not,
- * and remote surfaces never go through this.
+ * an `@file` passed as a command-line flag's value (`curl -d @body.json`) is
+ * not, and remote surfaces never go through this.
  *
  * Use `inlineMentionedTextFiles(message, workingDirectory)` on the message the
  * user typed, before it is sent to the agent.
@@ -41,9 +42,24 @@ export interface InlinedMentions {
  */
 const MENTION_PATTERN = /(?:^|\s)@(?:"([^"\n]+)"|'([^'\n]+)'|((?:\\.|[^\s"'])+))/g;
 
+/**
+ * Whether the `@` at `atIndex` is the value of a command-line flag, as in
+ * `curl --data-binary @payload.json` or `curl -d @body.txt`, where `@file` is
+ * the tool's own syntax for "read this file" rather than a mention. A lone `-`
+ * (a Markdown bullet) is not a flag.
+ */
+function isFlagValue(message: string, atIndex: number): boolean {
+  const before = message.slice(0, atIndex).trimEnd();
+  const previousWord = before.slice(before.search(/\S+$/));
+  return previousWord.length > 1 && previousWord.startsWith("-");
+}
+
 function mentionedPaths(message: string): string[] {
   const paths: string[] = [];
   for (const match of message.matchAll(MENTION_PATTERN)) {
+    if (isFlagValue(message, match.index + match[0].indexOf("@"))) {
+      continue;
+    }
     const quoted = match[1] ?? match[2];
     if (quoted !== undefined) {
       paths.push(quoted);

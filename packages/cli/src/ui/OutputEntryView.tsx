@@ -6,6 +6,7 @@
 import { isTerminalReport } from "@jazz/core/interfaces/terminal";
 import { Box, Text } from "ink";
 import React from "react";
+import { runsInShell } from "@/cli/chat/commands/parser";
 import { getGlyphs } from "./glyphs";
 import { reportAnsiText } from "./report-ansi";
 import { formatTurnReceipt } from "../presentation/turn-receipt";
@@ -254,6 +255,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
         entry.message,
         Math.max(1, cols - PADDING.page * 2 - PADDING.content - RAIL_WIDTH),
       ).split("\n");
+      const railColor = runsInShell(entry.message) ? THEME.warning : THEME.primary;
       return (
         <Box
           flexDirection="column"
@@ -264,7 +266,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
           {userLines.map((line, index) => (
             <Box key={index}>
               <Text
-                color={THEME.primary}
+                color={railColor}
                 bold
               >
                 {getGlyphs().rail}{" "}

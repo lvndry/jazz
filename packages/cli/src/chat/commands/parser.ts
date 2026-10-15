@@ -26,6 +26,15 @@ export function isShellEscape(input: string): boolean {
 }
 
 /**
+ * Whether sending this message runs it in the shell. A multi-line message is
+ * prose even when it starts with `! `, because command parsing would discard
+ * every line after the first.
+ */
+export function runsInShell(input: string): boolean {
+  return isShellEscape(input) && !input.trim().includes("\n");
+}
+
+/**
  * Whether a message is handled as a command (a slash command or a shell
  * escape) rather than sent to the agent.
  */

@@ -9,6 +9,7 @@
  * A single oversized block is wrapped transiently, then released from the cache.
  */
 import { isDiffReceiptTool } from "@jazz/core/utils/tool-formatter";
+import { runsInShell } from "@/cli/chat/commands/parser";
 import { spaceReasoningSections } from "../../presentation/format-utils";
 import { type GlyphSet } from "../glyphs";
 import { measureFor, type Block, type StoppedBlock, type ToolReceiptBlock } from "./types";
@@ -368,7 +369,9 @@ export function createTranscriptLayout(
       Math.max(1, contentWidth - BAND_PADDING),
     );
     const sources = semanticSources(lines, block.text, block.id, "body");
-    const bar: readonly Segment[] = [{ text: glyphs.bandBar, fg: palette.primary }, blankCell()];
+    // A shell escape keeps the warning hue the composer gave it once it is sent.
+    const barFg = runsInShell(block.text) ? palette.warning : palette.primary;
+    const bar: readonly Segment[] = [{ text: glyphs.bandBar, fg: barFg }, blankCell()];
     const panel = (
       key: string,
       content: readonly Segment[],
