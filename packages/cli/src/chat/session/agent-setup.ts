@@ -1,4 +1,11 @@
+/**
+ * Prepares a chat agent's config-dependent tools before the first prompt, so tool
+ * discovery works immediately. Also connects its MCP servers, installs elicitation,
+ * and publishes their prompts as slash commands without blocking chat on failures.
+ */
+
 import { registerMCPToolsForAgent } from "@jazz/core/agent/tools/register-mcp-tools";
+import { registerPeerTools } from "@jazz/core/agent/tools/register-tools";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
@@ -16,7 +23,7 @@ import { setMcpPromptCommands } from "@jazz/cli/chat/commands";
 import { registerElicitationHandler } from "./elicitation";
 
 /**
- * Set up agent before first message: Connect to MCP servers and register tools.
+ * Set up the agent before its first message: register peer tools and connect MCP servers.
  *
  * This happens as part of "agent setup" phase before the chat loop starts.
  * MCP connections are established early so tools are available when needed.
@@ -40,6 +47,14 @@ export function setupAgent(
     const logger = yield* LoggerServiceTag;
     const presentation = yield* PresentationServiceTag;
     yield* logger.setLogGroup(conversationId);
+    yield* registerPeerTools().pipe(
+      Effect.catchAll(() =>
+        presentation.presentStatus(
+          "Peer tools could not be registered. Try restarting Jazz.",
+          "warning",
+        ),
+      ),
+    );
 
     // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {

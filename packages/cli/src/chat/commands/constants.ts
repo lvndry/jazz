@@ -268,7 +268,11 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
     description: "List themes, or switch to one and save it",
     usage: "[name] [dark|light]",
   },
-  { name: "tools", type: "tools", description: "List all agent tools by category" },
+  {
+    name: "tools",
+    type: "tools",
+    description: "List agent tools by category, including configured peer tools",
+  },
   {
     name: "workflows",
     type: "workflows",
