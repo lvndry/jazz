@@ -1208,14 +1208,20 @@ interface QueuedUserInput {
  * Instead, it pushes output into the Ink store.
  */
 /** The stop summary from what the store holds for the current turn. */
-function inkStopSummary(): InterruptSummary {
+function inkStopSummary(): InterruptSummary | null {
   // Receipts printed this tick are still batched; read the turn as it really stands.
   store.flushOutputBatchNow();
   const session = store.getSessionSnapshot();
   const entries = store.getDocumentSnapshot().entries;
   let start = entries.length;
   while (start > 0 && entries[start - 1]?.content.kind !== "user") start -= 1;
-  const receipts = entries.slice(start).flatMap((entry): ReceiptFacts[] => {
+  const turnEntries = entries.slice(start);
+  // The fullscreen bridge settles the stop the moment the keys are pressed; a second
+  // summary when the run unwinds would print the same block twice.
+  if (turnEntries.some((entry) => entry.content.kind === "stopped")) {
+    return null;
+  }
+  const receipts = turnEntries.flatMap((entry): ReceiptFacts[] => {
     return entry.content.kind === "tool" ? [entry.content.receipt] : [];
   });
   const activity = session.activity;
@@ -1293,6 +1299,9 @@ export class InkPresentationService implements PresentationService {
       // key was pressed. The Ink transcript prints the same summary here, from the turn's
       // receipts and whatever was still pending, in the same words.
       const summary = inkStopSummary();
+      if (summary === null) {
+        return;
+      }
       store.printOutput({
         type: "info",
         message: { kind: "stopped", summary },
