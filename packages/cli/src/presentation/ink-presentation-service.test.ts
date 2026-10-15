@@ -2282,6 +2282,28 @@ describe("stopping a turn in the Ink interface", () => {
     expect(text).toMatch(/^stopped by you after \d+\.\ds/);
     expect(text).toContain("done      mcp_calendar_create_event  hold placed");
   });
+
+  test("leaves a stop the fullscreen bridge already settled as the only summary", () => {
+    store.setChatBusy(true);
+    store.printOutput({ type: "user", message: "Clean up my addons", timestamp: new Date() });
+    store.printOutput({
+      type: "log",
+      message: { kind: "stopped", summary: { elapsedMs: 1200, done: [], notDone: [] } },
+      timestamp: new Date(),
+    });
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    Effect.runSync(service.presentInterrupted("sol"));
+    store.flushOutputBatchNow();
+    const entries = store.getDocumentSnapshot().entries;
+    let start = entries.length;
+    while (start > 0 && entries[start - 1]?.content.kind !== "user") {
+      start -= 1;
+    }
+    store.setChatBusy(false);
+
+    const stops = entries.slice(start).filter((entry) => entry.content.kind === "stopped");
+    expect(stops).toHaveLength(1);
+  });
 });
 
 describe("Ink markdown, from the shared parser", () => {
