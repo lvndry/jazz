@@ -25,7 +25,6 @@ import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { peerTokenPath } from "@jazz/core/secrets/registry";
-import type { Agent } from "@jazz/core/types/agent";
 import { CLIError } from "@jazz/core/types/errors";
 import { isPeerTier, PEER_TIERS, type PeerTier } from "@jazz/core/types/peer";
 import { inviteStatus, isInviteId } from "@jazz/core/types/peer-invite";
@@ -343,35 +342,37 @@ export interface AcceptInviteCommandOptions {
   readonly json: boolean;
 }
 
+export interface PeerToolBackfillResult {
+  readonly updated: readonly string[];
+  readonly errors: readonly string[];
+}
+
 /**
- * Backfills `ask_peer` into every agent whose saved tools list omits it. An agent with an
- * explicit tools list never inherits new categories after the fact, so agents created
- * before the Peers category became a default could not reach a peer they just added: the
- * tool was absent, and a model without it answers peer questions from its own knowledge
- * without anyone noticing. Agents with no explicit list resolve tools by category default
- * at run time and are left alone. Returns the names of the agents it updated so the
- * caller can tell the user what changed.
+ * Adds `ask_peer` to saved tool lists after pairing. Agents without a list inherit default
+ * categories at run time. Only persisted updates count as successes; errors are returned
+ * separately so a spent invite never conceals incomplete local tool setup.
  */
-export function backfillAskPeerTool(): Effect.Effect<readonly string[], never, AgentService> {
+export function backfillAskPeerTool(): Effect.Effect<PeerToolBackfillResult, never, AgentService> {
   return Effect.gen(function* () {
     const service = yield* AgentServiceTag;
-    const agents = yield* service
-      .listAgents()
-      .pipe(Effect.catchAll(() => Effect.succeed([] as readonly Agent[])));
-    const targets = agents.filter(
-      (agent) => agent.config.tools !== undefined && !agent.config.tools.includes(askPeerToolName),
-    );
-    if (targets.length === 0) return [] as readonly string[];
-    yield* Effect.all(
-      targets.map((agent) =>
-        service
-          .updateAgent(agent.id, {
-            config: { ...agent.config, tools: [...agent.config.tools!, askPeerToolName] },
-          })
-          .pipe(Effect.catchAll(() => Effect.void)),
-      ),
-    );
-    return targets.map((agent) => agent.name);
+    const agents = yield* Effect.either(service.listAgents());
+    if (agents._tag === "Left") {
+      return { updated: [], errors: [`Could not list agents: ${getErrorMessage(agents.left)}`] };
+    }
+    const updated: string[] = [];
+    const errors: string[] = [];
+    for (const agent of agents.right) {
+      const tools = agent.config.tools;
+      if (tools === undefined || tools.includes(askPeerToolName)) continue;
+      const result = yield* Effect.either(
+        service.updateAgent(agent.id, {
+          config: { ...agent.config, tools: [...tools, askPeerToolName] },
+        }),
+      );
+      if (result._tag === "Right") updated.push(agent.name);
+      else errors.push(`Could not update "${agent.name}": ${getErrorMessage(result.left)}`);
+    }
+    return { updated, errors };
   });
 }
 
@@ -519,20 +520,35 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
       return;
     }
 
-    const backfilled = yield* backfillAskPeerTool();
+    const backfill = yield* backfillAskPeerTool();
+    if (backfill.errors.length > 0) process.exitCode = 1;
 
     if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ok: true, name: localName, backfilled })}\n`);
+      process.stdout.write(
+        `${JSON.stringify({
+          ok: backfill.errors.length === 0,
+          name: localName,
+          backfilled: backfill.updated,
+          backfillErrors: backfill.errors,
+        })}\n`,
+      );
       return;
     }
     process.stdout.write(
       `Added "${localName}" as a peer and stored the shared token.\n` +
         `Try: jazz run --agent <yours> "ask ${localName}'s agent ..."\n`,
     );
-    if (backfilled.length > 0) {
+    if (backfill.updated.length > 0) {
       process.stdout.write(
-        `Added ask_peer to agent tools: ${backfilled.join(", ")}\n` +
+        `Added ask_peer to agent tools: ${backfill.updated.join(", ")}\n` +
           "(agents created before the Peers category was a default don't pick it up on their own)\n",
+      );
+    }
+    if (backfill.errors.length > 0) {
+      process.stderr.write(
+        `The peer and token were saved, but agent tool setup is incomplete:\n` +
+          `${backfill.errors.join("\n")}\n` +
+          "Fix agent storage, then run `jazz agent edit <name>` and select Peers. The invite is already consumed; do not accept it again.\n",
       );
     }
   }).pipe(

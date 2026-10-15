@@ -98,15 +98,12 @@ async function postQuestion(
     });
 
     if (!response.ok) {
-      // A 401/403 means the other side's configuration changed underneath the pair — they
-      // revoked the peer, rotated the shared token, or restarted the daemon without it — so
-      // the two local halves silently disagree. Point at re-pairing instead of a bare status
-      // code, because that is what a peer whose counterpart vanished from `jazz peers log`
-      // otherwise looks like: a pair that works nowhere and explains nothing.
       const reason =
-        response.status === 401 || response.status === 403
-          ? `peer replied ${String(response.status)} — the other side no longer accepts the "${peerName}" pairing. Someone there may have revoked the peer, rotated its token, or restarted their daemon without it: re-pair with a fresh invite link (jazz peers invite create on their machine), or run jazz peers set-token ${peerName} there with the shared secret.`
-          : `peer replied ${String(response.status)}`;
+        response.status === 401
+          ? `peer replied 401 — authentication failed for "${peerName}". Re-pair with a fresh invite link from the other machine, or restore the same shared secret on both sides: run jazz peers set-token ${peerName} on this machine, and jazz peers set-token <your-name-on-their-machine> on the other machine, with JAZZ_PEER_TOKEN set to the shared secret on each. The two sides can use different peer names.`
+          : response.status === 403
+            ? `peer replied 403 — the request was refused. Ask the other operator to check jazz peers log and the daemon logs for a suspended peer or a failed answering run.`
+            : `peer replied ${String(response.status)}`;
       return { ok: false, reason };
     }
 

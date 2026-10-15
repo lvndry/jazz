@@ -76,8 +76,15 @@ JAZZ_HOME=$ALICE jazz peers invite accept <the-link-bob-sent>
 ```
 
 Alice sees who invited her, at what endpoint, and what tier, confirms once, and both sides are
-done: her config now has Bob as a peer she can ask, and his has her as a peer who may learn
+paired: her config now has Bob as a peer she can ask, and his has her as a peer who may learn
 `internal`, with a token stored in each machine's keyring that neither of you had to generate.
+Agents without a saved tools list inherit Peers automatically. Acceptance also adds
+`ask_peer` to existing agents with an explicit tools list. Jazz prints
+only agents whose updates were saved. If agent storage cannot be read or written, it exits
+with status 1 and explains that the peer and token were saved but tool setup is incomplete.
+Fix storage and enable Peers with `jazz agent edit <name>`; the one-time invite is already
+consumed, so do not accept it again. With `--json`, `backfilled` lists successful updates and
+`backfillErrors` lists failures; `ok` is false when tool setup is incomplete.
 
 <details>
 <summary>Prefer to do it by hand?</summary>
@@ -118,7 +125,8 @@ daemon, no `disclosure` needed: tiers only matter to whoever is answering):
 JAZZ_HOME=$ALICE jazz agent edit alice
 ```
 
-Select `ask_peer` in the toolset. It appears only after a peer is configured.
+For a manual setup, select Peers in the toolset. Invite acceptance already enables
+`ask_peer` on existing agents. The tool appears only after a peer with a URL is configured.
 
 ### 5. Ask
 
@@ -240,7 +248,7 @@ JAZZ_PEER_TOKEN=<shared-secret> jazz peers set-token bob     # on Alice's machin
 ### 5. Ask, from Alice's machine
 
 ```bash
-jazz agent edit alice   # tick ask_peer
+jazz agent edit alice   # enable Peers if you used the manual setup
 jazz run --agent alice "ask bob's agent what time it is on his machine"
 ```
 
@@ -332,7 +340,7 @@ credential for someone else's agent to use on yours.
 ### 5. Ask, from Alice's machine
 
 ```bash
-jazz agent edit alice   # tick ask_peer
+jazz agent edit alice   # enable Peers if you used the manual setup
 jazz run --agent alice "ask bob's agent what time it is on his machine"
 jazz peers log
 ```
@@ -346,12 +354,13 @@ jazz peers log
 - **401**: the token presented doesn't match what's stored for that peer's name on the
   answering side. If you set it up by hand, re-run `peers set-token` on both ends with the
   exact same value; if you used an invite, the link may have been redeemed already: create a
-  new one.
+  new one. The command uses the other machine's name locally: Alice runs `set-token bob`,
+  while Bob runs `set-token alice`, both with the same `JAZZ_PEER_TOKEN` value.
 - **403, `"not accepting questions"`**: the peer exists in config but has no `disclosure`,
   which defaults to `none`. Add a tier.
-- **403, some other reason, with a ledger entry**: the question was refused _by the agent_,
-  not the connection. Read the reason in `jazz peers log`; it's usually the tier working as
-  designed.
+- **403, `"could not answer"`**: authentication succeeded, but the answering run failed.
+  Ask the other operator to check `jazz peers log` and the daemon logs for the actual cause.
+  Re-pairing or replacing the token will not fix a failed run.
 - **413**: the question (or the A2A request carrying it) is over 64 KB.
 - **429**: that peer already has `maxConcurrentRuns` questions in flight (4 unless its config
   says otherwise). Retry after the `Retry-After` seconds.
@@ -359,9 +368,11 @@ jazz peers log
   reason is in the answering daemon's log.
 - **A new token is still refused**: the daemon trusts a token it read from the keyring for 30
   seconds. Wait that long after `peers set-token`, or restart the daemon.
-- **`ask_peer` doesn't show up in the toolset**: no peer is configured on that side yet, or
-  every configured peer is at `disclosure: "none"`. The tool is deliberately absent until there's
-  somewhere for it to go.
+- **`ask_peer` doesn't show up in the toolset**: configure a peer with a URL on the asking
+  side, then check the agent's tools and `deniedTools` (and any persona restrictions).
+  The remote peer's `disclosure` controls what they may learn from you; it does not prevent
+  you from asking them. For manual setup, enable Peers with `jazz agent edit <name>`.
+  If invite acceptance reported backfill errors, fix agent storage and enable Peers manually.
 - **The daemon refuses to start**: read the message; it's almost always `--host` set to
   something other than loopback with no token available. That check exists because a daemon
   on a reachable interface is an agent with filesystem access that anyone reaching the port

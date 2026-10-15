@@ -2774,7 +2774,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
     .description("Accept an invite link and become a peer of whoever sent it")
     .option("--as <name>", "What to call them locally. Defaults to the name they invited you as.")
     .option("--yes", "Skip the confirmation prompt")
-    .option("--json", "Emit a single JSON envelope { ok, name }")
+    .option("--json", "Emit a single JSON envelope { ok, name, backfilled, backfillErrors }")
     .action((url: string, options: { as?: string; yes?: boolean; json?: boolean }) =>
       runCliAction(
         () =>
