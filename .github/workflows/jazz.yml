@@ -63,6 +63,11 @@ permissions:
 env:
   # Per-run spend ceiling passed as --max-cost-usd; timeout-minutes on each job is the hard stop.
   JAZZ_MAX_COST_USD: "2"
+  # The agent's own time budget, passed as --max-duration-ms: 27 of the jobs' 30
+  # timeout-minutes. It sees pressure nudges and writes its answer before this, and the
+  # remaining minutes cover setup, saving the rotated credential and posting the result.
+  # Without it the job timeout kills the run mid-review and nothing is posted.
+  JAZZ_MAX_DURATION_MS: "1620000"
 
 jobs:
   resolve:
@@ -356,7 +361,8 @@ jobs:
             exit 0
           fi
           jazz workflow run code-review --auto-approve --agent ci-reviewer \
-            --max-cost-usd "$JAZZ_MAX_COST_USD" --json --events tools | tee /tmp/jazz-review.txt
+            --max-cost-usd "$JAZZ_MAX_COST_USD" --max-duration-ms "$JAZZ_MAX_DURATION_MS" \
+            --json --events tools | tee /tmp/jazz-review.txt
           echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
           # A failed run prints {"ok":false,"error":...}; keep its cause (keys redacted) for the
           # PR comment and the job summary instead of reporting an unparseable answer.
@@ -830,7 +836,8 @@ jobs:
           fi
           set +e
           jazz workflow run pr-assistant --auto-approve --agent pr-assistant \
-            --max-cost-usd "$JAZZ_MAX_COST_USD" --json --events tools | tee /tmp/jazz-pr-assistant.txt
+            --max-cost-usd "$JAZZ_MAX_COST_USD" --max-duration-ms "$JAZZ_MAX_DURATION_MS" \
+            --json --events tools | tee /tmp/jazz-pr-assistant.txt
           status="${PIPESTATUS[0]}"
           # A failed run prints {"ok":false,"error":...}; keep its cause (keys redacted) for the
           # PR comment and the job summary instead of reporting an unparseable answer.
