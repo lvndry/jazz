@@ -423,6 +423,57 @@ describe("spawn_subagent time budget", () => {
     }
   });
 
+  it("runs the child under the limits the parent sets, never above what the parent has left", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawnArgs(
+        presentation,
+        { task: "do a thing", persona: "default", maxMinutes: 180, maxCostUSD: 5, maxTokens: 500 },
+        { remainingRunBudget: () => ({ maxDurationMs: 60_000, maxCostUSD: 0.4 }) },
+      );
+
+      expect(captured?.maxDurationMs).toBe(60_000);
+      expect(captured?.maxCostUSD).toBe(0.4);
+      expect(captured?.maxTokens).toBe(500);
+      expect(captured?.userInput).toContain("1 minutes");
+      expect(captured?.userInput).toContain("$0.40");
+      expect(captured?.userInput).toContain("500 tokens");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("leaves a child with no limits from either side uncapped", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation);
+
+      expect(captured?.maxDurationMs).toBeUndefined();
+      expect(captured?.maxCostUSD).toBeUndefined();
+      expect(captured?.maxTokens).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("charges the parent for a child that failed", async () => {
     const charged: RunSpendReport[] = [];
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {

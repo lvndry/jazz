@@ -34,14 +34,15 @@ export function createGetTimeTool(): Tool<never> {
     name: "get_time",
     disclosure: "internal",
     description:
-      "Get the current date and time, for a fresh clock in long runs, scheduling or relative times. Today's date is already in the Environment block.",
+      "Get the current date and time, for a fresh clock in long runs, scheduling or relative times, and the minutes left in this run's time budget when it has one. Today's date is already in the Environment block.",
     parameters: z.object({}).strict(),
     riskLevel: "read-only",
     egress: false,
     hidden: false,
     createSummary: undefined,
-    execute: () => {
+    execute: (_args, context) => {
       const now = new Date();
+      const workTimeLeftMs = context.remainingRunBudget?.().maxDurationMs;
       const iso = now.toISOString();
       const dayOfWeek = DAYS[now.getDay()];
       const localDate = now.toLocaleDateString();
@@ -57,6 +58,9 @@ export function createGetTimeTool(): Tool<never> {
           localDate,
           localTime,
           timezone,
+          ...(workTimeLeftMs !== undefined && {
+            workMinutesLeft: Math.round(workTimeLeftMs / 60_000),
+          }),
         },
       } satisfies ToolExecutionResult);
     },

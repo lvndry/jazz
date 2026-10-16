@@ -4,7 +4,7 @@
  * compress the current conversation's context, respectively.
  */
 
-import { Cause, Duration, Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { z } from "zod";
 import {
   DEFAULT_MAX_SUBAGENT_DEPTH,
@@ -44,9 +44,6 @@ import { createSubagentWorkDigest, type SubagentWorkDigest } from "../subagents/
 import type { AgentResponse } from "../types";
 
 // ─── Constants ───────────────────────────────────────────────────────
-
-/** Sub-agent execution timeout: 30 minutes */
-const SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** Monotonic counter for unique sub-agent IDs within this process */
 let subagentCounter = 0;
@@ -148,6 +145,13 @@ const spawnSubagentSchema = z.object({
     .max(120)
     .optional()
     .describe("Label for the structured result in prompts and errors."),
+  maxMinutes: z
+    .number()
+    .positive()
+    .optional()
+    .describe("Wall-clock minutes the child may work before it writes its answer."),
+  maxCostUSD: z.number().positive().optional().describe("USD the child may spend."),
+  maxTokens: z.number().int().positive().optional().describe("Tokens the child may use."),
 });
 
 type SpawnSubagentArgs = z.infer<typeof spawnSubagentSchema>;
@@ -269,11 +273,59 @@ function validateStructuredResult(
   };
 }
 
+/** The tighter of what the parent has left and what it asked the child to stay within. */
+function tighterLimit(parentLeft: number | undefined, requested: number | undefined) {
+  if (parentLeft === undefined) {
+    return requested;
+  }
+  return requested === undefined ? parentLeft : Math.min(parentLeft, requested);
+}
+
+/**
+ * A child is capped like any run: by the same time, cost and token limits, set to what the
+ * parent asked for, and never more than the parent itself has left. A limit neither sets is
+ * left uncapped.
+ */
+export function childRunBudget(
+  parentRemaining: RemainingRunBudget,
+  requested: Pick<SpawnSubagentArgs, "maxMinutes" | "maxCostUSD" | "maxTokens">,
+): RemainingRunBudget {
+  const maxDurationMs = tighterLimit(
+    parentRemaining.maxDurationMs,
+    requested.maxMinutes === undefined ? undefined : requested.maxMinutes * 60_000,
+  );
+  const maxCostUSD = tighterLimit(parentRemaining.maxCostUSD, requested.maxCostUSD);
+  const maxTokens = tighterLimit(parentRemaining.maxTokens, requested.maxTokens);
+  return {
+    ...(maxDurationMs !== undefined && { maxDurationMs }),
+    ...(maxCostUSD !== undefined && { maxCostUSD }),
+    ...(maxTokens !== undefined && { maxTokens }),
+  };
+}
+
+/** The child's limits as one line of its brief, or empty when it has none. */
+export function describeChildBudget(budget: RemainingRunBudget): string {
+  const limits = [
+    budget.maxDurationMs !== undefined
+      ? `${String(Math.max(1, Math.round(budget.maxDurationMs / 60_000)))} minutes`
+      : undefined,
+    budget.maxCostUSD !== undefined ? `$${budget.maxCostUSD.toFixed(2)}` : undefined,
+    budget.maxTokens !== undefined
+      ? `${budget.maxTokens.toLocaleString("en-US")} tokens`
+      : undefined,
+  ].filter((limit) => limit !== undefined);
+  if (limits.length === 0) {
+    return "";
+  }
+  return `- Your budget for this task is ${limits.join(", ")}. Plan to finish well inside it; when it runs out you are stopped and asked for your answer with what you have.\n`;
+}
+
 /** What `runSubagent` needs from the handler that validated the spawn. */
 interface SubagentRun {
   readonly parentAgent: Agent;
   readonly currentDepth: number;
-  readonly remainingBudget: RemainingRunBudget;
+  /** The limits this child runs under, from `childRunBudget`. */
+  readonly budget: RemainingRunBudget;
   readonly subagentLabel: string;
   /** The parent run's handle on this child, for steering and live spend. */
   readonly hooks?: SubagentHooks;
@@ -285,7 +337,7 @@ interface SubagentRun {
  * Run one child to its end and turn its answer into the result `wait_subagents` returns.
  */
 function runSubagent(args: SpawnSubagentArgs, context: ToolExecutionContext, run: SubagentRun) {
-  const { parentAgent, currentDepth, remainingBudget, subagentLabel, hooks, workDigest } = run;
+  const { parentAgent, currentDepth, budget, subagentLabel, hooks, workDigest } = run;
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const presentation = yield* PresentationServiceTag;
@@ -340,7 +392,7 @@ Rules:
 - Stay within the scope of the task — do not take unrequested side actions
 - Be concise; the parent agent needs the output, not background narration
 - Your response will be returned directly to the parent agent
-
+${describeChildBudget(budget)}
 TASK:
 ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSchema, args.resultName) : ""}`;
 
@@ -375,13 +427,9 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       ...(context.maxSubagentIterations !== undefined
         ? { maxSubagentIterations: context.maxSubagentIterations }
         : {}),
-      ...(remainingBudget.maxDurationMs !== undefined
-        ? { maxDurationMs: remainingBudget.maxDurationMs }
-        : {}),
-      ...(remainingBudget.maxCostUSD !== undefined
-        ? { maxCostUSD: remainingBudget.maxCostUSD }
-        : {}),
-      ...(remainingBudget.maxTokens !== undefined ? { maxTokens: remainingBudget.maxTokens } : {}),
+      ...(budget.maxDurationMs !== undefined ? { maxDurationMs: budget.maxDurationMs } : {}),
+      ...(budget.maxCostUSD !== undefined ? { maxCostUSD: budget.maxCostUSD } : {}),
+      ...(budget.maxTokens !== undefined ? { maxTokens: budget.maxTokens } : {}),
       // Every way the child ends, a failure included, is paid for by the parent: by the run that
       // started it, or after that run ended, recorded for it.
       onRunSpend: (spend) => {
@@ -600,8 +648,8 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
 
 // ─── Background Sub-Agent Tools ──────────────────────────────────────
 
-/** Longest single wait_subagents call: a sub-agent's own timeout. */
-const MAX_WAIT_SECONDS = SUBAGENT_TIMEOUT_MS / 1000;
+/** Longest single wait_subagents call; a longer wait is several calls. */
+const MAX_WAIT_SECONDS = 30 * 60;
 const DEFAULT_WAIT_SECONDS = 600;
 
 const listSubagentsSchema = z.object({});
@@ -662,7 +710,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "spawn_subagent",
       companionTools: ["wait_subagents", "list_subagents", "steer_subagent"],
       disclosure: "private",
-      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, a 30-minute timeout; at most ${String(MAX_LIVE_SUBAGENTS)} run at once and nesting stops at depth 3.`,
+      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, and the time, cost and token limits you give it, within what you have left; at most ${String(MAX_LIVE_SUBAGENTS)} run at once and nesting stops at depth 3.`,
       parameters: spawnSubagentSchema,
       hidden: false,
       // Spawning grants nothing: the child holds at most this run's tools under this run's
@@ -748,15 +796,11 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             runSubagent(args, context, {
               parentAgent,
               currentDepth,
-              remainingBudget,
+              budget: childRunBudget(remainingBudget, args),
               subagentLabel,
               hooks,
               workDigest,
             }).pipe(
-              Effect.timeoutFail({
-                duration: Duration.millis(SUBAGENT_TIMEOUT_MS),
-                onTimeout: () => new Error("The sub-agent reached its 30-minute timeout."),
-              }),
               Effect.catchAllCause((cause) =>
                 Effect.succeed<ToolExecutionResult>({
                   success: false,
@@ -818,7 +862,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "wait_subagents",
       disclosure: "private",
       longRunning: true,
-      timeoutMs: SUBAGENT_TIMEOUT_MS,
+      timeoutMs: MAX_WAIT_SECONDS * 1000,
       description:
         "Wait for sub-agents and get their answers in one call: until all (default) returns once none is still running, until any once one finishes or is paused. Each answer comes once; a long one comes as a preview whose resultNote says how to read the whole answer. Use it instead of checking list_subagents repeatedly.",
       parameters: waitSubagentsSchema,

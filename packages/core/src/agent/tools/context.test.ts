@@ -8,6 +8,7 @@ import type { ToolExecutionResult } from "@/core/types/tools";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import {
   createContextInfoTool,
+  createGetTimeTool,
   createRetrieveToolResultTool,
   RETRIEVE_PAGE_CHARS,
 } from "./context";
@@ -68,6 +69,27 @@ describe("context_info", () => {
     expect(atWarn).not.toBe(belowWarn);
     expect(belowCompact).toBe(atWarn);
     expect(atCompact).not.toBe(belowCompact);
+  });
+});
+
+describe("get_time", () => {
+  const getTime = (context: Record<string, unknown>) =>
+    Effect.runPromise(
+      createGetTimeTool().execute({}, { agentId: "agent-1", ...context }) as Effect.Effect<
+        ToolExecutionResult,
+        never,
+        never
+      >,
+    );
+
+  it("reports the minutes left in the run's time budget", async () => {
+    const outcome = await getTime({ remainingRunBudget: () => ({ maxDurationMs: 600_000 }) });
+    expect(outcome.result).toMatchObject({ workMinutesLeft: 10 });
+  });
+
+  it("reports no time left when the run has no time budget", async () => {
+    const outcome = await getTime({ remainingRunBudget: () => ({}) });
+    expect(outcome.result).not.toHaveProperty("workMinutesLeft");
   });
 });
 
