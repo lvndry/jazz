@@ -237,6 +237,14 @@ left by an earlier compaction is merged into the new one, never summarized again
 history and never dropped, and a workflow's task message (`kind: "task"`) is kept verbatim
 through every cycle.
 
+**The recent tail is bounded, not a bare ratio.** The newest messages kept verbatim fill
+20% of the context window, clamped to 8K–40K tokens (`recentTailTokenBudget`). The tail
+holds the current request and its live tool results, which are roughly the same size on
+any window: an uncapped 20% of a 1M window would keep 200K tokens and free little per
+compaction, while 20% of a 32K window is less than one large tool result. On windows under
+32K the floor shrinks to a quarter of the window, so the rebuild still lands well under
+the warn rung. The newest message is always kept, even when it alone exceeds the budget.
+
 The summary is a fixed checkpoint rather than free-form prose. Every compaction writes:
 
 ```md

@@ -3,6 +3,9 @@ import { Effect, Layer } from "effect";
 import type { ReduceToolResultsFn } from "./advised-tool-clearing";
 import {
   chunkForSummarizer,
+  RECENT_TAIL_MAX_TOKENS,
+  RECENT_TAIL_MIN_TOKENS,
+  recentTailTokenBudget,
   selectSummarizerModel,
   Summarizer,
   type AutoCompaction,
@@ -11,6 +14,7 @@ import {
   type CompactionProgressObserver,
   type RecursiveRunner,
 } from "./summarizer";
+import { DEFAULT_TOKEN_COUNTER } from "./token-counter";
 import { clearToolResults } from "./tool-result-clearing";
 import { readJournal } from "./work-journal";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
@@ -469,6 +473,75 @@ describe("Summarizer", () => {
     });
   });
 
+  describe("recentTailTokenBudget", () => {
+    it("caps the tail on a large window", () => {
+      expect(recentTailTokenBudget(1_000_000)).toBe(RECENT_TAIL_MAX_TOKENS);
+      expect(recentTailTokenBudget(400_000)).toBe(RECENT_TAIL_MAX_TOKENS);
+    });
+
+    it("uses 20% of a mid-size window", () => {
+      expect(recentTailTokenBudget(128_000)).toBe(25_600);
+      expect(recentTailTokenBudget(200_000)).toBe(40_000);
+    });
+
+    it("raises the tail to the floor on a window where 20% falls short of it", () => {
+      expect(recentTailTokenBudget(32_000)).toBe(RECENT_TAIL_MIN_TOKENS);
+      expect(recentTailTokenBudget(36_000)).toBe(RECENT_TAIL_MIN_TOKENS);
+    });
+
+    it("never lets the floor take more than a quarter of a small window", () => {
+      expect(recentTailTokenBudget(16_000)).toBe(4_000);
+      expect(recentTailTokenBudget(2_000)).toBe(500);
+    });
+  });
+
+  describe("splitMessages tail bounds", () => {
+    const toolHeavyConversation = (turns: number, payloadChars: number): ConversationMessages => [
+      { role: "system", content: "You are an assistant" },
+      ...Array.from({ length: turns }, (_, turnIndex) => [
+        { role: "user" as const, content: `Request ${turnIndex}` },
+        { role: "assistant" as const, content: `Result ${turnIndex}: ${"r".repeat(payloadChars)}` },
+      ]).flat(),
+    ];
+
+    const keptTokens = (messages: readonly ChatMessage[]): number =>
+      messages.reduce(
+        (total, message) =>
+          total + DEFAULT_TOKEN_COUNTER.countMessage(message, { provider: "", modelId: "" }),
+        0,
+      );
+
+    it("keeps no more than the cap verbatim on a 1M-token window", () => {
+      const messages = toolHeavyConversation(60, 40_000);
+
+      const result = Summarizer.splitMessages(messages, 1_000_000);
+
+      expect(keptTokens(result.sanitizedRecentMessages)).toBeLessThanOrEqual(
+        RECENT_TAIL_MAX_TOKENS,
+      );
+      expect(result.messagesToSummarize.length).toBeGreaterThan(0);
+    });
+
+    it("keeps up to the floor on a 32K window, above the bare 20% ratio", () => {
+      const messages = toolHeavyConversation(40, 4_000);
+
+      const result = Summarizer.splitMessages(messages, 32_000);
+      const kept = keptTokens(result.sanitizedRecentMessages);
+
+      expect(kept).toBeLessThanOrEqual(RECENT_TAIL_MIN_TOKENS);
+      expect(kept).toBeGreaterThan(32_000 * 0.2);
+    });
+
+    it("still keeps the newest message when it alone exceeds a small window's budget", () => {
+      const messages = toolHeavyConversation(3, 40_000);
+
+      const result = Summarizer.splitMessages(messages, 8_000);
+
+      expect(result.sanitizedRecentMessages).toHaveLength(1);
+      expect(result.messagesToSummarize).toHaveLength(messages.length - 2);
+    });
+  });
+
   describe("splitMessages", () => {
     it("should preserve the system message", () => {
       const messages: ConversationMessages = [
@@ -485,8 +558,8 @@ describe("Summarizer", () => {
     });
 
     it("should split older messages from recent ones", () => {
-      // Create enough messages with enough content that the 20% recent budget
-      // can't absorb them all, so some older messages are left to summarize.
+      // Create enough messages with enough content that the recent budget can't
+      // absorb them all, so some older messages are left to summarize.
       const messages: ConversationMessages = [
         { role: "system", content: "You are an assistant" },
         ...Array.from({ length: 20 }, (_, i) => [
