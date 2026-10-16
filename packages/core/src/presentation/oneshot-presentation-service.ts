@@ -196,9 +196,27 @@ function parseUserInputResponseLine(line: string): UserInputResponseLine | undef
  * This differs from QuietPresentationService, which blanket-approves every tool
  * and is meant for trusted background runs.
  */
+/**
+ * A decline for an approval nobody can give. It steers the model away from the default "ask the
+ * user to try again" recovery, since there is no user, toward an allowed tool or a clear account
+ * of what it could not do.
+ */
+function unanswerableApproval(toolName?: string): ApprovalOutcome {
+  const tool = toolName === undefined ? "This tool" : `The "${toolName}" tool`;
+  return {
+    approved: false,
+    userMessage:
+      `${tool} requires approval and was automatically declined ` +
+      `because this is a non-interactive run. Do not ask the user to approve or retry — ` +
+      `there is no one to respond. Either accomplish the task using tools that do not ` +
+      `require approval, or clearly explain what could not be done and why.`,
+  };
+}
+
 export class OneShotPresentationService implements PresentationService {
   private readonly pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>();
-  private readonly pendingUserInputs = new Map<string, (response: string) => void>();
+  /** `undefined` means stdin closed before anyone answered. */
+  private readonly pendingUserInputs = new Map<string, (response: string | undefined) => void>();
   private readonly pendingSecrets = new Map<string, (outcome: SecretInputOutcome) => void>();
   /** Set while a secret is read from the terminal, so the line reader never sees its keys. */
   private concealing = false;
@@ -207,6 +225,8 @@ export class OneShotPresentationService implements PresentationService {
   // enough — it does not need to be unguessable or unique across runs.
   private userInputSequence = 0;
   private stdinReaderStarted = false;
+  /** Set once stdin reaches its end: no answer can arrive any more. */
+  private stdinEnded = false;
 
   constructor(
     _displayConfig = DEFAULT_DISPLAY_CONFIG,
@@ -285,9 +305,34 @@ export class OneShotPresentationService implements PresentationService {
         }
       }
     });
+    this.stdinStream.on("end", () => this.answerNothingMore());
+    this.stdinStream.on("close", () => this.answerNothingMore());
     // `jazz run --input-stdin` reads its frame first and leaves the stream paused, and a
     // paused stream stays paused when a listener is added.
     this.stdinStream.resume();
+  }
+
+  /**
+   * Stdin is gone, so every prompt still waiting on it and every later one resolves now as
+   * unanswerable instead of holding the run until its time budget runs out.
+   */
+  private answerNothingMore(): void {
+    if (this.stdinEnded) {
+      return;
+    }
+    this.stdinEnded = true;
+    for (const [toolCallId, resolveApproval] of [...this.pendingApprovals]) {
+      this.pendingApprovals.delete(toolCallId);
+      resolveApproval(unanswerableApproval());
+    }
+    for (const [requestId, resolveInput] of [...this.pendingUserInputs]) {
+      this.pendingUserInputs.delete(requestId);
+      resolveInput(undefined);
+    }
+    for (const [requestId, resolveSecret] of [...this.pendingSecrets]) {
+      this.pendingSecrets.delete(requestId);
+      resolveSecret({ kind: "unavailable" });
+    }
   }
 
   presentThinking(_agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {
@@ -309,12 +354,12 @@ export class OneShotPresentationService implements PresentationService {
   }
 
   /**
-   * Only with `--events`: an external consumer (a chat bridge) is then watching
-   * the `approval_required` line and can write a decision back on stdin. Plain
-   * headless has nobody, and `requestApproval` declines outright.
+   * Only with `--events approval` (or `all`): an external consumer (a chat bridge) is then
+   * watching the `approval_required` line and can write a decision back on stdin. Other event
+   * groups only log, so nobody there sees the request, and `requestApproval` declines outright.
    */
   canPromptForApproval(): boolean {
-    return this.eventsActive;
+    return this.emitEventTypes.has("approval_required");
   }
 
   /**
@@ -477,19 +522,11 @@ export class OneShotPresentationService implements PresentationService {
   }
 
   requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
-    if (!this.eventsActive) {
-      // Headless: no human to approve. Decline, but steer the model away from the
-      // default "ask the user to try again" recovery (there is no user) and toward
-      // either an allowed tool or a clear explanation of what it could not do.
-      const userMessage =
-        `The "${request.toolName}" tool requires approval and was automatically declined ` +
-        `because this is a non-interactive run. Do not ask the user to approve or retry — ` +
-        `there is no one to respond. Either accomplish the task using tools that do not ` +
-        `require approval, or clearly explain what could not be done and why.`;
-      return Effect.succeed({ approved: false, userMessage });
+    if (!this.canPromptForApproval() || this.stdinEnded) {
+      return Effect.succeed(unanswerableApproval(request.toolName));
     }
 
-    // Events are active, so an external consumer (e.g. the Telegram bridge) may
+    // Approval events are on, so an external consumer (e.g. the Telegram bridge) may
     // be watching the `approval_required` NDJSON event and can write a matching
     // `approval_decision` line back on stdin. Block until that happens (or the
     // run's deadline expires — onApprovalWaitStart pushes that deadline out
@@ -525,7 +562,7 @@ export class OneShotPresentationService implements PresentationService {
    * ask rather than treating a blank as an answer.
    */
   requestUserInput(request: UserInputRequest): Effect.Effect<UserInputOutcome, never> {
-    if (this.askMode === "none") return Effect.succeed({ kind: "unavailable" });
+    if (this.askMode === "none" || this.stdinEnded) return Effect.succeed({ kind: "unavailable" });
     // Declared but not wired up is a misconfiguration, not a human saying no.
     if (this.askMode === "protocol" && !this.eventsActive) {
       return Effect.succeed({ kind: "unavailable" });
@@ -578,6 +615,10 @@ export class OneShotPresentationService implements PresentationService {
     };
     return Effect.async<UserInputOutcome, never>((resume) => {
       pendingUserInputs.set(requestId, (response) => {
+        if (response === undefined) {
+          resume(Effect.succeed({ kind: "unavailable" }));
+          return;
+        }
         const answer = resolveChoice(response).trim();
         resume(
           Effect.succeed(
@@ -597,7 +638,7 @@ export class OneShotPresentationService implements PresentationService {
    * writes a `user_secret_response` back. Nothing is ever printed or emitted with the value.
    */
   requestSecretInput(request: SecretInputRequest): Effect.Effect<SecretInputOutcome, never> {
-    if (this.askMode === "none") {
+    if (this.askMode === "none" || this.stdinEnded) {
       return Effect.succeed({ kind: "unavailable" });
     }
     if (this.askMode === "protocol" && !this.eventsActive) {

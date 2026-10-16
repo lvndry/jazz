@@ -220,6 +220,11 @@ jazz run --json --stream --watch tools,subagent --agent dev "audit this repo" \
 `error` events are **always** included regardless of what you select, so a failure can
 never be invisible on the live stream.
 
+Only the `approval` category makes a run wait for an answer: a gated call then emits
+`approval_required` and blocks until an `approval_decision` line arrives on stdin. Any other
+selection only watches, so a gated call is declined at once, as without `--watch`. When stdin
+closes, every approval or question still waiting is declined.
+
 Streaming auto-disables when stdout is a pipe, which is every headless caller. Tool,
 approval and subagent events survive that: the batch path routes them through the same
 renderer, but `reasoning` and `text` deltas exist only on the streaming path. Asking for

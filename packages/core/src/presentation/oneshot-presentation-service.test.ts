@@ -334,6 +334,42 @@ describe("OneShotPresentationService requestApproval", () => {
     expect(await pending).toEqual({ approved: true });
   });
 
+  it("declines at once when only non-approval events are on, since nobody sees the request", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tools_detected", "tool_execution_start"]),
+      stdin,
+    );
+
+    expect(service.canPromptForApproval()).toBe(false);
+    const outcome = await Effect.runPromise(
+      service.requestApproval(makeApprovalRequest({ toolCallId: "call_1" })),
+    );
+    expect(outcome.approved).toBe(false);
+  });
+
+  it("declines a waiting approval once stdin ends, and every later one at once", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["approval_required"]),
+      stdin,
+    );
+
+    const pending = Effect.runPromise(
+      service.requestApproval(makeApprovalRequest({ toolCallId: "call_1" })),
+    );
+    await tick();
+    stdin.end();
+
+    expect((await pending).approved).toBe(false);
+    const later = await Effect.runPromise(
+      service.requestApproval(makeApprovalRequest({ toolCallId: "call_2" })),
+    );
+    expect(later.approved).toBe(false);
+  });
+
   it("resolves with approved: false when the decision line says so", async () => {
     const stdin = new PassThrough();
     const service = new OneShotPresentationService(
@@ -507,6 +543,26 @@ describe("OneShotPresentationService.requestUserInput", () => {
       })}\n`,
     );
     expect(await pending).toEqual({ kind: "answered", response: "tomorrow" });
+  });
+
+  it("reports a waiting question as unanswerable once stdin ends", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      "protocol",
+    );
+    captureStderr();
+    const pending = Effect.runPromise(service.requestUserInput(request));
+    await tick();
+    stdin.end();
+
+    expect(await pending).toEqual({ kind: "unavailable" });
+    expect(await Effect.runPromise(service.requestUserInput(request))).toEqual({
+      kind: "unavailable",
+    });
   });
 
   it("does not truncate a long question a human has to read", async () => {
