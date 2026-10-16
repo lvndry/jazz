@@ -452,6 +452,82 @@ describe("spawn_subagent time budget", () => {
     }
   });
 
+  it("runs the child under the limits the parent sets when they are tighter than what it has left", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawnArgs(
+        presentation,
+        {
+          task: "do a thing",
+          persona: "default",
+          maxMinutes: 2.5,
+          maxCostUSD: 0.1,
+          maxTokens: 500,
+        },
+        {
+          remainingRunBudget: () => ({
+            maxDurationMs: 3_600_000,
+            maxCostUSD: 10,
+            maxTokens: 1_000_000,
+          }),
+        },
+      );
+
+      expect(captured?.maxDurationMs).toBe(150_000);
+      expect(captured?.maxCostUSD).toBe(0.1);
+      expect(captured?.maxTokens).toBe(500);
+      expect(captured?.userInput).toContain("2 minutes");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("states a sub-minute time limit in seconds rather than rounding it up", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation, { remainingRunBudget: () => ({ maxDurationMs: 31_000 }) });
+
+      expect(captured?.userInput).toContain("31 seconds");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("refuses a time limit too large to convert to milliseconds exactly", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive");
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawnArgs(presentation, {
+        task: "do a thing",
+        persona: "default",
+        maxMinutes: 1e308,
+      })) as { success: boolean };
+
+      expect(result.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("leaves a child with no limits from either side uncapped", async () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {

@@ -45,6 +45,9 @@ import type { AgentResponse } from "../types";
 
 // ─── Constants ───────────────────────────────────────────────────────
 
+/** Largest `maxMinutes` whose duration in milliseconds is still an exact integer. */
+const MAX_REQUESTED_MINUTES = Math.floor(Number.MAX_SAFE_INTEGER / 60_000);
+
 /** Monotonic counter for unique sub-agent IDs within this process */
 let subagentCounter = 0;
 
@@ -148,6 +151,7 @@ const spawnSubagentSchema = z.object({
   maxMinutes: z
     .number()
     .positive()
+    .max(MAX_REQUESTED_MINUTES)
     .optional()
     .describe("Wall-clock minutes the child may work before it writes its answer."),
   maxCostUSD: z.number().positive().optional().describe("USD the child may spend."),
@@ -303,11 +307,19 @@ export function childRunBudget(
   };
 }
 
+/** Rounded down, so the child never plans on time it does not have. */
+function describeDurationRoundedDown(durationMs: number): string {
+  const minutes = Math.floor(durationMs / 60_000);
+  return minutes >= 1
+    ? `${String(minutes)} minutes`
+    : `${String(Math.floor(durationMs / 1000))} seconds`;
+}
+
 /** The child's limits as one line of its brief, or empty when it has none. */
 export function describeChildBudget(budget: RemainingRunBudget): string {
   const limits = [
     budget.maxDurationMs !== undefined
-      ? `${String(Math.max(1, Math.round(budget.maxDurationMs / 60_000)))} minutes`
+      ? describeDurationRoundedDown(budget.maxDurationMs)
       : undefined,
     budget.maxCostUSD !== undefined ? `$${budget.maxCostUSD.toFixed(2)}` : undefined,
     budget.maxTokens !== undefined

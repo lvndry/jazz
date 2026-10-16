@@ -87,6 +87,11 @@ describe("get_time", () => {
     expect(outcome.result).toMatchObject({ workMinutesLeft: 10 });
   });
 
+  it("rounds the minutes left down, so a run never plans on time it does not have", async () => {
+    const outcome = await getTime({ remainingRunBudget: () => ({ maxDurationMs: 31_000 }) });
+    expect(outcome.result).toMatchObject({ workMinutesLeft: 0 });
+  });
+
   it("reports no time left when the run has no time budget", async () => {
     const outcome = await getTime({ remainingRunBudget: () => ({}) });
     expect(outcome.result).not.toHaveProperty("workMinutesLeft");

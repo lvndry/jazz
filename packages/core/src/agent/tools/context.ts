@@ -59,7 +59,7 @@ export function createGetTimeTool(): Tool<never> {
           localTime,
           timezone,
           ...(workTimeLeftMs !== undefined && {
-            workMinutesLeft: Math.round(workTimeLeftMs / 60_000),
+            workMinutesLeft: Math.floor(workTimeLeftMs / 60_000),
           }),
         },
       } satisfies ToolExecutionResult);
