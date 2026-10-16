@@ -366,6 +366,7 @@ export class ChatServiceImpl implements ChatService {
         }
       });
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
+      let historyCompactedSinceLastTurn = false;
       // The saved transcript this session builds on. Every save names it, so the session can
       // only replace history it has read; a log saved elsewhere since makes the save fork.
       let savedRevision: ConversationRevision = conversationRevision(conversationHistory);
@@ -1016,6 +1017,7 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
+              historyCompactedSinceLastTurn = commandResult.historyCompacted === true;
               // The transcript is the user's picture of what the agent knows.
               // Most commands that replace the history — /start, /fork, /resume — have to
               // repaint it, or the screen keeps showing turns the agent can no longer see.
@@ -1170,6 +1172,7 @@ export class ChatServiceImpl implements ChatService {
             trustUserInputAsMemorySource: trustMessageAsMemorySource,
             conversationId,
             conversationHistory,
+            ...(historyCompactedSinceLastTurn ? { historyCompacted: true } : {}),
             origin: deliveryTurn?.origin ?? { source: goalTurn === undefined ? "chat" : "goal" },
             // A goal cycle is charged as one run, so its sub-agents end with it.
             ...(goalTurn === undefined ? { subagents } : {}),
@@ -1200,6 +1203,7 @@ export class ChatServiceImpl implements ChatService {
           // idempotent per turn, skipped when stdout is piped.
           reportProgramCwd();
           store.setChatBusy(true);
+          historyCompactedSinceLastTurn = false;
           const turn = AgentRunner.run(runnerOptions);
           // A goal turn is recorded as a run, which is how the goal is charged for it.
           const response = yield* (

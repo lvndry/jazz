@@ -1394,7 +1394,12 @@ function handleCompactCommand(
     yield* terminal.log("   The agent's context is summarized; your on-screen history stays.");
     yield* terminal.log("");
 
-    return { shouldContinue: true, newHistory: [...outcome.messages], skipTranscriptRepaint: true };
+    return {
+      shouldContinue: true,
+      newHistory: [...outcome.messages],
+      historyCompacted: true,
+      skipTranscriptRepaint: true,
+    };
   });
 }
 

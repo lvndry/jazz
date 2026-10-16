@@ -5,6 +5,7 @@
 
 import { Effect } from "effect";
 import { z } from "zod";
+import { describeContextUsage } from "@/core/agent/context/context-usage";
 import {
   readOffloadedToolResult,
   readOffloadedToolResultProvenance,
@@ -71,38 +72,24 @@ export function createContextInfoTool(): Tool<never> {
     name: "context_info",
     disclosure: "internal",
     description:
-      "Report how much of the context window is in use. Call it only when the user asks about context usage.",
+      "Report how much of the context window is in use and the usage at which older history is summarized automatically.",
     parameters: z.object({}),
     riskLevel: "read-only",
     egress: false,
     hidden: false,
     createSummary: undefined,
     execute: (_args, context) => {
-      // Token stats are passed via context from the executor
-      const currentTokens = context.tokenStats?.currentTokens ?? 0;
-      const maxTokens = context.tokenStats?.maxTokens ?? 50_000;
-      const percentUsed = Math.round((currentTokens / maxTokens) * 100);
-      const remainingTokens = maxTokens - currentTokens;
-
-      let recommendation: string;
-      if (percentUsed < 50) {
-        recommendation = "Context budget is healthy. Proceed normally.";
-      } else if (percentUsed < 80) {
-        recommendation = "Context is moderately used. Consider being concise.";
-      } else {
-        recommendation =
-          "Context is limited. Complete current task or consider summarizing earlier context.";
+      if (!context.tokenStats) {
+        return Effect.succeed({
+          success: false,
+          result: null,
+          error: "Context usage is unavailable in this run.",
+        } satisfies ToolExecutionResult);
       }
 
       return Effect.succeed({
         success: true,
-        result: {
-          estimatedTokensUsed: currentTokens,
-          maxTokens,
-          remainingTokens,
-          percentUsed,
-          recommendation,
-        },
+        result: describeContextUsage(context.tokenStats),
       } satisfies ToolExecutionResult);
     },
   };

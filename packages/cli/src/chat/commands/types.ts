@@ -86,6 +86,8 @@ export interface CommandResult {
   newConversationTitle?: string;
   /** New conversation history if history was modified */
   newHistory?: ChatMessage[];
+  /** `newHistory` is a compaction of the old one, so the next run is told its new context usage. */
+  historyCompacted?: boolean;
   /** Saved on-screen transcript to repaint instead of one rebuilt from `newHistory`. */
   newUiTranscript?: readonly ConversationUiEntry[];
   /**

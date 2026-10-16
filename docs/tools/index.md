@@ -275,11 +275,11 @@ If the resumed turn needs approval, it parks and sends a notification; answer wi
 
 ### Context
 
-| Tool                   | Risk        | Approval pair | What it does                                                                                            |
-| ---------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------- |
-| `context_info`         | `read-only` | none          | Get current context window token usage statistics.                                                      |
-| `get_time`             | `read-only` | none          | Get current date and time. Use for scheduling, relative times (yesterday, next Monday), and timestamps. |
-| `retrieve_tool_result` | `read-only` | none          | Read a tool body that was offloaded from context or cut to fit it, a page at a time by `offset`.        |
+| Tool                   | Risk        | Approval pair | What it does                                                                                                |
+| ---------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------------- |
+| `context_info`         | `read-only` | none          | Report context window usage and the usage at which history is compacted; also shown after every compaction. |
+| `get_time`             | `read-only` | none          | Get current date and time. Use for scheduling, relative times (yesterday, next Monday), and timestamps.     |
+| `retrieve_tool_result` | `read-only` | none          | Read a tool body that was offloaded from context or cut to fit it, a page at a time by `offset`.            |
 
 ### Tool Search
 

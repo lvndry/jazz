@@ -6,7 +6,11 @@ import { Effect } from "effect";
 import { writeToolResult } from "@/core/agent/context/tool-result-offload";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
-import { createRetrieveToolResultTool, RETRIEVE_PAGE_CHARS } from "./context";
+import {
+  createContextInfoTool,
+  createRetrieveToolResultTool,
+  RETRIEVE_PAGE_CHARS,
+} from "./context";
 
 function retrieve(args: Record<string, unknown>): Promise<ToolExecutionResult> {
   return Effect.runPromise(
@@ -16,6 +20,56 @@ function retrieve(args: Record<string, unknown>): Promise<ToolExecutionResult> {
     }) as Effect.Effect<ToolExecutionResult, never, never>,
   );
 }
+
+function contextInfo(tokenStats?: {
+  currentTokens: number;
+  maxTokens: number;
+  warnThresholdRatio: number;
+  compactThresholdRatio: number;
+}): Promise<ToolExecutionResult> {
+  return Effect.runPromise(
+    createContextInfoTool().execute(
+      {},
+      { agentId: "agent-1", ...(tokenStats && { tokenStats }) },
+    ) as Effect.Effect<ToolExecutionResult, never, never>,
+  );
+}
+
+describe("context_info", () => {
+  const ladder = { maxTokens: 1_000, warnThresholdRatio: 0.6, compactThresholdRatio: 0.75 };
+
+  it("fails instead of reporting made-up numbers when the run passes no stats", async () => {
+    const outcome = await contextInfo();
+    expect(outcome.success).toBe(false);
+    expect(outcome.result).toBeNull();
+  });
+
+  it("reports usage against the run's own compaction threshold", async () => {
+    const outcome = await contextInfo({ ...ladder, currentTokens: 300 });
+    expect(outcome.result).toMatchObject({
+      estimatedTokensUsed: 300,
+      maxTokens: 1_000,
+      remainingTokens: 700,
+      percentUsed: 30,
+      compactsAtPercent: 75,
+    });
+  });
+
+  it("changes its recommendation at the configured warn and compact thresholds", async () => {
+    const recommendationAt = async (currentTokens: number) =>
+      ((await contextInfo({ ...ladder, currentTokens })).result as { recommendation: string })
+        .recommendation;
+
+    const belowWarn = await recommendationAt(599);
+    const atWarn = await recommendationAt(600);
+    const belowCompact = await recommendationAt(749);
+    const atCompact = await recommendationAt(750);
+
+    expect(atWarn).not.toBe(belowWarn);
+    expect(belowCompact).toBe(atWarn);
+    expect(atCompact).not.toBe(belowCompact);
+  });
+});
 
 describe("retrieve_tool_result", () => {
   let jazzHome: string;

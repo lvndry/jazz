@@ -46,6 +46,7 @@ import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import { WakeTriggerServiceTag } from "../../interfaces/wake-trigger-service";
 import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import { SkillServiceTag } from "../../skills/skill-service";
+import { describeContextUsage, formatContextUsageReport } from "../context/context-usage";
 import type { RecursiveRunner } from "../context/summarizer";
 import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 import { PROTECTED_TOOL_CYCLES } from "../context/tool-result-clearing";
@@ -1067,24 +1068,27 @@ describe("executeAgentLoop", () => {
     expect(message?.role).toBe("user");
   });
 
+  const postCompactionUsage = (currentTokens: number, maxTokens: number) => ({
+    currentTokens,
+    maxTokens,
+    warnThresholdRatio: 0.7,
+    compactThresholdRatio: 0.8,
+  });
+
   it("tells the model to resume the original task after compaction", () => {
-    const message = buildPostCompactionMessage(4_000, 10_000);
+    const message = buildPostCompactionMessage(postCompactionUsage(4_000, 10_000));
     expect(message.content).toContain("CONTEXT COMPACTED");
-    expect(message.content).toContain("still in progress");
-    expect(message.content).toContain("fully complete");
-    expect(message.content).not.toContain("Write your final output NOW");
     expect(message.role).toBe("user");
   });
 
-  it("states the post-compaction usage so the model drops the pre-compaction figure", () => {
-    const message = buildPostCompactionMessage(2_600, 10_000);
-    expect(message.content).toContain("Context is now 26% of the 10,000-token budget");
-    expect(message.content).toContain("out of date");
-    expect(message.content).not.toContain("prefer finishing current work");
+  it("carries the context_info report for the post-compaction history", () => {
+    const usage = postCompactionUsage(2_600, 10_000);
+    const message = buildPostCompactionMessage(usage);
+    expect(message.content).toContain(formatContextUsageReport(describeContextUsage(usage)));
   });
 
-  it("omits the usage figure when there is no budget to measure against", () => {
-    const message = buildPostCompactionMessage(2_600, 0);
+  it("omits the report when there is no budget to measure against", () => {
+    const message = buildPostCompactionMessage(postCompactionUsage(2_600, 0));
     expect(message.content).toContain("CONTEXT COMPACTED");
     expect(message.content).not.toContain("%");
   });
@@ -1092,24 +1096,16 @@ describe("executeAgentLoop", () => {
   it("appends the run progress so the model does not re-cover already-read files", () => {
     const progress =
       "Work already done since the last compaction — do not redo it:\n- Files read/inspected: /ksyl/patches/cli__airgap.sh.patch";
-    const message = buildPostCompactionMessage(4_000, 10_000, progress);
-    expect(message.content).toContain("CONTEXT COMPACTED");
+    const message = buildPostCompactionMessage(postCompactionUsage(4_000, 10_000), progress);
     expect(message.content).toContain(progress);
-    // Without progress the message is unchanged — no empty tail.
-    expect(buildPostCompactionMessage(4_000, 10_000).content).not.toContain("do not redo it");
+    expect(buildPostCompactionMessage(postCompactionUsage(4_000, 10_000)).content).not.toContain(
+      "do not redo it",
+    );
   });
 
-  it("appends the run progress even when context stays critical after compaction", () => {
-    const message = buildPostCompactionMessage(9_500, 10_000, "do not redo it");
+  it("appends the run progress even when there is no budget to measure against", () => {
+    const message = buildPostCompactionMessage(postCompactionUsage(9_500, 0), "do not redo it");
     expect(message.content).toContain("do not redo it");
-  });
-
-  it("still asks the model to finish the task when context stays critical after compaction", () => {
-    const message = buildPostCompactionMessage(9_500, 10_000);
-    expect(message.content).toContain("CONTEXT COMPACTED");
-    expect(message.content).toContain("fully complete");
-    expect(message.content).toContain("95%");
-    expect(message.content).not.toContain("Write your final output NOW");
   });
 
   it("returns no context nudge when there is no budget to measure against", () => {
@@ -2706,6 +2702,47 @@ describe("executeAgentLoop context window accounting", () => {
       false,
     );
     expect(result.content).toBe("continuing the task");
+  });
+
+  it("tells the model its new context usage when the history was compacted before the run", async () => {
+    const seenMessages: ConversationMessages[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages) => {
+        seenMessages.push(messages);
+        return Effect.succeed({
+          completion: { id: "c1", model: "qwen3.6:27b", content: "done" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({
+          agent: ollamaAgent(PINNED_CONTEXT_WINDOW) as AgentRunnerOptions["agent"],
+          historyCompacted: true,
+        }),
+        makeRunContext({
+          provider: "ollama",
+          model: "qwen3.6:27b",
+          agent: ollamaAgent(PINNED_CONTEXT_WINDOW) as AgentRunContext["agent"],
+          messages: toolHistory(100) as AgentRunContext["messages"],
+        }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    const notice = seenMessages[0]?.find((message) =>
+      message.content?.includes("CONTEXT COMPACTED"),
+    );
+    expect(notice?.content).toContain("compactsAtPercent:");
   });
 
   it("does not compact a history that genuinely fits the window", async () => {
