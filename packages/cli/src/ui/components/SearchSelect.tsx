@@ -1,8 +1,7 @@
-import type { ChoicePreviewLine } from "@jazz/core/interfaces/terminal";
 import type { Effect } from "effect";
 import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChoiceMeta } from "./PromptParts";
+import { ChoiceMeta, PickerRowPreview } from "./PromptParts";
 import { getGlyphs } from "../glyphs";
 import { useTextInput } from "../hooks/use-input-service";
 import {
@@ -302,37 +301,6 @@ function PickerRowLine({
         />
       </Box>
       {row.active && row.preview !== undefined ? <PickerRowPreview lines={row.preview} /> : null}
-    </Box>
-  );
-}
-
-/** The active row's preview, indented beneath its label so it reads as belonging to it. */
-function PickerRowPreview({
-  lines,
-}: {
-  readonly lines: readonly ChoicePreviewLine[];
-}): React.ReactElement {
-  return (
-    <Box flexDirection="column">
-      {lines.map((line, lineIndex) => (
-        <Box
-          key={String(lineIndex)}
-          flexDirection="row"
-        >
-          <Text>{"    "}</Text>
-          <Text>
-            {line.map((span, spanIndex) => (
-              <Text
-                key={String(spanIndex)}
-                color={span.fg ?? THEME.muted}
-                bold={span.bold === true}
-              >
-                {span.text}
-              </Text>
-            ))}
-          </Text>
-        </Box>
-      ))}
     </Box>
   );
 }

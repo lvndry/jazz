@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink";
 import React, { useMemo } from "react";
-import { ChoiceMeta } from "./PromptParts";
+import { ChoiceMeta, PickerRowPreview } from "./PromptParts";
 import { getGlyphs } from "../glyphs";
 import { originalValuesFromPicker, toPickerChoices, usePicker } from "../prompt-core";
 import { pickerWindowStart } from "../text/picker-window";
@@ -101,25 +101,33 @@ export function ScrollableMultiSelect<T = unknown>({
         </Box>
       ) : (
         view.rows.slice(windowStart, windowEndExclusive).map((row) => (
-          <Box key={row.originalIndex}>
-            <Text
-              color={THEME.primary}
-              bold
-            >
-              {row.active ? getGlyphs().rail : " "}
-            </Text>
-            <Text
-              color={row.active ? THEME.selected : THEME.secondary}
-              bold={row.active}
-            >
-              {" "}
-              [{row.selected ? "x" : " "}] {row.label}
-            </Text>
-            <ChoiceMeta
-              description={row.description}
-              tag={row.tag}
-              tagTone={row.tagTone}
-            />
+          <Box
+            key={row.originalIndex}
+            flexDirection="column"
+          >
+            <Box>
+              <Text
+                color={THEME.primary}
+                bold
+              >
+                {row.active ? getGlyphs().rail : " "}
+              </Text>
+              <Text
+                color={row.active ? THEME.selected : THEME.secondary}
+                bold={row.active}
+              >
+                {" "}
+                [{row.selected ? "x" : " "}] {row.label}
+              </Text>
+              <ChoiceMeta
+                description={row.description}
+                tag={row.tag}
+                tagTone={row.tagTone}
+              />
+            </Box>
+            {row.active && row.preview !== undefined ? (
+              <PickerRowPreview lines={row.preview} />
+            ) : null}
           </Box>
         ))
       )}

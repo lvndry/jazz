@@ -149,15 +149,21 @@ describe("memory review", () => {
     expect((await run(service.view(lessonPath))).kind).toBe("file");
   });
 
-  test("each choice reads as the quoted words or rule, with where it saves", async () => {
+  test("each choice reads as the quoted words or rule, its details in the preview", async () => {
     const service = makeService();
     await queueBoth(service);
 
     const choices = suggestionChoices(await run(service.pendingSuggestions()));
+    const previewText = (choice: PromptChoice<string>) =>
+      (choice.preview ?? []).map((line) => line.map((span) => span.text).join(""));
 
-    expect(choices.map((choice) => [choice.name, choice.description])).toEqual([
-      ["My favorite fruit is mango.", `fact → ${fruitPath}`],
-      ["Check for existing tools before proposing a build.", `lesson → ${lessonPath}`],
+    expect(choices.map((choice) => [choice.name, choice.tag])).toEqual([
+      ["My favorite fruit is mango.", "fact"],
+      ["Check for existing tools before proposing a build.", "lesson"],
+    ]);
+    expect(choices.map(previewText)).toEqual([
+      [`saves to: ${fruitPath}`],
+      ["learned from: Proposed building a tool that already existed.", `saves to: ${lessonPath}`],
     ]);
   });
 });
