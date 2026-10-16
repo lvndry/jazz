@@ -42,7 +42,7 @@
 
 import { TextAttributes } from "@opentui/core";
 import { memo, type ReactNode } from "react";
-import { isShellEscape } from "@/cli/chat/commands/parser";
+import { runsInShell } from "@/cli/chat/commands/parser";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { matchedSpan, plainDescription, suggestionOrigin } from "../suggestion-menu";
 import { useThemeRevision } from "./theme-revision";
@@ -347,7 +347,7 @@ export function inputRows(
   const live = focused && !model.disabled;
   // A shell escape hands the line to the shell instead of the model. The rail
   // and marker pick up the warning hue so that is visible before Enter is hit.
-  const shellCommand = live && isShellEscape(model.value);
+  const shellCommand = live && runsInShell(model.value);
   const empty = model.value.length === 0;
   const valueCodePoints = [...model.value].length;
   const caretAt = Math.max(0, Math.min(model.caret ?? valueCodePoints, valueCodePoints));

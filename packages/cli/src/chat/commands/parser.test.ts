@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { CHAT_COMMANDS, setSkillCommands } from "./constants";
-import { isCommandInput, isShellEscape, parseSpecialCommand } from "./parser";
+import { isCommandInput, isShellEscape, parseSpecialCommand, runsInShell } from "./parser";
 
 describe("parseSpecialCommand", () => {
   it("keeps a rename title intact without limiting its length", () => {
@@ -247,6 +247,13 @@ describe("parseSpecialCommand", () => {
       expect(isCommandInput("/help")).toBe(true);
       expect(isCommandInput("! ls")).toBe(true);
       expect(isCommandInput("hello")).toBe(false);
+    });
+
+    it("runs only a single-line shell escape in the shell", () => {
+      expect(runsInShell("! git status")).toBe(true);
+      expect(runsInShell("  ! git status  \n")).toBe(true);
+      expect(runsInShell("! git status\nthen summarize")).toBe(false);
+      expect(runsInShell("!important")).toBe(false);
     });
   });
 

@@ -155,4 +155,13 @@ describe("instance-owned transcript layout", () => {
     expect(other.window(0, 3)).toEqual(old.window(0, 3));
     expect(changed.window(0, 3)[0]?.contentWidth).not.toBe(other.window(0, 3)[0]?.contentWidth);
   });
+
+  it("keeps a sent shell escape on the warning rail the composer showed", () => {
+    const layout = createTranscriptLayout();
+    const railColor = (text: string) =>
+      layout.update([{ id: "user", seq: 0, kind: "user", text }], epoch()).window(0, 1)[0]
+        ?.gutter[0]?.fg;
+    expect(railColor("! git status")).toBe(THEME.warning);
+    expect(railColor("git status")).toBe(THEME.primary);
+  });
 });

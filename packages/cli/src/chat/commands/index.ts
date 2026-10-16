@@ -13,7 +13,13 @@ export {
 } from "./constants";
 export type { BuiltinChatCommand, ChatCommandInfo } from "./constants";
 export { handleSpecialCommand } from "./handler";
-export { isCommandInput, isShellEscape, parseSpecialCommand, SHELL_ESCAPE_PREFIX } from "./parser";
+export {
+  isCommandInput,
+  isShellEscape,
+  parseSpecialCommand,
+  runsInShell,
+  SHELL_ESCAPE_PREFIX,
+} from "./parser";
 export type {
   CommandContext,
   CommandResult,

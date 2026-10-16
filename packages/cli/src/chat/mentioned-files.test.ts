@@ -42,6 +42,17 @@ describe("inlineMentionedTextFiles", () => {
     expect(result.skipped).toHaveLength(2);
   });
 
+  it("leaves an @file passed as a command-line flag value alone", async () => {
+    const message = "run curl -X POST http://tv/install --data-binary @huge.log -d @todo.md";
+    const result = await inlineMentionedTextFiles(message, workingDirectory);
+    expect(result).toEqual({ message, skipped: [] });
+  });
+
+  it("still reads a mention after a Markdown bullet dash", async () => {
+    const result = await inlineMentionedTextFiles("- @todo.md", workingDirectory);
+    expect(result.message).toContain("- buy milk");
+  });
+
   it("inlines a file mentioned twice once", async () => {
     const result = await inlineMentionedTextFiles("@todo.md vs @todo.md", workingDirectory);
     expect(result.message.match(/<file /g)).toHaveLength(1);
