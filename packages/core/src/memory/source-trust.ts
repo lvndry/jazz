@@ -101,7 +101,7 @@ export function formatStoredUserClaim(quote: string): string {
 }
 
 /** The quoted words inside a stored claim, or the content itself for hand-written entries. */
-function storedClaimText(content: string): string {
+export function storedClaimText(content: string): string {
   const trimmed = content.trim();
   if (!trimmed.startsWith(STORED_CLAIM_PREFIX)) {
     return content;

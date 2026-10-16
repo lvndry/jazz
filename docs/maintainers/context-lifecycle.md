@@ -304,26 +304,51 @@ might not survive. Mitigations:
 - **It's skipped when pointless.** If there's nothing in the middle worth summarizing, the messages come back untouched, with no "auto-compacting" notice, and the loop trims instead.
 - **A bad summary never replaces history.** An empty summary, or one the summarizer model cut off at its output limit, is refused and the original messages stay.
 
-### Durable facts reach memory before the summary
+### Durable facts are suggested for memory before the summary
 
 The summary keeps a run resumable _within_ its conversation. It does nothing for the _next_
 conversation: a preference the user stated forty messages ago survives compaction only as
 summary gist, and vanishes entirely when the conversation ends. So at the compact rung, just
 before the middle is condensed, Jazz scans exactly those about-to-be-compressed messages for
-anything worth remembering long term and writes it to the agent's memory
+anything worth remembering long term and queues it for the person to review
 ([`memory-extractor.ts`](../../packages/core/src/agent/context/memory-extractor.ts)).
 
 It runs as a throwaway `memory-extractor` sub-agent on the summarizer model, and it uses the
 real `view_memory`/`manage_memory`/`propose_lesson` tools rather than a bespoke write path — so it inherits
 their discipline: find the right scope, read the file before changing it, one file per subject,
-replace stale facts instead of appending duplicates. The scopes are the parent agent's; the
-writes are tagged to `memory-extractor`, so an auto-extracted fact is distinguishable from one
-the agent wrote at the user's direct request.
+replace stale facts instead of appending duplicates. The scopes are the parent agent's.
+
+**It reads the whole conversation, but saves only from the scanned slice.** Whether a statement
+is a lasting preference or an instruction for the task at hand, and whether the user later took
+it back, shows only in the rest of the conversation. So the extractor also gets a context block
+ahead of the transcript: the prior summary, and the recent tail that stays verbatim (for the
+`conversation-end` pass, the already-reflected earlier messages instead). Nothing in that block
+carries a memory-source tag, so no quote from it passes `manage_memory`. The block takes at most
+40% of the extractor's input budget; past that it keeps the summary, then the newest later
+messages, then the newest earlier ones.
+
+**Its writes are queued, not written.** When `manage_memory` runs as `memory-extractor`, a
+`create` or `amend` passes every check a direct write would (quote, sensitivity, revoked
+sentences, subject and topic rules), and is then stored as a fact suggestion in the review queue
+(`.pending-memory.json` at the memory root) next to lessons from `propose_lesson`. `delete` and
+`rename` are refused for the extractor. Because queueing changes nothing in memory, both
+extractor passes list `manage_memory` and `propose_lesson` in the sub-run's `autoApprovedTools`:
+compaction no longer raises one approval prompt per write. The chat prints how many suggestions
+are waiting at the end of the turn, and at the next chat opening.
+
+Nothing reaches memory from the queue except `MemoryService.acceptSuggestion`, reached from
+`/memory review`, `/memory accept`, `jazz memory review` and `jazz memory accept`. The review
+commands show every waiting item and one multi-select: checked items are accepted, the rest
+rejected, Escape decides nothing. Accept looks up, writes and dequeues under one hold of the
+memory write lock so a concurrent reject cannot be overridden. A fact is written with origin
+`auto` and its quoted sentence keys, so a correction or forget made since it was suggested still
+revokes it; an amendment replaces the exact content it was suggested against, and fails (staying
+queued) if the entry changed in between.
 
 The extractor receives authenticated source IDs for the original user messages in the chunk.
-The write tool checks an exact quoted span against those messages. A chunk with no authenticated
-user source is skipped, and text inside tool output or a rendered transcript cannot create its
-own user source.
+The write tool checks an exact quoted span against those messages. A compaction chunk with no
+authenticated user source is skipped, and text inside tool output or a rendered transcript
+cannot create its own user source.
 Corrected and forgotten claims revoke the sentences they quoted in the hidden cross-scope source
 ledger. An extractor attempting to re-save a superseded quote from those sentences receives a
 failed write; other sentences of the same message, and any new user message, can still be quoted.
@@ -335,16 +360,11 @@ the detached command; without an explicit path the child inherits normal environ
 config resolution. That process loads the saved conversation and takes the messages
 after a per-conversation watermark (`.reflected-conversations.json` at the memory root). It
 claims them before the model call, so two reflections never cover the same messages. It then
-runs the extractor with only `view_memory` and `propose_lesson`. It cannot use `manage_memory`:
-a fact save would need an approval prompt in a chat that has already closed. `propose_lesson`
-is `low-risk`, since it writes the review queue (`.pending-lessons.json`), and both extractor
-passes list it in the sub-run's `autoApprovedTools`, so a proposal needs no prompt there.
-Nothing reaches memory from the queue except `MemoryService.acceptLesson`, reached from
-`/memory accept` and `jazz memory accept`, which looks up, writes and dequeues under one hold of
-the memory write lock so a concurrent reject cannot be overridden. The pass reads at most the
-two newest chunks of what it claimed and logs any it skipped. The chat skips the spawn for ephemeral sessions and for conversations with no turn in this
-session. A hard kill (SIGTERM mid-chat) skips it too; the next close of that conversation
-covers the missed messages.
+runs the extractor with the same tools as at compaction; its suggestions need no prompt in the
+chat that already closed. The pass reads at most the two newest chunks of what it claimed and
+logs any it skipped. The chat skips the spawn for ephemeral sessions and for conversations with
+no turn in this session. A hard kill (SIGTERM mid-chat) skips it too; the next close of that
+conversation covers the missed messages.
 
 **The bar is deliberately narrow.** Only facts the user themselves stated or decided —
 stable preferences, recurring facts, standing project decisions — qualify. The model's own

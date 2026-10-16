@@ -11,18 +11,32 @@ import type { CheckResult, EvalTask, OneShotResult, TaskRunContext } from "../..
  * accepted lesson shapes a later, unrelated conversation.
  */
 
+interface PendingSuggestion {
+  readonly kind: string;
+  readonly rule?: string;
+  readonly mistake?: string;
+}
+
 interface PendingLesson {
   readonly rule: string;
   readonly mistake: string;
 }
 
 function pendingLessons(jazzHome: string): readonly PendingLesson[] {
-  const file = join(jazzHome, "memory", ".pending-lessons.json");
+  const file = join(jazzHome, "memory", ".pending-memory.json");
   if (!existsSync(file)) {
     return [];
   }
-  const document = JSON.parse(readFileSync(file, "utf8")) as { proposals?: PendingLesson[] };
-  return document.proposals ?? [];
+  const document = JSON.parse(readFileSync(file, "utf8")) as {
+    suggestions?: PendingSuggestion[];
+  };
+  return (document.suggestions ?? []).flatMap((suggestion) =>
+    suggestion.kind === "lesson" &&
+    suggestion.rule !== undefined &&
+    suggestion.mistake !== undefined
+      ? [{ rule: suggestion.rule, mistake: suggestion.mistake }]
+      : [],
+  );
 }
 
 function verdict(pass: boolean, detail: string): CheckResult {

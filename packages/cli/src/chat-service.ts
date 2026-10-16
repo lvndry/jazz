@@ -108,7 +108,7 @@ import {
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
 import { backgroundItems } from "@/cli/ui/models/background-work";
 import { store } from "@/cli/ui/store";
-import { announcePendingLessons } from "./chat/announce-pending-lessons";
+import { announcePendingSuggestions } from "./chat/announce-pending-suggestions";
 import { classifyChatInput } from "./chat/chat-input";
 import {
   handleSpecialCommand,
@@ -408,8 +408,11 @@ export class ChatServiceImpl implements ChatService {
         hydrateTranscriptFromHistory(conversationHistory, `${conversationId}:main`);
       }
       hydrateInputHistoryFromMessages(conversationHistory);
+      let pendingSuggestionCount = 0;
       if (!ephemeral) {
-        yield* announcePendingLessons().pipe(Effect.catchAllCause(() => Effect.void));
+        pendingSuggestionCount = yield* announcePendingSuggestions().pipe(
+          Effect.catchAllCause(() => Effect.succeed(pendingSuggestionCount)),
+        );
       }
       if (!ephemeral && conversationHistory.length > 0) {
         yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
@@ -1467,6 +1470,13 @@ export class ChatServiceImpl implements ChatService {
                 (error) => Effect.die(error),
               ),
             );
+        // A compaction during the turn may have queued suggestions; say so once it ends rather
+        // than interrupting the turn.
+        if (!ephemeral) {
+          pendingSuggestionCount = yield* announcePendingSuggestions({
+            onlyIfMoreThan: pendingSuggestionCount,
+          }).pipe(Effect.catchAllCause(() => Effect.succeed(pendingSuggestionCount)));
+        }
       }
 
       yield* stopSubagents;

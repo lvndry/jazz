@@ -9,13 +9,16 @@
  */
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
+import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provenance";
 import type {
+  FactSuggestion,
+  FactSuggestionInput,
   LessonProposal,
   LessonProposalInput,
-  LessonProposalOutcome,
-  LessonResolutionOutcome,
-} from "./lesson-proposal";
-import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provenance";
+  MemorySuggestion,
+  MemorySuggestionOutcome,
+  MemorySuggestionResolution,
+} from "./memory-suggestion";
 
 /** A memory entry as listings and the prompt see it: where it lives and its first line. */
 export interface MemoryEntrySummary {
@@ -180,26 +183,31 @@ export interface MemoryService {
   /** Queue a lesson for the person to review. Nothing is written to memory. */
   readonly proposeLesson: (
     input: LessonProposalInput,
-  ) => Effect.Effect<LessonProposalOutcome, Error, FileSystem.FileSystem>;
+  ) => Effect.Effect<MemorySuggestionOutcome<LessonProposal>, Error, FileSystem.FileSystem>;
 
-  /** Lessons waiting for review, oldest first. */
-  readonly pendingLessons: () => Effect.Effect<
-    readonly LessonProposal[],
+  /** Queue a verified fact write for the person to review. Nothing is written to memory. */
+  readonly suggestFact: (
+    input: FactSuggestionInput,
+  ) => Effect.Effect<MemorySuggestionOutcome<FactSuggestion>, Error, FileSystem.FileSystem>;
+
+  /** Fact suggestions and lessons waiting for review, oldest first. */
+  readonly pendingSuggestions: () => Effect.Effect<
+    readonly MemorySuggestion[],
     Error,
     FileSystem.FileSystem
   >;
 
   /**
-   * Write a pending lesson into memory and take it off the queue. Only person-facing
-   * commands call this: the person's accept is what authorizes the agent's wording.
+   * Write a pending suggestion into memory and take it off the queue. Only person-facing
+   * commands call this: the person's accept is what authorizes the write.
    */
-  readonly acceptLesson: (
+  readonly acceptSuggestion: (
     id: string,
-  ) => Effect.Effect<LessonResolutionOutcome, Error, FileSystem.FileSystem>;
+  ) => Effect.Effect<MemorySuggestionResolution, Error, FileSystem.FileSystem>;
 
-  readonly rejectLesson: (
+  readonly rejectSuggestion: (
     id: string,
-  ) => Effect.Effect<LessonResolutionOutcome, Error, FileSystem.FileSystem>;
+  ) => Effect.Effect<MemorySuggestionResolution, Error, FileSystem.FileSystem>;
 }
 
 export const MemoryServiceTag = Context.GenericTag<MemoryService>("MemoryService");

@@ -746,16 +746,16 @@ See [Configuration](./configure/jazz.md).
 
 Memory is shared by every agent, so these commands address scopes and paths directly.
 
-| Command                      | Purpose                                                       |
-| ---------------------------- | ------------------------------------------------------------- |
-| `jazz memory list [scope]`   | List every scope on disk, or every file in one scope          |
-| `jazz memory show <path>`    | Print one memory file as the agents read it                   |
-| `jazz memory forget <path>`  | Permanently delete one memory file                            |
-| `jazz memory explain <path>` | Show provenance and recent opportunity receipts for one entry |
-| `jazz memory recall`         | Report memory consultation; `--surface <name>` filters it     |
-| `jazz memory review`         | List lessons agents proposed from their own mistakes          |
-| `jazz memory accept <id>`    | Save a proposed lesson to memory                              |
-| `jazz memory reject <id>`    | Drop a proposed lesson without saving it                      |
+| Command                      | Purpose                                                                |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| `jazz memory list [scope]`   | List every scope on disk, or every file in one scope                   |
+| `jazz memory show <path>`    | Print one memory file as the agents read it                            |
+| `jazz memory forget <path>`  | Permanently delete one memory file                                     |
+| `jazz memory explain <path>` | Show provenance and recent opportunity receipts for one entry          |
+| `jazz memory recall`         | Report memory consultation; `--surface <name>` filters it              |
+| `jazz memory review`         | Keep or drop waiting memory suggestions and lessons from one checklist |
+| `jazz memory accept <id>`    | Save one waiting suggestion or lesson to memory                        |
+| `jazz memory reject <id>`    | Drop one waiting suggestion or lesson without saving it                |
 
 Conversation history and current working state are separate. See [Conversations, working state, and memory](./concepts/conversations-and-memory.md).
 
@@ -997,7 +997,7 @@ with `/switch <agent>` to use the updated tool selection.
 | `/help [command]`                                                                    | Show available commands and shortcuts.                                                                        |
 | `/loop <every> <prompt>\|cron\|list\|approve\|reject\|answer\|pause\|resume\|cancel` | Rerun a prompt on a schedule in the background. See [Loops in chat](#loops-in-chat).                          |
 | `/waits [list\|show <number>\|cancel <number>]`                                      | List what is waiting in the background, show a wait's checks, or cancel one.                                  |
-| `/memory [forget <path> \| review \| accept <id> \| reject <id>]`                    | Show what this agent has remembered about you, forget one file, or review lessons it proposed.                |
+| `/memory [forget <path> \| review \| accept <id> \| reject <id>]`                    | Show what this agent has remembered about you, forget one file, or review waiting suggestions and lessons.    |
 | `/limit [turns\|usd\|tokens <value>\|clear]`                                         | Set a session turn, cost, or token limit (applied immediately).                                               |
 | `/mcp [reconnect <server>]`                                                          | Show MCP servers, or reconnect one.                                                                           |
 | `/mode [allow\|disallow <cmd>]`                                                      | Switch between safe mode and yolo mode for tool approvals (also Shift+Tab).                                   |
