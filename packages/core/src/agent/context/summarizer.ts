@@ -69,9 +69,9 @@ function truncateArguments(rawArguments: string | undefined): string {
  * roughly the same size whatever the window. A bare ratio gets both ends wrong: on a 1M
  * window it keeps 200K tokens verbatim, so each compaction frees little and the next one
  * comes sooner; on a 32K window it keeps 6.4K, less than one large tool result plus the
- * request that asked for it. The bounds follow opencode/Kilo (25% of the usable window,
- * clamped to 2K–15K) and Codex CLI (a fixed 20K tokens of user messages), set higher here
- * because the tail also carries tool results, not only user messages.
+ * request that asked for it. pi and oh-my-pi keep a fixed 20K-token tail and opencode a
+ * fixed 15K; the ratio matches that range on 75K–100K windows and grows with larger ones
+ * up to the cap.
  *
  * The floor never takes the tail past {@link RECENT_TAIL_FLOOR_MAX_WINDOW_RATIO} of the
  * window. Compaction fires at 80%, and the rebuild (system prompt, tool schemas, summary
