@@ -401,6 +401,11 @@ export interface AgentRunnerOptions {
    */
   readonly disablePersistence?: boolean;
   /**
+   * True when `conversationHistory` was compacted since the agent last ran (the `/compact`
+   * command), so the first request carries the post-compaction context report.
+   */
+  readonly historyCompacted?: boolean;
+  /**
    * True when `userInput` carries a literal task contract (exact output format, step
    * ordering) rather than an ordinary conversational turn — e.g. a workflow's prompt.
    * The initial user message it becomes is tagged `kind: "task"` so compaction pins

@@ -67,6 +67,11 @@ import type { ReduceToolResultsFn } from "../context/advised-tool-clearing";
 import { logContextRung } from "../context/context-telemetry";
 import { resolveContextThresholds } from "../context/context-thresholds";
 import {
+  type ContextUsageStats,
+  describeContextUsage,
+  formatContextUsageReport,
+} from "../context/context-usage";
+import {
   CONTEXT_CLEAR_THRESHOLD_RATIO,
   CONTEXT_COMPACT_THRESHOLD_RATIO,
   CONTEXT_TRIM_THRESHOLD_RATIO,
@@ -265,48 +270,39 @@ export function buildContextPressureMessage(
   return null;
 }
 
+/** The "do not redo this work" tail of the post-compaction message. */
+function progressNote(runProgress: string | undefined): string {
+  return runProgress ? `\n\n${runProgress}` : "";
+}
+
 /**
  * After a successful compaction the history has been rewritten underneath the
  * model. The warn/critical nudges tell it to wrap up — the opposite of what
  * just happened: space was freed so the original task can continue.
  *
- * The current usage is always stated. Below the warn threshold no other nudge
- * reports a figure, so without it the model keeps quoting the pre-compaction
- * percentage it last saw and acts as if context were still nearly full.
+ * The new usage is always stated, as the same report `context_info` returns.
+ * Below the warn threshold no other nudge reports a figure, so without it the
+ * model keeps quoting the pre-compaction percentage it last saw and acts as if
+ * context were still nearly full.
  *
  * `runProgress` (when present) is the mechanical record of what the kept messages
  * already covered, so the resumed run continues the pass instead of re-reading
  * everything and looping out of its iteration budget on its own repetition.
  */
-/** The "do not redo this work" tail shared by both branches of the message. */
-function progressNote(runProgress: string | undefined): string {
-  return runProgress ? `\n\n${runProgress}` : "";
-}
-
 export function buildPostCompactionMessage(
-  currentTokens: number,
-  budgetTokens: number,
+  usage: ContextUsageStats,
   runProgress?: string,
 ): { role: "user"; content: string } {
   const resume =
     "[CONTEXT COMPACTED: Older history was summarized to free space. The original task is still in progress. Continue from the summary and recent messages until the user's request is fully complete. Do not treat this compaction as a reason to wrap up.]";
-  if (budgetTokens <= 0) {
-    return { role: "user", content: resume };
+  if (usage.maxTokens <= 0) {
+    return { role: "user", content: `${resume}${progressNote(runProgress)}` };
   }
 
-  const ratio = currentTokens / budgetTokens;
-  const percent = Math.round(ratio * 100);
-  const budget = budgetTokens.toLocaleString();
-  if (ratio < CONTEXT_CRITICAL_RATIO) {
-    return {
-      role: "user",
-      content: `${resume} Context is now ${percent}% of the ${budget}-token budget; any earlier usage figure is out of date.${progressNote(runProgress)}`,
-    };
-  }
-
+  const report = formatContextUsageReport(describeContextUsage(usage));
   return {
     role: "user",
-    content: `${resume} Context is still ${percent}% of the ${budget}-token budget — prefer finishing current work over opening new investigations, but do not stop short of the original request.${progressNote(runProgress)}`,
+    content: `${resume}\n\nContext after compaction (any earlier usage figure is out of date):\n${report}${progressNote(runProgress)}`,
   };
 }
 
@@ -328,6 +324,12 @@ interface LoopState {
   meltdownNudges: number;
   /** Set once the user was told compaction cannot progress, so it is said once, not per turn. */
   compactionStuckWarned: boolean;
+  /**
+   * Set when history was compacted outside the per-request auto-compaction (the
+   * summarize_context tool, overflow recovery, or /compact before this run), so the next
+   * request still carries the post-compaction notice.
+   */
+  compactedSinceLastRequest: boolean;
   /** Set while retrying after a prompt-too-long rejection, so a second one fails the run. */
   overflowRecoveryUsed: boolean;
   /** The tool batch in flight, until every call of it has a result in the transcript. */
@@ -1122,6 +1124,7 @@ function handleToolPhase(
       tokenStats: {
         currentTokens: runContextWindowManager.calculateTotalTokens(state.currentMessages),
         maxTokens: contextWindowMaxTokens,
+        ...runContextWindowManager.thresholdRatios,
       },
       conversationMessages: state.currentMessages,
       parentAgent: agent,
@@ -1130,6 +1133,7 @@ function handleToolPhase(
           state.currentMessages[0],
           ...compacted.slice(1),
         ] as typeof state.currentMessages;
+        state.compactedSinceLastRequest = true;
       },
       allowMemoryExtraction: mayExtractMemories(options),
       recordChildCost: (costUSD: number) => {
@@ -1543,6 +1547,7 @@ function recoverFromContextOverflow(
     ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
     if (compacted !== undefined && compacted.tokensAfter < compacted.tokensBefore) {
       state.currentMessages = compacted.messages;
+      state.compactedSinceLastRequest = true;
       return true;
     }
     const estimatedTokens = deps.runContextWindowManager.totalRequestTokens(state.currentMessages);
@@ -1750,11 +1755,13 @@ function runIteration(
     // The floor before sending: a history still over the trim budget is trimmed now, not
     // after the provider has already rejected or truncated it.
     yield* trimHistory(state, deps);
-    const justCompacted = autoCompaction.kind === "compacted";
+    const autoCompacted = autoCompaction.kind === "compacted";
+    const justCompacted = autoCompacted || state.compactedSinceLastRequest;
+    state.compactedSinceLastRequest = false;
 
     // The summarizer is its own agent run; its completion idles the live zone.
     // Restore thinking so the parent looks mid-task, not finished.
-    if (justCompacted && !options.internal && strategy.shouldShowReasoning) {
+    if (autoCompacted && !options.internal && strategy.shouldShowReasoning) {
       yield* observer.onThinking(agent.name, false);
     }
 
@@ -1788,8 +1795,11 @@ function runIteration(
     const runProgress = justCompacted ? extractRunProgress(state.currentMessages) : undefined;
     const contextMsg = justCompacted
       ? buildPostCompactionMessage(
-          postCompactionUsage.currentTokens,
-          postCompactionUsage.budgetTokens,
+          {
+            currentTokens: postCompactionUsage.currentTokens,
+            maxTokens: postCompactionUsage.budgetTokens,
+            ...runContextWindowManager.thresholdRatios,
+          },
           runProgress?.summary,
         )
       : buildContextPressureMessage(
@@ -2232,6 +2242,7 @@ export function executeAgentLoop(
           toolCompactionAnnounced: false,
           meltdownNudges: 0,
           compactionStuckWarned: false,
+          compactedSinceLastRequest: options.historyCompacted === true,
           overflowRecoveryUsed: false,
           activeToolBatch: undefined,
           awaitingGoalDecision: false,

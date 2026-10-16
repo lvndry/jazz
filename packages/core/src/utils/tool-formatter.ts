@@ -786,6 +786,7 @@ export function formatToolResult(toolName: string, result: string): string {
     const maxTokens = safeString(parsedResult["maxTokens"]);
     const remainingTokens = safeString(parsedResult["remainingTokens"]);
     const percentUsed = safeString(parsedResult["percentUsed"]);
+    const compactsAtPercent = safeString(parsedResult["compactsAtPercent"]);
     const recommendation = safeString(parsedResult["recommendation"]);
 
     const lines = [
@@ -793,6 +794,7 @@ export function formatToolResult(toolName: string, result: string): string {
       maxTokens ? `maxTokens: ${maxTokens}` : "",
       remainingTokens ? `remainingTokens: ${remainingTokens}` : "",
       percentUsed ? `percentUsed: ${percentUsed}%` : "",
+      compactsAtPercent ? `compactsAtPercent: ${compactsAtPercent}%` : "",
       recommendation ? `recommendation: ${recommendation}` : "",
     ].filter((line) => line.length > 0);
 

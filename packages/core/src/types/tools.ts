@@ -413,6 +413,8 @@ export interface ToolExecutionContext {
   readonly tokenStats?: {
     readonly currentTokens: number;
     readonly maxTokens: number;
+    readonly warnThresholdRatio: number;
+    readonly compactThresholdRatio: number;
   };
   /**
    * Current conversation messages, injected by executors.
