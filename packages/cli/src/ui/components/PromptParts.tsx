@@ -4,7 +4,7 @@
  * readers read description and tag after the label, in that order.
  */
 
-import type { PromptTagTone } from "@jazz/core/interfaces/terminal";
+import type { ChoicePreviewLine, PromptTagTone } from "@jazz/core/interfaces/terminal";
 import { Box, Text } from "ink";
 import React from "react";
 import { getGlyphs } from "../glyphs";
@@ -125,6 +125,37 @@ export function CommandSuggestionItem({
       {command.usage ? <Text color={THEME.muted}> {command.usage}</Text> : null}
       {origin !== undefined ? <Text color={THEME.muted}> ({origin})</Text> : null}
       <Text dimColor> – {plainDescription(command.description)}</Text>
+    </Box>
+  );
+}
+
+/** The active row's preview, indented beneath its label so it reads as belonging to it. */
+export function PickerRowPreview({
+  lines,
+}: {
+  readonly lines: readonly ChoicePreviewLine[];
+}): React.ReactElement {
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, lineIndex) => (
+        <Box
+          key={String(lineIndex)}
+          flexDirection="row"
+        >
+          <Text>{"    "}</Text>
+          <Text>
+            {line.map((span, spanIndex) => (
+              <Text
+                key={String(spanIndex)}
+                color={span.fg ?? THEME.muted}
+                bold={span.bold === true}
+              >
+                {span.text}
+              </Text>
+            ))}
+          </Text>
+        </Box>
+      ))}
     </Box>
   );
 }

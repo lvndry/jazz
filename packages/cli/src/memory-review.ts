@@ -24,32 +24,42 @@ export function suggestionHeadline(suggestion: MemorySuggestion): string {
     : storedClaimText(suggestion.change.content);
 }
 
-/** What keeping it does, in a few words. */
-export function suggestionConsequence(suggestion: MemorySuggestion): string {
-  const destination = suggestionDestinationPath(suggestion);
+/** Which kind of change keeping it makes, as a short tag. */
+export function suggestionKindTag(suggestion: MemorySuggestion): string {
   if (suggestion.kind === "lesson") {
-    return `lesson → ${destination}`;
+    return "lesson";
   }
-  return suggestion.change.command === "amend"
-    ? `replaces ${destination}`
-    : `fact → ${destination}`;
+  return suggestion.change.command === "amend" ? "edit" : "fact";
 }
 
-/** The context a person needs beyond the headline to decide. */
-export function suggestionDetailRows(suggestion: MemorySuggestion): ReportRow[] {
-  const rows: ReportRow[] = [
-    { kind: "field", key: suggestion.id, value: suggestionHeadline(suggestion) },
-  ];
+interface SuggestionDetail {
+  readonly label: string;
+  readonly text: string;
+}
+
+/** What a person needs beyond the headline to decide: why a lesson, what an edit replaces, where it saves. */
+export function suggestionDetails(suggestion: MemorySuggestion): SuggestionDetail[] {
+  const details: SuggestionDetail[] = [];
   if (suggestion.kind === "lesson") {
-    rows.push({ kind: "text", text: `learned from: ${suggestion.mistake}` });
+    details.push({ label: "learned from", text: suggestion.mistake });
   } else if (suggestion.change.command === "amend") {
-    rows.push({
-      kind: "text",
-      text: `currently: ${storedClaimText(suggestion.change.previousContent).trim()}`,
+    details.push({
+      label: "currently",
+      text: storedClaimText(suggestion.change.previousContent).trim(),
     });
   }
-  rows.push({ kind: "text", text: `saves to: ${suggestionDestinationPath(suggestion)}` });
-  return rows;
+  details.push({ label: "saves to", text: suggestionDestinationPath(suggestion) });
+  return details;
+}
+
+export function suggestionDetailRows(suggestion: MemorySuggestion): ReportRow[] {
+  return [
+    { kind: "field", key: suggestion.id, value: suggestionHeadline(suggestion) },
+    ...suggestionDetails(suggestion).map((detail): ReportRow => ({
+      kind: "text",
+      text: `${detail.label}: ${detail.text}`,
+    })),
+  ];
 }
 
 export function suggestionListRows(suggestions: readonly MemorySuggestion[]): ReportRow[] {
@@ -62,13 +72,18 @@ export function suggestionListRows(suggestions: readonly MemorySuggestion[]): Re
   ];
 }
 
+/** One row per suggestion; its details show in the highlighted row's preview, in both renderers. */
 export function suggestionChoices(
   suggestions: readonly MemorySuggestion[],
 ): PromptChoice<string>[] {
   return suggestions.map((suggestion) => ({
     name: suggestionHeadline(suggestion),
     value: suggestion.id,
-    description: suggestionConsequence(suggestion),
+    tag: suggestionKindTag(suggestion),
+    tagTone: suggestion.kind === "lesson" ? "accent" : "muted",
+    preview: suggestionDetails(suggestion).map((detail) => [
+      { text: `${detail.label}: ${detail.text}` },
+    ]),
   }));
 }
 
@@ -112,9 +127,9 @@ export function applyReviewDecision(
 }
 
 /**
- * Show every waiting suggestion, then one multi-select: checked ones are saved, the rest are
- * dropped. Escape decides nothing and leaves them all waiting. On a terminal that cannot prompt,
- * only the list is shown, with the commands that decide one by one.
+ * One multi-select over every waiting suggestion: checked ones are saved, the rest are dropped.
+ * Escape decides nothing and leaves them all waiting. On a terminal that cannot prompt, the list
+ * is printed instead, with the commands that decide one by one.
  */
 export function reviewMemorySuggestions(
   terminal: TerminalService,
@@ -129,10 +144,11 @@ export function reviewMemorySuggestions(
       );
       return;
     }
-    const perItemHint = `${commandPrefix} accept <id> keeps one; ${commandPrefix} reject <id> drops it.`;
-    yield* terminal.log(report("memory", suggestionListRows(suggestions)));
     if (!terminal.isInteractive) {
-      yield* terminal.log(perItemHint);
+      yield* terminal.log(report("memory", suggestionListRows(suggestions)));
+      yield* terminal.log(
+        `${commandPrefix} accept <id> keeps one; ${commandPrefix} reject <id> drops it.`,
+      );
       return;
     }
     const kept = yield* terminal.checkbox<string>(
