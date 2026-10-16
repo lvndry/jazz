@@ -117,7 +117,10 @@ access, so the workflow keeps that agent's reach small:
   `git diff`/`git log` reads the reviewers need. The agents have no
   `http_request` and no file-writing tools.
 - **Bounded.** Each job has `timeout-minutes`; each run passes
-  `--max-cost-usd "$JAZZ_MAX_COST_USD"`, set once at the top of `jazz.yml`.
+  `--max-cost-usd "$JAZZ_MAX_COST_USD"` and
+  `--max-duration-ms "$JAZZ_MAX_DURATION_MS"`, set once at the top of
+  `jazz.yml`. The duration budget sits a few minutes inside the job timeout, so
+  the agent writes its answer and the job posts it before GitHub cancels it.
 - **Rotating OAuth credential.** Runs are serialized across this repository
   because ChatGPT refresh tokens rotate and are single use. The updater App
   token is created only after Jazz exits and only when a refresh occurred. Keep
