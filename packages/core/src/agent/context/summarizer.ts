@@ -62,6 +62,40 @@ function truncateArguments(rawArguments: string | undefined): string {
 }
 
 /**
+ * Size of the verbatim "recent" tail a compaction keeps: 20% of the context window,
+ * clamped to 8K–40K tokens.
+ *
+ * The tail holds the current request and the live tool results it depends on, which is
+ * roughly the same size whatever the window. A bare ratio gets both ends wrong: on a 1M
+ * window it keeps 200K tokens verbatim, so each compaction frees little and the next one
+ * comes sooner; on a 32K window it keeps 6.4K, less than one large tool result plus the
+ * request that asked for it. The bounds follow opencode/Kilo (25% of the usable window,
+ * clamped to 2K–15K) and Codex CLI (a fixed 20K tokens of user messages), set higher here
+ * because the tail also carries tool results, not only user messages.
+ *
+ * The floor never takes the tail past {@link RECENT_TAIL_FLOOR_MAX_WINDOW_RATIO} of the
+ * window. Compaction fires at 80%, and the rebuild (system prompt, tool schemas, summary
+ * and tail) has to land well below the 70% warn rung, or the next turn compacts again.
+ * On a window under 32K the full 8K floor would be more than a quarter of it, so there
+ * the floor shrinks to a quarter instead. At least one message is kept whatever
+ * the budget, so a single oversized message still survives as the tail.
+ */
+export const RECENT_TAIL_WINDOW_RATIO = 0.2;
+export const RECENT_TAIL_MIN_TOKENS = 8_000;
+export const RECENT_TAIL_MAX_TOKENS = 40_000;
+export const RECENT_TAIL_FLOOR_MAX_WINDOW_RATIO = 0.25;
+
+/** Token budget for the verbatim tail of a compaction on a `contextWindowTokens` window. */
+export function recentTailTokenBudget(contextWindowTokens: number): number {
+  const ratioBudget = contextWindowTokens * RECENT_TAIL_WINDOW_RATIO;
+  const floor = Math.min(
+    RECENT_TAIL_MIN_TOKENS,
+    contextWindowTokens * RECENT_TAIL_FLOOR_MAX_WINDOW_RATIO,
+  );
+  return Math.floor(Math.min(RECENT_TAIL_MAX_TOKENS, Math.max(floor, ratioBudget)));
+}
+
+/**
  * Fraction of the summarizer's own window its input may occupy, leaving room for the
  * system prompt and the summary it has to write.
  */
@@ -366,7 +400,8 @@ export const Summarizer = {
    * recent messages to keep verbatim. Also sanitizes orphaned tool call/result
    * references from the recent portion to prevent API errors.
    *
-   * @param maxTokens - Context window size used to calculate the recent message budget (20%)
+   * @param maxTokens - Context window size the recent message budget is derived from
+   *   ({@link recentTailTokenBudget})
    */
   splitMessages(
     currentMessages: ConversationMessages,
@@ -413,9 +448,7 @@ export const Summarizer = {
       .slice(1)
       .filter((msg) => msg !== priorSummary && !pinnedSet.has(msg) && msg.kind !== "continuation");
 
-    // Reserve 20% of max tokens for recent context
-    // This ensures we keep recent context while preventing it from eating the entire window
-    const recentTokenBudget = Math.floor(maxTokens * 0.2);
+    const recentTokenBudget = recentTailTokenBudget(maxTokens);
     let accumulatedTokens = 0;
     let recentCount = 0;
 
@@ -656,7 +689,8 @@ export const Summarizer = {
    *
    * Returns `undefined` when nothing is old enough to summarize.
    *
-   * @param contextWindowTokens - The run's context budget; recent messages keep 20% of it.
+   * @param contextWindowTokens - The run's context budget; the verbatim recent tail is sized
+   *   from it by {@link recentTailTokenBudget}.
    * @param allowMemoryExtraction - Whether this caller's run may write durable memory
    *   before the middle is condensed. Each caller computes it where the run's persistence
    *   and sub-agent state is known, because the gate is never inherited; the default is
