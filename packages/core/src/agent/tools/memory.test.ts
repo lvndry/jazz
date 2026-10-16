@@ -4,9 +4,9 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
-import type { LessonProposalInput } from "@/core/interfaces/lesson-proposal";
 import type { MemoryService } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
+import type { FactSuggestionInput, LessonProposalInput } from "@/core/interfaces/memory-suggestion";
 import { quotedSentenceKeys } from "@/core/memory/source-trust";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { sha256Hex } from "@/core/utils/hash";
@@ -367,7 +367,7 @@ describe("manage_memory", () => {
     expect(replacements).toBe(0);
   });
 
-  test("records extractor writes as automatic and direct writes as the user's", async () => {
+  test("a direct write is recorded as the user's", async () => {
     const origins: unknown[] = [];
     const service: Partial<MemoryService> = {
       create: (_path, _text, writeContext) => {
@@ -375,18 +375,157 @@ describe("manage_memory", () => {
         return Effect.succeed({ success: true, message: "created" });
       },
     };
-    const args = {
-      command: "create",
-      subject: "Favorite fruit",
-      topic: "Food",
-      ...citation,
-    } as const;
-    await runWithMemory(service as MemoryService, createManageMemoryTool().execute(args, context));
     await runWithMemory(
       service as MemoryService,
-      createManageMemoryTool().execute(args, { ...context, agentId: MEMORY_EXTRACTOR_AGENT_ID }),
+      createManageMemoryTool().execute(
+        { command: "create", subject: "Favorite fruit", topic: "Food", ...citation },
+        context,
+      ),
     );
-    expect(origins).toEqual(["user", "auto"]);
+    expect(origins).toEqual(["user"]);
+  });
+
+  describe("called by the memory extractor", () => {
+    const extractorContext = {
+      ...context,
+      agentId: MEMORY_EXTRACTOR_AGENT_ID,
+      conversationId: "conversation-1",
+    };
+
+    function queueingService(suggestions: FactSuggestionInput[], existing?: string) {
+      let writes = 0;
+      const service: Partial<MemoryService> = {
+        view: (path) =>
+          Effect.succeed(
+            existing === undefined
+              ? { kind: "not_found", message: "missing" }
+              : {
+                  kind: "file",
+                  displayPath: path,
+                  virtualPath: path,
+                  content: existing,
+                  startLine: 1,
+                  totalLines: 2,
+                  truncated: false,
+                },
+          ),
+        create: () => {
+          writes += 1;
+          return Effect.succeed({ success: true, message: "created" });
+        },
+        strReplace: () => {
+          writes += 1;
+          return Effect.succeed({ success: true, message: "amended" });
+        },
+        suggestFact: (input) => {
+          suggestions.push(input);
+          return Effect.succeed({
+            success: true,
+            message: "queued",
+            suggestion: {
+              ...input,
+              kind: "fact",
+              id: "abc123",
+              proposedAt: "2026-10-16T00:00:00Z",
+            },
+          });
+        },
+      };
+      return { service: service as MemoryService, writes: () => writes };
+    }
+
+    test("queues a verified create as a suggestion and writes nothing", async () => {
+      const suggestions: FactSuggestionInput[] = [];
+      const { service, writes } = queueingService(suggestions);
+      const result = await runWithMemory(
+        service,
+        createManageMemoryTool().execute(
+          { command: "create", subject: "Favorite fruit", topic: "Food", ...citation },
+          extractorContext,
+        ),
+      );
+
+      expect(result.success).toBe(true);
+      expect(writes()).toBe(0);
+      expect(suggestions).toEqual([
+        {
+          change: {
+            command: "create",
+            path: "personal/when/food/favorite-fruit.md",
+            content: 'The user said: "My favorite fruit is banana."\n',
+          },
+          quote: "My favorite fruit is banana.",
+          quotedSentenceKeys: quotedSentenceKeys(
+            { id: "user:1", text: "My favorite fruit is banana." },
+            "My favorite fruit is banana.",
+          ),
+          proposedBy: MEMORY_EXTRACTOR_AGENT_ID,
+          conversationId: "conversation-1",
+        },
+      ]);
+    });
+
+    test("queues an amendment with the content it replaces", async () => {
+      const correction = "Actually, my favorite fruit is mango.";
+      const suggestions: FactSuggestionInput[] = [];
+      const { service, writes } = queueingService(
+        suggestions,
+        'The user said: "My favorite fruit is banana."\n',
+      );
+      const result = await runWithMemory(
+        service,
+        createManageMemoryTool().execute(
+          {
+            command: "amend",
+            path: "personal/when/food/favorite-fruit.md",
+            source_ref: "user:2",
+            source_quote: correction,
+          },
+          { ...extractorContext, memorySources: [{ id: "user:2", text: correction }] },
+        ),
+      );
+
+      expect(result.success).toBe(true);
+      expect(writes()).toBe(0);
+      expect(suggestions[0]?.change).toEqual({
+        command: "amend",
+        path: "personal/when/food/favorite-fruit.md",
+        previousContent: 'The user said: "My favorite fruit is banana."\n',
+        content: 'The user said: "Actually, my favorite fruit is mango."\n',
+      });
+    });
+
+    test("points a create at an existing entry to amend instead of queueing it", async () => {
+      const suggestions: FactSuggestionInput[] = [];
+      const { service } = queueingService(suggestions, 'The user said: "Apples."\n');
+      const result = await runWithMemory(
+        service,
+        createManageMemoryTool().execute(
+          { command: "create", subject: "Favorite fruit", topic: "Food", ...citation },
+          extractorContext,
+        ),
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Amend it");
+      expect(suggestions).toEqual([]);
+    });
+
+    test("refuses to delete or rename", async () => {
+      const suggestions: FactSuggestionInput[] = [];
+      const { service, writes } = queueingService(suggestions, 'The user said: "Apples."\n');
+      const result = await runWithMemory(
+        service,
+        createManageMemoryTool().execute(
+          { command: "delete", path: "personal/when/food/favorite-fruit.md", ...citation },
+          extractorContext,
+        ),
+      );
+
+      expect(result.success).toBe(false);
+      expect(writes()).toBe(0);
+      expect(suggestions).toEqual([]);
+    });
   });
 
   test("names which part of a rejected citation to fix", async () => {
@@ -443,7 +582,12 @@ describe("propose_lesson", () => {
         return Effect.succeed({
           success: true,
           message: "queued",
-          proposal: { ...input, id: "abc123", proposedAt: "2026-10-14T00:00:00.000Z" },
+          suggestion: {
+            ...input,
+            kind: "lesson",
+            id: "abc123",
+            proposedAt: "2026-10-14T00:00:00.000Z",
+          },
         });
       },
     };

@@ -804,11 +804,21 @@ export const Summarizer = {
       });
 
       // Before these messages are condensed into a summary, give durable,
-      // user-stated facts in them a chance to reach long-term memory — the
-      // summary keeps this run resumable, memory carries facts across runs.
+      // user-stated facts in them a chance to be suggested for long-term memory —
+      // the summary keeps this run resumable, memory carries facts across runs.
       // Gated by the caller: only runs the parent permits to persist reach here.
       if (allowMemoryExtraction) {
-        yield* extractMemories(messagesToSummarize, agent, conversationId, runRecursive);
+        yield* extractMemories(
+          messagesToSummarize,
+          agent,
+          conversationId,
+          runRecursive,
+          "compaction",
+          {
+            ...(priorSummary !== undefined ? { earlierSummary: priorSummary.content } : {}),
+            laterMessages: sanitizedRecentMessages,
+          },
+        );
       }
 
       if (onPhase)

@@ -674,30 +674,30 @@ function registerMemoryCommands(program: Command): void {
 
   memoryCommand
     .command("review")
-    .description("List lessons agents proposed from their own mistakes, waiting for your decision")
+    .description("Review memory suggestions and lessons, keeping or dropping them from one list")
     .action(() =>
       runCliAction(
-        () => import("@jazz/cli/commands/memory").then((mod) => mod.reviewLessonsCommand()),
+        () => import("@jazz/cli/commands/memory").then((mod) => mod.reviewSuggestionsCommand()),
         cliRuntimeOptions(program),
       ),
     );
 
   memoryCommand
     .command("accept <id>")
-    .description("Save a proposed lesson to memory")
+    .description("Save one memory suggestion or lesson to memory")
     .action((id: string) =>
       runCliAction(
-        () => import("@jazz/cli/commands/memory").then((mod) => mod.acceptLessonCommand(id)),
+        () => import("@jazz/cli/commands/memory").then((mod) => mod.acceptSuggestionCommand(id)),
         cliRuntimeOptions(program),
       ),
     );
 
   memoryCommand
     .command("reject <id>")
-    .description("Drop a proposed lesson without saving it")
+    .description("Drop one memory suggestion or lesson without saving it")
     .action((id: string) =>
       runCliAction(
-        () => import("@jazz/cli/commands/memory").then((mod) => mod.rejectLessonCommand(id)),
+        () => import("@jazz/cli/commands/memory").then((mod) => mod.rejectSuggestionCommand(id)),
         cliRuntimeOptions(program),
       ),
     );
@@ -705,7 +705,7 @@ function registerMemoryCommands(program: Command): void {
   memoryCommand
     .command("reflect", { hidden: true })
     .description(
-      "Internal: propose lessons from a conversation that just ended (started detached by the chat)",
+      "Internal: suggest memory and lessons from a conversation that just ended (started detached by the chat)",
     )
     .requiredOption("--agent <agentId>", "Agent the conversation belongs to")
     .requiredOption("--conversation <conversationId>", "Conversation to reflect on")

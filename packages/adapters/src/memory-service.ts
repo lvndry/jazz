@@ -46,7 +46,7 @@ import type {
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { ALWAYS_SEGMENT, WHEN_SEGMENT, splitScopeAndRest } from "@jazz/core/memory/entry-path";
-import { lessonDestinationPath } from "@jazz/core/memory/lesson-destination";
+import { suggestionDestinationPath } from "@jazz/core/memory/suggestion-destination";
 import { toError } from "@jazz/core/utils/errors";
 import { sha256Hex } from "@jazz/core/utils/hash";
 import { getMemoryDirectory, getMemoryReceiptsDirectory } from "@jazz/core/utils/paths";
@@ -61,17 +61,18 @@ import { findAllOccurrenceLineNumbers } from "@jazz/core/utils/string";
 import { resolveVirtualPath, type VirtualPathViolation } from "@jazz/core/utils/virtual-path";
 import { Effect, Layer } from "effect";
 import {
-  addLessonProposal,
-  findLessonProposal,
-  formatAcceptedLesson,
-  listLessonProposals,
-  removeLessonProposal,
-} from "./lesson-proposals";
-import {
   moveClaimSentences,
   recordClaimSentences,
   revokeClaimSentencesUnder,
 } from "./memory-source-ledger";
+import {
+  addFactSuggestion,
+  addLessonProposal,
+  findMemorySuggestion,
+  formatAcceptedLesson,
+  listMemorySuggestions,
+  removeMemorySuggestion,
+} from "./memory-suggestions";
 import { withMemoryWriteLock } from "./memory-write-lock";
 
 /** Returned when a write quotes a sentence an earlier correction or forget revoked. */
@@ -1180,72 +1181,83 @@ export class MemoryServiceImpl implements MemoryService {
 
         return yield* this.withMemoryWriteLock(
           scope,
-          Effect.gen(
-            function* (this: MemoryServiceImpl) {
-              const fs = yield* FileSystem.FileSystem;
-              const root = yield* this.ensureScopeRoot(scope);
-              const target = yield* resolveMemoryPath(root, rest);
-
-              const info = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(null)));
-              if (!info || info.type === "Directory") {
-                return {
-                  success: false,
-                  message: `The path ${abbreviateHomePath(target)} does not exist. Please provide a valid path.`,
-                } satisfies MemoryMutationOutcome;
-              }
-
-              const content = yield* fs.readFileString(target).pipe(Effect.mapError(toError));
-
-              const occurrenceLines = findAllOccurrenceLineNumbers(content, oldStr);
-              if (occurrenceLines.length === 0) {
-                return {
-                  success: false,
-                  message: `No replacement was performed, old_str \`${oldStr}\` did not appear verbatim in ${abbreviateHomePath(target)}.`,
-                } satisfies MemoryMutationOutcome;
-              }
-              if (occurrenceLines.length > 1) {
-                return {
-                  success: false,
-                  message: `No replacement was performed. Multiple occurrences of old_str \`${oldStr}\` in lines: ${occurrenceLines.join(", ")}. Please ensure it is unique`,
-                } satisfies MemoryMutationOutcome;
-              }
-
-              const replacement = newStr ?? "";
-              const index = content.indexOf(oldStr);
-              const updatedContent =
-                content.slice(0, index) + replacement + content.slice(index + oldStr.length);
-
-              const updatedBytes = Buffer.byteLength(updatedContent, "utf-8");
-              if (updatedBytes > this.maxFileBytes) {
-                return yield* Effect.fail(
-                  new MemoryGuardrailViolation(
-                    `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
-                  ),
-                );
-              }
-
-              yield* this.requireScopeBudget(fs, root, {
-                addedBytes: updatedBytes - Buffer.byteLength(content, "utf-8"),
-                addsFile: false,
-                subject: "This edit",
-              });
-
-              if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
-                return REVOKED_CLAIM_OUTCOME;
-              }
-
-              yield* writeFileStringAtomic(target, updatedContent);
-              yield* recordWrite(fs, root, path.relative(root, target), writeContext);
-
-              return {
-                success: true,
-                message: "The memory file has been edited.",
-              } satisfies MemoryMutationOutcome;
-            }.bind(this),
-          ),
+          this.strReplaceWhileLocked(scope, rest, oldStr, newStr, writeContext),
         );
       }.bind(this),
     );
+
+  /** `strReplace`'s edit, for callers already holding the memory write lock, which is not reentrant. */
+  private strReplaceWhileLocked(
+    scope: string,
+    rest: string,
+    oldStr: string,
+    newStr: string | undefined,
+    writeContext: MemoryWriteContext,
+  ): Effect.Effect<MemoryMutationOutcome, MemoryGuardrailViolation | Error, FileSystem.FileSystem> {
+    return Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* this.ensureScopeRoot(scope);
+        const target = yield* resolveMemoryPath(root, rest);
+
+        const info = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        if (!info || info.type === "Directory") {
+          return {
+            success: false,
+            message: `The path ${abbreviateHomePath(target)} does not exist. Please provide a valid path.`,
+          } satisfies MemoryMutationOutcome;
+        }
+
+        const content = yield* fs.readFileString(target).pipe(Effect.mapError(toError));
+
+        const occurrenceLines = findAllOccurrenceLineNumbers(content, oldStr);
+        if (occurrenceLines.length === 0) {
+          return {
+            success: false,
+            message: `No replacement was performed, old_str \`${oldStr}\` did not appear verbatim in ${abbreviateHomePath(target)}.`,
+          } satisfies MemoryMutationOutcome;
+        }
+        if (occurrenceLines.length > 1) {
+          return {
+            success: false,
+            message: `No replacement was performed. Multiple occurrences of old_str \`${oldStr}\` in lines: ${occurrenceLines.join(", ")}. Please ensure it is unique`,
+          } satisfies MemoryMutationOutcome;
+        }
+
+        const replacement = newStr ?? "";
+        const index = content.indexOf(oldStr);
+        const updatedContent =
+          content.slice(0, index) + replacement + content.slice(index + oldStr.length);
+
+        const updatedBytes = Buffer.byteLength(updatedContent, "utf-8");
+        if (updatedBytes > this.maxFileBytes) {
+          return yield* Effect.fail(
+            new MemoryGuardrailViolation(
+              `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
+            ),
+          );
+        }
+
+        yield* this.requireScopeBudget(fs, root, {
+          addedBytes: updatedBytes - Buffer.byteLength(content, "utf-8"),
+          addsFile: false,
+          subject: "This edit",
+        });
+
+        if (!(yield* this.recordClaim(fs, scope, root, target, writeContext))) {
+          return REVOKED_CLAIM_OUTCOME;
+        }
+
+        yield* writeFileStringAtomic(target, updatedContent);
+        yield* recordWrite(fs, root, path.relative(root, target), writeContext);
+
+        return {
+          success: true,
+          message: "The memory file has been edited.",
+        } satisfies MemoryMutationOutcome;
+      }.bind(this),
+    );
+  }
 
   readonly insert: MemoryService["insert"] = (virtualPath, insertLine, insertText, writeContext) =>
     Effect.gen(
@@ -1466,66 +1478,100 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly pendingLessons: MemoryService["pendingLessons"] = () =>
+  readonly suggestFact: MemoryService["suggestFact"] = (input) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const fs = yield* FileSystem.FileSystem;
-        return yield* listLessonProposals(fs, this.baseMemoryDirectory);
+        return yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
+          addFactSuggestion(fs, this.baseMemoryDirectory, input),
+        );
+      }.bind(this),
+    );
+
+  readonly pendingSuggestions: MemoryService["pendingSuggestions"] = () =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        return yield* listMemorySuggestions(fs, this.baseMemoryDirectory);
       }.bind(this),
     );
 
   /**
    * Looks up, writes and dequeues under one hold of the memory write lock, so a reject racing
-   * this accept either removes the proposal first (and nothing is written) or finds it gone. A
-   * failed write leaves the proposal waiting.
+   * this accept either removes the suggestion first (and nothing is written) or finds it gone. A
+   * failed write leaves the suggestion waiting.
    */
-  readonly acceptLesson: MemoryService["acceptLesson"] = (id) =>
+  readonly acceptSuggestion: MemoryService["acceptSuggestion"] = (id) =>
     withMemoryWriteLock(
       this.baseMemoryDirectory,
       Effect.gen(
         function* (this: MemoryServiceImpl) {
           const fs = yield* FileSystem.FileSystem;
-          const proposal = yield* findLessonProposal(fs, this.baseMemoryDirectory, id);
-          if (proposal === undefined) {
-            return { success: false, message: `No pending lesson has id ${id}.` } as const;
+          const suggestion = yield* findMemorySuggestion(fs, this.baseMemoryDirectory, id);
+          if (suggestion === undefined) {
+            return { success: false, message: `No pending suggestion has id ${id}.` } as const;
           }
-          const targetPath = lessonDestinationPath(proposal);
+          const targetPath = suggestionDestinationPath(suggestion);
           const resolved = this.resolveScope(targetPath);
           if (!resolved.ok) {
             return { success: false, message: resolved.failure.message } as const;
           }
-          const created = yield* this.createWhileLocked(
-            resolved.scope,
-            resolved.rest,
-            formatAcceptedLesson(proposal),
-            {
-              agentId: proposal.proposedBy,
-              entry: {
-                origin: "lesson",
-                failure: { kind: "correction", correctedBehavior: proposal.mistake },
-              },
-            },
-          );
-          if (!created.success) {
-            return { success: false, message: created.message } as const;
+          const written =
+            suggestion.kind === "lesson"
+              ? yield* this.createWhileLocked(
+                  resolved.scope,
+                  resolved.rest,
+                  formatAcceptedLesson(suggestion),
+                  {
+                    agentId: suggestion.proposedBy,
+                    entry: {
+                      origin: "lesson",
+                      failure: { kind: "correction", correctedBehavior: suggestion.mistake },
+                    },
+                  },
+                )
+              : suggestion.change.command === "create"
+                ? yield* this.createWhileLocked(
+                    resolved.scope,
+                    resolved.rest,
+                    suggestion.change.content,
+                    {
+                      agentId: suggestion.proposedBy,
+                      quotedSentenceKeys: suggestion.quotedSentenceKeys,
+                      entry: { origin: "auto" },
+                    },
+                  )
+                : yield* this.strReplaceWhileLocked(
+                    resolved.scope,
+                    resolved.rest,
+                    suggestion.change.previousContent,
+                    suggestion.change.content,
+                    {
+                      agentId: suggestion.proposedBy,
+                      quotedSentenceKeys: suggestion.quotedSentenceKeys,
+                    },
+                  );
+          if (!written.success) {
+            return { success: false, message: written.message } as const;
           }
-          yield* removeLessonProposal(fs, this.baseMemoryDirectory, proposal.id);
+          yield* removeMemorySuggestion(fs, this.baseMemoryDirectory, suggestion.id);
           return { success: true, message: `Saved to ${targetPath}.`, path: targetPath } as const;
         }.bind(this),
       ),
     );
 
-  readonly rejectLesson: MemoryService["rejectLesson"] = (id) =>
+  readonly rejectSuggestion: MemoryService["rejectSuggestion"] = (id) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const fs = yield* FileSystem.FileSystem;
         const removed = yield* withMemoryWriteLock(
           this.baseMemoryDirectory,
-          removeLessonProposal(fs, this.baseMemoryDirectory, id),
+          removeMemorySuggestion(fs, this.baseMemoryDirectory, id),
         );
         return removed
-          ? ({ success: true, message: `Dropped lesson ${id}.` } as const)
-          : ({ success: false, message: `No pending lesson has id ${id}.` } as const);
+          ? ({ success: true, message: `Dropped suggestion ${id}.` } as const)
+          : ({ success: false, message: `No pending suggestion has id ${id}.` } as const);
       }.bind(this),
     );
 }

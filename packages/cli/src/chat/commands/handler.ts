@@ -76,7 +76,6 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@jazz/core/interfaces/tool-registry";
-import { lessonDestinationPath } from "@jazz/core/memory/lesson-destination";
 import { typedText } from "@jazz/core/memory/source-trust";
 import { redactSecretText } from "@jazz/core/secrets/redaction";
 import { SkillServiceTag, type SkillService } from "@jazz/core/skills/skill-service";
@@ -158,6 +157,7 @@ import {
 } from "./session-limits";
 import type { CommandContext, CommandResult, SessionLimits, SpecialCommand } from "./types";
 import { handleWaitsCommand } from "./waits";
+import { reviewMemorySuggestions } from "../../memory-review";
 import { formatCost } from "../../ui/text/format";
 
 /**
@@ -3206,28 +3206,7 @@ function handleMemoryCommand(
     const memoryService = yield* MemoryServiceTag;
 
     if (args[0] === "review") {
-      const proposals = yield* memoryService.pendingLessons();
-      if (proposals.length === 0) {
-        yield* terminal.log(
-          report("memory", [{ kind: "text", text: "No lessons waiting for review." }]),
-        );
-        return { shouldContinue: true };
-      }
-      yield* terminal.log(
-        report(
-          "memory",
-          [
-            { kind: "group", label: "lessons waiting for review", count: String(proposals.length) },
-            ...proposals.flatMap((proposal): ReportRow[] => [
-              { kind: "field", key: proposal.id, value: proposal.rule },
-              { kind: "text", text: `learned from: ${proposal.mistake}` },
-              { kind: "text", text: `saves to: ${lessonDestinationPath(proposal)}` },
-              { kind: "gap" },
-            ]),
-          ],
-          "/memory accept <id> keeps one; /memory reject <id> drops it.",
-        ),
-      );
+      yield* reviewMemorySuggestions(terminal, memoryService, "/memory");
       return { shouldContinue: true };
     }
 
@@ -3238,7 +3217,7 @@ function handleMemoryCommand(
           report("memory", [
             {
               kind: "text",
-              text: `Name the lesson, for example /memory ${args[0]} 3fa9c1. /memory review lists them.`,
+              text: `Name the suggestion, for example /memory ${args[0]} 3fa9c1. /memory review lists them.`,
             },
           ]),
         );
@@ -3246,8 +3225,8 @@ function handleMemoryCommand(
       }
       const outcome =
         args[0] === "accept"
-          ? yield* memoryService.acceptLesson(id)
-          : yield* memoryService.rejectLesson(id);
+          ? yield* memoryService.acceptSuggestion(id)
+          : yield* memoryService.rejectSuggestion(id);
       if (outcome.success) {
         yield* terminal.log(
           report("memory", [
@@ -3332,7 +3311,7 @@ function handleMemoryCommand(
       report(
         "memory",
         files.map((file): ReportRow => ({ kind: "item", name: file.name })),
-        "/memory <path> reads one; /memory forget <path> removes it; /memory review lists proposed lessons.",
+        "/memory <path> reads one; /memory forget <path> removes it; /memory review keeps or drops waiting suggestions.",
       ),
     );
     return { shouldContinue: true };

@@ -287,6 +287,11 @@ function readEntryForChange(
     );
 }
 
+/**
+ * Called by the memory extractor, a create or amend passes every check a direct write would and
+ * is then queued as a suggestion instead of written: the extractor chose what to save without the
+ * person watching, so the person keeps or ignores its picks together with `/memory review`.
+ */
 export function createManageMemoryTool(): Tool<MemoryToolDeps> {
   return defineTool<MemoryToolDeps, ManageMemoryArgs>({
     name: MANAGE_MEMORY_TOOL_NAME,
@@ -321,6 +326,22 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
           quotedSentenceKeys: quotedSentenceKeys(source, quote),
         };
         const addsClaim = args.command === "create" || args.command === "amend";
+        const suggestsOnly = context.agentId === MEMORY_EXTRACTOR_AGENT_ID;
+        if (suggestsOnly && !addsClaim) {
+          return {
+            success: false,
+            result: null,
+            error: "Only create and amend can be suggested; the user deletes and renames entries.",
+          } satisfies ToolExecutionResult;
+        }
+        const suggestionFields = {
+          quote,
+          quotedSentenceKeys: writeContext.quotedSentenceKeys ?? [],
+          proposedBy: context.agentId,
+          ...(context.conversationId !== undefined
+            ? { conversationId: context.conversationId }
+            : {}),
+        };
         const filedUnder =
           args.command === "create"
             ? [args.subject, args.topic]
@@ -362,11 +383,22 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
                 ...(args.topic !== ALWAYS_SEGMENT ? { topic: args.topic } : {}),
               });
               const claim = formatStoredUserClaim(quote);
+              if (suggestsOnly) {
+                const existing = yield* memoryService.view(targetPath);
+                if (existing.kind === "file") {
+                  return yield* rejected(
+                    `${targetPath} already exists. Amend it rather than adding a second entry.\n\nCurrent content:\n${existing.content}`,
+                  );
+                }
+                const suggested = yield* memoryService.suggestFact({
+                  change: { command: "create", path: targetPath, content: claim },
+                  ...suggestionFields,
+                });
+                return withDiff(suggested, "", claim, targetPath);
+              }
               const created = yield* memoryService.create(targetPath, claim, {
                 ...writeContext,
-                entry: {
-                  origin: context.agentId === MEMORY_EXTRACTOR_AGENT_ID ? "auto" : "user",
-                },
+                entry: { origin: "user" },
               });
               return withDiff(created, "", claim, targetPath);
             }
@@ -381,6 +413,18 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
                 );
               }
               const claim = formatStoredUserClaim(quote);
+              if (suggestsOnly) {
+                const suggested = yield* memoryService.suggestFact({
+                  change: {
+                    command: "amend",
+                    path: args.path,
+                    previousContent: currentEntry.content,
+                    content: claim,
+                  },
+                  ...suggestionFields,
+                });
+                return withDiff(suggested, currentEntry.content, claim, args.path);
+              }
               const amended = yield* memoryService.strReplace(
                 args.path,
                 currentEntry.content,
@@ -531,7 +575,7 @@ export function createProposeLessonTool(): Tool<MemoryToolDeps> {
         return outcome.success
           ? ({
               success: true,
-              result: { message: outcome.message, id: outcome.proposal.id },
+              result: { message: outcome.message, id: outcome.suggestion.id },
             } satisfies ToolExecutionResult)
           : ({
               success: false,

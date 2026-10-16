@@ -13,7 +13,7 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { AGENT_PROCESS_ENV } from "@jazz/core/utils/env";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { acceptLessonCommand } from "./memory";
+import { acceptSuggestionCommand } from "./memory";
 
 let directory: string;
 const previousAgentProcess = process.env[AGENT_PROCESS_ENV];
@@ -47,7 +47,7 @@ async function pendingLesson(service: MemoryServiceImpl): Promise<string> {
     }),
   );
   if (!result.success) throw new Error(result.message);
-  return result.proposal.id;
+  return result.suggestion.id;
 }
 
 describe("jazz memory accept", () => {
@@ -57,7 +57,7 @@ describe("jazz memory accept", () => {
       receiptsDirectory: path.join(directory, ".receipts"),
     });
     const id = await pendingLesson(service);
-    const before = await run(service.pendingLessons());
+    const before = await run(service.pendingSuggestions());
     if (agentStarted) {
       process.env[AGENT_PROCESS_ENV] = "1";
     } else {
@@ -65,7 +65,7 @@ describe("jazz memory accept", () => {
     }
     const successes: string[] = [];
     const result = await run(
-      acceptLessonCommand(id).pipe(
+      acceptSuggestionCommand(id).pipe(
         Effect.provideService(MemoryServiceTag, service),
         Effect.provide(
           Layer.mock(TerminalServiceTag, {
@@ -86,12 +86,12 @@ describe("jazz memory accept", () => {
         expect(result.left.message).toContain("started by a Jazz agent");
       }
       expect(entry.kind).toBe("not_found");
-      expect(await run(service.pendingLessons())).toEqual(before);
+      expect(await run(service.pendingSuggestions())).toEqual(before);
       expect(successes).toEqual([]);
     } else {
       expect(result._tag).toBe("Right");
       expect(entry.kind).toBe("file");
-      expect(await run(service.pendingLessons())).toEqual([]);
+      expect(await run(service.pendingSuggestions())).toEqual([]);
       expect(successes).toEqual(["Saved to personal/always/check-prior-art.md."]);
     }
   });

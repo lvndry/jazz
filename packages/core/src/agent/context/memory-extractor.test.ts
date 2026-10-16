@@ -164,27 +164,113 @@ describe("extractMemories", () => {
     expect(capturedMaxIterations).toBeGreaterThan(0);
   });
 
-  it("a conversation-end pass can only propose lessons, never write memory", async () => {
-    let capturedAgent: Agent | undefined;
-    let capturedInput: string | undefined;
+  it("both passes carry the same tools and pre-approve them, since they only queue suggestions", async () => {
+    const runs: { tools: unknown; autoApprovedTools: readonly string[] | undefined }[] = [];
     const mockRunner: RecursiveRunner = (options) => {
-      capturedAgent = options.agent;
-      capturedInput = options.userInput;
+      runs.push({
+        tools: options.agent.config.tools,
+        autoApprovedTools: options.autoApprovedTools,
+      });
       return Effect.succeed({ content: "", conversationId: "conv-1" } as AgentResponse);
     };
     const messages: ChatMessage[] = [
-      { role: "assistant", content: "Build it from scratch." },
-      { role: "assistant", content: "Correction: an open-source app already does this." },
+      {
+        role: "user",
+        content: "I prefer tabs over spaces.",
+        memorySource: { id: "user:1", text: "I prefer tabs over spaces." },
+      },
+      { role: "assistant", content: "Noted." },
+    ];
+
+    for (const pass of ["compaction", "conversation-end"] as const) {
+      await Effect.runPromise(
+        extractMemories(messages, createMockAgent(), "conv-1", mockRunner, pass).pipe(
+          Effect.provide(createTestLayer()),
+        ) as Effect.Effect<void, never, never>,
+      );
+    }
+
+    const allTools = [VIEW_MEMORY_TOOL_NAME, MANAGE_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME];
+    expect(runs.map((run) => run.tools)).toEqual([allTools, allTools]);
+    for (const run of runs) {
+      expect(run.autoApprovedTools).toEqual([MANAGE_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME]);
+    }
+  });
+
+  it("shows the surrounding conversation as context it cannot quote", async () => {
+    let capturedInput = "";
+    let capturedSources: readonly unknown[] | undefined;
+    const mockRunner: RecursiveRunner = (options) => {
+      capturedInput = options.userInput;
+      capturedSources = options.memorySources;
+      return Effect.succeed({ content: "", conversationId: "conv-1" } as AgentResponse);
+    };
+    const scanned: ChatMessage[] = [
+      {
+        role: "user",
+        content: "Make every heading blue.",
+        memorySource: { id: "user:1", text: "Make every heading blue." },
+      },
+    ];
+    const later: ChatMessage[] = [
+      {
+        role: "user",
+        content: "Forget the blue, that was only for this page.",
+        memorySource: { id: "user:2", text: "Forget the blue, that was only for this page." },
+      },
     ];
 
     await Effect.runPromise(
-      extractMemories(messages, createMockAgent(), "conv-1", mockRunner, "conversation-end").pipe(
-        Effect.provide(createTestLayer()),
-      ) as Effect.Effect<void, never, never>,
+      extractMemories(scanned, createMockAgent(), "conv-1", mockRunner, "compaction", {
+        earlierSummary: "The user is styling their landing page.",
+        laterMessages: later,
+      }).pipe(Effect.provide(createTestLayer())) as Effect.Effect<void, never, never>,
     );
 
-    expect(capturedAgent?.config.tools).toEqual([VIEW_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME]);
-    expect(capturedInput).toContain("an open-source app already does this");
+    const context = capturedInput.slice(
+      capturedInput.indexOf("<context>"),
+      capturedInput.indexOf("</context>"),
+    );
+    const transcript = capturedInput.slice(capturedInput.indexOf("<transcript>"));
+    expect(context).toContain("The user is styling their landing page.");
+    expect(context).toContain("that was only for this page");
+    expect(context).not.toContain("[memory source");
+    expect(transcript).toContain("Make every heading blue.");
+    expect(capturedSources).toEqual([{ id: "user:1", text: "Make every heading blue." }]);
+  });
+
+  it("keeps the newest context messages when the rest does not fit", async () => {
+    let capturedInput = "";
+    const mockRunner: RecursiveRunner = (options) => {
+      capturedInput = options.userInput;
+      return Effect.succeed({ content: "", conversationId: "conv-1" } as AgentResponse);
+    };
+    const longTurn = "word ".repeat(5_000);
+    const later: ChatMessage[] = Array.from({ length: 30 }, (_, index) => ({
+      role: "assistant",
+      content: `later-${String(index)} ${longTurn}`,
+    }));
+
+    await Effect.runPromise(
+      extractMemories(
+        [
+          {
+            role: "user",
+            content: "I prefer tabs.",
+            memorySource: { id: "user:1", text: "I prefer tabs." },
+          },
+        ],
+        createMockAgent(),
+        "conv-1",
+        mockRunner,
+        "compaction",
+        { laterMessages: later },
+      ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<void, never, never>,
+    );
+
+    expect(capturedInput).toContain("later-29 ");
+    expect(capturedInput).not.toContain("later-0 ");
+    expect(capturedInput).toContain("I prefer tabs.");
   });
 
   it("a conversation-end pass reads only the newest chunks, pre-approving lesson proposals", async () => {

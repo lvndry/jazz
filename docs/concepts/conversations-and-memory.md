@@ -144,8 +144,9 @@ answering and how many entries were injected per run.
 
 ### How the agent learns
 
-Memory is written in two passes, both automatic. Neither needs a command from you. Separately,
-the agent proposes lessons from its own mistakes, which you accept or reject.
+Memory is gathered in two passes, both automatic. During the conversation the agent saves
+directly; what a background pass picks waits for your review, as do lessons the agent proposes
+from its own mistakes.
 
 **During the conversation.** When you state a preference, opinion, relationship, or personal
 fact ("I'm allergic to shellfish", "I prefer dark mode"), or correct how it did something ("too
@@ -172,13 +173,16 @@ How consistently an agent follows this depends on the model.
 
 **At compaction.** When a conversation grows long enough that Jazz must
 [summarize older messages](./context-management.md), a separate extraction pass first reads the
-messages about to be folded away and saves any durable facts you stated that the agent had not
-already saved. It reads existing memory first, does not duplicate an entry that already covers
-the fact, and amends an entry that has gone stale. It keeps only what will still be true in
-unrelated future conversations, and decides everything it saves in a single pass and issues the writes together, so there is no
-wait between entries. Each write is still approved on its own. Saving nothing is the common outcome. The
-pass is one extra model call, and its cost counts toward the run's caps. A manual `/compact`
-does not run it.
+messages about to be folded away and picks durable facts you stated that the agent had not
+already saved. It also reads the rest of the conversation (the earlier summary and the newer
+messages that stay verbatim) as context it cannot quote, so it can tell a lasting preference from
+an instruction for the task at hand, and skip anything you later took back. It reads existing
+memory first, does not duplicate an entry that already covers the fact, and amends an entry that
+has gone stale. Saving nothing is the common outcome.
+
+Nothing this pass picks is saved straight away: each pick waits for review alongside lessons
+(see below), and the turn ends with a line saying how many are waiting. The pass is one extra
+model call, and its cost counts toward the run's caps. A manual `/compact` does not run it.
 
 Both passes can write only what they can quote from your messages (see below), and neither runs
 when persistence is off: `--ephemeral` on `jazz run` or `jazz agent chat`, or a run answering a peer.
@@ -191,22 +195,26 @@ problem), it proposes a lesson with `propose_lesson`: a general rule, and the mi
 prevents. You do not have to say "remember".
 
 A lesson is written in the agent's words, not yours, so it is not saved on the agent's say-so.
-It waits for review:
+It waits for review, together with the facts the compaction pass picked:
 
-- In a chat, `/memory review` lists waiting lessons, `/memory accept <id>` saves one and
-  `/memory reject <id>` drops it.
-- From the shell, `jazz memory review`, `jazz memory accept <id>` and `jazz memory reject <id>`
-  do the same.
-- A chat opens with a line saying how many lessons are waiting.
+- `/memory review` in a chat, or `jazz memory review` from the shell, lists everything waiting
+  and opens one checklist. Check what to keep and press Enter: checked items are saved and the
+  rest are dropped. Escape decides nothing and leaves them all waiting.
+- `/memory accept <id>` and `/memory reject <id>` (or `jazz memory accept|reject <id>`) decide
+  one item at a time, which also works where Jazz cannot show a checklist.
+- A chat opens with a line saying how many suggestions are waiting.
 
-No tool can accept a lesson. `jazz memory accept` refuses commands started by an agent, so a
-shell tool cannot approve its own proposal. An accepted lesson is filed like any other entry,
-under the situation it applies to, and `jazz memory explain` shows its origin as `lesson`.
+No tool can accept a suggestion. `jazz memory review` and `jazz memory accept` refuse commands
+started by an agent, so a shell tool cannot approve its own proposal. An accepted lesson is filed
+like any other entry, under the situation it applies to, and `jazz memory explain` shows its
+origin as `lesson`; a kept fact shows `auto`. A kept amendment is refused if the entry changed
+since it was suggested, and stays waiting.
 
-Lessons are also proposed after a conversation ends. When you close a chat or switch away from
+The same review happens after a conversation ends. When you close a chat or switch away from
 a conversation, Jazz starts a background process that reads what was said since the last
-review and proposes a lesson for each mistake the agent made. You do not wait for it, and it
-never saves facts or asks for approval. Its proposals appear at your next chat. It does not run
+review, with the rest of the conversation as context, and suggests facts and lessons the same
+way. You do not wait for it, and it never asks for approval. Its suggestions appear at your next
+chat. It does not run
 for `--ephemeral` chats. A chat started with `--config` passes that same config file to the
 background process, retaining its agent store and provider settings.
 

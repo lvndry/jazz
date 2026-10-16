@@ -32,11 +32,11 @@ import { readMemoryRecalls, summarizeMemoryRecalls } from "@jazz/core/agent/memo
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { splitScopeAndRest } from "@jazz/core/memory/entry-path";
-import { lessonDestinationPath } from "@jazz/core/memory/lesson-destination";
 import { CLIError } from "@jazz/core/types/errors";
 import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
+import { reviewMemorySuggestions } from "../memory-review";
 
 /** `jazz memory list [scope]` — every scope on disk, or every file in one scope. */
 export function listMemoryCommand(scope?: string) {
@@ -235,47 +235,44 @@ export function memoryRecallCommand(options: { readonly surface?: string }) {
 }
 
 /**
- * `jazz memory review` — lessons agents drew from their own mistakes, waiting for a decision.
+ * `jazz memory review` — facts background passes picked and lessons agents drew from their own
+ * mistakes, kept or ignored together from one list.
  *
- * A lesson is the agent's wording, not the person's, so it is saved only when the person
- * accepts it here or with `/memory accept` in a chat.
+ * Nothing here is memory until the person keeps it: the passes chose it without the person
+ * watching, and a lesson is the agent's wording rather than the person's.
  */
-export function reviewLessonsCommand() {
+export function reviewSuggestionsCommand() {
   return Effect.gen(function* () {
+    if (isAgentStartedProcess()) {
+      return yield* Effect.fail(
+        new CLIError({
+          command: "memory review",
+          message:
+            "Reviewing memory suggestions is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.",
+        }),
+      );
+    }
     const terminal = yield* TerminalServiceTag;
     const memoryService = yield* MemoryServiceTag;
-    const proposals = yield* memoryService.pendingLessons();
-    if (proposals.length === 0) {
-      yield* terminal.info("No lessons waiting for review.");
-      return;
-    }
-    yield* terminal.log(`Lessons waiting for review (${proposals.length}):\n`);
-    for (const proposal of proposals) {
-      yield* terminal.log(`  ${proposal.id}  ${proposal.rule}`);
-      yield* terminal.log(`          learned from: ${proposal.mistake}`);
-      yield* terminal.log(`          saves to: ${lessonDestinationPath(proposal)}\n`);
-    }
-    yield* terminal.log(
-      "Keep one with: jazz memory accept <id>   Drop it with: jazz memory reject <id>",
-    );
+    yield* reviewMemorySuggestions(terminal, memoryService, "jazz memory");
   });
 }
 
 /** Accept only a person-started command; a shell tool cannot approve its own lesson. */
-export function acceptLessonCommand(id: string) {
+export function acceptSuggestionCommand(id: string) {
   return Effect.gen(function* () {
     if (isAgentStartedProcess()) {
       return yield* Effect.fail(
         new CLIError({
           command: "memory accept",
           message:
-            "Accepting a lesson is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.",
+            "Accepting a memory suggestion is your decision; this command was started by a Jazz agent, so it was refused. Run it yourself.",
         }),
       );
     }
     const terminal = yield* TerminalServiceTag;
     const memoryService = yield* MemoryServiceTag;
-    const outcome = yield* memoryService.acceptLesson(id);
+    const outcome = yield* memoryService.acceptSuggestion(id);
     if (!outcome.success) {
       return yield* Effect.fail(
         new CLIError({ command: "memory accept", message: outcome.message }),
@@ -285,11 +282,11 @@ export function acceptLessonCommand(id: string) {
   });
 }
 
-export function rejectLessonCommand(id: string) {
+export function rejectSuggestionCommand(id: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const memoryService = yield* MemoryServiceTag;
-    const outcome = yield* memoryService.rejectLesson(id);
+    const outcome = yield* memoryService.rejectSuggestion(id);
     if (!outcome.success) {
       return yield* Effect.fail(
         new CLIError({ command: "memory reject", message: outcome.message }),
@@ -300,8 +297,8 @@ export function rejectLessonCommand(id: string) {
 }
 
 /**
- * `jazz memory reflect` — internal: propose lessons from what was said in a conversation since it
- * was last reflected on. The chat starts this detached when a conversation is closed or left, so
+ * `jazz memory reflect` — internal: suggest facts and lessons from what was said in a conversation
+ * since it was last reflected on, reading the part already reflected on as context. The chat starts this detached when a conversation is closed or left, so
  * the person never waits on it.
  */
 export function reflectConversationCommand(options: {
@@ -323,12 +320,18 @@ export function reflectConversationCommand(options: {
     if (!unreflected.some((message) => message.role === "assistant")) {
       return;
     }
+    const unreflectedSet = new Set(unreflected);
     yield* extractMemories(
       unreflected,
       agent,
       conversation.conversationId,
       (runOptions) => AgentRunner.runRecursive(runOptions),
       "conversation-end",
+      {
+        earlierMessages: conversation.messages.filter(
+          (message) => message.role !== "system" && !unreflectedSet.has(message),
+        ),
+      },
     );
   });
 }

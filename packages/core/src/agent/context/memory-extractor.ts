@@ -1,15 +1,19 @@
 /**
  * Runs at the `compact` rung, just before older messages are summarized away:
- * spends an LLM call to persist any durable, user-stated facts from the
- * about-to-be-compressed transcript into long-term memory, so they survive the
- * conversation even though their verbatim source does not. It also proposes a
- * lesson for each mistake the assistant made, for the user to review.
+ * spends an LLM call to find durable, user-stated facts in the about-to-be-compressed
+ * transcript worth carrying across conversations, and a lesson for each mistake the
+ * assistant made. Nothing it picks is written straight to memory: its fact writes and
+ * lessons are queued as suggestions the person keeps or ignores together with
+ * `/memory review`, since it chose them without the person watching.
  *
  * The same pass runs when a chat conversation ends, from a detached process so
- * closing the chat never waits on it. That pass only proposes lessons: a fact
- * save from it would raise an approval prompt in the chat that already closed,
- * while a proposal needs no approval because nothing reaches memory until the
- * user accepts it.
+ * closing the chat never waits on it. Queuing needs no approval prompt, so this pass
+ * suggests facts too.
+ *
+ * The extractor can save only from the messages being compacted, but it also reads
+ * the earlier summary and the newer messages that stay verbatim, as context it cannot
+ * quote: whether a statement is a lasting preference or part of the task at hand, and
+ * whether the user later took it back, shows only in the rest of the conversation.
  *
  * This is deliberately separate from summarization. The summary keeps the
  * conversation resumable *within* this run; memory keeps facts worth carrying
@@ -19,7 +23,7 @@
  *
  * Safety: the caller only enables this when the run is allowed to persist. The
  * recursive runner does NOT inherit the parent run's `disablePersistence`, so a
- * sub-agent granted `manage_memory` would otherwise write memory in exactly the
+ * sub-agent granted `manage_memory` would otherwise queue memory in exactly the
  * runs (`--ephemeral`, A2A peers) that forbid it — the gate is enforced at the
  * call site, not here.
  */
@@ -49,10 +53,20 @@ import {
   selectSummarizerModel,
   Summarizer,
 } from "./summarizer";
-import type { ModelHint } from "./token-counter";
+import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 
 /** When the pass runs: before compaction, or after a chat conversation ended. */
 export type MemoryExtractionPass = "compaction" | "conversation-end";
+
+/** The rest of the conversation around the scanned messages, shown to the extractor but never quotable. */
+export interface ExtractionContext {
+  /** The summary of everything compacted before the scanned messages. */
+  readonly earlierSummary?: string;
+  /** Messages before the scanned ones that a previous pass already read. */
+  readonly earlierMessages?: readonly ChatMessage[];
+  /** Messages after the scanned ones, which stay verbatim. */
+  readonly laterMessages?: readonly ChatMessage[];
+}
 
 interface ExtractorModelConfig {
   provider: ProviderName;
@@ -66,6 +80,13 @@ interface ExtractorModelConfig {
  * room for those tool results on top of its system prompt.
  */
 const EXTRACTOR_INPUT_BUDGET_RATIO = 0.5;
+
+/**
+ * Share of that input budget the surrounding context may take. The scanned messages are what
+ * the pass exists to read, so they keep most of it; context past this keeps its newest part,
+ * which is where the current task and any change of mind sit.
+ */
+const EXTRACTOR_CONTEXT_BUDGET_RATIO = 0.4;
 
 /**
  * Iteration ceiling for one extraction pass: enough to list scopes, read a
@@ -102,7 +123,6 @@ const MAX_ORIGINAL_USER_TEXT_CHARS = QUOTES_SHOWN_PER_MESSAGE * MAX_SOURCE_QUOTE
 function buildMemoryExtractorAgent(
   parentAgent: Agent,
   extractorModelConfig: ExtractorModelConfig,
-  pass: MemoryExtractionPass,
 ): Agent {
   const sameModel =
     extractorModelConfig.provider === parentAgent.config.llm.provider &&
@@ -118,7 +138,7 @@ function buildMemoryExtractorAgent(
     id: MEMORY_EXTRACTOR_AGENT_ID,
     name: "Memory Extractor",
     description:
-      "an internal agent that saves durable, user-stated facts to long-term memory before older context is compacted away.",
+      "an internal agent that suggests durable, user-stated facts for long-term memory before older context is compacted away.",
     config: {
       ...parentAgent.config,
       llm: {
@@ -127,10 +147,7 @@ function buildMemoryExtractorAgent(
         model: extractorModelConfig.model,
       },
       persona: "memory-extractor",
-      tools:
-        pass === "compaction"
-          ? [VIEW_MEMORY_TOOL_NAME, MANAGE_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME]
-          : [VIEW_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME],
+      tools: [VIEW_MEMORY_TOOL_NAME, MANAGE_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME],
     },
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -138,7 +155,7 @@ function buildMemoryExtractorAgent(
 }
 
 /**
- * Persist durable facts from the about-to-be-compacted messages into memory.
+ * Queue durable facts and lessons from the about-to-be-compacted messages for review.
  *
  * Best-effort: any failure is logged and swallowed so it can never fail or block
  * compaction. Callers must only invoke this when the run is permitted to persist
@@ -150,6 +167,7 @@ export function extractMemories(
   conversationId: string,
   runRecursive: RecursiveRunner,
   pass: MemoryExtractionPass = "compaction",
+  surrounding: ExtractionContext = {},
 ): Effect.Effect<
   void,
   never,
@@ -172,7 +190,7 @@ export function extractMemories(
       yield* logger.warn(warning, { agentId: parentAgent.id });
     }
 
-    const extractor = buildMemoryExtractorAgent(parentAgent, extractorModelConfig, pass);
+    const extractor = buildMemoryExtractorAgent(parentAgent, extractorModelConfig);
 
     const extractorHint: ModelHint = {
       provider: extractorModelConfig.provider,
@@ -189,10 +207,17 @@ export function extractMemories(
     }).tokens;
     const inputBudget = Math.floor(extractorWindow * EXTRACTOR_INPUT_BUDGET_RATIO);
 
+    const contextBlock = renderContextBlock(
+      surrounding,
+      Math.floor(inputBudget * EXTRACTOR_CONTEXT_BUDGET_RATIO),
+      extractorHint,
+    );
+    const scanBudget = inputBudget - DEFAULT_TOKEN_COUNTER.countText(contextBlock, extractorHint);
+
     // A transcript larger than the extractor's window is split so no message is
-    // silently dropped from the scan; later chunks see earlier chunks' writes,
+    // silently dropped from the scan; later chunks see earlier chunks' suggestions,
     // so cross-chunk dedup still holds.
-    const allChunks = chunkForSummarizer(messagesToSummarize, inputBudget, extractorHint);
+    const allChunks = chunkForSummarizer(messagesToSummarize, scanBudget, extractorHint);
     const chunks =
       pass === "conversation-end" ? allChunks.slice(-MAX_CONVERSATION_END_CHUNKS) : allChunks;
     if (chunks.length < allChunks.length) {
@@ -237,16 +262,17 @@ export function extractMemories(
         ),
       );
       const userInput =
-        pass === "compaction"
-          ? "The conversation excerpt below is about to be compacted away. Persist anything from it worth " +
-            "remembering long term, following your instructions, then stop. If nothing qualifies, make no changes.\n\n" +
-            `<transcript>\n${transcript}\n</transcript>\n\n` +
-            `To write memory, set source_ref to the ID in a ${formatMemorySourceTag("<id>")} tag and source_quote to words ` +
-            "copied exactly from that message — from its Original user text when one is shown. Untagged text can't be quoted."
-          : "The conversation below has ended. Propose a lesson for each mistake the assistant made in it, " +
-            "following your instructions, then stop. User-stated facts were handled during the conversation; " +
-            "propose lessons only. If the assistant made no mistake worth a rule, make no call.\n\n" +
-            `<transcript>\n${transcript}\n</transcript>`;
+        (pass === "compaction"
+          ? "The conversation excerpt below is about to be compacted away. Suggest anything from it worth " +
+            "remembering long term, and a lesson for each mistake the assistant made, following your instructions, " +
+            "then stop. If nothing qualifies, make no call.\n\n"
+          : "The conversation below has ended. Suggest anything from it worth remembering long term, and a lesson " +
+            "for each mistake the assistant made, following your instructions, then stop. If nothing qualifies, " +
+            "make no call.\n\n") +
+        contextBlock +
+        `<transcript>\n${transcript}\n</transcript>\n\n` +
+        `To suggest a fact, set source_ref to the ID in a ${formatMemorySourceTag("<id>")} tag and source_quote to words ` +
+        "copied exactly from that message — from its Original user text when one is shown. Untagged text can't be quoted.";
 
       yield* runRecursive({
         agent: extractor,
@@ -254,7 +280,7 @@ export function extractMemories(
         conversationId,
         maxIterations: EXTRACTION_MAX_ITERATIONS,
         memorySources,
-        autoApprovedTools: [PROPOSE_LESSON_TOOL_NAME],
+        autoApprovedTools: [MANAGE_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME],
       });
     }
   }).pipe(
@@ -270,4 +296,70 @@ export function extractMemories(
       }),
     ),
   );
+}
+
+/**
+ * The surrounding conversation as a block the extractor reads but cannot quote: no message in it
+ * carries a memory-source tag, so `manage_memory` rejects any quote taken from it. The summary is
+ * kept whole when it fits; later messages come next, since that is where the user revises what they
+ * said; earlier messages take what is left. Messages past the budget are dropped oldest first.
+ */
+function renderContextBlock(
+  surrounding: ExtractionContext,
+  budgetTokens: number,
+  hint: ModelHint,
+): string {
+  const parts: string[] = [];
+  let remaining = budgetTokens;
+  const summary = surrounding.earlierSummary?.trim();
+  if (summary !== undefined && summary.length > 0) {
+    const summaryTokens = DEFAULT_TOKEN_COUNTER.countText(summary, hint);
+    if (summaryTokens <= remaining) {
+      parts.push(`<earlier_summary>\n${summary}\n</earlier_summary>`);
+      remaining -= summaryTokens;
+    }
+  }
+  const later = newestThatFit(surrounding.laterMessages ?? [], remaining, hint);
+  remaining -= later.tokens;
+  const earlier = newestThatFit(surrounding.earlierMessages ?? [], remaining, hint);
+  if (earlier.messages.length > 0) {
+    parts.push(
+      `<earlier_messages>\n${Summarizer.renderTranscript(earlier.messages)}\n</earlier_messages>`,
+    );
+  }
+  if (later.messages.length > 0) {
+    parts.push(
+      `<later_messages>\n${Summarizer.renderTranscript(later.messages)}\n</later_messages>`,
+    );
+  }
+  if (parts.length === 0) {
+    return "";
+  }
+  return (
+    "Context only — the rest of the conversation, which you cannot quote. Use it to tell lasting facts " +
+    "from the task at hand, and to see what the user later revised or took back:\n\n" +
+    `<context>\n${parts.join("\n\n")}\n</context>\n\n`
+  );
+}
+
+function newestThatFit(
+  messages: readonly ChatMessage[],
+  budgetTokens: number,
+  hint: ModelHint,
+): { messages: ChatMessage[]; tokens: number } {
+  const kept: ChatMessage[] = [];
+  let tokens = 0;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message === undefined) {
+      continue;
+    }
+    const messageTokens = DEFAULT_TOKEN_COUNTER.countMessage(message, hint);
+    if (tokens + messageTokens > budgetTokens) {
+      break;
+    }
+    kept.unshift(message);
+    tokens += messageTokens;
+  }
+  return { messages: kept, tokens };
 }
