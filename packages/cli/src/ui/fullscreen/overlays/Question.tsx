@@ -349,6 +349,17 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
     inner - previewCandidateWidth - PREVIEW_GAP >= PREVIEW_MIN_WIDTH;
   const previewWidth = hasPreview ? previewCandidateWidth : 0;
   const bodyInner = hasPreview ? inner - previewWidth - PREVIEW_GAP : inner;
+  // The pane pads its left edge by the gap, so its text has that much less room.
+  const previewTextWidth = Math.max(1, previewWidth - PREVIEW_GAP);
+  // The tallest preview, not the highlighted one, sizes the card so it does not jump as the
+  // highlight moves.
+  const previewRows = hasPreview
+    ? model.choices.reduce(
+        (tallest, choice) =>
+          Math.max(tallest, previewRowCount(choice.preview ?? [], previewTextWidth)),
+        0,
+      )
+    : 0;
 
   // Descriptions align into their own column so the choices read as a table.
   // Labels keep the majority of the row: the label is the answer, the
@@ -425,6 +436,7 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
       listOffset: 0,
       hasPreview: false,
       previewWidth: 0,
+      previewTextWidth: 0,
       selectedPreview: undefined,
       height: placed.height,
       cardHeight: Math.max(1, placed.height - HINT_ROWS),
@@ -435,7 +447,11 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
   const pageStart = pickerWindowStart(selected, items.length, PICKER_WINDOW_SIZE);
   const pageCount = Math.min(PICKER_WINDOW_SIZE, items.length);
   const pageHeights = heights.slice(pageStart, pageStart + pageCount);
-  const desiredListRows = Math.max(1, pageHeights.reduce((sum, rows) => sum + rows, 0) || 1);
+  const desiredListRows = Math.max(
+    1,
+    pageHeights.reduce((sum, rows) => sum + rows, 0),
+    previewRows,
+  );
   const maxListRows = Math.max(1, viewport.height - HINT_ROWS - fixedRows);
   const listRows = Math.min(desiredListRows, maxListRows);
   const selectedInPage = Math.max(0, selected - pageStart);
@@ -499,12 +515,30 @@ export function questionLayout(source: QuestionModel, viewport: Viewport) {
     listOffset,
     hasPreview,
     previewWidth,
+    previewTextWidth,
     selectedPreview,
     height,
     cardHeight,
     left,
     top,
   };
+}
+
+/** One preview line as the rows it fills at `width`: a lone span word-wraps, styled runs stay one row. */
+function previewLineRows(line: ChoicePreviewLine, width: number): ChoicePreviewLine[] {
+  // A caption is almost always one plain span; word-wrap it across rows rather than clipping it,
+  // so "no color; every line reads the same" is not "no color; every ...". A swatch or other
+  // multi-span line keeps its styling on one row instead: wrapping a run of separately-colored
+  // spans would need to split a span mid-run.
+  const onlySpan = line.length === 1 ? line[0] : undefined;
+  return onlySpan === undefined
+    ? [line]
+    : wrapLines(onlySpan.text, width).map((piece) => [{ ...onlySpan, text: piece }]);
+}
+
+/** How many rows a preview fills at `width`, so the card can make room for all of it. */
+export function previewRowCount(lines: readonly ChoicePreviewLine[], width: number): number {
+  return lines.reduce((sum, line) => sum + previewLineRows(line, width).length, 0);
 }
 
 /** The highlighted choice's preview, wrapping each line rather than clipping it. */
@@ -517,18 +551,8 @@ function PreviewPane({
 }): ReactNode {
   return (
     <>
-      {lines.flatMap((line, lineIndex) => {
-        // A caption is almost always one plain span; word-wrap it across rows rather than
-        // clipping it, so "no color; every line reads the same" is not "no color; every ...".
-        // A swatch or other multi-span line keeps its styling on one row instead — wrapping a
-        // run of separately-colored spans would need to split a span mid-run, which is not
-        // worth it for the short, single-row content every current preview actually uses.
-        const onlySpan = line.length === 1 ? line[0] : undefined;
-        const rows =
-          onlySpan === undefined
-            ? [line]
-            : wrapLines(onlySpan.text, width).map((piece) => [{ ...onlySpan, text: piece }]);
-        return rows.map((row, rowIndex) => (
+      {lines.flatMap((line, lineIndex) =>
+        previewLineRows(line, width).map((row, rowIndex) => (
           <text
             key={`${String(lineIndex)}-${String(rowIndex)}`}
             style={{ height: 1, flexShrink: 0, wrapMode: "none", truncate: true }}
@@ -553,8 +577,8 @@ function PreviewPane({
               );
             })}
           </text>
-        ));
-      })}
+        )),
+      )}
     </>
   );
 }
@@ -582,6 +606,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     listOffset,
     hasPreview,
     previewWidth,
+    previewTextWidth,
     selectedPreview,
     height,
     cardHeight,
@@ -958,7 +983,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
               {selectedPreview === undefined ? null : (
                 <PreviewPane
                   lines={selectedPreview}
-                  width={previewWidth}
+                  width={previewTextWidth}
                 />
               )}
             </box>

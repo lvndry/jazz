@@ -1009,6 +1009,7 @@ with `/switch <agent>` to use the updated tool selection.
 | `/retry`                                                                             | Re-send your last message.                                                                                    |
 | `/new`                                                                               | Start a fresh conversation with the current agent.                                                            |
 | `/create`                                                                            | Create a new agent.                                                                                           |
+| `/plugins`                                                                           | Turn installed plugins on or off, for this conversation or always.                                            |
 | `/skills`                                                                            | Search installed skills by name, source, or description.                                                      |
 | `/info`                                                                              | Show conversation id, title, usage, and log file paths for this session. Also `/stats`.                       |
 | `/switch [agent]`                                                                    | Switch to a different agent in the same conversation.                                                         |

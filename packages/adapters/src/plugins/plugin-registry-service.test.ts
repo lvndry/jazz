@@ -49,6 +49,51 @@ async function packageFixture(
   return { manifestPath, digest };
 }
 
+/** Two trusted, consented plugins that both declare `route.skills`, so only one may run at a time. */
+async function installTwoPluginsSharingAHook(root: string): Promise<{
+  readonly registry: PluginRegistryServiceImpl;
+  readonly first: { readonly manifestPath: string; readonly digest: string };
+}> {
+  const first = await packageFixture(
+    root,
+    "1.0.0",
+    "export default { apiVersion: 1, register() {} };\n",
+  );
+  const secondDirectory = path.join(root, "other");
+  await fs.mkdir(secondDirectory);
+  const secondSource = "export default { apiVersion: 1, register() {} };\n// other";
+  const secondDigest = createHash("sha256").update(secondSource).digest("hex");
+  await fs.writeFile(path.join(secondDirectory, "plugin.mjs"), secondSource);
+  await fs.writeFile(
+    path.join(secondDirectory, "manifest.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: "com.jazz.test.other",
+      name: "Other",
+      version: "1.0.0",
+      hostApi: 1,
+      artifact: "./plugin.mjs",
+      sha256: secondDigest,
+      hooks: ["route.skills"],
+      policyHooks: [],
+      decisionProviders: [],
+      network: { destinations: [] },
+      dataSent: [],
+      secrets: [],
+    }),
+  );
+  const registry = new PluginRegistryServiceImpl({ pluginDirectory: path.join(root, "plugins") });
+  for (const [manifestPath, digest, id] of [
+    [first.manifestPath, first.digest, "com.jazz.test.lifecycle"],
+    [path.join(secondDirectory, "manifest.json"), secondDigest, "com.jazz.test.other"],
+  ] as const) {
+    await registry.add(manifestPath);
+    await registry.trust(id, digest);
+    await registry.grantConsent(id, (await registry.inspect(id)).consentDigest);
+  }
+  return { registry, first };
+}
+
 describe("PluginRegistryServiceImpl", () => {
   test("reports missing plugins consistently without installing or enabling them", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-missing-"));
@@ -189,45 +234,74 @@ describe("PluginRegistryServiceImpl", () => {
     expect(inspection.enabledAgentIds).toEqual([]);
   });
 
+  test("layers conversation overrides over saved enablement without writing them", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-override-"));
+    try {
+      const { registry, first } = await installTwoPluginsSharingAHook(root);
+      const loader = new PluginModuleLoader({
+        stateStore: registry.stateStore,
+        installer: registry.installer,
+      });
+      const stateBefore = await registry.stateStore.read();
+
+      await loader.setConversationOverride("com.jazz.test.lifecycle", true, "default");
+      expect(await loader.listEnabledForAgent("default")).toEqual([
+        { id: "com.jazz.test.lifecycle", digest: first.digest },
+      ]);
+      expect((await loader.listEnabledManifests()).map((manifest) => manifest.id)).toEqual([
+        "com.jazz.test.lifecycle",
+      ]);
+      await expect(
+        loader.setConversationOverride("com.jazz.test.other", true, "default"),
+      ).rejects.toThrow("hook conflict");
+
+      await registry.enable("com.jazz.test.other");
+      await loader.setConversationOverride("com.jazz.test.other", false, "default");
+      loader.clearConversationOverride("com.jazz.test.lifecycle");
+      expect(await loader.listEnabledForAgent("default")).toEqual([]);
+      expect(await loader.listEnabledManifests()).toEqual([]);
+
+      loader.clearConversationOverrides();
+      expect((await loader.listEnabledForAgent("default")).map((entry) => entry.id)).toEqual([
+        "com.jazz.test.other",
+      ]);
+      const stateAfter = await registry.stateStore.read();
+      expect(stateAfter.plugins["com.jazz.test.lifecycle"]).toEqual(
+        stateBefore.plugins["com.jazz.test.lifecycle"],
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses to turn on untrusted code for a conversation", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-override-untrusted-"));
+    try {
+      const fixture = await packageFixture(
+        root,
+        "1.0.0",
+        "export default { apiVersion: 1, register() {} };\n",
+      );
+      const registry = new PluginRegistryServiceImpl({
+        pluginDirectory: path.join(root, "plugins"),
+      });
+      await registry.add(fixture.manifestPath);
+      const loader = new PluginModuleLoader({
+        stateStore: registry.stateStore,
+        installer: registry.installer,
+      });
+      await expect(
+        loader.setConversationOverride("com.jazz.test.lifecycle", true, "default"),
+      ).rejects.toThrow("not trusted");
+      expect(await loader.listEnabledForAgent("default")).toEqual([]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("detects one-handler-per-hook conflicts for the same agent", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-lifecycle-"));
-    const first = await packageFixture(
-      root,
-      "1.0.0",
-      "export default { apiVersion: 1, register() {} };\n",
-    );
-    const secondDirectory = path.join(root, "other");
-    await fs.mkdir(secondDirectory);
-    const secondSource = "export default { apiVersion: 1, register() {} };\n// other";
-    const secondDigest = createHash("sha256").update(secondSource).digest("hex");
-    await fs.writeFile(path.join(secondDirectory, "plugin.mjs"), secondSource);
-    await fs.writeFile(
-      path.join(secondDirectory, "manifest.json"),
-      JSON.stringify({
-        schemaVersion: 1,
-        id: "com.jazz.test.other",
-        name: "Other",
-        version: "1.0.0",
-        hostApi: 1,
-        artifact: "./plugin.mjs",
-        sha256: secondDigest,
-        hooks: ["route.skills"],
-        policyHooks: [],
-        decisionProviders: [],
-        network: { destinations: [] },
-        dataSent: [],
-        secrets: [],
-      }),
-    );
-    const registry = new PluginRegistryServiceImpl({ pluginDirectory: path.join(root, "plugins") });
-    for (const [manifestPath, digest, id] of [
-      [first.manifestPath, first.digest, "com.jazz.test.lifecycle"],
-      [path.join(secondDirectory, "manifest.json"), secondDigest, "com.jazz.test.other"],
-    ] as const) {
-      await registry.add(manifestPath);
-      await registry.trust(id, digest);
-      await registry.grantConsent(id, (await registry.inspect(id)).consentDigest);
-    }
+    const { registry } = await installTwoPluginsSharingAHook(root);
     await registry.enable("com.jazz.test.lifecycle", "default");
     await expect(registry.enable("com.jazz.test.other", "default")).rejects.toThrow(
       "hook conflict",
@@ -236,43 +310,7 @@ describe("PluginRegistryServiceImpl", () => {
 
   test("enables for all agents and conflicts across every agent", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-global-"));
-    const first = await packageFixture(
-      root,
-      "1.0.0",
-      "export default { apiVersion: 1, register() {} };\n",
-    );
-    const secondDirectory = path.join(root, "other");
-    await fs.mkdir(secondDirectory);
-    const secondSource = "export default { apiVersion: 1, register() {} };\n// other";
-    const secondDigest = createHash("sha256").update(secondSource).digest("hex");
-    await fs.writeFile(path.join(secondDirectory, "plugin.mjs"), secondSource);
-    await fs.writeFile(
-      path.join(secondDirectory, "manifest.json"),
-      JSON.stringify({
-        schemaVersion: 1,
-        id: "com.jazz.test.other",
-        name: "Other",
-        version: "1.0.0",
-        hostApi: 1,
-        artifact: "./plugin.mjs",
-        sha256: secondDigest,
-        hooks: ["route.skills"],
-        policyHooks: [],
-        decisionProviders: [],
-        network: { destinations: [] },
-        dataSent: [],
-        secrets: [],
-      }),
-    );
-    const registry = new PluginRegistryServiceImpl({ pluginDirectory: path.join(root, "plugins") });
-    for (const [manifestPath, digest, id] of [
-      [first.manifestPath, first.digest, "com.jazz.test.lifecycle"],
-      [path.join(secondDirectory, "manifest.json"), secondDigest, "com.jazz.test.other"],
-    ] as const) {
-      await registry.add(manifestPath);
-      await registry.trust(id, digest);
-      await registry.grantConsent(id, (await registry.inspect(id)).consentDigest);
-    }
+    const { registry, first } = await installTwoPluginsSharingAHook(root);
 
     await registry.enable("com.jazz.test.lifecycle");
     const enabled = await registry.inspect("com.jazz.test.lifecycle");

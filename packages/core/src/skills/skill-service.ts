@@ -164,10 +164,12 @@ export class SkillsLive implements SkillService {
   listSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
     return Effect.gen(
       function* (this: SkillsLive) {
-        // Check cache first - skills are cached for the session since they don't change mid-conversation
+        // Plugins can be turned on or off mid-conversation, so their skills are read fresh on every
+        // call while the on-disk skills stay cached for the session.
+        const pluginSkills = yield* this.getPluginSkills();
         const cached = yield* Ref.get(this.skillsListCache);
         if (cached !== null) {
-          return cached;
+          return mergeByName(pluginSkills, cached);
         }
 
         // 1. Get Built-in Skills (shipped with Jazz)
@@ -182,22 +184,12 @@ export class SkillsLive implements SkillService {
         // 4. Get Local Skills (Fresh scan, highest priority - cwd)
         const localSkills = yield* this.scanLocalSkills();
 
-        // 5. Get plugin skills (global, lowest priority - anything else of the same name wins)
-        const pluginSkills = yield* this.getPluginSkills();
+        // 5. Merge (Local > Agents > Global > Built-in by name; last arg wins)
+        const onDisk = mergeByName(builtinSkills, globalSkills, agentsSkills, localSkills);
+        yield* Ref.set(this.skillsListCache, onDisk);
 
-        // 6. Merge (Local > Agents > Global > Built-in > Plugin by name; last arg wins)
-        const merged = mergeByName(
-          pluginSkills,
-          builtinSkills,
-          globalSkills,
-          agentsSkills,
-          localSkills,
-        );
-
-        // Cache for the session
-        yield* Ref.set(this.skillsListCache, merged);
-
-        return merged;
+        // 6. Plugin skills are global and lowest priority: anything else of the same name wins.
+        return mergeByName(pluginSkills, onDisk);
       }.bind(this),
     );
   }

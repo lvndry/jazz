@@ -71,6 +71,26 @@ describe("questionLayout — preview pane", () => {
     expect(layout.previewWidth).toBe(0);
   });
 
+  it("grows the list area to hold the tallest preview, not just the list rows", () => {
+    const tallPreview = Array.from({ length: 7 }, (_unused, index) => [
+      { text: `detail line ${String(index)}` },
+    ]);
+    const layout = questionLayout(
+      {
+        kind: "question",
+        mode: "checkbox",
+        message: "Check the plugins to run.",
+        choices: [
+          { label: "One", value: "one", preview: tallPreview },
+          { label: "Two", value: "two", preview: [[{ text: "short" }]] },
+        ],
+        selected: 1,
+      },
+      WIDE,
+    );
+    expect(layout.listRows).toBe(tallPreview.length);
+  });
+
   it("drops the preview pane rather than the list, in a viewport too narrow for both", () => {
     const layout = questionLayout(modelWithPreview(0), COMPACT);
     expect(layout.hasPreview).toBe(false);
@@ -116,6 +136,33 @@ describe("Question — preview pane rendering", () => {
     for (const line of lines) {
       expect([...line]).toHaveLength(WIDE.width);
     }
+  });
+});
+
+describe("Question — tall preview rendering", () => {
+  it("paints every preview line inside the card", async () => {
+    const preview = Array.from({ length: 6 }, (_unused, index) => [
+      { text: `detail line ${String(index)}` },
+    ]);
+    const rendered = await draw(
+      <Question
+        model={{
+          kind: "question",
+          mode: "checkbox",
+          message: "Check the plugins to run.",
+          choices: [{ label: "Example tool", value: "example", preview }],
+          selected: 0,
+        }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = rendered.captureCharFrame();
+    const lines = frame.split("\n");
+    const lastDetail = lines.findIndex((line) => line.includes("detail line 5"));
+    const hintRow = lines.findIndex((line) => line.includes("esc"));
+    expect(lastDetail).toBeGreaterThan(-1);
+    expect(lastDetail).toBeLessThan(hintRow);
   });
 });
 

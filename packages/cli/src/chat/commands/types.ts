@@ -32,6 +32,7 @@ export type CommandType =
   | "reasoning"
   | "config"
   | "skills"
+  | "plugins"
   | "context"
   | "work"
   | "cost"

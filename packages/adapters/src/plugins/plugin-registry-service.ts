@@ -35,6 +35,31 @@ import {
   type PluginStateRecord,
 } from "./state-store";
 
+/**
+ * The other active plugins that declare an advisory or policy hook `manifest` also declares, as
+ * `id (hook, hook)`. A run accepts one handler per hook and refuses to start a session that
+ * registers two, so any overlap must block the enable that would cause it.
+ */
+export function hookConflicts(
+  manifest: PluginManifest,
+  activeManifests: readonly PluginManifest[],
+): string[] {
+  const conflicts: string[] = [];
+  for (const other of activeManifests) {
+    if (other.id === manifest.id) {
+      continue;
+    }
+    const overlap = [
+      ...other.hooks.filter((hook) => manifest.hooks.includes(hook)),
+      ...other.policyHooks.filter((hook) => manifest.policyHooks.includes(hook)),
+    ];
+    if (overlap.length > 0) {
+      conflicts.push(`${other.id} (${overlap.join(", ")})`);
+    }
+  }
+  return conflicts;
+}
+
 export type PluginLifecycleAction =
   | "added"
   | "updated"
@@ -489,24 +514,19 @@ export class PluginRegistryServiceImpl {
       }
       // A plugin enabled for all agents runs everywhere, so it conflicts with any other plugin that
       // shares a hook and is active anywhere; a per-agent enable conflicts with another plugin that
-      // is enabled for that agent or for all agents. One handler per hook, either way.
-      const conflicts: string[] = [];
-      for (const [otherId, other] of Object.entries(state.plugins)) {
-        if (otherId === pluginId) continue;
-        const otherActiveHere =
-          agentId === undefined
-            ? other.enabledForAllAgents || other.enabledAgentIds.length > 0
-            : other.enabledForAllAgents || other.enabledAgentIds.includes(agentId);
-        if (!otherActiveHere) continue;
-        const advisoryOverlap = other.current.manifest.hooks.filter((hook) =>
-          existing.current.manifest.hooks.includes(hook),
-        );
-        const policyOverlap = other.current.manifest.policyHooks.filter((hook) =>
-          existing.current.manifest.policyHooks.includes(hook),
-        );
-        const overlap = [...advisoryOverlap, ...policyOverlap];
-        if (overlap.length > 0) conflicts.push(`${otherId} (${overlap.join(", ")})`);
-      }
+      // is enabled for that agent or for all agents.
+      const conflicts = hookConflicts(
+        existing.current.manifest,
+        Object.entries(state.plugins)
+          .filter(([otherId, other]) =>
+            otherId === pluginId
+              ? false
+              : agentId === undefined
+                ? other.enabledForAllAgents || other.enabledAgentIds.length > 0
+                : other.enabledForAllAgents || other.enabledAgentIds.includes(agentId),
+          )
+          .map(([, other]) => other.current.manifest),
+      );
       if (conflicts.length > 0) {
         const scope = agentId === undefined ? "all agents" : `agent ${agentId}`;
         throw new Error(`Plugin hook conflict for ${scope}: ${conflicts.join("; ")}`);

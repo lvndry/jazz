@@ -24,6 +24,7 @@ import {
   type PluginToolPreparation,
   type PluginToolResult,
 } from "@jazz/core/types/plugin";
+import { toError } from "@jazz/core/utils/errors";
 import { Effect, Layer } from "effect";
 import type { EnabledPluginSnapshot, PluginModuleLoader } from "./module-loader";
 import type { PluginSecretStore } from "./secret-store";
@@ -78,6 +79,35 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
         }),
       ),
     );
+  }
+
+  listConversationOverrides(): Effect.Effect<ReadonlyMap<string, boolean>> {
+    return Effect.sync(() => this.options.loader.listConversationOverrides());
+  }
+
+  setConversationOverride(
+    pluginId: string,
+    enabled: boolean,
+    agentId: string,
+  ): Effect.Effect<void, PluginRuntimeError> {
+    return Effect.tryPromise({
+      try: () => this.options.loader.setConversationOverride(pluginId, enabled, agentId),
+      catch: (cause) => new PluginRuntimeError({ message: toError(cause).message, cause }),
+    });
+  }
+
+  hasLoadedDigest(digest: string): Effect.Effect<boolean> {
+    return Effect.sync(() => this.options.loader.hasLoadedDigest(digest));
+  }
+
+  clearConversationOverrides(pluginId?: string): Effect.Effect<void> {
+    return Effect.sync(() => {
+      if (pluginId === undefined) {
+        this.options.loader.clearConversationOverrides();
+      } else {
+        this.options.loader.clearConversationOverride(pluginId);
+      }
+    });
   }
 
   listAgentTools(agentId: string): Effect.Effect<readonly PluginToolInfo[]> {

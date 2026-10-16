@@ -40,6 +40,24 @@ Review the code, declared capabilities, network destinations, and secrets before
 Omit `--agent` only when you want the plugin enabled for every agent, including future agents.
 Plugins are disabled until you trust and enable them.
 
+## Turn plugins on and off from chat
+
+`/plugins` opens a checklist of installed plugins. A plugin is checked when it runs for the current
+agent, and the highlighted one shows its version, what it adds (tools, commands, skills, personas),
+the hooks it handles, its network destinations, the data it sends, and what you have granted it.
+Change the checks and press Enter; Esc changes nothing. Then choose where the change applies:
+
+- **This conversation**: nothing is saved. The change ends when you start or resume another
+  conversation, or quit. Use it to try a plugin, or to silence one for a single task. The checklist
+  tags such a plugin `on · temporary` or `off · temporary`.
+- **Always**: saved for every agent, the same as `jazz plugin enable <id>` and
+  `jazz plugin disable <id>` without `--agent`.
+
+Turning a plugin on asks to trust its code and consent to its declared access the first time, in
+either scope, exactly as `jazz plugin trust` and `jazz plugin enable` do, and asks for any required
+secret it cannot find. It is refused when another active plugin already handles one of its hooks.
+Its tools, commands, and skills apply from the next message.
+
 ## Trust means code execution
 
 Plugins run inside the Jazz process with the authority of the operating-system user. The manifest's
@@ -258,7 +276,7 @@ each capability below.
 
 A plugin may contribute user-invoked slash commands. Each is declared in the manifest (name +
 description); the module registers a handler via `api.commands.register`. When a plugin is enabled,
-its commands are registered at chat startup and behave like the built-in dynamic commands: `/name`
+its commands are registered at chat startup, and again when `/plugins` turns a plugin on or off, and behave like the built-in dynamic commands: `/name`
 autocompletes (with a `(plugin)` badge), and running it invokes the handler, whose returned
 `message` becomes your next turn to the agent. Built-in, skill, and MCP-prompt commands win a name
 collision, so a plugin cannot shadow `/help`. A command that returns nothing is a quiet no-op.
@@ -334,7 +352,8 @@ api.lifecycle.register({
 ## Global vs per-agent
 
 Tools attach to the agent whose run registers them. Personas and skills are treated as globally
-available once a plugin is enabled anywhere — there is no separate per-agent gating for inert data.
+available once a plugin is enabled anywhere — there is no separate per-agent gating for inert data. A plugin turned on or off with `/plugins` for this conversation applies to every agent in that
+conversation.
 
 ## Lifecycle
 
