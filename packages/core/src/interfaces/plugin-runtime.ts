@@ -129,6 +129,25 @@ export interface PluginRuntimeService {
     prepared: unknown,
     cwd: string,
   ) => Effect.Effect<PluginToolResult>;
+  /** Plugins turned on (`true`) or off (`false`) for the open conversation only, by plugin id. */
+  readonly listConversationOverrides: () => Effect.Effect<ReadonlyMap<string, boolean>>;
+  /**
+   * Turn a plugin on or off for the open conversation without changing its saved enablement.
+   * Turning one on fails unless its code is trusted, its capabilities have consent, and no plugin
+   * active for `agentId` already handles one of its hooks.
+   */
+  readonly setConversationOverride: (
+    pluginId: string,
+    enabled: boolean,
+    agentId: string,
+  ) => Effect.Effect<void, PluginRuntimeError>;
+  /**
+   * Whether this process imported the plugin code with this digest. Imported code cannot be
+   * unloaded, so turning such a plugin off leaves its module state alive until a restart.
+   */
+  readonly hasLoadedDigest: (digest: string) => Effect.Effect<boolean>;
+  /** Drop one plugin's conversation override, or every override when `pluginId` is omitted. */
+  readonly clearConversationOverrides: (pluginId?: string) => Effect.Effect<void>;
   /** The slash commands an agent's enabled plugins contribute, for registration at chat startup. */
   readonly listAgentCommands: (agentId: string) => Effect.Effect<readonly PluginCommandInfo[]>;
   /** Run one of an agent's plugin commands by name. Always resolves ({} means nothing to send). */

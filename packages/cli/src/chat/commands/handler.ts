@@ -158,7 +158,9 @@ import {
 import type { CommandContext, CommandResult, SessionLimits, SpecialCommand } from "./types";
 import { handleWaitsCommand } from "./waits";
 import { reviewMemorySuggestions } from "../../memory-review";
+import { managePlugins } from "../../plugin-manager";
 import { formatCost } from "../../ui/text/format";
+import { registerExtensionCommands } from "../register-extension-commands";
 
 /**
  * Handle special commands from user input.
@@ -263,6 +265,9 @@ export function handleSpecialCommand(
 
       case "skills":
         return yield* handleSkillsCommand(terminal);
+
+      case "plugins":
+        return yield* handlePluginsCommand(terminal, agent.id);
 
       case "memory":
         return yield* handleMemoryCommand(terminal, command.args);
@@ -2340,6 +2345,30 @@ function handleUnknownCommand(
     );
     yield* terminal.log("");
     return { shouldContinue: true, keepDraft: true };
+  });
+}
+
+/**
+ * Handle /plugins: toggle installed plugins for this conversation or for good, then refresh the
+ * slash commands and skills they contribute so the menu matches what now runs.
+ */
+function handlePluginsCommand(
+  terminal: TerminalService,
+  agentId: string,
+): Effect.Effect<CommandResult, Error, SkillService> {
+  return Effect.gen(function* () {
+    const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+    if (Option.isNone(runtimeOption)) {
+      yield* terminal.log(
+        report("plugins", [{ kind: "text", text: "Plugins are not available in this session." }]),
+      );
+      return { shouldContinue: true };
+    }
+    const changed = yield* managePlugins(terminal, runtimeOption.value, agentId);
+    if (changed) {
+      yield* registerExtensionCommands(agentId);
+    }
+    return { shouldContinue: true };
   });
 }
 

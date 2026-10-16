@@ -249,6 +249,12 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
   },
   { name: "create", type: "create", description: "Create a new agent" },
   {
+    name: "plugins",
+    type: "plugins",
+    description: "Turn installed plugins on or off, for this conversation or always",
+    note: "Install plugins with 'jazz plugin add owner/repo'. Turning a plugin on asks to trust its code and consent to its declared access the first time.",
+  },
+  {
     name: "skills",
     type: "skills",
     description: "Search installed skills by name, source, or description",

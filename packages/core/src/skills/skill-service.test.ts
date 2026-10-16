@@ -151,4 +151,39 @@ describe("SkillsLive plugin skills", () => {
     );
     expect(content.core).toContain("Haiku");
   });
+
+  it("drops a plugin's skill from a cached list once the plugin is turned off", async () => {
+    let pluginOn = true;
+    const toggling = {
+      listAllSkills: () =>
+        Effect.sync(() =>
+          pluginOn
+            ? [
+                {
+                  pluginId: "com.example.demo",
+                  name: "haiku_writing",
+                  description: "Write a haiku.",
+                  content: "# Haiku",
+                },
+              ]
+            : [],
+        ),
+    } as unknown as PluginRuntimeService;
+    const names = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* SkillServiceTag;
+        const before = yield* service.listSkills();
+        pluginOn = false;
+        const after = yield* service.listSkills();
+        return [before, after].map((skills) =>
+          skills.some((skill) => skill.name === "haiku_writing"),
+        );
+      }).pipe(
+        Effect.provide(
+          Layer.merge(SkillsLive.layer, Layer.succeed(PluginRuntimeServiceTag, toggling)),
+        ),
+      ) as Effect.Effect<boolean[], Error, never>,
+    );
+    expect(names).toEqual([true, false]);
+  });
 });

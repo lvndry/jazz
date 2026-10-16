@@ -11,7 +11,7 @@ import type { JazzPluginModule, LoadedPlugin, PluginManifest } from "@jazz/core/
 import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import type { PluginArtifactInstaller } from "./artifact-installer";
-import { pluginConsentDigest } from "./plugin-registry-service";
+import { hookConflicts, pluginConsentDigest } from "./plugin-registry-service";
 import { verifySourceInstall } from "./source-integrity";
 import {
   ALL_AGENTS,
@@ -50,12 +50,80 @@ function assertAuthorized(pluginId: string, record: PluginStateRecord): void {
   }
 }
 
+function enabledInState(record: PluginStateRecord, agentId: string): boolean {
+  return (
+    record.enabledForAllAgents ||
+    record.enabledAgentIds.includes(agentId) ||
+    record.enabledAgentIds.includes(ALL_AGENTS)
+  );
+}
+
 export class PluginModuleLoader {
   private readonly loaded = new Set<string>();
+  /**
+   * Plugins turned on or off for the open conversation only, by plugin id. They win over the saved
+   * enablement for every agent in this process and are never written to the state file.
+   */
+  private readonly conversationOverrides = new Map<string, boolean>();
 
   constructor(private readonly options: PluginModuleLoaderOptions) {}
 
   hasLoadedDigest = (digest: string): boolean => this.loaded.has(digest);
+
+  private activeFor(pluginId: string, record: PluginStateRecord, agentId: string): boolean {
+    return this.conversationOverrides.get(pluginId) ?? enabledInState(record, agentId);
+  }
+
+  private activeAnywhere(pluginId: string, record: PluginStateRecord): boolean {
+    return (
+      this.conversationOverrides.get(pluginId) ??
+      (record.enabledForAllAgents || record.enabledAgentIds.length > 0)
+    );
+  }
+
+  listConversationOverrides(): ReadonlyMap<string, boolean> {
+    return new Map(this.conversationOverrides);
+  }
+
+  /**
+   * Turn a plugin on or off for the open conversation. Turning one on demands the same trusted
+   * digest and capability consent a saved enable does, and refuses a hook another plugin active
+   * for `agentId` already handles.
+   */
+  async setConversationOverride(
+    pluginId: string,
+    enabled: boolean,
+    agentId: string,
+  ): Promise<void> {
+    const state = await this.options.stateStore.read();
+    const record = state.plugins[pluginId];
+    if (record === undefined) {
+      throw new Error(`Plugin ${pluginId} is not installed`);
+    }
+    if (enabled) {
+      assertAuthorized(pluginId, record);
+      const conflicts = hookConflicts(
+        record.current.manifest,
+        Object.entries(state.plugins)
+          .filter(
+            ([otherId, other]) => otherId !== pluginId && this.activeFor(otherId, other, agentId),
+          )
+          .map(([, other]) => other.current.manifest),
+      );
+      if (conflicts.length > 0) {
+        throw new Error(`Plugin hook conflict for this conversation: ${conflicts.join("; ")}`);
+      }
+    }
+    this.conversationOverrides.set(pluginId, enabled);
+  }
+
+  clearConversationOverride(pluginId: string): void {
+    this.conversationOverrides.delete(pluginId);
+  }
+
+  clearConversationOverrides(): void {
+    this.conversationOverrides.clear();
+  }
 
   /**
    * Confirm the installed code still hashes to its trusted digest, sits at its digest-addressed
@@ -95,26 +163,22 @@ export class PluginModuleLoader {
     if (agentId.trim().length === 0) throw new Error("agentId cannot be empty");
     const state = await this.options.stateStore.read();
     return Object.entries(state.plugins)
-      .filter(
-        ([, record]) =>
-          record.enabledForAllAgents ||
-          record.enabledAgentIds.includes(agentId) ||
-          record.enabledAgentIds.includes(ALL_AGENTS),
-      )
+      .filter(([id, record]) => this.activeFor(id, record, agentId))
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([id, record]) => ({ id, digest: record.current.manifest.sha256 }));
   }
 
   /**
-   * Manifests of every plugin enabled for at least one agent, without importing any code. For
+   * Manifests of every plugin enabled for at least one agent or for the open conversation, without
+   * importing any code. For
    * reading declared, inert data (personas, skills) that needs no module execution — plugins are
    * treated as globally available once enabled anywhere.
    */
   async listEnabledManifests(): Promise<readonly PluginManifest[]> {
     const state = await this.options.stateStore.read();
-    return Object.values(state.plugins)
-      .filter((record) => record.enabledForAllAgents || record.enabledAgentIds.length > 0)
-      .map((record) => record.current.manifest)
+    return Object.entries(state.plugins)
+      .filter(([id, record]) => this.activeAnywhere(id, record))
+      .map(([, record]) => record.current.manifest)
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
@@ -125,12 +189,7 @@ export class PluginModuleLoader {
     }
     const state = await this.options.stateStore.read();
     const enabled = Object.entries(state.plugins)
-      .filter(
-        ([, record]) =>
-          record.enabledForAllAgents ||
-          record.enabledAgentIds.includes(agentId) ||
-          record.enabledAgentIds.includes(ALL_AGENTS),
-      )
+      .filter(([id, record]) => this.activeFor(id, record, agentId))
       .sort(([left], [right]) => left.localeCompare(right));
 
     // Validate every grant before importing any code. This avoids partial loading

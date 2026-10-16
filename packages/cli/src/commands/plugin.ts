@@ -9,7 +9,6 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
   ALL_AGENTS,
-  PluginRegistryServiceImpl,
   devPlugin,
   isLocalSourceDirectory,
   packPlugin,
@@ -24,17 +23,17 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import type { CommandRiskInput, CompactToolsInput, SkillRouteInput } from "@jazz/core/types/plugin";
 import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
-import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
+import {
+  confirmPluginEnable,
+  confirmPluginTrust,
+  openPluginRegistry,
+  provisionPluginSecrets,
+  requireInteractive,
+} from "../plugin-manager";
 
 export interface PluginCommandOptions {
   readonly json?: boolean;
-}
-
-function registry(): PluginRegistryServiceImpl {
-  return new PluginRegistryServiceImpl({
-    pluginDirectory: path.join(getJazzHomeDirectory(), "plugins"),
-  });
 }
 
 /** Resolve a catalog id while leaving explicit files and URLs untouched. */
@@ -236,19 +235,6 @@ function renderInspection(
   });
 }
 
-function requireInteractive(
-  terminal: TerminalService,
-  operation: string,
-): Effect.Effect<void, Error> {
-  return terminal.isInteractive
-    ? Effect.void
-    : Effect.fail(
-        new Error(
-          `${operation} requires a local interactive terminal; persistent plugin trust and consent cannot be granted headlessly.`,
-        ),
-      );
-}
-
 export function pluginAddCommand(
   source: string,
   options: PluginCommandOptions = {},
@@ -259,10 +245,12 @@ export function pluginAddCommand(
     const localSource = github ? false : yield* attempt(() => isLocalSourceDirectory(source));
     if (github) yield* terminal.info(`Fetching ${github.owner}/${github.repo} from GitHub…`);
     const result = yield* github
-      ? attempt(() => registry().addFromSource({ github }))
+      ? attempt(() => openPluginRegistry().addFromSource({ github }))
       : localSource
-        ? attempt(() => registry().addFromSource({ localDirectory: path.resolve(source) }))
-        : attempt(() => registry().add(resolvePluginSource(source)));
+        ? attempt(() =>
+            openPluginRegistry().addFromSource({ localDirectory: path.resolve(source) }),
+          )
+        : attempt(() => openPluginRegistry().add(resolvePluginSource(source)));
     if (options.json === true) return printJson({ ok: true, result });
     yield* terminal.success(`Installed ${result.pluginId} at ${result.digest}.`);
     yield* terminal.info("It is not trusted or enabled. Inspect it before granting either.");
@@ -274,7 +262,7 @@ export function pluginListCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const plugins = yield* attempt(() => registry().list());
+    const plugins = yield* attempt(() => openPluginRegistry().list());
     if (options.json === true) return printJson({ ok: true, plugins });
     if (plugins.length === 0) return yield* terminal.info("No plugins installed.");
     yield* terminal.heading(`Plugins (${plugins.length})`);
@@ -292,7 +280,7 @@ export function pluginInspectCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const inspection = yield* attempt(() => registry().inspect(id));
+    const inspection = yield* attempt(() => openPluginRegistry().inspect(id));
     if (options.json === true) return printJson({ ok: true, plugin: inspection });
     yield* renderInspection(terminal, inspection);
   });
@@ -304,19 +292,11 @@ export function pluginTrustCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const service = registry();
+    const service = openPluginRegistry();
     const inspection = yield* attempt(() => service.inspect(id));
     yield* renderInspection(terminal, inspection);
-    if (options.yes !== true) {
-      // Without an explicit grant the consent still needs a human at a real terminal.
-      yield* requireInteractive(terminal, "Plugin trust");
-      const confirmed = yield* terminal.confirm(
-        `Are you sure you want to trust ${inspection.id}? This can execute code on your behalf.`,
-        false,
-      );
-      if (!confirmed) {
-        return yield* Effect.fail(new Error("Plugin trust cancelled."));
-      }
+    if (!(yield* confirmPluginTrust(terminal, inspection, options))) {
+      return yield* Effect.fail(new Error("Plugin trust cancelled."));
     }
     yield* attempt(() => service.trust(inspection.id, inspection.current.manifest.sha256));
     yield* terminal.success(`Trusted ${inspection.id} at the inspected code digest.`);
@@ -331,7 +311,7 @@ export function pluginEnableCommand(
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const agent = agentId === undefined ? undefined : yield* getAgentByIdentifier(agentId);
-    const service = registry();
+    const service = openPluginRegistry();
     const inspection = yield* attempt(() => service.inspect(id));
     if (!inspection.trusted) {
       return yield* Effect.fail(
@@ -341,22 +321,9 @@ export function pluginEnableCommand(
       );
     }
     yield* renderInspection(terminal, inspection);
-    if (inspection.current.manifest.policyHooks.length > 0) {
-      yield* terminal.warn(
-        "This plugin declares policy hooks that can affect authorization decisions, including whether Jazz asks before running a command.",
-      );
-    }
-    if (options.yes !== true) {
-      // Without an explicit grant the consent still needs a human at a real terminal.
-      yield* requireInteractive(terminal, "Plugin egress consent");
-      const target = agent === undefined ? "all agents" : agent.name;
-      const confirmed = yield* terminal.confirm(
-        `Enable ${inspection.id} for ${target}? It runs with your OS-user authority and its declared network and data access.`,
-        false,
-      );
-      if (!confirmed) {
-        return yield* Effect.fail(new Error("Plugin enablement cancelled."));
-      }
+    const target = agent === undefined ? "all agents" : agent.name;
+    if (!(yield* confirmPluginEnable(terminal, inspection, target, options))) {
+      return yield* Effect.fail(new Error("Plugin enablement cancelled."));
     }
     yield* attempt(() => service.grantConsent(inspection.id, inspection.consentDigest));
     yield* attempt(() => service.enable(inspection.id, agent?.id));
@@ -365,45 +332,7 @@ export function pluginEnableCommand(
         ? `Enabled ${inspection.id} for all agents.`
         : `Enabled ${inspection.id} for agent ${agent.name} (${agent.id}).`,
     );
-
-    // A required secret the host cannot already resolve would leave the plugin failing open on
-    // every run, so provision it as part of setup instead of making the operator discover the gap
-    // the first time the plugin silently abstains.
-    for (const declaration of inspection.current.manifest.secrets) {
-      if (!declaration.required) continue;
-      const status = inspection.secrets.find((secret) => secret.name === declaration.name);
-      if (status !== undefined && status.source !== "missing" && status.source !== "unavailable") {
-        continue;
-      }
-      if (status?.source === "unavailable") {
-        yield* terminal.warn(
-          `No secure secret storage is available for ${declaration.name}. Set the ${
-            declaration.env ?? "declared"
-          } environment variable before running this agent.`,
-        );
-        continue;
-      }
-      yield* terminal.info(
-        `${id} requires a secret: ${declaration.name}${
-          declaration.description ? ` — ${declaration.description}` : ""
-        }.`,
-      );
-      const secretValue = yield* terminal.ask(`Secret ${declaration.name}:`, {
-        secret: true,
-        simple: true,
-        cancellable: true,
-      });
-      if (secretValue === undefined || secretValue.length === 0) {
-        yield* terminal.warn(
-          `Skipped ${declaration.name}. ${id} falls back to deterministic behavior until you run 'jazz plugin secret set ${id} ${declaration.name}'.`,
-        );
-        continue;
-      }
-      const stored = yield* attempt(() => service.setSecret(id, declaration.name, secretValue));
-      yield* stored
-        ? terminal.success(`Stored ${declaration.name} for ${id}.`)
-        : terminal.warn(`Could not store ${declaration.name}: no secure storage available.`);
-    }
+    yield* provisionPluginSecrets(terminal, service, inspection);
   });
 }
 
@@ -413,7 +342,7 @@ export function pluginDisableCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const result = yield* attempt(() => registry().disable(id, agentId));
+    const result = yield* attempt(() => openPluginRegistry().disable(id, agentId));
     yield* terminal.success(
       agentId === undefined ? `Disabled ${id} for every agent.` : `Disabled ${id} for ${agentId}.`,
     );
@@ -429,7 +358,7 @@ export function pluginUpdateCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const service = registry();
+    const service = openPluginRegistry();
     const inspection = yield* attempt(() => service.inspect(id));
     const result = yield* attempt(() => service.update(id, source ?? inspection.current.source));
     if (result.action === "already-current") {
@@ -445,7 +374,7 @@ export function pluginUpdateCommand(
 export function pluginRollbackCommand(id: string): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const result = yield* attempt(() => registry().rollback(id));
+    const result = yield* attempt(() => openPluginRegistry().rollback(id));
     yield* terminal.success(
       `Rolled ${id} back to ${result.digest}; it is disabled pending grants.`,
     );
@@ -462,7 +391,7 @@ export function pluginRemoveCommand(
     if (!terminal.isInteractive) {
       return yield* Effect.fail(new Error("Plugin removal requires a local interactive terminal."));
     }
-    const result = yield* attempt(() => registry().remove(id, options));
+    const result = yield* attempt(() => openPluginRegistry().remove(id, options));
     yield* terminal.success(`Removed ${id}.`);
     if (result.restartRequired) {
       yield* terminal.warn("Restart long-lived Jazz processes to unload previously imported code.");
@@ -476,7 +405,7 @@ export function pluginDoctorCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const report = yield* attempt(() => registry().doctor(id));
+    const report = yield* attempt(() => openPluginRegistry().doctor(id));
     if (options.json === true) return printJson({ ok: report.healthy, report });
     yield* renderInspection(terminal, report);
     if (report.healthy) return yield* terminal.success("Plugin checks passed.");
@@ -487,7 +416,7 @@ export function pluginDoctorCommand(
 export function pluginGcCommand(): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const removed = yield* attempt(() => registry().gc());
+    const removed = yield* attempt(() => openPluginRegistry().gc());
     yield* terminal.success(`Removed ${removed.length} unreferenced plugin artifact(s).`);
   });
 }
@@ -503,7 +432,7 @@ export function pluginSecretSetCommand(
     if (value === undefined || value.length === 0) {
       return yield* Effect.fail(new Error("Secret entry cancelled."));
     }
-    const stored = yield* attempt(() => registry().setSecret(id, name, value));
+    const stored = yield* attempt(() => openPluginRegistry().setSecret(id, name, value));
     if (!stored)
       return yield* Effect.fail(new Error("No secure plugin secret storage is available."));
     yield* terminal.success(`Stored secret ${name} for ${id}.`);
@@ -516,7 +445,7 @@ export function pluginSecretForgetCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    yield* attempt(() => registry().deleteSecret(id, name));
+    yield* attempt(() => openPluginRegistry().deleteSecret(id, name));
     yield* terminal.success(`Forgot Jazz-owned secret ${name} for ${id}.`);
   });
 }
@@ -528,7 +457,7 @@ export function pluginSecretStatusCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const inspection = yield* attempt(() => registry().inspect(id));
+    const inspection = yield* attempt(() => openPluginRegistry().inspect(id));
     const status = inspection.secrets.find((secret) => secret.name === name);
     if (status === undefined)
       return yield* Effect.fail(new Error(`${id} did not declare secret ${name}.`));

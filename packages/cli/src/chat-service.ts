@@ -63,11 +63,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@jazz/core/interfaces/tool-registry";
-import {
-  getSkillIndexLine,
-  SkillServiceTag,
-  type SkillService,
-} from "@jazz/core/skills/skill-service";
+import type { SkillService } from "@jazz/core/skills/skill-service";
 import {
   type CapCheck,
   capWindowKey,
@@ -110,13 +106,7 @@ import { backgroundItems } from "@/cli/ui/models/background-work";
 import { store } from "@/cli/ui/store";
 import { announcePendingSuggestions } from "./chat/announce-pending-suggestions";
 import { classifyChatInput } from "./chat/chat-input";
-import {
-  handleSpecialCommand,
-  isCommandInput,
-  parseSpecialCommand,
-  setPluginCommands,
-  setSkillCommands,
-} from "./chat/commands";
+import { handleSpecialCommand, isCommandInput, parseSpecialCommand } from "./chat/commands";
 import {
   announceGoalTurn,
   announceWaitingGoals,
@@ -150,6 +140,7 @@ import {
 import { inlineMentionedTextFiles } from "./chat/mentioned-files";
 import { persistConversationIfNeeded, shouldSaveTurn } from "./chat/persist-conversation";
 import { reflectInBackground } from "./chat/reflect-in-background";
+import { registerExtensionCommands } from "./chat/register-extension-commands";
 import {
   initializeSession,
   logMessageToSession,
@@ -259,27 +250,7 @@ export class ChatServiceImpl implements ChatService {
       // Errors are handled gracefully inside setupAgent - conversation continues even if some MCPs fail
       yield* setupAgent(agent, conversationId);
 
-      // Register skills as invokable slash commands so they appear in the "/"
-      // autocomplete menu and can be run like any built-in command. Failures
-      // here are non-fatal — the menu simply omits skills.
-      yield* Effect.gen(function* () {
-        const skillService = yield* SkillServiceTag;
-        const skills = yield* skillService.listSkills();
-        setSkillCommands(
-          skills.map((skill) => ({ name: skill.name, description: getSkillIndexLine(skill) })),
-        );
-      }).pipe(Effect.catchAll(() => Effect.void));
-
-      // Register enabled plugins' slash commands the same way. Non-fatal: the menu simply omits
-      // plugin commands if the runtime is absent or listing fails.
-      yield* Effect.gen(function* () {
-        const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
-        if (Option.isNone(runtimeOption)) return;
-        const commands = yield* runtimeOption.value.listAgentCommands(agent.id);
-        setPluginCommands(
-          commands.map((command) => ({ name: command.name, description: command.description })),
-        );
-      }).pipe(Effect.catchAll(() => Effect.void));
+      yield* registerExtensionCommands(agent.id);
 
       const configService = yield* AgentConfigServiceTag;
       const appConfig = yield* configService.appConfig;
@@ -966,6 +937,12 @@ export class ChatServiceImpl implements ChatService {
                 yield* reflectInBackground(agent.id, conversationId, configPath);
               }
               conversationId = commandResult.newConversationId;
+              // Plugins turned on or off with `/plugins` for "this conversation" stay with it.
+              const pluginRuntime = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+              if (Option.isSome(pluginRuntime)) {
+                yield* pluginRuntime.value.clearConversationOverrides();
+                yield* registerExtensionCommands(agent.id);
+              }
               yield* stopSubagents;
               subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
               yield* attachTo(conversationId);

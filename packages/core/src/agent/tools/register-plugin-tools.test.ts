@@ -37,6 +37,10 @@ function fakeRuntime(overrides: Partial<PluginRuntimeService> = {}): PluginRunti
     listAllSkills: () => Effect.succeed([]),
     emitLifecycleEvent: () => Effect.void,
     hasNotificationPlugin: () => Effect.succeed(false),
+    listConversationOverrides: () => Effect.succeed(new Map()),
+    setConversationOverride: () => Effect.void,
+    clearConversationOverrides: () => Effect.void,
+    hasLoadedDigest: () => Effect.succeed(false),
     ...overrides,
   };
 }
