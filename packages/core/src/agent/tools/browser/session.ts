@@ -26,13 +26,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import puppeteer, {
-  type Browser,
-  type CDPSession,
-  type Frame,
-  type HTTPRequest,
-  type Page,
-} from "puppeteer-core";
+import type { Browser, CDPSession, Frame, HTTPRequest, Page } from "puppeteer-core";
 import type { PageFlagId, PageStructuralSignals } from "@/core/types/plugin";
 import type { EgressPolicy } from "../guarded-fetch";
 import { RunScopedResource } from "../run-scoped-resource";
@@ -40,6 +34,7 @@ import { readPageSignals } from "./page-signals";
 import { stripSingletonLocks } from "./real-profile";
 import { decideBrowserRequest } from "./request-guard";
 import { describeMissingBrowser } from "../chromium-default";
+import { loadPuppeteer } from "./load-puppeteer";
 import { buildSnapshot, type PageSnapshot } from "./snapshot";
 import {
   DEFAULT_TAB_NAME,
@@ -264,6 +259,7 @@ async function connectToPort(options: {
   child.on("error", () => undefined);
   const deadline = Date.now() + LAUNCH_WAIT_MS;
   let lastError: unknown = null;
+  const puppeteer = await loadPuppeteer();
   while (Date.now() < deadline) {
     try {
       const browser = await puppeteer.connect({
@@ -328,6 +324,7 @@ export class BrowserSession {
     endpoint: string,
     summary: string | undefined,
   ): Promise<BrowserSession> {
+    const puppeteer = await loadPuppeteer();
     const browser = await puppeteer
       .connect({
         ...(isWebSocketEndpoint(endpoint)

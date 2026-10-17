@@ -5,7 +5,7 @@
  */
 
 import path from "node:path";
-import { NodeFileSystem } from "@effect/platform-node";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { createAgentServiceLayer } from "@jazz/adapters/agent-service";
 import { createConfigLayer, validateConfigFiles } from "@jazz/adapters/config";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";

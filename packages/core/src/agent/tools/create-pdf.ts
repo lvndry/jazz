@@ -15,7 +15,6 @@
 
 import { isAbsolute, resolve as resolvePath } from "node:path";
 import { Effect, FileSystem } from "effect";
-import puppeteer from "puppeteer-core";
 import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
@@ -25,6 +24,7 @@ import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { loadPuppeteer } from "./browser/load-puppeteer";
 import {
   type BrowserExecutableLookup,
   createSystemBrowserLookup,
@@ -93,6 +93,7 @@ async function renderPdf(
   policy: EgressPolicy,
   known: readonly KnownSecret[],
 ): Promise<void> {
+  const puppeteer = await loadPuppeteer();
   const browser = await puppeteer.launch({
     browser: "chrome",
     executablePath,

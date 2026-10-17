@@ -10,7 +10,6 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Effect, Option } from "effect";
-import * as plist from "plist";
 import { toError } from "@/core/utils/errors";
 import { stateDirectoryMode } from "@/core/utils/private-mode";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
@@ -111,7 +110,8 @@ class LaunchdOneShotScheduler implements OneShotOsScheduler {
             PATH: getLaunchdPath(),
           },
         };
-        const plistContent = plist.build(plistObject);
+        const { build: buildPlist } = yield* Effect.promise(() => import("plist"));
+        const plistContent = buildPlist(plistObject);
         const plistFilePath = jobPlistPath(this.config, agentId, itemId);
 
         yield* Effect.tryPromise({
