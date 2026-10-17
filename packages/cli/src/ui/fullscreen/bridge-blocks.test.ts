@@ -2,7 +2,8 @@ import { report } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it } from "bun:test";
 import type { EphemeralRegion } from "../store";
 import type { OutputEntry } from "../types";
-import { blocksFrom, shareUnchangedBlocks, transcriptBlocks, waitingLabel } from "./bridge";
+import { waitingLabel } from "./bridge";
+import { blocksFrom, shareUnchangedBlocks, transcriptBlocks } from "./transcript-projection";
 
 const USER: OutputEntry = {
   id: "u1",
