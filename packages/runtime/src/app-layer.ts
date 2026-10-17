@@ -46,8 +46,8 @@ import { createWorkflowRegistryServiceLayer } from "@jazz/adapters/workflow-regi
 import { createWorkspaceServiceLayer } from "@jazz/adapters/workspace-service";
 import { autoCheckForUpdate } from "@jazz/cli/auto-update";
 import { promptInteractiveCatchUp } from "@jazz/cli/catch-up-prompt";
-import { createChatServiceLayer } from "@jazz/cli/chat-service";
 import { promptFailedRunsWarning } from "@jazz/cli/failed-run-prompt";
+import { createChatServiceLayer } from "@jazz/cli/chat-service-layer";
 import { createPlainTerminalServiceLayer } from "@jazz/cli/plain-terminal";
 import { CLIPresentationServiceLayer } from "@jazz/cli/presentation/cli-presentation-service";
 import {
@@ -369,17 +369,7 @@ export function createAppLayer(
   const peerTokenServiceLayer = createPeerTokenServiceLayer();
   const savedSecretsLayer = Layer.sync(SavedSecretsServiceTag, () => createSavedSecretsService());
 
-  const chatLayer = createChatServiceLayer(configPath).pipe(
-    Layer.provide(terminalLayer),
-    Layer.provide(loggerLayer),
-    Layer.provide(shellLayer),
-    Layer.provide(configLayer),
-    Layer.provide(toolRegistryLayer),
-    Layer.provide(agentLayer),
-    Layer.provide(mcpServerManagerLayer),
-    Layer.provide(SkillsLive.layer),
-    Layer.provide(WorkflowsLive.layer),
-  );
+  const chatLayer = createChatServiceLayer(configPath);
 
   // isQuiet: no output. useCLIPresentation: CLI (plain stdout). else: Ink UI, loaded only then.
   const presentationLayer = presentationConfig.isQuiet
