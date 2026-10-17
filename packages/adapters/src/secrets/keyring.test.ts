@@ -1,7 +1,12 @@
+/**
+ * Tests home-scoped credential storage and legacy adoption with injected runners and fake keyring
+ * executables. Temporary homes and controlled locks exercise failures, retries, and concurrent
+ * migration without touching the real OS keyring.
+ */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, setSystemTime } from "bun:test";
 import { Effect } from "effect";
 import {
   type CommandResult,
@@ -219,7 +224,8 @@ describe("migrateKeyringEntriesIntoVault", () => {
       ),
     );
 
-    expect([...moved].sort()).toEqual(["llm.openai.api_key", "peers.sam.token"]);
+    expect([...moved.moved].sort()).toEqual(["llm.openai.api_key", "peers.sam.token"]);
+    expect(moved.complete).toBe(true);
     expect(vaultIn(entries)).toEqual({
       "llm.openai.api_key": "sk-legacy",
       "peers.sam.token": "peer-token",
@@ -259,7 +265,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
       migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, refusingWrites, withoutLock),
     );
 
-    expect(moved).toEqual([]);
+    expect(moved).toEqual({ moved: [], complete: false });
     expect(entries.get("jazz\u0000llm.openai.api_key")).toBe("sk-legacy");
   });
 
@@ -275,7 +281,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
       migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, lockedVault, withoutLock),
     );
 
-    expect(moved).toEqual([]);
+    expect(moved).toEqual({ moved: [], complete: false });
     expect(entries.get("jazz\u0000llm.openai.api_key")).toBe("sk-legacy");
     expect(entries.has(VAULT_KEY)).toBe(false);
   });
@@ -296,7 +302,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
       ),
     );
 
-    expect(moved).toEqual([]);
+    expect(moved).toEqual({ moved: [], complete: false });
     expect(entries.get(VAULT_KEY)).toBe("not base64 json");
   });
 
@@ -325,7 +331,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
           case "search": {
             const match = [...entries.keys()].find((entry) => entry.startsWith(`${service}\u0000`));
             if (match === undefined) {
-              return missing;
+              return ok();
             }
             return ok(
               `[/1]\nlabel = jazz\nsecret = x\nattribute.service = ${service}\nattribute.account = ${match.slice(service.length + 1)}\n`,
@@ -350,10 +356,54 @@ describe("migrateKeyringEntriesIntoVault", () => {
       await Effect.runPromise(
         migrateKeyringEntriesIntoVault("libsecret", "jazz", VAULT_SERVICE, secretTool, withoutLock),
       ),
-    ).toEqual(["llm.openai.api_key"]);
+    ).toEqual({ moved: ["llm.openai.api_key"], complete: true });
     expect([...entries.keys()]).toEqual([VAULT_KEY]);
     expect(vaultIn(entries)).toEqual({ "llm.openai.api_key": "sk-legacy" });
   });
+
+  it("does not restore a secret another process migrates and deletes before this pass gets the lock", async () => {
+    const sourceKey = "jazz\0retained";
+    const entries = new Map([[sourceKey, "legacy-value"]]);
+    const keychain = fakeMacosKeychain(entries);
+    const entered = Promise.withResolvers<void>();
+    const resumed = Promise.withResolvers<void>();
+    const pausedLock: VaultLock = async (operation) => {
+      entered.resolve();
+      await resumed.promise;
+      return operation();
+    };
+    const pending = Effect.runPromise(
+      migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, keychain, pausedLock),
+    );
+    await entered.promise;
+    await Effect.runPromise(
+      migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, keychain, withoutLock),
+    );
+    expect(vaultIn(entries)).toEqual({ retained: "legacy-value" });
+    expect(entries.has(sourceKey)).toBe(false);
+    entries.set(VAULT_KEY, encodeVault({}));
+    resumed.resolve();
+    await pending;
+    expect(vaultIn(entries)).toEqual({});
+  });
+
+  for (const backend of ["macos", "libsecret"] as const) {
+    it(`does not treat a failed ${backend} discovery as completed migration`, async () => {
+      const failed: KeyringCommandRunner = () =>
+        Effect.succeed({
+          ok: false,
+          code: backend === "macos" ? 51 : 1,
+          stdout: "",
+          stderr: "",
+          unavailable: false,
+        });
+      expect(
+        await Effect.runPromise(
+          migrateKeyringEntriesIntoVault(backend, "jazz", VAULT_SERVICE, failed, withoutLock),
+        ),
+      ).toEqual({ moved: [], complete: false });
+    });
+  }
 
   it("reads a hex-encoded account name", async () => {
     const account = "plugin/com.example/tök";
@@ -376,7 +426,173 @@ describe("migrateKeyringEntriesIntoVault", () => {
       await Effect.runPromise(
         migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, hexAttributes, withoutLock),
       ),
-    ).toEqual([account]);
+    ).toEqual({ moved: [account], complete: true });
     expect(vaultIn(entries)).toEqual({ [account]: "value" });
+  });
+});
+
+/** Exercises the public lookup cache through a disposable `security` executable, never the OS keychain. */
+describe("retrying legacy vault adoption", () => {
+  const originalJazzHome = process.env["JAZZ_HOME"];
+  const originalPath = process.env["PATH"];
+  let directory: string;
+  let entriesFile: string;
+  let failureFile: string;
+  let callsFile: string;
+
+  beforeEach(() => {
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-keyring-retry-"));
+    process.env["JAZZ_HOME"] = directory;
+    process.env["PATH"] = `${directory}${path.delimiter}${originalPath ?? ""}`;
+    entriesFile = path.join(directory, "entries.json");
+    failureFile = path.join(directory, "failure.json");
+    callsFile = path.join(directory, "calls.jsonl");
+    fs.writeFileSync(entriesFile, "{}");
+    fs.writeFileSync(callsFile, "");
+    const executable = String.raw`#!${process.execPath}
+const fs = require("node:fs");
+const entriesFile = ${JSON.stringify(entriesFile)};
+const failureFile = ${JSON.stringify(failureFile)};
+const callsFile = ${JSON.stringify(callsFile)};
+let args = process.argv.slice(2);
+if (args[0] === "-i") args = fs.readFileSync(0, "utf8").trim().split(" ");
+const flag = (name) => args[args.indexOf(name) + 1];
+const service = flag("-s");
+const account = args.includes("-a") ? flag("-a") : undefined;
+const key = service + "\0" + account;
+const operation = args[0] === "add-generic-password" ? "write"
+  : args[0] === "delete-generic-password" ? "delete"
+  : account === undefined ? "discover"
+  : service.endsWith(".vault") ? "vault-read" : "legacy-read";
+fs.appendFileSync(callsFile, JSON.stringify({ operation, service, account }) + "\n");
+if (fs.existsSync(failureFile)) {
+  const failure = JSON.parse(fs.readFileSync(failureFile, "utf8"));
+  if (failure.operation === operation) {
+    if (failure.skip === 0) {
+      fs.unlinkSync(failureFile);
+      process.exit(51);
+    }
+    fs.writeFileSync(failureFile, JSON.stringify({ ...failure, skip: failure.skip - 1 }));
+  }
+}
+const entries = JSON.parse(fs.readFileSync(entriesFile, "utf8"));
+if (args[0] === "find-generic-password") {
+  if (account !== undefined) {
+    if (!(key in entries)) process.exit(44);
+    process.stdout.write(entries[key] + "\n");
+  } else {
+    const match = Object.keys(entries).find((entry) => entry.startsWith(service + "\0"));
+    if (match === undefined) process.exit(44);
+    process.stdout.write('    "acct"<blob>="' + match.slice(service.length + 1) + '"\n');
+  }
+} else if (args[0] === "add-generic-password") {
+  entries[key] = Buffer.from(flag("-X"), "hex").toString();
+  fs.writeFileSync(entriesFile, JSON.stringify(entries));
+} else if (args[0] === "delete-generic-password") {
+  if (!(key in entries)) process.exit(44);
+  delete entries[key];
+  fs.writeFileSync(entriesFile, JSON.stringify(entries));
+} else process.exit(2);
+`;
+    fs.writeFileSync(path.join(directory, "security"), executable, { mode: 0o700 });
+  });
+
+  afterEach(() => {
+    setSystemTime();
+    if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
+    else process.env["JAZZ_HOME"] = originalJazzHome;
+    if (originalPath === undefined) delete process.env["PATH"];
+    else process.env["PATH"] = originalPath;
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  function entries(): Record<string, string> {
+    return JSON.parse(fs.readFileSync(entriesFile, "utf8")) as Record<string, string>;
+  }
+
+  function discoveryCount(): number {
+    return fs
+      .readFileSync(callsFile, "utf8")
+      .split("\n")
+      .filter((line) => line.includes('"operation":"discover"')).length;
+  }
+
+  function expireSnapshot(): void {
+    setSystemTime(new Date(Date.now() + 2_001));
+  }
+
+  for (const operation of ["legacy-read", "write", "discover", "vault-read"]) {
+    it(`retries after a transient ${operation} failure and shares a completed adoption`, async () => {
+      const sourceKey = `${keyringServiceName()}\0llm.openai.api_key`;
+      fs.writeFileSync(entriesFile, JSON.stringify({ [sourceKey]: "legacy-value" }));
+      fs.writeFileSync(
+        failureFile,
+        JSON.stringify({ operation, skip: operation === "vault-read" ? 1 : 0 }),
+      );
+
+      expect(await Effect.runPromise(keyringGet("macos", "llm.openai.api_key"))).toBeUndefined();
+      expect(entries()[sourceKey]).toBe("legacy-value");
+      expireSnapshot();
+      expect(
+        await Promise.all(
+          Array.from({ length: 4 }, () =>
+            Effect.runPromise(keyringGet("macos", "llm.openai.api_key")),
+          ),
+        ),
+      ).toEqual(Array.from({ length: 4 }, () => "legacy-value"));
+      expect(entries()[sourceKey]).toBeUndefined();
+      const afterAdoption = discoveryCount();
+      expect(afterAdoption).toBe(3);
+      expireSnapshot();
+      expect(await Effect.runPromise(keyringGet("macos", "llm.openai.api_key"))).toBe(
+        "legacy-value",
+      );
+      expect(discoveryCount()).toBe(afterAdoption);
+    });
+  }
+
+  it("keeps partial progress and existing vault values when the next write fails", async () => {
+    const source = keyringServiceName();
+    const vaultKey = `${keyringVaultServiceName()}\0secrets`;
+    fs.writeFileSync(
+      entriesFile,
+      JSON.stringify({
+        [`${source}\0first`]: "first-value",
+        [`${source}\0second`]: "second-value",
+        [vaultKey]: encodeVault({ existing: "current-value" }),
+      }),
+    );
+    fs.writeFileSync(failureFile, JSON.stringify({ operation: "write", skip: 1 }));
+    expect(await Effect.runPromise(keyringGet("macos", "second"))).toBeUndefined();
+    expect(entries()[`${source}\0first`]).toBeUndefined();
+    expect(entries()[`${source}\0second`]).toBe("second-value");
+    expireSnapshot();
+    expect(await Effect.runPromise(keyringGet("macos", "second"))).toBe("second-value");
+    expect(JSON.parse(Buffer.from(entries()[vaultKey] ?? "", "base64").toString("utf8"))).toEqual({
+      existing: "current-value",
+      first: "first-value",
+      second: "second-value",
+    });
+  });
+  it("does not delete a vault secret until its remaining legacy source can be retired", async () => {
+    const sourceKey = `${keyringServiceName()}\0retained`;
+    const vaultKey = `${keyringVaultServiceName()}\0secrets`;
+    fs.writeFileSync(
+      entriesFile,
+      JSON.stringify({
+        [sourceKey]: "legacy-value",
+        [vaultKey]: encodeVault({ retained: "current-value" }),
+      }),
+    );
+    fs.writeFileSync(failureFile, JSON.stringify({ operation: "delete", skip: 0 }));
+    await Effect.runPromise(keyringDelete("macos", "retained"));
+    expect(entries()[sourceKey]).toBe("legacy-value");
+    expect(JSON.parse(Buffer.from(entries()[vaultKey] ?? "", "base64").toString("utf8"))).toEqual({
+      retained: "current-value",
+    });
+    await Effect.runPromise(keyringDelete("macos", "retained"));
+    expect(entries()[sourceKey]).toBeUndefined();
+    expireSnapshot();
+    expect(await Effect.runPromise(keyringGet("macos", "retained"))).toBeUndefined();
   });
 });

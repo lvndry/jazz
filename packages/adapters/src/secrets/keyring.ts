@@ -1,3 +1,11 @@
+/**
+ * Home-scoped credential storage through macOS Keychain, libsecret, or a private file fallback.
+ * `keyringGet` and `keyringReadAll` share a short-lived vault snapshot; writes are serialized and
+ * update that snapshot. Legacy per-entry credentials are adopted before vault use, with one
+ * shared migration attempt and retries after incomplete attempts. Callers receive absent/false
+ * outcomes on unavailable stores; secret values are never included in diagnostics or arguments.
+ */
+
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
@@ -422,22 +430,26 @@ function updateVault(
   withLock: VaultLock,
 ): Effect.Effect<boolean, never> {
   return Effect.promise(() =>
-    withLock(async () => {
-      const read = await Effect.runPromise(osKeyringReadVault(run, backend, service));
-      if (read.status === "failed" || read.status === "corrupt") {
-        return false;
-      }
-      const next = change(read.status === "ok" ? read.secrets : {});
-      if (next === undefined) {
-        return true;
-      }
-      const stored = await Effect.runPromise(osKeyringWriteVault(run, backend, service, next));
-      if (stored) {
-        rememberVault(backend, service, next);
-      }
-      return stored;
-    }),
+    withLock(() => Effect.runPromise(updateVaultWhileLocked(run, backend, service, change))),
   ).pipe(Effect.catchDefect(() => Effect.succeed(false)));
+}
+
+/** Read and update the vault while the caller holds the home's secrets lock. */
+function updateVaultWhileLocked(
+  run: KeyringCommandRunner,
+  backend: OsKeyringBackend,
+  service: string,
+  change: (secrets: VaultSecrets) => VaultSecrets | undefined,
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const read = yield* osKeyringReadVault(run, backend, service);
+    if (read.status === "failed" || read.status === "corrupt") return false;
+    const next = change(read.status === "ok" ? read.secrets : {});
+    if (next === undefined) return true;
+    const stored = yield* osKeyringWriteVault(run, backend, service, next);
+    if (stored) rememberVault(backend, service, next);
+    return stored;
+  });
 }
 
 function osKeyringGet(
@@ -464,55 +476,70 @@ function osKeyringDelete(
   backend: OsKeyringBackend,
   service: string,
   account: string,
-): Effect.Effect<void, never> {
+): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
-    if (backend === "macos") {
-      yield* run("security", ["delete-generic-password", "-s", service, "-a", account]);
-      return;
-    }
-    yield* run("secret-tool", ["clear", "service", service, "account", account]);
+    const result =
+      backend === "macos"
+        ? yield* run("security", ["delete-generic-password", "-s", service, "-a", account])
+        : yield* run("secret-tool", ["clear", "service", service, "account", account]);
+    return result.ok;
   });
 }
 
+type LegacyAccountRead =
+  | { readonly status: "found"; readonly account: string }
+  | { readonly status: "absent" }
+  | { readonly status: "failed" };
+
 /**
- * The account of any one entry under `service`, or undefined when there is none.
- *
- * `security find-generic-password -s` prints the first match's attributes, with the account as
- * `"acct"<blob>="name"` (or `=0x<hex>  "..."` when the name is not plain ASCII). `secret-tool search`
- * prints `attribute.account = name`.
+ * Discover a legacy entry without treating a failed keyring command as an empty service.
+ * macOS reports missing entries with exit 44. `secret-tool search` succeeds even with no
+ * matches; a nonzero exit or nonempty output without a parseable account is incomplete.
  */
 function osKeyringAnyAccount(
   run: KeyringCommandRunner,
   backend: OsKeyringBackend,
   service: string,
-): Effect.Effect<string | undefined, never> {
+): Effect.Effect<LegacyAccountRead, never> {
   return Effect.gen(function* () {
-    if (backend === "macos") {
-      const result = yield* run("security", ["find-generic-password", "-s", service]);
-      if (!result.ok) {
-        return undefined;
-      }
-      const hexMatch = /^\s*"acct"<blob>=0x([0-9A-Fa-f]+)/m.exec(result.stdout);
-      if (hexMatch?.[1] !== undefined) {
-        return Buffer.from(hexMatch[1], "hex").toString("utf8");
-      }
-      return /^\s*"acct"<blob>="(.*)"\s*$/m.exec(result.stdout)?.[1];
-    }
-    const result = yield* run("secret-tool", ["search", "service", service]);
+    const result =
+      backend === "macos"
+        ? yield* run("security", ["find-generic-password", "-s", service])
+        : yield* run("secret-tool", ["search", "service", service]);
     if (!result.ok) {
-      return undefined;
+      return backend === "macos" &&
+        !result.unavailable &&
+        result.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE
+        ? { status: "absent" }
+        : { status: "failed" };
     }
-    return /^attribute\.account = (.*)$/m.exec(`${result.stdout}\n${result.stderr}`)?.[1];
+    const output = `${result.stdout}\n${result.stderr}`;
+    const hexMatch = backend === "macos" ? /^\s*"acct"<blob>=0x([0-9A-Fa-f]+)/m.exec(output) : null;
+    const account =
+      hexMatch?.[1] !== undefined
+        ? Buffer.from(hexMatch[1], "hex").toString("utf8")
+        : backend === "macos"
+          ? /^\s*"acct"<blob>="(.*)"\s*$/m.exec(output)?.[1]
+          : /^attribute\.account = (.*)$/m.exec(output)?.[1];
+    if (account !== undefined) return { status: "found", account };
+    return backend === "libsecret" && output.trim() === ""
+      ? { status: "absent" }
+      : { status: "failed" };
   });
 }
 
+/** Migration progress and whether the source was successfully observed to be empty. */
+export interface KeyringMigrationResult {
+  readonly moved: readonly string[];
+  readonly complete: boolean;
+}
+
 /**
- * Move every one-entry-per-secret item under `sourceService` into the vault under `vaultService`,
- * deleting each item once the vault holds its account.
- *
- * A value already in the vault wins over the item's. The pass stops at the first item it cannot
- * read or store, leaving it and the rest in place for the next process to retry. Returns the
- * accounts moved.
+ * Move per-entry credentials into a home's vault, deleting only after the vault holds them.
+ * The same secrets lock covers reading the legacy value, updating the vault, and retiring the
+ * source, so another process cannot restore a value deleted while this pass waited for the lock.
+ * Existing vault values win. Read, write, discovery, or deletion failures stop the pass with
+ * `complete: false`; completed moves remain stored, and the next attempt resumes the source.
  */
 export function migrateKeyringEntriesIntoVault(
   backend: OsKeyringBackend,
@@ -520,46 +547,58 @@ export function migrateKeyringEntriesIntoVault(
   vaultService: string,
   run: KeyringCommandRunner = runCommand,
   withLock: VaultLock = withSecretsFileLock,
-): Effect.Effect<readonly string[], never> {
+): Effect.Effect<KeyringMigrationResult, never> {
   return Effect.gen(function* () {
     const moved: string[] = [];
     for (let attempt = 0; attempt < MAX_LEGACY_ENTRIES_MIGRATED; attempt++) {
-      const account = yield* osKeyringAnyAccount(run, backend, sourceService);
-      if (account === undefined) {
-        break;
+      const discovered = yield* osKeyringAnyAccount(run, backend, sourceService);
+      if (discovered.status !== "found") {
+        return { moved, complete: discovered.status === "absent" };
       }
-      const value = yield* osKeyringGet(run, backend, sourceService, account);
-      if (value === undefined) {
-        break;
-      }
-      const stored = yield* updateVault(
-        run,
-        backend,
-        vaultService,
-        (secrets) => (account in secrets ? undefined : { ...secrets, [account]: value }),
-        withLock,
-      );
-      if (!stored) {
-        break;
-      }
-      yield* osKeyringDelete(run, backend, sourceService, account);
-      moved.push(account);
+      const { account } = discovered;
+      const result = yield* Effect.promise(() =>
+        withLock(async () => {
+          const value = await Effect.runPromise(osKeyringGet(run, backend, sourceService, account));
+          if (value === undefined) return { copied: false, retired: false };
+          const stored = await Effect.runPromise(
+            updateVaultWhileLocked(run, backend, vaultService, (secrets) =>
+              account in secrets ? undefined : { ...secrets, [account]: value },
+            ),
+          );
+          if (!stored) return { copied: false, retired: false };
+          const retired = await Effect.runPromise(
+            osKeyringDelete(run, backend, sourceService, account),
+          );
+          return { copied: true, retired };
+        }),
+      ).pipe(Effect.catchDefect(() => Effect.succeed({ copied: false, retired: false })));
+      if (result.copied) moved.push(account);
+      if (!result.retired) return { moved, complete: false };
     }
-    return moved;
+    return { moved, complete: false };
   });
 }
 
-const vaultAdoptions = new Map<string, Promise<number>>();
+interface VaultAdoptionResult {
+  readonly movedCount: number;
+  readonly complete: boolean;
+}
+
+const vaultAdoptions = new Map<string, Promise<VaultAdoptionResult>>();
 
 /**
- * Fold the active home's one-entry-per-secret items into its vault, once per process.
+ * Fold legacy credentials into the active vault with one in-flight attempt per home.
+ * Complete adoptions stay cached for the process; incomplete attempts are evicted for retry.
  *
  * The home's own `jazz.<hash>` items go first, so they win over the bare `jazz` service's. Only
  * `~/.jazz` adopts the bare service: it is the home those keys were almost always written from,
  * and a throwaway `JAZZ_HOME` must never claim, and then lose with its directory, the user's real
- * keys. Resolves to how many items moved.
+ * keys. An incomplete scoped pass stops before the bare service, preserving that precedence.
  */
-function adoptPerEntrySecrets(backend: OsKeyringBackend, vaultService: string): Promise<number> {
+function adoptPerEntrySecrets(
+  backend: OsKeyringBackend,
+  vaultService: string,
+): Promise<VaultAdoptionResult> {
   const key = `${backend}:${vaultService}`;
   let pending = vaultAdoptions.get(key);
   if (pending === undefined) {
@@ -567,16 +606,27 @@ function adoptPerEntrySecrets(backend: OsKeyringBackend, vaultService: string): 
     pending = (async () => {
       let movedCount = 0;
       for (const source of sources) {
-        const moved = await Effect.runPromise(
+        const result = await Effect.runPromise(
           migrateKeyringEntriesIntoVault(backend, source, vaultService),
         );
-        movedCount += moved.length;
+        movedCount += result.moved.length;
+        if (!result.complete) return { movedCount, complete: false };
       }
-      return movedCount;
+      return { movedCount, complete: true };
     })();
     vaultAdoptions.set(key, pending);
   }
-  return pending;
+  const attempt = pending;
+  return attempt.then(
+    (result) => {
+      if (!result.complete && vaultAdoptions.get(key) === attempt) vaultAdoptions.delete(key);
+      return result;
+    },
+    (error: unknown) => {
+      if (vaultAdoptions.get(key) === attempt) vaultAdoptions.delete(key);
+      throw error;
+    },
+  );
 }
 
 interface VaultSnapshot {
@@ -595,9 +645,9 @@ function rememberVault(backend: OsKeyringBackend, service: string, secrets: Vaul
 
 /**
  * Every secret in the active home's vault, from one keyring read shared by every lookup made
- * within {@link VAULT_SNAPSHOT_REUSE_MS}. The first read in a process also adopts per-entry items
- * left by earlier versions; it runs beside the vault read, and the vault is read again only when
- * something moved.
+ * within {@link VAULT_SNAPSHOT_REUSE_MS}. An uncached read also attempts legacy adoption until
+ * it completes; incomplete attempts retry after the snapshot expires. Adoption runs beside the
+ * vault read, and the vault is read again only when something moved.
  */
 function readVault(backend: OsKeyringBackend): Effect.Effect<VaultSecrets, never> {
   return Effect.promise(() => {
@@ -613,11 +663,11 @@ function readVault(backend: OsKeyringBackend): Effect.Effect<VaultSecrets, never
       return read.status === "ok" ? read.secrets : {};
     };
     const secrets = (async () => {
-      const [initial, movedCount] = await Promise.all([
+      const [initial, adoption] = await Promise.all([
         readSecrets(),
         adoptPerEntrySecrets(backend, service),
       ]);
-      return movedCount > 0 ? readSecrets() : initial;
+      return adoption.movedCount > 0 ? readSecrets() : initial;
     })();
     vaultSnapshots.set(key, { secrets, readAtMs: now });
     return secrets;
@@ -667,7 +717,11 @@ export function keyringSet(
   });
 }
 
-/** Remove a secret. Missing entries are not an error. */
+/**
+ * Remove a secret. Missing entries are not an error. An incomplete legacy adoption leaves the
+ * vault untouched, because deleting before the remaining source is adopted could resurrect it
+ * on retry. Callers may retry once the keyring is available again.
+ */
 export function keyringDelete(
   backend: KeyringBackend,
   account: string,
@@ -685,9 +739,9 @@ export function keyringDelete(
       ).pipe(Effect.catch(() => Effect.void));
       return;
     }
-    // Adopt first: an item adopted after this delete would bring the secret back.
     const service = keyringVaultServiceName();
-    yield* Effect.promise(() => adoptPerEntrySecrets(backend, service));
+    const adoption = yield* Effect.promise(() => adoptPerEntrySecrets(backend, service));
+    if (!adoption.complete) return;
     yield* updateVault(
       runCommand,
       backend,

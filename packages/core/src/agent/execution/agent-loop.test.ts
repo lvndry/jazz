@@ -1,3 +1,7 @@
+/**
+ * Exercises agent-loop budgets, compaction, presentation, and tool execution with injected services.
+ * Tokenizer-dependent cases explicitly load encoders; temporary tool mocks are restored after use.
+ */
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,7 +52,7 @@ import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import { SkillServiceTag } from "../../skills/skill-service";
 import { describeContextUsage, formatContextUsageReport } from "../context/context-usage";
 import type { RecursiveRunner } from "../context/summarizer";
-import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
+import { DEFAULT_TOKEN_COUNTER, ensureGptEncoders } from "../context/token-counter";
 import { PROTECTED_TOOL_CYCLES } from "../context/tool-result-clearing";
 import { readOffloadedToolResult } from "../context/tool-result-offload";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
@@ -1297,6 +1301,7 @@ describe("executeAgentLoop", () => {
     // the run degraded to a sliding window that dropped the earliest turns.
     // Two iterations: trimming happens after the first LLM call, so only the second
     // call can observe whether history survived.
+    await ensureGptEncoders();
     const seenMessages: ConversationMessages[] = [];
     let iteration = 0;
     const strategy: CompletionStrategy = {
@@ -1331,13 +1336,6 @@ describe("executeAgentLoop", () => {
       getRenderer: () => null,
     };
 
-    const originalExecute = ToolExecutor.executeToolCalls;
-    ToolExecutor.executeToolCalls = mock(() =>
-      Effect.succeed([
-        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
-      ]),
-    );
-
     const messages: any[] = [{ role: "system", content: "system prompt" }];
     for (let turn = 0; turn < 90; turn++) {
       messages.push({ role: "user", content: `question ${turn} ` + "detail ".repeat(400) });
@@ -1359,18 +1357,27 @@ describe("executeAgentLoop", () => {
       config: { ...options.agent.config, llm: { ...options.agent.config.llm, model } },
     } as any;
 
-    await Effect.runPromise(
-      executeAgentLoop(
-        { ...options, agent },
-        makeRunContext({ messages: messages as any, agent, model }),
-        displayConfig,
-        strategy,
-        defaultObserver,
-        runRecursive,
-      ).pipe(Effect.provide(TestLayer)),
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]),
     );
 
-    ToolExecutor.executeToolCalls = originalExecute;
+    try {
+      await Effect.runPromise(
+        executeAgentLoop(
+          { ...options, agent },
+          makeRunContext({ messages: messages as any, agent, model }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
 
     // The second call is the one that sees post-trim history.
     const sent = seenMessages[1] ?? [];

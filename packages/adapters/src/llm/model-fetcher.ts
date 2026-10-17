@@ -1,3 +1,8 @@
+/**
+ * Lists provider models and resolves their capabilities from provider responses and models.dev.
+ * Local-server probes are bounded; Ollama shares short-lived successful reads across startup
+ * checks while each caller can independently stop waiting through its AbortSignal.
+ */
 import {
   isLocalServerProvider,
   LOCAL_SERVER_PROVIDERS,
@@ -454,27 +459,55 @@ export function clearOllamaProbeCache(): void {
 /**
  * `probe`'s answer, shared with every caller asking the same `key` within
  * {@link OLLAMA_PROBE_REUSE_MS}. A probe that failed (undefined) answers `fallback` and is not
- * kept, so the next caller asks the server again.
+ * kept, so the next caller asks the server again. Each caller's signal cancels only its wait;
+ * the shared request keeps its own bounded timeout and may populate the cache after cancellation.
  */
 function reuseOllamaProbe<T>(
   key: string,
   probe: () => Promise<T | undefined>,
   fallback: T,
+  signal?: AbortSignal,
 ): Promise<T> {
+  if (signal?.aborted) return Promise.resolve(fallback);
   const now = Date.now();
   const cached = ollamaProbes.get(key);
+  let answer: Promise<T>;
   if (cached !== undefined && now - cached.startedAtMs < OLLAMA_PROBE_REUSE_MS) {
-    return cached.answer as Promise<T>;
+    answer = cached.answer as Promise<T>;
+  } else {
+    answer = probe().then((value) => {
+      if (value === undefined) {
+        if (ollamaProbes.get(key)?.answer === answer) ollamaProbes.delete(key);
+        return fallback;
+      }
+      return value;
+    });
+    ollamaProbes.set(key, { answer, startedAtMs: now });
   }
-  const answer = probe().then((value) => {
-    if (value === undefined) {
-      ollamaProbes.delete(key);
-      return fallback;
-    }
-    return value;
+  return awaitOllamaProbe(answer, fallback, signal);
+}
+
+/** Stop one caller's wait without giving it ownership of a shared network request. */
+function awaitOllamaProbe<T>(answer: Promise<T>, fallback: T, signal?: AbortSignal): Promise<T> {
+  if (signal === undefined) return answer;
+  if (signal.aborted) return Promise.resolve(fallback);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(fallback);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    void answer.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(toError(error));
+      },
+    );
   });
-  ollamaProbes.set(key, { answer, startedAtMs: now });
-  return answer;
 }
 
 function fetchOllamaShow(
@@ -490,7 +523,7 @@ function fetchOllamaShow(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ model: modelName }),
-          signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
+          signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS),
         });
         if (!response.ok) return undefined;
         const data = (await response.json()) as OllamaShowResponse;
@@ -505,6 +538,7 @@ function fetchOllamaShow(
       }
     },
     {},
+    signal,
   );
 }
 
@@ -529,7 +563,7 @@ export function fetchOllamaRunningModels(
     async (): Promise<readonly OllamaRunningModel[] | undefined> => {
       try {
         const response = await fetch(`${baseUrl}/ps`, {
-          signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
+          signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS),
         });
         if (!response.ok) return undefined;
         const data = (await response.json()) as { models?: OllamaRunningModel[] };
@@ -539,6 +573,7 @@ export function fetchOllamaRunningModels(
       }
     },
     [],
+    signal,
   );
 }
 

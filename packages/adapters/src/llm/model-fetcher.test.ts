@@ -1,5 +1,10 @@
+/**
+ * Exercises provider model discovery and local-server metadata probes with controlled responses.
+ * Ollama concurrency fixtures cover reuse-window replacement, independent caller cancellation,
+ * and listener cleanup without depending on a live model server or provider credentials.
+ */
 import type { ModelsDevMetadata, ModelsDevModelEntry } from "@jazz/core/utils/models-dev";
-import { afterAll, describe, expect, it, mock, beforeEach } from "bun:test";
+import { afterAll, describe, expect, it, mock, beforeEach, spyOn } from "bun:test";
 import { Effect } from "effect";
 import {
   clearOllamaProbeCache,
@@ -1429,6 +1434,134 @@ describe("fetchOllamaRunningContextWindow", () => {
 });
 
 describe("Ollama probes at run start", () => {
+  it("keeps a replacement probe cached when an older expired probe fails", async () => {
+    const originalFetch = globalThis.fetch;
+    const now = spyOn(Date, "now").mockReturnValue(0);
+    const pending: ((response: Response) => void)[] = [];
+    globalThis.fetch = mock(
+      () => new Promise<Response>((resolve) => pending.push(resolve)),
+    ) as unknown as typeof fetch;
+    const show = () => fetchOllamaModelDetails("http://ollama.test/api", "gemma4", undefined, []);
+    try {
+      const old = show();
+      now.mockReturnValue(10_001);
+      const replacement = show();
+      pending[0]?.(new Response(null, { status: 503 }));
+      expect(await old).toEqual({});
+      const follower = show();
+      for (const resolve of pending.slice(1)) resolve(Response.json({ capabilities: ["tools"] }));
+      expect(await replacement).toEqual({ capabilities: ["tools"] });
+      expect(await follower).toEqual({ capabilities: ["tools"] });
+      expect(pending).toHaveLength(2);
+    } finally {
+      for (const resolve of pending) resolve(new Response(null, { status: 503 }));
+      now.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it.each(["leader", "follower"] as const)(
+    "cancels only the %s's wait while sharing both Ollama probes",
+    async (cancelledCaller) => {
+      const originalFetch = globalThis.fetch;
+      const pending: { readonly url: string; readonly resolve: (response: Response) => void }[] =
+        [];
+      const networkSignals: AbortSignal[] = [];
+      globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+        const signal = init?.signal;
+        if (signal) networkSignals.push(signal);
+        return new Promise<Response>((resolve, reject) => {
+          pending.push({ url: String(input), resolve });
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      }) as unknown as typeof fetch;
+      const leader = new AbortController();
+      const follower = new AbortController();
+      try {
+        const first = fetchOllamaModelDetails("http://ollama.test/api", "gemma4", leader.signal);
+        const second = fetchOllamaModelDetails("http://ollama.test/api", "gemma4", follower.signal);
+        const cancelled = cancelledCaller === "leader" ? first : second;
+        const surviving = cancelledCaller === "leader" ? second : first;
+        (cancelledCaller === "leader" ? leader : follower).abort();
+        const cancellation = await Promise.race([
+          cancelled.then((result) => ({ kind: "answered" as const, result })),
+          Bun.sleep(0).then(() => ({ kind: "waiting" as const })),
+        ]);
+        expect(cancellation).toEqual({ kind: "answered", result: {} });
+        expect(networkSignals.every((signal) => !signal.aborted)).toBe(true);
+        for (const request of pending) {
+          request.resolve(
+            request.url.endsWith("/ps")
+              ? Response.json({ models: [{ name: "gemma4:latest", context_length: 8192 }] })
+              : Response.json({ capabilities: ["completion", "tools"] }),
+          );
+        }
+        const expected = { capabilities: ["completion", "tools"], runningContextWindow: 8192 };
+        expect(await surviving).toEqual(expected);
+        expect(await fetchOllamaModelDetails("http://ollama.test/api", "gemma4")).toEqual(expected);
+        expect(pending).toHaveLength(2);
+      } finally {
+        for (const request of pending) request.resolve(new Response(null, { status: 503 }));
+        globalThis.fetch = originalFetch;
+      }
+    },
+  );
+
+  it("does not start a probe for an already-aborted caller", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(() => Promise.resolve(Response.json({ capabilities: ["tools"] })));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      expect(
+        await fetchOllamaModelDetails("http://ollama.test/api", "gemma4", AbortSignal.abort()),
+      ).toEqual({});
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it.each(["success", "failure", "abort"] as const)(
+    "removes caller abort listeners after probe %s",
+    async (outcome) => {
+      const originalFetch = globalThis.fetch;
+      const controller = new AbortController();
+      const added = spyOn(controller.signal, "addEventListener");
+      const removed = spyOn(controller.signal, "removeEventListener");
+      const pending: ((response: Response) => void)[] = [];
+      globalThis.fetch = mock(() => {
+        if (outcome === "failure") return Promise.reject(new Error("connection refused"));
+        if (outcome === "success") return Promise.resolve(Response.json({}));
+        return new Promise<Response>((resolve) => pending.push(resolve));
+      }) as unknown as typeof fetch;
+      try {
+        const result = fetchOllamaModelDetails(
+          "http://ollama.test/api",
+          "gemma4",
+          controller.signal,
+        );
+        if (outcome === "abort") controller.abort();
+        expect(await result).toEqual({});
+        const listeners = added.mock.calls
+          .filter(([type]) => type === "abort")
+          .map(([, listener]) => listener);
+        expect(listeners.length).toBeGreaterThan(0);
+        for (const listener of listeners) {
+          expect(
+            removed.mock.calls.some(
+              ([type, removedListener]) => type === "abort" && removedListener === listener,
+            ),
+          ).toBe(true);
+        }
+      } finally {
+        for (const resolve of pending) resolve(Response.json({}));
+        added.mockRestore();
+        removed.mockRestore();
+        globalThis.fetch = originalFetch;
+      }
+    },
+  );
+
   it("share one /api/show and one /api/ps between callers asking about the same model", async () => {
     const requested: string[] = [];
     const originalFetch = globalThis.fetch;

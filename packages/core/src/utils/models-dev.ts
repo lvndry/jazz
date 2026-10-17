@@ -4,10 +4,13 @@
  * support, pricing) across providers.
  *
  * Lazy-loaded and mirrored to `<jazz home>/cache/models-dev.json`, keeping only the fields
- * Jazz reads. A snapshot younger than `CACHE_TTL_MS` is used without touching the network,
+ * Jazz reads. Mirror URLs use separate snapshots keyed by a SHA-256 hash of the
+ * complete URL; memory and in-flight loads are source-specific too. A snapshot younger
+ * than `CACHE_TTL_MS` is used without touching the network,
  * so a short-lived `jazz run` does not download the catalog; an older one is refreshed, and
  * offline/airgapped runs (or a network outage) fall back to it whatever its age.
  */
+import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
@@ -92,9 +95,15 @@ interface ModelsDevData {
   readonly providerModels: Map<string, readonly ModelsDevModelEntry[]>;
 }
 
-let cachedData: ModelsDevData | null = null;
-let cacheExpiry = 0;
-let inFlightLoad: Promise<ModelsDevData | null> | null = null;
+interface ModelsDevCache {
+  readonly sourceUrl: string;
+  readonly path: string;
+  data: ModelsDevData | null;
+  expiry: number;
+  inFlight: Promise<ModelsDevData | null> | null;
+}
+
+let activeCache: ModelsDevCache | null = null;
 
 /**
  * Normalize model id for lookup: lowercase, and add a variant without :tag
@@ -211,8 +220,12 @@ function resolveApiUrl(): string {
   return override && override.length > 0 ? override : MODELS_DEV_API_URL;
 }
 
-function diskCachePath(): string {
-  return join(getUserDataDirectory(), "cache", DISK_CACHE_FILE);
+function diskCachePath(sourceUrl: string): string {
+  const filename =
+    sourceUrl === MODELS_DEV_API_URL
+      ? DISK_CACHE_FILE
+      : `models-dev.${createHash("sha256").update(sourceUrl).digest("hex")}.json`;
+  return join(getUserDataDirectory(), "cache", filename);
 }
 
 /** The catalog with only the fields `buildData` reads, so the snapshot parses quickly. */
@@ -248,9 +261,8 @@ function slimApi(api: ModelsDevApi): ModelsDevApi {
   return slim;
 }
 
-async function writeDiskCache(api: ModelsDevApi): Promise<void> {
+async function writeDiskCache(api: ModelsDevApi, path: string): Promise<void> {
   try {
-    const path = diskCachePath();
     await mkdir(dirname(path), { recursive: true, mode: stateDirectoryMode() });
     await writeFile(path, JSON.stringify(slimApi(api)), {
       encoding: "utf-8",
@@ -264,25 +276,31 @@ async function writeDiskCache(api: ModelsDevApi): Promise<void> {
   }
 }
 
-async function loadFromDiskCache(expiresAt: number): Promise<ModelsDevData | null> {
+async function loadFromDiskCache(
+  cache: ModelsDevCache,
+  expiresAt: number,
+): Promise<ModelsDevData | null> {
   try {
-    const raw = await readFile(diskCachePath(), "utf8");
+    const raw = await readFile(cache.path, "utf8");
     const api = JSON.parse(raw) as ModelsDevApi;
-    if (!api || typeof api !== "object") return cachedData;
+    if (!api || typeof api !== "object") return cache.data;
 
-    cachedData = buildData(api);
-    cacheExpiry = expiresAt;
-    return cachedData;
+    cache.data = buildData(api);
+    cache.expiry = expiresAt;
+    return cache.data;
   } catch {
-    return cachedData;
+    return cache.data;
   }
 }
 
 /** The disk snapshot when it is younger than `CACHE_TTL_MS`, or null when it is older or missing. */
-async function loadFreshDiskCache(now: number): Promise<ModelsDevData | null> {
+async function loadFreshDiskCache(
+  cache: ModelsDevCache,
+  now: number,
+): Promise<ModelsDevData | null> {
   let writtenAt: number;
   try {
-    writtenAt = (await stat(diskCachePath())).mtimeMs;
+    writtenAt = (await stat(cache.path)).mtimeMs;
   } catch {
     return null;
   }
@@ -290,7 +308,7 @@ async function loadFreshDiskCache(now: number): Promise<ModelsDevData | null> {
   if (expiresAt <= now) {
     return null;
   }
-  return loadFromDiskCache(expiresAt);
+  return loadFromDiskCache(cache, expiresAt);
 }
 
 /**
@@ -304,47 +322,59 @@ async function loadFreshDiskCache(now: number): Promise<ModelsDevData | null> {
  * their own fetch and disk write.
  */
 async function loadModelsDevData(): Promise<ModelsDevData | null> {
+  const sourceUrl = resolveApiUrl();
+  if (activeCache === null || activeCache.sourceUrl !== sourceUrl) {
+    activeCache = {
+      sourceUrl,
+      path: diskCachePath(sourceUrl),
+      data: null,
+      expiry: 0,
+      inFlight: null,
+    };
+  }
+  const cache = activeCache;
   const now = Date.now();
-  if (cachedData !== null && now < cacheExpiry) {
-    return cachedData;
+  if (cache.data !== null && now < cache.expiry) {
+    return cache.data;
   }
-
-  if (inFlightLoad) {
-    return inFlightLoad;
+  if (cache.inFlight !== null) {
+    return cache.inFlight;
   }
-
-  inFlightLoad = fetchAndCacheModelsDevData(now).finally(() => {
-    inFlightLoad = null;
+  cache.inFlight = fetchAndCacheModelsDevData(cache, now).finally(() => {
+    cache.inFlight = null;
   });
-  return inFlightLoad;
+  return cache.inFlight;
 }
 
-async function fetchAndCacheModelsDevData(now: number): Promise<ModelsDevData | null> {
+async function fetchAndCacheModelsDevData(
+  cache: ModelsDevCache,
+  now: number,
+): Promise<ModelsDevData | null> {
   if (isOfflineMode()) {
-    return loadFromDiskCache(now + CACHE_TTL_MS);
+    return loadFromDiskCache(cache, now + CACHE_TTL_MS);
   }
 
-  const fresh = await loadFreshDiskCache(now);
+  const fresh = await loadFreshDiskCache(cache, now);
   if (fresh !== null) {
     return fresh;
   }
 
   try {
-    const response = await fetch(resolveApiUrl(), {
+    const response = await fetch(cache.sourceUrl, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!response.ok) return loadFromDiskCache(now + CACHE_TTL_MS);
+    if (!response.ok) return loadFromDiskCache(cache, now + CACHE_TTL_MS);
 
     const api = (await response.json()) as ModelsDevApi;
-    if (!api || typeof api !== "object") return loadFromDiskCache(now + CACHE_TTL_MS);
+    if (!api || typeof api !== "object") return loadFromDiskCache(cache, now + CACHE_TTL_MS);
 
-    cachedData = buildData(api);
-    cacheExpiry = now + CACHE_TTL_MS;
-    await writeDiskCache(api);
-    return cachedData;
+    cache.data = buildData(api);
+    cache.expiry = now + CACHE_TTL_MS;
+    await writeDiskCache(api, cache.path);
+    return cache.data;
   } catch {
-    return loadFromDiskCache(now + CACHE_TTL_MS);
+    return loadFromDiskCache(cache, now + CACHE_TTL_MS);
   }
 }
 
@@ -459,15 +489,20 @@ export function getModelsDevMetadataSync(
   modelId: string,
   providerId?: string,
 ): ModelsDevMetadata | undefined {
-  if (cachedData === null || Date.now() >= cacheExpiry) return undefined;
-  return getMetadataFromMap(cachedData.metadataMap, modelId, providerId);
+  const cache = activeCache;
+  if (
+    cache === null ||
+    cache.sourceUrl !== resolveApiUrl() ||
+    cache.data === null ||
+    Date.now() >= cache.expiry
+  )
+    return undefined;
+  return getMetadataFromMap(cache.data.metadataMap, modelId, providerId);
 }
 
 /**
  * Clear the in-memory cache (e.g. for tests).
  */
 export function clearModelsDevCache(): void {
-  cachedData = null;
-  cacheExpiry = 0;
-  inFlightLoad = null;
+  activeCache = null;
 }

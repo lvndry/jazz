@@ -100,8 +100,12 @@ Consequences worth knowing:
 - **Local models need no catalog.** Model lists, context windows, and tool-calling support are read straight from the local server. An airgapped install works with an empty cache.
 - **The 80% compaction threshold tracks the real window.** A 1M-context model gets a 1M-based threshold, not a guess.
 - **A brand-new model may be missing.** You get the provider's own metadata or a 128k default, and pricing display may be blank. Nothing breaks.
-- **The snapshot is reused for six hours.** A model added to models.dev since the last refresh shows up once the snapshot is older than that.
+- **The snapshot is reused for six hours, per catalog URL.** Switching `JAZZ_MODELS_DEV_URL` selects that source’s own memory cache and disk snapshot, including offline. The default catalog uses `models-dev.json`; mirrors use `models-dev.<sha256-of-url>.json` under the same cache directory. In-flight loads cannot populate another source’s cache.
 - **`JAZZ_MODELS_DEV_URL`** points at an internal mirror for air-gapped networks that still want metadata. See [Local models](../getting-started/local-models.md).
+
+Ollama `/api/show` and `/api/ps` probes share requests started within the last ten seconds. Each
+caller can cancel its own wait without cancelling another caller’s request. The shared request still has a five-second
+timeout; cancelling every waiter can leave that bounded request running to warm the cache.
 
 ---
 
