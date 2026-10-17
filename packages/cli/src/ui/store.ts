@@ -29,9 +29,16 @@ import {
   appendDocumentStream,
   settleDocumentStream,
   contentFromOutput,
+  createDocument,
+  findDocumentEntry,
+  lastDocumentEntry,
+  replaceDocumentEntry,
+  transcriptDocument,
+  type TranscriptDocument,
 } from "./document";
 import type { LocalModelHosts } from "./local-model-hosts";
 import { sameBackgroundItems, type BackgroundItem } from "./models/background-work";
+import { SnapshotSet } from "./snapshot-set";
 import {
   appendToSubagentRun,
   finishSubagentRun,
@@ -441,21 +448,19 @@ export class UIStore {
   private readonly subagents = new StoreSlice<SubagentsSnapshot>(INITIAL_SUBAGENTS);
 
   private readonly sourceNamespace = crypto.randomUUID();
-  private document: PresentationDocument = { id: "session:0", revision: 0, entries: [] };
+  private document: TranscriptDocument = createDocument("session:0", 0, []);
   private documentGeneration = 0;
   private classicProjection: ReturnType<typeof createClassicProjection> | undefined;
   private classicDirty = false;
   private classicSubscribers = 0;
   private classicNotificationPending = false;
-  private readonly expandedReasoningIds = new Set<string>();
-  private readonly expandedReceiptIds = new Set<string>();
-  private readonly liveReasoningIds = new Set<string>();
+  private readonly expandedReasoningIds = new SnapshotSet<string>();
+  private readonly expandedReceiptIds = new SnapshotSet<string>();
+  private readonly liveReasoningIds = new SnapshotSet<string>();
   private turnThoughtIds: string[] = [];
-  private readonly reasoningReplays: Array<{
-    readonly id: string;
-    readonly sourceIds: readonly string[];
-  }> = [];
-  private readonly deferredReasoningIds = new Set<string>();
+  /** Reasoning the classic scrollback printed again on request, oldest first. */
+  private reasoningReplays: readonly OutputEntryWithId[] = [];
+  private readonly deferredReasoningIds = new SnapshotSet<string>();
   private streamReveal: { readonly id: string; readonly length: number } | null = null;
   private presentationRevision = 0;
   private presentationCommitting = false;
@@ -490,9 +495,9 @@ export class UIStore {
       session: this.session.getSnapshot(),
       ephemeral: this.ephemeral.getSnapshot(),
       subagents: this.subagents.getSnapshot(),
-      expandedReasoningIds: new Set(this.expandedReasoningIds),
-      expandedReceiptIds: new Set(this.expandedReceiptIds),
-      liveReasoningIds: new Set(this.liveReasoningIds),
+      expandedReasoningIds: this.expandedReasoningIds.snapshot(),
+      expandedReceiptIds: this.expandedReceiptIds.snapshot(),
+      liveReasoningIds: this.liveReasoningIds.snapshot(),
       streamReveal: this.streamReveal,
     };
     if (this.classicNotificationPending) {
@@ -525,7 +530,7 @@ export class UIStore {
     this.outputBatch = [];
     this.resetDocumentControls();
     this.documentGeneration += 1;
-    this.publishDocument({ id, revision: this.document.revision + 1, entries });
+    this.publishDocument(createDocument(id, this.document.revision + 1, entries));
     this.commitPresentation();
   };
 
@@ -576,7 +581,7 @@ export class UIStore {
    */
   private readonly streamPacer: StreamPacer = createStreamPacer(
     () => {
-      const entry = this.document.entries.at(-1);
+      const entry = lastDocumentEntry(this.document);
       if (entry === undefined || entry.id !== this.document.streamingId) return null;
       return entry.content.kind === "agent"
         ? { id: entry.id, text: entry.content.markdown }
@@ -625,7 +630,7 @@ export class UIStore {
 
   private publishDocument(next: PresentationDocument): void {
     if (Object.is(next, this.document)) return;
-    this.document = next;
+    this.document = transcriptDocument(next);
     this.refreshClassicProjection();
     this.schedulePresentationCommit();
   }
@@ -642,35 +647,15 @@ export class UIStore {
     this.classicDirty = false;
     this.classicProjection ??= createClassicProjection();
     const projected = this.classicProjection(this.document, this.documentGeneration, {
-      expandedReasoningIds: this.expandedReasoningIds,
-      liveReasoningIds: this.liveReasoningIds,
-      hiddenReasoningIds: this.deferredReasoningIds,
+      expandedReasoningIds: this.expandedReasoningIds.snapshot(),
+      liveReasoningIds: this.liveReasoningIds.snapshot(),
+      hiddenReasoningIds: this.deferredReasoningIds.snapshot(),
       streamReveal: this.streamReveal,
-    });
-    const replayEntries = this.reasoningReplays.flatMap((replay) => {
-      const sources = this.document.entries.filter(
-        (entry) => replay.sourceIds.includes(entry.id) && entry.content.kind === "reasoning",
-      );
-      const content = sources[0]?.content;
-      if (content?.kind !== "reasoning") return [];
-      return [
-        {
-          id: replay.id,
-          type: "streamContent" as const,
-          message: {
-            ...content,
-            text: sources
-              .map((entry) => (entry.content.kind === "reasoning" ? entry.content.text : ""))
-              .join("\n\n"),
-          },
-          timestamp: new Date(sources[0]!.timestamp),
-        },
-      ];
+      replays: this.reasoningReplays,
     });
     this.output.set(
       {
         ...projected,
-        entries: [...projected.entries, ...replayEntries],
         streaming: projected.pending?.rawTail ?? "",
         staticGeneration: this.documentGeneration,
       },
@@ -725,14 +710,13 @@ export class UIStore {
   };
 
   private updateOutputEntry(id: string, patch: OutputEntry): void {
-    let found = false;
-    const entries = this.document.entries.map((entry) => {
-      if (entry.id !== id) return entry;
-      found = true;
-      return { id, content: contentFromOutput(patch), timestamp: patch.timestamp.toISOString() };
-    });
-    if (found)
-      this.publishDocument({ ...this.document, revision: this.document.revision + 1, entries });
+    this.publishDocument(
+      replaceDocumentEntry(this.document, {
+        id,
+        content: contentFromOutput(patch),
+        timestamp: patch.timestamp.toISOString(),
+      }),
+    );
   }
 
   /**
@@ -1194,7 +1178,7 @@ export class UIStore {
       merged.length > region.maxLines ? merged.slice(merged.length - region.maxLines) : merged;
 
     if (region.kind === "reasoning") {
-      const source = this.document.entries.find((entry) => entry.id === id)?.content;
+      const source = findDocumentEntry(this.document, id)?.content;
       const fullText = source?.kind === "reasoning" ? source.text + text : text;
       this.updateOutputEntry(id, {
         type: "streamContent",
@@ -1219,7 +1203,7 @@ export class UIStore {
     this.publishEphemeralRegions();
     this.finishSubagentRunWith(id, summary.status ?? "completed");
 
-    const accepted = this.document.entries.find((entry) => entry.id === id)?.content;
+    const accepted = findDocumentEntry(this.document, id)?.content;
     const capturedText =
       summary.fullText?.trim() ||
       (accepted?.kind === "reasoning" ? accepted.text : region.tail.join("\n").trim());
@@ -1228,7 +1212,7 @@ export class UIStore {
 
     if (region.kind === "reasoning") {
       this.liveReasoningIds.delete(id);
-      const source = this.document.entries.find((entry) => entry.id === id)?.content;
+      const source = findDocumentEntry(this.document, id)?.content;
       const text =
         summary.fullText?.trim() || (source?.kind === "reasoning" ? source.text : capturedText);
       this.updateOutputEntry(id, {
@@ -1339,7 +1323,7 @@ export class UIStore {
     for (const region of closing) this.finishSubagentRunWith(region.id, "interrupted");
     for (const region of closing) {
       if (region.kind !== "reasoning") continue;
-      const content = this.document.entries.find((entry) => entry.id === region.id)?.content;
+      const content = findDocumentEntry(this.document, region.id)?.content;
       if (content?.kind === "reasoning" && content.text.trim().length > 0)
         this.collapseEphemeral(region.id, { durationMs: Date.now() - region.startedAt });
       else {
@@ -1501,10 +1485,13 @@ export class UIStore {
       this.schedulePresentationCommit();
     } else {
       const id = `${value.entryId ?? "reasoning"}:expanded:${String(this.reasoningReplays.length)}`;
-      this.reasoningReplays.push({
+      const replay = this.reasoningReplay(
         id,
-        sourceIds: value.entryIds ?? (value.entryId === undefined ? [] : [value.entryId]),
-      });
+        value.entryIds ?? (value.entryId === undefined ? [] : [value.entryId]),
+      );
+      if (replay !== undefined) {
+        this.reasoningReplays = [...this.reasoningReplays, replay];
+      }
       this.expandedReasoningIds.add(id);
       this.refreshClassicProjection();
     }
@@ -1512,10 +1499,30 @@ export class UIStore {
     return true;
   };
 
+  /** A turn's settled reasoning joined into one entry, for the classic scrollback to print again. */
+  private reasoningReplay(id: string, sourceIds: readonly string[]): OutputEntryWithId | undefined {
+    const sources = this.document.entries.filter(
+      (entry) => sourceIds.includes(entry.id) && entry.content.kind === "reasoning",
+    );
+    const first = sources[0];
+    if (first?.content.kind !== "reasoning") return undefined;
+    return {
+      id,
+      type: "streamContent",
+      message: {
+        ...first.content,
+        text: sources
+          .map((entry) => (entry.content.kind === "reasoning" ? entry.content.text : ""))
+          .join("\n\n"),
+      },
+      timestamp: new Date(first.timestamp),
+    };
+  }
+
   appendStream = (kind: StreamKind, delta: string): void => {
     if (delta.length === 0) return;
     this.flushOutputBatchNow();
-    const last = this.document.entries.at(-1);
+    const last = lastDocumentEntry(this.document);
     const matching =
       last?.id === this.document.streamingId &&
       (kind === "response" ? last?.content.kind === "agent" : last?.content.kind === "reasoning");
@@ -1573,16 +1580,14 @@ export class UIStore {
     this.outputBatch = [];
     this.batchFlushScheduled = false;
     this.documentGeneration += 1;
-    this.publishDocument({
-      id: `session:${String(this.documentGeneration)}`,
-      revision: this.document.revision + 1,
-      entries: [],
-    });
+    this.publishDocument(
+      createDocument(`session:${String(this.documentGeneration)}`, this.document.revision + 1, []),
+    );
   };
 
   private resetDocumentControls(): void {
     this.turnThought = NO_THOUGHT;
-    this.reasoningReplays.length = 0;
+    this.reasoningReplays = [];
     this.classicProjection = undefined;
     this.streamReveal = null;
     this.expandedReasoningIds.clear();
