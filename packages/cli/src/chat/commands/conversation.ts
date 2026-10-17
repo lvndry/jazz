@@ -46,7 +46,7 @@ export function handleRenameCommand(
       yield* terminal.error(`Could not rename conversation: ${loaded.left.message}`);
       return { shouldContinue: true, skipTranscriptRepaint: true };
     }
-    const current = context.conversationTitle ?? loaded.right?.title ?? "";
+    const current = loaded.right?.title ?? context.conversationTitle ?? "";
     const entered =
       args.length > 0
         ? args[0]
@@ -68,6 +68,7 @@ export function handleRenameCommand(
           agentId: context.agent.id,
           conversationId: context.conversationId,
           title,
+          titleSource: "user",
           startedAt: loaded.right?.startedAt ?? context.sessionStartedAt.toISOString(),
           messages: [...context.conversationHistory],
           ...(loaded.right?.uiTranscript !== undefined

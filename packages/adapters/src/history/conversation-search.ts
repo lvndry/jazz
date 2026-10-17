@@ -32,12 +32,11 @@ import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
 import {
-  deriveConversationTitle,
   displayConversationTitle,
-  isStoredTitle,
   conversationLogPath,
   getConversationLogsDirectory,
   parseConversationLogLine,
+  resolveConversationTitle,
   type ConversationLogEvent,
 } from "./conversation-log";
 
@@ -292,20 +291,12 @@ function readConversationContent(content: string): ConversationContent | null {
     if (event) events.push(event);
   }
 
-  let header: { agentId: string; conversationId: string; titleFormat?: number } | undefined;
-  let title: string | undefined;
+  let header: { agentId: string; conversationId: string } | undefined;
   const texts: string[] = [];
   const messages = [];
   for (const event of events) {
     if (event.type === "conversation") {
-      header = {
-        agentId: event.agentId,
-        conversationId: event.conversationId,
-        ...(event.titleFormat === undefined ? {} : { titleFormat: event.titleFormat }),
-      };
-      title = isStoredTitle(event.title, header) ? event.title : title;
-    } else if (event.type === "meta" && isStoredTitle(event.title, header ?? null)) {
-      title = event.title;
+      header = { agentId: event.agentId, conversationId: event.conversationId };
     } else if (event.type === "message") {
       messages.push(event.message);
       texts.push(event.message.content);
@@ -318,7 +309,7 @@ function readConversationContent(content: string): ConversationContent | null {
   return {
     agentId: header.agentId,
     conversationId: header.conversationId,
-    title: displayConversationTitle(deriveConversationTitle(title, messages)),
+    title: displayConversationTitle(resolveConversationTitle(events, messages).title),
     texts,
   };
 }

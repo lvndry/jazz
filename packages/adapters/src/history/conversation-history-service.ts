@@ -306,6 +306,9 @@ export function saveConversation(
             agentId: conversation.agentId,
             conversationId: conversation.conversationId,
             title: conversation.title,
+            ...(conversation.titleSource === undefined
+              ? {}
+              : { titleSource: conversation.titleSource }),
             startedAt: conversation.startedAt,
             messages: conversation.messages,
             basedOn: conversation.basedOn,

@@ -1025,8 +1025,10 @@ Chat bridges have independent command contracts described in their surface guide
 
 `/rename <title>` sets the current conversation's title, preserving internal whitespace and
 Unicode without an artificial length limit. Bare `/rename` edits the current title; Escape
-cancels. Naming a conversation before its first message saves it too. Later turns and resumes
-preserve the title. Ephemeral sessions keep it only in memory. Renaming never calls the model,
+cancels. Naming a conversation before its first message saves it too. Later turns, resumes,
+and compaction preserve the title. Ephemeral sessions keep it only in memory. A conversation you
+never renamed starts out named after your first message, and each compaction renames it after
+what the conversation has become. Renaming never calls the model,
 and a save failure is reported without changing the title.
 
 Only `/exit` (or `/quit`) ends the chat; `exit` or `quit` typed alone is sent to the agent as a
