@@ -1012,7 +1012,7 @@ with `/switch <agent>` to use the updated tool selection.
 | `/plugins`                                                                           | Turn installed plugins on or off, for this conversation or always.                                            |
 | `/skills`                                                                            | Search installed skills by name, source, or description.                                                      |
 | `/info`                                                                              | Show conversation id, title, usage, and log file paths for this session. Also `/stats`.                       |
-| `/switch [agent]`                                                                    | Switch to a different agent in the same conversation; /resume later continues it with that agent.             |
+| `/switch [agent]`                                                                    | Switch to a different agent in the same conversation.                                                         |
 | `/theme [name] [dark\|light]`                                                        | List themes, or switch to one and save it.                                                                    |
 | `/tools`                                                                             | List agent tools by category, including configured peer tools.                                                |
 | `/workflows [action]`                                                                | List workflows, or send an action (e.g. create) to the agent.                                                 |
