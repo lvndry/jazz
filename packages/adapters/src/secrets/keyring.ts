@@ -529,7 +529,7 @@ function osKeyringAnyAccount(
 }
 
 /** Migration progress and whether the source was successfully observed to be empty. */
-export interface KeyringMigrationResult {
+export interface VaultMigration {
   readonly moved: readonly string[];
   readonly complete: boolean;
 }
@@ -547,7 +547,7 @@ export function migrateKeyringEntriesIntoVault(
   vaultService: string,
   run: KeyringCommandRunner = runCommand,
   withLock: VaultLock = withSecretsFileLock,
-): Effect.Effect<KeyringMigrationResult, never> {
+): Effect.Effect<VaultMigration, never> {
   return Effect.gen(function* () {
     const moved: string[] = [];
     for (let attempt = 0; attempt < MAX_LEGACY_ENTRIES_MIGRATED; attempt++) {

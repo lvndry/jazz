@@ -277,6 +277,28 @@ describe("models-dev mirror override", () => {
   });
 });
 
+describe("models-dev snapshots per catalog", () => {
+  it("fetches from a newly set mirror even while the models.dev snapshot is fresh", async () => {
+    const originalMirror = process.env["JAZZ_MODELS_DEV_URL"];
+    await writeSnapshot();
+    process.env["JAZZ_MODELS_DEV_URL"] = "http://mirror.internal/api.json";
+    const fetchMock = mockFetchSuccess();
+
+    try {
+      await getModelsDevProviderModels("anthropic");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]?.[0]).toBe("http://mirror.internal/api.json");
+
+      clearModelsDevCache();
+      await getModelsDevProviderModels("anthropic");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      if (originalMirror === undefined) delete process.env["JAZZ_MODELS_DEV_URL"];
+      else process.env["JAZZ_MODELS_DEV_URL"] = originalMirror;
+    }
+  });
+});
+
 describe("getMetadataFromMap", () => {
   const metadata = (contextWindow: number) => ({ contextWindow }) as ModelsDevMetadata;
   const map = new Map<string, ModelsDevMetadata>([
