@@ -41,6 +41,7 @@ import {
   sandboxOwnership,
 } from "./chat-sandbox";
 import { compositionLinkPath, type CompositionLinks } from "./compositions";
+import { IncognitoTranscripts } from "./incognito-transcripts";
 import { type JazzComposition, type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
 import { routeBusyMessage, takeNextTurn } from "./mid-turn";
 import { createProgressReporter } from "./progress";
@@ -324,14 +325,8 @@ interface ChatState {
   readonly sentIntoRun: { readonly id: string; readonly message: InboundMessage }[];
 }
 
-/**
- * Transcripts for conversations currently incognito.
- *
- * Lives only in this process's memory and is never written anywhere, so a
- * restart drops the context rather than ever falling back to a file on disk —
- * which is the whole promise of the mode.
- */
-const incognitoHistory = new Map<ChatId, unknown[]>();
+/** Transcripts for conversations currently incognito, never written anywhere. */
+const incognitoHistory = new IncognitoTranscripts();
 
 /** How much reasoning to send ahead of an answer, when a bridge does not say. */
 const REASONING_PART_CHARS = 1_500;
@@ -870,7 +865,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         timezone: tzForChat(config.jazzHome, config.files.timezone, chatId),
         runTimeoutMs: config.runTimeoutMs,
         conversation: incognito
-          ? { kind: "ephemeral", history: incognitoHistory.get(chatId) ?? [] }
+          ? { kind: "ephemeral", history: incognitoHistory.get(chatId) }
           : { kind: "persistent", key: conversation },
         prompt,
       },
