@@ -1,3 +1,8 @@
+/**
+ * Contracts shared by run initialization, the execution loop and its callers. Runner options
+ * describe the caller's authority and live callbacks; the run context holds the resolved
+ * tools, model gates and services that batch and streaming execution use for that turn.
+ */
 import type { Effect } from "effect";
 import type { BrowserSessions } from "@/core/agent/tools/browser/session";
 import type { ComputerSessions } from "@/core/agent/tools/computer/session";
@@ -26,9 +31,10 @@ import type {
   ToolExecutionContext,
 } from "@/core/types/tools";
 import type { RunDeadline } from "@/core/utils/run-deadline";
-import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
+import type { UserInputAttachmentResolution } from "./agent-prompt";
 import type { Agent } from "../types";
 import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
+import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import type { createAgentRunMetrics, RunSpendReport } from "./metrics/agent-run-metrics";
 import type { SubagentSupervisor } from "./subagents/supervisor";
 
@@ -65,7 +71,8 @@ export interface QueuedMessage {
   readonly content: string;
   /**
    * What the person typed, when the message carries their own words. It becomes a memory
-   * source the model may quote, exactly as the run's first message is.
+   * source the model may quote, exactly as the run's first message is. Only this text is
+   * scanned for attachment paths; `content` may also contain untrusted background output.
    */
   readonly typed?: string;
 }
@@ -588,6 +595,14 @@ export interface AgentRunContext {
   readonly memoryOpportunities?: MemoryOpportunityRecorder;
   /** Adds a source to the ones `context.memorySources` lists, for a user message delivered mid-run. */
   readonly admitMemorySource?: (source: MemorySource) => void;
+  /**
+   * Resolves media paths in typed follow-ups with the run's model gates and tracked cwd.
+   * Absent for remote callers and runs that must not ingest user-input paths. Never pass
+   * background output here: only `QueuedMessage.typed` is a user attachment request.
+   */
+  readonly resolveUserInputAttachments?: (
+    userInput: string,
+  ) => Effect.Effect<UserInputAttachmentResolution>;
   /**
    * Host-rendered, provider-only context for the first LLM request.
    * Never push this into `messages`: canonical history must remain byte-equivalent.

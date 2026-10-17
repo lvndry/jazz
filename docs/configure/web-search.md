@@ -63,6 +63,8 @@ Select `treg` and provide a [treg token](https://treg.to) using `jazz config set
 
 TinyFish receives `query` and date hints; routed fallback uses only `query` and `maxResults`. Depth, source-type, and alternative-query hints are not enforced, and fallback cannot guarantee date filtering. Check [treg's catalog](https://treg.to/app#platform/web/search) for current routes and prices.
 
+Routed results keep their provider's source text: Jazz uses a snippet when present, otherwise content or joined excerpts/highlights. Publication dates may come from `date` or `publish_date`; an absent or unrecognized date is omitted.
+
 ## Search contract
 
 The model may supply:

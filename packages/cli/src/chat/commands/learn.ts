@@ -84,26 +84,27 @@ export function handleLearnCommand(context: CommandContext) {
     const messages = (saved?.messages ?? context.conversationHistory).filter(
       (message) => message.role !== "system",
     );
-    const claim =
+    let learningCompleted = false;
+    const claim = yield* Effect.acquireRelease(
       saved === null
-        ? undefined
-        : yield* claimUnreflectedMessages(
+        ? Effect.succeed(undefined)
+        : claimUnreflectedMessages(
             getMemoryDirectory(),
             context.agent.id,
             saved.conversationId,
             saved.messages,
-          );
-    const unreflected = claim?.messages ?? messages;
-    const releaseClaim = Effect.suspend(() =>
-      claim === undefined || saved === null
-        ? Effect.void
-        : releaseReflectionClaim(
-            getMemoryDirectory(),
-            context.agent.id,
-            saved.conversationId,
-            claim,
-          ).pipe(Effect.ignore),
+          ),
+      (claimed) =>
+        learningCompleted || claimed === undefined || saved === null
+          ? Effect.void
+          : releaseReflectionClaim(
+              getMemoryDirectory(),
+              context.agent.id,
+              saved.conversationId,
+              claimed,
+            ).pipe(Effect.ignore),
     );
+    const unreflected = claim?.messages ?? messages;
     const unreflectedSet = new Set(unreflected);
     const pendingBefore = yield* memoryService.pendingSuggestions();
 
@@ -131,7 +132,11 @@ export function handleLearnCommand(context: CommandContext) {
       conversationId: context.conversationId,
       runRecursive: (runOptions) => AgentRunner.runRecursive(runOptions),
     }).pipe(
-      Effect.onError(() => releaseClaim),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          learningCompleted = true;
+        }),
+      ),
       Effect.catch((error) =>
         Effect.gen(function* () {
           learningFailed = true;
@@ -161,5 +166,5 @@ export function handleLearnCommand(context: CommandContext) {
     }
     yield* reviewMemorySuggestions(terminal, memoryService, "/memory");
     return result;
-  });
+  }).pipe(Effect.scoped);
 }
