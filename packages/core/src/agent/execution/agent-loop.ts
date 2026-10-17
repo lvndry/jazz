@@ -397,6 +397,7 @@ interface LoopDeps {
   supportedAttachmentKinds: readonly AttachmentKind[];
   memoryOpportunities: AgentRunContext["memoryOpportunities"];
   admitMemorySource: AgentRunContext["admitMemorySource"];
+  resolveUserInputAttachments: AgentRunContext["resolveUserInputAttachments"];
 }
 
 export const MELTDOWN_WINDOW_SIZE = 10;
@@ -1615,18 +1616,29 @@ function runIteration(
     const queuedMessage =
       finalAnswerReason === undefined ? options.checkQueuedMessage?.() : undefined;
     if (queuedMessage !== undefined && queuedMessage.content.length > 0) {
+      const ingested =
+        queuedMessage.typed !== undefined && deps.resolveUserInputAttachments !== undefined
+          ? yield* deps.resolveUserInputAttachments(queuedMessage.typed)
+          : undefined;
+      const content =
+        ingested !== undefined && ingested.notes.length > 0
+          ? `${queuedMessage.content}\n\n${ingested.notes.join("\n")}`
+          : queuedMessage.content;
       const memorySource: MemorySource | undefined =
         queuedMessage.typed !== undefined && deps.admitMemorySource !== undefined
           ? { id: `user:${runMetrics.runId}:step-${iterationIndex}`, text: queuedMessage.typed }
           : undefined;
       const queued: ChatMessage =
         memorySource === undefined
-          ? { role: "user", content: queuedMessage.content }
+          ? { role: "user", content }
           : {
               role: "user",
-              content: `${queuedMessage.content}\n\n${formatMemorySourceTag(memorySource.id)}`,
+              content: `${content}\n\n${formatMemorySourceTag(memorySource.id)}`,
               memorySource,
             };
+      if (ingested !== undefined && ingested.attachments.length > 0) {
+        queued.attachments = ingested.attachments;
+      }
       if (memorySource !== undefined) {
         deps.admitMemorySource?.(memorySource);
       }
@@ -2312,6 +2324,7 @@ export function executeAgentLoop(
           supportedAttachmentKinds,
           memoryOpportunities,
           admitMemorySource: runContext.admitMemorySource,
+          resolveUserInputAttachments: runContext.resolveUserInputAttachments,
           subagents,
         };
         subagents.bindCostCap(maxCostUSD, () => computeRunCost(runMetrics, modelMetadata).costUSD);

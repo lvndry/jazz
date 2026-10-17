@@ -291,6 +291,10 @@ works, instead of starting a second run for it:
 { "type": "user_message", "id": "message-1", "text": "make it for 4 people" }
 ```
 
+Media paths in `text` are ingested with the same model support and size limits as the initial
+prompt. Runs that disable path ingestion, including peer and webhook calls, keep that restriction
+for follow-ups too. Background tool output is never scanned for attachments.
+
 The run reads every message waiting before its next model call, as one user message, and
 reports the ids it took on the event stream:
 

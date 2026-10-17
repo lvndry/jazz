@@ -72,7 +72,7 @@ import { resolveOllamaAttachmentSupport } from "@/core/utils/ollama-attachment-s
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
-import { agentPromptBuilder } from "./agent-prompt";
+import { agentPromptBuilder, resolveUserInputAttachments } from "./agent-prompt";
 import { buildAdvisedReducer } from "./context/advised-tool-clearing";
 import {
   Summarizer,
@@ -1022,6 +1022,20 @@ function initializeAgentRun(
       admitMemorySource: (source: MemorySource) => {
         memorySources.push(source);
       },
+      ...(ingestsAttachments
+        ? {
+            resolveUserInputAttachments: (userInput: string) =>
+              Effect.gen(function* () {
+                const workingDirectory = yield* resolveAgentWorkingDirectory(agent.id, options);
+                return yield* resolveUserInputAttachments({
+                  userInput,
+                  workingDirectory,
+                  supportedAttachmentKinds,
+                  attachmentsAreLocal,
+                });
+              }),
+          }
+        : {}),
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       ...(Option.isSome(pluginSession)
         ? {

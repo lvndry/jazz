@@ -1,4 +1,11 @@
+/**
+ * Exercises complete agent runs with injected providers and services, including provider
+ * requests, tool exposure, lifecycle cleanup, and trusted input attachment boundaries.
+ * Run with `bun test packages/core/src/agent/agent-runner.test.ts`.
+ */
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, mock, spyOn, type Mock } from "bun:test";
 import { Effect, Fiber, FileSystem, Layer, Stream } from "effect";
 import {
@@ -909,6 +916,102 @@ describe("AgentRunner", () => {
 
       const initialUserMessage = lastRequestedMessages().find((message) => message.role === "user");
       expect(initialUserMessage?.kind).toBeUndefined();
+    });
+  });
+
+  describe("queued media attachments", () => {
+    const cases: readonly {
+      readonly name: string;
+      readonly typed: boolean;
+      readonly options: Pick<AgentRunnerOptions, "remoteCaller" | "ingestUserInputPaths">;
+      readonly attaches: boolean;
+      readonly vision?: boolean;
+    }[] = [
+      { name: "attaches a typed path", typed: true, options: {}, attaches: true },
+      { name: "does not attach a background path", typed: false, options: {}, attaches: false },
+      {
+        name: "does not attach a remote caller's path",
+        typed: true,
+        options: { remoteCaller: { door: "webhook", name: "uploads" } },
+        attaches: false,
+      },
+      {
+        name: "respects disabled path ingestion",
+        typed: true,
+        options: { ingestUserInputPaths: false },
+        attaches: false,
+      },
+      {
+        name: "explains when the model cannot ingest the typed image",
+        typed: true,
+        options: {},
+        attaches: false,
+        vision: false,
+      },
+    ];
+
+    it.each(cases)("$name", async ({ typed, options, attaches, vision = true }) => {
+      const directory = await mkdtemp(join(os.tmpdir(), "jazz-queued-media-"));
+      try {
+        const png = Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jA1sAAAAASUVORK5CYII=",
+          "base64",
+        );
+        const imagePath = join(directory, "photo.png");
+        const backgroundPath = join(directory, "background.png");
+        await Promise.all([writeFile(imagePath, png), writeFile(backgroundPath, png)]);
+        const captured: ChatMessage[][] = [];
+        const llm: LLMService = {
+          ...mockLlmService,
+          resolveLocalProviderBaseUrl: () => "http://localhost:11434/api",
+          fetchOllamaModelDetails: () =>
+            Effect.succeed({ capabilities: vision ? ["vision"] : [], contextWindow: 32768 }),
+          createChatCompletion: (_provider, request) => {
+            captured.push([...request.messages]);
+            return Effect.succeed({ id: "queued-media", model: "test-vision", content: "done" });
+          },
+        };
+        const ownText = "Describe ./photo.png";
+        const content = `${ownText}\nBackground output: ${backgroundPath}`;
+        let waiting = true;
+        await runWithTestLayers(
+          AgentRunner.run({
+            ...defaultOptions,
+            ...options,
+            agent: {
+              ...mockAgent,
+              config: {
+                ...mockAgent.config,
+                llm: { provider: "ollama", model: "test-vision" },
+              },
+            },
+            stream: false,
+            maxIterations: 1,
+            checkQueuedMessage: () => {
+              if (!waiting) return undefined;
+              waiting = false;
+              return { content, ...(typed ? { typed: ownText } : {}) };
+            },
+          }).pipe(
+            Effect.provideService(FileSystemContextServiceTag, {
+              ...mockFileSystemContext,
+              getCwd: () => Effect.succeed(directory),
+            }),
+          ),
+          { llm },
+        );
+        expect(captured).toHaveLength(1);
+        const delivered = captured[0]?.find((message) => message.content.startsWith(ownText));
+        expect(delivered).toBeDefined();
+        expect(delivered?.attachments?.map((attachment) => attachment.path) ?? []).toEqual(
+          attaches ? [imagePath] : [],
+        );
+        if (!vision) {
+          expect(delivered?.content).toContain("this model has no image input");
+        }
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
     });
   });
 

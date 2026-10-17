@@ -74,6 +74,90 @@ describe("treg web search", () => {
     }
   });
 
+  it("normalizes provider-native text and publication dates from paid routes", async () => {
+    const cases = [
+      {
+        servedBy: "tavily.web.search",
+        row: { content: "Tavily passage", date: "2026-10-15" },
+        snippet: "Tavily passage",
+        publishedDate: "2026-10-15",
+      },
+      {
+        servedBy: "parallel.web.search",
+        row: { excerpts: ["First passage", "Second passage"], publish_date: "2026-10-16" },
+        snippet: "First passage\nSecond passage",
+        publishedDate: "2026-10-16",
+      },
+      {
+        servedBy: "parallel.web.search",
+        row: { excerpts: ["Undated passage"], publish_date: null, content: null, highlights: null },
+        snippet: "Undated passage",
+        publishedDate: undefined,
+      },
+      {
+        servedBy: "parallel.web.search",
+        row: { content: null, excerpts: null, highlights: null, publish_date: null },
+        snippet: "",
+        publishedDate: undefined,
+      },
+      {
+        servedBy: "exa.web.search",
+        row: { highlights: ["Highlighted passage"], publish_date: "unknown" },
+        snippet: "Highlighted passage",
+        publishedDate: undefined,
+      },
+      {
+        servedBy: "crawl4ai.web.search",
+        row: { snippet: "Existing summary", content: "Full passage", excerpts: ["Excerpt"] },
+        snippet: "Existing summary",
+        publishedDate: undefined,
+      },
+      {
+        servedBy: "parallel.web.search",
+        row: { snippet: "  ", content: "", excerpts: ["", "Useful passage", "  "] },
+        snippet: "Useful passage",
+        publishedDate: undefined,
+      },
+    ];
+    for (const example of cases) {
+      const fetchMock = mock(async (_url: unknown, _options: RequestInit) =>
+        fetchMock.mock.calls.length === 1
+          ? Response.json({ results: [] })
+          : Response.json({
+              output: {
+                results: [{ title: "Source", url: "https://example.org/", ...example.row }],
+              },
+              _treg: { served_by: example.servedBy },
+            }),
+      );
+      global.fetch = fetchMock as unknown as typeof fetch;
+      const result = await search();
+      expect(result.results[0]?.snippet).toBe(example.snippet);
+      expect(result.results[0]?.publishedDate).toBe(example.publishedDate);
+      expect(result.results[0]?.metadata?.["servedBy"]).toBe(example.servedBy);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("rejects malformed provider-native text without exposing the response", async () => {
+    for (const row of [
+      { content: { secret: "sensitive provider text" } },
+      { excerpts: ["sensitive provider text", 42] },
+      { highlights: "sensitive provider text" },
+    ]) {
+      const fetchMock = mock(async (_url: unknown, _options: RequestInit) =>
+        fetchMock.mock.calls.length === 1
+          ? Response.json({ results: [] })
+          : Response.json({ output: { results: [{ url: "https://example.org/", ...row }] } }),
+      );
+      global.fetch = fetchMock as unknown as typeof fetch;
+      await expect(search()).rejects.toMatchObject({
+        message: "treg paid fallback failed or exceeded its cost limit",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }
+  });
+
   it("does not retry a failed paid call or leak provider response bodies", async () => {
     const fetchMock = mock(async (_url: string, _options: RequestInit) =>
       fetchMock.mock.calls.length === 1

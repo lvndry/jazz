@@ -367,7 +367,9 @@ no turn in this session. A hard kill (SIGTERM mid-chat) skips it too; the next c
 conversation covers the missed messages.
 
 A third way is `learn`, run in the foreground by `/learn` (alias `/reflect`). It claims the same
-watermark from the saved conversation (releasing it if the pass fails or is interrupted), scans with the same chunk bound under the
+watermark from the saved conversation, with scoped cleanup registered as part of claiming it. A
+failure or interruption before learning completes, including a pending-suggestions read failure,
+releases the claim so those messages can be retried. It scans with the same chunk bound under the
 `memory-learner` id, then makes one curation call. That call receives the session's memory diff
 (a snapshot of every entry's first line and content hash, taken when the chat started, against
 the store now) and the suggestions already waiting. It holds `revise_memory`, which no agent is

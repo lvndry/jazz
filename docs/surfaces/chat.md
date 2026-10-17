@@ -41,6 +41,10 @@ while the agent is working goes into the run in progress, and the agent reads it
 next step. "Book a table for tomorrow" followed by "for 4, around 8pm" gets one answer that
 covers both, not two separate runs.
 
+Photos, audio and other supported media sent while the agent works are attached to that
+follow-up, using the same model support and file size limits as a message sent while idle.
+If the model cannot receive a file's media type, it receives an explanation instead.
+
 Commands such as `/model` and messages from other people in a group wait until the current
 answer arrives. Several messages that waited are answered together, in one turn. `/stop`
 drops anything still waiting.

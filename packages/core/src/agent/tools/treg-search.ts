@@ -3,6 +3,8 @@
  * treg's paid provider router (excluding TinyFish) on an error or empty results.
  * A per-call cost ceiling limits what one fallback may charge. The caller supplies
  * the treg token from Jazz's secret store; it never appears in URLs or logs.
+ * Provider-native result passages and dates are validated and normalized into
+ * Jazz's search result shape before they reach the agent.
  */
 import { Effect } from "effect";
 import { z } from "zod";
@@ -18,7 +20,11 @@ const resultRow = z
     title: z.string().optional(),
     url: z.string().url(),
     snippet: z.string().optional(),
+    content: z.string().nullish(),
+    excerpts: z.array(z.string()).nullish(),
+    highlights: z.array(z.string()).nullish(),
     date: z.string().optional(),
+    publish_date: z.string().nullish(),
   })
   .passthrough();
 const freeResponse = z.object({ results: z.array(resultRow) }).passthrough();
@@ -33,6 +39,23 @@ type SearchResponse = {
   readonly results: z.infer<typeof resultRow>[];
   readonly servedBy: string;
 };
+
+/** Prefer a provider's summary, then its content or joined nonempty source passages. */
+function resultSnippet(item: z.infer<typeof resultRow>): string {
+  return (
+    item.snippet?.trim() ||
+    item.content?.trim() ||
+    item.excerpts
+      ?.map((excerpt) => excerpt.trim())
+      .filter(Boolean)
+      .join("\n") ||
+    item.highlights
+      ?.map((highlight) => highlight.trim())
+      .filter(Boolean)
+      .join("\n") ||
+    ""
+  );
+}
 
 /** Call TinyFish's free endpoint directly, not a router that can prefer owned paid keys. */
 async function callTinyFish(args: WebSearchArgs, token: string): Promise<SearchResponse> {
@@ -100,13 +123,18 @@ export function executeTregSearch(
     const servedBy = response.servedBy;
     const results: WebSearchItem[] = response.results
       .slice(0, args.maxResults ?? 20)
-      .map((item) => ({
-        title: item.title ?? "",
-        url: item.url,
-        snippet: item.snippet ?? "",
-        ...(item.date && /^\d{4}-\d{2}-\d{2}/.test(item.date) ? { publishedDate: item.date } : {}),
-        ...(servedBy ? { metadata: { servedBy } } : {}),
-      }));
+      .map((item) => {
+        const publishedDate = [item.date, item.publish_date].find(
+          (date): date is string => typeof date === "string" && /^\d{4}-\d{2}-\d{2}/.test(date),
+        );
+        return {
+          title: item.title ?? "",
+          url: item.url,
+          snippet: resultSnippet(item),
+          ...(publishedDate !== undefined ? { publishedDate } : {}),
+          ...(servedBy ? { metadata: { servedBy } } : {}),
+        };
+      });
     yield* logger.info("Web search provider request completed", {
       provider: "treg",
       resultCount: results.length,

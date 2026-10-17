@@ -26,15 +26,18 @@ import { ENVIRONMENT_TEMPLATE, renderHarnessPrompt } from "./prompts/shared";
 import { collectUserInputAttachments } from "./user-input-attachments";
 
 /**
- * Attachments and user-facing notes for the current turn's user message.
+ * Attachments and user-facing notes for a user message, including a typed follow-up.
  *
  * Split out of `buildMessages` because the interesting part is the filtering: an attachment the
  * active model cannot read is dropped and *announced*, never silently omitted. A model promised
  * a screenshot and handed nothing will describe one it never saw.
  */
-function resolveUserInputAttachments(
-  options: AgentPromptOptions,
-): Effect.Effect<{ attachments: MessageAttachment[]; notes: string[] }, never> {
+export function resolveUserInputAttachments(
+  options: Pick<
+    AgentPromptOptions,
+    "userInput" | "workingDirectory" | "supportedAttachmentKinds" | "attachmentsAreLocal"
+  >,
+): Effect.Effect<UserInputAttachmentResolution, never> {
   if (options.workingDirectory === undefined) {
     return Effect.succeed({ attachments: [], notes: [] });
   }
@@ -66,6 +69,12 @@ function resolveUserInputAttachments(
     // Ingestion is best-effort: a probe or stat failure must not stop the turn.
     Effect.catch(() => Effect.succeed({ attachments: [], notes: [] })),
   );
+}
+
+/** Media accepted by the model and explanations for files it could not receive. */
+export interface UserInputAttachmentResolution {
+  readonly attachments: readonly MessageAttachment[];
+  readonly notes: string[];
 }
 
 export interface AgentPersona {
