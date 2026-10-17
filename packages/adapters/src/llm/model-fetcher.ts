@@ -455,26 +455,59 @@ export function clearOllamaProbeCache(): void {
  * `probe`'s answer, shared with every caller asking the same `key` within
  * {@link OLLAMA_PROBE_REUSE_MS}. A probe that failed (undefined) answers `fallback` and is not
  * kept, so the next caller asks the server again.
+ *
+ * The shared request is bounded only by its own timeout, never by a caller's `signal`: one
+ * caller giving up must not cancel the request another caller is waiting on. A caller whose
+ * `signal` aborts gets `fallback` at once while the request carries on for the others.
  */
 function reuseOllamaProbe<T>(
   key: string,
   probe: () => Promise<T | undefined>,
   fallback: T,
+  signal: AbortSignal | undefined,
 ): Promise<T> {
   const now = Date.now();
   const cached = ollamaProbes.get(key);
   if (cached !== undefined && now - cached.startedAtMs < OLLAMA_PROBE_REUSE_MS) {
-    return cached.answer as Promise<T>;
+    return answerUnlessAborted(cached.answer as Promise<T>, signal, fallback);
   }
-  const answer = probe().then((value) => {
+  const entry: { answer: Promise<T>; readonly startedAtMs: number } = {
+    answer: Promise.resolve(fallback),
+    startedAtMs: now,
+  };
+  entry.answer = probe().then((value) => {
     if (value === undefined) {
-      ollamaProbes.delete(key);
+      if (ollamaProbes.get(key) === entry) {
+        ollamaProbes.delete(key);
+      }
       return fallback;
     }
     return value;
   });
-  ollamaProbes.set(key, { answer, startedAtMs: now });
-  return answer;
+  ollamaProbes.set(key, entry);
+  return answerUnlessAborted(entry.answer, signal, fallback);
+}
+
+/** `answer`, or `fallback` as soon as `signal` aborts. `answer` never rejects. */
+function answerUnlessAborted<T>(
+  answer: Promise<T>,
+  signal: AbortSignal | undefined,
+  fallback: T,
+): Promise<T> {
+  if (signal === undefined) {
+    return answer;
+  }
+  if (signal.aborted) {
+    return Promise.resolve(fallback);
+  }
+  return new Promise((resolve) => {
+    const onAbort = (): void => resolve(fallback);
+    signal.addEventListener("abort", onAbort, { once: true });
+    void answer.then((value) => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(value);
+    });
+  });
 }
 
 function fetchOllamaShow(
@@ -490,7 +523,7 @@ function fetchOllamaShow(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ model: modelName }),
-          signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
+          signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS),
         });
         if (!response.ok) return undefined;
         const data = (await response.json()) as OllamaShowResponse;
@@ -505,6 +538,7 @@ function fetchOllamaShow(
       }
     },
     {},
+    signal,
   );
 }
 
@@ -529,7 +563,7 @@ export function fetchOllamaRunningModels(
     async (): Promise<readonly OllamaRunningModel[] | undefined> => {
       try {
         const response = await fetch(`${baseUrl}/ps`, {
-          signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
+          signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS),
         });
         if (!response.ok) return undefined;
         const data = (await response.json()) as { models?: OllamaRunningModel[] };
@@ -539,6 +573,7 @@ export function fetchOllamaRunningModels(
       }
     },
     [],
+    signal,
   );
 }
 

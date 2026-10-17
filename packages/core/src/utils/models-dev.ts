@@ -8,6 +8,7 @@
  * so a short-lived `jazz run` does not download the catalog; an older one is refreshed, and
  * offline/airgapped runs (or a network outage) fall back to it whatever its age.
  */
+import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
@@ -21,6 +22,9 @@ const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10_000;
 const DISK_CACHE_FILE = "models-dev.json";
+
+/** Hex characters of the catalog URL's SHA-256 that name a mirror's snapshot file. */
+const MIRROR_SNAPSHOT_HASH_LENGTH = 16;
 
 export interface ModelsDevMetadata {
   readonly contextWindow: number;
@@ -94,6 +98,8 @@ interface ModelsDevData {
 
 let cachedData: ModelsDevData | null = null;
 let cacheExpiry = 0;
+/** The catalog URL `cachedData` came from. */
+let cachedSource: string | undefined;
 let inFlightLoad: Promise<ModelsDevData | null> | null = null;
 
 /**
@@ -211,8 +217,20 @@ function resolveApiUrl(): string {
   return override && override.length > 0 ? override : MODELS_DEV_API_URL;
 }
 
+/**
+ * Where the snapshot of the catalog at `resolveApiUrl()` is kept. A `JAZZ_MODELS_DEV_URL` mirror
+ * gets a file of its own, so switching catalogs never serves the other one's snapshot.
+ */
 function diskCachePath(): string {
-  return join(getUserDataDirectory(), "cache", DISK_CACHE_FILE);
+  const source = resolveApiUrl();
+  if (source === MODELS_DEV_API_URL) {
+    return join(getUserDataDirectory(), "cache", DISK_CACHE_FILE);
+  }
+  const digest = createHash("sha256")
+    .update(source)
+    .digest("hex")
+    .slice(0, MIRROR_SNAPSHOT_HASH_LENGTH);
+  return join(getUserDataDirectory(), "cache", `models-dev-${digest}.json`);
 }
 
 /** The catalog with only the fields `buildData` reads, so the snapshot parses quickly. */
@@ -272,6 +290,7 @@ async function loadFromDiskCache(expiresAt: number): Promise<ModelsDevData | nul
 
     cachedData = buildData(api);
     cacheExpiry = expiresAt;
+    cachedSource = resolveApiUrl();
     return cachedData;
   } catch {
     return cachedData;
@@ -305,7 +324,7 @@ async function loadFreshDiskCache(now: number): Promise<ModelsDevData | null> {
  */
 async function loadModelsDevData(): Promise<ModelsDevData | null> {
   const now = Date.now();
-  if (cachedData !== null && now < cacheExpiry) {
+  if (cachedData !== null && now < cacheExpiry && cachedSource === resolveApiUrl()) {
     return cachedData;
   }
 
@@ -341,6 +360,7 @@ async function fetchAndCacheModelsDevData(now: number): Promise<ModelsDevData | 
 
     cachedData = buildData(api);
     cacheExpiry = now + CACHE_TTL_MS;
+    cachedSource = resolveApiUrl();
     await writeDiskCache(api);
     return cachedData;
   } catch {
@@ -469,5 +489,6 @@ export function getModelsDevMetadataSync(
 export function clearModelsDevCache(): void {
   cachedData = null;
   cacheExpiry = 0;
+  cachedSource = undefined;
   inFlightLoad = null;
 }

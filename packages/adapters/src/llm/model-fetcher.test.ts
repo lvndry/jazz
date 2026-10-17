@@ -1456,6 +1456,64 @@ describe("Ollama probes at run start", () => {
     }
   });
 
+  it("keeps answering a caller whose neighbour gave up on the shared probe", async () => {
+    let release: (response: Response) => void = () => {};
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    ) as unknown as typeof fetch;
+    try {
+      const impatient = new AbortController();
+      const first = fetchOllamaModelDetails(
+        "http://ollama.test/api",
+        "gemma4",
+        impatient.signal,
+        [],
+      );
+      const second = fetchOllamaModelDetails("http://ollama.test/api", "gemma4", undefined, []);
+      impatient.abort();
+      release(Response.json({ capabilities: ["completion", "tools"] }));
+
+      expect((await first).capabilities).toBeUndefined();
+      expect((await second).capabilities).toEqual(["completion", "tools"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does not let a slow failed probe evict the probe that replaced it", async () => {
+    const realNow = Date.now;
+    let now = 1_000_000;
+    Date.now = () => now;
+    const pending: Array<(response: Response | Error) => void> = [];
+    const originalFetch = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = mock(() => {
+      requests += 1;
+      return new Promise<Response>((resolve, reject) => {
+        pending.push((outcome) => (outcome instanceof Error ? reject(outcome) : resolve(outcome)));
+      });
+    }) as unknown as typeof fetch;
+    try {
+      const slow = fetchOllamaModelDetails("http://ollama.test/api", "gemma4", undefined, []);
+      now += 60_000;
+      const fresh = fetchOllamaModelDetails("http://ollama.test/api", "gemma4", undefined, []);
+      pending[1]?.(Response.json({ capabilities: ["completion"] }));
+      await fresh;
+      pending[0]?.(new Error("connection reset"));
+      await slow;
+
+      await fetchOllamaModelDetails("http://ollama.test/api", "gemma4", undefined, []);
+      expect(requests).toBe(2);
+    } finally {
+      Date.now = realNow;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("asks again after a failed probe instead of keeping the failure", async () => {
     let calls = 0;
     const originalFetch = globalThis.fetch;

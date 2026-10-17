@@ -209,7 +209,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
       ["jazz\u0000peers.sam.token", "peer-token"],
       ["other-app\u0000llm.openai.api_key", "not jazz"],
     ]);
-    const moved = await Effect.runPromise(
+    const { moved, complete } = await Effect.runPromise(
       migrateKeyringEntriesIntoVault(
         "macos",
         "jazz",
@@ -220,6 +220,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
     );
 
     expect([...moved].sort()).toEqual(["llm.openai.api_key", "peers.sam.token"]);
+    expect(complete).toBe(true);
     expect(vaultIn(entries)).toEqual({
       "llm.openai.api_key": "sk-legacy",
       "peers.sam.token": "peer-token",
@@ -255,11 +256,12 @@ describe("migrateKeyringEntriesIntoVault", () => {
         ? Effect.succeed({ ok: false, code: 1, stdout: "", stderr: "denied", unavailable: false })
         : keychain(command, args, stdin);
 
-    const moved = await Effect.runPromise(
+    const { moved, complete } = await Effect.runPromise(
       migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, refusingWrites, withoutLock),
     );
 
     expect(moved).toEqual([]);
+    expect(complete).toBe(false);
     expect(entries.get("jazz\u0000llm.openai.api_key")).toBe("sk-legacy");
   });
 
@@ -271,11 +273,12 @@ describe("migrateKeyringEntriesIntoVault", () => {
         ? Effect.succeed({ ok: false, code: 51, stdout: "", stderr: "", unavailable: false })
         : keychain(command, args, stdin);
 
-    const moved = await Effect.runPromise(
+    const { moved, complete } = await Effect.runPromise(
       migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, lockedVault, withoutLock),
     );
 
     expect(moved).toEqual([]);
+    expect(complete).toBe(false);
     expect(entries.get("jazz\u0000llm.openai.api_key")).toBe("sk-legacy");
     expect(entries.has(VAULT_KEY)).toBe(false);
   });
@@ -286,7 +289,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
       [VAULT_KEY, "not base64 json"],
     ]);
 
-    const moved = await Effect.runPromise(
+    const { moved, complete } = await Effect.runPromise(
       migrateKeyringEntriesIntoVault(
         "macos",
         "jazz",
@@ -297,6 +300,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
     );
 
     expect(moved).toEqual([]);
+    expect(complete).toBe(false);
     expect(entries.get(VAULT_KEY)).toBe("not base64 json");
   });
 
@@ -350,7 +354,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
       await Effect.runPromise(
         migrateKeyringEntriesIntoVault("libsecret", "jazz", VAULT_SERVICE, secretTool, withoutLock),
       ),
-    ).toEqual(["llm.openai.api_key"]);
+    ).toEqual({ moved: ["llm.openai.api_key"], complete: true });
     expect([...entries.keys()]).toEqual([VAULT_KEY]);
     expect(vaultIn(entries)).toEqual({ "llm.openai.api_key": "sk-legacy" });
   });
@@ -376,7 +380,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
       await Effect.runPromise(
         migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, hexAttributes, withoutLock),
       ),
-    ).toEqual([account]);
+    ).toEqual({ moved: [account], complete: true });
     expect(vaultIn(entries)).toEqual({ [account]: "value" });
   });
 });

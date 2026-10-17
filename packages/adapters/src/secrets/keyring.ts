@@ -511,8 +511,8 @@ function osKeyringAnyAccount(
  * deleting each item once the vault holds its account.
  *
  * A value already in the vault wins over the item's. The pass stops at the first item it cannot
- * read or store, leaving it and the rest in place for the next process to retry. Returns the
- * accounts moved.
+ * read or store, leaving it and the rest in place for a later attempt. Returns the accounts moved,
+ * and whether `sourceService` was left empty.
  */
 export function migrateKeyringEntriesIntoVault(
   backend: OsKeyringBackend,
@@ -520,13 +520,13 @@ export function migrateKeyringEntriesIntoVault(
   vaultService: string,
   run: KeyringCommandRunner = runCommand,
   withLock: VaultLock = withSecretsFileLock,
-): Effect.Effect<readonly string[], never> {
+): Effect.Effect<VaultMigration, never> {
   return Effect.gen(function* () {
     const moved: string[] = [];
     for (let attempt = 0; attempt < MAX_LEGACY_ENTRIES_MIGRATED; attempt++) {
       const account = yield* osKeyringAnyAccount(run, backend, sourceService);
       if (account === undefined) {
-        break;
+        return { moved, complete: true };
       }
       const value = yield* osKeyringGet(run, backend, sourceService, account);
       if (value === undefined) {
@@ -545,14 +545,23 @@ export function migrateKeyringEntriesIntoVault(
       yield* osKeyringDelete(run, backend, sourceService, account);
       moved.push(account);
     }
-    return moved;
+    return { moved, complete: false };
   });
+}
+
+/** What one pass of {@link migrateKeyringEntriesIntoVault} did. */
+export interface VaultMigration {
+  readonly moved: readonly string[];
+  /** Whether the source service was left empty; false when an item could not be read or stored. */
+  readonly complete: boolean;
 }
 
 const vaultAdoptions = new Map<string, Promise<number>>();
 
 /**
- * Fold the active home's one-entry-per-secret items into its vault, once per process.
+ * Fold the active home's one-entry-per-secret items into its vault, once per process when it
+ * succeeds. A pass that stopped early (the keyring refused a read or write) is forgotten once it
+ * settles, so the next lookup tries again.
  *
  * The home's own `jazz.<hash>` items go first, so they win over the bare `jazz` service's. Only
  * `~/.jazz` adopts the bare service: it is the home those keys were almost always written from,
@@ -564,16 +573,25 @@ function adoptPerEntrySecrets(backend: OsKeyringBackend, vaultService: string): 
   let pending = vaultAdoptions.get(key);
   if (pending === undefined) {
     const sources = [keyringServiceName(), ...(isDefaultJazzHome() ? [KEYRING_SERVICE_NAME] : [])];
-    pending = (async () => {
+    const migrateAll = async (): Promise<{ movedCount: number; complete: boolean }> => {
       let movedCount = 0;
+      let complete = true;
       for (const source of sources) {
-        const moved = await Effect.runPromise(
+        const migration = await Effect.runPromise(
           migrateKeyringEntriesIntoVault(backend, source, vaultService),
         );
-        movedCount += moved.length;
+        movedCount += migration.moved.length;
+        complete &&= migration.complete;
+      }
+      return { movedCount, complete };
+    };
+    const attempt: Promise<number> = migrateAll().then(({ movedCount, complete }) => {
+      if (!complete && vaultAdoptions.get(key) === attempt) {
+        vaultAdoptions.delete(key);
       }
       return movedCount;
-    })();
+    });
+    pending = attempt;
     vaultAdoptions.set(key, pending);
   }
   return pending;
