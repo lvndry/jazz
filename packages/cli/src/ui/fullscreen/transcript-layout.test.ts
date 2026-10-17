@@ -73,6 +73,60 @@ describe("instance-owned transcript layout", () => {
     expect(reads).toBeGreaterThan(settledReads);
   });
 
+  it("indexes a growing, edited transcript exactly as a fresh layout does", () => {
+    const tool = (id: string, expanded: boolean): Block => ({
+      id,
+      seq: 1,
+      kind: "tool",
+      app: "write_file",
+      summary: `wrote ${id}`,
+      status: "ok",
+      detail: "line one\nline two\nline three",
+      ...(expanded ? { expanded: true } : {}),
+    });
+    const user = (id: string): Block => ({ id, seq: 1, kind: "user", text: `question ${id}` });
+    const incremental = createTranscriptLayout();
+    let blocks: Block[] = [];
+    const expectSameIndex = (): void => {
+      const fresh = createTranscriptLayout();
+      const expected = fresh.update(blocks, epoch());
+      const actual = incremental.update(blocks, epoch());
+      expect(actual.length).toBe(expected.length);
+      expect(actual.flatten()).toEqual(expected.flatten());
+      for (let row = 0; row < expected.length; row++) {
+        const source = expected.sourceAt(row);
+        expect(actual.sourceAt(row)).toEqual(source);
+        if (source !== undefined) {
+          expect(actual.sourceRow(source)).toBe(expected.sourceRow(source));
+          expect(actual.hasPart(source)).toBe(true);
+        }
+      }
+      for (const block of blocks) {
+        expect(actual.blockBounds(block.id)).toEqual(expected.blockBounds(block.id));
+      }
+      fresh.dispose();
+    };
+    for (let turn = 0; turn < 40; turn++) {
+      blocks = [...blocks, user(`u${turn}`), tool(`t${turn}a`, false), tool(`t${turn}b`, false)];
+      expectSameIndex();
+      let answer = "";
+      for (const [position, word] of ["streamed", "answer", "words"].entries()) {
+        answer += `${word} `;
+        const before = position === 0 ? blocks : blocks.slice(0, -1);
+        blocks = [...before, agent(`a${turn}`, answer, true)];
+        expectSameIndex();
+      }
+      blocks = [...blocks.slice(0, -1), agent(`a${turn}`, answer)];
+      expectSameIndex();
+      if (turn % 7 === 6) {
+        const middle = blocks.findIndex((block) => block.id === `t${turn - 3}a`);
+        blocks = blocks.map((block, index) => (index === middle ? tool(block.id, true) : block));
+        expectSameIndex();
+      }
+    }
+    incremental.dispose();
+  });
+
   it("retires retained indexes so late reads cannot resurrect disposed caches", () => {
     const layout = createTranscriptLayout();
     const blocks = [agent("retired", "old paragraph", true)];
