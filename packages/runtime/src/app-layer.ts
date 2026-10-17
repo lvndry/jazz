@@ -85,6 +85,13 @@ import { Cause, Duration, Effect, Exit, FileSystem, Fiber, Layer, Option } from 
 import { reportStartupFailure } from "./startup-failure";
 import { validateAgents } from "./validate-agents";
 
+/**
+ * How long exit waits for telemetry to reach its collector. A reachable collector answers in
+ * milliseconds; an unreachable one would otherwise hold every exit for the exporter's 10s
+ * timeout. Traces and logs left undelivered stay in the on-disk outbox for the next run.
+ */
+const TELEMETRY_SHUTDOWN_GRACE_MS = 1_500;
+
 /** Config used to select terminal and presentation layers. Exported for testing. */
 export interface PresentationConfig {
   readonly isQuiet: boolean;
@@ -576,16 +583,23 @@ export function runCliEffect<R, E extends JazzError | Error>(
           yield* logger.value.clearLogGroup();
         }
 
-        // Stop sampling and deliver buffered telemetry before shutdown.
+        // Stop sampling and deliver buffered telemetry, beside disconnecting MCP servers.
         const telemetry = yield* Effect.serviceOption(TelemetryServiceTag);
-        if (Option.isSome(telemetry)) {
-          yield* telemetry.value.shutdown().pipe(Effect.catch(() => Effect.void));
-        }
-
         const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
-        if (Option.isSome(mcpManager)) {
-          yield* mcpManager.value.disconnectAllServers().pipe(Effect.catch(() => Effect.void));
-        }
+        yield* Effect.all(
+          [
+            Option.isSome(telemetry)
+              ? telemetry.value.shutdown().pipe(
+                  Effect.timeout(Duration.millis(TELEMETRY_SHUTDOWN_GRACE_MS)),
+                  Effect.catch(() => Effect.void),
+                )
+              : Effect.void,
+            Option.isSome(mcpManager)
+              ? mcpManager.value.disconnectAllServers().pipe(Effect.catch(() => Effect.void))
+              : Effect.void,
+          ],
+          { concurrency: "unbounded", discard: true },
+        );
 
         yield* Effect.promise(flushLogs);
       }),
