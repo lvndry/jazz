@@ -5,7 +5,11 @@ import { NodeFileSystem } from "@effect/platform-node";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { claimUnreflectedMessages } from "./reflection-watermark";
+import {
+  claimUnreflectedMessages,
+  releaseReflectionClaim,
+  type ReflectionClaim,
+} from "./reflection-watermark";
 
 let tmpDir: string;
 
@@ -17,9 +21,21 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-function claim(messages: readonly ChatMessage[], conversationId = "conversation-1") {
+function claimWithRelease(messages: readonly ChatMessage[], conversationId = "conversation-1") {
   return Effect.runPromise(
     claimUnreflectedMessages(tmpDir, "agent-1", conversationId, messages).pipe(
+      Effect.provide(NodeFileSystem.layer),
+    ),
+  );
+}
+
+async function claim(messages: readonly ChatMessage[], conversationId = "conversation-1") {
+  return (await claimWithRelease(messages, conversationId)).messages;
+}
+
+function release(reflectionClaim: ReflectionClaim, conversationId = "conversation-1") {
+  return Effect.runPromise(
+    releaseReflectionClaim(tmpDir, "agent-1", conversationId, reflectionClaim).pipe(
       Effect.provide(NodeFileSystem.layer),
     ),
   );
@@ -66,5 +82,35 @@ describe("claimUnreflectedMessages", () => {
   test("tracks conversations separately", async () => {
     await claim(firstSession, "conversation-1");
     expect(await claim(firstSession, "conversation-2")).toHaveLength(2);
+  });
+
+  test("a released claim hands the same messages out again", async () => {
+    await claim(firstSession);
+    const reopened: ChatMessage[] = [
+      ...firstSession,
+      { role: "user", content: "does this exist already?", entryId: "entry-3" },
+    ];
+    const failedPass = await claimWithRelease(reopened);
+    await release(failedPass);
+
+    expect((await claim(reopened)).map((message) => message.entryId)).toEqual(["entry-3"]);
+  });
+
+  test("releasing a first claim forgets the conversation entirely", async () => {
+    await release(await claimWithRelease(firstSession));
+
+    expect(await claim(firstSession)).toHaveLength(2);
+  });
+
+  test("a release does not undo a later pass that claimed further", async () => {
+    const failedPass = await claimWithRelease(firstSession);
+    const later: ChatMessage[] = [
+      ...firstSession,
+      { role: "user", content: "next", entryId: "entry-3" },
+    ];
+    await claim(later);
+    await release(failedPass);
+
+    expect(await claim(later)).toEqual([]);
   });
 });

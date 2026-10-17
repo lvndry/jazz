@@ -377,6 +377,27 @@ describe("revision suggestions", () => {
     expect(await runEffect(service.pendingSuggestions())).toHaveLength(1);
   });
 
+  test("two different rewrites of one entry both wait for review", async () => {
+    const service = makeService();
+    const rewrite = (content: string): RevisionSuggestionInput => ({
+      change: { command: "rewrite", path: stalePath, previousContent: staleContent, content },
+      reason: "Sharper rule.",
+      proposedBy: "memory-learner",
+    });
+    await runEffect(service.suggestRevision(rewrite("Check prior art before building.\n")));
+    await runEffect(service.suggestRevision(rewrite("Search for existing tools first.\n")));
+
+    expect(await runEffect(service.pendingSuggestions())).toHaveLength(2);
+  });
+
+  test("a removal against different text is not taken for one already waiting", async () => {
+    const service = makeService();
+    await runEffect(service.suggestRevision(removal()));
+    await runEffect(service.suggestRevision(removal('The user said: "Mango."\n')));
+
+    expect(await runEffect(service.pendingSuggestions())).toHaveLength(2);
+  });
+
   test("refuses a removal without a reason", async () => {
     const service = makeService();
     const outcome = await runEffect(service.suggestRevision({ ...removal(), reason: "  " }));
@@ -418,6 +439,27 @@ describe("revision suggestions", () => {
     expect(accepted.success).toBe(false);
     expect((await runEffect(service.view(stalePath))).kind).toBe("file");
     expect(await runEffect(service.pendingSuggestions())).toHaveLength(1);
+  });
+
+  test("accepting a removal of an unreadable entry reports the read error, not a change", async () => {
+    const service = makeService();
+    await runEffect(service.create(stalePath, staleContent, { agentId: "agent-1" }));
+    const suggested = await runEffect(service.suggestRevision(removal()));
+    if (!suggested.success) {
+      throw new Error(suggested.message);
+    }
+    const entryFile = path.join(tmpDir, stalePath);
+    fs.chmodSync(entryFile, 0o000);
+
+    try {
+      const accepted = await runEffect(service.acceptSuggestion(suggested.suggestion.id));
+
+      expect(accepted.success).toBe(false);
+      expect(accepted.message).toContain("Could not read");
+      expect(await runEffect(service.pendingSuggestions())).toHaveLength(1);
+    } finally {
+      fs.chmodSync(entryFile, 0o600);
+    }
   });
 
   test("accepting a lesson rewrite replaces the lesson's text", async () => {

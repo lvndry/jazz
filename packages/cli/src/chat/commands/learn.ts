@@ -1,11 +1,15 @@
 /**
  * @fileoverview The chat `/learn` command (alias `/reflect`): pause, learn from the conversation
  * so far, tidy memory with what this session added and removed in hand, and decide every
- * resulting change from one checklist.
+ * resulting change from one checklist. A pass that fails or is interrupted releases its claim on
+ * the conversation, so the next pass reads those messages again.
  */
 
 import { loadConversationOrNull } from "@jazz/adapters/history/conversation-history-service";
-import { claimUnreflectedMessages } from "@jazz/adapters/reflection-watermark";
+import {
+  claimUnreflectedMessages,
+  releaseReflectionClaim,
+} from "@jazz/adapters/reflection-watermark";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { learnFromConversation } from "@jazz/core/agent/context/memory-extractor";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
@@ -80,15 +84,26 @@ export function handleLearnCommand(context: CommandContext) {
     const messages = (saved?.messages ?? context.conversationHistory).filter(
       (message) => message.role !== "system",
     );
-    const unreflected =
+    const claim =
       saved === null
-        ? messages
+        ? undefined
         : yield* claimUnreflectedMessages(
             getMemoryDirectory(),
             context.agent.id,
             saved.conversationId,
             saved.messages,
           );
+    const unreflected = claim?.messages ?? messages;
+    const releaseClaim = Effect.suspend(() =>
+      claim === undefined || saved === null
+        ? Effect.void
+        : releaseReflectionClaim(
+            getMemoryDirectory(),
+            context.agent.id,
+            saved.conversationId,
+            claim,
+          ).pipe(Effect.ignore),
+    );
     const unreflectedSet = new Set(unreflected);
     const pendingBefore = yield* memoryService.pendingSuggestions();
 
@@ -116,6 +131,7 @@ export function handleLearnCommand(context: CommandContext) {
       conversationId: context.conversationId,
       runRecursive: (runOptions) => AgentRunner.runRecursive(runOptions),
     }).pipe(
+      Effect.onError(() => releaseClaim),
       Effect.catch((error) =>
         Effect.gen(function* () {
           learningFailed = true;

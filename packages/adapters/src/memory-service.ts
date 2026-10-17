@@ -1374,10 +1374,14 @@ export class MemoryServiceImpl implements MemoryService {
         }
 
         if (expectedContent !== undefined) {
-          const current = yield* fs
-            .readFileString(target)
-            .pipe(Effect.catch(() => Effect.succeed(undefined)));
-          if (current !== expectedContent) {
+          const read = yield* fs.readFileString(target).pipe(Effect.result);
+          if (read._tag === "Failure") {
+            return {
+              success: false,
+              message: `Could not read ${abbreviateHomePath(target)} to check it is unchanged: ${toError(read.failure).message}`,
+            } satisfies MemoryMutationOutcome;
+          }
+          if (read.success !== expectedContent) {
             return {
               success: false,
               message: `${abbreviateHomePath(target)} changed since this was suggested; it was kept.`,

@@ -165,6 +165,13 @@ function normalizedWords(text: string): string {
     .trim();
 }
 
+/** What keeping a revision leaves at its path: nothing for a removal, the new words for a rewrite. */
+function revisedContent(suggestion: RevisionSuggestion): string | undefined {
+  return suggestion.change.command === "delete"
+    ? undefined
+    : normalizedWords(suggestion.change.content);
+}
+
 function isSameSuggestion(waiting: MemorySuggestion, candidate: MemorySuggestion): boolean {
   if (waiting.kind === "lesson" && candidate.kind === "lesson") {
     return normalizedWords(waiting.rule) === normalizedWords(candidate.rule);
@@ -178,7 +185,8 @@ function isSameSuggestion(waiting: MemorySuggestion, candidate: MemorySuggestion
   if (waiting.kind === "revision" && candidate.kind === "revision") {
     return (
       waiting.change.path === candidate.change.path &&
-      waiting.change.command === candidate.change.command
+      waiting.change.previousContent === candidate.change.previousContent &&
+      revisedContent(waiting) === revisedContent(candidate)
     );
   }
   return false;
