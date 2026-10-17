@@ -48,9 +48,8 @@ import { autoCheckForUpdate } from "@jazz/cli/auto-update";
 import { promptInteractiveCatchUp } from "@jazz/cli/catch-up-prompt";
 import { createChatServiceLayer } from "@jazz/cli/chat-service";
 import { promptFailedRunsWarning } from "@jazz/cli/failed-run-prompt";
+import { createPlainTerminalServiceLayer } from "@jazz/cli/plain-terminal";
 import { CLIPresentationServiceLayer } from "@jazz/cli/presentation/cli-presentation-service";
-import { InkPresentationServiceLayer } from "@jazz/cli/presentation/ink-presentation-service";
-import { createPlainTerminalServiceLayer, createTerminalServiceLayer } from "@jazz/cli/terminal";
 import {
   decideFullscreen,
   type FullscreenEnvironment,
@@ -299,7 +298,13 @@ export function createAppLayer(
 
   const terminalLayer = presentationConfig.usePlainTerminal
     ? createPlainTerminalServiceLayer()
-    : createTerminalServiceLayer({ fullscreen: presentationConfig.useFullscreen });
+    : Layer.unwrap(
+        Effect.promise(() => import("@jazz/cli/terminal")).pipe(
+          Effect.map((terminal) =>
+            terminal.createTerminalServiceLayer({ fullscreen: presentationConfig.useFullscreen }),
+          ),
+        ),
+      );
 
   const storageLayer = Layer.effect(
     StorageServiceTag,
@@ -376,12 +381,16 @@ export function createAppLayer(
     Layer.provide(WorkflowsLive.layer),
   );
 
-  // isQuiet: no output. useCLIPresentation: CLI (plain stdout). else: Ink UI.
+  // isQuiet: no output. useCLIPresentation: CLI (plain stdout). else: Ink UI, loaded only then.
   const presentationLayer = presentationConfig.isQuiet
     ? QuietPresentationServiceLayer
     : presentationConfig.useCLIPresentation
       ? CLIPresentationServiceLayer
-      : InkPresentationServiceLayer.pipe(Layer.provide(NotificationServiceLayer));
+      : Layer.unwrap(
+          Effect.promise(() => import("@jazz/cli/presentation/ink-presentation-service")).pipe(
+            Effect.map((presentation) => presentation.InkPresentationServiceLayer),
+          ),
+        ).pipe(Layer.provide(NotificationServiceLayer));
 
   // Create a complete layer by providing all dependencies
   return Layer.mergeAll(

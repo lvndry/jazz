@@ -8,12 +8,8 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, spyOn, test } from "bun:test";
 import { Effect } from "effect";
-import {
-  INK_RENDER_OPTIONS,
-  InkTerminalService,
-  PlainTerminalService,
-  maskSecret,
-} from "./terminal";
+import { PlainTerminalService } from "./plain-terminal";
+import { INK_RENDER_OPTIONS, InkTerminalService, maskSecret } from "./terminal";
 import type { FullscreenHandle } from "./ui/fullscreen/attach";
 import { store } from "./ui/store";
 
