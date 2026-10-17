@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { describe, expect, it, mock } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Clock, Effect, Fiber, Layer, Queue, TestClock, TestContext } from "effect";
 import { Stream } from "effect";
 import { executeWithStreaming } from "./streaming-executor";
 import { ToolExecutor } from "./tool-executor";
@@ -628,6 +628,7 @@ function makeStreamingHarness(input: {
   readonly llmService: LLMService;
   readonly maxRetries?: number;
   readonly maxDurationMs?: number;
+  readonly onRetryAnnounced?: () => void;
 }) {
   const interrupt: { current: (() => void) | null } = { current: null };
   const renderer = {
@@ -644,6 +645,7 @@ function makeStreamingHarness(input: {
   const presentationService = {
     ...mockPresentationService,
     createStreamingRenderer: () => Effect.succeed(renderer),
+    presentRetry: () => Effect.sync(() => input.onRetryAnnounced?.()),
   } as any;
   const agent = {
     id: "agent-1",
@@ -701,23 +703,68 @@ function makeStreamingHarness(input: {
     Layer.succeed(PeerLedgerServiceTag, {} as any),
     Layer.succeed(PeerTokenServiceTag, {} as any),
   );
-  const run = () =>
-    Effect.runPromise(
-      executeWithStreaming(
-        options,
-        runContext,
-        { showReasoning: false, showToolExecution: false, mode: "hybrid" },
-        { enabled: true },
-        false,
-        () => Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse),
-      ).pipe(Effect.provide(layer)),
-    );
-  return { run, interrupt };
+  const program = executeWithStreaming(
+    options,
+    runContext,
+    { showReasoning: false, showToolExecution: false, mode: "hybrid" },
+    { enabled: true },
+    false,
+    () => Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse),
+  ).pipe(Effect.provide(layer));
+  const run = () => Effect.runPromise(program);
+  return { run, program, interrupt, startedAtMs: runContext.runMetrics.startedAt.getTime() };
 }
 
-/** A stream that never emits, recording when its consumer abandons it. */
-function hangingStream(onAbandoned: () => void): Stream.Stream<never, never> {
-  return Stream.async<never, never>(() => Effect.sync(onAbandoned));
+/** A stream that never emits, recording when its consumer starts reading it and abandons it. */
+function hangingStream(
+  onAbandoned: () => void,
+  onStarted: () => void = () => {},
+): Stream.Stream<never, never> {
+  return Stream.async<never, never>(() => {
+    onStarted();
+    return Effect.sync(onAbandoned);
+  });
+}
+
+/**
+ * Runs the harness on Effect's test clock, which moves only when `drive` moves it, so the run's
+ * time budget and retry backoff never depend on how fast the machine reaches each step.
+ */
+function runOnTestClock(
+  harness: ReturnType<typeof makeStreamingHarness>,
+  drive: Effect.Effect<void>,
+): Promise<{ result: AgentResponse; elapsedMs: number }> {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      yield* TestClock.setTime(harness.startedAtMs);
+      const run = yield* Effect.fork(harness.program);
+      yield* drive;
+      const result = yield* Fiber.join(run);
+      const elapsedMs = (yield* Clock.currentTimeMillis) - harness.startedAtMs;
+      return { result, elapsedMs };
+    }).pipe(Effect.provide(TestContext.TestContext)),
+  );
+}
+
+/** Real time the test waits between looks at the test clock's pending sleeps. */
+const SLEEP_REGISTRATION_POLL_MS = 1;
+
+/**
+ * Moves the test clock from one pending sleep to the next, earliest first, until `reached`
+ * holds. The clock never passes `latestWakeMs`, so sleeps due later (the slow-model notice, the
+ * step timeout) stay pending, and it never jumps past a timer that has yet to register.
+ */
+function advanceClockUntil(reached: () => boolean, latestWakeMs: number): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    while (!reached()) {
+      const pendingWakeTimes = yield* TestClock.sleeps();
+      const dueWakeTimes = [...pendingWakeTimes].filter((wakeMs) => wakeMs <= latestWakeMs);
+      if (dueWakeTimes.length > 0) {
+        yield* TestClock.setTime(Math.min(...dueWakeTimes));
+      }
+      yield* Effect.promise(() => Bun.sleep(SLEEP_REGISTRATION_POLL_MS));
+    }
+  });
 }
 
 function scriptedLLMService(
@@ -738,8 +785,10 @@ function scriptedLLMService(
 describe("executeWithStreaming cancellation", () => {
   it("Esc during retry backoff stops the run without waiting out the backoff", async () => {
     let attempts = 0;
+    const retryAnnounced = Effect.runSync(Queue.unbounded<void>());
     const harness = makeStreamingHarness({
       maxRetries: 5,
+      onRetryAnnounced: () => Queue.unsafeOffer(retryAnnounced, undefined),
       llmService: scriptedLLMService(() => {
         attempts += 1;
         return Effect.succeed({
@@ -750,25 +799,30 @@ describe("executeWithStreaming cancellation", () => {
       }),
     });
 
-    const startedAt = Date.now();
-    const pending = harness.run();
-    await Bun.sleep(200);
-    harness.interrupt.current?.();
-    const result = await pending;
+    const { result, elapsedMs } = await runOnTestClock(
+      harness,
+      Queue.take(retryAnnounced).pipe(
+        Effect.zipRight(Effect.sync(() => harness.interrupt.current?.())),
+      ),
+    );
 
     expect(result.interrupted).toBe(true);
     expect(attempts).toBe(1);
-    expect(Date.now() - startedAt).toBeLessThan(900);
+    expect(elapsedMs).toBe(0);
   });
 
   it("Esc during a stalled stream abandons the stream so its provider request is aborted", async () => {
     let abandoned = 0;
+    const streamStarted = Effect.runSync(Queue.unbounded<void>());
     const harness = makeStreamingHarness({
       llmService: scriptedLLMService(() =>
         Effect.succeed({
-          stream: hangingStream(() => {
-            abandoned += 1;
-          }),
+          stream: hangingStream(
+            () => {
+              abandoned += 1;
+            },
+            () => Queue.unsafeOffer(streamStarted, undefined),
+          ),
           response: Effect.never,
           cancel: Effect.void,
         }),
@@ -776,7 +830,7 @@ describe("executeWithStreaming cancellation", () => {
     });
 
     const pending = harness.run();
-    await Bun.sleep(100);
+    await Effect.runPromise(Queue.take(streamStarted));
     harness.interrupt.current?.();
     const result = await pending;
 
@@ -786,6 +840,7 @@ describe("executeWithStreaming cancellation", () => {
 
   it("Esc during the non-streaming fallback stops the run", async () => {
     let fallbackAbandoned = 0;
+    const fallbackStarted = Effect.runSync(Queue.unbounded<void>());
     const stalled = new LLMRequestError({
       provider: "openai",
       message: "stalled",
@@ -800,19 +855,21 @@ describe("executeWithStreaming cancellation", () => {
             response: Effect.fail(stalled),
             cancel: Effect.void,
           }),
-        () =>
-          Effect.never.pipe(
+        () => {
+          Queue.unsafeOffer(fallbackStarted, undefined);
+          return Effect.never.pipe(
             Effect.onInterrupt(() =>
               Effect.sync(() => {
                 fallbackAbandoned += 1;
               }),
             ),
-          ),
+          );
+        },
       ),
     });
 
     const pending = harness.run();
-    await Bun.sleep(100);
+    await Effect.runPromise(Queue.take(fallbackStarted));
     harness.interrupt.current?.();
     const result = await pending;
 
@@ -821,27 +878,42 @@ describe("executeWithStreaming cancellation", () => {
   });
 
   it("the run's time budget stops a model call that never finishes", async () => {
+    const maxDurationMs = 300;
     let abandoned = 0;
+    const callStarted = Effect.runSync(Queue.unbounded<void>());
     const harness = makeStreamingHarness({
-      maxDurationMs: 300,
+      maxDurationMs,
       llmService: scriptedLLMService(() =>
         Effect.succeed({
-          stream: hangingStream(() => {
-            abandoned += 1;
-          }),
+          stream: hangingStream(
+            () => {
+              abandoned += 1;
+            },
+            () => Queue.unsafeOffer(callStarted, undefined),
+          ),
           response: Effect.never,
           cancel: Effect.void,
         }),
       ),
     });
 
-    const startedAt = Date.now();
-    const result = await harness.run();
+    // The clock moves only while a call is waiting on the model: first until the work time
+    // stops the working call, then until the final-answer reserve stops the answer call.
+    const { result, elapsedMs } = await runOnTestClock(
+      harness,
+      Effect.gen(function* () {
+        const budgetEndsAtMs = harness.startedAtMs + maxDurationMs;
+        yield* Queue.take(callStarted);
+        yield* advanceClockUntil(() => abandoned === 1, budgetEndsAtMs);
+        yield* Queue.take(callStarted);
+        yield* advanceClockUntil(() => abandoned === 2, budgetEndsAtMs);
+      }),
+    );
 
     expect(result.durationCapped).toBe(true);
     // The working call, then the final-answer call cut off by the same budget.
     expect(abandoned).toBe(2);
-    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(elapsedMs).toBe(maxDurationMs);
   });
 });
 
