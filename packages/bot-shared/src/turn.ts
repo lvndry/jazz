@@ -235,6 +235,8 @@ const RESTARTING_NOTICE: RichText = [
 ];
 /** How often a shutdown checks whether the runs it cancelled have wound down. */
 const SHUTDOWN_POLL_MS = 100;
+/** The run log's outcome for a turn that threw before its run reported one. */
+const TURN_ABORTED_LOG_ERROR = "the turn ended before the run reported an outcome";
 
 /** `/stop` or `/cancel`, with or without a bot name. */
 function isStopCommand(text: string): boolean {
@@ -824,7 +826,11 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     try {
       // Opened once the run can start, so the log's clock is the run's, not the wait's.
       const runLog = createRunLog(sandbox.home, conversation);
-      await runAndAnswer(message, state, sandbox, conversation, incognito, runLog);
+      try {
+        await runAndAnswer(message, state, sandbox, conversation, incognito, runLog);
+      } finally {
+        runLog.finish({ ok: false, error: TURN_ABORTED_LOG_ERROR });
+      }
     } finally {
       releaseSlot();
     }

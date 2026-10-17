@@ -91,8 +91,8 @@ export interface RunLog {
   /** Record the safe operational fields of one Jazz stream event. */
   event: (event: object) => void;
   /**
-   * Record the run's outcome, including a timeout or crash. Also releases the
-   * flush timer, so this must be called exactly once per run.
+   * Record the run's outcome, including a timeout or crash, and release the
+   * flush timer and file. Only the first call records anything.
    */
   finish: (outcome: object) => void;
   /** Path written to, for a bridge that wants to mention it. */
@@ -231,6 +231,9 @@ export function createRunLog(
     },
     finish: (outcome) => {
       clearInterval(flushTimer);
+      if (closed) {
+        return;
+      }
       flush();
       append({
         ...now(),

@@ -118,6 +118,17 @@ describe("createRunLog", () => {
     expect(JSON.stringify(records)).not.toContain(injectedType);
   });
 
+  it("records only the first outcome when finished twice", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "runlog-"));
+    const log = createRunLog(dataDir, "chat-1");
+    log.finish({ ok: true });
+    log.finish({ ok: false, error: "late" });
+
+    const records = readRecords(dataDir);
+    expect(records.map((record) => record["type"])).toEqual(["run_start", "run_finish"]);
+    expect(records.at(-1)).toMatchObject({ ok: true });
+  });
+
   it("keeps a conversation's turns sorted and never collides", () => {
     const dataDir = mkdtempSync(join(tmpdir(), "runlog-"));
     createRunLog(dataDir, "chat-1", new Date("2026-08-24T10:00:00Z")).finish({ ok: true });
