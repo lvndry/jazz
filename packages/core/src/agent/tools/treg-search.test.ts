@@ -1,0 +1,85 @@
+/** Tests the free-first, capped paid-fallback treg search contract without network calls. */
+import { afterEach, describe, expect, it, mock } from "bun:test";
+import { Effect, Layer } from "effect";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { executeTregSearch } from "./treg-search";
+
+const originalFetch = global.fetch;
+const logger = {
+  info: () => Effect.void,
+} as unknown as LoggerService;
+const layer = Layer.succeed(LoggerServiceTag, logger);
+const search = () =>
+  Effect.runPromise(
+    executeTregSearch({ query: "sensitive query", maxResults: 2 }, "test-token").pipe(
+      Effect.provide(layer),
+    ),
+  );
+const found = (title: string, served_by = "tinyfish.web.search") =>
+  Response.json({
+    output: { results: [{ title, url: "https://example.org/", snippet: "Summary" }] },
+    _treg: { served_by },
+  });
+
+describe("treg web search", () => {
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("returns free results without a paid call and never puts the token in the URL", async () => {
+    const fetchMock = mock(async (_url: URL, _options: RequestInit) =>
+      Response.json({ results: [{ title: "Free", url: "https://example.org/" }] }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const result = await search();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0]!;
+    expect(url.origin + url.pathname).toBe("https://treg.to/call/tinyfish.web.search");
+    expect(url.searchParams.get("query")).toBe("sensitive query");
+    expect(JSON.stringify(url)).not.toContain("test-token");
+    expect((options.headers as Record<string, string>)["X-Treg-Token"]).toBe("test-token");
+    expect((options.headers as Record<string, string>)["X-Treg-Route-Max-Cost"]).toBeUndefined();
+    expect(result.results[0]?.title).toBe("Free");
+    expect(result.results[0]?.metadata?.["servedBy"]).toBe("tinyfish.web.search");
+  });
+
+  it("routes once after an empty free result and caps cost while excluding TinyFish", async () => {
+    const fetchMock = mock(async (_url: unknown, options: RequestInit) =>
+      (options.headers as Record<string, string>)["X-Treg-Route-Exclude"]
+        ? found("Fallback", "crawl4ai.web.search")
+        : Response.json({ results: [] }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const result = await search();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const options = fetchMock.mock.calls[1]![1];
+    expect((options.headers as Record<string, string>)["X-Treg-Route-Exclude"]).toBe("tinyfish");
+    expect((options.headers as Record<string, string>)["X-Treg-Route-Max-Cost"]).toBe("0.05");
+    expect(result.results[0]?.title).toBe("Fallback");
+  });
+
+  it("routes after free rate limiting or an invalid response", async () => {
+    for (const freeResponse of [
+      new Response("rate limited", { status: 429 }),
+      Response.json({ bad: true }),
+    ]) {
+      const fetchMock = mock(async (_url: string, _options: RequestInit) =>
+        fetchMock.mock.calls.length === 1 ? freeResponse : found("Fallback"),
+      );
+      global.fetch = fetchMock as unknown as typeof fetch;
+      expect((await search()).results[0]?.title).toBe("Fallback");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("does not retry a failed paid call or leak provider response bodies", async () => {
+    const fetchMock = mock(async (_url: string, _options: RequestInit) =>
+      fetchMock.mock.calls.length === 1
+        ? new Response("rate limited", { status: 429 })
+        : new Response("sensitive provider text", { status: 503 }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    await expect(search()).rejects.toThrow("paid fallback failed");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});

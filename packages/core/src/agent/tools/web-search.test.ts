@@ -229,6 +229,22 @@ describe("WebSearchTool", () => {
           );
         },
       },
+      {
+        name: "treg",
+        apiKey: "treg-test-token",
+        setupMock: () => {
+          (global.fetch as any).mockResolvedValue(
+            Response.json({
+              results: [{ title: "Treg Result", url: "https://example.org", snippet: "Result" }],
+            }),
+          );
+        },
+        verifyMock: (args: WebSearchArgs) => {
+          const url = (global.fetch as any).mock.calls[0][0] as URL;
+          expect(url.searchParams.get("query")).toBe(args.query);
+          expect(url.searchParams.get("domain_type")).toBe("web");
+        },
+      },
     ];
 
     it("does not log a private search query", async () => {

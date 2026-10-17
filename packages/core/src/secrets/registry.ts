@@ -25,6 +25,7 @@ const WEB_SEARCH_PROVIDER_ENV_VARS: Record<string, string> = {
   parallel: "PARALLEL_API_KEY",
   perplexity: "PERPLEXITY_API_KEY",
   tavily: "TAVILY_API_KEY",
+  treg: "TREG_TOKEN",
 };
 
 /** This provider's key from the environment, canonical variable first, or undefined. */

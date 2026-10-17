@@ -1,6 +1,6 @@
 /**
- * `web_search` tool, backed by whichever search provider (Perplexity, Tavily,
- * Exa, Linkup, Parallel) the agent config selects, normalized to one result shape.
+ * `web_search` tool, backed by the agent's chosen search provider and normalized
+ * to one result shape. Treg tries TinyFish free before a capped paid route.
  */
 
 import Perplexity from "@perplexity-ai/perplexity_ai";
@@ -15,6 +15,7 @@ import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import type { WebSearchProviderName } from "@/core/types/config";
 import { toError } from "@/core/utils/errors";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { executeTregSearch } from "./treg-search";
 
 export type SearchDepth = "fast" | "standard" | "deep";
 
@@ -57,6 +58,7 @@ export const WEB_SEARCH_PROVIDERS = [
   { name: "Exa", value: "exa" },
   { name: "Tavily", value: "tavily" },
   { name: "Linkup", value: "linkup" },
+  { name: "treg (TinyFish first, paid fallback)", value: "treg" },
 ] as const;
 
 /** Maximum number of results to return. */
@@ -168,6 +170,7 @@ export function createWebSearchTool(): ReturnType<
           brave: executeBraveSearch,
           perplexity: executePerplexitySearch,
           linkup: executeLinkupSearch,
+          treg: executeTregSearch,
         };
 
         const executor = executorMap[selectedProvider];
