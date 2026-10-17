@@ -1130,31 +1130,13 @@ function handleSwitchCommand(
         ),
       );
 
-      if (switchResult.success) {
-        const newAgent = switchResult.agent;
-        yield* terminal.setTitle(`🎷 Jazz - ${newAgent.name}`);
-        yield* terminal.success(
-          `Switched to ${newAgent.name} (${newAgent.config.llm.provider}/${newAgent.config.llm.model})`,
-        );
-
-        // Check if model supports tools and warn if not
-        const modelMeta = yield* Effect.promise(() =>
-          getModelsDevMetadata(newAgent.config.llm.model, newAgent.config.llm.provider),
-        );
-        if (
-          modelMeta &&
-          !modelMeta.supportsTools &&
-          newAgent.config.tools &&
-          newAgent.config.tools.length > 0
-        ) {
-          yield* terminal.log("");
-          yield* terminal.warn(
-            `${newAgent.config.llm.model} does not support tools, so this agent's tools are off for this model.`,
-          );
-        }
-
+      if (switchResult.success && switchResult.agent.id === currentAgent.id) {
+        yield* terminal.info("Already using this agent.");
         yield* terminal.log("");
-        return { shouldContinue: true, newAgent };
+        return { shouldContinue: true };
+      }
+      if (switchResult.success) {
+        return { shouldContinue: true, newAgent: switchResult.agent };
       }
 
       return { shouldContinue: true };
@@ -1180,8 +1162,7 @@ function handleSwitchCommand(
     // Sort with last-used agent first, then alphabetically
     const allAgents = sortAgents(allAgentsUnsorted, lastUsedAgentId);
 
-    // Show interactive prompt with history preservation note
-    yield* terminal.info("History will be preserved after switching.");
+    yield* terminal.info("This conversation continues with the agent you pick.");
     const choices = allAgents.map((ag) => ({
       name: `${ag.name} - ${ag.config.llm.provider}/${ag.config.llm.model} · ${ag.config.persona}${ag.id === currentAgent.id ? " (current)" : ""}`,
       value: ag.id,
@@ -1205,12 +1186,23 @@ function handleSwitchCommand(
     }
 
     const newAgent = yield* agentService.getAgent(selectedAgentId);
+    return { shouldContinue: true, newAgent };
+  });
+}
 
+/**
+ * Tell the user the chat now runs on `newAgent`, warning when its model cannot call the tools
+ * the agent is configured with. The chat loop calls this once the switch has taken effect.
+ */
+export function announceAgentSwitch(
+  terminal: TerminalService,
+  newAgent: CommandContext["agent"],
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    yield* terminal.setTitle(`🎷 Jazz - ${newAgent.name}`);
     yield* terminal.success(
       `Switched to ${newAgent.name} (${newAgent.config.llm.provider}/${newAgent.config.llm.model})`,
     );
-
-    // Check if model supports tools and warn if not
     const modelMeta = yield* Effect.promise(() =>
       getModelsDevMetadata(newAgent.config.llm.model, newAgent.config.llm.provider),
     );
@@ -1225,10 +1217,7 @@ function handleSwitchCommand(
         `${newAgent.config.llm.model} does not support tools, so this agent's tools are off for this model.`,
       );
     }
-
     yield* terminal.log("");
-
-    return { shouldContinue: true, newAgent };
   });
 }
 

@@ -28,6 +28,7 @@ import {
   ConversationBusyError,
   withConversationTurn,
 } from "@jazz/adapters/history/conversation-lease";
+import { moveConversationToAgent } from "@jazz/adapters/history/move-conversation";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
@@ -116,6 +117,7 @@ import {
   pauseOnExit,
   settledHere,
 } from "./chat/commands/goal";
+import { announceAgentSwitch } from "./chat/commands/handler";
 import { commandPanelTerminal, runsImmediately } from "./chat/commands/immediate";
 import { announceWaitingLoops } from "./chat/commands/loop";
 import {
@@ -304,22 +306,27 @@ export class ChatServiceImpl implements ChatService {
       // here, in front of the user, while the chat has it open. A piped chat cannot be woken
       // between lines, so its conversation is left to the unattended deliverers.
       const takesDeliveries = !ephemeral && terminal.isInteractive;
-      let attachedConversationId: string | undefined;
+      let attached: { agentId: string; conversationId: string } | undefined;
       const attachTo = (nextConversationId: string): Effect.Effect<void> =>
         Effect.gen(function* () {
-          if (!takesDeliveries || attachedConversationId === nextConversationId) {
+          if (
+            !takesDeliveries ||
+            (attached?.agentId === agent.id && attached.conversationId === nextConversationId)
+          ) {
             return;
           }
-          if (attachedConversationId !== undefined) {
-            yield* detachConversation(agent.id, attachedConversationId);
+          if (attached !== undefined) {
+            yield* detachConversation(attached.agentId, attached.conversationId);
           }
-          attachedConversationId = nextConversationId;
+          attached = { agentId: agent.id, conversationId: nextConversationId };
           yield* attachConversation(agent.id, nextConversationId);
         });
       releaseConversation = Effect.suspend(() => {
-        const leaving = attachedConversationId;
-        attachedConversationId = undefined;
-        return leaving === undefined ? Effect.void : detachConversation(agent.id, leaving);
+        const leaving = attached;
+        attached = undefined;
+        return leaving === undefined
+          ? Effect.void
+          : detachConversation(leaving.agentId, leaving.conversationId);
       });
       yield* attachTo(conversationId);
 
@@ -976,17 +983,46 @@ export class ChatServiceImpl implements ChatService {
                 store.setWorkingDirectory,
               );
             }
-            if (commandResult.newAgent !== undefined) {
-              agent = commandResult.newAgent;
-              // Conversations are kept per agent, so the next save starts this one's log.
-              savedRevision = EMPTY_CONVERSATION_REVISION;
+            const nextAgent = commandResult.newAgent;
+            let agentChanged = false;
+            if (nextAgent !== undefined && nextAgent.id === agent.id) {
+              agent = nextAgent;
+              agentChanged = true;
+            } else if (nextAgent !== undefined) {
+              const handOver = yield* moveConversationToAgent(
+                agent.id,
+                nextAgent.id,
+                conversationId,
+              ).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem), Effect.either);
+              if (handOver._tag === "Left") {
+                yield* terminal.warn(
+                  `Still on ${agent.name}: this conversation can't move to ${nextAgent.name}. ${handOver.left.message}`,
+                );
+                yield* terminal.log("");
+              } else {
+                const fileSystemContext = yield* FileSystemContextServiceTag;
+                const workingDirectory = yield* fileSystemContext.getCwd({
+                  agentId: agent.id,
+                  conversationId,
+                });
+                yield* fileSystemContext
+                  .setCwd({ agentId: nextAgent.id, conversationId }, workingDirectory)
+                  .pipe(Effect.ignore);
+                agent = nextAgent;
+                agentChanged = true;
+                yield* attachTo(conversationId);
+                store.setCurrentConversation({ agentId: agent.id, conversationId });
+                yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
+                yield* announceAgentSwitch(terminal, agent);
+              }
+            }
+            if (agentChanged) {
               store.updateRunStats({
                 agentName: agent.name,
                 provider: agent.config.llm.provider,
                 model: agent.config.llm.model,
                 reasoning: reasoningEffortLabel(agent.config.llm.reasoning),
               });
-              // Update working directory in store after agent switch
               const fileSystemContext = yield* FileSystemContextServiceTag;
               updateWorkingDirectoryInStore(
                 agent.id,

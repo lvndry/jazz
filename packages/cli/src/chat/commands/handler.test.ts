@@ -289,7 +289,7 @@ describe("agent creation and fresh conversations", () => {
 });
 
 describe("conversation titles through the chat loop", () => {
-  test("keeps a renamed title through agent changes, final saves, and a resumed session", async () => {
+  test("keeps one renamed conversation through agent changes, final saves, and a resumed session", async () => {
     const title = `Long 研究 🪷\n${"User title ".repeat(1000).trim()}`;
     const otherAgent = { ...testAgent, id: "another-agent", name: "Another agent" };
     const setup = spyOn(chatSession, "setupAgent").mockReturnValue(Effect.void);
@@ -319,9 +319,11 @@ describe("conversation titles through the chat loop", () => {
         set: () => Effect.void,
         load: () => Effect.succeed({}),
       };
+      const cwdUpdates: { agentId: string; path: string }[] = [];
       const fsContext: FileSystemContextService = {
         getCwd: () => Effect.succeed(tmpDir),
-        setCwd: () => Effect.die("Unexpected cwd update"),
+        setCwd: (key, path) =>
+          Effect.sync(() => void cwdUpdates.push({ agentId: key.agentId, path })),
         resolvePath: () => Effect.die("Unexpected path resolution"),
         findDirectory: () => Effect.die("Unexpected directory search"),
         resolvePathForMkdir: () => Effect.die("Unexpected mkdir"),
@@ -380,12 +382,11 @@ describe("conversation titles through the chat loop", () => {
         (await session(testAgent, [`/rename ${title}`, "/switch another-agent", "/exit"]))
           .messagesReceived,
       ).toBe(2);
-      expect((await runEffect(loadConversation(testAgent.id, "rename-loop", tmpDir)))?.title).toBe(
-        title,
-      );
+      expect(await runEffect(loadConversation(testAgent.id, "rename-loop", tmpDir))).toBeNull();
       expect((await runEffect(loadConversation(otherAgent.id, "rename-loop", tmpDir)))?.title).toBe(
         title,
       );
+      expect(cwdUpdates).toEqual([{ agentId: otherAgent.id, path: tmpDir }]);
       expect((await session(otherAgent, ["/rename", "/exit"])).messagesReceived).toBe(1);
       expect((await runEffect(loadConversation(otherAgent.id, "rename-loop", tmpDir)))?.title).toBe(
         title,
