@@ -123,8 +123,11 @@ interface RunLink {
 interface Entry {
   readonly id: string;
   readonly name: string;
-  /** The run that started it, when one was attached. */
-  readonly run: RunLink | undefined;
+  /**
+   * The run that started it, when one was attached. Dropped once the child finishes: its spend
+   * is charged before then, and the link holds the whole run's context alive.
+   */
+  run: RunLink | undefined;
   readonly startedAt: number;
   status: SubagentStatus;
   lastActivity: string | undefined;
@@ -133,6 +136,7 @@ interface Entry {
   pauseRequested: boolean;
   resumeGate: Deferred.Deferred<void> | undefined;
   fiber: Fiber.Fiber<void> | undefined;
+  /** How it ended; the answer itself is dropped once the parent has read it. */
   result: ToolExecutionResult | undefined;
   retrieveId: string | undefined;
   finishedAt: number | undefined;
@@ -314,10 +318,31 @@ export function createSubagentSupervisor(
         Effect.runSync(Deferred.succeed(entry.resumeGate, undefined));
         entry.resumeGate = undefined;
       }
-      if (entry.run !== undefined && !entry.run.attached) {
-        Effect.runFork(releaseFinishedRun(entry.run));
+      const run = entry.run;
+      entry.run = undefined;
+      if (run !== undefined && !run.attached) {
+        Effect.runFork(releaseFinishedRun(run));
       }
       signalChangeSync();
+    };
+
+    /**
+     * The parent read the answer, and later reads report it as `alreadyRead` under its retrieve
+     * id, so only how the child ended is kept.
+     */
+    const markCollected = (entry: Entry) => {
+      entry.collected = true;
+      entry.announced = true;
+      const result = entry.result;
+      if (result === undefined) {
+        return;
+      }
+      entry.result = {
+        success: result.success,
+        result: null,
+        ...(result.error !== undefined ? { error: result.error } : {}),
+        ...(result.untrusted !== undefined ? { untrusted: result.untrusted } : {}),
+      };
     };
 
     const hasLiveChildren = (run: RunLink) =>
@@ -561,12 +586,12 @@ export function createSubagentSupervisor(
             if (!FINISHED.has(entry.status)) {
               return snapshot(entry, false);
             }
-            const readBefore = entry.collected;
-            entry.collected = true;
-            entry.announced = true;
-            return readBefore
-              ? { ...snapshot(entry, false), alreadyRead: true }
-              : snapshot(entry, true);
+            if (entry.collected) {
+              return { ...snapshot(entry, false), alreadyRead: true };
+            }
+            const firstRead = snapshot(entry, true);
+            markCollected(entry);
+            return firstRead;
           });
           return { subagents, outcome };
         }).pipe(Effect.scoped),
@@ -714,6 +739,13 @@ export function createSubagentSupervisor(
 
       close: () =>
         Effect.gen(function* () {
+          // Gathered first: a child finishing below lets go of its run.
+          const runs = new Set<RunLink>(currentRun === undefined ? [] : [currentRun]);
+          for (const entry of entries.values()) {
+            if (entry.run !== undefined) {
+              runs.add(entry.run);
+            }
+          }
           yield* Scope.close(scope, Exit.void);
           // A child whose fiber was interrupted before it started never ran its own handler.
           for (const entry of entries.values()) {
@@ -727,12 +759,6 @@ export function createSubagentSupervisor(
                 },
                 true,
               );
-            }
-          }
-          const runs = new Set<RunLink>();
-          for (const entry of entries.values()) {
-            if (entry.run !== undefined) {
-              runs.add(entry.run);
             }
           }
           for (const run of runs) {

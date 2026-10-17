@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
@@ -240,6 +240,26 @@ describe("turn runner", () => {
     expect(reasoningAt).toBeGreaterThanOrEqual(0);
     expect(answerAt).toBeGreaterThanOrEqual(0);
     expect(reasoningAt).toBeLessThan(answerAt);
+  });
+
+  test("a turn that throws before its run reports still closes its run log", async () => {
+    runner = createTurnRunner({
+      ...baseConfig,
+      startRun: () => {
+        throw new Error("spawn failed");
+      },
+    });
+    await runner.handle(message("hello"));
+
+    const runLogs = readdirSync(dataDir, { recursive: true, encoding: "utf8" }).filter(
+      (entry) => entry.includes(join("logs", "runs")) && entry.endsWith(".ndjson"),
+    );
+    expect(runLogs).toHaveLength(1);
+    const records = readFileSync(join(dataDir, runLogs[0] as string), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records.at(-1)).toMatchObject({ type: "run_finish", ok: false, hasError: true });
   });
 
   test("a failed run that reached the model is counted against the day", async () => {

@@ -41,6 +41,7 @@ import {
 } from "@jazz/core/types/attachment";
 import type { LLMConfig } from "@jazz/core/types/config";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { BoundedLruCache } from "@jazz/core/utils/bounded-lru-cache";
 import { toError } from "@jazz/core/utils/errors";
 import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
 import { uploadFile } from "ai";
@@ -105,39 +106,7 @@ function uploadCacheKey(
  */
 export const ATTACHMENT_UPLOAD_CACHE_CAPACITY = 256;
 
-/**
- * A minimal insertion-ordered LRU cache for provider upload references.
- *
- * `Map` preserves insertion order. Moving a hit to the end makes its first key the least
- * recently used entry, which can be evicted without timers or background work.
- */
-class AttachmentUploadCache {
-  private readonly entries = new Map<string, unknown>();
-
-  get(key: string): unknown {
-    const value = this.entries.get(key);
-    if (value === undefined) return undefined;
-
-    this.entries.delete(key);
-    this.entries.set(key, value);
-    return value;
-  }
-
-  set(key: string, value: unknown): void {
-    this.entries.delete(key);
-    this.entries.set(key, value);
-
-    if (this.entries.size <= ATTACHMENT_UPLOAD_CACHE_CAPACITY) return;
-    const leastRecentlyUsedKey = this.entries.keys().next().value;
-    if (leastRecentlyUsedKey !== undefined) this.entries.delete(leastRecentlyUsedKey);
-  }
-
-  clear(): void {
-    this.entries.clear();
-  }
-}
-
-const uploadCache = new AttachmentUploadCache();
+const uploadCache = new BoundedLruCache<string, unknown>(ATTACHMENT_UPLOAD_CACHE_CAPACITY);
 
 /** Test seam: drops cached references so the next resolve re-uploads. */
 export function clearAttachmentUploadCache(): void {

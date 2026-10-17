@@ -545,7 +545,7 @@ function daemonStatus() {
 }
 
 /** How often an event stream looks for changes. */
-const EVENT_POLL_MS = 2_000;
+export const EVENT_POLL_MS = 2_000;
 /** A comment line at least this often, under Bun's 10 s idle timeout, so a quiet stream stays open. */
 const EVENT_KEEPALIVE_MS = 5_000;
 
@@ -561,9 +561,11 @@ function eventStream(
 ): Response {
   const encoder = new TextEncoder();
   let timer: ReturnType<typeof setInterval> | undefined;
+  let closed = false;
   const stream = new ReadableStream<Uint8Array>({
     start: async (controller) => {
       const close = () => {
+        closed = true;
         if (timer !== undefined) {
           clearInterval(timer);
           timer = undefined;
@@ -584,7 +586,14 @@ function eventStream(
       const send = (event: string, data: unknown) =>
         write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       request.signal.addEventListener("abort", close);
+      if (request.signal.aborted) {
+        close();
+        return;
+      }
       const snapshot = await runEffect(daemonStatusSnapshot()).catch(() => undefined);
+      if (closed) {
+        return;
+      }
       if (snapshot === undefined) {
         close();
         return;
@@ -633,6 +642,7 @@ function eventStream(
       }, EVENT_POLL_MS);
     },
     cancel: () => {
+      closed = true;
       if (timer !== undefined) {
         clearInterval(timer);
       }

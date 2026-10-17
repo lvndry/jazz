@@ -18,6 +18,7 @@ import {
 import { formatMemorySourceTag } from "@/core/memory/source-trust";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
+import { BoundedLruCache } from "@/core/utils/bounded-lru-cache";
 import { systemInfo } from "@/core/utils/system-info";
 import { MANAGE_MEMORY_TOOL_NAME } from "./memory-recall-log";
 import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
@@ -200,8 +201,16 @@ function getSkillIndexLineFromOption(s: {
   return desc;
 }
 
+/**
+ * Rendered system prompts kept per builder. A long-lived process alternates between a handful
+ * of live variants (each agent's main prompt, its sub-agent personas, the summarizer); every
+ * memory edit, tool-set change or new day mints a new key, and each prompt is tens of KB, so
+ * stale variants must age out rather than accumulate for the life of a chat, daemon or bot.
+ */
+export const SYSTEM_PROMPT_CACHE_CAPACITY = 16;
+
 export class AgentPromptBuilder {
-  private systemPromptCache = new Map<string, string>();
+  private systemPromptCache = new BoundedLruCache<string, string>(SYSTEM_PROMPT_CACHE_CAPACITY);
 
   /**
    * Get current system information including date and OS details.

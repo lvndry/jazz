@@ -41,6 +41,7 @@ import {
   sandboxOwnership,
 } from "./chat-sandbox";
 import { compositionLinkPath, type CompositionLinks } from "./compositions";
+import { IncognitoTranscripts } from "./incognito-transcripts";
 import { type JazzComposition, type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
 import { routeBusyMessage, takeNextTurn } from "./mid-turn";
 import { createProgressReporter } from "./progress";
@@ -235,6 +236,8 @@ const RESTARTING_NOTICE: RichText = [
 ];
 /** How often a shutdown checks whether the runs it cancelled have wound down. */
 const SHUTDOWN_POLL_MS = 100;
+/** The run log's outcome for a turn that threw before its run reported one. */
+const TURN_ABORTED_LOG_ERROR = "the turn ended before the run reported an outcome";
 
 /** `/stop` or `/cancel`, with or without a bot name. */
 function isStopCommand(text: string): boolean {
@@ -322,14 +325,8 @@ interface ChatState {
   readonly sentIntoRun: { readonly id: string; readonly message: InboundMessage }[];
 }
 
-/**
- * Transcripts for conversations currently incognito.
- *
- * Lives only in this process's memory and is never written anywhere, so a
- * restart drops the context rather than ever falling back to a file on disk —
- * which is the whole promise of the mode.
- */
-const incognitoHistory = new Map<ChatId, unknown[]>();
+/** Transcripts for conversations currently incognito, never written anywhere. */
+const incognitoHistory = new IncognitoTranscripts();
 
 /** How much reasoning to send ahead of an answer, when a bridge does not say. */
 const REASONING_PART_CHARS = 1_500;
@@ -824,7 +821,11 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     try {
       // Opened once the run can start, so the log's clock is the run's, not the wait's.
       const runLog = createRunLog(sandbox.home, conversation);
-      await runAndAnswer(message, state, sandbox, conversation, incognito, runLog);
+      try {
+        await runAndAnswer(message, state, sandbox, conversation, incognito, runLog);
+      } finally {
+        runLog.finish({ ok: false, error: TURN_ABORTED_LOG_ERROR });
+      }
     } finally {
       releaseSlot();
     }
@@ -864,7 +865,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         timezone: tzForChat(config.jazzHome, config.files.timezone, chatId),
         runTimeoutMs: config.runTimeoutMs,
         conversation: incognito
-          ? { kind: "ephemeral", history: incognitoHistory.get(chatId) ?? [] }
+          ? { kind: "ephemeral", history: incognitoHistory.get(chatId) }
           : { kind: "persistent", key: conversation },
         prompt,
       },
