@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Duration, Effect, Fiber, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
+import { formatMemorySourceTag } from "@/core/memory/source-trust";
 import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors";
-import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
 import { frameUntrusted } from "@/core/utils/untrusted-content";
@@ -599,6 +600,83 @@ describe("executeAgentLoop", () => {
     },
   );
 
+  it("makes a queued message the person typed quotable as a memory source", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    let queued: { content: string; typed: string } | undefined;
+    const seenByModel: ChatMessage[] = [];
+    const admitted: MemorySource[] = [];
+    ToolExecutor.executeToolCalls = mock(() => {
+      queued = { content: "I'm vegetarian", typed: "I'm vegetarian" };
+      return Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]);
+    });
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages, iteration) => {
+        if (iteration === 0) {
+          return Effect.succeed({
+            completion: {
+              id: "c1",
+              model: "gpt-4",
+              content: "",
+              toolCalls: [
+                {
+                  id: "call_1",
+                  type: "function" as const,
+                  function: { name: "test_tool", arguments: "{}" },
+                },
+              ],
+            },
+            interrupted: false,
+          });
+        }
+        seenByModel.push(...messages.filter((message) => message.role === "user"));
+        return Effect.succeed({
+          completion: { id: "c2", model: "gpt-4", content: "Done" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    try {
+      const result = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({
+            checkQueuedMessage: () => {
+              const message = queued;
+              queued = undefined;
+              return message;
+            },
+          }),
+          makeRunContext({
+            maxIterations: 2,
+            admitMemorySource: (source) => {
+              admitted.push(source);
+            },
+          }),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+
+      const sourceTag = formatMemorySourceTag(admitted[0]?.id ?? "");
+      const delivered = result.messages?.find((message) => message.memorySource !== undefined);
+      expect(admitted).toHaveLength(1);
+      expect(admitted[0]?.text).toBe("I'm vegetarian");
+      expect(delivered?.memorySource).toEqual(admitted[0]);
+      expect(String(delivered?.content)).toContain(sourceTag);
+      expect(seenByModel.some((message) => String(message.content).includes(sourceTag))).toBe(true);
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
+  });
+
   it("only takes queued guidance when another model iteration will run", async () => {
     const originalExecute = ToolExecutor.executeToolCalls;
     let queued: string | undefined;
@@ -649,7 +727,7 @@ describe("executeAgentLoop", () => {
       const checkQueuedMessage = () => {
         const message = queued;
         queued = undefined;
-        return message;
+        return message === undefined ? undefined : { content: message };
       };
       await Effect.runPromise(
         executeAgentLoop(
@@ -730,7 +808,7 @@ describe("executeAgentLoop", () => {
             checkQueuedMessage: () => {
               const message = queued;
               queued = undefined;
-              return message;
+              return message === undefined ? undefined : { content: message };
             },
           }),
           makeRunContext({

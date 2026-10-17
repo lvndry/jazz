@@ -30,6 +30,10 @@ interface FakeRun {
   readonly decisions: { toolCallId: string; approved: boolean }[];
   readonly answers: { requestId: string; response: string }[];
   readonly secretAnswers: { requestId: string; answer: SecretAnswer }[];
+  /** Messages the runner handed to the run while it worked. */
+  readonly sentMessages: { id: string; text: string }[];
+  /** Report the messages sent so far as taken into the run, as `user_message_delivered` does. */
+  deliverSentMessages(): void;
   emit(event: JazzEvent): void;
   finish(envelope?: JazzEnvelope): void;
   cancelled(): boolean;
@@ -69,6 +73,8 @@ describe("turn runner", () => {
     const decisions: { toolCallId: string; approved: boolean }[] = [];
     const answers: { requestId: string; response: string }[] = [];
     const secretAnswers: { requestId: string; answer: SecretAnswer }[] = [];
+    const sentMessages: { id: string; text: string }[] = [];
+    const deliveredIds = new Set<string>();
     const result = new Promise<JazzEnvelope>((resolve) => {
       settle = resolve;
     });
@@ -93,6 +99,10 @@ describe("turn runner", () => {
         answerSecret: async (requestId, answer) => {
           secretAnswers.push({ requestId, answer });
         },
+        sendMessage: async (id, text) => {
+          sentMessages.push({ id, text });
+        },
+        delivered: (id) => deliveredIds.has(id),
         cancel: () => {
           killed = true;
           settle({ ok: false, error: "cancelled" });
@@ -101,6 +111,12 @@ describe("turn runner", () => {
       decisions,
       answers,
       secretAnswers,
+      sentMessages,
+      deliverSentMessages: () => {
+        for (const { id } of sentMessages) {
+          deliveredIds.add(id);
+        }
+      },
       emit: (event) => {
         lastSpend = runSpendFromEvent(event) ?? lastSpend;
         handlers.onEvent?.(event);
@@ -355,16 +371,19 @@ describe("turn runner", () => {
     await turn;
   });
 
-  test("a message that answers nothing is queued, not read as a decision", async () => {
+  test("a message that answers nothing goes into the run, not read as a decision", async () => {
     const { turn } = await startTurn();
     current?.emit({ type: "approval_required", toolCallId: "tc1", toolName: "execute_command" });
     await Bun.sleep(5);
 
     await runner.handle(message("actually, what's the weather?"));
     expect(current?.decisions).toHaveLength(0);
+    expect(current?.sentMessages.map((sentMessage) => sentMessage.text)).toEqual([
+      "actually, what's the weather?",
+    ]);
 
-    // Queued rather than consumed — letting the run finish would answer it as a
-    // fresh turn, so cancelling is how this one unwinds.
+    // Letting the run finish without reading it would answer it as a fresh turn, so
+    // cancelling is how this one unwinds.
     runner.cancel("c1", undefined);
     await turn;
   });
@@ -507,6 +526,63 @@ describe("turn runner", () => {
     expect(runsStarted).toEqual(["first", "second"]);
     running()?.finish();
     await first;
+  });
+
+  /** Wait for the next run to register after the one in `current` finished. */
+  const nextRun = async (): Promise<FakeRun> => {
+    const running = (): FakeRun | undefined => current;
+    for (let attempt = 0; running() === undefined && attempt < 200; attempt += 1)
+      await Bun.sleep(1);
+    const run = running();
+    if (run === undefined) throw new Error("no next run started");
+    return run;
+  };
+
+  test("the requester's message mid-run goes into that run instead of a run of its own", async () => {
+    const { turn } = await startTurn("book a table tomorrow");
+    await runner.handle(message("for 4 people"));
+    expect(current?.sentMessages.map((sentMessage) => sentMessage.text)).toEqual(["for 4 people"]);
+
+    current?.deliverSentMessages();
+    current?.finish();
+    await turn;
+    expect(runsStarted).toEqual(["book a table tomorrow"]);
+  });
+
+  test("messages the run never read are answered together in the next turn", async () => {
+    const { turn } = await startTurn("book a table tomorrow");
+    await runner.handle(message("for 4 people"));
+    await runner.handle(message("around 8pm"));
+    const firstRun = current;
+    current = undefined;
+    firstRun?.finish();
+
+    const followUp = await nextRun();
+    expect(runsStarted).toEqual(["book a table tomorrow", "for 4 people\naround 8pm"]);
+    followUp.finish();
+    await turn;
+  });
+
+  test("another member's message mid-run waits for its own turn", async () => {
+    const { turn } = await startTurn("book a table tomorrow");
+    await runner.handle(message("what's the weather?", OTHER_MEMBER));
+    expect(current?.sentMessages).toEqual([]);
+    const firstRun = current;
+    current = undefined;
+    firstRun?.finish();
+
+    const followUp = await nextRun();
+    expect(runsStarted).toEqual(["book a table tomorrow", "what's the weather?"]);
+    followUp.finish();
+    await turn;
+  });
+
+  test("cancelling drops a message the run never read", async () => {
+    const { turn } = await startTurn("book a table tomorrow");
+    await runner.handle(message("for 4 people"));
+    runner.cancel("c1", REQUESTER);
+    await turn;
+    expect(runsStarted).toEqual(["book a table tomorrow"]);
   });
 
   test("approve all is offered past one approval and clears every one", async () => {
@@ -685,8 +761,8 @@ describe("turn runner", () => {
       limits: { maxConcurrentRuns: 4, maxQueuedMessages: 1 },
     });
     const { turn } = await startTurn();
-    await runner.handle(message("queued"));
-    await runner.handle(message("one too many"));
+    await runner.handle(message("queued", OTHER_MEMBER));
+    await runner.handle(message("one too many", OTHER_MEMBER));
     expect(sent.at(-1)?.text).toContain("was dropped");
     runner.cancel("c1", undefined);
     await turn;

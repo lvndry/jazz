@@ -34,6 +34,17 @@ Email, calendar, and web search need their own [integration setup](../configure/
 A Docker bridge sees its container's files and mounts; it does not automatically see
 your laptop's checkout.
 
+### Sending more while it works
+
+You don't have to wait for an answer before adding to your request. A message you send
+while the agent is working goes into the run in progress, and the agent reads it before its
+next step. "Book a table for tomorrow" followed by "for 4, around 8pm" gets one answer that
+covers both, not two separate runs.
+
+Commands such as `/model` and messages from other people in a group wait until the current
+answer arrives. Several messages that waited are answered together, in one turn. `/stop`
+drops anything still waiting.
+
 ---
 
 ## Telegram (shipped)
@@ -180,7 +191,7 @@ Restrict who can reach the bot and what their runs may do.
 - **Allowlisting is not isolation.** Two people on the same allowlist share a host, and a Jazz agent has `read_file` and `execute_command`, so without an OS boundary either one's agent can read the other's transcripts, memory and stored credentials. Both bridges give each conversation its own uid and Jazz home for exactly this: [Telegram](../../packages/telegram-bot/README.md#per-chat-isolation), [Discord](../../packages/discord-bot/README.md#per-conversation-isolation). It matters most where the allowlist is a **guild**, since that admits everyone in it. Anything you build yourself needs the same, or a one-person allowlist.
 - **A container is not a boundary against the host.** Root, `sudo`, and the `docker` group all read a bridge's volume whatever its uids and file modes say: the daemon runs as root, and the docker group is root-equivalent. On a machine other people administer, treat everything the bot has stored as readable by every admin on it.
 - **Check health.** Telegram and Discord expose `/health` for their container health checks. It returns `503` when the platform connection fails. For the other bridges, set `JAZZ_BRIDGE_HEALTH_PORT`. A restart stops active runs; waiting for your approval does not count against the run timeout.
-- **Cap concurrency.** `JAZZ_BOT_MAX_CONCURRENT_RUNS` (default 4) bounds how many agent runs one bridge has in flight across every chat, and `JAZZ_BOT_MAX_QUEUED_MESSAGES` (default 5) how many messages may wait behind one chat's run.
+- **Cap concurrency.** `JAZZ_BOT_MAX_CONCURRENT_RUNS` (default 4) bounds how many agent runs one bridge has in flight across every chat, and `JAZZ_BOT_MAX_QUEUED_MESSAGES` (default 5) how many messages may wait behind one chat's run. A requester's own messages go into their run and don't count.
 - **Cap spend.** Use `costKnown` as well as `costUSD`. The bridges pause subsequent requests after an unpriced run; no dollar cap can guarantee the cost of that first unpriced request.
 
 See the [security model](../security/index.md).

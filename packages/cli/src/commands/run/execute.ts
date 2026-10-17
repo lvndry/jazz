@@ -21,6 +21,7 @@ import {
   detectInteractiveInput,
   makeOneShotPresentationServiceLayer,
 } from "@jazz/core/presentation/oneshot-presentation-service";
+import { RunMessageInbox } from "@jazz/core/presentation/run-message-inbox";
 import { AgentNotFoundError } from "@jazz/core/types/errors";
 import type { CompanionRole } from "@jazz/core/types/llm";
 import type { ChatMessage } from "@jazz/core/types/message";
@@ -311,6 +312,9 @@ export function runAgentOnceCommand(
   // Resolved once and shared, so the toolset the model is offered and the way a
   // question is delivered can never disagree about whether anyone is reachable.
   const interactiveInput = detectInteractiveInput(options.interactiveStdin === true);
+  // Only a consumer speaking the stdin protocol (a chat bridge) can write a message into the run.
+  const inbox =
+    interactiveInput.interactive && !interactiveInput.viaTty ? new RunMessageInbox() : undefined;
   // Deadline can be pushed out while blocked on a human approval decision (see
   // requestApproval in OneShotPresentationService) so waiting on a person
   // doesn't count against the same budget as the agent's own work.
@@ -512,6 +516,16 @@ export function runAgentOnceCommand(
       ...(interactiveInput.interactive ? {} : { withholdInteractiveTools: true }),
       ...(ephemeral ? { disablePersistence: true } : {}),
       ...(options.park === true ? { parkWhenUnattended: true } : {}),
+      ...(inbox !== undefined
+        ? {
+            checkQueuedMessage: () => inbox.take(),
+            awaitQueuedMessage: () =>
+              Effect.async<void>((resume) => {
+                const cancel = inbox.onceWaiting(() => resume(Effect.void));
+                return Effect.sync(cancel);
+              }),
+          }
+        : {}),
       onRunSpend: (spend) => {
         runSpend = runSpendAsCallSpend(
           spend,
@@ -668,6 +682,15 @@ export function runAgentOnceCommand(
     ),
     // A run that parked, failed or hit a spend cap may have queued a notification.
     Effect.ensuring(drainNotifyOutbox().pipe(Effect.ignore)),
+    // The protocol reader holds stdin open, and a bridge keeps its end open for the whole run,
+    // so the process would outlive its answer until the bridge killed it.
+    Effect.ensuring(
+      Effect.sync(() => {
+        if (interactiveInput.interactive) {
+          process.stdin.destroy();
+        }
+      }),
+    ),
     // Only a parking run needs somewhere durable to park. Without the flag no store is in
     // the layer at all, and the recorder is a pass-through.
     Effect.provide(options.park === true ? makeFileRunStoreLayer() : Layer.empty),
@@ -678,6 +701,7 @@ export function runAgentOnceCommand(
           ? () => deadline.extend(options.timeoutMs!)
           : undefined,
         interactiveInput.interactive ? (interactiveInput.viaTty ? "tty" : "protocol") : "none",
+        inbox,
       ),
     ),
   );

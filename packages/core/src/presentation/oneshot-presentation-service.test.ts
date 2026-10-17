@@ -6,6 +6,7 @@ import type { StreamingRendererConfig } from "@/core/interfaces/presentation";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest } from "@/core/types/tools";
 import { detectInteractiveInput, OneShotPresentationService } from "./oneshot-presentation-service";
+import { RunMessageInbox } from "./run-message-inbox";
 
 function makeApprovalRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
   return {
@@ -750,5 +751,69 @@ describe("OneShotPresentationService.requestUserInput on a terminal", () => {
     await tick();
     stdin.write("postgres\n");
     expect(await pending).toEqual({ kind: "answered", response: "postgres" });
+  });
+});
+
+describe("OneShotPresentationService user messages", () => {
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+  afterEach(() => {
+    process.stderr.write = originalStderrWrite;
+  });
+
+  it("hands every user_message waiting to the run as one message and reports their ids", async () => {
+    const lines: string[] = [];
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      lines.push(typeof chunk === "string" ? chunk : chunk.toString());
+      return true;
+    }) as typeof process.stderr.write;
+    const stdin = new PassThrough();
+    const inbox = new RunMessageInbox();
+    new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["approval_required"]),
+      stdin,
+      undefined,
+      "protocol",
+      inbox,
+    );
+
+    expect(inbox.take()).toBeUndefined();
+    stdin.write(`${JSON.stringify({ type: "user_message", id: "m1", text: "for 4 people" })}\n`);
+    stdin.write(`${JSON.stringify({ type: "user_message", id: "m2", text: "around 8pm" })}\n`);
+    stdin.write(`${JSON.stringify({ type: "user_message", id: "m3", text: "   " })}\n`);
+    await tick();
+
+    expect(inbox.take()).toEqual({
+      content: "for 4 people\naround 8pm",
+      typed: "for 4 people\naround 8pm",
+    });
+    expect(lines.map((line) => JSON.parse(line) as unknown)).toEqual([
+      { type: "user_message_delivered", ids: ["m1", "m2"] },
+    ]);
+    expect(inbox.take()).toBeUndefined();
+  });
+
+  it("wakes a waiter once a message arrives", async () => {
+    const stdin = new PassThrough();
+    const inbox = new RunMessageInbox();
+    new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["approval_required"]),
+      stdin,
+      undefined,
+      "protocol",
+      inbox,
+    );
+    let woken = false;
+    inbox.onceWaiting(() => {
+      woken = true;
+    });
+    await tick();
+    expect(woken).toBe(false);
+
+    stdin.write(`${JSON.stringify({ type: "user_message", id: "m1", text: "stop after one" })}\n`);
+    await tick();
+    expect(woken).toBe(true);
   });
 });

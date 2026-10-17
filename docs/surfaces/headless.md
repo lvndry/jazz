@@ -282,6 +282,26 @@ Questions are never truncated. Telegram and Discord render suggestions as button
 `CI=true` disables terminal input detection. An explicit `--interactive-stdin`
 still enables input events.
 
+### Adding to a running request
+
+With `--interactive-stdin`, a bridge can hand the run a message the person sent while it
+works, instead of starting a second run for it:
+
+```json
+{ "type": "user_message", "id": "message-1", "text": "make it for 4 people" }
+```
+
+The run reads every message waiting before its next model call, as one user message, and
+reports the ids it took on the event stream:
+
+```json
+{ "type": "user_message_delivered", "ids": ["message-1"] }
+```
+
+A message written while the run is giving its final answer is never read and never
+reported. Answer it in a run of its own. The text counts as the person's own words, like the
+first message, so the agent may quote it for a memory write.
+
 ---
 
 ## Autonomy

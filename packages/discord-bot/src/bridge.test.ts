@@ -100,6 +100,8 @@ function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): 
       return Promise.resolve();
     },
     answerSecret: () => Promise.resolve(),
+    sendMessage: () => Promise.resolve(),
+    delivered: () => false,
     cancel: () => settle({ ok: false, error: "cancelled" }),
   };
 }

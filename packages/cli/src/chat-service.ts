@@ -563,7 +563,10 @@ export class ChatServiceImpl implements ChatService {
           }
           const parts = detached.length > 0 ? [queued, detachedResultsMessage(detached)] : [queued];
           const message = parts.filter((part) => part.length > 0).join("\n\n");
-          return message.length > 0 ? message : undefined;
+          if (message.length === 0) {
+            return undefined;
+          }
+          return queued.length > 0 ? { content: message, typed: queued } : { content: message };
         },
         awaitQueuedMessage: () =>
           Effect.async<void>((resume) => {
