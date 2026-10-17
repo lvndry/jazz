@@ -148,7 +148,7 @@ export class CLIRenderer {
    * Handle a streaming event and update output
    */
   handleEvent(event: StreamEvent): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const output = this.renderEvent(event);
       if (output) {
         yield* this.writer.write(output);
@@ -649,7 +649,7 @@ export class CLIRenderer {
    * Format agent response with proper styling
    */
   formatAgentResponse(agentName: string, content: string): Effect.Effect<string, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const header = CHALK_THEME.primaryBold(`◉ ${agentName}:`);
       const renderedContent = yield* this.renderMarkdown(content);
       return `${header}\n${renderedContent}`;

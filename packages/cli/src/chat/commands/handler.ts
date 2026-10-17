@@ -7,7 +7,6 @@
  */
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { FileSystem } from "@effect/platform";
 import {
   conversationRevision,
   displayConversationTitle,
@@ -95,7 +94,7 @@ import { closestMatch, formatCompactCount } from "@jazz/core/utils/string";
 import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
 import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
-import { Effect, Option } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import {
   chatModeForPolicy,
   policyForChatMode,
@@ -199,9 +198,9 @@ export function handleSpecialCommand(
         return yield* handleRenameCommand(terminal, context, command.args);
 
       case "create": {
-        const created = yield* Effect.either(createAgentCommand());
-        if (created._tag === "Left")
-          yield* terminal.error(`Failed to create agent: ${created.left.message}`);
+        const created = yield* Effect.result(createAgentCommand());
+        if (created._tag === "Failure")
+          yield* terminal.error(`Failed to create agent: ${created.failure.message}`);
         return { shouldContinue: true, skipTranscriptRepaint: true };
       }
 
@@ -377,7 +376,7 @@ function handleDetachCommand(
       agentId: context.agent.id,
       conversationId: context.conversationId,
     });
-    const prepared = yield* Effect.either(
+    const prepared = yield* Effect.result(
       Effect.tryPromise(() =>
         prepareDetachTransfer({
           agentId: context.agent.id,
@@ -392,12 +391,12 @@ function handleDetachCommand(
         }),
       ),
     );
-    if (prepared._tag === "Left") {
-      yield* terminal.error(`Could not prepare detach: ${String(prepared.left)}`);
+    if (prepared._tag === "Failure") {
+      yield* terminal.error(`Could not prepare detach: ${String(prepared.failure)}`);
       return { shouldContinue: true };
     }
 
-    const preview = prepared.right;
+    const preview = prepared.success;
     // Preparing saved the terminal's history, so the log now holds exactly these messages.
     const savedRevision = conversationRevision(context.conversationHistory);
     const shownFiles = preview.manifest.entries.slice(0, DETACH_FILES_SHOWN);
@@ -443,24 +442,24 @@ function handleDetachCommand(
       false,
     );
     if (approved !== true) {
-      const canceled = yield* Effect.either(Effect.tryPromise(() => cancelDetachTransfer(preview)));
-      if (canceled._tag === "Left") {
-        yield* terminal.warn(`Could not remove the staged copy: ${String(canceled.left)}`);
+      const canceled = yield* Effect.result(Effect.tryPromise(() => cancelDetachTransfer(preview)));
+      if (canceled._tag === "Failure") {
+        yield* terminal.warn(`Could not remove the staged copy: ${String(canceled.failure)}`);
       }
       yield* terminal.info("Detach cancelled. This conversation remains local.");
       return { shouldContinue: true, conversationRevision: savedRevision };
     }
 
     yield* terminal.info("Transferring and starting the remote run…");
-    const committed = yield* Effect.either(
+    const committed = yield* Effect.result(
       Effect.tryPromise({
         try: () => commitDetachTransfer(preview),
         catch: (error) => error,
       }),
     );
-    if (committed._tag === "Left") {
-      yield* terminal.error(`Detach did not complete: ${String(committed.left)}`);
-      if (committed.left instanceof DetachCommitError && committed.left.localMayContinue) {
+    if (committed._tag === "Failure") {
+      yield* terminal.error(`Detach did not complete: ${String(committed.failure)}`);
+      if (committed.failure instanceof DetachCommitError && committed.failure.localMayContinue) {
         yield* terminal.info(
           "The transfer stopped before remote ownership. This conversation is still local.",
         );
@@ -471,7 +470,7 @@ function handleDetachCommand(
       );
       return { shouldContinue: false };
     }
-    const receipt = committed.right;
+    const receipt = committed.success;
     yield* terminal.log(
       report(
         "detach",
@@ -537,7 +536,7 @@ function handleShellCommand(
       env: createSanitizedEnv({}, context.agent.config.envAllowlist ?? []),
       interactive: true,
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.succeed({
           stdout: "",
           stderr: error.message,
@@ -619,10 +618,10 @@ function handleExportCommand(
     }
 
     const fs = yield* FileSystem.FileSystem;
-    const result = yield* fs.writeFileString(targetPath, lines.join("\n")).pipe(Effect.either);
+    const result = yield* fs.writeFileString(targetPath, lines.join("\n")).pipe(Effect.result);
 
-    if (result._tag === "Left") {
-      yield* terminal.error(`Failed to export conversation: ${String(result.left)}`);
+    if (result._tag === "Failure") {
+      yield* terminal.error(`Failed to export conversation: ${String(result.failure)}`);
     } else {
       yield* terminal.success(`Conversation exported to ${targetPath}`);
     }
@@ -891,7 +890,7 @@ function handleToolsCommand(
     const resolvedPersona = Option.isSome(personaServiceOption)
       ? yield* personaServiceOption.value
           .getPersonaByIdentifier(agent.config.persona)
-          .pipe(Effect.catchAll(() => Effect.succeed(null)))
+          .pipe(Effect.catch(() => Effect.succeed(null)))
       : null;
     const toolProfile = resolvedPersona?.toolProfile;
 
@@ -984,7 +983,7 @@ function resolveWebSearchProviderLabel(
 
     // 3. No provider available
     return "no provider configured";
-  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+  }).pipe(Effect.catch(() => Effect.succeed(null)));
 }
 
 /**
@@ -1115,7 +1114,7 @@ function handleSwitchCommand(
       // Try to get agent by identifier (name or ID)
       const switchResult = yield* getAgentByIdentifier(agentIdentifier).pipe(
         Effect.map((foundAgent) => ({ success: true as const, agent: foundAgent })),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.gen(function* () {
             if (error._tag === "StorageNotFoundError") {
               yield* terminal.error(`Agent not found: ${agentIdentifier}`);
@@ -1351,7 +1350,7 @@ function handleCompactCommand(
       contextWindow,
       onPhase,
     ).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.gen(function* () {
           compactionFailed = true;
           yield* terminal.error(`Failed to compact history: ${error.message}`);
@@ -1488,7 +1487,7 @@ function handleCopyCommand(
           terminal.log(""),
         ]),
       ),
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.all([
           terminal.error(`Failed to copy to clipboard: ${error.message}`),
           terminal.log(""),
@@ -1615,8 +1614,8 @@ function handleModelCommand(
     const llmService = yield* LLMServiceTag;
     const provider = agent.config.llm.provider;
     const current = `${provider}/${agent.config.llm.model}`;
-    const providerInfo = yield* llmService.getProvider(provider).pipe(Effect.either);
-    const models = providerInfo._tag === "Right" ? providerInfo.right.supportedModels : [];
+    const providerInfo = yield* llmService.getProvider(provider).pipe(Effect.result);
+    const models = providerInfo._tag === "Success" ? providerInfo.success.supportedModels : [];
 
     const applyModel = (modelId: string) =>
       Effect.gen(function* () {
@@ -2243,13 +2242,13 @@ function handleRunMcpPromptCommand(
     const serverName = commandName.slice(0, separator);
     const promptName = commandName.slice(separator + 1);
 
-    const prompts = yield* mcpManager.getServerPrompts(serverName).pipe(Effect.either);
-    if (prompts._tag === "Left") {
-      yield* terminal.error(prompts.left.reason);
+    const prompts = yield* mcpManager.getServerPrompts(serverName).pipe(Effect.result);
+    if (prompts._tag === "Failure") {
+      yield* terminal.error(prompts.failure.reason);
       return { shouldContinue: true };
     }
 
-    const definition = prompts.right.find((prompt) => prompt.name === promptName);
+    const definition = prompts.success.find((prompt) => prompt.name === promptName);
     if (!definition) {
       yield* terminal.error(`${serverName} does not advertise a prompt named "${promptName}".`);
       return { shouldContinue: true };
@@ -2298,13 +2297,13 @@ function handleRunMcpPromptCommand(
       bound[argument.name] = typed.trim();
     }
 
-    const resolved = yield* mcpManager.getPrompt(serverName, promptName, bound).pipe(Effect.either);
-    if (resolved._tag === "Left") {
-      yield* terminal.error(resolved.left.reason);
+    const resolved = yield* mcpManager.getPrompt(serverName, promptName, bound).pipe(Effect.result);
+    if (resolved._tag === "Failure") {
+      yield* terminal.error(resolved.failure.reason);
       return { shouldContinue: true };
     }
 
-    const text = flattenPromptMessages(resolved.right.messages);
+    const text = flattenPromptMessages(resolved.success.messages);
 
     if (text === "") {
       yield* terminal.warn(`Prompt "${promptName}" resolved to no text content.`);
@@ -2379,7 +2378,7 @@ function handleSkillsCommand(
       const skills = [...builtin, ...global, ...agents, ...local, ...plugin].sort(
         (a, b) => a.name.localeCompare(b.name) || a.source.localeCompare(b.source),
       );
-      yield* Effect.async<void>((resume) => {
+      yield* Effect.callback<void>((resume) => {
         store.setActiveMenu({ kind: "skills", skills }, () => resume(Effect.void));
       });
       return { shouldContinue: true };
@@ -2466,7 +2465,7 @@ function handleInfoCommand(
     const persona = Option.isSome(personaServiceOption)
       ? yield* personaServiceOption.value
           .getPersonaByIdentifier(agent.config.persona)
-          .pipe(Effect.catchAll(() => Effect.succeed(null)))
+          .pipe(Effect.catch(() => Effect.succeed(null)))
       : null;
     const totalTools = agent.config.tools?.length ?? 0;
 
@@ -2663,16 +2662,16 @@ function mcpServerFields(
       rows.push({ kind: "field", key: "url", value: config.url });
     }
     if (status.kind === "connected") {
-      const tools = yield* mcpManager.getServerTools(config.name).pipe(Effect.either);
-      if (tools._tag === "Right") {
-        rows.push({ kind: "field", key: "tools", value: String(tools.right.length) });
+      const tools = yield* mcpManager.getServerTools(config.name).pipe(Effect.result);
+      if (tools._tag === "Success") {
+        rows.push({ kind: "field", key: "tools", value: String(tools.success.length) });
       }
-      const prompts = yield* mcpManager.getServerPrompts(config.name).pipe(Effect.either);
-      if (prompts._tag === "Right" && prompts.right.length > 0) {
+      const prompts = yield* mcpManager.getServerPrompts(config.name).pipe(Effect.result);
+      if (prompts._tag === "Success" && prompts.success.length > 0) {
         rows.push({
           kind: "field",
           key: "prompts",
-          value: prompts.right.map((prompt) => `/${config.name}:${prompt.name}`).join(", "),
+          value: prompts.success.map((prompt) => `/${config.name}:${prompt.name}`).join(", "),
         });
       }
     }
@@ -2759,34 +2758,34 @@ function runMcpServerAction(
         return;
       }
       case "disable": {
-        yield* mcpManager.disconnectServer(config.name).pipe(Effect.catchAll(() => Effect.void));
+        yield* mcpManager.disconnectServer(config.name).pipe(Effect.catch(() => Effect.void));
         yield* configService.set(`mcpServers.${config.name}`, { enabled: false });
         yield* terminal.success(`Disabled ${config.name}`);
         return;
       }
       case "connect": {
-        const result = yield* mcpManager.connectServer(config).pipe(Effect.either);
-        if (result._tag === "Left") {
-          yield* terminal.error(result.left.reason);
-          if (result.left.suggestion) yield* terminal.info(result.left.suggestion);
+        const result = yield* mcpManager.connectServer(config).pipe(Effect.result);
+        if (result._tag === "Failure") {
+          yield* terminal.error(result.failure.reason);
+          if (result.failure.suggestion) yield* terminal.info(result.failure.suggestion);
           return;
         }
         yield* terminal.success(`Connected to ${config.name}`);
         return;
       }
       case "reconnect": {
-        yield* mcpManager.disconnectServer(config.name).pipe(Effect.catchAll(() => Effect.void));
-        const result = yield* mcpManager.connectServer(config).pipe(Effect.either);
-        if (result._tag === "Left") {
-          yield* terminal.error(result.left.reason);
-          if (result.left.suggestion) yield* terminal.info(result.left.suggestion);
+        yield* mcpManager.disconnectServer(config.name).pipe(Effect.catch(() => Effect.void));
+        const result = yield* mcpManager.connectServer(config).pipe(Effect.result);
+        if (result._tag === "Failure") {
+          yield* terminal.error(result.failure.reason);
+          if (result.failure.suggestion) yield* terminal.info(result.failure.suggestion);
           return;
         }
         yield* terminal.success(`Reconnected to ${config.name}`);
         return;
       }
       case "disconnect": {
-        yield* mcpManager.disconnectServer(config.name).pipe(Effect.catchAll(() => Effect.void));
+        yield* mcpManager.disconnectServer(config.name).pipe(Effect.catch(() => Effect.void));
         yield* terminal.success(`Disconnected ${config.name}`);
         return;
       }
@@ -2795,9 +2794,9 @@ function runMcpServerAction(
         yield* terminal.info(`Starting authorization for ${config.name}...`);
         const result = yield* authorizeServer(config.name, config.url, (url) => {
           process.stdout.write(`\nIf your browser did not open, visit:\n${url}\n\n`);
-        }).pipe(Effect.either);
-        if (result._tag === "Left") {
-          yield* terminal.error(`Authorization failed: ${result.left.message}`);
+        }).pipe(Effect.result);
+        if (result._tag === "Failure") {
+          yield* terminal.error(`Authorization failed: ${result.failure.message}`);
           return;
         }
         yield* terminal.success(`Authorized ${config.name}.`);
@@ -2909,13 +2908,13 @@ function handleMcpCommand(
         return { shouldContinue: true };
       }
 
-      yield* mcpManager.disconnectServer(target.name).pipe(Effect.catchAll(() => Effect.void));
-      const reconnected = yield* mcpManager.connectServer(target).pipe(Effect.either);
+      yield* mcpManager.disconnectServer(target.name).pipe(Effect.catch(() => Effect.void));
+      const reconnected = yield* mcpManager.connectServer(target).pipe(Effect.result);
 
-      if (reconnected._tag === "Left") {
-        yield* terminal.error(reconnected.left.reason);
-        if (reconnected.left.suggestion) {
-          yield* terminal.info(reconnected.left.suggestion);
+      if (reconnected._tag === "Failure") {
+        yield* terminal.error(reconnected.failure.reason);
+        if (reconnected.failure.suggestion) {
+          yield* terminal.info(reconnected.failure.suggestion);
         }
         return { shouldContinue: true };
       }
@@ -3111,7 +3110,7 @@ function getModelContextWindowEffect(
       return meta?.contextWindow;
     },
     catch: () => new Error("Failed to fetch model metadata"),
-  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+  }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 }
 
 /**
@@ -3288,7 +3287,7 @@ function handleMemoryCommand(
       if (outcome.kind === "file") {
         const provenance = yield* memoryService
           .provenance(args[0])
-          .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+          .pipe(Effect.catch(() => Effect.succeed(undefined)));
         yield* terminal.log(
           report("memory", [
             { kind: "field", key: "file", value: outcome.displayPath },

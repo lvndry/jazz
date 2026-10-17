@@ -1,12 +1,11 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { MAX_MEMORY_FILE_BYTES, MAX_MEMORY_FILES_PER_SCOPE } from "@jazz/core/constants/memory";
 import { quotedSentenceKeys } from "@jazz/core/memory/source-trust";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import { MemoryServiceImpl } from "./memory-service";
 
 let tmpDir: string;
@@ -24,7 +23,7 @@ function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
 }
 
 function runEither<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
-  return runEffect(eff.pipe(Effect.either));
+  return runEffect(eff.pipe(Effect.result));
 }
 
 function makeService(): MemoryServiceImpl {
@@ -93,7 +92,7 @@ describe("authenticated source revocation", () => {
     const result = await runEither(
       service.create("agent-1/when/food/fruit.md", "banana", citing("user:banana")),
     );
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     expect(fs.existsSync(path.join(tmpDir, "agent-1", "when", "food", "fruit.md"))).toBe(false);
   });
 
@@ -153,7 +152,7 @@ describe("authenticated source revocation", () => {
     const service = makeService();
     await runEffect(service.create("agent-1/when/food/fruit.md", "banana", citing("user:banana")));
     const result = await runEither(service.delete("agent-1/.provenance.json"));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     expect(fs.existsSync(path.join(tmpDir, ".source-ledger.json"))).toBe(true);
   });
 });
@@ -274,7 +273,7 @@ describe("create", () => {
     const service = makeService();
     const tooBig = "x".repeat(MAX_MEMORY_FILE_BYTES + 1);
     const result = await runEither(service.create("agent-1/big.txt", tooBig, writeContext));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects once the per-scope file count cap is exceeded", async () => {
@@ -283,7 +282,7 @@ describe("create", () => {
       await runEffect(service.create(`agent-1/file-${i}.txt`, "x", writeContext));
     }
     const result = await runEither(service.create("agent-1/one-too-many.txt", "x", writeContext));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   }, 30_000);
 
   test("fails when the path is a bare file name that is not a valid scope", async () => {
@@ -417,19 +416,19 @@ describe("path safety", () => {
   test("rejects .. traversal", async () => {
     const service = makeService();
     const result = await runEither(service.create("agent-1/../escape.txt", "x", writeContext));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects a null byte", async () => {
     const service = makeService();
     const result = await runEither(service.create("agent-1/notes\0.txt", "x", writeContext));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects paths deeper than the max depth", async () => {
     const service = makeService();
     const result = await runEither(service.create("agent-1/a/b/c/d/e.txt", "x", writeContext));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects a path segment longer than the max length", async () => {
@@ -437,7 +436,7 @@ describe("path safety", () => {
     const result = await runEither(
       service.create(`agent-1/${"x".repeat(200)}.txt`, "x", writeContext),
     );
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects an invalid scope name", async () => {
@@ -456,7 +455,7 @@ describe("path safety", () => {
 
     try {
       const result = await runEither(service.view("agent-1/link/secret.txt"));
-      expect(result._tag).toBe("Left");
+      expect(result._tag).toBe("Failure");
     } finally {
       fs.rmSync(outsideDir, { recursive: true, force: true });
     }
@@ -491,7 +490,7 @@ describe("root listing", () => {
     if (listing.kind === "directory") {
       expect(listing.entries).toEqual([]);
     }
-    expect((await runEither(service.view("agent-1/secret.md")))._tag).toBe("Left");
+    expect((await runEither(service.view("agent-1/secret.md")))._tag).toBe("Failure");
   });
 
   test("reveals topic-scoped file paths in the first discovery call", async () => {
@@ -582,9 +581,9 @@ describe("scope byte budget", () => {
     const service = makeBudgetService();
     await runEffect(service.create("agent-1/a.txt", "A".repeat(60), writeContext));
     const result = await runEither(service.create("agent-1/b.txt", "B".repeat(50), writeContext));
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(String(result.left)).toContain("total memory budget");
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(String(result.failure)).toContain("total memory budget");
     }
   });
 
@@ -594,9 +593,9 @@ describe("scope byte budget", () => {
     const result = await runEither(
       service.insert("agent-1/a.txt", 1, "B".repeat(50), writeContext),
     );
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(String(result.left)).toContain("total memory budget");
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(String(result.failure)).toContain("total memory budget");
     }
   });
 
@@ -606,9 +605,9 @@ describe("scope byte budget", () => {
     const result = await runEither(
       service.strReplace("agent-1/a.txt", "A".repeat(60), "B".repeat(111), writeContext),
     );
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(String(result.left)).toContain("total memory budget");
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(String(result.failure)).toContain("total memory budget");
     }
   });
 

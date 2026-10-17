@@ -122,11 +122,11 @@ export async function runRemoval(
 ): Promise<ChoiceRemovalIntent> {
   const outcome = await Effect.runPromise(
     remove(value).pipe(
-      Effect.catchAllDefect((defect) => Effect.fail(toError(defect))),
-      Effect.either,
+      Effect.catchDefect((defect) => Effect.fail(toError(defect))),
+      Effect.result,
     ),
   );
-  return outcome._tag === "Right"
+  return outcome._tag === "Success"
     ? { kind: "removed", value }
-    : { kind: "failed", message: outcome.left.message };
+    : { kind: "failed", message: outcome.failure.message };
 }

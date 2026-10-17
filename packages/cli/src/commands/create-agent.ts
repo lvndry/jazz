@@ -263,7 +263,7 @@ export function createAgentCommand(
           // Discover tools from server with timeout (45 seconds per server to allow for authentication)
           const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
             Effect.timeout("45 seconds"),
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               Effect.gen(function* () {
                 const errorMessage = toError(error).message;
                 const isAuthRequired = isAuthenticationRequired(error);
@@ -306,7 +306,7 @@ export function createAgentCommand(
 
           yield* logger.info("MCP tools registered", { toolCount: jazzTools.length });
         }).pipe(
-          Effect.catchAll(() =>
+          Effect.catch(() =>
             Effect.gen(function* () {
               // If registration fails, continue without this server's tools
               yield* logger.warn("MCP tool registration failed", {
@@ -556,12 +556,12 @@ async function connectLocalProvider(
       }
     }
 
-    const outcome = await Effect.runPromise(llmService.getProvider(provider).pipe(Effect.either));
-    if (outcome._tag === "Right" && outcome.right.supportedModels.length > 0) {
-      return outcome.right;
+    const outcome = await Effect.runPromise(llmService.getProvider(provider).pipe(Effect.result));
+    if (outcome._tag === "Success" && outcome.success.supportedModels.length > 0) {
+      return outcome.success;
     }
 
-    if (outcome._tag === "Left" && outcome.left.reason === "unauthorized") {
+    if (outcome._tag === "Failure" && outcome.failure.reason === "unauthorized") {
       const keyResult = await ensureProviderApiKey({
         configService,
         terminal,
@@ -569,7 +569,7 @@ async function connectLocalProvider(
         displayName: providerDisplayName,
         required: true,
         force: true,
-        reason: outcome.left.message,
+        reason: outcome.failure.message,
       });
       if (keyResult === "cancelled") {
         return "cancelled";
@@ -580,8 +580,8 @@ async function connectLocalProvider(
 
     await Effect.runPromise(
       terminal.error(
-        outcome._tag === "Left"
-          ? outcome.left.message
+        outcome._tag === "Failure"
+          ? outcome.failure.message
           : `The ${providerDisplayName} server is reachable but serves no models.`,
       ),
     );

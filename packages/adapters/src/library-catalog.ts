@@ -235,7 +235,7 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
         const fetched = yield* Effect.tryPromise({
           try: () => this.fetchText(indexUrl),
           catch: (error) => error,
-        }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        }).pipe(Effect.catch(() => Effect.succeed(null)));
 
         if (fetched === null) {
           if (cached !== null) {

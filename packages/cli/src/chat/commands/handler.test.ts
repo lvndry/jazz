@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
 import {
@@ -56,7 +55,7 @@ import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, type FileSystem, Layer } from "effect";
 import * as chatSession from "@/cli/chat/session";
 import { ChatServiceImpl } from "@/cli/chat-service";
 import * as agentCreation from "@/cli/commands/create-agent";

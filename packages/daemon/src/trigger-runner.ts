@@ -156,7 +156,7 @@ function handReminderToTargets(agentId: string, reminder: ReminderRecord) {
       { kind: "reminder", agentId, text: reminder.text, fireAt: reminder.fireAt },
       { excludeKinds: ["desktop"] },
     ).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.sync(() => {
           process.stderr.write(
             `[jazz] Could not queue a reminder notification: ${error.message}\n`,
@@ -183,7 +183,7 @@ export function forkOnce<R>(key: string, work: Effect.Effect<void, never, R>) {
     workInFlight.add(key);
     return work.pipe(
       Effect.ensuring(Effect.sync(() => workInFlight.delete(key))),
-      Effect.forkDaemon,
+      Effect.forkDetach,
       Effect.asVoid,
     );
   });
@@ -288,7 +288,7 @@ export function runTick<R>(options: TickOptions, work: TickWork<R>) {
     const startNew = options.startNew !== false;
     if (startNew && options.runWorkflows === true) {
       const claims = yield* work.claimWorkflows.pipe(
-        Effect.catchAllCause((cause) =>
+        Effect.catchCause((cause) =>
           reportFailure("workflow claim")(cause).pipe(
             Effect.as([] as readonly ClaimedWorkflowRun[]),
           ),
@@ -297,7 +297,7 @@ export function runTick<R>(options: TickOptions, work: TickWork<R>) {
       for (const claim of claims) {
         yield* forkOnce(
           `workflow:${claim.record.id}`,
-          work.runWorkflow(claim).pipe(Effect.catchAllCause(reportFailure("workflow run"))),
+          work.runWorkflow(claim).pipe(Effect.catchCause(reportFailure("workflow run"))),
         );
       }
     }
@@ -305,28 +305,26 @@ export function runTick<R>(options: TickOptions, work: TickWork<R>) {
     const now = Date.now();
     // Claiming takes a trigger for firing, so a paused daemon leaves due triggers unclaimed.
     const wakeClaims = yield* (startNew ? work.claimWakeTriggers(now) : Effect.succeed([])).pipe(
-      Effect.catchAllCause((cause) =>
-        reportFailure("wake trigger claim")(cause).pipe(Effect.as([])),
-      ),
+      Effect.catchCause((cause) => reportFailure("wake trigger claim")(cause).pipe(Effect.as([]))),
     );
     for (const { agentId, item } of wakeClaims) {
       yield* forkOnce(
         `wake trigger:${agentId}:${item.id}`,
         work
           .deliverWakeTrigger(agentId, item)
-          .pipe(Effect.catchAllCause(reportFailure("wake trigger"))),
+          .pipe(Effect.catchCause(reportFailure("wake trigger"))),
       );
     }
 
     const reminderClaims = yield* work
       .claimReminders(now)
       .pipe(
-        Effect.catchAllCause((cause) => reportFailure("reminder claim")(cause).pipe(Effect.as([]))),
+        Effect.catchCause((cause) => reportFailure("reminder claim")(cause).pipe(Effect.as([]))),
       );
     for (const { agentId, item } of reminderClaims) {
       yield* forkOnce(
         `reminder:${agentId}:${item.id}`,
-        work.deliverReminder(agentId, item).pipe(Effect.catchAllCause(reportFailure("reminder"))),
+        work.deliverReminder(agentId, item).pipe(Effect.catchCause(reportFailure("reminder"))),
       );
     }
 
@@ -334,22 +332,22 @@ export function runTick<R>(options: TickOptions, work: TickWork<R>) {
     // what it queued (including the notice that it paused) and compacts the ledger.
     yield* forkOnce(
       "notifications",
-      work.drainNotifications.pipe(Effect.catchAllCause(reportFailure("notifications"))),
+      work.drainNotifications.pipe(Effect.catchCause(reportFailure("notifications"))),
     );
     yield* forkOnce(
       "spend ledger",
-      work.compactSpendLedger.pipe(Effect.catchAllCause(reportFailure("spend ledger compaction"))),
+      work.compactSpendLedger.pipe(Effect.catchCause(reportFailure("spend ledger compaction"))),
     );
     if (!startNew) {
       return;
     }
     yield* forkOnce(
       "detached jobs",
-      work.drainDetachedJobs.pipe(Effect.catchAllCause(reportFailure("detached jobs"))),
+      work.drainDetachedJobs.pipe(Effect.catchCause(reportFailure("detached jobs"))),
     );
     yield* forkOnce(
       "job batches",
-      work.drainJobBatches.pipe(Effect.catchAllCause(reportFailure("jobs"))),
+      work.drainJobBatches.pipe(Effect.catchCause(reportFailure("jobs"))),
     );
   });
 }

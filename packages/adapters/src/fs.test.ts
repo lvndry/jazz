@@ -186,7 +186,7 @@ describe("FileSystemContextService", () => {
         const shell = yield* FileSystemContextServiceTag;
         const resolved = yield* shell.resolvePath({ agentId: "test" }, '"/My Folder With Spaces/"');
         return resolved;
-      }).pipe(Effect.catchAll((error) => Effect.succeed(error.message)));
+      }).pipe(Effect.catch((error) => Effect.succeed(error.message)));
 
       const result = await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as any,
@@ -384,7 +384,7 @@ describe("FileSystemContextService", () => {
         const shell = yield* FileSystemContextServiceTag;
         yield* shell.resolvePath({ agentId: "test" }, "/absolute/nonexistent/path");
         return "should not reach here";
-      }).pipe(Effect.catchAll((error) => Effect.succeed(error.message)));
+      }).pipe(Effect.catch((error) => Effect.succeed(error.message)));
 
       const result = await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as any,

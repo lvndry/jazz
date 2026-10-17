@@ -22,7 +22,7 @@ import {
   ValidationError,
 } from "@jazz/core/types/errors";
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
-import { Effect, Exit, Layer } from "effect";
+import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { BUILTIN_PERSONA_NAMES, PersonaServiceImpl } from "./persona-service";
 
 const tempDir = mkdtempSync(join(tmpdir(), "jazz-persona-test-"));
@@ -88,8 +88,8 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        expect(exit.cause._tag).toBe("Fail");
-        const err = (exit.cause as { error: unknown }).error;
+        expect(exit.cause.reasons.map((reason) => reason._tag)).toEqual(["Fail"]);
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(ValidationError);
         expect((err as ValidationError).field).toBe("name");
       }
@@ -107,7 +107,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(ValidationError);
         expect((err as ValidationError).field).toBe("systemPrompt");
         expect((err as ValidationError).message).toContain("{agentName}");
@@ -140,7 +140,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(ValidationError);
         expect((err as ValidationError).field).toBe("name");
       }
@@ -158,7 +158,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(ValidationError);
         expect((err as ValidationError).field).toBe("description");
       }
@@ -176,7 +176,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(ValidationError);
         expect((err as ValidationError).field).toBe("systemPrompt");
       }
@@ -194,7 +194,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(ValidationError);
         expect((err as ValidationError).field).toBe("description");
       }
@@ -213,7 +213,7 @@ describe("PersonaService", () => {
         const exit = await runExit(program);
         expect(exit._tag).toBe("Failure");
         if (exit._tag === "Failure") {
-          const err = (exit.cause as { error: unknown }).error;
+          const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
           expect(err).toBeInstanceOf(PersonaAlreadyExistsError);
           expect((err as PersonaAlreadyExistsError).personaName).toBe(builtinName);
         }
@@ -234,7 +234,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(PersonaAlreadyExistsError);
       }
     });
@@ -276,7 +276,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(StorageNotFoundError);
       }
     });
@@ -302,7 +302,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(PersonaNotFoundError);
       }
     });
@@ -381,7 +381,7 @@ describe("PersonaService", () => {
 
         expect(exit._tag).toBe("Failure");
         if (exit._tag === "Failure") {
-          const err = (exit.cause as { error: unknown }).error;
+          const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
           expect(err).toBeInstanceOf(StorageError);
         }
       } finally {
@@ -421,7 +421,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(StorageError);
         expect((err as StorageError).reason).toContain("Built-in personas cannot be edited");
       }
@@ -438,7 +438,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(PersonaAlreadyExistsError);
       }
     });
@@ -459,7 +459,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        expect((exit.cause as { error: unknown }).error).toBeDefined();
+        expect(Option.getOrUndefined(Cause.findErrorOption(exit.cause))).toBeDefined();
       }
     });
 
@@ -472,7 +472,7 @@ describe("PersonaService", () => {
       const exit = await runExit(program);
       expect(exit._tag).toBe("Failure");
       if (exit._tag === "Failure") {
-        const err = (exit.cause as { error: unknown }).error;
+        const err = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
         expect(err).toBeInstanceOf(StorageError);
         expect((err as StorageError).reason).toContain("Built-in personas cannot be deleted");
       }

@@ -50,7 +50,7 @@ export function readDaemonAttention() {
 
 /** Human-readable pause, spend and waiting state for the combined daemon status. */
 export function formatDaemonAttention(
-  status: Effect.Effect.Success<ReturnType<typeof daemonStatusSnapshot>>,
+  status: Effect.Success<ReturnType<typeof daemonStatusSnapshot>>,
 ): string {
   const { spendToday } = status;
   const machineDailyLimit = (measure: "cost" | "tokens") =>
@@ -84,7 +84,7 @@ export function pauseDaemonCommand(options: { readonly json: boolean }) {
         "Background work paused: nothing new starts until `jazz daemon resume`. Runs already going finish, and what waits on you can still be answered.",
       ),
     ),
-    Effect.catchAll((error) => Effect.sync(() => failEnvelope(options.json, error.message))),
+    Effect.catch((error) => Effect.sync(() => failEnvelope(options.json, error.message))),
   );
 }
 
@@ -109,6 +109,6 @@ export function resumeDaemonCommand(options: { readonly json: boolean }) {
           : "Background work resumed.",
       ),
     ),
-    Effect.catchAll((error) => Effect.sync(() => failEnvelope(options.json, error.message))),
+    Effect.catch((error) => Effect.sync(() => failEnvelope(options.json, error.message))),
   );
 }

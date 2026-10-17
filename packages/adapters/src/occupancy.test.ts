@@ -43,7 +43,7 @@ describe("OccupancyService", () => {
     const entries = await withOccupancy(
       path,
       Effect.flatMap(OccupancyServiceTag, (service) =>
-        service.record(entry({ runId: "run-1" })).pipe(Effect.zipRight(service.list())),
+        service.record(entry({ runId: "run-1" })).pipe(Effect.andThen(service.list())),
       ),
     );
     expect(entries).toHaveLength(1);
@@ -57,7 +57,7 @@ describe("OccupancyService", () => {
       Effect.flatMap(OccupancyServiceTag, (service) =>
         service
           .record(entry({ runId: "run-1" }))
-          .pipe(Effect.zipRight(service.record(entry({ runId: "run-2" })))),
+          .pipe(Effect.andThen(service.record(entry({ runId: "run-2" })))),
       ),
     );
     const entries = await withOccupancy(
@@ -74,7 +74,7 @@ describe("OccupancyService", () => {
       Effect.flatMap(OccupancyServiceTag, (service) =>
         service
           .record(entry({ runId: "run-1", state: "working" }))
-          .pipe(Effect.zipRight(service.record(entry({ runId: "run-1", state: "completed" })))),
+          .pipe(Effect.andThen(service.record(entry({ runId: "run-1", state: "completed" })))),
       ),
     );
     const entries = await withOccupancy(

@@ -105,7 +105,7 @@ function agentFixture(overrides: Partial<Agent> = {}): Agent {
 }
 
 /** Provides exactly the one service the route under test reaches for. */
-function runnerProviding<S>(tag: Context.Tag<S, S>, service: S) {
+function runnerProviding<S>(tag: Context.Service<S, S>, service: S) {
   return <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
     Effect.runPromise(
       effect.pipe(Effect.provideService(tag, service)) as Effect.Effect<A, never, never>,

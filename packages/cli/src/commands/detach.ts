@@ -33,7 +33,7 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Keep the real failure: a bare `Effect.tryPromise` replaces it with UnknownException. */
+/** Keep the real failure: a bare `Effect.tryPromise` replaces it with UnknownError. */
 function attempt<T>(operation: () => Promise<T>) {
   return Effect.tryPromise({
     try: operation,
@@ -60,7 +60,7 @@ export function detachStatusCommand(handoffId: string) {
       process.exitCode = 2;
     }
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(`Could not check detached run: ${describeError(error)}\n`);
         process.exitCode = 1;
@@ -78,7 +78,7 @@ export function detachApprovalCommand(handoffId: string, approved: boolean) {
       process.exitCode = 2;
     }
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(
           `Could not ${approved ? "approve" : "reject"} detached run: ${describeError(error)}\n`,
@@ -115,7 +115,7 @@ export function detachPullCommand(handoffId: string) {
       process.exitCode = 2;
     }
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(`Could not download detached result: ${describeError(error)}\n`);
         process.exitCode = 1;
@@ -150,7 +150,7 @@ export function detachListCommand() {
     const records = yield* attempt(() => listDetachTransfers());
     process.stdout.write(formatDetachList(records));
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(`Could not list handoffs: ${describeError(error)}\n`);
         process.exitCode = 1;
@@ -333,7 +333,7 @@ async function attach(handoffId: string): Promise<void> {
 
 export function detachAttachCommand(handoffId: string) {
   return attempt(() => attach(handoffId)).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(`Could not attach: ${describeError(error)}\n`);
         process.exitCode = 1;
@@ -347,7 +347,7 @@ export function detachCancelCommand(handoffId: string) {
     yield* attempt(() => stopDetachedRun(handoffId));
     process.stdout.write(`Cancellation sent to ${handoffId}.\n`);
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(`Could not cancel detached run: ${describeError(error)}\n`);
         process.exitCode = 1;
@@ -387,7 +387,7 @@ export function detachReclaimCommand(handoffId: string, options: { readonly over
       process.exitCode = 2;
     }
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(`Could not reclaim the conversation: ${describeError(error)}\n`);
         process.exitCode = 1;

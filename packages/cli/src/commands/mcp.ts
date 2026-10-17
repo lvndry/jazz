@@ -9,7 +9,6 @@
 import { execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { FileSystem } from "@effect/platform";
 import {
   normalizeMcpDefinition,
   removeAgentsMcpServer,
@@ -26,7 +25,7 @@ import {
 } from "@jazz/core/interfaces/mcp-server";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { toError } from "@jazz/core/utils/errors";
-import { Effect, Option } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import { z } from "zod";
 import * as fmt from "@/cli/utils/list-format";
 import { resolveEditor } from "./editor";
@@ -77,13 +76,13 @@ function saveServer(
 ): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
     const { enabled: _enabled, trusted: _trusted, ...serverConfig } = config;
-    const placement = yield* writeAgentsMcpServer(fs, name, serverConfig).pipe(Effect.either);
-    if (placement._tag === "Left") {
-      yield* terminal.error(`Could not save MCP server "${name}": ${placement.left.message}`);
+    const placement = yield* writeAgentsMcpServer(fs, name, serverConfig).pipe(Effect.result);
+    if (placement._tag === "Failure") {
+      yield* terminal.error(`Could not save MCP server "${name}": ${placement.failure.message}`);
       return false;
     }
     yield* configService.set(`mcpServers.${name}`, { enabled: true, trusted });
-    const { keyring, keyringDescription, file } = placement.right;
+    const { keyring, keyringDescription, file } = placement.success;
     if (keyring.length > 0) {
       yield* terminal.info(`Stored ${keyring.join(", ")} for ${name} in ${keyringDescription}.`);
     }
@@ -279,7 +278,7 @@ export function addMcpServerCommand(
       const stdinContent = yield* Effect.tryPromise({
         try: () => readStdin(),
         catch: toError,
-      }).pipe(Effect.catchAll(() => Effect.succeed("")));
+      }).pipe(Effect.catch(() => Effect.succeed("")));
       if (stdinContent.trim() === "") {
         yield* terminal.warn("No input received from stdin.");
         return;
@@ -297,14 +296,14 @@ export function addMcpServerCommand(
   }
 }
 `;
-    yield* fs.writeFileString(tmpFile, template).pipe(Effect.catchAll(() => Effect.void));
+    yield* fs.writeFileString(tmpFile, template).pipe(Effect.catch(() => Effect.void));
 
     yield* terminal.info(`Opening ${editor} to edit MCP server configuration...`);
 
     try {
       execSync(`${editor} "${tmpFile}"`, { stdio: "inherit" });
     } catch {
-      yield* fs.remove(tmpFile).pipe(Effect.catchAll(() => Effect.void));
+      yield* fs.remove(tmpFile).pipe(Effect.catch(() => Effect.void));
       yield* terminal.error(
         `Failed to open editor (${editor}). Set "jazz config set editor <cmd>" or $EDITOR, or use --file instead.`,
       );
@@ -312,7 +311,7 @@ export function addMcpServerCommand(
     }
 
     const contentOpt = yield* fs.readFileString(tmpFile).pipe(Effect.option);
-    yield* fs.remove(tmpFile).pipe(Effect.catchAll(() => Effect.void));
+    yield* fs.remove(tmpFile).pipe(Effect.catch(() => Effect.void));
 
     if (Option.isNone(contentOpt)) {
       yield* terminal.error("Could not read temp file after editing.");
@@ -360,11 +359,11 @@ export function listMcpServersCommand(
         let tools: readonly string[] | { readonly error: string } | undefined;
         if (options.tools === true && enabled) {
           const manager = yield* MCPServerManagerTag;
-          const discovered = yield* manager.discoverTools({ ...config, name }).pipe(Effect.either);
+          const discovered = yield* manager.discoverTools({ ...config, name }).pipe(Effect.result);
           tools =
-            discovered._tag === "Right"
-              ? discovered.right.map((tool) => tool.name)
-              : { error: discovered.left.reason };
+            discovered._tag === "Success"
+              ? discovered.success.map((tool) => tool.name)
+              : { error: discovered.failure.reason };
         }
         servers.push({
           name,
@@ -398,10 +397,10 @@ export function listMcpServersCommand(
 
       if (options.tools === true && enabled) {
         const manager = yield* MCPServerManagerTag;
-        const discovered = yield* manager.discoverTools({ ...config, name }).pipe(Effect.either);
+        const discovered = yield* manager.discoverTools({ ...config, name }).pipe(Effect.result);
 
-        if (discovered._tag === "Right") {
-          const toolNames = discovered.right.map((tool) => tool.name);
+        if (discovered._tag === "Success") {
+          const toolNames = discovered.success.map((tool) => tool.name);
           yield* terminal.log(
             fmt.keyValue(
               "Tools",
@@ -411,7 +410,7 @@ export function listMcpServersCommand(
             ),
           );
         } else {
-          yield* terminal.log(fmt.keyValue("Tools", `unavailable (${discovered.left.reason})`));
+          yield* terminal.log(fmt.keyValue("Tools", `unavailable (${discovered.failure.reason})`));
         }
       }
     }
@@ -445,20 +444,20 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
 
     yield* terminal.info(`Connecting to ${name} (${describeTransport(serverConfig)})...`);
 
-    const connected = yield* manager.connectServer(serverConfig).pipe(Effect.either);
+    const connected = yield* manager.connectServer(serverConfig).pipe(Effect.result);
 
-    if (connected._tag === "Left") {
-      yield* terminal.error(connected.left.reason);
-      if (connected.left.suggestion) {
-        yield* terminal.info(connected.left.suggestion);
+    if (connected._tag === "Failure") {
+      yield* terminal.error(connected.failure.reason);
+      if (connected.failure.suggestion) {
+        yield* terminal.info(connected.failure.suggestion);
       }
       return;
     }
 
     const capabilities = yield* manager.getCapabilities(name);
     const protocolEra = yield* manager.getProtocolEra(name);
-    const tools = yield* manager.getServerTools(name).pipe(Effect.either);
-    const prompts = yield* manager.getServerPrompts(name).pipe(Effect.either);
+    const tools = yield* manager.getServerTools(name).pipe(Effect.result);
+    const prompts = yield* manager.getServerPrompts(name).pipe(Effect.result);
 
     yield* terminal.success(`Connected to ${name}`);
     yield* terminal.log(
@@ -472,9 +471,9 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
       ),
     );
 
-    if (tools._tag === "Right") {
-      yield* terminal.log(fmt.keyValue("Tools", String(tools.right.length)));
-      for (const tool of tools.right) {
+    if (tools._tag === "Success") {
+      yield* terminal.log(fmt.keyValue("Tools", String(tools.success.length)));
+      for (const tool of tools.success) {
         const hints: string[] = [];
         if (tool.annotations?.readOnlyHint === true) hints.push("read-only");
         if (tool.annotations?.destructiveHint === true) hints.push("destructive");
@@ -486,12 +485,12 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
         );
       }
     } else {
-      yield* terminal.warn(`Tools unavailable: ${tools.left.reason}`);
+      yield* terminal.warn(`Tools unavailable: ${tools.failure.reason}`);
     }
 
-    if (prompts._tag === "Right" && prompts.right.length > 0) {
-      yield* terminal.log(fmt.keyValue("Prompts", String(prompts.right.length)));
-      for (const prompt of prompts.right) {
+    if (prompts._tag === "Success" && prompts.success.length > 0) {
+      yield* terminal.log(fmt.keyValue("Prompts", String(prompts.success.length)));
+      for (const prompt of prompts.success) {
         yield* terminal.log(
           fmt.itemWithDesc(`/${name}:${prompt.name}`, prompt.description ?? "no description"),
         );
@@ -499,21 +498,21 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
     }
 
     if (capabilities?.resources !== undefined) {
-      const resources = yield* manager.getServerResources(name).pipe(Effect.either);
-      if (resources._tag === "Right") {
-        yield* terminal.log(fmt.keyValue("Resources", String(resources.right.length)));
-        for (const resource of resources.right.slice(0, RESOURCE_PREVIEW_LIMIT)) {
+      const resources = yield* manager.getServerResources(name).pipe(Effect.result);
+      if (resources._tag === "Success") {
+        yield* terminal.log(fmt.keyValue("Resources", String(resources.success.length)));
+        for (const resource of resources.success.slice(0, RESOURCE_PREVIEW_LIMIT)) {
           yield* terminal.log(
             fmt.itemWithDesc(resource.uri, resource.name ?? resource.description ?? ""),
           );
         }
-        if (resources.right.length > RESOURCE_PREVIEW_LIMIT) {
+        if (resources.success.length > RESOURCE_PREVIEW_LIMIT) {
           yield* terminal.log(
-            fmt.item(`… ${resources.right.length - RESOURCE_PREVIEW_LIMIT} more`),
+            fmt.item(`… ${resources.success.length - RESOURCE_PREVIEW_LIMIT} more`),
           );
         }
       } else {
-        yield* terminal.warn(`Resources unavailable: ${resources.left.reason}`);
+        yield* terminal.warn(`Resources unavailable: ${resources.failure.reason}`);
       }
     }
 
@@ -523,7 +522,7 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
       );
     }
 
-    yield* manager.disconnectServer(name).pipe(Effect.catchAll(() => Effect.void));
+    yield* manager.disconnectServer(name).pipe(Effect.catch(() => Effect.void));
   });
 }
 
@@ -595,10 +594,10 @@ export function removeMcpServerCommand(
       }
     }
 
-    const removedFile = yield* removeAgentsMcpServer(fs, selected).pipe(Effect.either);
-    if (removedFile._tag === "Left") {
+    const removedFile = yield* removeAgentsMcpServer(fs, selected).pipe(Effect.result);
+    if (removedFile._tag === "Failure") {
       yield* terminal.error(
-        `Could not remove MCP server "${selected}": ${removedFile.left.message}`,
+        `Could not remove MCP server "${selected}": ${removedFile.failure.message}`,
       );
       return;
     }
@@ -748,10 +747,10 @@ export function authMcpServerCommand(name: string): Effect.Effect<void, never, M
 
     const result = yield* authorizeServer(name, serverConfig.url, (url) => {
       process.stdout.write(`\nIf your browser did not open, visit:\n${url}\n\n`);
-    }).pipe(Effect.either);
+    }).pipe(Effect.result);
 
-    if (result._tag === "Left") {
-      yield* terminal.error(`Authorization failed: ${result.left.message}`);
+    if (result._tag === "Failure") {
+      yield* terminal.error(`Authorization failed: ${result.failure.message}`);
       return;
     }
 

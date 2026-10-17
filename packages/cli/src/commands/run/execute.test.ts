@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   loadConversation,
@@ -11,7 +10,7 @@ import {
 } from "@jazz/adapters/history/conversation-history-service";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import { buildConversation, composeResumedHistory, stripMemorySources } from "./execute";
 
 describe("--conversation persistence", () => {

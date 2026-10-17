@@ -821,7 +821,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         }
       }
     }).pipe(
-      Effect.catchAllDefect((defect) =>
+      Effect.catchDefect((defect) =>
         Effect.sync(() => {
           const message = toError(defect).message;
           const text = `Stream rendering error (${event.type}): ${message}`;
@@ -1519,7 +1519,7 @@ export class InkPresentationService implements PresentationService {
   }
 
   requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
-    return Effect.async((resume) => {
+    return Effect.callback((resume) => {
       // Add to queue and process
       this.approvalQueue.push({ request, resume });
       this.processNextApproval();
@@ -1611,7 +1611,7 @@ export class InkPresentationService implements PresentationService {
             sound: true,
           })
           .pipe(
-            Effect.catchAll((error) => {
+            Effect.catch((error) => {
               console.error("[Notification] Failed to send approval notification:", error);
               return Effect.void;
             }),
@@ -1903,7 +1903,7 @@ export class InkPresentationService implements PresentationService {
   }
 
   requestUserInput(request: UserInputRequest): Effect.Effect<UserInputOutcome, never> {
-    return Effect.async((resume) => {
+    return Effect.callback((resume) => {
       // Add to queue and process
       this.userInputQueue.push({ request, resume });
       this.processNextUserInput();
@@ -1942,7 +1942,7 @@ export class InkPresentationService implements PresentationService {
             sound: true,
           })
           .pipe(
-            Effect.catchAll((error) => {
+            Effect.catch((error) => {
               console.error("[Notification] Failed to send user input notification:", error);
               return Effect.void;
             }),
@@ -2008,14 +2008,14 @@ export class InkPresentationService implements PresentationService {
    * the placeholder it is held under in the transcript afterwards. Esc declines.
    */
   requestSecretInput(request: SecretInputRequest): Effect.Effect<SecretInputOutcome, never> {
-    return Effect.async((resume) => {
+    return Effect.callback((resume) => {
       // Badge the tab; the prompt names the ask, never the value typed.
       reportProgramStatus({ state: "blocked", kind: "auth", msg: request.prompt });
       if (this.notificationService) {
         Effect.runFork(
           this.notificationService
             .notify("Agent is asking for a secret", { title: "Jazz Input Required", sound: true })
-            .pipe(Effect.catchAll(() => Effect.void)),
+            .pipe(Effect.catch(() => Effect.void)),
         );
       }
       const separator = chalk.dim(separatorLine(50));
@@ -2066,7 +2066,7 @@ export class InkPresentationService implements PresentationService {
   }
 
   requestFilePicker(request: FilePickerRequest): Effect.Effect<string, never> {
-    return Effect.async((resume) => {
+    return Effect.callback((resume) => {
       // Badge the tab; the picker's own message is what a badge can show.
       reportProgramStatus({ state: "blocked", kind: "question", msg: request.message });
       // Show the file picker prompt

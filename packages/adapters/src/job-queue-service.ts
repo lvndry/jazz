@@ -22,7 +22,6 @@
 
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import {
   ARCHIVED_BATCH_RETENTION_MS,
   COMPLETED_BATCH_ARCHIVE_GRACE_MS,
@@ -72,7 +71,7 @@ import {
   requireValidStorageKey,
   withLock,
 } from "@jazz/core/utils/storage";
-import { Effect, Layer, Option } from "effect";
+import { Effect, FileSystem, Layer, Option } from "effect";
 import { chatAttachmentDirectory, heldByChatElsewhere } from "@/adapters/chat-attachments";
 import { claimOwnerStatus, clearInFlight, markInFlight } from "@/adapters/runs/runs-in-flight";
 
@@ -182,7 +181,7 @@ function readBatchFile(filePath: string): Effect.Effect<JobBatchRecord | null, E
 function peekBatchFile(filePath: string): Effect.Effect<JobBatchRecord | null | "corrupt"> {
   return readStateFile(filePath, JOB_BATCH_FILE_KIND, { onCorrupt: "fail" }).pipe(
     Effect.map((batch) => batch ?? null),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed(error instanceof CorruptStateFileError ? ("corrupt" as const) : null),
     ),
   );
@@ -267,7 +266,7 @@ export class JobQueueServiceImpl implements JobQueueService {
           const agentDir = agentDirectory(baseJobBatchDirectory, agentId);
           const names = yield* fs
             .readDirectory(agentDir)
-            .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+            .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
           const existingBatchIds = names
             .filter((name) => name.endsWith(".json"))
             .map((name) => name.slice(0, -".json".length));
@@ -367,12 +366,12 @@ export class JobQueueServiceImpl implements JobQueueService {
       yield* requireValidAgentId(agentId, JobQueueGuardrailViolation);
       const fs = yield* FileSystem.FileSystem;
       const agentDir = agentDirectory(baseJobBatchDirectory, agentId);
-      const exists = yield* fs.exists(agentDir).pipe(Effect.catchAll(() => Effect.succeed(false)));
+      const exists = yield* fs.exists(agentDir).pipe(Effect.catch(() => Effect.succeed(false)));
       if (!exists) return [];
 
       const names = yield* fs
         .readDirectory(agentDir)
-        .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+        .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
       const batchIds = names
         .filter((name) => name.endsWith(".json"))
         .map((name) => name.slice(0, -".json".length));
@@ -464,12 +463,12 @@ export function listAgentIdsWithActiveBatches(
     const fs = yield* FileSystem.FileSystem;
     const exists = yield* fs
       .exists(baseJobBatchDirectory)
-      .pipe(Effect.catchAll(() => Effect.succeed(false)));
+      .pipe(Effect.catch(() => Effect.succeed(false)));
     if (!exists) return [];
 
     const names = yield* fs
       .readDirectory(baseJobBatchDirectory)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     // Per-agent enqueue locks (`<agentId>.enqueue.lock`, and the `.guard` a lock takes while it
     // is reclaimed or released) live alongside the per-agent subdirectories; only a
     // storage-safe name is an agent id.
@@ -508,7 +507,7 @@ export function nextClaimableAt(
     const agentDir = agentDirectory(baseJobBatchDirectory, agentId);
     const names = yield* fs
       .readDirectory(agentDir)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
 
     let soonest: number | null = null;
     for (const name of names) {
@@ -538,12 +537,12 @@ export function claimDueJobs(
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const agentDir = agentDirectory(baseJobBatchDirectory, agentId);
-    const exists = yield* fs.exists(agentDir).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    const exists = yield* fs.exists(agentDir).pipe(Effect.catch(() => Effect.succeed(false)));
     if (!exists) return [];
 
     const names = yield* fs
       .readDirectory(agentDir)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const batchIds = names
       .filter((name) => name.endsWith(".json"))
       .map((name) => name.slice(0, -".json".length));
@@ -597,7 +596,7 @@ export function claimDueJobs(
           }
           return claimedHere;
         }),
-      ).pipe(Effect.catchAll(() => Effect.succeed([] as ClaimedJob[])));
+      ).pipe(Effect.catch(() => Effect.succeed([] as ClaimedJob[])));
 
       claimed.push(...claimedInBatch);
     }
@@ -933,7 +932,7 @@ export function listUndeliveredAgentBatches(
     const names = yield* Effect.tryPromise({
       try: () => nodeFs.readdir(agentDirectory(baseJobBatchDirectory, agentId)),
       catch: toError,
-    }).pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+    }).pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const due: JobBatchRecord[] = [];
     for (const name of names) {
       if (!name.endsWith(".json")) continue;
@@ -988,7 +987,7 @@ export function reclaimExpiredLeases(
       const agentDir = agentDirectory(baseJobBatchDirectory, agentId);
       const names = yield* fs
         .readDirectory(agentDir)
-        .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+        .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
       const batchIds = names
         .filter((name) => name.endsWith(".json"))
         .map((name) => name.slice(0, -".json".length));
@@ -1045,7 +1044,7 @@ export function reclaimExpiredLeases(
               ? ({ agentId, batch: updated } satisfies ReclaimedBatchCompletion)
               : null;
           }),
-        ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        ).pipe(Effect.catch(() => Effect.succeed(null)));
 
         if (completion !== null) newlyCompleted.push(completion);
       }
@@ -1114,7 +1113,7 @@ function pruneArchivedBatches(
         yield* fs.remove(filePath);
       }
     }
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.catch(() => Effect.void));
 }
 
 /**
@@ -1133,7 +1132,7 @@ export function archiveCompletedBatches(
     for (const agentId of agentIds) {
       const names = yield* fs
         .readDirectory(agentDirectory(baseJobBatchDirectory, agentId))
-        .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+        .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
       for (const name of names) {
         if (!name.endsWith(".json")) {
           continue;
@@ -1141,7 +1140,7 @@ export function archiveCompletedBatches(
         const batchId = name.slice(0, -".json".length);
         const batch = yield* readBatchFile(
           batchFilePath(baseJobBatchDirectory, agentId, batchId),
-        ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        ).pipe(Effect.catch(() => Effect.succeed(null)));
         if (
           batch === null ||
           batch.deliveredAt === null ||
@@ -1150,7 +1149,7 @@ export function archiveCompletedBatches(
           continue;
         }
         const archived = yield* archiveBatch(baseJobBatchDirectory, agentId, batchId, now).pipe(
-          Effect.catchAll(() => Effect.succeed(false)),
+          Effect.catch(() => Effect.succeed(false)),
         );
         if (archived) {
           archivedCount++;

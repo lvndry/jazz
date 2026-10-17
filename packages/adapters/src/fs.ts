@@ -1,13 +1,12 @@
 import { spawn } from "child_process";
 import { homedir } from "os";
 import * as nodePath from "path";
-import { FileSystem } from "@effect/platform";
 import {
   type FileSystemContextService,
   FileSystemContextServiceTag,
 } from "@jazz/core/interfaces/fs";
 import { terminateProcessGroup } from "@jazz/core/utils/process";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 
 /**
  * filesystem context service that tracks a working directory per agent/conversation.
@@ -85,7 +84,7 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
         maxDepth: number,
       ): Effect.Effect<{ results: readonly string[]; warnings?: readonly string[] }, Error, never> {
         return Effect.gen(function* () {
-          const result = yield* Effect.async<{
+          const result = yield* Effect.callback<{
             stdout: string;
             stderr: string;
             exitCode: number;
@@ -163,7 +162,7 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
             // Check if the directory exists and is a directory
             const statResult = yield* fs
               .stat(target)
-              .pipe(Effect.catchAll(() => Effect.succeed(null)));
+              .pipe(Effect.catch(() => Effect.succeed(null)));
 
             if (!statResult) {
               return yield* Effect.fail(new Error(`Directory does not exist: ${target}`));
@@ -211,7 +210,7 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
             // Check if the resolved path exists
             const statResult = yield* fs
               .stat(cleanedPath)
-              .pipe(Effect.catchAll(() => Effect.succeed(null)));
+              .pipe(Effect.catch(() => Effect.succeed(null)));
 
             if (statResult) {
               return cleanedPath;
@@ -284,7 +283,7 @@ export function createFileSystemContextServiceLayer(): Layer.Layer<
             // Check if the parent directory exists
             const parentStatResult = yield* fs
               .stat(parentDir)
-              .pipe(Effect.catchAll(() => Effect.succeed(null)));
+              .pipe(Effect.catch(() => Effect.succeed(null)));
 
             if (!parentStatResult) {
               return yield* Effect.fail(

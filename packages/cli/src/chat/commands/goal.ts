@@ -324,7 +324,7 @@ export function handleGoalCommand(
   const done = <E, R>(effect: Effect.Effect<unknown, E, R>) =>
     goalLayers(effect).pipe(
       Effect.as<CommandResult>({ shouldContinue: true }),
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.flatMap(TerminalServiceTag, (terminal) =>
           terminal.warn(`Goal command failed: ${String(error)}`),
         ).pipe(Effect.as<CommandResult>({ shouldContinue: true })),
@@ -337,7 +337,7 @@ export function handleGoalCommand(
           ? { shouldContinue: true }
           : { shouldContinue: true, attendGoal: goalId },
       ),
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.flatMap(TerminalServiceTag, (terminal) =>
           terminal.warn(`Goal command failed: ${String(error)}`),
         ).pipe(Effect.as<CommandResult>({ shouldContinue: true })),

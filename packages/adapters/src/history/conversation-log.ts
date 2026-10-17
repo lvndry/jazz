@@ -41,7 +41,6 @@ import { createHash } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { gzipSync } from "node:zlib";
-import { FileSystem } from "@effect/platform";
 import { checkpointTitle } from "@jazz/core/agent/context/checkpoint-title";
 import { isTerminalOutputKind } from "@jazz/core/interfaces/terminal";
 import { typedText } from "@jazz/core/memory/source-trust";
@@ -53,7 +52,7 @@ import { getHistoryDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
-import { Effect, Option } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import {
   buildConversationTree,
   contextPath,
@@ -762,7 +761,7 @@ function readLogContent(
   fs: FileSystem.FileSystem,
   logPath: string,
 ): Effect.Effect<string | null, never> {
-  return fs.readFileString(logPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+  return fs.readFileString(logPath).pipe(Effect.catch(() => Effect.succeed(null)));
 }
 
 /**
@@ -852,13 +851,13 @@ export function listConversationLogs(
     const directory = agentConversationsDirectory(agentId, historyDirectory);
     const names = yield* fs
       .readDirectory(directory)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
 
     const infos: ConversationLogFileInfo[] = [];
     for (const name of names) {
       if (!name.endsWith(CONVERSATION_LOG_EXTENSION)) continue;
       const filePath = path.join(directory, name);
-      const info = yield* fs.stat(filePath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      const info = yield* fs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(null)));
       if (!info || info.type !== "File") continue;
 
       const headerLine = yield* Effect.promise(() => readFirstLine(filePath));
@@ -890,7 +889,7 @@ export function countConversationLogs(
     const fs = yield* FileSystem.FileSystem;
     const names = yield* fs
       .readDirectory(agentConversationsDirectory(agentId, historyDirectory))
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     return names.filter((name) => name.endsWith(CONVERSATION_LOG_EXTENSION)).length;
   });
 }
@@ -904,13 +903,13 @@ export function listAgentsWithConversations(
     const root = getConversationLogsDirectory(historyDirectory);
     const names = yield* fs
       .readDirectory(root)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
 
     const agents: string[] = [];
     for (const name of names) {
       const info = yield* fs
         .stat(path.join(root, name))
-        .pipe(Effect.catchAll(() => Effect.succeed(null)));
+        .pipe(Effect.catch(() => Effect.succeed(null)));
       if (info?.type === "Directory") agents.push(name);
     }
     return agents;
@@ -927,7 +926,7 @@ export function deleteConversationLog(
     const fs = yield* FileSystem.FileSystem;
     const logPath = conversationLogPath(agentId, conversationId, historyDirectory);
     appendStateCache.delete(logPath);
-    yield* fs.remove(logPath).pipe(Effect.catchAll(() => Effect.void));
+    yield* fs.remove(logPath).pipe(Effect.catch(() => Effect.void));
   });
 }
 
@@ -945,7 +944,7 @@ export function archiveConversationLog(
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const logPath = conversationLogPath(agentId, conversationId, historyDirectory);
-    const content = yield* fs.readFile(logPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    const content = yield* fs.readFile(logPath).pipe(Effect.catch(() => Effect.succeed(null)));
     if (content === null) {
       return null;
     }
@@ -958,7 +957,7 @@ export function archiveConversationLog(
       .writeFile(temporaryPath, gzipSync(content), { mode: stateFileMode() })
       .pipe(Effect.mapError(toError));
     yield* fs.rename(temporaryPath, archivePath).pipe(
-      Effect.tapError(() => fs.remove(temporaryPath).pipe(Effect.catchAll(() => Effect.void))),
+      Effect.tapError(() => fs.remove(temporaryPath).pipe(Effect.catch(() => Effect.void))),
       Effect.mapError(toError),
     );
     appendStateCache.delete(logPath);
@@ -1176,9 +1175,9 @@ function statLogFile(
         onNone: () => 0,
         onSome: (date) => date.getTime(),
       }),
-      inode: Option.getOrElse(info.ino, () => 0),
+      inode: Number(Option.getOrElse(info.ino, () => 0n)),
     })),
-    Effect.catchAll(() => Effect.succeed(null)),
+    Effect.catch(() => Effect.succeed(null)),
   );
 }
 

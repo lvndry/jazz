@@ -9,7 +9,6 @@
  * leaves the conversation it detaches and hands whatever is still owed to a detached process, so
  * the item is delivered unattended exactly as it would have been with no chat open.
  */
-import { FileSystem } from "@effect/platform";
 import { attachChat, detachChat } from "@jazz/adapters/chat-attachments";
 import {
   claimBatchFanIn,
@@ -27,7 +26,7 @@ import type { DeliveryOutcome } from "@jazz/core/utils/delivery";
 import { wakeTriggerFireArgs } from "@jazz/core/wake-triggers/wake-trigger-os-scheduler";
 import { finishBatchFanIn, jobBatchDirectory, summarizeBatch } from "@jazz/daemon/job-worker";
 import { wakeTriggerDirectory, wakeTriggerTurnPrompt } from "@jazz/daemon/trigger-runner";
-import { Duration, Effect } from "effect";
+import { Duration, Effect, FileSystem } from "effect";
 
 /** A claimed item, ready to run as the chat's next turn and to be settled with how it ended. */
 export interface ConversationDelivery {
@@ -125,7 +124,7 @@ export function claimOwedDelivery(
     );
     for (const candidate of batches) {
       const batch = yield* claimBatchFanIn(jobBatchDirectory(), agentId, candidate.id).pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
       );
       if (batch === null) {
         continue;
@@ -146,7 +145,7 @@ export function claimOwedDelivery(
     );
     for (const candidate of triggers) {
       const trigger = yield* claimWakeTrigger(wakeTriggerDirectory(), agentId, candidate.id).pipe(
-        Effect.catchAll(() => Effect.succeed(undefined)),
+        Effect.catch(() => Effect.succeed(undefined)),
       );
       if (trigger === undefined) {
         continue;

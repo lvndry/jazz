@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { testProposedGoal } from "@jazz/core/agent/goal/test-fixtures";
 import { browserScreenshotDirectory } from "@jazz/core/agent/tools/browser/browser-tools";
@@ -10,7 +9,7 @@ import { getTodoFilePath } from "@jazz/core/agent/tools/todo";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { afterEach, describe, expect, it } from "bun:test";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { saveConversation } from "./conversation-history-service";
 import { holdConversationTurn } from "./conversation-lease";
 import {
@@ -127,7 +126,7 @@ describe("deleteConversation", () => {
 
     const refused = await run(
       Effect.scoped(
-        Effect.zipRight(
+        Effect.andThen(
           holdConversationTurn(AGENT_ID, conversationId),
           deleteConversation(AGENT_ID, conversationId).pipe(Effect.flip),
         ),

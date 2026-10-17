@@ -72,7 +72,7 @@ export function listPeersCommand(options: { readonly json: boolean }) {
       );
     }
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(`${getErrorMessage(error)}\n`);
         process.exitCode = 1;
@@ -162,7 +162,7 @@ export function peerLogCommand(options: {
   readonly limit: number;
   readonly follow: boolean;
   /** Overridable so a test isn't forced to wait out the real interval. */
-  readonly pollInterval?: Duration.DurationInput;
+  readonly pollInterval?: Duration.Input;
 }) {
   return Effect.gen(function* () {
     const entries = yield* readLedger({

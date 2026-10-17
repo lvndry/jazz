@@ -64,7 +64,7 @@ export function signInToChatGPT(
             announce("Waiting for approval...");
           });
 
-    const outcome = yield* Effect.either(
+    const outcome = yield* Effect.result(
       Effect.tryPromise({
         try: async () => {
           const credential = await signIn;
@@ -75,12 +75,12 @@ export function signInToChatGPT(
       }),
     );
 
-    if (outcome._tag === "Left") {
-      yield* terminal.error(`ChatGPT sign-in failed: ${outcome.left.message}`);
+    if (outcome._tag === "Failure") {
+      yield* terminal.error(`ChatGPT sign-in failed: ${outcome.failure.message}`);
       return false;
     }
 
-    const credential = outcome.right;
+    const credential = outcome.success;
     yield* configService.set("llm.chatgpt", {
       account_id: credential.accountId,
       ...(credential.plan !== undefined ? { plan: credential.plan } : {}),

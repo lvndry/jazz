@@ -54,7 +54,7 @@ import { Effect } from "effect";
  */
 function liveConfig() {
   return Effect.flatMap(AgentConfigServiceTag, (service) =>
-    Effect.zipRight(service.reloadIfChanged(), service.appConfig),
+    Effect.andThen(service.reloadIfChanged(), service.appConfig),
   );
 }
 
@@ -229,7 +229,7 @@ export function daemonGate(now: Date = new Date()) {
       until: startOfNextLocalDay(now).toISOString(),
     };
     yield* updateDaemonState((current) => ({ ...current, paused: pause })).pipe(
-      Effect.catchAll(() => Effect.void),
+      Effect.catch(() => Effect.void),
     );
     const gate: DaemonGate = { kind: "paused", pause };
     return gate;
@@ -255,7 +255,7 @@ export function resumeDaemon(now: Date = new Date()) {
     const capBlocksToday = hasMachineDailyCap(config.daemon)
       ? yield* readSpend(now.getTime()).pipe(
           Effect.map((spend) => blockingMachineDailyCap(config.daemon, spend) !== undefined),
-          Effect.catchAll(() => Effect.succeed(false)),
+          Effect.catch(() => Effect.succeed(false)),
         )
       : false;
     return yield* updateDaemonState(({ paused, ...state }) => {
@@ -286,7 +286,7 @@ function queueAnnouncement(
 ): Effect.Effect<AnnouncementOutcome, never, LoggerService> {
   return enqueueNotification(notifyTargets(config), event, { dedupeKey }).pipe(
     Effect.map((result) => ({ settled: true, queued: result.queued.length > 0 })),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.flatMap(LoggerServiceTag, (logger) =>
         logger.warn("Could not queue a daemon notification", { error: error.message }),
       ).pipe(
@@ -347,7 +347,7 @@ export function announceWaiting(now: Date = new Date()) {
         ...Object.fromEntries(announced.map((item) => [item.key, stamp])),
         ...(pauseAnnounced && pauseKey !== undefined ? { [pauseKey]: stamp } : {}),
       },
-    })).pipe(Effect.catchAll(() => Effect.void));
+    })).pipe(Effect.catch(() => Effect.void));
     return announced;
   });
 }

@@ -490,7 +490,7 @@ function runTurn(record: DetachedJobRecord, userInput: string, limits: TurnLimit
       withholdInteractiveTools: true,
       parkWhenUnattended: true,
     }).pipe(
-      Effect.catchAll((error) => {
+      Effect.catch((error) => {
         if (!isRunParkRequested(error) || error.messages === undefined) {
           return Effect.fail(error);
         }
@@ -567,7 +567,7 @@ function resumeOne(record: DetachedJobRecord) {
       withholdInteractiveTools: true,
       providerApiKeys,
     }).pipe(
-      Effect.catchAll((error) => {
+      Effect.catch((error) => {
         if (!isRunParkRequested(error) || error.messages === undefined) {
           return Effect.fail(error);
         }
@@ -626,7 +626,7 @@ export function runDueDetachedJobs() {
     const runStore = yield* RunStoreTag;
     yield* recoverInterruptedDetachedJobs();
     const files = yield* Effect.tryPromise(() => fs.readdir(directory())).pipe(
-      Effect.catchAll(() => Effect.succeed<string[]>([])),
+      Effect.catch(() => Effect.succeed<string[]>([])),
     );
     for (const file of files) {
       if (!/^[A-Za-z0-9_-]{1,128}\.json$/.test(file)) {
@@ -634,7 +634,7 @@ export function runDueDetachedJobs() {
       }
       const id = file.slice(0, -5);
       const existing = yield* Effect.tryPromise(() => read(id)).pipe(
-        Effect.catchAll(() => Effect.succeed(undefined)),
+        Effect.catch(() => Effect.succeed(undefined)),
       );
       if (
         existing?.status.kind === "running" ||
@@ -672,12 +672,12 @@ export function runDueDetachedJobs() {
         continue;
       }
       const record = yield* Effect.tryPromise(() => claim(id)).pipe(
-        Effect.catchAll(() => Effect.succeed(undefined)),
+        Effect.catch(() => Effect.succeed(undefined)),
       );
       if (record === undefined) {
         continue;
       }
-      yield* Effect.forkDaemon(executeClaimed(record));
+      yield* Effect.forkDetach(executeClaimed(record));
     }
   });
 }
@@ -771,29 +771,29 @@ function executeClaimed(record: DetachedJobRecord) {
         recordingPresentationService(presentation, recorder),
       ),
       Effect.raceFirst(watchForCancel(handoffId)),
-      Effect.either,
+      Effect.result,
     );
     yield* Effect.promise(() => fs.rm(cancelMarkerPath(handoffId), { force: true }));
-    if (outcome._tag === "Right" && !recorder.sawText && outcome.right.content.length > 0) {
-      recorder.record({ type: "text", delta: outcome.right.content });
+    if (outcome._tag === "Success" && !recorder.sawText && outcome.success.content.length > 0) {
+      recorder.record({ type: "text", delta: outcome.success.content });
       recorder.record({ type: "response_end" });
     }
     yield* Effect.promise(() => recorder.close());
-    if (outcome._tag === "Right") {
+    if (outcome._tag === "Success") {
       yield* Effect.tryPromise(() =>
         setStatus(
           record,
-          { kind: "completed", answer: outcome.right.content },
+          { kind: "completed", answer: outcome.success.content },
           {
-            costUSD: outcome.right.costUSD,
+            costUSD: outcome.success.costUSD,
             durationMs: Math.max(0, Date.now() - new Date(record.updatedAt).getTime()),
-            iterations: outcome.right.iterations,
+            iterations: outcome.success.iterations,
           },
         ),
       );
-    } else if (isRunParkRequested(outcome.left) && outcome.left.runId !== undefined) {
-      const runId = outcome.left.runId;
-      if (outcome.left.costUSD === undefined || outcome.left.iteration === undefined) {
+    } else if (isRunParkRequested(outcome.failure) && outcome.failure.runId !== undefined) {
+      const runId = outcome.failure.runId;
+      if (outcome.failure.costUSD === undefined || outcome.failure.iteration === undefined) {
         yield* Effect.tryPromise(() =>
           setStatus(record, {
             kind: "failed",
@@ -802,8 +802,8 @@ function executeClaimed(record: DetachedJobRecord) {
         );
         return;
       }
-      const costUSD = outcome.left.costUSD;
-      const iterations = outcome.left.iteration;
+      const costUSD = outcome.failure.costUSD;
+      const iterations = outcome.failure.iteration;
       const run = yield* (yield* RunStoreTag).get(runId);
       const pending =
         run?.state.kind === "input-required" && run.state.pending.kind === "tool-approval"
@@ -822,7 +822,8 @@ function executeClaimed(record: DetachedJobRecord) {
         ),
       );
     } else {
-      const error = outcome.left instanceof Error ? outcome.left.message : String(outcome.left);
+      const error =
+        outcome.failure instanceof Error ? outcome.failure.message : String(outcome.failure);
       yield* Effect.tryPromise(() => setStatus(record, { kind: "failed", error }));
     }
   });

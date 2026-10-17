@@ -4,7 +4,6 @@
  * (persistence, working directory) glue live here.
  */
 
-import { FileSystem } from "@effect/platform";
 import {
   loadCommandApprovals,
   recordCommandApproval,
@@ -90,7 +89,7 @@ import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { reportProgramCwd } from "@jazz/core/utils/program-status";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
-import { Effect, Layer, Option, Runtime } from "effect";
+import { Effect, FileSystem, Layer, Option } from "effect";
 import { chatModeForPolicy, policyForChatMode, SAFE_MODE_POLICY } from "@/cli/chat/approval-mode";
 import { reasoningEffortLabel } from "@/cli/helpers/reasoning";
 import {
@@ -224,7 +223,7 @@ export class ChatServiceImpl implements ChatService {
       // Initialize session before the loop
       const fileSystemContext = yield* FileSystemContextServiceTag;
       yield* initializeSession(agent, conversationId).pipe(
-        Effect.catchAll(() =>
+        Effect.catch(() =>
           Effect.gen(function* () {
             yield* logger.error("Session initialization error");
           }),
@@ -276,7 +275,7 @@ export class ChatServiceImpl implements ChatService {
         store.setBackgroundCancelHandler((batchId) => {
           void Effect.runPromise(
             jobQueue.cancelBatch(agent.id, batchId).pipe(
-              Effect.zipRight(jobQueue.listActiveBatches(agent.id)),
+              Effect.andThen(jobQueue.listActiveBatches(agent.id)),
               Effect.tap((batches) =>
                 Effect.sync(() =>
                   store.setBackgroundItems(backgroundItems(batches, conversationId)),
@@ -291,7 +290,7 @@ export class ChatServiceImpl implements ChatService {
           while (chatActive) {
             const batches = yield* jobQueue
               .listActiveBatches(agent.id)
-              .pipe(Effect.catchAll(() => Effect.succeed([])));
+              .pipe(Effect.catch(() => Effect.succeed([])));
             store.setBackgroundItems(backgroundItems(batches, conversationId));
             yield* Effect.sleep(BACKGROUND_WORK_POLL_INTERVAL_MS);
           }
@@ -299,7 +298,7 @@ export class ChatServiceImpl implements ChatService {
           store.setBackgroundCancelHandler(null);
         }).pipe(
           Effect.provideService(FileSystem.FileSystem, fileSystemForWatch),
-          Effect.forkDaemon,
+          Effect.forkDetach,
         );
       }
       // What comes back to this conversation later (a finished wait, a due wake trigger) runs
@@ -369,8 +368,8 @@ export class ChatServiceImpl implements ChatService {
             ...(data !== undefined ? { data } : {}),
           });
         }).pipe(
-          Effect.catchAll(() => Effect.void),
-          Effect.forkDaemon,
+          Effect.catch(() => Effect.void),
+          Effect.forkDetach,
           Effect.asVoid,
         );
 
@@ -389,7 +388,7 @@ export class ChatServiceImpl implements ChatService {
       let pendingSuggestionCount = 0;
       if (!ephemeral) {
         pendingSuggestionCount = yield* announcePendingSuggestions().pipe(
-          Effect.catchAllCause(() => Effect.succeed(pendingSuggestionCount)),
+          Effect.catchCause(() => Effect.succeed(pendingSuggestionCount)),
         );
       }
       if (!ephemeral && conversationHistory.length > 0) {
@@ -467,7 +466,7 @@ export class ChatServiceImpl implements ChatService {
                 yield* saveSession(history, saveOptions);
               }),
           ),
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.gen(function* () {
               yield* logger.error("Conversation save failed", {
                 conversationId,
@@ -540,9 +539,9 @@ export class ChatServiceImpl implements ChatService {
             if (!autoApprovedCommands.includes(command)) {
               autoApprovedCommands.push(command);
             }
-            yield* Effect.forkDaemon(
+            yield* Effect.forkDetach(
               recordCommandApproval(command, conversationId).pipe(
-                Effect.catchAll(() => Effect.void),
+                Effect.catch(() => Effect.void),
                 Effect.provide(fileSystemLayer),
               ),
             );
@@ -569,7 +568,7 @@ export class ChatServiceImpl implements ChatService {
           return queued.length > 0 ? { content: message, typed: queued } : { content: message };
         },
         awaitQueuedMessage: () =>
-          Effect.async<void>((resume) => {
+          Effect.callback<void>((resume) => {
             const cancel = store.onceQueuedProse(() => resume(Effect.void));
             return Effect.sync(cancel);
           }),
@@ -580,7 +579,7 @@ export class ChatServiceImpl implements ChatService {
       const jazzState = yield* JazzStateServiceTag;
       const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
         Effect.map((value) => (typeof value === "string" ? value : null)),
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
       );
 
       // Register mode switch handler for Shift+Tab toggle
@@ -622,8 +621,8 @@ export class ChatServiceImpl implements ChatService {
 
       // A command that only reads answers in the command panel the moment it is entered,
       // alongside a running turn or the idle prompt, instead of waiting its turn in the queue.
-      const runtime =
-        yield* Effect.runtime<Effect.Effect.Context<ReturnType<typeof handleSpecialCommand>>>();
+      const commandServices =
+        yield* Effect.context<Effect.Services<ReturnType<typeof handleSpecialCommand>>>();
       store.registerImmediateCommandRunner((text) => {
         if (!isCommandInput(text) || text.includes("\n")) {
           return false;
@@ -634,9 +633,9 @@ export class ChatServiceImpl implements ChatService {
         }
         store.pushInputHistory(text);
         const panelTerminal = commandPanelTerminal(terminal, text);
-        Runtime.runFork(runtime)(
+        Effect.runForkWith(commandServices)(
           handleSpecialCommand(command, commandContext()).pipe(
-            Effect.catchAll((error) => panelTerminal.error(toError(error).message)),
+            Effect.catch((error) => panelTerminal.error(toError(error).message)),
             Effect.provideService(TerminalServiceTag, panelTerminal),
           ),
         );
@@ -684,7 +683,7 @@ export class ChatServiceImpl implements ChatService {
         const flushRequested = store.consumeFlushQueue();
 
         // What the user typed meanwhile goes first; the goal picks up again after it.
-        let goalTurn: Effect.Effect.Success<ReturnType<typeof claimChatGoalTurn>> = undefined;
+        let goalTurn: Effect.Success<ReturnType<typeof claimChatGoalTurn>> = undefined;
         let deliveryTurn: ConversationDelivery | undefined;
         if (firstMessage === undefined && queued.length === 0 && takesDeliveries) {
           deliveryTurn = yield* claimOwedDelivery(agent.id, conversationId);
@@ -705,11 +704,11 @@ export class ChatServiceImpl implements ChatService {
           goalContinues = false;
           const goalId = attendedGoalId;
           goalTurn = yield* goalLayers(claimChatGoalTurn(goalId)).pipe(
-            Effect.catchAll(() => Effect.succeed(undefined)),
+            Effect.catch(() => Effect.succeed(undefined)),
           );
           if (goalTurn === undefined) {
             const next = yield* goalLayers(Effect.flatMap(getOwnedGoal(goalId), settledHere)).pipe(
-              Effect.catchAll(() => Effect.succeed(undefined)),
+              Effect.catch(() => Effect.succeed(undefined)),
             );
             attendedGoalId = next;
             goalContinues = next !== undefined;
@@ -743,7 +742,7 @@ export class ChatServiceImpl implements ChatService {
           };
           yield* emitLifecycle("awaiting-input");
           const asked = terminal.ask("You:", askOptions).pipe(
-            Effect.catchAll((error: unknown) => {
+            Effect.catch((error: unknown) => {
               // Handle ExitPromptError from inquirer when user presses Ctrl+C
               if (
                 error instanceof Error &&
@@ -765,7 +764,7 @@ export class ChatServiceImpl implements ChatService {
           const subagentsFinished = Effect.as(subagents.awaitFinished(), {
             kind: "subagents-finished",
           } as const);
-          const detachedFinished = Effect.async<{ readonly kind: "detached-finished" }>(
+          const detachedFinished = Effect.callback<{ readonly kind: "detached-finished" }>(
             (resume) => {
               const cancel = detachedResults.once(() =>
                 resume(Effect.succeed({ kind: "detached-finished" } as const)),
@@ -826,7 +825,7 @@ export class ChatServiceImpl implements ChatService {
             yield* pauseOnExit(attendedGoalId).pipe(Effect.ignore);
           }
           yield* offerGoalHandoffs().pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               terminal.warn(`Could not hand paused goals to the daemon: ${error.message}`),
             ),
           );
@@ -838,7 +837,7 @@ export class ChatServiceImpl implements ChatService {
           try {
             const mcpManager = yield* MCPServerManagerTag;
             yield* mcpManager.disconnectAllServers().pipe(
-              Effect.catchAll(() =>
+              Effect.catch(() =>
                 Effect.gen(function* () {
                   const logger = yield* LoggerServiceTag;
                   yield* logger.debug("MCP cleanup failed", { errorType: "cleanup_failed" });
@@ -972,7 +971,7 @@ export class ChatServiceImpl implements ChatService {
               // Initialize the new conversation
               const fileSystemContext = yield* FileSystemContextServiceTag;
               yield* initializeSession(agent, conversationId).pipe(
-                Effect.catchAll(() =>
+                Effect.catch(() =>
                   Effect.gen(function* () {
                     yield* logger.error("Session initialization error");
                   }),
@@ -1079,9 +1078,9 @@ export class ChatServiceImpl implements ChatService {
                 autoApprovedCommands.push(commandResult.addAutoApprovedCommand);
               }
 
-              yield* Effect.forkDaemon(
+              yield* Effect.forkDetach(
                 recordCommandApproval(commandResult.addAutoApprovedCommand, conversationId).pipe(
-                  Effect.catchAll(() => Effect.void),
+                  Effect.catch(() => Effect.void),
                   Effect.provide(fileSystemLayer),
                 ),
               );
@@ -1118,7 +1117,7 @@ export class ChatServiceImpl implements ChatService {
                 chatActive = false;
                 store.registerModeSwitchHandler(null);
                 const mcpManager = yield* MCPServerManagerTag;
-                yield* mcpManager.disconnectAllServers().pipe(Effect.catchAll(() => Effect.void));
+                yield* mcpManager.disconnectAllServers().pipe(Effect.catch(() => Effect.void));
               }
               continue;
             }
@@ -1138,7 +1137,7 @@ export class ChatServiceImpl implements ChatService {
           });
           const inlined = yield* Effect.tryPromise(() =>
             inlineMentionedTextFiles(typedMessage, workingDirectory),
-          ).pipe(Effect.catchAll(() => Effect.succeed({ message: typedMessage, skipped: [] })));
+          ).pipe(Effect.catch(() => Effect.succeed({ message: typedMessage, skipped: [] })));
           for (const note of inlined.skipped) {
             yield* terminal.warn(note);
           }
@@ -1228,7 +1227,7 @@ export class ChatServiceImpl implements ChatService {
           const response = yield* (
             goalTurn === undefined ? turn : turn.pipe(Effect.provide(makeFileRunStoreLayer()))
           ).pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               Effect.gen(function* () {
                 lastTurnErrored = true;
                 // Stop the thinking spinner — the agent run failed before
@@ -1407,12 +1406,12 @@ export class ChatServiceImpl implements ChatService {
             const claimed = goalTurn;
             const next = yield* goalLayers(
               Effect.flatMap(settleChatGoalTurn(claimed.goal, claimed.runId, outcome), settledHere),
-            ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            ).pipe(Effect.catch(() => Effect.succeed(undefined)));
             attendedGoalId = next ?? attendedGoalId;
             goalContinues = next !== undefined;
           } else if (!ephemeral) {
             const accepted = yield* offerProposedGoals(conversationId).pipe(
-              Effect.catchAll(() => Effect.succeed(undefined)),
+              Effect.catch(() => Effect.succeed(undefined)),
             );
             if (accepted !== undefined) {
               attendedGoalId = accepted;
@@ -1437,7 +1436,7 @@ export class ChatServiceImpl implements ChatService {
           const persistedSet = new Set(currentConfig.autoApprovedCommands ?? []);
           const emptyApprovals: CommandApprovals = {};
           const approvals = yield* loadCommandApprovals().pipe(
-            Effect.catchAll(() => Effect.succeed(emptyApprovals)),
+            Effect.catch(() => Effect.succeed(emptyApprovals)),
           );
 
           for (const cmd of autoApprovedCommands) {
@@ -1455,11 +1454,11 @@ export class ChatServiceImpl implements ChatService {
                 persisted.push(cmd);
                 yield* configService.set("autoApprovedCommands", persisted);
               }
-              yield* removeCommandApproval(cmd).pipe(Effect.catchAll(() => Effect.void));
+              yield* removeCommandApproval(cmd).pipe(Effect.catch(() => Effect.void));
               yield* terminal.success(`"${cmd}" will be auto-approved in all future sessions.`);
             } else {
               // Exponential backoff — bump threshold so we don't nag again soon
-              yield* bumpPromotionThreshold(cmd).pipe(Effect.catchAll(() => Effect.void));
+              yield* bumpPromotionThreshold(cmd).pipe(Effect.catch(() => Effect.void));
             }
           }
         }).pipe(
@@ -1491,7 +1490,7 @@ export class ChatServiceImpl implements ChatService {
         if (!ephemeral) {
           pendingSuggestionCount = yield* announcePendingSuggestions({
             onlyIfMoreThan: pendingSuggestionCount,
-          }).pipe(Effect.catchAllCause(() => Effect.succeed(pendingSuggestionCount)));
+          }).pipe(Effect.catchCause(() => Effect.succeed(pendingSuggestionCount)));
         }
       }
 
@@ -1508,7 +1507,7 @@ export class ChatServiceImpl implements ChatService {
     }).pipe(
       Effect.ensuring(
         Effect.suspend(() => releaseConversation).pipe(
-          Effect.zipRight(
+          Effect.andThen(
             Effect.sync(() => {
               store.registerImmediateCommandRunner(null);
               store.closeCommandPanel();
@@ -1516,9 +1515,7 @@ export class ChatServiceImpl implements ChatService {
           ),
         ),
       ),
-      Effect.catchAll(() =>
-        Effect.succeed<ChatSessionEnd>({ reason: "exit", messagesReceived: 0 }),
-      ),
+      Effect.catch(() => Effect.succeed<ChatSessionEnd>({ reason: "exit", messagesReceived: 0 })),
     );
   }
 }
@@ -1563,7 +1560,7 @@ function warnWhenSpendCapReached(
   return Effect.gen(function* () {
     const now = Date.now();
     const check = yield* checkSpendCaps(caps, { ...agent, source: "chat" }, { now }).pipe(
-      Effect.catchAll(() => Effect.succeed<CapCheck>({ kind: "clear" })),
+      Effect.catch(() => Effect.succeed<CapCheck>({ kind: "clear" })),
     );
     if (check.kind === "clear") {
       return;

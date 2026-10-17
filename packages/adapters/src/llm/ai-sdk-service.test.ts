@@ -6,7 +6,6 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   goalEvaluationSchema,
@@ -30,7 +29,7 @@ import type { ReasoningSelection } from "@jazz/core/types/model-capabilities";
 import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { APICallError, generateText, Output } from "ai";
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Cause, Duration, Effect, Either, Exit, Layer, Stream } from "effect";
+import { Cause, Duration, Effect, Exit, FileSystem, Layer, Result, Stream } from "effect";
 import { z } from "zod";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
@@ -654,7 +653,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
       const result = await runWithTestLayers(
         testEffect.pipe(
-          Effect.catchAll(() =>
+          Effect.catch(() =>
             Effect.succeed({
               name: "openrouter",
               hasModels: false,
@@ -755,16 +754,16 @@ describe("AI SDK Service - Unit Tests", () => {
                 messages: [{ role: "user", content: "Hello" }],
               };
               if (mode === "batch") {
-                return yield* Effect.either(
+                return yield* Effect.result(
                   llm.createChatCompletion("vllm", options).pipe(Effect.asVoid),
                 );
               }
               const completion = yield* llm.createStreamingChatCompletion("vllm", options);
-              const streamResult = yield* Effect.either(Stream.runDrain(completion.stream));
-              const responseResult = yield* Effect.either(completion.response);
-              expect(Either.isLeft(responseResult)).toBe(true);
-              if (Either.isLeft(responseResult)) {
-                expect(responseResult.left.message).toContain("http://gpu.example:9123");
+              const streamResult = yield* Effect.result(Stream.runDrain(completion.stream));
+              const responseResult = yield* Effect.result(completion.response);
+              expect(Result.isFailure(responseResult)).toBe(true);
+              if (Result.isFailure(responseResult)) {
+                expect(responseResult.failure.message).toContain("http://gpu.example:9123");
               }
               return streamResult;
             }),
@@ -772,14 +771,14 @@ describe("AI SDK Service - Unit Tests", () => {
           );
 
           expect(attemptedUrls).toContain("http://gpu.example:9123/v1/chat/completions");
-          expect(Either.isLeft(result)).toBe(true);
-          if (Either.isLeft(result)) {
-            expect(result.left).toBeInstanceOf(LLMRequestError);
-            expect(result.left.message).toContain("http://gpu.example:9123");
-            expect(result.left.message).not.toContain("127.0.0.1:8000");
-            expect(result.left.message).not.toContain("env-host");
-            expect(result.left.message).not.toContain("start it with");
-            expect(isRetryableLLMError(result.left)).toBe(true);
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure).toBeInstanceOf(LLMRequestError);
+            expect(result.failure.message).toContain("http://gpu.example:9123");
+            expect(result.failure.message).not.toContain("127.0.0.1:8000");
+            expect(result.failure.message).not.toContain("env-host");
+            expect(result.failure.message).not.toContain("start it with");
+            expect(isRetryableLLMError(result.failure)).toBe(true);
           }
         } finally {
           globalThis.fetch = actualFetch;
@@ -805,7 +804,7 @@ describe("AI SDK Service - Unit Tests", () => {
         const result = await runWithTestLayers(
           Effect.gen(function* () {
             const llm = yield* LLMServiceTag;
-            return yield* Effect.either(
+            return yield* Effect.result(
               llm
                 .createChatCompletion("ollama", {
                   model: "llama3.1:8b:cloud",
@@ -818,14 +817,14 @@ describe("AI SDK Service - Unit Tests", () => {
         );
 
         expect(attemptedUrls).toContain("https://ollama.com/api/chat");
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          expect(result.left).toBeInstanceOf(LLMRequestError);
-          expect(result.left.message).toContain("https://ollama.com");
-          expect(result.left.message).toContain("remote endpoint");
-          expect(result.left.message).not.toContain("ollama serve");
-          expect(result.left.message).not.toContain("127.0.0.1:11434");
-          expect(isRetryableLLMError(result.left)).toBe(true);
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure).toBeInstanceOf(LLMRequestError);
+          expect(result.failure.message).toContain("https://ollama.com");
+          expect(result.failure.message).toContain("remote endpoint");
+          expect(result.failure.message).not.toContain("ollama serve");
+          expect(result.failure.message).not.toContain("127.0.0.1:11434");
+          expect(isRetryableLLMError(result.failure)).toBe(true);
         }
       } finally {
         globalThis.fetch = actualFetch;
@@ -864,7 +863,7 @@ describe("AI SDK Service - Unit Tests", () => {
       const configLayer = createTestConfigLayer({});
 
       const result = await runWithTestLayers(
-        testEffect.pipe(Effect.catchAll((error) => Effect.succeed(error))),
+        testEffect.pipe(Effect.catch((error) => Effect.succeed(error))),
         configLayer,
       );
 
@@ -1117,7 +1116,7 @@ describe("AI SDK Service - Unit Tests", () => {
       // The service layer should fail if no providers are configured
       // But Ollama is always available, so this should actually succeed
       const result = await runWithTestLayers(
-        testEffect.pipe(Effect.catchAll((error) => Effect.succeed(error))),
+        testEffect.pipe(Effect.catch((error) => Effect.succeed(error))),
         configLayer,
       );
 
@@ -1208,10 +1207,10 @@ describe("AI SDK Service - Unit Tests", () => {
    * Regression tests for streaming error handling.
    *
    * These tests verify that errors in createStreamingChatCompletion are properly
-   * converted to typed LLMError instances rather than leaking as UnknownException.
+   * converted to typed LLMError instances rather than leaking as UnknownError.
    *
    * Background: A bug caused synchronous throws (e.g. from selectModel) and rejected
-   * deferred promises to surface as "UnknownException: An unknown error occurred in
+   * deferred promises to surface as "UnknownError: An unknown error occurred in
    * Effect.tryPromise" — making the core chat workflow completely unusable.
    */
   describe("Streaming Error Handling (Regression)", () => {
@@ -1243,10 +1242,10 @@ describe("AI SDK Service - Unit Tests", () => {
         ) as Effect.Effect<unknown, LLMError, never>,
       );
 
-      // Must fail with a typed LLMError, NOT an UnknownException/defect
+      // Must fail with a typed LLMError, NOT an UnknownError/defect
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
-        const failure = Cause.failureOption(exit.cause);
+        const failure = Cause.findErrorOption(exit.cause);
         expect(failure._tag).toBe("Some");
         if (failure._tag === "Some") {
           const error = failure.value;
@@ -1262,8 +1261,8 @@ describe("AI SDK Service - Unit Tests", () => {
           expect(isRetryableLLMError(error)).toBe(false);
         }
 
-        // Critically: must NOT be a defect (UnknownException)
-        const defects = Cause.defects(exit.cause);
+        // Critically: must NOT be a defect (UnknownError)
+        const defects = exit.cause.reasons.filter(Cause.isDieReason);
         expect(defects.length).toBe(0);
       }
     });
@@ -1290,10 +1289,10 @@ describe("AI SDK Service - Unit Tests", () => {
         ) as Effect.Effect<unknown, LLMError, never>,
       );
 
-      // Must fail with a typed LLMError, NOT an UnknownException/defect
+      // Must fail with a typed LLMError, NOT an UnknownError/defect
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
-        const failure = Cause.failureOption(exit.cause);
+        const failure = Cause.findErrorOption(exit.cause);
         expect(failure._tag).toBe("Some");
         if (failure._tag === "Some") {
           const error = failure.value;
@@ -1306,7 +1305,7 @@ describe("AI SDK Service - Unit Tests", () => {
           ).toBe(true);
         }
 
-        const defects = Cause.defects(exit.cause);
+        const defects = exit.cause.reasons.filter(Cause.isDieReason);
         expect(defects.length).toBe(0);
       }
     });
@@ -1351,8 +1350,8 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(Exit.isFailure(nonStreamingExit)).toBe(true);
 
       if (Exit.isFailure(streamingExit) && Exit.isFailure(nonStreamingExit)) {
-        const streamingError = Cause.failureOption(streamingExit.cause);
-        const nonStreamingError = Cause.failureOption(nonStreamingExit.cause);
+        const streamingError = Cause.findErrorOption(streamingExit.cause);
+        const nonStreamingError = Cause.findErrorOption(nonStreamingExit.cause);
 
         expect(streamingError._tag).toBe("Some");
         expect(nonStreamingError._tag).toBe("Some");
@@ -1363,8 +1362,8 @@ describe("AI SDK Service - Unit Tests", () => {
         }
 
         // Neither should have defects
-        expect(Cause.defects(streamingExit.cause).length).toBe(0);
-        expect(Cause.defects(nonStreamingExit.cause).length).toBe(0);
+        expect(streamingExit.cause.reasons.filter(Cause.isDieReason).length).toBe(0);
+        expect(nonStreamingExit.cause.reasons.filter(Cause.isDieReason).length).toBe(0);
       }
     });
 
@@ -1395,7 +1394,7 @@ describe("AI SDK Service - Unit Tests", () => {
       const testEffect = Effect.gen(function* () {
         const llmService = yield* LLMServiceTag;
         const result = yield* llmService.createStreamingChatCompletion("openai", minimalOptions);
-        // Awaiting the response should fail with LLMError, not UnknownException
+        // Awaiting the response should fail with LLMError, not UnknownError
         return yield* result.response;
       });
 
@@ -1407,7 +1406,7 @@ describe("AI SDK Service - Unit Tests", () => {
 
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
-        const failure = Cause.failureOption(exit.cause);
+        const failure = Cause.findErrorOption(exit.cause);
         expect(failure._tag).toBe("Some");
         if (failure._tag === "Some") {
           expect(failure.value._tag).toBe("LLMRequestError");
@@ -1415,7 +1414,7 @@ describe("AI SDK Service - Unit Tests", () => {
         }
 
         // Must NOT be a defect
-        expect(Cause.defects(exit.cause).length).toBe(0);
+        expect(exit.cause.reasons.filter(Cause.isDieReason).length).toBe(0);
       }
     });
 
@@ -1456,14 +1455,14 @@ describe("AI SDK Service - Unit Tests", () => {
 
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
-        const failure = Cause.failureOption(exit.cause);
+        const failure = Cause.findErrorOption(exit.cause);
         expect(failure._tag).toBe("Some");
         if (failure._tag === "Some") {
           expect(failure.value._tag).toBe("LLMRequestError");
           expect(failure.value.message).toBe("Simulated stream failure");
         }
 
-        expect(Cause.defects(exit.cause).length).toBe(0);
+        expect(exit.cause.reasons.filter(Cause.isDieReason).length).toBe(0);
       }
     });
   });

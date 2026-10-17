@@ -206,10 +206,10 @@ export function proposeGoal(options: {
         internal: true,
         toolAllowlist: readOnlyToolNames,
         autoApprovePolicy: "read-only",
-      }).pipe(Effect.either);
-      if (discovery._tag === "Right") {
-        discoveryNotes = discovery.right.content;
-        spent.push(agentRunSpend(options.agent, discovery.right));
+      }).pipe(Effect.result);
+      if (discovery._tag === "Success") {
+        discoveryNotes = discovery.success.content;
+        spent.push(agentRunSpend(options.agent, discovery.success));
       } else {
         discoveryNotes =
           "Bounded local discovery could not complete; feasibility remains uncertain.";
@@ -238,17 +238,17 @@ export function proposeGoal(options: {
           ? { providerBaseUrls: options.agent.config.llm.baseUrls }
           : {}),
       })
-      .pipe(Effect.either);
-    if (completion._tag === "Left") {
+      .pipe(Effect.result);
+    if (completion._tag === "Failure") {
       const failed: GoalProposal = {
         kind: "failed",
-        reason: `Jazz could not draft a goal proposal: the planning call to ${options.agent.config.llm.provider}/${options.agent.config.llm.model} failed (${toError(completion.left).message}).`,
+        reason: `Jazz could not draft a goal proposal: the planning call to ${options.agent.config.llm.provider}/${options.agent.config.llm.model} failed (${toError(completion.failure).message}).`,
       };
       return failed;
     }
-    spent.push(yield* priceOneOffCall(options.agent, completion.right.usage));
+    spent.push(yield* priceOneOffCall(options.agent, completion.success.usage));
     const spend = planningSpend(spent, startedAt);
-    const draft = parseGoalDraft(completion.right.content);
+    const draft = parseGoalDraft(completion.success.content);
     if (draft === undefined) {
       const invalid: GoalProposal = {
         kind: "failed",
@@ -318,17 +318,17 @@ export function activateGoal(options: {
     }
     const saved = yield* store
       .compareAndSet(proposed.goalId, proposed.version, runBy(acceptance.next, options))
-      .pipe(Effect.either);
-    if (saved._tag === "Left") {
+      .pipe(Effect.result);
+    if (saved._tag === "Failure") {
       const cancel = decideCancel(proposed);
       if (cancel.kind === "write") {
         yield* store
           .compareAndSet(proposed.goalId, proposed.version, cancel.next)
           .pipe(Effect.ignore);
       }
-      return { kind: "refused", reason: saved.left.message } as const;
+      return { kind: "refused", reason: saved.failure.message } as const;
     }
-    return { kind: "active", goal: saved.right } as const;
+    return { kind: "active", goal: saved.success } as const;
   });
 }
 
@@ -461,12 +461,12 @@ export function controlGoal(
       };
       return busy;
     }
-    const saved = yield* store.compareAndSet(goal.goalId, goal.version, next).pipe(Effect.either);
-    if (saved._tag === "Left") {
-      return refused("refused", `Could not update goal ${goal.goalId}: ${saved.left.message}`);
+    const saved = yield* store.compareAndSet(goal.goalId, goal.version, next).pipe(Effect.result);
+    if (saved._tag === "Failure") {
+      return refused("refused", `Could not update goal ${goal.goalId}: ${saved.failure.message}`);
     }
-    yield* settleStoppingGoal(saved.right.goalId);
-    const settled = (yield* store.get(saved.right.goalId)) ?? saved.right;
+    yield* settleStoppingGoal(saved.success.goalId);
+    const settled = (yield* store.get(saved.success.goalId)) ?? saved.success;
     const applied: GoalActionOutcome = {
       kind: "applied",
       goal: settled,

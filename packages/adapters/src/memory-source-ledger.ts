@@ -12,11 +12,10 @@
  */
 
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { toError } from "@jazz/core/utils/errors";
 import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 
 const LEDGER_FILENAME = ".source-ledger.json";
 

@@ -120,7 +120,7 @@ export interface InputService {
   readonly subscribeTextInputState: (id: string, listener: () => void) => () => void;
 }
 
-export const InputServiceTag = Context.GenericTag<InputService>("InputService");
+export const InputServiceTag = Context.Service<InputService>("InputService");
 
 // ============================================================================
 // Priority Constants

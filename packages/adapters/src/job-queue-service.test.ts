@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   ARCHIVED_BATCH_RETENTION_MS,
@@ -11,7 +10,7 @@ import {
   MAX_JOBS_PER_BATCH,
 } from "@jazz/core/constants/job-queue";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import {
   archiveBatch,
   archiveCompletedBatches,
@@ -750,8 +749,8 @@ describe("damaged and versioned batch files", () => {
     fs.mkdirSync(path.join(tmpDir, "agent-1"), { recursive: true });
     const batchPath = path.join(tmpDir, "agent-1", "newer.json");
     fs.writeFileSync(batchPath, JSON.stringify({ schemaVersion: 99 }));
-    const result = await runEffect(makeService().getBatch("agent-1", "newer").pipe(Effect.either));
-    expect(result._tag).toBe("Left");
+    const result = await runEffect(makeService().getBatch("agent-1", "newer").pipe(Effect.result));
+    expect(result._tag).toBe("Failure");
     expect(fs.existsSync(batchPath)).toBe(true);
   });
 });

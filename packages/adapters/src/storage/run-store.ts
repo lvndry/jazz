@@ -208,7 +208,7 @@ export class FileRunStore implements RunStore {
         return records;
       },
       catch: (error) => error,
-    }).pipe(Effect.catchAll(() => Effect.succeed([] as readonly RunRecord[])));
+    }).pipe(Effect.catch(() => Effect.succeed([] as readonly RunRecord[])));
   }
 
   private lockPathFor(runId: RunId): string {
@@ -242,7 +242,7 @@ export class FileRunStore implements RunStore {
         try: () => this.writeRecordFile(record),
         catch: (error) => error,
       }),
-    ).pipe(Effect.catchAll(() => Effect.void));
+    ).pipe(Effect.catch(() => Effect.void));
   }
 
   get(runId: RunId): Effect.Effect<RunRecord | undefined, never> {
@@ -251,7 +251,7 @@ export class FileRunStore implements RunStore {
       catch: (error) => error,
     }).pipe(
       Effect.map(readRecord),
-      Effect.catchAll(() => Effect.succeed(undefined)),
+      Effect.catch(() => Effect.succeed(undefined)),
     );
   }
 
@@ -262,7 +262,7 @@ export class FileRunStore implements RunStore {
   ): Effect.Effect<RunRecord, Error> {
     return this.withRunLock(
       runId,
-      Effect.gen(this, function* () {
+      Effect.gen({ self: this }, function* () {
         const existing = yield* this.get(runId);
         if (existing === undefined) {
           return yield* Effect.fail(new Error(`No run with id "${runId}".`));
@@ -296,7 +296,7 @@ export class FileRunStore implements RunStore {
   ): Effect.Effect<"abandoned" | "deleted" | "reparked" | "kept", Error> {
     return this.withRunLock(
       runId,
-      Effect.gen(this, function* () {
+      Effect.gen({ self: this }, function* () {
         const current = yield* this.get(runId);
         if (current === undefined) return "kept" as const;
 
@@ -340,7 +340,7 @@ export class FileRunStore implements RunStore {
     { readonly abandoned: number; readonly deleted: number; readonly reparked: number },
     never
   > {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const records = yield* this.readAll();
       let abandoned = 0;
       let deleted = 0;
@@ -350,7 +350,7 @@ export class FileRunStore implements RunStore {
           record.runId,
           options.now,
           options.maxTerminalAgeMs,
-        ).pipe(Effect.catchAll(() => Effect.succeed("kept" as const)));
+        ).pipe(Effect.catch(() => Effect.succeed("kept" as const)));
         if (outcome === "reparked") reparked += 1;
         else if (outcome === "abandoned") abandoned += 1;
         else if (outcome === "deleted") deleted += 1;

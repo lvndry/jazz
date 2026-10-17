@@ -96,7 +96,7 @@ function writeGoal(goal: GoalRecord, next: GoalRecordInput, purpose: string) {
     const goals = yield* GoalStoreTag;
     const logger = yield* LoggerServiceTag;
     yield* goals.compareAndSet(goal.goalId, goal.version, next).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         logger.warn(`Could not update goal to ${purpose}`, {
           goalId: goal.goalId,
           from: goal.state.kind,
@@ -123,7 +123,7 @@ function saveGoalTranscript(
       fallbackTitle: goal.plan.objective,
       messages,
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         logger.warn("Could not save the goal transcript", {
           goalId: goal.goalId,
           error: error.message,
@@ -202,19 +202,19 @@ function evaluateCycle(goal: GoalRecord, cycleMessages: readonly ChatMessage[]) 
           ? { providerBaseUrls: agent.config.llm.baseUrls }
           : {}),
       })
-      .pipe(Effect.either);
+      .pipe(Effect.result);
     const repairMs = Date.now() - startedAt;
-    if (repaired._tag === "Left") {
+    if (repaired._tag === "Failure") {
       yield* logger.warn("Could not repair the goal cycle disposition", {
         goalId: goal.goalId,
-        error: toError(repaired.left).message,
+        error: toError(repaired.failure).message,
       });
       return { evaluation: first, repair: yield* repairSpend(agent, undefined, repairMs) };
     }
-    const second = validateGoalEvaluation(repaired.right.content, goal.plan, cycleMessages);
+    const second = validateGoalEvaluation(repaired.success.content, goal.plan, cycleMessages);
     return {
       evaluation: second.kind === "valid" ? withRejection(second, first, reported) : first,
-      repair: yield* repairSpend(agent, repaired.right.usage, repairMs),
+      repair: yield* repairSpend(agent, repaired.success.usage, repairMs),
     };
   });
 }
@@ -299,7 +299,7 @@ export function settleParkedCycle(goalId: string, runId: string) {
     const reason = run.state.pending.kind === "tool-approval" ? "approval" : "question";
     if (cycle.stopAfter === "cancel") {
       yield* runs.transition(runId, { kind: "canceled", at: "parked" }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.flatMap(LoggerServiceTag, (logger) =>
             logger.warn("Could not cancel a canceled goal's parked run", {
               goalId,
@@ -347,8 +347,8 @@ function claimCycle(goal: GoalRecord) {
       );
       return undefined;
     }
-    const agent = yield* agents.getAgent(goal.agentId).pipe(Effect.either);
-    if (agent._tag === "Left") {
+    const agent = yield* agents.getAgent(goal.agentId).pipe(Effect.result);
+    if (agent._tag === "Failure") {
       yield* writeGoal(
         goal,
         {
@@ -369,11 +369,11 @@ function claimCycle(goal: GoalRecord) {
         latestRunId: runId,
         usage: { ...goal.usage, cycles: goal.usage.cycles + 1 },
       })
-      .pipe(Effect.either);
-    if (claimed._tag === "Left") {
+      .pipe(Effect.result);
+    if (claimed._tag === "Failure") {
       return undefined;
     }
-    return { goal: claimed.right, agent: agent.right, runId };
+    return { goal: claimed.success, agent: agent.success, runId };
   });
 }
 
@@ -382,8 +382,8 @@ function runCycle(goal: GoalRecord, agent: Agent, runId: string) {
     const fileSystemContext = yield* FileSystemContextServiceTag;
     const placed = yield* fileSystemContext
       .setCwd({ agentId: goal.agentId, conversationId: goal.conversationId }, goal.workingDirectory)
-      .pipe(Effect.either);
-    if (placed._tag === "Left") {
+      .pipe(Effect.result);
+    if (placed._tag === "Failure") {
       yield* writeGoal(
         goal,
         settleCycle(goal, {
@@ -602,7 +602,7 @@ function settleDeadWorkingRun(goal: GoalRecord, run: RunRecord) {
     const error = "the process running it stopped";
     yield* runs
       .transition(run.runId, { kind: "failed", cause: "interrupted", error })
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(Effect.catch(() => Effect.void));
     yield* finishCycle(goal.goalId, run.runId, []);
   });
 }
@@ -635,7 +635,7 @@ export function runDueGoals(options: { readonly startNew?: boolean } = {}) {
     const goals = yield* GoalStoreTag;
     const runs = yield* RunStoreTag;
     const logger = yield* LoggerServiceTag;
-    const started: Fiber.RuntimeFiber<void, never>[] = [];
+    const started: Fiber.Fiber<void, never>[] = [];
     const candidates = yield* goals.list({ states: CLAIMED_GOAL_STATES });
     for (const goal of candidates) {
       yield* Effect.gen(function* () {
@@ -658,13 +658,13 @@ export function runDueGoals(options: { readonly startNew?: boolean } = {}) {
             started.push(
               yield* inFlight(claim.runId, runCycle(claim.goal, claim.agent, claim.runId)).pipe(
                 Effect.asVoid,
-                Effect.catchAllCause((cause) =>
+                Effect.catchCause((cause) =>
                   logger.warn("Goal cycle failed to settle", {
                     goalId: goal.goalId,
                     error: Cause.pretty(cause),
                   }),
                 ),
-                Effect.forkDaemon,
+                Effect.forkDetach,
               ),
             );
           }
@@ -686,7 +686,7 @@ export function runDueGoals(options: { readonly startNew?: boolean } = {}) {
               cause: "error",
               error: "the process that submitted it stopped before it started",
             })
-            .pipe(Effect.catchAll(() => Effect.void));
+            .pipe(Effect.catch(() => Effect.void));
         }
         if (run === undefined || run.state.kind === "submitted") {
           yield* finishCycle(goal.goalId, cycle.runId, []);
@@ -712,7 +712,7 @@ export function runDueGoals(options: { readonly startNew?: boolean } = {}) {
           cycleMessages(prior?.messages ?? [], cycle.runId),
         );
       }).pipe(
-        Effect.catchAllCause((cause) =>
+        Effect.catchCause((cause) =>
           logger.warn("Goal tick failed", { goalId: goal.goalId, error: Cause.pretty(cause) }),
         ),
       );
@@ -759,8 +759,8 @@ export function resumeGoalRun(options: ResumeRunOptions) {
           ? { cycle: { ...goal.cycle, owner: currentProcessOwner() } }
           : {}),
       })
-      .pipe(Effect.either);
-    if (working._tag === "Left") {
+      .pipe(Effect.result);
+    if (working._tag === "Failure") {
       return {
         kind: "blocked",
         reason: `Goal ${goal.goalId} changed while answering; check /goal list and retry.`,
@@ -775,7 +775,7 @@ export function resumeGoalRun(options: ResumeRunOptions) {
           options.runId,
           Effect.gen(function* () {
             const settled = yield* runToOutcome(resumeRun({ ...options, startedBy: "goal" }));
-            yield* settleRunOutcome(working.right, options.runId, settled, { saveOnto: prior });
+            yield* settleRunOutcome(working.success, options.runId, settled, { saveOnto: prior });
             return settled;
           }),
         );

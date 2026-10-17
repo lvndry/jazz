@@ -204,7 +204,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
                     .warn(
                       `Failed to refresh tools for ${config.name} after a list change: ${error.message}`,
                     )
-                    .pipe(Effect.catchAllCause(() => Effect.void)),
+                    .pipe(Effect.catchCause(() => Effect.void)),
                 );
                 return;
               }
@@ -226,7 +226,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
   /** Best-effort close of a client that will never become a stored connection. */
   private closeQuietly(client: Client): Effect.Effect<void, never> {
     return Effect.tryPromise({ try: () => client.close(), catch: () => undefined }).pipe(
-      Effect.catchAll(() => Effect.void),
+      Effect.catch(() => Effect.void),
     );
   }
 
@@ -283,7 +283,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
        * One connection attempt: fresh transport and client, so a retry never reuses a
        * failed attempt's half-initialized state. `closeQuietly` runs on any non-success
        * exit — failure, timeout, or interruption — via `onExit`, which Effect guarantees
-       * to run even when the fiber is interrupted mid-await; a `tapErrorCause` here would
+       * to run even when the fiber is interrupted mid-await; a `tapCause` here would
        * not, since interrupting a suspended `Promise` with no cancellation hook bypasses
        * the composed continuation entirely.
        */
@@ -298,10 +298,14 @@ export class MCPServerManagerImpl implements MCPServerManager {
           try: () => client.connect(transport as Transport),
           catch: toError,
         }).pipe(
-          Effect.timeoutFail({
+          Effect.timeoutOrElse({
             duration: `${CONNECT_TIMEOUT_MS} millis`,
-            onTimeout: () =>
-              new Error(`Server did not complete the MCP handshake within ${CONNECT_TIMEOUT_MS}ms`),
+            orElse: () =>
+              Effect.fail(
+                new Error(
+                  `Server did not complete the MCP handshake within ${CONNECT_TIMEOUT_MS}ms`,
+                ),
+              ),
           }),
           Effect.onExit((exit) =>
             exit._tag === "Failure" ? manager.closeQuietly(client) : Effect.void,
@@ -402,7 +406,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
         try: () => connection.client.close(),
         catch: toError,
       }).pipe(
-        Effect.catchAll(() =>
+        Effect.catch(() =>
           manager.logger.warn("MCP client close failed", { errorType: "close_failed" }),
         ),
       );
@@ -517,9 +521,9 @@ export class MCPServerManagerImpl implements MCPServerManager {
           ),
         catch: toError,
       }).pipe(
-        Effect.timeoutFail({
+        Effect.timeoutOrElse({
           duration: `${CALL_TIMEOUT_MS} millis`,
-          onTimeout: () => new Error(`Tool call exceeded ${CALL_TIMEOUT_MS}ms`),
+          orElse: () => Effect.fail(new Error(`Tool call exceeded ${CALL_TIMEOUT_MS}ms`)),
         }),
         Effect.mapError(
           (error: unknown) =>
@@ -874,7 +878,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
       }).pipe(
         // A server may advertise `resources` without implementing templates, so
         // a failure here means "none", not a broken server.
-        Effect.catchAll(() => Effect.succeed([] as readonly MCPResourceTemplate[])),
+        Effect.catch(() => Effect.succeed([] as readonly MCPResourceTemplate[])),
       );
     });
   }
@@ -912,7 +916,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
       }).pipe(
         // Completion is a convenience: a server that does not implement it
         // should cost the user a picker, not the whole prompt.
-        Effect.catchAll(() => Effect.succeed([] as readonly string[])),
+        Effect.catch(() => Effect.succeed([] as readonly string[])),
       );
     });
   }
@@ -956,7 +960,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
       const releaseIfOpenedHere = wasConnected
         ? Effect.void
         : manager.disconnectServer(config.name).pipe(
-            Effect.catchAll(() =>
+            Effect.catch(() =>
               manager.logger.warn("MCP disconnect after discovery failed", {
                 errorType: "disconnect_failed",
               }),
@@ -995,7 +999,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
       yield* Effect.all(
         serverNames.map((serverName) =>
           manager.disconnectServer(serverName).pipe(
-            Effect.catchAll(() =>
+            Effect.catch(() =>
               manager.logger.warn("MCP server disconnect failed", {
                 errorType: "disconnect_failed",
               }),

@@ -117,7 +117,7 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       const personaService = yield* PersonaServiceTag;
       const resolved = yield* personaService
         .getPersonaByIdentifier(options.persona)
-        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        .pipe(Effect.catch(() => Effect.succeed(undefined)));
       if (resolved === undefined) {
         return yield* Effect.fail(
           new CLIError({
@@ -177,7 +177,7 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       process.stdout.write(`\nQR:\n${qr}\n`);
     }
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(`${getErrorMessage(error)}\n`);
         if (error instanceof CLIError && error.suggestion !== undefined) {
@@ -326,22 +326,22 @@ export interface PeerToolBackfillResult {
 export function backfillAskPeerTool(): Effect.Effect<PeerToolBackfillResult, never, AgentService> {
   return Effect.gen(function* () {
     const service = yield* AgentServiceTag;
-    const agents = yield* Effect.either(service.listAgents());
-    if (agents._tag === "Left") {
-      return { updated: [], errors: [`Could not list agents: ${getErrorMessage(agents.left)}`] };
+    const agents = yield* Effect.result(service.listAgents());
+    if (agents._tag === "Failure") {
+      return { updated: [], errors: [`Could not list agents: ${getErrorMessage(agents.failure)}`] };
     }
     const updated: string[] = [];
     const errors: string[] = [];
-    for (const agent of agents.right) {
+    for (const agent of agents.success) {
       const tools = agent.config.tools;
       if (tools === undefined || tools.includes(askPeerToolName)) continue;
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         service.updateAgent(agent.id, {
           config: { ...agent.config, tools: [...tools, askPeerToolName] },
         }),
       );
-      if (result._tag === "Right") updated.push(agent.name);
-      else errors.push(`Could not update "${agent.name}": ${getErrorMessage(result.left)}`);
+      if (result._tag === "Success") updated.push(agent.name);
+      else errors.push(`Could not update "${agent.name}": ${getErrorMessage(result.failure)}`);
     }
     return { updated, errors };
   });
@@ -368,7 +368,7 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
           body: (await response.json()) as unknown,
         })),
       catch: (error) => error,
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 
     const previewError =
       previewResponse !== undefined &&
@@ -465,7 +465,7 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
         })),
       catch: (error) => error,
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.succeed({
           status: 0,
           body: { ok: false, error: toError(error).message },
@@ -523,7 +523,7 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
       );
     }
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(`${getErrorMessage(error)}\n`);
         process.exitCode = 1;

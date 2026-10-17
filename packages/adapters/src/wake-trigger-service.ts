@@ -7,7 +7,6 @@
  */
 
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import {
   MAX_WAKE_TRIGGERS_PER_AGENT,
   WAKE_TRIGGER_PROMPT_MAX_LENGTH,
@@ -34,7 +33,7 @@ import {
   createWakeTriggerOsScheduler,
   type WakeTriggerOsScheduler,
 } from "@jazz/core/wake-triggers/wake-trigger-os-scheduler";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import {
   claimDueItems,
   claimItem,
@@ -130,7 +129,7 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
       const fs = yield* FileSystem.FileSystem;
       yield* fs
         .makeDirectory(baseWakeTriggerDirectory, { recursive: true, mode: stateDirectoryMode() })
-        .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
+        .pipe(Effect.catch((error) => Effect.fail(toError(error))));
       return yield* withLock(lockPath, operation);
     });
   }
@@ -196,7 +195,7 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
           const osScheduler = yield* this.resolveOsScheduler();
           const scheduleResult = yield* osScheduler
             .scheduleFire(agentId, triggerId, fireAt)
-            .pipe(Effect.catchAll(() => Effect.succeed({ osSchedulerJobId: undefined })));
+            .pipe(Effect.catch(() => Effect.succeed({ osSchedulerJobId: undefined })));
 
           const trigger: WakeTriggerRecord = {
             id: triggerId,
@@ -247,7 +246,7 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
           const osScheduler = yield* this.resolveOsScheduler();
           yield* osScheduler
             .cancelFire(agentId, id, removedTrigger.osSchedulerJobId)
-            .pipe(Effect.catchAll(() => Effect.void));
+            .pipe(Effect.catch(() => Effect.void));
 
           return {
             success: true,
@@ -282,7 +281,7 @@ export function claimDueWakeTriggers(
       for (const { agentId, item } of claims) {
         yield* osScheduler
           .cancelFire(agentId, item.id, item.osSchedulerJobId)
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
       }
     }
     return claims;
@@ -312,7 +311,7 @@ export function listDueConversationWakeTriggers(
         )
         .sort((left, right) => left.fireAt - right.fireAt),
     ),
-    Effect.catchAll(() => Effect.succeed([])),
+    Effect.catch(() => Effect.succeed([])),
   );
 }
 

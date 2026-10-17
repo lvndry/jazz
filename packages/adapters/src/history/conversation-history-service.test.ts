@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { gunzipSync } from "node:zlib";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   createEgressTaint,
@@ -11,7 +10,7 @@ import {
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach, setSystemTime } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import {
   archiveLegacyHistory,
   ConversationChangedError,
@@ -179,9 +178,9 @@ describe("saveConversation", () => {
       moveConversationLeaf(
         { agentId: "agent-1", conversationId: "conv-1", to: null, basedOn: second },
         tmpDir,
-      ).pipe(Effect.either),
+      ).pipe(Effect.result),
     );
-    expect(stale._tag).toBe("Left");
+    expect(stale._tag).toBe("Failure");
   });
 
   /** The regression: one log from a newer Jazz failed the listing, and every picker read empty. */
@@ -350,16 +349,16 @@ describe("saveConversation under concurrency", () => {
       Effect.all(
         candidates.map((messages) =>
           saveConversation(makeConversation({ agentId, conversationId, messages }), tmpDir).pipe(
-            Effect.either,
+            Effect.result,
           ),
         ),
         { concurrency: 6 },
       ),
     );
-    expect(outcomes.filter((outcome) => outcome._tag === "Right")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome._tag === "Success")).toHaveLength(1);
     for (const outcome of outcomes) {
-      if (outcome._tag === "Left") {
-        expect(outcome.left).toBeInstanceOf(ConversationChangedError);
+      if (outcome._tag === "Failure") {
+        expect(outcome.failure).toBeInstanceOf(ConversationChangedError);
       }
     }
 

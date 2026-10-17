@@ -75,9 +75,7 @@ export function draftGoalCommand(options: DraftGoalOptions) {
     }
     reportProposal(options.json, proposal);
   }).pipe(
-    Effect.catchAll((error) =>
-      Effect.sync(() => failEnvelope(options.json, toError(error).message)),
-    ),
+    Effect.catch((error) => Effect.sync(() => failEnvelope(options.json, toError(error).message))),
   );
 }
 
@@ -152,9 +150,7 @@ export function startGoalCommand(options: StartGoalOptions) {
       `${describePlan(proposal.plan)}\n\n${describeDaemonStart(`Goal ${activation.goal.name ?? activation.goal.goalId}`, daemon)}`,
     );
   }).pipe(
-    Effect.catchAll((error) =>
-      Effect.sync(() => failEnvelope(options.json, toError(error).message)),
-    ),
+    Effect.catch((error) => Effect.sync(() => failEnvelope(options.json, toError(error).message))),
     Effect.provide(makeFileGoalStoreLayer()),
   );
 }

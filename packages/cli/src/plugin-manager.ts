@@ -380,13 +380,13 @@ export function applyPluginChanges(
         change,
         scope,
         agentId,
-      ).pipe(Effect.either);
-      if (outcome._tag === "Left") {
-        failed.push(`${id}: ${toError(outcome.left).message}`);
-      } else if (outcome.right === "declined") {
+      ).pipe(Effect.result);
+      if (outcome._tag === "Failure") {
+        failed.push(`${id}: ${toError(outcome.failure).message}`);
+      } else if (outcome.success === "declined") {
         declined.push(id);
       } else {
-        if (typeof outcome.right === "object" && outcome.right.restartRequired) {
+        if (typeof outcome.success === "object" && outcome.success.restartRequired) {
           restartRequired = true;
         }
         applied.push({ id, state: scopeLabel(scope, change.enable) });

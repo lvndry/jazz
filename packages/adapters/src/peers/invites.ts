@@ -126,7 +126,7 @@ export function listInvites(): Effect.Effect<readonly PeerInviteRecord[], never>
       return records.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     },
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.succeed([] as readonly PeerInviteRecord[])));
+  }).pipe(Effect.catch(() => Effect.succeed([] as readonly PeerInviteRecord[])));
 }
 
 export function createInvite(input: CreateInviteInput): Effect.Effect<CreatedInvite, Error> {

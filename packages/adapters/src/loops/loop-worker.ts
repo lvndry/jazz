@@ -55,7 +55,7 @@ function writeLoop(loop: LoopRecord, next: LoopRecordInput, purpose: string) {
     const logger = yield* LoggerServiceTag;
     return yield* loops.compareAndSet(loop.loopId, loop.version, next).pipe(
       Effect.map((saved): LoopRecord | undefined => saved),
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         logger
           .warn(`Could not update loop to ${purpose}`, {
             loopId: loop.loopId,
@@ -90,8 +90,8 @@ function spendOf(runId: string) {
 function runLoop(loop: LoopRecord, runId: string) {
   return Effect.gen(function* () {
     const agents = yield* AgentServiceTag;
-    const agent = yield* agents.getAgent(loop.agentId).pipe(Effect.either);
-    if (agent._tag === "Left") {
+    const agent = yield* agents.getAgent(loop.agentId).pipe(Effect.result);
+    if (agent._tag === "Failure") {
       yield* settle(loop.loopId, runId, {
         outcome: "failed",
         text: `Its agent ${loop.agentId} no longer exists.`,
@@ -101,8 +101,8 @@ function runLoop(loop: LoopRecord, runId: string) {
     const fileSystemContext = yield* FileSystemContextServiceTag;
     const placed = yield* fileSystemContext
       .setCwd({ agentId: loop.agentId, conversationId: loop.conversationId }, loop.workingDirectory)
-      .pipe(Effect.either);
-    if (placed._tag === "Left") {
+      .pipe(Effect.result);
+    if (placed._tag === "Failure") {
       yield* settle(loop.loopId, runId, {
         outcome: "failed",
         text: `Its directory, ${loop.workingDirectory}, is gone or unreadable.`,
@@ -126,7 +126,7 @@ function runLoop(loop: LoopRecord, runId: string) {
         const prior = yield* loadConversationOrNull(loop.agentId, loop.conversationId);
         const outcome = yield* runToOutcome(
           AgentRunner.run({
-            agent: agent.right,
+            agent: agent.success,
             runId,
             userInput: loopRunPrompt(loop),
             conversationId: loop.conversationId,
@@ -177,7 +177,7 @@ function finishLoopRun(
       fallbackTitle: `loop: ${loop.name}`,
       messages,
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         logger.warn("Could not save the loop transcript", {
           loopId: loop.loopId,
           error: error.message,
@@ -245,7 +245,7 @@ function settleClaim(loop: LoopRecord) {
             cause: "interrupted",
             error: "the process running it stopped",
           })
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
         yield* settle(loop.loopId, claim.runId, { outcome: "interrupted", spend });
         return;
       case "completed":
@@ -275,7 +275,7 @@ function dropParkedRun(loop: LoopRecord, runId: string) {
     const runs = yield* RunStoreTag;
     yield* runs
       .transition(runId, { kind: "canceled", at: "parked" })
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(Effect.catch(() => Effect.void));
     yield* settle(loop.loopId, runId, { outcome: "canceled", ...(yield* spendOrNothing(runId)) });
   });
 }
@@ -339,7 +339,7 @@ export function runDueLoops(options: { readonly startNew?: boolean } = {}) {
   return Effect.gen(function* () {
     const loops = yield* LoopStoreTag;
     const logger = yield* LoggerServiceTag;
-    const started: Fiber.RuntimeFiber<void, never>[] = [];
+    const started: Fiber.Fiber<void, never>[] = [];
     const candidates = yield* loops.list({
       ownerInstanceId: getJazzInstanceId(),
       states: ["active"],
@@ -379,13 +379,13 @@ export function runDueLoops(options: { readonly startNew?: boolean } = {}) {
       }
       started.push(
         yield* inFlight(runId, runLoop(claimed, runId)).pipe(
-          Effect.catchAllCause((cause) =>
+          Effect.catchCause((cause) =>
             logger.warn("Loop run failed to settle", {
               loopId: loop.loopId,
               error: Cause.pretty(cause),
             }),
           ),
-          Effect.forkDaemon,
+          Effect.forkDetach,
         ),
       );
     }

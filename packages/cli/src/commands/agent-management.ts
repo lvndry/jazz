@@ -183,7 +183,7 @@ function listAgentsThatGenerate(
     const capable = yield* Effect.tryPromise({
       try: () => findAgentsThatGenerate(agents, modality),
       catch: (error) => error,
-    }).pipe(Effect.catchAll(() => Effect.succeed([])));
+    }).pipe(Effect.catch(() => Effect.succeed([])));
 
     if (capable.length > 0) {
       yield* terminal.log(`Agents that can generate ${modality}:\n`);
@@ -211,7 +211,7 @@ function listAgentsThatGenerate(
     const suggestions = yield* Effect.tryPromise({
       try: () => suggestModelsForModality(modality, providers),
       catch: (error) => error,
-    }).pipe(Effect.catchAll(() => Effect.succeed([])));
+    }).pipe(Effect.catch(() => Effect.succeed([])));
 
     if (suggestions.length === 0) {
       yield* terminal.log(
@@ -277,7 +277,7 @@ export function listAgentsCommand(
     const jazzState = yield* JazzStateServiceTag;
     const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
       Effect.map((value) => (typeof value === "string" ? value : null)),
-      Effect.catchAll(() => Effect.succeed(null)),
+      Effect.catch(() => Effect.succeed(null)),
     );
     const agents = sortAgents(agentsUnsorted, lastUsedAgentId);
 

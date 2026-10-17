@@ -4,7 +4,6 @@ import fs from "node:fs";
 import * as nodeFs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
@@ -13,7 +12,7 @@ import {
   type MCPServerConfigStdio,
 } from "@jazz/core/interfaces/mcp-server";
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import {
   createConfigLayer,
   loadAgentsMcpServers,
@@ -307,7 +306,7 @@ describe("MCP env and header secrets", () => {
             )
           : removeAgentsMcpServer(fileSystem, "svc", "file");
       try {
-        expect((await Effect.runPromise(Effect.either(change)))._tag).toBe("Left");
+        expect((await Effect.runPromise(Effect.result(change)))._tag).toBe("Failure");
       } finally {
         rename.mockRestore();
       }

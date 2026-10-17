@@ -112,7 +112,7 @@ function runCommand(
   args: readonly string[],
   stdin?: string,
 ): Effect.Effect<CommandResult, never> {
-  return Effect.async<CommandResult, never>((resume) => {
+  return Effect.callback<CommandResult, never>((resume) => {
     let settled = false;
     const finish = (result: CommandResult): void => {
       if (settled) return;
@@ -485,7 +485,7 @@ export function keyringSet(
           const secrets = await readSecretsFileForWrite();
           return writeSecretsFile({ ...secrets, [account]: secret });
         }),
-      ).pipe(Effect.catchAll(() => Effect.succeed(false)));
+      ).pipe(Effect.catch(() => Effect.succeed(false)));
     }
     yield* adoptLegacyEntries(backend);
     return yield* osKeyringSet(runCommand, backend, keyringServiceName(), account, secret);
@@ -507,7 +507,7 @@ export function keyringDelete(
           const { [account]: _removed, ...rest } = secrets;
           await writeSecretsFile(rest);
         }),
-      ).pipe(Effect.catchAll(() => Effect.void));
+      ).pipe(Effect.catch(() => Effect.void));
       return;
     }
     yield* adoptLegacyEntries(backend);

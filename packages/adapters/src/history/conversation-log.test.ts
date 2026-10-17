@@ -2,13 +2,12 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { presentationEntrySchema } from "@jazz/core/types/presentation-content-schema";
 import { stateFileMode } from "@jazz/core/utils/private-mode";
 import { describe, test, expect, beforeEach, afterEach, setSystemTime } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import {
   collapseSupersededUiEvents,
   ConversationChangedError,
@@ -225,10 +224,12 @@ describe("recordConversationTranscript", () => {
       recordConversationTranscript(
         { ...record([...first, userMessage("from a stale copy")]), basedOn: afterFirst },
         tmpDir,
-      ).pipe(Effect.either),
+      ).pipe(Effect.result),
     );
 
-    expect(stale._tag === "Left" && stale.left instanceof ConversationChangedError).toBe(true);
+    expect(stale._tag === "Failure" && stale.failure instanceof ConversationChangedError).toBe(
+      true,
+    );
     expect(fs.readFileSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir), "utf8")).toBe(
       before,
     );
@@ -245,11 +246,11 @@ describe("recordConversationTranscript", () => {
 
     for (const unread of [[], [userMessage("a different conversation")]]) {
       const refused = await runEffect(
-        recordConversationTranscript(record(unread), tmpDir).pipe(Effect.either),
+        recordConversationTranscript(record(unread), tmpDir).pipe(Effect.result),
       );
-      expect(refused._tag === "Left" && refused.left instanceof ConversationChangedError).toBe(
-        true,
-      );
+      expect(
+        refused._tag === "Failure" && refused.failure instanceof ConversationChangedError,
+      ).toBe(true);
     }
     expect(fs.readFileSync(conversationLogPath(AGENT_ID, CONVERSATION_ID, tmpDir), "utf8")).toBe(
       before,
@@ -287,10 +288,12 @@ describe("recordConversationTranscript", () => {
       recordConversationTranscript(
         { ...record([...first, assistantMessage("from a goal cycle")]), basedOn: shared },
         tmpDir,
-      ).pipe(Effect.either),
+      ).pipe(Effect.result),
     );
 
-    expect(second._tag === "Left" && second.left instanceof ConversationChangedError).toBe(true);
+    expect(second._tag === "Failure" && second.failure instanceof ConversationChangedError).toBe(
+      true,
+    );
     const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(session?.messages.map((message) => message.content)).toEqual(["hi", "from the chat"]);
   });
@@ -1086,13 +1089,13 @@ describe("conversation log privacy and versions", () => {
     fs.writeFileSync(logPath, newer);
 
     const read = await runEffect(
-      readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir).pipe(Effect.either),
+      readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir).pipe(Effect.result),
     );
-    expect(read._tag).toBe("Left");
+    expect(read._tag).toBe("Failure");
     const append = await runEffect(
-      recordConversationTranscript(record([userMessage("hi")]), tmpDir).pipe(Effect.either),
+      recordConversationTranscript(record([userMessage("hi")]), tmpDir).pipe(Effect.result),
     );
-    expect(append._tag).toBe("Left");
+    expect(append._tag).toBe("Failure");
     expect(fs.readFileSync(logPath, "utf8")).toBe(newer);
   });
 });

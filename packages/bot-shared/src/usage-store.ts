@@ -74,7 +74,7 @@ export async function recordUsage(
       },
       jazzHome,
     ).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.sync(() => console.error(`Could not record run usage: ${error.message}`)),
       ),
     ),

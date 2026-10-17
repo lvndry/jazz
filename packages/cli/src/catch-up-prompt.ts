@@ -66,7 +66,7 @@ export function promptInteractiveCatchUp() {
     }
 
     const candidates = yield* getCatchUpCandidates().pipe(
-      Effect.catchAll(() => Effect.succeed([] as readonly CatchUpCandidate[])),
+      Effect.catch(() => Effect.succeed([] as readonly CatchUpCandidate[])),
     );
 
     if (candidates.length === 0) {
@@ -106,7 +106,7 @@ export function promptInteractiveCatchUp() {
           completedAt: skippedAt,
           status: "skipped",
           triggeredBy: "scheduled",
-        }).pipe(Effect.catchAll(() => Effect.void));
+        }).pipe(Effect.catch(() => Effect.void));
       }
 
       yield* terminal.log("");
@@ -150,7 +150,7 @@ export function promptInteractiveCatchUp() {
     const claims = yield* claimWorkflowRuns(entriesToRun);
 
     // Quiet presentation, so "pilot is thinking" and tool output don't overwrite the main UI.
-    yield* Effect.fork(
+    yield* Effect.forkChild(
       Effect.forEach(claims, runClaimedWorkflow, { discard: true }).pipe(
         Effect.provide(QuietPresentationServiceLayer),
         Effect.tap(() =>
@@ -160,5 +160,5 @@ export function promptInteractiveCatchUp() {
         ),
       ),
     );
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.catch(() => Effect.void));
 }

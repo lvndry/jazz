@@ -1,10 +1,9 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { recordClaimSentences } from "./memory-source-ledger";
 
 const KEY_A = "a".repeat(64);

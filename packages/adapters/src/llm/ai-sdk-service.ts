@@ -110,7 +110,7 @@ import {
   type TypedToolCall,
   zodSchema,
 } from "ai";
-import { Chunk, Duration, Effect, Layer, Option, Stream } from "effect";
+import { Cause, Chunk, Duration, Effect, Exit, Layer, Option, Queue, Stream } from "effect";
 import { createOllama } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { createMinimax } from "vercel-minimax-ai-provider";
@@ -203,6 +203,31 @@ const STREAM_TEXT_PROMISE_FIELDS = [
   "experimental_output",
   "output",
 ] as const;
+
+/**
+ * Feeds one `StreamProcessor` emission into the stream's queue: a chunk is offered,
+ * `Option.none()` ends the stream and `Option.some(error)` fails it.
+ */
+function emitToQueue(
+  queue: Queue.Queue<StreamEvent, LLMError | Cause.Done>,
+  effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
+): void {
+  const exit = Effect.runSyncExit(effect);
+  if (Exit.isSuccess(exit)) {
+    Queue.offerAllUnsafe(queue, Chunk.toArray(exit.value));
+    return;
+  }
+  const failure = Cause.findErrorOption(exit.cause);
+  if (Option.isNone(failure)) {
+    Queue.failCauseUnsafe(queue, Cause.die(Cause.squash(exit.cause)));
+    return;
+  }
+  if (Option.isSome(failure.value)) {
+    Queue.failCauseUnsafe(queue, Cause.fail(failure.value.value));
+    return;
+  }
+  Queue.endUnsafe(queue);
+}
 
 function suppressStreamTextUnhandledRejections(result: StreamTextResult): void {
   const record = result as unknown as Record<string, unknown>;
@@ -1852,7 +1877,7 @@ class AISDKService implements LLMService {
         Effect.timeout(
           Duration.millis(resolveStreamIdleTimeoutMs(this.config.llmConfig?.streamIdleTimeoutMs)),
         ),
-        Effect.catchAll(() => Effect.succeed([] as readonly ModelInfo[])),
+        Effect.catch(() => Effect.succeed([] as readonly ModelInfo[])),
       ),
       signal === undefined ? undefined : { signal },
     ).catch((): readonly ModelInfo[] => []);
@@ -2463,179 +2488,175 @@ class AISDKService implements LLMService {
 
           let processorRef: StreamProcessor | null = null;
           let streamSettled = false;
-          const stream = Stream.async<StreamEvent, LLMError>(
-            (
-              emit: (
-                effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
-              ) => void,
-            ) => {
-              void (async (): Promise<void> => {
-                let streamTextResult: StreamTextResult | undefined;
-                try {
-                  const streamTextStart = Date.now();
+          const stream = Stream.callback<StreamEvent, LLMError>((queue) => {
+            const emit = (
+              effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
+            ): void => {
+              emitToQueue(queue, effect);
+            };
+            void (async (): Promise<void> => {
+              let streamTextResult: StreamTextResult | undefined;
+              try {
+                const streamTextStart = Date.now();
+                Effect.runFork(
+                  this.logger.debug(
+                    `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
+                  ),
+                );
+
+                const reasoningParser = selectParser({
+                  provider: providerName,
+                  modelId: options.model,
+                  ...(modelInfo?.chatTemplate ? { chatTemplate: modelInfo.chatTemplate } : {}),
+                  ...(modelInfo?.capabilities ? { capabilities: modelInfo.capabilities } : {}),
+                });
+                const supportsTools = modelTakesTools(options.model, resolvedCapabilities);
+                const {
+                  tools: requestedTools,
+                  toolChoice: requestedToolChoice,
+                  toolsDisabled,
+                } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
+
+                const prepared = this.prepareTools(providerName, requestedTools);
+                const tools = prepared?.tools;
+
+                if (toolsDisabled) {
                   Effect.runFork(
-                    this.logger.debug(
-                      `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
-                    ),
+                    this.logger.info("Tools skipped because model does not support tools", {
+                      provider: providerName,
+                    }),
                   );
+                }
 
-                  const reasoningParser = selectParser({
-                    provider: providerName,
-                    modelId: options.model,
-                    ...(modelInfo?.chatTemplate ? { chatTemplate: modelInfo.chatTemplate } : {}),
-                    ...(modelInfo?.capabilities ? { capabilities: modelInfo.capabilities } : {}),
-                  });
-                  const supportsTools = modelTakesTools(options.model, resolvedCapabilities);
-                  const {
-                    tools: requestedTools,
-                    toolChoice: requestedToolChoice,
-                    toolsDisabled,
-                  } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
-
-                  const prepared = this.prepareTools(providerName, requestedTools);
-                  const tools = prepared?.tools;
-
-                  if (toolsDisabled) {
+                streamTextResult = streamText({
+                  model,
+                  messages: coreMessages,
+                  allowSystemInMessages: true,
+                  maxRetries: AI_SDK_MAX_RETRIES,
+                  ...(typeof options.temperature === "number" &&
+                  modelInfo?.supportsTemperature !== false
+                    ? { temperature: options.temperature }
+                    : {}),
+                  ...(tools ? { tools } : {}),
+                  ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
+                  ...(providerOptions ? { providerOptions } : {}),
+                  abortSignal: abortController.signal,
+                  stopWhen: SDK_STOP_CONDITIONS,
+                  // The stream carries the error to the processor, which reports and retries
+                  // it; without this the SDK also dumps the raw error object to stderr.
+                  onError: ({ error }) => {
                     Effect.runFork(
-                      this.logger.info("Tools skipped because model does not support tools", {
-                        provider: providerName,
-                      }),
-                    );
-                  }
-
-                  streamTextResult = streamText({
-                    model,
-                    messages: coreMessages,
-                    allowSystemInMessages: true,
-                    maxRetries: AI_SDK_MAX_RETRIES,
-                    ...(typeof options.temperature === "number" &&
-                    modelInfo?.supportsTemperature !== false
-                      ? { temperature: options.temperature }
-                      : {}),
-                    ...(tools ? { tools } : {}),
-                    ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
-                    ...(providerOptions ? { providerOptions } : {}),
-                    abortSignal: abortController.signal,
-                    stopWhen: SDK_STOP_CONDITIONS,
-                    // The stream carries the error to the processor, which reports and retries
-                    // it; without this the SDK also dumps the raw error object to stderr.
-                    onError: ({ error }) => {
-                      Effect.runFork(
-                        this.logger.debug(
-                          "Provider stream error",
-                          safeLLMErrorMetadata(error, providerName, "stream"),
-                        ),
-                      );
-                    },
-                  });
-                  const result = streamTextResult;
-
-                  Effect.runFork(
-                    this.logger.debug(
-                      `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
-                    ),
-                  );
-
-                  const providerNativeToolNames = prepared?.providerNativeToolNames;
-
-                  const processor = new StreamProcessor(
-                    {
-                      providerName,
-                      modelName: options.model,
-                      streamIdleTimeoutMs: this.config.llmConfig?.streamIdleTimeoutMs,
-                      hasReasoningEnabled:
-                        options.reasoning !== undefined && options.reasoning !== "disable",
-                      startTime: Date.now(),
-                      toolsDisabled,
-                      ...(typeof options.num_ctx === "number" &&
-                        options.num_ctx > 0 && { pinnedContextWindow: options.num_ctx }),
-                      ...(providerNativeToolNames && { providerNativeToolNames }),
-                      ...(reasoningParser ? { reasoningParser } : {}),
-                      ...(prepared
-                        ? {
-                            toolDefinitionChars: prepared.toolDefinitionChars,
-                            toolDefinitionCount: Object.keys(prepared.tools).length,
-                          }
-                        : {}),
-                    },
-                    emit,
-                    this.logger,
-                  );
-                  processorRef = processor;
-
-                  // Process the stream and get final response
-                  const finalResponse = await processor.process(result);
-
-                  // `files` resolves once the stream finishes, so media a model emitted mid-answer
-                  // is saved after the text has already been rendered. Awaited here rather than in
-                  // the processor so streaming stays purely about text deltas.
-                  const files = await Promise.race([
-                    result.files,
-                    new Promise<undefined>((resolve) =>
-                      setTimeout(() => resolve(undefined), 5_000),
-                    ),
-                  ]);
-                  if (files === undefined) {
-                    Effect.runFork(
-                      this.logger.warn(
-                        "[LLM] Stream finished but `files` never resolved; skipping generated-file capture",
-                        { provider: providerName, model: options.model },
+                      this.logger.debug(
+                        "Provider stream error",
+                        safeLLMErrorMetadata(error, providerName, "stream"),
                       ),
                     );
-                  }
-                  const streamedArtifacts = await saveModelGeneratedFiles(
-                    files ?? [],
-                    options.model,
-                  );
+                  },
+                });
+                const result = streamTextResult;
 
-                  // Resolve deferred for consumers who just await response
-                  responseDeferred.resolve(
-                    streamedArtifacts.length > 0
-                      ? { ...finalResponse, artifacts: streamedArtifacts }
-                      : finalResponse,
-                  );
+                Effect.runFork(
+                  this.logger.debug(
+                    `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
+                  ),
+                );
 
-                  // Close the stream
-                  processor.close();
-                } catch (error) {
-                  // Suppress unhandled rejections on streamText DelayedPromise fields.
-                  // When the stream fails these all reject; we only consume fullStream,
-                  // so they'd otherwise surface as Bun/Node unhandled-rejection dumps.
-                  if (streamTextResult) {
-                    suppressStreamTextUnhandledRejections(streamTextResult);
-                  }
+                const providerNativeToolNames = prepared?.providerNativeToolNames;
 
-                  const llmError = convertToLLMError(error, providerName, attemptedUrl);
+                const processor = new StreamProcessor(
+                  {
+                    providerName,
+                    modelName: options.model,
+                    streamIdleTimeoutMs: this.config.llmConfig?.streamIdleTimeoutMs,
+                    hasReasoningEnabled:
+                      options.reasoning !== undefined && options.reasoning !== "disable",
+                    startTime: Date.now(),
+                    toolsDisabled,
+                    ...(typeof options.num_ctx === "number" &&
+                      options.num_ctx > 0 && { pinnedContextWindow: options.num_ctx }),
+                    ...(providerNativeToolNames && { providerNativeToolNames }),
+                    ...(reasoningParser ? { reasoningParser } : {}),
+                    ...(prepared
+                      ? {
+                          toolDefinitionChars: prepared.toolDefinitionChars,
+                          toolDefinitionCount: Object.keys(prepared.tools).length,
+                        }
+                      : {}),
+                  },
+                  emit,
+                  this.logger,
+                );
+                processorRef = processor;
+
+                // Process the stream and get final response
+                const finalResponse = await processor.process(result);
+
+                // `files` resolves once the stream finishes, so media a model emitted mid-answer
+                // is saved after the text has already been rendered. Awaited here rather than in
+                // the processor so streaming stays purely about text deltas.
+                const files = await Promise.race([
+                  result.files,
+                  new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5_000)),
+                ]);
+                if (files === undefined) {
                   Effect.runFork(
-                    this.logger.error(
-                      "LLM request failed",
-                      safeLLMErrorMetadata(error, providerName, llmError._tag),
+                    this.logger.warn(
+                      "[LLM] Stream finished but `files` never resolved; skipping generated-file capture",
+                      { provider: providerName, model: options.model },
                     ),
                   );
-
-                  void emit(Effect.fail(Option.some(llmError)));
-
-                  responseDeferred.reject(llmError);
-                } finally {
-                  streamSettled = true;
-                  if (processorRef && !abortController.signal.aborted) {
-                    processorRef.cancel();
-                  }
                 }
-              })();
+                const streamedArtifacts = await saveModelGeneratedFiles(files ?? [], options.model);
 
-              // Runs when the consumer stops pulling: an interrupt (Esc, `--timeout`,
-              // SIGTERM, an LLM wait timeout) aborts the provider request instead of leaving
-              // it streaming tokens nobody reads.
-              return Effect.sync(() => {
+                // Resolve deferred for consumers who just await response
+                responseDeferred.resolve(
+                  streamedArtifacts.length > 0
+                    ? { ...finalResponse, artifacts: streamedArtifacts }
+                    : finalResponse,
+                );
+
+                // Close the stream
+                processor.close();
+              } catch (error) {
+                // Suppress unhandled rejections on streamText DelayedPromise fields.
+                // When the stream fails these all reject; we only consume fullStream,
+                // so they'd otherwise surface as Bun/Node unhandled-rejection dumps.
+                if (streamTextResult) {
+                  suppressStreamTextUnhandledRejections(streamTextResult);
+                }
+
+                const llmError = convertToLLMError(error, providerName, attemptedUrl);
+                Effect.runFork(
+                  this.logger.error(
+                    "LLM request failed",
+                    safeLLMErrorMetadata(error, providerName, llmError._tag),
+                  ),
+                );
+
+                void emit(Effect.fail(Option.some(llmError)));
+
+                responseDeferred.reject(llmError);
+              } finally {
+                streamSettled = true;
+                if (processorRef && !abortController.signal.aborted) {
+                  processorRef.cancel();
+                }
+              }
+            })();
+
+            // Runs when the consumer stops pulling: an interrupt (Esc, `--timeout`,
+            // SIGTERM, an LLM wait timeout) aborts the provider request instead of leaving
+            // it streaming tokens nobody reads.
+            return Effect.addFinalizer(() =>
+              Effect.sync(() => {
                 if (streamSettled) {
                   return;
                 }
                 processorRef?.cancel();
                 abortController.abort();
-              });
-            },
-          );
+              }),
+            );
+          });
 
           return Effect.succeed({
             stream,

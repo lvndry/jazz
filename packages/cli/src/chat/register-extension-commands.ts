@@ -22,7 +22,7 @@ export function registerExtensionCommands(
       setSkillCommands(
         skills.map((skill) => ({ name: skill.name, description: getSkillIndexLine(skill) })),
       );
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catch(() => Effect.void));
 
     const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
     if (Option.isNone(runtimeOption)) {

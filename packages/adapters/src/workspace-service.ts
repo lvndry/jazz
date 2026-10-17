@@ -5,7 +5,6 @@
 
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import {
   DEFAULT_MAX_WORKSPACE_TOTAL_BYTES_PER_AGENT,
   MAX_WORKSPACE_FILE_BYTES,
@@ -34,7 +33,7 @@ import {
 } from "@jazz/core/utils/storage";
 import { findAllOccurrenceLineNumbers } from "@jazz/core/utils/string";
 import { resolveVirtualPath, type VirtualPathViolation } from "@jazz/core/utils/virtual-path";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 
 /** Raised for workspace quota and agent-scoping guardrail violations. */
 export class WorkspaceGuardrailViolation extends Error {}
@@ -63,13 +62,13 @@ function walkWorkspaceTree(
   return Effect.gen(function* () {
     const names = yield* fs
       .readDirectory(dir)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
 
     let totalBytes = 0;
     let fileCount = 0;
     for (const name of names) {
       const entryPath = path.join(dir, name);
-      const info = yield* fs.stat(entryPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      const info = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(null)));
       if (!info) continue;
       if (info.type === "Directory") {
         const nested = yield* walkWorkspaceTree(fs, entryPath);
@@ -92,13 +91,13 @@ function listDirectoryEntries(
   return Effect.gen(function* () {
     const names = yield* fs
       .readDirectory(dir)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const visible = names.filter((name) => !name.startsWith(".")).sort();
 
     const entries: WorkspaceDirectoryEntry[] = [];
     for (const name of visible) {
       const entryPath = path.join(dir, name);
-      const info = yield* fs.stat(entryPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      const info = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(null)));
       if (!info) continue;
 
       if (info.type === "Directory") {
@@ -148,7 +147,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
       const rawRoot = path.join(baseWorkspaceDirectory, agentId);
       yield* fs
         .makeDirectory(rawRoot, { recursive: true, mode: stateDirectoryMode() })
-        .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
+        .pipe(Effect.catch((error) => Effect.fail(toError(error))));
       return yield* Effect.tryPromise({
         try: () => nodeFs.realpath(rawRoot),
         catch: toError,
@@ -174,7 +173,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
         const root = yield* this.ensureAgentRoot(agentId);
         const target = yield* resolveWorkspacePath(root, virtualPath);
 
-        const info = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const info = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(null)));
         if (!info) {
           return {
             kind: "not_found",
@@ -193,7 +192,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
         const content = yield* fs
           .readFileString(target)
-          .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
+          .pipe(Effect.catch((error) => Effect.fail(toError(error))));
         const lines = content.split("\n");
         const totalLines = lines.length;
 
@@ -250,7 +249,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           const alreadyExists = yield* fs
             .exists(target)
-            .pipe(Effect.catchAll(() => Effect.succeed(false)));
+            .pipe(Effect.catch(() => Effect.succeed(false)));
           if (alreadyExists) {
             return {
               success: false,
@@ -293,7 +292,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
           const root = yield* this.ensureAgentRoot(agentId);
           const target = yield* resolveWorkspacePath(root, virtualPath);
 
-          const info = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(null)));
+          const info = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(null)));
           if (!info || info.type === "Directory") {
             return {
               success: false,
@@ -303,7 +302,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           const content = yield* fs
             .readFileString(target)
-            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
+            .pipe(Effect.catch((error) => Effect.fail(toError(error))));
 
           const occurrenceLines = findAllOccurrenceLineNumbers(content, oldStr);
           if (occurrenceLines.length === 0) {
@@ -352,7 +351,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
           const root = yield* this.ensureAgentRoot(agentId);
           const target = yield* resolveWorkspacePath(root, virtualPath);
 
-          const info = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(null)));
+          const info = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(null)));
           if (!info || info.type === "Directory") {
             return {
               success: false,
@@ -362,7 +361,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           const content = yield* fs
             .readFileString(target)
-            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
+            .pipe(Effect.catch((error) => Effect.fail(toError(error))));
           const lines = content.split("\n");
 
           if (insertLine < 0 || insertLine > lines.length) {
@@ -414,9 +413,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
             } satisfies WorkspaceMutationOutcome;
           }
 
-          const exists = yield* fs
-            .exists(target)
-            .pipe(Effect.catchAll(() => Effect.succeed(false)));
+          const exists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(false)));
           if (!exists) {
             return {
               success: false,
@@ -426,7 +423,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           yield* fs
             .remove(target, { recursive: true })
-            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
+            .pipe(Effect.catch((error) => Effect.fail(toError(error))));
 
           return {
             success: true,
@@ -455,7 +452,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           const sourceExists = yield* fs
             .exists(source)
-            .pipe(Effect.catchAll(() => Effect.succeed(false)));
+            .pipe(Effect.catch(() => Effect.succeed(false)));
           if (!sourceExists) {
             return {
               success: false,
@@ -465,7 +462,7 @@ export class WorkspaceServiceImpl implements WorkspaceService {
 
           const destinationExists = yield* fs
             .exists(destination)
-            .pipe(Effect.catchAll(() => Effect.succeed(false)));
+            .pipe(Effect.catch(() => Effect.succeed(false)));
           if (destinationExists) {
             return {
               success: false,
@@ -478,10 +475,10 @@ export class WorkspaceServiceImpl implements WorkspaceService {
               recursive: true,
               mode: stateDirectoryMode(),
             })
-            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
+            .pipe(Effect.catch((error) => Effect.fail(toError(error))));
           yield* fs
             .rename(source, destination)
-            .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
+            .pipe(Effect.catch((error) => Effect.fail(toError(error))));
 
           return {
             success: true,

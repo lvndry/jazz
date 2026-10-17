@@ -61,7 +61,7 @@ export function record(entry: LedgerEntry): Effect.Effect<void, never> {
       });
     },
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.catch(() => Effect.void));
 }
 
 export function createPeerLedgerServiceLayer(): Layer.Layer<PeerLedgerService> {
@@ -127,7 +127,7 @@ export function read(filter?: {
       entries.reverse();
       return filter?.limit === undefined ? entries : entries.slice(0, filter.limit);
     }),
-    Effect.catchAll(() => Effect.succeed([] as readonly LedgerEntry[])),
+    Effect.catch(() => Effect.succeed([] as readonly LedgerEntry[])),
   );
 }
 
@@ -157,7 +157,7 @@ export function readLastSeenInboundAt(): Effect.Effect<string | undefined, never
       const at = (parsed as Record<string, unknown>)["at"];
       return typeof at === "string" ? at : undefined;
     }),
-    Effect.catchAll(() => Effect.succeed(undefined)),
+    Effect.catch(() => Effect.succeed(undefined)),
   );
 }
 
@@ -171,5 +171,5 @@ export function recordLastSeenInboundAt(at: string): Effect.Effect<void, never> 
       });
     },
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.catch(() => Effect.void));
 }

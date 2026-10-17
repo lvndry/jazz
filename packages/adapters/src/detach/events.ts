@@ -269,7 +269,7 @@ export function recordingPresentationService(
         if (property === "handleEvent") {
           return (event: StreamEvent) =>
             Effect.sync(() => recorder.recordStream(event)).pipe(
-              Effect.zipRight(target.handleEvent(event)),
+              Effect.andThen(target.handleEvent(event)),
             );
         }
         const value: unknown = Reflect.get(target, property, target);

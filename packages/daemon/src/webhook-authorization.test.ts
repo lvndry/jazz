@@ -50,7 +50,7 @@ const HOOK: WebhookConfig = {
   promptTemplate: "Process {{payload}}",
 };
 
-type ObservedRun = Effect.Effect.Success<ReturnType<typeof webhookRunOptions>>;
+type ObservedRun = Effect.Success<ReturnType<typeof webhookRunOptions>>;
 
 /** The run one fire of this webhook would ask the runner for. */
 function runFor(webhook: WebhookConfig, payload = "{}"): Promise<ObservedRun> {

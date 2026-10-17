@@ -16,7 +16,7 @@ import {
 } from "@jazz/core/types/errors";
 import { type Agent, type AgentConfig } from "@jazz/core/types/index";
 import { describe, expect, it, mock } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Cause, Effect, Layer, Option } from "effect";
 import { AgentServiceImpl, createAgentServiceLayer } from "./agent-service";
 import { createFileStorageLayer } from "./storage/file";
 
@@ -54,9 +54,10 @@ describe("AgentService", () => {
 
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        expect(result.cause._tag).toBe("Fail");
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(ValidationError);
+        expect(result.cause.reasons.map((reason) => reason._tag)).toEqual(["Fail"]);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          ValidationError,
+        );
       }
     });
 
@@ -71,9 +72,10 @@ describe("AgentService", () => {
 
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        expect(result.cause._tag).toBe("Fail");
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentAlreadyExistsError);
+        expect(result.cause.reasons.map((reason) => reason._tag)).toEqual(["Fail"]);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentAlreadyExistsError,
+        );
       }
     });
   });
@@ -117,8 +119,9 @@ describe("AgentService", () => {
 
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentAlreadyExistsError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentAlreadyExistsError,
+        );
       }
     });
   });
@@ -147,8 +150,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -161,8 +165,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -175,8 +180,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -189,8 +195,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
   });
@@ -247,8 +254,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -262,8 +270,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -283,8 +292,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -304,8 +314,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -331,8 +342,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -352,8 +364,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -373,8 +386,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -395,8 +409,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -416,8 +431,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -438,8 +454,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -459,8 +476,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -480,8 +498,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -501,8 +520,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -522,8 +542,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -543,8 +564,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
   });
@@ -584,8 +606,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
 
@@ -597,8 +620,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     });
   });
@@ -630,8 +654,9 @@ describe("AgentService", () => {
         );
         expect(result._tag).toBe("Failure");
         if (result._tag === "Failure") {
-          // @ts-expect-error - accessing error
-          expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+          expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+            AgentConfigurationError,
+          );
         }
       },
     );
@@ -678,8 +703,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        const error = result.cause.error as AgentConfigurationError;
+        const error = Option.getOrUndefined(
+          Cause.findErrorOption(result.cause),
+        ) as AgentConfigurationError;
         expect(error.field).toBe("config.companions.smell");
       }
     });
@@ -693,8 +719,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        const error = result.cause.error as AgentConfigurationError;
+        const error = Option.getOrUndefined(
+          Cause.findErrorOption(result.cause),
+        ) as AgentConfigurationError;
         expect(error.field).toBe("config.companions.analyze:image");
       }
     });
@@ -710,8 +737,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(service.validateAgentConfig(config));
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     };
 
@@ -768,8 +796,9 @@ describe("AgentService", () => {
       const result = await Effect.runPromiseExit(service.validateAgentConfig(config));
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
-        // @ts-expect-error - accessing error
-        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+        expect(Option.getOrUndefined(Cause.findErrorOption(result.cause))).toBeInstanceOf(
+          AgentConfigurationError,
+        );
       }
     };
 

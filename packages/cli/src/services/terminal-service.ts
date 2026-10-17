@@ -97,7 +97,7 @@ export interface TerminalCapabilityService {
   readonly getRows: Effect.Effect<number>;
 }
 
-export const TerminalCapabilityServiceTag = Context.GenericTag<TerminalCapabilityService>(
+export const TerminalCapabilityServiceTag = Context.Service<TerminalCapabilityService>(
   "TerminalCapabilityService",
 );
 

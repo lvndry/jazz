@@ -226,9 +226,7 @@ function listCommand<Item, Requirements>(
     Effect.map((items) => {
       emitEnvelope(options.json, { ok: true, [key]: items }, format(items));
     }),
-    Effect.catchAll((error) =>
-      Effect.sync(() => failEnvelope(options.json, toError(error).message)),
-    ),
+    Effect.catch((error) => Effect.sync(() => failEnvelope(options.json, toError(error).message))),
   );
 }
 
@@ -286,9 +284,7 @@ function cancelCommand<Requirements>(
       return;
     }
     failEnvelope(false, `No ${noun} with id "${options.id}".`);
-  }).pipe(
-    Effect.catchAll((error) => Effect.sync(() => failEnvelope(false, toError(error).message))),
-  );
+  }).pipe(Effect.catch((error) => Effect.sync(() => failEnvelope(false, toError(error).message))));
 }
 
 export function cancelReminderCommand(options: CancelOptions) {

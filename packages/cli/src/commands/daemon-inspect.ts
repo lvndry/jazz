@@ -188,7 +188,7 @@ export function daemonStatusCommand(options: {
     ) =>
       collect.pipe(
         Effect.map((items) => items.length),
-        Effect.catchAll(() => Effect.succeed(0)),
+        Effect.catch(() => Effect.succeed(0)),
       );
     const report: DaemonStatusReport = {
       state,
@@ -259,7 +259,7 @@ export async function readLastLines(filePath: string, count: number): Promise<st
  * truncated, so reading starts again from its beginning.
  */
 function followFile(filePath: string, fromOffset: number): Effect.Effect<void> {
-  return Effect.async<void>((resume) => {
+  return Effect.callback<void>((resume) => {
     let offset = fromOffset;
     let reading = false;
     const poll = async (): Promise<void> => {

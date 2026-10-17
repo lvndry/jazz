@@ -61,9 +61,9 @@ function fakeConfigLayer() {
   let peers: readonly PeerConfig[] = [];
   let revision = 0;
   const service: AgentConfigService = {
-    get: () => Effect.dieMessage("not implemented"),
+    get: () => Effect.die(new Error("not implemented")),
     getOrElse: <A>(_key: string, fallback: A) => Effect.succeed(fallback),
-    getOrFail: () => Effect.dieMessage("not implemented"),
+    getOrFail: () => Effect.die(new Error("not implemented")),
     has: () => Effect.succeed(false),
     set: <A>(key: string, value: A) =>
       Effect.sync(() => {

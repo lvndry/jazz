@@ -58,7 +58,7 @@ export function holdConversationTurn(
       try: () => acquireFileLock(lockPath, { maxWaitMs: 0, timeoutError: () => new LeaseHeld() }),
       catch: (error) => error,
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         error instanceof LeaseHeld ? Effect.succeed(null) : Effect.die(error),
       ),
     ),
@@ -94,6 +94,6 @@ export function withConversationTurn<A, E, R>(
   options: ConversationTurnOptions = {},
 ): Effect.Effect<A, E | ConversationBusyError, Exclude<R, Scope.Scope>> {
   return Effect.scoped(
-    Effect.zipRight(holdConversationTurn(agentId, conversationId, options), turn),
+    Effect.andThen(holdConversationTurn(agentId, conversationId, options), turn),
   );
 }

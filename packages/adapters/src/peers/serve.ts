@@ -156,23 +156,23 @@ export function servePeerRequest(request: ServePeerRequest) {
       remoteCaller: { door: "peer", name: request.peer.name },
       ingestUserInputPaths: false,
       ...runBudgetOptions(request.peer.budget),
-    }).pipe(Effect.either);
+    }).pipe(Effect.result);
 
-    if (response._tag === "Right") {
+    if (response._tag === "Success") {
       // A clarifying question, not a real answer: `request_clarification` short-circuits what
       // would otherwise be a normal answer, so its presence takes priority over whatever text
       // the model also produced this turn.
-      const clarification = extractClarificationQuestion(response.right.toolResults);
+      const clarification = extractClarificationQuestion(response.success.toolResults);
       if (clarification !== undefined) {
         yield* ledger("parked", { reason: clarification });
         return { kind: "parked", question: clarification } satisfies ServePeerOutcome;
       }
 
-      yield* ledger("answered", { answer: response.right.content });
-      return { kind: "answered", answer: response.right.content } satisfies ServePeerOutcome;
+      yield* ledger("answered", { answer: response.success.content });
+      return { kind: "answered", answer: response.success.content } satisfies ServePeerOutcome;
     }
 
-    const error: unknown = response.left;
+    const error: unknown = response.failure;
     const reason = toError(error).message;
     yield* ledger("refused", { reason });
     return { kind: "refused", reason: "could not answer" } satisfies ServePeerOutcome;

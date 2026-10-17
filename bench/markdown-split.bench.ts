@@ -29,7 +29,6 @@ import {
   MAX_PENDING_TAIL,
 } from "../packages/cli/src/presentation/markdown-split";
 import { createClassicProjection } from "../packages/cli/src/ui/adapters/terminal-output-adapter";
-
 import { appendDocumentStream } from "../packages/cli/src/ui/document";
 import type { PresentationDocument } from "../packages/core/src/types/presentation-content";
 

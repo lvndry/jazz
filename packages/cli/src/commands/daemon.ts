@@ -89,7 +89,7 @@ import {
   type ProvisionDaemonTokenResult,
 } from "@jazz/daemon/token";
 import { runDueTriggers } from "@jazz/daemon/trigger-runner";
-import { Effect, Runtime } from "effect";
+import { Effect } from "effect";
 import {
   clearDaemonPid,
   stopDaemonProcess,
@@ -299,7 +299,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
               token,
               invocation,
             }).pipe(
-              Effect.catchAll((error) =>
+              Effect.catch((error) =>
                 Effect.gen(function* () {
                   yield* terminal.error(error.message);
                   return undefined;
@@ -344,7 +344,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
     const scheduler = yield* SchedulerServiceTag;
     const runInProcessWorkflows = scheduler.getSchedulerType() === "in-process";
     yield* markInterruptedRuns().pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         logger.warn("Could not mark interrupted workflow runs", { error: error.message }),
       ),
     );
@@ -354,11 +354,11 @@ export function daemonCommand(options: DaemonCommandOptions) {
     // context and fail on the first service the runner asks for, which is exactly what it
     // did — with the unit tests passing throughout, because they inject a store directly
     // and never exercise the real layer.
-    const runtime = yield* Effect.runtime<DaemonRequirements>();
+    const daemonContext = yield* Effect.context<DaemonRequirements>();
 
-    yield* Effect.async<void, never>((resume) => {
+    yield* Effect.callback<void, never>((resume) => {
       const run = <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
-        Runtime.runPromise(runtime)(effect as Effect.Effect<A, never, DaemonRequirements>);
+        Effect.runPromiseWith(daemonContext)(effect as Effect.Effect<A, never, DaemonRequirements>);
 
       /**
        * Read live rather than once at startup.
@@ -483,26 +483,20 @@ export function daemonCommand(options: DaemonCommandOptions) {
         void run(
           Effect.gen(function* () {
             const gate = yield* daemonGate().pipe(
-              Effect.catchAll(() => Effect.succeed({ kind: "open" } as const)),
+              Effect.catch(() => Effect.succeed({ kind: "open" } as const)),
             );
             const startNew = gate.kind === "open";
             yield* Effect.all(
               [
                 runDueTriggers({ runWorkflows: workflowsDue, startNew }).pipe(
-                  Effect.catchAll(reportFailure("trigger")),
+                  Effect.catch(reportFailure("trigger")),
                 ),
-                runDueGoals({ startNew }).pipe(
-                  Effect.asVoid,
-                  Effect.catchAll(reportFailure("goal")),
-                ),
-                runDueLoops({ startNew }).pipe(
-                  Effect.asVoid,
-                  Effect.catchAll(reportFailure("loop")),
-                ),
+                runDueGoals({ startNew }).pipe(Effect.asVoid, Effect.catch(reportFailure("goal"))),
+                runDueLoops({ startNew }).pipe(Effect.asVoid, Effect.catch(reportFailure("loop"))),
               ],
               { concurrency: "unbounded", discard: true },
             );
-            yield* announceWaiting().pipe(Effect.asVoid, Effect.catchAll(reportFailure("notify")));
+            yield* announceWaiting().pipe(Effect.asVoid, Effect.catch(reportFailure("notify")));
           }) as Effect.Effect<void, unknown, DaemonRequirements>,
         ).finally(() => {
           tickRunning = false;
@@ -531,7 +525,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         void clearDaemonPid(daemonOptions.port);
         void clearDaemonStatus(daemonOptions.port);
         void server.stop(true);
-      }).pipe(Effect.zipRight(Effect.promise(() => releaseHomeLock().catch(() => undefined))));
+      }).pipe(Effect.andThen(Effect.promise(() => releaseHomeLock().catch(() => undefined))));
     });
 
     yield* logger.info("Daemon stopped");
@@ -593,7 +587,7 @@ function acquireDaemonHomeLock() {
       }),
     catch: toError,
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.sync(() => {
         process.stderr.write(`${error.message}\n`);
         return undefined;
@@ -848,7 +842,7 @@ export function installDaemonServiceCommand(options: {
       token,
       invocation,
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.sync(() => {
           process.stderr.write(`${error.message}\n`);
           process.exitCode = 1;
@@ -882,7 +876,7 @@ export function uninstallDaemonServiceCommand(options: { readonly yes?: boolean 
 
     const failed = yield* uninstallService().pipe(
       Effect.as(false),
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.sync(() => {
           process.stderr.write(`${error.message}\n`);
           process.exitCode = 1;

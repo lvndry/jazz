@@ -9,7 +9,6 @@
 import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import {
   eraseMemoryOpportunityReceiptsForScope,
   readMemoryReceiptEpoch,
@@ -59,7 +58,7 @@ import {
 } from "@jazz/core/utils/storage";
 import { findAllOccurrenceLineNumbers } from "@jazz/core/utils/string";
 import { resolveVirtualPath, type VirtualPathViolation } from "@jazz/core/utils/virtual-path";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import {
   moveClaimSentences,
   recordClaimSentences,
@@ -129,7 +128,7 @@ function walkMemoryTree(
   return Effect.gen(function* () {
     const names = yield* fs
       .readDirectory(dir)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
 
     let totalBytes = 0;
     let fileCount = 0;
@@ -141,7 +140,7 @@ function walkMemoryTree(
       const info = yield* Effect.tryPromise({
         try: () => nodeFs.lstat(entryPath),
         catch: toError,
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      }).pipe(Effect.catch(() => Effect.succeed(null)));
       if (!info || info.isSymbolicLink()) {
         continue;
       }
@@ -172,14 +171,14 @@ function discoverScopes(
   return Effect.gen(function* () {
     const names = yield* fs
       .readDirectory(baseDirectory)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const scopes: string[] = [];
     for (const name of names) {
       if (isReservedMemorySegment(name)) continue;
       const info = yield* Effect.tryPromise({
         try: () => nodeFs.lstat(path.join(baseDirectory, name)),
         catch: toError,
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      }).pipe(Effect.catch(() => Effect.succeed(null)));
       if (info?.isDirectory() && !info.isSymbolicLink() && isValidStorageKey(name)) {
         scopes.push(name);
       }
@@ -195,7 +194,7 @@ function listDirectoryEntries(
   return Effect.gen(function* () {
     const names = yield* fs
       .readDirectory(dir)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const visible = names.filter((name) => !isReservedMemorySegment(name)).sort();
 
     const entries: MemoryDirectoryEntry[] = [];
@@ -204,7 +203,7 @@ function listDirectoryEntries(
       const info = yield* Effect.tryPromise({
         try: () => nodeFs.lstat(entryPath),
         catch: toError,
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      }).pipe(Effect.catch(() => Effect.succeed(null)));
       if (!info) continue;
       if (info.isSymbolicLink()) {
         continue;
@@ -322,7 +321,7 @@ interface ProvenanceRead {
  * Reads a scope's provenance sidecar, reporting whether it could be read.
  *
  * `JSON.parse` runs inside `Effect.try` rather than `Effect.map` because a
- * throw inside `map` becomes a defect, which `catchAll` does not catch — a
+ * throw inside `map` becomes a defect, which `catch` does not catch — a
  * single malformed byte in a hand-editable file would otherwise take down every
  * run that reads it.
  */
@@ -350,9 +349,10 @@ function readScopeProvenance(
         return { status: "ok" as const, provenance: { files: sanitized } };
       }),
     ),
-    Effect.catchAll((error) => {
-      const platformError = error as { _tag?: string; reason?: string };
-      const absent = platformError._tag === "SystemError" && platformError.reason === "NotFound";
+    Effect.catch((error) => {
+      const platformError = error as { _tag?: string; reason?: { _tag?: string } };
+      const absent =
+        platformError._tag === "PlatformError" && platformError.reason?._tag === "NotFound";
       return Effect.succeed({
         status: absent ? "absent" : "unreadable",
         provenance: EMPTY_MEMORY_SCOPE_PROVENANCE,
@@ -375,7 +375,7 @@ function quarantineProvenance(
 ): Effect.Effect<void, never> {
   const sidecarPath = path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME);
   const quarantinedPath = `${sidecarPath}.corrupt-${Date.now()}`;
-  return fs.rename(sidecarPath, quarantinedPath).pipe(Effect.catchAll(() => Effect.void));
+  return fs.rename(sidecarPath, quarantinedPath).pipe(Effect.catch(() => Effect.void));
 }
 
 /**
@@ -404,7 +404,7 @@ function writeScopeProvenance(
   return writeFileStringAtomic(
     path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME),
     `${JSON.stringify(provenance, null, 2)}\n`,
-  ).pipe(Effect.catchAll(() => Effect.void));
+  ).pipe(Effect.catch(() => Effect.void));
 }
 
 /**
@@ -431,7 +431,7 @@ function readEntrySummary(
 ): Effect.Effect<string | undefined, never> {
   return fs.readFileString(absolutePath).pipe(
     Effect.map(entrySummary),
-    Effect.catchAll(() => Effect.succeed(undefined)),
+    Effect.catch(() => Effect.succeed(undefined)),
   );
 }
 
@@ -462,7 +462,7 @@ function entryFilesIn(
     }
     const names = yield* fs
       .readDirectory(directoryPath)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const files: MemoryEntryFile[] = [];
     for (const name of names.sort()) {
       if (isReservedMemorySegment(name)) {
@@ -498,7 +498,7 @@ function conditionalEntryFiles(
     }
     const topics = yield* fs
       .readDirectory(topicRoot)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const files: MemoryEntryFile[] = [];
     for (const topic of topics.sort()) {
       if (!isReservedMemorySegment(topic)) {
@@ -537,12 +537,12 @@ function existingSafeMemoryPath(
     const rootInfo = yield* Effect.tryPromise({
       try: () => nodeFs.lstat(scopeRoot),
       catch: toError,
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    }).pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) {
       return undefined;
     }
     const target = yield* resolveMemoryPath(scopeRoot, relativePath).pipe(
-      Effect.catchAll(() => Effect.succeed(undefined)),
+      Effect.catch(() => Effect.succeed(undefined)),
     );
     if (target === undefined) {
       return undefined;
@@ -550,7 +550,7 @@ function existingSafeMemoryPath(
     const info = yield* Effect.tryPromise({
       try: () => nodeFs.lstat(target),
       catch: toError,
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    }).pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (info?.isSymbolicLink()) {
       return undefined;
     }
@@ -834,7 +834,7 @@ export class MemoryServiceImpl implements MemoryService {
     operation: Effect.Effect<A, E, R>,
   ): Effect.Effect<A, E | MemoryGuardrailViolation | Error, R | FileSystem.FileSystem> {
     return requireValidStorageKey(scope, "memory scope", MemoryGuardrailViolation).pipe(
-      Effect.zipRight(withMemoryWriteLock(this.baseMemoryDirectory, operation)),
+      Effect.andThen(withMemoryWriteLock(this.baseMemoryDirectory, operation)),
     );
   }
 
@@ -871,7 +871,7 @@ export class MemoryServiceImpl implements MemoryService {
               const unreadableScopes: string[] = [];
               for (const scope of allowedScopes) {
                 const scopeEntries = yield* this.snapshotScope(fs, scope).pipe(
-                  Effect.catchAll(() => Effect.succeed(undefined)),
+                  Effect.catch(() => Effect.succeed(undefined)),
                 );
                 if (scopeEntries === undefined) {
                   unreadableScopes.push(scope);
@@ -913,7 +913,7 @@ export class MemoryServiceImpl implements MemoryService {
         for (const file of files) {
           const content = yield* fs
             .readFileString(file.filePath)
-            .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            .pipe(Effect.catch(() => Effect.succeed(undefined)));
           const summary = content === undefined ? undefined : entrySummary(content);
           if (content === undefined || summary === undefined) {
             continue;
@@ -996,7 +996,7 @@ export class MemoryServiceImpl implements MemoryService {
         const root = yield* this.ensureScopeRoot(scope);
         const target = yield* resolveMemoryPath(root, rest);
 
-        const info = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const info = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(null)));
         if (!info) {
           return {
             kind: "not_found",
@@ -1044,7 +1044,7 @@ export class MemoryServiceImpl implements MemoryService {
         yield* withMemoryWriteLock(
           this.baseMemoryDirectory,
           touchViewed(fs, root, path.relative(root, target)),
-        ).pipe(Effect.catchAll(() => Effect.void));
+        ).pipe(Effect.catch(() => Effect.void));
 
         return {
           kind: "file",
@@ -1131,7 +1131,7 @@ export class MemoryServiceImpl implements MemoryService {
 
         const alreadyExists = yield* fs
           .exists(target)
-          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+          .pipe(Effect.catch(() => Effect.succeed(false)));
         if (alreadyExists) {
           // The filename is the entry's identity, so an existing file is
           // the answer to "is this already recorded?". Returning what it
@@ -1140,7 +1140,7 @@ export class MemoryServiceImpl implements MemoryService {
           // beside it, which is how a store fragments into near-duplicates.
           const existingText = yield* fs
             .readFileString(target)
-            .pipe(Effect.catchAll(() => Effect.succeed("")));
+            .pipe(Effect.catch(() => Effect.succeed("")));
           return {
             success: false,
             message: [
@@ -1200,7 +1200,7 @@ export class MemoryServiceImpl implements MemoryService {
         const root = yield* this.ensureScopeRoot(scope);
         const target = yield* resolveMemoryPath(root, rest);
 
-        const info = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const info = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(null)));
         if (!info || info.type === "Directory") {
           return {
             success: false,
@@ -1274,7 +1274,7 @@ export class MemoryServiceImpl implements MemoryService {
               const root = yield* this.ensureScopeRoot(scope);
               const target = yield* resolveMemoryPath(root, rest);
 
-              const info = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(null)));
+              const info = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(null)));
               if (!info || info.type === "Directory") {
                 return {
                   success: false,
@@ -1355,7 +1355,7 @@ export class MemoryServiceImpl implements MemoryService {
 
               const exists = yield* fs
                 .exists(target)
-                .pipe(Effect.catchAll(() => Effect.succeed(false)));
+                .pipe(Effect.catch(() => Effect.succeed(false)));
               if (!exists) {
                 return {
                   success: false,
@@ -1417,7 +1417,7 @@ export class MemoryServiceImpl implements MemoryService {
 
               const sourceExists = yield* fs
                 .exists(source)
-                .pipe(Effect.catchAll(() => Effect.succeed(false)));
+                .pipe(Effect.catch(() => Effect.succeed(false)));
               if (!sourceExists) {
                 return {
                   success: false,
@@ -1427,7 +1427,7 @@ export class MemoryServiceImpl implements MemoryService {
 
               const destinationExists = yield* fs
                 .exists(destination)
-                .pipe(Effect.catchAll(() => Effect.succeed(false)));
+                .pipe(Effect.catch(() => Effect.succeed(false)));
               if (destinationExists) {
                 return {
                   success: false,

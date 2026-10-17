@@ -39,6 +39,6 @@ export function fireReminderCommand(options: { agent: string; id: string }) {
 
     yield* osScheduler
       .cancelFire(options.agent, options.id, reminder?.osSchedulerJobId)
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(Effect.catch(() => Effect.void));
   });
 }

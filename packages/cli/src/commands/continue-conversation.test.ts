@@ -8,7 +8,7 @@ import {
 } from "@jazz/adapters/history/conversation-history-service";
 import type { Agent } from "@jazz/core/types";
 import { afterAll, describe, expect, it } from "bun:test";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { continuedSessionOptions } from "./continue-conversation";
 
 const historyDirectory = mkdtempSync(path.join(tmpdir(), "jazz-continue-"));
@@ -26,7 +26,7 @@ const agent = {
 
 function resolve(options: Parameters<typeof continuedSessionOptions>[1]) {
   return Effect.runPromise(
-    Effect.either(continuedSessionOptions(agent, options, historyDirectory)).pipe(
+    Effect.result(continuedSessionOptions(agent, options, historyDirectory)).pipe(
       Effect.provide(NodeFileSystem.layer),
     ),
   );
@@ -34,12 +34,12 @@ function resolve(options: Parameters<typeof continuedSessionOptions>[1]) {
 
 describe("continuedSessionOptions", () => {
   it("starts fresh without --continue", async () => {
-    expect(await resolve(undefined)).toEqual(Either.right({}));
+    expect(await resolve(undefined)).toEqual(Result.succeed({}));
   });
 
   it("refuses --conversation without --continue, and --continue with nothing saved", async () => {
-    expect(Either.isLeft(await resolve({ conversation: "c1" }))).toBe(true);
-    expect(Either.isLeft(await resolve({ continue: true }))).toBe(true);
+    expect(Result.isFailure(await resolve({ conversation: "c1" }))).toBe(true);
+    expect(Result.isFailure(await resolve({ continue: true }))).toBe(true);
   });
 
   it("continues the saved conversation", async () => {
@@ -63,7 +63,7 @@ describe("continuedSessionOptions", () => {
     const latest = await resolve({ continue: true });
     const named = await resolve({ continue: true, conversation: "c1" });
     for (const result of [latest, named]) {
-      expect(Either.isRight(result) && result.right.initialHistory?.length).toBe(2);
+      expect(Result.isSuccess(result) && result.success.initialHistory?.length).toBe(2);
     }
   });
 });

@@ -12,7 +12,6 @@
  */
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { clearWorkState } from "@jazz/core/agent/context/work-journal";
 import { assertConversationWritable } from "@jazz/core/agent/detach/ownership";
 import { isTerminalGoal } from "@jazz/core/agent/goal/goal-state";
@@ -23,7 +22,7 @@ import { getTodoFilePath } from "@jazz/core/agent/tools/todo";
 import { toError } from "@jazz/core/utils/errors";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { withLock } from "@jazz/core/utils/storage";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { forgetChatAttachment, heldByChatElsewhere } from "../chat-attachments";
 import { ConversationBusyError, withConversationTurn } from "./conversation-lease";
 import {
@@ -57,7 +56,7 @@ export function conversationUse(
       catch: toError,
     }).pipe(
       Effect.as(false),
-      Effect.catchAll(() => Effect.succeed(true)),
+      Effect.catch(() => Effect.succeed(true)),
     );
     if (handedOff) {
       return "It is running on another machine. Bring it back with /detach first.";

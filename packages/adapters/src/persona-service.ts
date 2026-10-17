@@ -404,7 +404,7 @@ updatedAt: "${now.toISOString()}"
           depth: 2,
           parse: (data, defDir) => parsePersonaFrontmatter(data, defDir, source),
         }).pipe(
-          Effect.catchAll((err: Error) =>
+          Effect.catch((err: Error) =>
             Effect.gen(function* () {
               const loggerOpt = yield* Effect.serviceOption(LoggerServiceTag);
               if (Option.isSome(loggerOpt)) {
@@ -427,7 +427,7 @@ updatedAt: "${now.toISOString()}"
             m.path,
             source === "builtin" ? `builtin-${m.name}` : path.basename(m.path),
           ).pipe(
-            Effect.catchAll((err: StorageError | StorageNotFoundError) =>
+            Effect.catch((err: StorageError | StorageNotFoundError) =>
               Effect.gen(function* () {
                 const loggerOpt = yield* Effect.serviceOption(LoggerServiceTag);
                 if (Option.isSome(loggerOpt)) {

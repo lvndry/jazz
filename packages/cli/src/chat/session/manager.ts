@@ -6,7 +6,6 @@
 
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { getLogsDirectory } from "@jazz/adapters/logger";
 import {
   FileSystemContextServiceTag,
@@ -17,7 +16,7 @@ import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 
 /**
  * Initialize a chat session by setting up the file system context.
@@ -30,9 +29,7 @@ export function initializeSession(
     const agentKey = { agentId: agent.id, conversationId };
     const fileSystemContext = yield* FileSystemContextServiceTag;
     const logger = yield* LoggerServiceTag;
-    yield* fileSystemContext
-      .setCwd(agentKey, process.cwd())
-      .pipe(Effect.catchAll(() => Effect.void));
+    yield* fileSystemContext.setCwd(agentKey, process.cwd()).pipe(Effect.catch(() => Effect.void));
     yield* logger.info("Agent working directory initialized");
   });
 }
@@ -81,5 +78,5 @@ export function logMessageToSession(
       await appendFile(logFilePath, line, { encoding: "utf8", mode: stateFileMode() });
     },
     catch: () => undefined, // Silently fail - logging should not break the chat session
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.catch(() => Effect.void));
 }

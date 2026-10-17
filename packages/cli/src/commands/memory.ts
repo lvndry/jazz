@@ -90,7 +90,7 @@ export function listMemoryCommand(scope?: string) {
     for (const file of files) {
       const provenance = yield* memoryService
         .provenance(`${normalized}/${file.name}`)
-        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        .pipe(Effect.catch(() => Effect.succeed(undefined)));
       const written =
         provenance === undefined
           ? ""
@@ -120,7 +120,7 @@ export function showMemoryCommand(memoryPath: string) {
 
     const provenance = yield* memoryService
       .provenance(memoryPath)
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      .pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (provenance !== undefined) {
       yield* terminal.log(
         `${outcome.displayPath} — created ${provenance.createdAt.slice(0, 10)}, updated ${provenance.updatedAt.slice(0, 10)}, ${provenance.writeCount} write(s), written by ${provenance.writtenBy.join(", ")}\n`,
