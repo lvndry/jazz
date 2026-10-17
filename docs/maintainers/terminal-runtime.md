@@ -28,9 +28,10 @@ does not require a periodic transcript repaint.
 `invalidate()` requests a full physical repaint, including blank cells. A normal
 incremental render only compares intended buffers and cannot repair arbitrary
 foreign screen corruption. [Renderer adapter](../../packages/cli/src/ui/fullscreen/renderer-adapter.ts)
-isolates the private repaint flag and native failure observation required by
-OpenTUI 0.5.11. The dependency versions are exact pins. A changed backend contract
-fails acquisition explicitly rather than silently weakening repair or fallback.
+isolates the private repaint flag and the native frame presentation hook that
+observes failures OpenTUI only logs. The dependency versions are exact pins. A
+changed backend contract fails acquisition explicitly rather than silently
+weakening repair or fallback.
 
 Before upgrading OpenTUI, run the independent native-output oracle, renderer
 adapter tests, native input/selection tests, and compiled PTY qualifier. Check

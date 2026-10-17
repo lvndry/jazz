@@ -110,7 +110,7 @@ const CONTINUATION_MASK = 0xc0000000;
 /** Resolve native glyphs while preserving continuation cells rather than trimming blank margins. */
 export function nativeGrid(buffer: OptimizedBuffer): TerminalGrid {
   const lines = decoder.decode(buffer.getRealCharBytes(true)).split("\n");
-  const raw = buffer.buffers.char;
+  const raw = buffer.withBuffers((cells) => Uint32Array.from(cells.char));
   const continuation = (index: number): boolean =>
     ((raw[index] ?? 0) & CONTINUATION_MASK) >>> 0 === CONTINUATION_MASK;
   const cells = Array.from({ length: buffer.height }, (_, row) => {
@@ -208,7 +208,6 @@ export async function createTerminalOracle(options: {
       exitOnCtrlC: false,
       exitSignals: [],
       consoleMode: "disabled",
-      useThread: false,
       useMouse: true,
       useKittyKeyboard: null,
       forwardEnvKeys: [],
@@ -269,9 +268,14 @@ export async function createTerminalOracle(options: {
         flushSync(() => root.unmount());
       } finally {
         renderer.destroy();
-        input.destroy();
-        output.destroy();
-        observer.dispose();
+        // The native session writes terminal restoration after destroy; closing its sink first is a failure.
+        void renderer.closed
+          .catch(() => undefined)
+          .finally(() => {
+            input.destroy();
+            output.destroy();
+            observer.dispose();
+          });
       }
     },
   };

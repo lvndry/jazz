@@ -92,23 +92,23 @@ test("demand frames settle, stay idle, then paint the next mutation", async () =
   }
 });
 
-test("native failure observation restores the exact backend method", () => {
-  const original = (): string => "failed";
-  const backend = { renderNative: original };
+test("native failure observation restores the exact backend method", async () => {
+  const original = async (): Promise<string> => "failed";
+  const backend = { presentNativeScene: original };
   const failures: Error[] = [];
   const stop = observeNativeFailure(backend as unknown as CliRenderer, (error) =>
     failures.push(error),
   );
-  expect(backend.renderNative()).toBe("failed");
+  expect(await backend.presentNativeScene()).toBe("failed");
   expect(failures).toEqual([new Error("OpenTUI native output failed")]);
   stop();
   stop();
-  expect(backend.renderNative).toBe(original);
+  expect(backend.presentNativeScene).toBe(original);
 });
 
-test("native feed backpressure remains retryable rather than triggering fallback", () => {
+test("native feed backpressure remains retryable rather than triggering fallback", async () => {
   let result = "retryable-skip";
-  const backend = { renderNative: () => result };
+  const backend = { presentNativeScene: async () => result };
   const failures: Error[] = [];
   const stop = observeNativeFailure(backend as unknown as CliRenderer, (error) =>
     failures.push(error),
@@ -116,7 +116,7 @@ test("native feed backpressure remains retryable rather than triggering fallback
   try {
     for (const status of ["retryable-skip", "backpressured", "blocked", "rendered"]) {
       result = status;
-      expect(backend.renderNative()).toBe(status);
+      expect(await backend.presentNativeScene()).toBe(status);
     }
     expect(failures).toEqual([]);
   } finally {

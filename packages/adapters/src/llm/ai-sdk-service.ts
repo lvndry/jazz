@@ -144,7 +144,11 @@ import {
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
 import { orcaRouterResponseCostUSD, routerBilledCostUSD } from "./router-cost";
-import { resolveStreamIdleTimeoutMs, StreamProcessor } from "./stream-processor";
+import {
+  resolveStreamIdleTimeoutMs,
+  StreamProcessor,
+  type StreamTextResult,
+} from "./stream-processor";
 import { SDK_STOP_CONDITIONS, toJazzToolCall } from "./tool-call-parts";
 
 /** Diagnostic fields from provider errors that cannot contain request or response content. */
@@ -200,9 +204,7 @@ const STREAM_TEXT_PROMISE_FIELDS = [
   "output",
 ] as const;
 
-function suppressStreamTextUnhandledRejections(
-  result: Awaited<ReturnType<typeof streamText>>,
-): void {
+function suppressStreamTextUnhandledRejections(result: StreamTextResult): void {
   const record = result as unknown as Record<string, unknown>;
   for (const field of STREAM_TEXT_PROMISE_FIELDS) {
     const value = record[field];
@@ -2468,7 +2470,7 @@ class AISDKService implements LLMService {
               ) => void,
             ) => {
               void (async (): Promise<void> => {
-                let streamTextResult: Awaited<ReturnType<typeof streamText>> | undefined;
+                let streamTextResult: StreamTextResult | undefined;
                 try {
                   const streamTextStart = Date.now();
                   Effect.runFork(
