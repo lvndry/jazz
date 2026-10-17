@@ -38,6 +38,7 @@ describe("treg web search", () => {
     expect(url.searchParams.get("query")).toBe("sensitive query");
     expect(JSON.stringify(url)).not.toContain("test-token");
     expect((options.headers as Record<string, string>)["X-Treg-Token"]).toBe("test-token");
+    expect(options.redirect).toBe("error");
     expect((options.headers as Record<string, string>)["X-Treg-Route-Max-Cost"]).toBeUndefined();
     expect(result.results[0]?.title).toBe("Free");
     expect(result.results[0]?.metadata?.["servedBy"]).toBe("tinyfish.web.search");
@@ -55,6 +56,7 @@ describe("treg web search", () => {
     const options = fetchMock.mock.calls[1]![1];
     expect((options.headers as Record<string, string>)["X-Treg-Route-Exclude"]).toBe("tinyfish");
     expect((options.headers as Record<string, string>)["X-Treg-Route-Max-Cost"]).toBe("0.05");
+    expect(options.redirect).toBe("error");
     expect(result.results[0]?.title).toBe("Fallback");
   });
 
@@ -79,7 +81,52 @@ describe("treg web search", () => {
         : new Response("sensitive provider text", { status: 503 }),
     );
     global.fetch = fetchMock as unknown as typeof fetch;
-    await expect(search()).rejects.toThrow("paid fallback failed");
+    const error = await search().then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("paid fallback failed");
+    expect((error as Error).message).not.toContain("sensitive provider text");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not follow a redirect with the token on either authenticated request", async () => {
+    let destinationCalls = 0;
+    const destination = Bun.serve({
+      port: 0,
+      fetch(request) {
+        destinationCalls++;
+        expect(request.headers.get("X-Treg-Token")).toBeNull();
+        return Response.json({ results: [] });
+      },
+    });
+    const redirect = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.redirect(destination.url, 302);
+      },
+    });
+    try {
+      for (const stage of ["free", "routed"] as const) {
+        const fetchMock = mock(async (_url: URL | string, options: RequestInit) => {
+          const routed = (options.headers as Record<string, string>)["X-Treg-Route-Exclude"];
+          if (stage === "routed" && !routed) return Response.json({ results: [] });
+          if (stage === "free" && routed) return found("Fallback");
+          return originalFetch(redirect.url, options);
+        });
+        global.fetch = fetchMock as unknown as typeof fetch;
+        if (stage === "free") {
+          expect((await search()).results[0]?.title).toBe("Fallback");
+        } else {
+          await expect(search()).rejects.toThrow("paid fallback failed");
+        }
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(destinationCalls).toBe(0);
+      }
+    } finally {
+      redirect.stop(true);
+      destination.stop(true);
+    }
   });
 });

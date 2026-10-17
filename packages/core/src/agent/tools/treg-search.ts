@@ -43,6 +43,7 @@ async function callTinyFish(args: WebSearchArgs, token: string): Promise<SearchR
   if (args.toDate) url.searchParams.set("before_date", args.toDate);
   const response = await fetch(url, {
     headers: { "X-Treg-Token": token },
+    redirect: "error",
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`TinyFish returned HTTP ${response.status}`);
@@ -62,6 +63,7 @@ async function callRouted(args: WebSearchArgs, token: string): Promise<SearchRes
       "X-Treg-Route-Exclude": "tinyfish",
     },
     body: JSON.stringify({ q: args.query, limit: args.maxResults ?? 20 }),
+    redirect: "error",
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`treg returned HTTP ${response.status}`);
