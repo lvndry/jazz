@@ -13,28 +13,85 @@ import { FileSystem } from "@effect/platform";
 import { toError } from "@jazz/core/utils/errors";
 import { getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { withLock } from "@jazz/core/utils/storage";
+import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect } from "effect";
 import { ConversationBusyError, withConversationTurn } from "./conversation-lease";
-import { agentConversationLockPath, moveConversationLog } from "./conversation-log";
+import {
+  agentConversationLockPath,
+  archiveConversationLog,
+  deleteConversationLog,
+  getHistoryArchiveDirectory,
+  moveConversationLog,
+} from "./conversation-log";
 import { ConversationInUseError, conversationUse } from "./delete-conversation";
 
-async function moveWorkState(
-  fromAgentId: string,
-  toAgentId: string,
-  conversationId: string,
-): Promise<void> {
-  const source = getWorkStateDirectory(fromAgentId, conversationId);
-  const destination = getWorkStateDirectory(toAgentId, conversationId);
-  const exists = await nodeFs.stat(source).then(
-    () => true,
+/** Where a conversation's work state is kept once a newer copy replaces it, beside its archived log. */
+export function archivedWorkStateDirectory(agentId: string, conversationId: string): string {
+  return path.join(
+    getHistoryArchiveDirectory(),
+    "work",
+    storageSafeSegment(agentId),
+    storageSafeSegment(conversationId),
+  );
+}
+
+async function directoryExists(directory: string): Promise<boolean> {
+  return nodeFs.stat(directory).then(
+    (info) => info.isDirectory(),
     () => false,
   );
-  if (!exists) {
-    return;
+}
+
+/** Renames `source` to `destination`, replacing whatever was there; false when `source` is absent. */
+async function replaceDirectory(source: string, destination: string): Promise<boolean> {
+  if (!(await directoryExists(source))) {
+    return false;
   }
   await nodeFs.rm(destination, { recursive: true, force: true });
   await nodeFs.mkdir(path.dirname(destination), { recursive: true });
   await nodeFs.rename(source, destination);
+  return true;
+}
+
+function tryPromise<A>(run: () => Promise<A>): Effect.Effect<A, Error> {
+  return Effect.tryPromise({ try: run, catch: toError });
+}
+
+/**
+ * Moves the log and work state under both agents' save locks. A copy the destination already
+ * holds is archived first, its log and work state together. The work state moves before the
+ * log, and the source log is the last thing removed, so when the log cannot move the work state
+ * goes back and any half-written destination log is dropped: the conversation stays whole under
+ * its current agent.
+ */
+function moveConversationFiles(
+  fromAgentId: string,
+  toAgentId: string,
+  conversationId: string,
+): Effect.Effect<boolean, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const sourceWork = getWorkStateDirectory(fromAgentId, conversationId);
+    const destinationWork = getWorkStateDirectory(toAgentId, conversationId);
+
+    yield* archiveConversationLog(toAgentId, conversationId);
+    yield* tryPromise(() =>
+      replaceDirectory(destinationWork, archivedWorkStateDirectory(toAgentId, conversationId)),
+    );
+
+    const workMoved = yield* tryPromise(() => replaceDirectory(sourceWork, destinationWork));
+    return yield* moveConversationLog(fromAgentId, toAgentId, conversationId).pipe(
+      Effect.tapError(() =>
+        Effect.gen(function* () {
+          yield* deleteConversationLog(toAgentId, conversationId);
+          if (workMoved) {
+            yield* tryPromise(() => replaceDirectory(destinationWork, sourceWork)).pipe(
+              Effect.ignore,
+            );
+          }
+        }),
+      ),
+    );
+  });
 }
 
 /**
@@ -62,15 +119,10 @@ export function moveConversationToAgent(
         return yield* Effect.fail(new ConversationInUseError(use));
       }
     }
-    const moved = yield* withLock(
+    return yield* withLock(
       firstLock,
-      withLock(secondLock, moveConversationLog(fromAgentId, toAgentId, conversationId)),
+      withLock(secondLock, moveConversationFiles(fromAgentId, toAgentId, conversationId)),
     );
-    yield* Effect.tryPromise({
-      try: () => moveWorkState(fromAgentId, toAgentId, conversationId),
-      catch: toError,
-    });
-    return moved;
   });
   return withConversationTurn(
     fromAgentId,

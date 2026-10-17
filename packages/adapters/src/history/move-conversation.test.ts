@@ -16,7 +16,7 @@ import {
   EMPTY_CONVERSATION_REVISION,
 } from "./conversation-log";
 import { ConversationInUseError } from "./delete-conversation";
-import { moveConversationToAgent } from "./move-conversation";
+import { archivedWorkStateDirectory, moveConversationToAgent } from "./move-conversation";
 import { FileGoalStore } from "../storage/goal-store";
 
 const FROM_AGENT_ID = "move-from-agent";
@@ -48,6 +48,12 @@ async function saveTranscript(agentId: string, conversationId: string): Promise<
       basedOn: EMPTY_CONVERSATION_REVISION,
     }),
   );
+}
+
+async function writeWorkFile(agentId: string, conversationId: string, name: string): Promise<void> {
+  const workFile = path.join(getWorkStateDirectory(agentId, conversationId), name);
+  await nodeFs.mkdir(path.dirname(workFile), { recursive: true });
+  await nodeFs.writeFile(workFile, "kept");
 }
 
 describe("moveConversationToAgent", () => {
@@ -103,6 +109,44 @@ describe("moveConversationToAgent", () => {
     expect(existsSync(archivedConversationLogPath(TO_AGENT_ID, conversationId))).toBe(true);
     expect(existsSync(conversationLogPath(TO_AGENT_ID, conversationId))).toBe(true);
     expect(existsSync(conversationLogPath(FROM_AGENT_ID, conversationId))).toBe(false);
+  });
+
+  it("keeps the new agent's own work state with its archived copy instead of deleting it", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(FROM_AGENT_ID, conversationId);
+    await saveTranscript(TO_AGENT_ID, conversationId);
+    await writeWorkFile(FROM_AGENT_ID, conversationId, "moving.json");
+    await writeWorkFile(TO_AGENT_ID, conversationId, "replaced.json");
+
+    await run(moveConversationToAgent(FROM_AGENT_ID, TO_AGENT_ID, conversationId));
+
+    expect(
+      existsSync(
+        path.join(archivedWorkStateDirectory(TO_AGENT_ID, conversationId), "replaced.json"),
+      ),
+    ).toBe(true);
+    const destinationWork = getWorkStateDirectory(TO_AGENT_ID, conversationId);
+    expect(existsSync(path.join(destinationWork, "moving.json"))).toBe(true);
+    expect(existsSync(path.join(destinationWork, "replaced.json"))).toBe(false);
+  });
+
+  it("leaves the conversation whole under its current agent when the log cannot move", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(FROM_AGENT_ID, conversationId);
+    await writeWorkFile(FROM_AGENT_ID, conversationId, "state.json");
+    // A directory where the moved log would be written makes that write fail.
+    await nodeFs.mkdir(conversationLogPath(TO_AGENT_ID, conversationId), { recursive: true });
+
+    await run(
+      moveConversationToAgent(FROM_AGENT_ID, TO_AGENT_ID, conversationId).pipe(Effect.flip),
+    );
+
+    const stayed = await run(loadConversation(FROM_AGENT_ID, conversationId));
+    expect(stayed?.messages).toHaveLength(firstMessages.length);
+    expect(
+      existsSync(path.join(getWorkStateDirectory(FROM_AGENT_ID, conversationId), "state.json")),
+    ).toBe(true);
+    expect(existsSync(getWorkStateDirectory(TO_AGENT_ID, conversationId))).toBe(false);
   });
 
   it("succeeds without moving anything when nothing was saved yet", async () => {
