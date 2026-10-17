@@ -7,12 +7,13 @@ description: "Add Jazz to your CI pipeline for pull-request summaries, code revi
 Run Jazz in your pipeline when a job needs to interpret code, changes, or logs. It reads
 the input, uses the tools you allow, and returns an answer your pipeline can save or publish.
 
-| Job                   | Input                                     | Result                                  |
-| --------------------- | ----------------------------------------- | --------------------------------------- |
-| Pull-request summary  | The diff and relevant source files        | A summary for reviewers                 |
-| Code review           | The diff and your review instructions     | Findings to check before merging        |
-| Release notes         | Commits since the previous release        | A draft grouped by user-visible changes |
-| Failed-build analysis | Test output, build logs, and source files | Likely causes and suggested fixes       |
+| Job                   | Input                                          | Result                                      |
+| --------------------- | ---------------------------------------------- | ------------------------------------------- |
+| Pull-request summary  | The diff and relevant source files             | A summary for reviewers                     |
+| Code review           | The diff and your review instructions          | Findings to check before merging            |
+| Release notes         | Commits since the previous release             | A draft grouped by user-visible changes     |
+| Pre-release review    | All commits since the latest published release | Verified fixes proposed in one pull request |
+| Failed-build analysis | Test output, build logs, and source files      | Likely causes and suggested fixes           |
 
 Keep your existing tests and linters. A successful Jazz run means it produced an answer;
 it does not mean the changes passed review.
@@ -90,6 +91,56 @@ the run fails, so the job fails rather than publishing a successful summary.
 
 For inline review comments and `/jazz` commands on a pull request, use the
 [PR reviewer setup](../guides/pr-review.md).
+
+## Manual pre-release review and fixes
+
+This repository includes a **Pre Release Review** GitHub Action. Open **Actions → Pre Release
+Review → Run workflow**, select **main**, and start it. The action pins main and the latest
+published GitHub release, then reviews every commit and changed file between their resolved
+SHAs, including files touched by commits whose changes were later reverted. It does not use an
+arbitrary local tag or follow main as it advances.
+
+The agent traces callers and tests, verifies introduced bugs, and fixes confirmed problems with
+regression tests and documentation updates. A structured report must declare coverage of the
+entire pinned scope. The validator checks that declaration against the trusted snapshot; it
+cannot prove the model read each file thoroughly. For a patch with fixes, a fresh validation
+container without provider credentials or review data runs:
+
+```sh
+bun run typecheck
+bun run test:typecheck
+bun run lint
+env -u NO_COLOR bun test
+bun run docs:lint
+bun run docs:check-links
+bun run docs:check-metadata
+```
+
+A separate job pushes the verified patch as one PR; remaining unresolved findings make it a
+draft. A clean review or unresolved-only report skips full patch validation and opens no empty
+PR. An open review PR for the same main snapshot is not duplicated. Reports and patches are
+saved as run artifacts. A budget stop, incomplete coverage, invalid report, or failed check
+prevents publication.
+
+The review agent runs with high-risk approval in Docker, with only `/workspace` (the checkout)
+and `/review` (review data and the private Jazz home) mounted. It receives the ChatGPT credential
+but no host Actions/runtime environment, GitHub token, or Docker socket. Source and dependencies
+execute in that container with network access. This limits host access without isolating the
+model from mounted files or provider credentials. Collection uses another fresh container and
+a read-only trusted helper; artifacts are staged with bounded regular-file reads before upload.
+
+The snapshot uses a read-only `GITHUB_TOKEN`. Only a fresh publication job holds `RELEASE_PAT`,
+with repository contents and pull-request write permissions. Its trusted helper uses Bun and
+Node builtins without installing dependencies or executing patched code. Patches touching
+`.github/` are rejected to prevent generated Actions code from running with privileged
+credentials before review; findings needing those edits remain unresolved for manual fixes.
+The shared OAuth queue preserves rotated ChatGPT credentials using the existing
+Secrets-write-only App.
+
+Review and merge the proposed fixes manually before starting a release. This action is an
+optional manual step, not an automatic release gate. See the
+[repository setup guide](https://github.com/lvndry/jazz/blob/main/.github/jazz/README.md#run-a-pre-release-review)
+for secrets, permissions, agent prompts, and operation.
 
 ## Adapt it to another pipeline
 

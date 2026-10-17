@@ -1,0 +1,292 @@
+# Reviews a pinned main snapshot since the latest published release. The agent edits and tests
+# in disposable containers; a fresh job validates the patch and publishes one PR with RELEASE_PAT.
+# No generated code runs in the publishing job. ChatGPT rotation shares the existing OAuth queue.
+name: Pre Release Review
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+cache-mode: none
+
+concurrency:
+  group: jazz-chatgpt-oauth-${{ github.repository }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      main_sha: ${{ steps.prepare.outputs.main_sha }}
+      release_sha: ${{ steps.prepare.outputs.release_sha }}
+      release_tag: ${{ steps.prepare.outputs.release_tag }}
+      branch: ${{ steps.prepare.outputs.branch }}
+      has_changes: ${{ steps.collect.outputs.has_changes }}
+    steps:
+      - name: Initialize review paths
+        run: echo "REVIEW_DIRECTORY=$RUNNER_TEMP/pre-release-review" >> "$GITHUB_ENV"
+
+      - name: Checkout the selected main snapshot
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Bun for trusted orchestration
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Resolve release range and existing fix PR
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$REVIEW_DIRECTORY"
+          cp scripts/pre-release-review.ts "$RUNNER_TEMP/pre-release-review-helper.ts"
+          bun "$RUNNER_TEMP/pre-release-review-helper.ts" prepare
+
+      - name: Build isolated review environment
+        if: steps.prepare.outputs.should_review == 'true'
+        run: docker build --tag jazz-pre-release-review --file .github/jazz/pre-release-review.Dockerfile .github/jazz
+
+      - name: Prepare agent and instructions outside the checkout
+        if: steps.prepare.outputs.should_review == 'true'
+        env:
+          PINNED_MAIN_SHA: ${{ steps.prepare.outputs.main_sha }}
+          PINNED_RELEASE_SHA: ${{ steps.prepare.outputs.release_sha }}
+          PINNED_RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$REVIEW_DIRECTORY/jazz-home/agents" "$REVIEW_DIRECTORY/jazz-home/workflows/pre-release-review"
+          cp .github/jazz/agents/pre-release-review.json "$REVIEW_DIRECTORY/jazz-home/agents/"
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const replacements = {
+            __WORKSPACE__: '/workspace',
+            __REVIEW_DIRECTORY__: '/review',
+            __MAIN_SHA__: process.env.PINNED_MAIN_SHA,
+            __RELEASE_SHA__: process.env.PINNED_RELEASE_SHA,
+            __RELEASE_TAG__: process.env.PINNED_RELEASE_TAG,
+          };
+          let prompt = readFileSync('.github/jazz/workflows/pre-release-review/WORKFLOW.md', 'utf8');
+          for (const [key, value] of Object.entries(replacements)) {
+            if (!value) throw new Error(`Missing ${key}`);
+            prompt = prompt.split(key).join(value);
+          }
+          writeFileSync(`${process.env.REVIEW_DIRECTORY}/jazz-home/workflows/pre-release-review/WORKFLOW.md`, prompt);
+          NODE
+
+      - name: Review and fix unreleased commits
+        id: agent
+        if: steps.prepare.outputs.should_review == 'true'
+        env:
+          JAZZ_CHATGPT_CREDENTIAL: ${{ secrets.JAZZ_CHATGPT_CREDENTIAL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${JAZZ_CHATGPT_CREDENTIAL:-}" ]; then
+            echo '::error::Configure JAZZ_CHATGPT_CREDENTIAL as described in .github/jazz/README.md.'
+            exit 1
+          fi
+          set +e
+          docker run --rm --init \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" \
+            --mount "type=bind,source=$REVIEW_DIRECTORY,target=/review" \
+            --env JAZZ_CHATGPT_CREDENTIAL \
+            --env JAZZ_CHATGPT_CREDENTIAL_OUTPUT=/review/rotated-credential.json \
+            --env JAZZ_HOME=/review/jazz-home \
+            --env CI=true --env JAZZ_DISABLE_CATCH_UP=1 \
+            jazz-pre-release-review bash -c '
+              set -euo pipefail
+              git config --global --add safe.directory /workspace
+              bun install --frozen-lockfile
+              jazz workflow run pre-release-review --auto-approve --agent pre-release-review \
+                --max-cost-usd 4 --max-duration-ms 2520000 --json --events tools
+            ' > "$RUNNER_TEMP/pre-release-review-result.json"
+          status="$?"
+          set -e
+          if [ -s "$REVIEW_DIRECTORY/rotated-credential.json" ]; then
+            echo 'credential_rotated=true' >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo '::error::The review agent failed. No fix PR will be published.'
+            exit "$status"
+          fi
+          node --input-type=module <<'NODE'
+          import { readFileSync, statSync } from 'node:fs';
+          const file = `${process.env.RUNNER_TEMP}/pre-release-review-result.json`;
+          if (statSync(file).size > 16777216) throw new Error('Review result exceeds 16 MiB');
+          let result;
+          try { result = JSON.parse(readFileSync(file, 'utf8')); }
+          catch { throw new Error('Invalid review result envelope'); }
+          const partial = ['costCapped', 'tokenCapped', 'durationCapped', 'iterationLimited', 'truncated', 'toolsDisabled', 'stalled', 'interrupted'];
+          if (!result || result.ok !== true || partial.some(key => result[key] === true) || result.finishReason === 'length' || result.stoppedToolCalls?.length > 0) {
+            throw new Error('The review stopped early; no fix PR will be published.');
+          }
+          NODE
+
+      - name: Create ChatGPT secret updater token
+        id: chatgpt-app-token
+        if: always() && steps.agent.outputs.credential_rotated == 'true'
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.JAZZ_GITHUB_APP_ID }}
+          private-key: ${{ secrets.JAZZ_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.repository }}
+          permission-secrets: write
+
+      - name: Save rotated ChatGPT credential
+        if: always() && steps.agent.outputs.credential_rotated == 'true'
+        env:
+          GH_TOKEN: ${{ steps.chatgpt-app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          credential="$REVIEW_DIRECTORY/rotated-credential.json"
+          test -f "$credential" && test ! -L "$credential"
+          test "$(stat -c %s "$credential")" -le 1048576
+          gh secret set JAZZ_CHATGPT_CREDENTIAL --repo "$GITHUB_REPOSITORY" < "$credential"
+          rm -f "$credential"
+
+      - name: Validate review coverage and collect patch in isolation
+        id: collect
+        if: steps.prepare.outputs.should_review == 'true'
+        env:
+          PINNED_MAIN_SHA: ${{ steps.prepare.outputs.main_sha }}
+          PINNED_RELEASE_SHA: ${{ steps.prepare.outputs.release_sha }}
+          PINNED_RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          rm -f "$REVIEW_DIRECTORY/collect-output.txt" "$REVIEW_DIRECTORY/collect-summary.md"
+          docker run --rm --init \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" \
+            --mount "type=bind,source=$REVIEW_DIRECTORY,target=/review" \
+            --mount "type=bind,source=$RUNNER_TEMP/pre-release-review-helper.ts,target=/trusted/pre-release-review.ts,readonly" \
+            --env REVIEW_DIRECTORY=/review \
+            --env PINNED_MAIN_SHA --env PINNED_RELEASE_SHA --env PINNED_RELEASE_TAG \
+            --env GITHUB_REPOSITORY --env GITHUB_RUN_ID \
+            --env GITHUB_OUTPUT=/review/collect-output.txt \
+            --env GITHUB_STEP_SUMMARY=/review/collect-summary.md \
+            jazz-pre-release-review bun /trusted/pre-release-review.ts collect
+          node --input-type=module <<'NODE'
+          import { constants, openSync, fstatSync, readFileSync, closeSync, appendFileSync } from 'node:fs';
+          const fd = openSync(`${process.env.REVIEW_DIRECTORY}/collect-output.txt`, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+          try {
+            const info = fstatSync(fd);
+            if (!info.isFile() || info.size > 64) throw new Error('Invalid collector output');
+            const result = readFileSync(fd, 'utf8');
+            if (!/^has_changes=(true|false)\n$/.test(result)) throw new Error('Invalid collector output');
+            appendFileSync(process.env.GITHUB_OUTPUT, result);
+          } finally {
+            closeSync(fd);
+          }
+          NODE
+
+      - name: Validate generated changes without model or GitHub credentials
+        if: steps.collect.outputs.has_changes == 'true'
+        run: |
+          set -euo pipefail
+          docker run --rm --init \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" \
+            --env CI=true --env JAZZ_HOME=/tmp/jazz-validation-home \
+            jazz-pre-release-review bash -c '
+              set -euo pipefail
+              git config --global --add safe.directory /workspace
+              bun run typecheck
+              bun run test:typecheck
+              bun run lint
+              env -u NO_COLOR bun test
+              bun run docs:lint
+              bun run docs:check-links
+              bun run docs:check-metadata
+            '
+
+      - name: Stage only regular bounded artifacts outside agent mounts
+        if: steps.prepare.outputs.should_review == 'true'
+        run: |
+          node --input-type=module <<'NODE'
+          import { constants, openSync, fstatSync, readFileSync, closeSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
+          const destination = `${process.env.RUNNER_TEMP}/pre-release-review-artifact`;
+          mkdirSync(destination, { recursive: true });
+          for (const [name, limit] of [['report.json', 1048576], ['changes.patch', 10485760]]) {
+            const fd = openSync(`${process.env.REVIEW_DIRECTORY}/${name}`, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+            try {
+              const info = fstatSync(fd);
+              if (!info.isFile() || info.size > limit) throw new Error(`Invalid ${name}`);
+              const bytes = readFileSync(fd);
+              if (bytes.length > limit) throw new Error(`Oversized ${name}`);
+              writeFileSync(`${destination}/${name}`, bytes, { flag: 'wx' });
+            } finally {
+              closeSync(fd);
+            }
+          }
+          const report = JSON.parse(readFileSync(`${destination}/report.json`, 'utf8'));
+          if (typeof report.summary !== 'string' || !Array.isArray(report.findings)) throw new Error('Invalid report');
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Pre Release Review\n\n${report.summary}\n\n${report.findings.length} finding(s). See the report artifact for fixed and unresolved findings.\n`);
+          NODE
+
+      - name: Upload review report and patch
+        if: steps.prepare.outputs.should_review == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pre-release-review-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pre-release-review-artifact/report.json
+            ${{ runner.temp }}/pre-release-review-artifact/changes.patch
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: review
+    if: needs.review.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      PINNED_MAIN_SHA: ${{ needs.review.outputs.main_sha }}
+      PINNED_RELEASE_SHA: ${{ needs.review.outputs.release_sha }}
+      PINNED_RELEASE_TAG: ${{ needs.review.outputs.release_tag }}
+    steps:
+      - name: Initialize artifact paths
+        run: echo "REVIEW_DIRECTORY=$RUNNER_TEMP/pre-release-review" >> "$GITHUB_ENV"
+
+      - name: Checkout trusted publishing code at the reviewed main commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.review.outputs.main_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Bun for trusted publisher
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Download the validated review artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pre-release-review-${{ github.run_id }}
+          path: ${{ runner.temp }}/pre-release-review
+
+      - name: Open the fix PR from a fresh runner
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo '::error::Configure RELEASE_PAT with repository contents and pull-request write permissions.'
+            exit 1
+          fi
+          cp scripts/pre-release-review.ts "$RUNNER_TEMP/pre-release-review-publisher.ts"
+          bun "$RUNNER_TEMP/pre-release-review-publisher.ts" publish
