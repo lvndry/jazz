@@ -1,7 +1,7 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { PlainTerminalService } from "@/cli/terminal";
+import { PlainTerminalService } from "@/cli/plain-terminal";
 import { classifyChatInput, type ChatInput } from "./chat-input";
 
 describe("classifyChatInput", () => {

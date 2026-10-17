@@ -4,11 +4,6 @@
  */
 
 import { toError } from "@jazz/core/utils/errors";
-import {
-  auth,
-  discoverOAuthServerInfo,
-  resourceUrlFromServerUrl,
-} from "@modelcontextprotocol/client";
 import type {
   OAuthClientProvider,
   OAuthClientInformation,
@@ -67,11 +62,14 @@ const CALLBACK_PORTS = [33418, 33419, 33420, 33421] as const;
 const CALLBACK_TIMEOUT_MS = 300_000;
 
 /**
- * The resource a server's credentials are bound to: its URL without a fragment, as the SDK
- * canonicalizes it for the OAuth `resource` parameter.
+ * The resource a server's credentials are bound to: its URL without a fragment, as the SDK's
+ * `resourceUrlFromServerUrl` canonicalizes it for the OAuth `resource` parameter. Computed here
+ * so building a connection does not load the SDK.
  */
 function canonicalResource(serverUrl: string): string {
-  return resourceUrlFromServerUrl(serverUrl).href;
+  const resource = new URL(serverUrl);
+  resource.hash = "";
+  return resource.href;
 }
 
 /**
@@ -116,6 +114,7 @@ function issuerAccount(serverName: string, serverUrl: string): string {
 
 /** Resolve which authorization server backs an MCP server URL. */
 async function resolveIssuer(serverUrl: string): Promise<string> {
+  const { discoverOAuthServerInfo } = await import("@modelcontextprotocol/client");
   const info = await discoverOAuthServerInfo(serverUrl);
   return info.authorizationServerUrl;
 }
@@ -342,6 +341,7 @@ export function authorizeServer(
           },
         };
 
+        const { auth } = await import("@modelcontextprotocol/client");
         const result = await auth(provider, { serverUrl });
 
         if (result === "AUTHORIZED") {

@@ -114,12 +114,20 @@ describe("connectServer", () => {
     const logger = fakeLogger();
     const manager = new MCPServerManagerImpl(logger);
 
-    const attempt = fakeClient(() => new Promise<void>(() => {}));
+    let handshakeStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      handshakeStarted = resolve;
+    });
+    const attempt = fakeClient(() => {
+      handshakeStarted();
+      return new Promise<void>(() => {});
+    });
     wireFakeClients(manager, [attempt]);
 
     const fiber = Effect.runFork(
       manager.connectServer(STDIO_CONFIG).pipe(Effect.provideService(LoggerServiceTag, logger)),
     );
+    await started;
     await Effect.runPromise(Fiber.interrupt(fiber));
 
     expect(attempt.close).toHaveBeenCalledTimes(1);

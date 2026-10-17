@@ -195,6 +195,7 @@ describe("fullscreen bridge", () => {
 
   it("shows the resolved local endpoint beside a conversation model", async () => {
     const text = await frame(() => {
+      store.setWorkingDirectory("/repo");
       store.resetRunStats({
         provider: "vllm",
         model: "qwen3",

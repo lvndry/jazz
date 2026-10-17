@@ -25,9 +25,9 @@ import {
   SYSTEMD_SERVICE_NAME,
 } from "@jazz/daemon/service-install";
 import { Effect } from "effect";
-import { backgroundDaemonLogPath } from "@/cli/commands/daemon";
 import { readDaemonAttention, formatDaemonAttention } from "@/cli/commands/daemon-attention";
 import { collectBatches, collectReminders, collectTriggers } from "@/cli/commands/pending";
+import { backgroundDaemonLogPath } from "@/cli/helpers/daemon-launch";
 import { probeDaemonOwner, readDaemonPid } from "@/cli/helpers/daemon-process";
 import { emitEnvelope } from "@/cli/helpers/json-output";
 
