@@ -181,14 +181,23 @@ const redeemLocks = new Map<string, Promise<unknown>>();
 function withRedeemLock<A>(id: string, run: () => Promise<A>): Promise<A> {
   const previous = redeemLocks.get(id) ?? Promise.resolve();
   const next = previous.then(run, run);
-  redeemLocks.set(
-    id,
-    next.then(
-      () => undefined,
-      () => undefined,
-    ),
+  const settled = next.then(
+    () => undefined,
+    () => undefined,
   );
+  redeemLocks.set(id, settled);
+  // Ids arrive from an unauthenticated endpoint, so a slot is freed once its last redeem settles.
+  void settled.then(() => {
+    if (redeemLocks.get(id) === settled) {
+      redeemLocks.delete(id);
+    }
+  });
   return next;
+}
+
+/** Test seam: invite ids with a redemption still queued or running. */
+export function pendingRedeemLockCount(): number {
+  return redeemLocks.size;
 }
 
 export function redeemInvite(
