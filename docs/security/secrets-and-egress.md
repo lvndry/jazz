@@ -19,9 +19,16 @@ there is no keyring.
 `jazz config set llm.openai.api_key` stores the key separately from `config.json`.
 
 The OS keyring is shared by every Jazz home on the account, so each home files its entries under
-its own service, `jazz.<hash of the home path>`. A `JAZZ_HOME` or `--data-dir` home cannot read the
-keys of another. `jazz mcp add --env` and `--header` values are secrets too: they go to the keyring,
+its own vault service, `jazz.<hash of the home path>.vault`. A `JAZZ_HOME` or `--data-dir` home
+cannot read the keys of another. `jazz mcp add --env` and `--header` values are secrets too: they go to the keyring,
 and `~/.agents/mcp.json` (mode 0600) keeps only their names.
+
+Older per-secret keyring entries migrate into the home’s vault before writes and alongside the
+first read. A completed migration is remembered for the process lifetime. If a keyring read,
+write, or deletion fails, the next uncached lookup or mutation retries the incomplete migration;
+already migrated vault values remain intact. Copying and retiring each legacy entry share the
+same lock as vault updates, preventing another process from migrating a value after its deletion.
+Deletion leaves the vault unchanged while migration is incomplete, so a later retry cannot restore a secret that appeared to have been removed.
 
 Read-back is one-way. `jazz config show` and `jazz config get` redact every secret, including MCP
 env and header values and values merged in from the keyring or the environment; `--reveal` is the

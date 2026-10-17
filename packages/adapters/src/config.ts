@@ -70,6 +70,7 @@ import {
   detectKeyringBackend,
   keyringDelete,
   keyringGet,
+  keyringReadAll,
   keyringSet,
   type KeyringBackend,
 } from "./secrets/keyring";
@@ -951,15 +952,10 @@ function resolveSecrets(
     }
 
     if (backend !== "none") {
-      const lookups = [...candidates].filter((path) => !fromEnv.has(path));
-      const found = yield* Effect.all(
-        lookups.map((path) =>
-          keyringGet(backend, path).pipe(Effect.map((value) => [path, value] as const)),
-        ),
-        { concurrency: "unbounded" },
-      );
-      for (const [path, value] of found) {
-        if (!nonEmptyString(value)) continue;
+      const held = yield* keyringReadAll(backend);
+      for (const path of candidates) {
+        const value = held[path];
+        if (fromEnv.has(path) || !nonEmptyString(value)) continue;
         deepSet(resolved, path, value);
       }
     }
