@@ -14,6 +14,7 @@ on:
       - "eslint.config.*"
       - ".eslintrc*"
       - ".github/workflows/ci.yml"
+      - ".github/jazz/pre-release-review.Dockerfile"
       - "**/*.md"
       - ".markdownlint-cli2.jsonc"
   pull_request:
@@ -28,6 +29,7 @@ on:
       - "eslint.config.*"
       - ".eslintrc*"
       - ".github/workflows/ci.yml"
+      - ".github/jazz/pre-release-review.Dockerfile"
       - "**/*.md"
       - ".markdownlint-cli2.jsonc"
 
@@ -250,3 +252,17 @@ jobs:
 
       - name: Build the image
         run: docker build --file "packages/${{ matrix.bot }}/src/Dockerfile" --tag "jazz-${{ matrix.bot }}:ci" .
+
+  pre-release-review-image:
+    name: build pre-release review image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Build the review image
+        run: docker build --file .github/jazz/pre-release-review.Dockerfile --tag jazz-pre-release-review:ci .github/jazz
+
+      - name: Check the review runtime
+        run: docker run --rm jazz-pre-release-review:ci sh -ec 'node --version; bun --version; jazz --version'

@@ -137,6 +137,9 @@ credentials before review; findings needing those edits remain unresolved for ma
 The shared OAuth queue preserves rotated ChatGPT credentials using the existing
 Secrets-write-only App.
 
+Normal pull-request CI builds the review image and checks its Node, Bun, and Jazz executables
+without provider credentials.
+
 Review and merge the proposed fixes manually before starting a release. This action is an
 optional manual step, not an automatic release gate. See the
 [repository setup guide](https://github.com/lvndry/jazz/blob/main/.github/jazz/README.md#run-a-pre-release-review)
