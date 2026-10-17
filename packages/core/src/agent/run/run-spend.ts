@@ -70,7 +70,7 @@ export function priceModelCall(
       return spendOf(usage.totalTokens, 0);
     }
     const pricing = yield* Effect.tryPromise(() => getModelsDevMetadata(model, provider)).pipe(
-      Effect.catchAll(() => Effect.succeed(undefined)),
+      Effect.catch(() => Effect.succeed(undefined)),
     );
     const costUSD = computeUsageCostUSD(usage, pricing) ?? undefined;
     return isUsageCostIncomplete(usage, pricing)

@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Context, Effect } from "effect";
+import { Context, Effect, FileSystem } from "effect";
 
 export interface FileSystemContextService {
   /** Gets the current working directory for the given agent/conversation context. */
@@ -34,6 +33,6 @@ export interface FileSystemContextService {
   readonly escapePath: (path: string) => string;
 }
 
-export const FileSystemContextServiceTag = Context.GenericTag<FileSystemContextService>(
+export const FileSystemContextServiceTag = Context.Service<FileSystemContextService>(
   "FileSystemContextService",
 );

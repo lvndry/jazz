@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Cause, Effect, Layer, Option } from "effect";
 import { isRunParkRequested } from "@/core/agent/run/park-signal";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { userInteractionTools } from "./user-interaction";
@@ -57,7 +57,7 @@ describe("ask_user_question", () => {
     );
     expect(exit._tag).toBe("Failure");
     if (exit._tag === "Failure") {
-      const error = exit.cause._tag === "Fail" ? exit.cause.error : undefined;
+      const error = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
       expect(isRunParkRequested(error)).toBe(true);
       if (isRunParkRequested(error)) {
         expect(error.pending).toMatchObject({
@@ -119,7 +119,7 @@ describe("ask_file_picker", () => {
     );
     expect(exit._tag).toBe("Failure");
     if (exit._tag === "Failure") {
-      const error = exit.cause._tag === "Fail" ? exit.cause.error : undefined;
+      const error = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
       expect(isRunParkRequested(error)).toBe(true);
       if (isRunParkRequested(error)) {
         expect(error.pending).toMatchObject({

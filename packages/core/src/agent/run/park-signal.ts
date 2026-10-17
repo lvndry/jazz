@@ -72,7 +72,7 @@ export function classifyRunError(error: unknown): RunStop {
 
 /** A park, a failure, or a defect or interrupt, which must be settled like a failure. */
 export function classifyRunCause(cause: Cause.Cause<unknown>): RunStop {
-  const failure = Cause.failureOption(cause);
+  const failure = Cause.findErrorOption(cause);
   return Option.isSome(failure)
     ? classifyRunError(failure.value)
     : { kind: "failed", error: Cause.pretty(cause) };
@@ -84,7 +84,7 @@ export function runToOutcome<A, E, R>(
 ): Effect.Effect<RunOutcome<A>, never, R> {
   return run.pipe(
     Effect.map((response): RunOutcome<A> => ({ kind: "finished", response })),
-    Effect.catchAllCause((cause) => Effect.succeed(classifyRunCause(cause))),
+    Effect.catchCause((cause) => Effect.succeed(classifyRunCause(cause))),
   );
 }
 

@@ -186,7 +186,7 @@ export function createWebSearchTool(): ReturnType<
               source: `web_search results from ${selectedProvider}`,
             },
           })),
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.gen(function* () {
               const message = toError(error).message;
               yield* logger.error("Web search failed", {
@@ -212,9 +212,8 @@ export function createWebSearchTool(): ReturnType<
   });
 }
 
-const SEARCH_RETRY_SCHEDULE = Schedule.intersect(
-  Schedule.recurs(3),
-  Schedule.jittered(Schedule.exponential("1 second")),
+const SEARCH_RETRY_SCHEDULE = Schedule.jittered(Schedule.exponential("1 second")).pipe(
+  Schedule.upTo({ times: 3 }),
 );
 
 // Auth and client errors never succeed on retry; retrying a 401 four times

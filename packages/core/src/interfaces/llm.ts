@@ -145,4 +145,4 @@ export interface LLMService {
 /**
  * Service tag for dependency injection
  */
-export const LLMServiceTag = Context.GenericTag<LLMService>("LLMService");
+export const LLMServiceTag = Context.Service<LLMService>("LLMService");

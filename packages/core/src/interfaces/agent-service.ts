@@ -124,4 +124,4 @@ export interface AgentService {
   ) => Effect.Effect<void, AgentConfigurationError>;
 }
 
-export const AgentServiceTag = Context.GenericTag<AgentService>("AgentService");
+export const AgentServiceTag = Context.Service<AgentService>("AgentService");

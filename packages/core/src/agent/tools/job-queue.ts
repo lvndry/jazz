@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import {
   JOB_COMMAND_MAX_LENGTH,
@@ -210,7 +209,7 @@ These commands will run unattended, without further approval, until every job fi
           },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -271,7 +270,7 @@ These commands will run unattended, without further approval, until every job fi
           result: { batches: batches.map((batch) => formatBatchSummary(batch, known)) },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -311,7 +310,7 @@ These commands will run unattended, without further approval, until every job fi
           ...(outcome.success ? {} : { error: outcome.message }),
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,

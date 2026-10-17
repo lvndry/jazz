@@ -54,7 +54,7 @@ function syncServerTools(
     const registerTool = registry.registerForCategory(category);
 
     const jazzTools = yield* registerMCPServerTools(serverConfig, mcpTools).pipe(
-      Effect.catchAll(() => Effect.succeed([] as readonly Tool<MCPToolDependencies>[])),
+      Effect.catch(() => Effect.succeed([] as readonly Tool<MCPToolDependencies>[])),
     );
 
     // A server's own tool names win a collision: the resource pair is Jazz's
@@ -116,7 +116,7 @@ function subscribeToToolChanges(): Effect.Effect<
           Effect.tap((names) =>
             logger.info("MCP server tool list changed", { toolCount: names.length }),
           ),
-          Effect.catchAllCause(() => Effect.void),
+          Effect.catchCause(() => Effect.void),
         ),
       );
     });
@@ -222,19 +222,19 @@ export function registerMCPToolsForAgent(
           yield* logger.debug("Connecting to MCP server");
         }
 
-        const connectResult = yield* Effect.either(mcpManager.connectServer(serverConfig));
+        const connectResult = yield* Effect.result(mcpManager.connectServer(serverConfig));
         // Tell the interface whether this connector is actually reachable. A
         // failure here is not fatal — the agent carries on without those tools —
         // so the header is the only place the user would otherwise learn of it.
         if (presentation.reportConnector) {
           yield* presentation.reportConnector(
             serverName,
-            connectResult._tag === "Left" ? "offline" : "live",
+            connectResult._tag === "Failure" ? "offline" : "live",
           );
         }
 
-        if (connectResult._tag === "Left") {
-          const error = connectResult.left;
+        if (connectResult._tag === "Failure") {
+          const error = connectResult.failure;
           const isAuthError = isAuthenticationRequired(error.reason);
 
           if (showedConnectionUI) {
@@ -266,10 +266,10 @@ export function registerMCPToolsForAgent(
           return;
         }
 
-        const mcpToolsResult = yield* Effect.either(mcpManager.getServerTools(serverName));
+        const mcpToolsResult = yield* Effect.result(mcpManager.getServerTools(serverName));
         let mcpTools: readonly MCPTool[] = [];
-        if (mcpToolsResult._tag === "Right") {
-          mcpTools = mcpToolsResult.right;
+        if (mcpToolsResult._tag === "Success") {
+          mcpTools = mcpToolsResult.success;
         } else {
           if (showedConnectionUI) {
             yield* presentation.presentStatus(
@@ -316,7 +316,7 @@ export function registerMCPToolsForAgent(
       }).pipe(
         // Every failure inside is already turned into an Either above, so only
         // a defect can land here. One broken server must not abort the rest.
-        Effect.catchAllCause(() =>
+        Effect.catchCause(() =>
           logger.warn("MCP tool registration failed", { errorType: "registration_failed" }),
         ),
       );

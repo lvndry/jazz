@@ -1,9 +1,8 @@
 /**
  * Shared test helpers for fs tool tests.
  */
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import { testConfigLayer } from "@/core/agent/test-config";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";

@@ -3,7 +3,7 @@
  * (auth/rate-limit/request), and classifies which are worth retrying.
  */
 import { APICallError, RetryError } from "ai";
-import { Duration, Schedule } from "effect";
+import { Duration, Effect, Schedule } from "effect";
 import { MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
 import {
   isLocalServerProvider,
@@ -656,7 +656,7 @@ export function describeRetryableLLMError(error: unknown): string {
  * Only retries on transient errors (rate limits, connection failures, 5xx).
  */
 export function makeLLMRetrySchedule(maxRetries: number) {
-  return llmRetryDelays().pipe(Schedule.intersect(Schedule.recurs(maxRetries)));
+  return llmRetryDelays().pipe(Schedule.upTo({ times: maxRetries }));
 }
 
 /**
@@ -669,17 +669,17 @@ export function makeLLMRetrySchedule(maxRetries: number) {
 export function llmRetryDelays() {
   return Schedule.exponential("1 second").pipe(
     Schedule.jittered,
-    Schedule.modifyDelay((_, delay) =>
-      Duration.min(delay, Duration.seconds(MAX_RETRY_DELAY_SECONDS)),
+    Schedule.modifyDelay(({ duration }) =>
+      Effect.succeed(Duration.min(duration, Duration.seconds(MAX_RETRY_DELAY_SECONDS))),
     ),
-    Schedule.intersect(Schedule.identity<unknown>()),
-    Schedule.modifyDelay(([, error], delay) => {
-      const retryAfterMs = retryAfterMsOf(error);
-      return retryAfterMs === undefined ? delay : Duration.millis(retryAfterMs);
+    Schedule.setInputType<unknown>(),
+    Schedule.modifyDelay(({ input, duration }) => {
+      const retryAfterMs = retryAfterMsOf(input);
+      return Effect.succeed(retryAfterMs === undefined ? duration : Duration.millis(retryAfterMs));
     }),
-    Schedule.whileInput(
-      (error: unknown) =>
-        isRetryableLLMError(error) && (retryAfterMsOf(error) ?? 0) <= MAX_RETRY_AFTER_MS,
+    Schedule.while(
+      ({ input }) =>
+        isRetryableLLMError(input) && (retryAfterMsOf(input) ?? 0) <= MAX_RETRY_AFTER_MS,
     ),
   );
 }

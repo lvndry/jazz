@@ -39,7 +39,7 @@ export interface WakeTriggerOsScheduler {
 }
 
 export const WakeTriggerOsSchedulerTag =
-  Context.GenericTag<WakeTriggerOsScheduler>("WakeTriggerOsScheduler");
+  Context.Service<WakeTriggerOsScheduler>("WakeTriggerOsScheduler");
 
 /** The `jazz` arguments that fire one wake trigger. */
 export function wakeTriggerFireArgs(agentId: string, triggerId: string): readonly string[] {

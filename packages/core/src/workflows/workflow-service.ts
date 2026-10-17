@@ -95,7 +95,7 @@ export interface WorkflowService {
   readonly refreshCache: () => Effect.Effect<void, Error>;
 }
 
-export const WorkflowServiceTag = Context.GenericTag<WorkflowService>("WorkflowService");
+export const WorkflowServiceTag = Context.Service<WorkflowService>("WorkflowService");
 
 /**
  * Parse workflow frontmatter into metadata.

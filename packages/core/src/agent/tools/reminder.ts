@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import type { ReminderRecord, ReminderService } from "@/core/interfaces/reminder-service";
 import { ReminderServiceTag } from "@/core/interfaces/reminder-service";
@@ -64,7 +63,7 @@ export function createAddReminderTool(): Tool<ReminderToolDeps> {
           },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -112,7 +111,7 @@ export function createListRemindersTool(): Tool<ReminderToolDeps> {
           },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -157,7 +156,7 @@ export function createCancelReminderTool(): Tool<ReminderToolDeps> {
           ...(outcome.success ? {} : { error: outcome.message }),
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,

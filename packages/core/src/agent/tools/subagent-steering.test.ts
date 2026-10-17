@@ -56,12 +56,13 @@ function tool(name: string) {
   return found;
 }
 
-function call(
+/** Run a tool, then let the children it forked start: forked fibers begin on a later macrotask. */
+async function call(
   name: string,
   args: Record<string, unknown>,
   supervisor: SubagentSupervisor | undefined,
 ): Promise<ToolExecutionResult> {
-  return Effect.runPromise(
+  const result = await Effect.runPromise(
     (
       tool(name).execute(args, {
         agentId: parentAgent.id,
@@ -70,6 +71,8 @@ function call(
       }) as Effect.Effect<ToolExecutionResult, unknown, LoggerService | PresentationService>
     ).pipe(Effect.provide(layer)),
   );
+  await new Promise((resolve) => setImmediate(resolve));
+  return result;
 }
 
 /** Replace the child run with one that answers once `answers` gives it text. */

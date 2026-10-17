@@ -8,8 +8,7 @@
  */
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import type { MemoryEntrySnapshot } from "@/core/interfaces/memory-service";
 import {
   formatPreferenceLine,
@@ -70,7 +69,7 @@ function writeEpoch(fs: FileSystem.FileSystem, scopeDirectory: string): ReceiptE
     .makeDirectory(scopeDirectory, { recursive: true, mode: stateDirectoryMode() })
     .pipe(
       Effect.mapError(toError),
-      Effect.zipRight(
+      Effect.andThen(
         writeFileStringAtomic(path.join(scopeDirectory, EPOCH_FILENAME), `${epoch}\n`),
       ),
       Effect.as(epoch),
@@ -90,7 +89,7 @@ function readEpochLocked(scope: string, receiptsDirectory: string): ReceiptEffec
     const content = yield* fs.readFileString(epochPath).pipe(
       Effect.map((text): string | undefined => text.trim()),
       Effect.catchIf(
-        (error) => error._tag === "SystemError" && error.reason === "NotFound",
+        (error) => error.reason._tag === "NotFound",
         () => Effect.succeed(undefined),
       ),
       Effect.mapError(toError),
@@ -103,7 +102,7 @@ function readEpochLocked(scope: string, receiptsDirectory: string): ReceiptEffec
     }
     yield* fs
       .rename(epochPath, `${epochPath}.corrupt-${Date.now()}`)
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(Effect.catch(() => Effect.void));
     return yield* writeEpoch(fs, scopeDirectory);
   });
 }
@@ -175,7 +174,7 @@ function pruneEntryDirectory(fs: FileSystem.FileSystem, directory: string): Rece
     dated.sort((older, newer) => older.modifiedAt - newer.modifiedAt);
     yield* Effect.forEach(
       dated.slice(0, names.length - MAX_RECEIPTS_PER_ENTRY),
-      ({ name }) => fs.remove(path.join(directory, name)).pipe(Effect.catchAll(() => Effect.void)),
+      ({ name }) => fs.remove(path.join(directory, name)).pipe(Effect.catch(() => Effect.void)),
       { discard: true },
     );
   });
@@ -210,11 +209,11 @@ function storeReceipt(
         .pipe(Effect.mapError(toError));
       yield* fs.link(temporaryPath, target).pipe(
         Effect.catchIf(
-          (error) => error._tag === "SystemError" && error.reason === "AlreadyExists",
+          (error) => error.reason._tag === "AlreadyExists",
           () => Effect.void,
         ),
         Effect.mapError(toError),
-        Effect.ensuring(fs.remove(temporaryPath).pipe(Effect.catchAll(() => Effect.void))),
+        Effect.ensuring(fs.remove(temporaryPath).pipe(Effect.catch(() => Effect.void))),
       );
     }
     const written = (writesSincePrune.get(directory) ?? RECEIPT_WRITES_BETWEEN_PRUNES) + 1;
@@ -442,7 +441,7 @@ export function readMemoryOpportunityReceipts(
     const directory = path.join(scopeDirectory, entryId);
     const names = yield* fs.readDirectory(directory).pipe(
       Effect.catchIf(
-        (error) => error._tag === "SystemError" && error.reason === "NotFound",
+        (error) => error.reason._tag === "NotFound",
         () => Effect.succeed([] as string[]),
       ),
       Effect.mapError(toError),
@@ -452,7 +451,7 @@ export function readMemoryOpportunityReceipts(
       (name) =>
         fs.readFileString(path.join(directory, name)).pipe(
           Effect.map((text) => parseReceipt(text, scope, entryId)),
-          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.catch(() => Effect.succeed(undefined)),
         ),
     );
     return receipts

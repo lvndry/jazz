@@ -50,4 +50,4 @@ export interface PeerInviteService {
   ) => Effect.Effect<RedeemInviteOutcome, Error>;
 }
 
-export const PeerInviteServiceTag = Context.GenericTag<PeerInviteService>("PeerInviteService");
+export const PeerInviteServiceTag = Context.Service<PeerInviteService>("PeerInviteService");

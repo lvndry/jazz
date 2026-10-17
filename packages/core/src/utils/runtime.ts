@@ -92,7 +92,7 @@ export function findExecutablePathViaShell(): Effect.Effect<string | null, never
     const isWindows = process.platform === "win32";
     const whichCommand = isWindows ? "where" : "which";
 
-    return yield* Effect.async<string | null, never>((resume) => {
+    return yield* Effect.callback<string | null, never>((resume) => {
       const child = spawn(whichCommand, ["jazz"], {
         stdio: ["ignore", "pipe", "ignore"],
         shell: true,
@@ -141,13 +141,13 @@ export function detectPackageManagerFromPath(
       const statsResult = yield* Effect.tryPromise({
         try: () => fsModule.promises.lstat(filePath),
         catch: () => new Error("Cannot stat file"),
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      }).pipe(Effect.catch(() => Effect.succeed(null)));
 
       if (statsResult?.isSymbolicLink()) {
         const realPath = yield* Effect.tryPromise({
           try: () => fsModule.promises.realpath(filePath),
           catch: () => new Error("Cannot resolve symlink"),
-        }).pipe(Effect.catchAll(() => Effect.succeed(filePath)));
+        }).pipe(Effect.catch(() => Effect.succeed(filePath)));
         return realPath;
       }
 
@@ -403,7 +403,7 @@ function commandExistsViaShell(command: string): Effect.Effect<boolean, never> {
     const isWindows = process.platform === "win32";
     const whichCommand = isWindows ? "where" : "which";
 
-    return yield* Effect.async<boolean, never>((resume) => {
+    return yield* Effect.callback<boolean, never>((resume) => {
       const child = spawn(whichCommand, [command], {
         stdio: ["ignore", "ignore", "ignore"],
         shell: true,

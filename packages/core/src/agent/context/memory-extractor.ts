@@ -199,7 +199,7 @@ export function extractMemories(
     const extractorMetadata = yield* Effect.tryPromise({
       try: () => getModelsDevMetadata(extractorModelConfig.model, extractorModelConfig.provider),
       catch: () => new Error("Failed to fetch memory-extractor model metadata"),
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 
     const extractorWindow = resolveEffectiveContextWindow({
       provider: extractorModelConfig.provider,
@@ -284,7 +284,7 @@ export function extractMemories(
       });
     }
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.gen(function* () {
         const logger = yield* LoggerServiceTag;
         yield* logger.debug("Memory extraction failed; continuing", {

@@ -429,9 +429,9 @@ it("rejects a tool the manifest did not declare", async () => {
       register(api) {
         api.tools.register({ name: "undeclared", handler: async () => ({ content: "x" }) });
       },
-    }).pipe(Effect.either),
+    }).pipe(Effect.result),
   );
-  expect(outcome._tag).toBe("Left");
+  expect(outcome._tag).toBe("Failure");
 });
 
 it("returns an error result when the handler throws, so the host falls back", async () => {
@@ -633,7 +633,7 @@ it("rejects a lifecycle subscription the manifest did not declare", async () => 
       ],
       metrics: createAgentRunMetrics({ agent, conversationId: "c" }),
       resolveSecret: async () => "secret",
-    }).pipe(Effect.either),
+    }).pipe(Effect.result),
   );
-  expect(outcome._tag).toBe("Left");
+  expect(outcome._tag).toBe("Failure");
 });

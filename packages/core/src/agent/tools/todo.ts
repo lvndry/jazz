@@ -66,7 +66,7 @@ function readTodos(conversationId: string): Effect.Effect<TodoItem[], Error> {
       }),
     ),
     // File not found or unreadable → empty list (not an error)
-    Effect.catchAll(() => Effect.succeed([] as TodoItem[])),
+    Effect.catch(() => Effect.succeed([] as TodoItem[])),
   );
 }
 
@@ -153,7 +153,7 @@ export function createManageTodosTool(): Tool<never> {
           },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -204,7 +204,7 @@ export function createListTodosTool(): Tool<never> {
           },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,

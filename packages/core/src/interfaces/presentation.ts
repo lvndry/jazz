@@ -508,5 +508,4 @@ export interface StreamingRenderer {
 /**
  * Service tag for dependency injection
  */
-export const PresentationServiceTag =
-  Context.GenericTag<PresentationService>("PresentationService");
+export const PresentationServiceTag = Context.Service<PresentationService>("PresentationService");

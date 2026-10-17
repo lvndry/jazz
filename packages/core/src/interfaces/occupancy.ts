@@ -27,4 +27,4 @@ export interface OccupancyService {
   readonly list: () => Effect.Effect<readonly OccupancyEntry[], never>;
 }
 
-export const OccupancyServiceTag = Context.GenericTag<OccupancyService>("OccupancyService");
+export const OccupancyServiceTag = Context.Service<OccupancyService>("OccupancyService");

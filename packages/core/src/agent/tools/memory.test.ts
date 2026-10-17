@@ -20,7 +20,7 @@ const context: ToolExecutionContext = {
 
 function runWithMemory<A>(
   service: MemoryService,
-  effect: Effect.Effect<A, Error, MemoryService | import("@effect/platform").FileSystem.FileSystem>,
+  effect: Effect.Effect<A, Error, MemoryService | import("effect").FileSystem.FileSystem>,
 ) {
   return Effect.runPromise(
     effect.pipe(

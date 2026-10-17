@@ -29,7 +29,7 @@ export function resolveToolAllowlist(
       const tool = yield* registry.getTool(name).pipe(
         // A name the registry listed but will not hand over cannot be reasoned about, so it
         // is left out rather than admitted unexamined.
-        Effect.catchAll(() => Effect.succeed(undefined)),
+        Effect.catch(() => Effect.succeed(undefined)),
       );
       if (tool === undefined) continue;
       described.push({

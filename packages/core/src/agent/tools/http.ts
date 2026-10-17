@@ -440,10 +440,10 @@ export function createHttpRequestTool(): Tool<AgentConfigService> {
           },
           catch: (error) =>
             error instanceof Error ? error : new Error(`HTTP request failed: ${String(error)}`),
-        }).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timeoutId))), Effect.either);
+        }).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timeoutId))), Effect.result);
 
-        if (exchange._tag === "Left") {
-          const error = exchange.left;
+        if (exchange._tag === "Failure") {
+          const error = exchange.failure;
           return {
             success: false,
             result: null,
@@ -454,9 +454,9 @@ export function createHttpRequestTool(): Tool<AgentConfigService> {
           } satisfies ToolExecutionResult;
         }
 
-        const { response, read } = exchange.right;
-        const finalUrl = exchange.right.url;
-        const elapsedMs = exchange.right.headersReceivedMs;
+        const { response, read } = exchange.success;
+        const finalUrl = exchange.success.url;
+        const elapsedMs = exchange.success.headersReceivedMs;
 
         const effectiveResponseType: ResponseType = (() => {
           const contentType = response.headers.get("content-type")?.toLowerCase() || "";

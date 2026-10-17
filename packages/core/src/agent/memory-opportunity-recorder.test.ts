@@ -1,10 +1,9 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { MemorySnapshot } from "@/core/interfaces/memory-service";
 import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";

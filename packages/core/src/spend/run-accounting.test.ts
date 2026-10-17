@@ -95,11 +95,11 @@ describe("guardRunStart", () => {
     const home = temporaryHome();
     await spendOne(home, 1);
 
-    const first = await Effect.runPromise(Effect.either(guardRunStart(input(home))));
-    const second = await Effect.runPromise(Effect.either(guardRunStart(input(home))));
+    const first = await Effect.runPromise(Effect.result(guardRunStart(input(home))));
+    const second = await Effect.runPromise(Effect.result(guardRunStart(input(home))));
 
-    expect(first._tag === "Left" && first.left instanceof SpendCapReachedError).toBe(true);
-    expect(second._tag).toBe("Left");
+    expect(first._tag === "Failure" && first.failure instanceof SpendCapReachedError).toBe(true);
+    expect(second._tag).toBe("Failure");
     const items = await queued(home);
     expect(items.map((item) => item.event.kind)).toEqual(["spend-cap"]);
   });
@@ -148,13 +148,13 @@ describe("guardRunStart", () => {
 
     const firstCheck = await Effect.runPromise(guardRunStart(first));
     const second = await Effect.runPromise(
-      Effect.either(guardRunStart(input(home, { reservationId: "run-b" }))),
+      Effect.result(guardRunStart(input(home, { reservationId: "run-b" }))),
     );
     await Effect.runPromise(releaseRunReservation(first));
     const third = await Effect.runPromise(guardRunStart(input(home, { reservationId: "run-c" })));
 
     expect(firstCheck.kind).toBe("clear");
-    expect(second._tag === "Left" && second.left instanceof SpendCapReachedError).toBe(true);
+    expect(second._tag === "Failure" && second.failure instanceof SpendCapReachedError).toBe(true);
     expect(third.kind).toBe("clear");
   });
 
@@ -169,12 +169,12 @@ describe("guardRunStart", () => {
     });
 
     const result = await Effect.runPromise(
-      Effect.either(guardRunStart(capped)).pipe(
+      Effect.result(guardRunStart(capped)).pipe(
         Effect.provide(Layer.succeed(AgentServiceTag, agents)),
       ),
     );
 
-    expect(result._tag === "Left" && result.left.message).toContain('agent "inbox"');
+    expect(result._tag === "Failure" && result.failure.message).toContain('agent "inbox"');
   });
 
   it("skips the check for a run whose parent records it", async () => {

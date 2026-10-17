@@ -15,4 +15,4 @@ export interface JazzStateService {
   readonly load: () => Effect.Effect<JazzState, never>;
 }
 
-export const JazzStateServiceTag = Context.GenericTag<JazzStateService>("JazzStateService");
+export const JazzStateServiceTag = Context.Service<JazzStateService>("JazzStateService");

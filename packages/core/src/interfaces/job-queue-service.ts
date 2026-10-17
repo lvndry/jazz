@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Context, Effect } from "effect";
+import { Context, Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type DeliveryState, DeliveryStateSchema } from "@/core/utils/delivery";
 import type { ProcessOwner } from "@/core/utils/process";
@@ -205,4 +204,4 @@ export interface JobQueueService {
   ) => Effect.Effect<CancelBatchOutcome, Error, FileSystem.FileSystem>;
 }
 
-export const JobQueueServiceTag = Context.GenericTag<JobQueueService>("JobQueueService");
+export const JobQueueServiceTag = Context.Service<JobQueueService>("JobQueueService");

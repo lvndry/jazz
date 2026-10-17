@@ -118,7 +118,7 @@ export interface SkillService {
   ) => Effect.Effect<string, Error>;
 }
 
-export const SkillServiceTag = Context.GenericTag<SkillService>("SkillService");
+export const SkillServiceTag = Context.Service<SkillService>("SkillService");
 
 function parseSkillFrontmatter(
   data: Record<string, unknown>,

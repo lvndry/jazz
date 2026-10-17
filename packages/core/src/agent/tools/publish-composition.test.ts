@@ -9,10 +9,9 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import type { CloudflareFetch } from "./cloudflare-publish";
 import {
   compositionRepoFor,

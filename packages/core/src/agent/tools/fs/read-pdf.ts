@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
@@ -65,14 +64,14 @@ function loadLocalPdf(
     if (extensionError) return { kind: "failure", result: extensionError };
 
     const fs = yield* FileSystem.FileSystem;
-    const buffer = yield* fs.readFile(resolved.path).pipe(Effect.either);
-    if (buffer._tag === "Left") {
+    const buffer = yield* fs.readFile(resolved.path).pipe(Effect.result);
+    if (buffer._tag === "Failure") {
       return pdfFailure(`Failed to read PDF file: ${resolved.path}`);
     }
     const untrusted = yield* localFileProvenance(resolved.path, "read_pdf", context);
     return {
       kind: "ok",
-      buffer: buffer.right,
+      buffer: buffer.success,
       label: resolved.path,
       ...(untrusted !== undefined ? { untrusted } : {}),
     };
@@ -143,9 +142,11 @@ function loadRemotePdf(
           : error instanceof EgressRefusedError
             ? error
             : new Error(`Failed to fetch ${url}: ${toError(error).message}`),
-    }).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timeout))), Effect.either);
+    }).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timeout))), Effect.result);
 
-    return downloaded._tag === "Left" ? pdfFailure(downloaded.left.message) : downloaded.right;
+    return downloaded._tag === "Failure"
+      ? pdfFailure(downloaded.failure.message)
+      : downloaded.success;
   });
 }
 
@@ -269,7 +270,7 @@ export function createReadPdfTool(): Tool<
         const PDFParse = loaded.PDFParse;
 
         // pdf-parse rejects on malformed or encrypted input, so every call runs through
-        // `Effect.either`: the failures are values to turn into clean tool errors, not thrown
+        // `Effect.result`: the failures are values to turn into clean tool errors, not thrown
         // exceptions. `Effect.ensuring` releases the parser whether parsing succeeds or fails.
         const pdfParser = new PDFParse({
           data: source.buffer,
@@ -281,9 +282,9 @@ export function createReadPdfTool(): Tool<
           const textResult = yield* Effect.tryPromise({
             try: () => pdfParser.getText(parseParams),
             catch: toError,
-          }).pipe(Effect.either);
-          if (textResult._tag === "Left") {
-            const parseError = textResult.left;
+          }).pipe(Effect.result);
+          if (textResult._tag === "Failure") {
+            const parseError = textResult.failure;
             return {
               success: false,
               result: null,
@@ -294,7 +295,7 @@ export function createReadPdfTool(): Tool<
                 : `PDF parsing failed: ${parseError.message}`,
             } satisfies ToolExecutionResult;
           }
-          const textContent = (textResult.right as { text?: string }).text || "";
+          const textContent = (textResult.success as { text?: string }).text || "";
 
           // Extract tables (with page attribution); ignore errors so text-only extraction still works
           let tablesSection = "";
@@ -302,10 +303,10 @@ export function createReadPdfTool(): Tool<
           const tableResult = yield* Effect.tryPromise({
             try: () => pdfParser.getTable(parseParams as { partial?: number[] }),
             catch: toError,
-          }).pipe(Effect.either);
-          if (tableResult._tag === "Right") {
+          }).pipe(Effect.result);
+          if (tableResult._tag === "Success") {
             const built = buildTablesSection(
-              tableResult.right as {
+              tableResult.success as {
                 pages?: Array<{ num?: number; tables?: (readonly (readonly string[])[])[] }>;
               },
             );
@@ -313,7 +314,7 @@ export function createReadPdfTool(): Tool<
             extractedTables = built.tables;
           } else {
             yield* Effect.logDebug(
-              `PDF table extraction failed, continuing with text only. Error: ${tableResult.left.message}`,
+              `PDF table extraction failed, continuing with text only. Error: ${tableResult.failure.message}`,
             );
           }
 
@@ -323,9 +324,11 @@ export function createReadPdfTool(): Tool<
           const infoResult = yield* Effect.tryPromise({
             try: () => pdfParser.getInfo(),
             catch: toError,
-          }).pipe(Effect.either);
+          }).pipe(Effect.result);
           const pageCount =
-            infoResult._tag === "Right" ? (infoResult.right as { total?: number }).total || 0 : 0;
+            infoResult._tag === "Success"
+              ? (infoResult.success as { total?: number }).total || 0
+              : 0;
 
           // Enforce maxChars safeguard on combined content
           const maxChars =
@@ -357,9 +360,9 @@ export function createReadPdfTool(): Tool<
             Effect.tryPromise({
               try: () => pdfParser.destroy(),
               catch: toError,
-            }).pipe(Effect.catchAll(() => Effect.void)),
+            }).pipe(Effect.catch(() => Effect.void)),
           ),
-          Effect.catchAll((error: Error) =>
+          Effect.catch((error: Error) =>
             Effect.succeed({
               success: false,
               result: null,

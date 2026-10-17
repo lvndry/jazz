@@ -144,31 +144,31 @@ export function createWebFetchTool(): ReturnType<
               : error instanceof EgressRefusedError
                 ? error
                 : new Error(`Failed to fetch ${args.url}: ${toError(error).message}`),
-        }).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timer))), Effect.either);
+        }).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timer))), Effect.result);
 
-        if (fetched._tag === "Left") {
+        if (fetched._tag === "Failure") {
           return {
             success: false,
             result: null,
-            error: fetched.left.message,
+            error: fetched.failure.message,
           } satisfies ToolExecutionResult;
         }
-        if (fetched.right.kind === "status") {
-          const { response } = fetched.right;
+        if (fetched.success.kind === "status") {
+          const { response } = fetched.success;
           return {
             success: false,
             result: null,
             error: `HTTP ${response.status} ${response.statusText} for ${args.url}`,
           } satisfies ToolExecutionResult;
         }
-        if (fetched.right.kind === "unsupported") {
+        if (fetched.success.kind === "unsupported") {
           return {
             success: false,
             result: null,
-            error: `Unsupported content type "${fetched.right.contentType}" for ${args.url}`,
+            error: `Unsupported content type "${fetched.success.contentType}" for ${args.url}`,
           } satisfies ToolExecutionResult;
         }
-        const { body, contentType, bodyTruncated } = fetched.right;
+        const { body, contentType, bodyTruncated } = fetched.success;
 
         const isHtml = contentType.includes("text/html");
         let title = "";
@@ -178,11 +178,11 @@ export function createWebFetchTool(): ReturnType<
           const extracted = yield* Effect.tryPromise({
             try: () => Defuddle(body, args.url, { markdown: true }),
             catch: (error) => new Error(`Failed to extract content: ${toError(error).message}`),
-          }).pipe(Effect.either);
+          }).pipe(Effect.result);
 
-          if (extracted._tag === "Right") {
-            title = extracted.right.title?.trim() ?? "";
-            fullContent = extracted.right.content.trim();
+          if (extracted._tag === "Success") {
+            title = extracted.success.title?.trim() ?? "";
+            fullContent = extracted.success.content.trim();
           } else {
             yield* logger.debug("Web extraction failed; using HTML text fallback", {
               errorType: "extraction_failed",
@@ -216,7 +216,7 @@ export function createWebFetchTool(): ReturnType<
             ...(truncated ? { next_offset: offset + content.length } : {}),
             ...(bodyTruncated ? { body_truncated_at_bytes: MAX_WEB_FETCH_BYTES } : {}),
           },
-          untrusted: { kind: "external", source: `web_fetch ${fetched.right.url}` },
+          untrusted: { kind: "external", source: `web_fetch ${fetched.success.url}` },
         } satisfies ToolExecutionResult;
       }),
     createSummary: (result: ToolExecutionResult) => {

@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import { redactLines } from "@/core/secrets/redacted-lines";
@@ -63,7 +62,7 @@ function writeProblem(
     const fs = yield* FileSystem.FileSystem;
     const currentContent = yield* fs
       .readFileString(target)
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      .pipe(Effect.catch(() => Effect.succeed(undefined)));
     const known = yield* toolKnownSecrets();
     const placeholderProblem = redactedWriteProblem({
       tool: "write_file",
@@ -125,9 +124,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         }
 
         // Check if file exists and read original content for preview diff
-        const fileExists = yield* fs
-          .exists(target)
-          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+        const fileExists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(false)));
 
         let originalContent = "";
         const isNewFile = !fileExists;
@@ -191,7 +188,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           if (parentDir && parentDir !== target) {
             const parentExists = yield* fs
               .exists(parentDir)
-              .pipe(Effect.catchAll(() => Effect.succeed(false)));
+              .pipe(Effect.catch(() => Effect.succeed(false)));
 
             if (!parentExists) {
               yield* fs.makeDirectory(parentDir, { recursive: true });
@@ -201,7 +198,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           // Check if file exists and read original content for diff
           const fileExists = yield* fs
             .exists(target)
-            .pipe(Effect.catchAll(() => Effect.succeed(false)));
+            .pipe(Effect.catch(() => Effect.succeed(false)));
 
           let originalContent = "";
           const isNewFile = !fileExists;

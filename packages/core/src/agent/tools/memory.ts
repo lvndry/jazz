@@ -4,8 +4,7 @@
  * filesystem tools rather than raw content blobs.
  */
 
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { DEFAULT_MEMORY_SCOPE, MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
 import type {
@@ -139,7 +138,7 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
             : {}),
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -476,7 +475,7 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
           ...(outcome.success ? {} : { error: outcome.message }),
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -583,7 +582,7 @@ export function createProposeLessonTool(): Tool<MemoryToolDeps> {
               error: outcome.message,
             } satisfies ToolExecutionResult);
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,

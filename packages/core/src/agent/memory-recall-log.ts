@@ -149,7 +149,7 @@ export function recordMemoryRecall(input: {
       });
     },
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.catch(() => Effect.void));
 }
 
 function parseLine(line: string): MemoryRecallEntry | undefined {
@@ -186,7 +186,7 @@ export function readMemoryRecalls(filter?: {
         maxBytes: 2 * MEMORY_RECALL_LOG_MAX_BYTES,
       }),
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.succeed([] as readonly MemoryRecallEntry[])));
+  }).pipe(Effect.catch(() => Effect.succeed([] as readonly MemoryRecallEntry[])));
 }
 
 /** Recall rate per surface, counting only runs that were offered the tools. */

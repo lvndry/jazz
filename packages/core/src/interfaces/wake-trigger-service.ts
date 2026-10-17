@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Context, Effect } from "effect";
+import { Context, Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type DeliveryState, DeliveryStateSchema } from "@/core/utils/delivery";
 
@@ -70,4 +69,4 @@ export interface WakeTriggerService {
   ) => Effect.Effect<CancelWakeTriggerOutcome, Error, FileSystem.FileSystem>;
 }
 
-export const WakeTriggerServiceTag = Context.GenericTag<WakeTriggerService>("WakeTriggerService");
+export const WakeTriggerServiceTag = Context.Service<WakeTriggerService>("WakeTriggerService");

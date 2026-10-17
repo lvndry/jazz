@@ -2,8 +2,7 @@
  * `ChatService` interface for running an interactive chat session loop
  * between a user and an agent.
  */
-import type { FileSystem } from "@effect/platform";
-import { Context, Effect } from "effect";
+import { Context, Effect, type FileSystem } from "effect";
 import type { SkillService } from "@/core/skills/skill-service";
 import type { Agent } from "@/core/types/index";
 import type { ChatMessage } from "@/core/types/message";
@@ -85,4 +84,4 @@ export interface ChatService {
   >;
 }
 
-export const ChatServiceTag = Context.GenericTag<ChatService>("ChatService");
+export const ChatServiceTag = Context.Service<ChatService>("ChatService");

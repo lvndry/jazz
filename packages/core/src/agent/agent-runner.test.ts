@@ -1,7 +1,6 @@
 import os from "node:os";
-import { FileSystem } from "@effect/platform";
 import { afterEach, describe, expect, it, mock, spyOn, type Mock } from "bun:test";
-import { Effect, Fiber, Layer, Stream } from "effect";
+import { Effect, Fiber, FileSystem, Layer, Stream } from "effect";
 import {
   AgentRunner,
   createNestedRunExecutor,
@@ -547,7 +546,7 @@ describe("AgentRunner", () => {
         );
         await runWithTestLayers(
           runChild({ agent: mockAgent, userInput: "summarize", conversationId: "child" }).pipe(
-            Effect.catchAll(() => Effect.void),
+            Effect.catch(() => Effect.void),
           ),
         );
         expect(parentMetrics.sideCostUSD).toBeCloseTo(0.02, 8);

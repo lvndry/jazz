@@ -23,4 +23,4 @@ export interface CLIOptions {
 /**
  * Service tag for accessing CLI options in Effect context
  */
-export const CLIOptionsTag = Context.GenericTag<CLIOptions>("CLIOptions");
+export const CLIOptionsTag = Context.Service<CLIOptions>("CLIOptions");

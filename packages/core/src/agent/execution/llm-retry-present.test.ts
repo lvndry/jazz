@@ -29,7 +29,7 @@ function collectNotices(maxRetries: number, error: unknown) {
     // Always-failing effect, so the schedule runs to exhaustion.
     yield* Effect.fail(error).pipe(
       Effect.retry(schedule),
-      Effect.catchAll(() => Effect.void),
+      Effect.catch(() => Effect.void),
     );
     return notices;
   });
@@ -108,7 +108,7 @@ describe("makeUserVisibleLlmRetrySchedule", () => {
       );
       yield* Effect.fail(transient).pipe(
         Effect.retry(schedule),
-        Effect.catchAll(() => Effect.void),
+        Effect.catch(() => Effect.void),
       );
       return { structured, prose };
     });

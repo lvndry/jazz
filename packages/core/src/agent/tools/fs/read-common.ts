@@ -2,8 +2,7 @@
  * Shared path resolution and PDF loading for filesystem read tools.
  */
 import path from "node:path";
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import type { UntrustedProvenance } from "@/core/types/tools";
@@ -39,7 +38,7 @@ export function resolveReadableFile(
     const shell = yield* FileSystemContextServiceTag;
     const filePath = yield* shell
       .resolvePath(buildKeyFromContext(context), requestedPath)
-      .pipe(Effect.catchAll(() => Effect.succeed(null)));
+      .pipe(Effect.catch(() => Effect.succeed(null)));
 
     if (filePath === null) {
       return {
@@ -52,8 +51,8 @@ export function resolveReadableFile(
       };
     }
 
-    const stat = yield* fs.stat(filePath).pipe(Effect.either);
-    if (stat._tag === "Left") {
+    const stat = yield* fs.stat(filePath).pipe(Effect.result);
+    if (stat._tag === "Failure") {
       return {
         kind: "failure",
         result: {
@@ -64,7 +63,7 @@ export function resolveReadableFile(
       };
     }
 
-    if (stat.right.type === "Directory") {
+    if (stat.success.type === "Directory") {
       return {
         kind: "failure",
         result: {
@@ -92,7 +91,7 @@ export function localFileProvenance(
     const shell = yield* FileSystemContextServiceTag;
     const workingDirectory = yield* shell
       .getCwd(buildKeyFromContext(context))
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      .pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (workingDirectory !== undefined && isWithinDirectory(filePath, workingDirectory)) {
       return undefined;
     }
@@ -133,7 +132,7 @@ export function loadPdfParser(failurePrefix: string): Effect.Effect<LoadedPdfPar
       kind: "ok",
       PDFParse: pdfModule.PDFParse as PdfParseConstructor,
     })),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed({
         kind: "failure" as const,
         result: {

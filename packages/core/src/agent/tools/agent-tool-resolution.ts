@@ -143,7 +143,7 @@ export function resolveAgentToolNames(
     const resolvedPersona = Option.isSome(personaServiceOption)
       ? yield* personaServiceOption.value
           .getPersonaByIdentifier(agent.config.persona)
-          .pipe(Effect.catchAll(() => Effect.succeed(null)))
+          .pipe(Effect.catch(() => Effect.succeed(null)))
       : null;
     const toolProfile = resolvedPersona?.toolProfile;
 

@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
@@ -97,7 +96,7 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
         // Destination exists: fail unless force; with force it is replaced whole, never merged
         const destExists = yield* fs
           .exists(destination)
-          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+          .pipe(Effect.catch(() => Effect.succeed(false)));
 
         if (destExists && args.force !== true) {
           return {
@@ -113,7 +112,7 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
           fs.copy(source, stagingPath).pipe(Effect.mapError(toError)),
         ).pipe(
           Effect.map(() => ({ success: true, result: `Copied: ${source} → ${destination}` })),
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.succeed({
               success: false,
               result: null,

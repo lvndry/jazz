@@ -66,7 +66,7 @@ export function pollUntilSuccess(input: PollUntilInput): Effect.Effect<PollUntil
         timeoutMs: remainingMs,
         env: input.env,
       }).pipe(
-        Effect.catchAll((error: unknown) =>
+        Effect.catch((error: unknown) =>
           Effect.succeed({ stdout: "", stderr: toError(error).message, exitCode: -1 }),
         ),
       );

@@ -1,6 +1,5 @@
 import { isAbsolute, join } from "node:path";
-import { FileSystem } from "@effect/platform";
-import { Effect, Option } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import puppeteer, { type ChromeReleaseChannel } from "puppeteer-core";
 import shortuuid from "short-uuid";
 import { z } from "zod";
@@ -414,7 +413,7 @@ export function createCompositionTool(
           artifacts: [htmlArtifact, artifact],
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,

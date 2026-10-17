@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Data, Effect } from "effect";
+import { Data, Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import { redactLines } from "@/core/secrets/redacted-lines";
@@ -642,18 +641,16 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
         const fs = yield* FileSystem.FileSystem;
-        const fileExists = yield* fs
-          .exists(target)
-          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+        const fileExists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(false)));
 
         if (!fileExists) {
           return `WARNING: File does not exist: ${target}\n\nCannot edit a file that doesn't exist.`;
         }
 
-        // Use Effect.catchAll instead of try/catch — yield* propagates Effect
+        // Use Effect.catch instead of try/catch — yield* propagates Effect
         // failures through the Effect error channel, NOT through JS exceptions.
-        const canonicalTargetResult = yield* fs.realPath(target).pipe(Effect.either);
-        if (canonicalTargetResult._tag === "Left") {
+        const canonicalTargetResult = yield* fs.realPath(target).pipe(Effect.result);
+        if (canonicalTargetResult._tag === "Failure") {
           const err = new FileNotFoundError({ path: target });
           return {
             skipApproval: true,
@@ -664,10 +661,10 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
             },
           };
         }
-        const canonicalTarget = canonicalTargetResult.right;
+        const canonicalTarget = canonicalTargetResult.success;
         const fileContentResult = yield* fs.readFileString(canonicalTarget).pipe(
           Effect.map((content) => ({ ok: true as const, content })),
-          Effect.catchAll((error) => Effect.succeed({ ok: false as const, error: String(error) })),
+          Effect.catch((error) => Effect.succeed({ ok: false as const, error: String(error) })),
         );
 
         if (!fileContentResult.ok) {
@@ -776,8 +773,8 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
-        const canonicalTargetResult = yield* fs.realPath(target).pipe(Effect.either);
-        if (canonicalTargetResult._tag === "Left") {
+        const canonicalTargetResult = yield* fs.realPath(target).pipe(Effect.result);
+        if (canonicalTargetResult._tag === "Failure") {
           const err = new FileNotFoundError({ path: target });
           return {
             success: false,
@@ -785,7 +782,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
             error: err.message,
           };
         }
-        const canonicalTarget = canonicalTargetResult.right;
+        const canonicalTarget = canonicalTargetResult.success;
 
         // The lock serializes Jazz edit_file calls from separate agents and processes.
         // Keep validation and mutation inside it; a lock around only the write still loses edits.
@@ -794,7 +791,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           Effect.gen(function* () {
             const fileExists = yield* fs
               .exists(canonicalTarget)
-              .pipe(Effect.catchAll(() => Effect.succeed(false)));
+              .pipe(Effect.catch(() => Effect.succeed(false)));
 
             if (!fileExists) {
               const err = new FileNotFoundError({ path: target });
@@ -805,13 +802,11 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
               };
             }
 
-            // Read file content — use Effect.catchAll to properly catch Effect failures.
+            // Read file content — use Effect.catch to properly catch Effect failures.
             // A JS try/catch around yield* does NOT catch Effect-level failures.
             const fileContentResult = yield* fs.readFileString(canonicalTarget).pipe(
               Effect.map((content) => ({ ok: true as const, content })),
-              Effect.catchAll((error) =>
-                Effect.succeed({ ok: false as const, error: String(error) }),
-              ),
+              Effect.catch((error) => Effect.succeed({ ok: false as const, error: String(error) })),
             );
 
             if (!fileContentResult.ok) {
@@ -845,7 +840,7 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
               // Old content or new, never a truncated file, however the call is stopped.
               const writeResult = yield* writeFileAtomically(fs, canonicalTarget, newContent).pipe(
                 Effect.map(() => ({ ok: true as const })),
-                Effect.catchAll((error) =>
+                Effect.catch((error) =>
                   Effect.succeed({ ok: false as const, error: String(error) }),
                 ),
               );

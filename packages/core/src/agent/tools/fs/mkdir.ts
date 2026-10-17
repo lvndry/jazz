@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
@@ -48,7 +47,7 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
         const fs = yield* FileSystem.FileSystem;
         const target = yield* shell.resolvePathForMkdir(buildKeyFromContext(context), args.path);
 
-        const statResult = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const statResult = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(null)));
 
         if (statResult) {
           if (statResult.type === "Directory") {
@@ -71,7 +70,7 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePathForMkdir(buildKeyFromContext(context), args.path);
 
-        const statResult = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const statResult = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(null)));
 
         if (statResult) {
           if (statResult.type === "Directory") {

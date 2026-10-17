@@ -26,4 +26,4 @@ export interface SkillRegistryService {
 }
 
 export const SkillRegistryServiceTag =
-  Context.GenericTag<SkillRegistryService>("SkillRegistryService");
+  Context.Service<SkillRegistryService>("SkillRegistryService");

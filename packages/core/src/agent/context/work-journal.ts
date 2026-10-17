@@ -70,7 +70,7 @@ export function appendJournalEntry(
       return true;
     },
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+  }).pipe(Effect.catch(() => Effect.succeed(false)));
 }
 
 /**
@@ -98,7 +98,7 @@ export function readJournal(
       }
       return entries;
     }),
-    Effect.catchAll(() => Effect.succeed<JournalEntry[]>([])),
+    Effect.catch(() => Effect.succeed<JournalEntry[]>([])),
   );
 }
 
@@ -123,7 +123,7 @@ export function clearWorkState(
       return true;
     },
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+  }).pipe(Effect.catch(() => Effect.succeed(false)));
 }
 
 /** Bytes currently stored for a conversation. Zero when nothing is stored. */
@@ -143,7 +143,7 @@ export function workStateSizeBytes(
       return total;
     },
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.succeed(0)));
+  }).pipe(Effect.catch(() => Effect.succeed(0)));
 }
 
 /**
@@ -184,7 +184,7 @@ export function pruneJournal(
             return entries.length - keep.length;
           }),
         catch: (error) => error,
-      }).pipe(Effect.catchAll(() => Effect.succeed(0)));
+      }).pipe(Effect.catch(() => Effect.succeed(0)));
     }),
   );
 }

@@ -317,11 +317,11 @@ function appendToEach(
         id: newItemId(now),
         fireAt: now,
         event,
-      }).pipe(Effect.either);
-      if (appended._tag === "Right") {
+      }).pipe(Effect.result);
+      if (appended._tag === "Success") {
         queued.push(target);
       } else {
-        failures.push({ target, error: appended.left });
+        failures.push({ target, error: appended.failure });
       }
     }
     return { queued, failures };

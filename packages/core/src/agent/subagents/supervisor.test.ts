@@ -10,7 +10,7 @@ function finishedChild(supervisor: SubagentSupervisor, name: string, result: Too
   return Effect.gen(function* () {
     const hooks = supervisor.register({ name });
     yield* supervisor.start(hooks.id, Effect.succeed(result));
-    yield* Effect.yieldNow();
+    yield* Effect.yieldNow;
     return hooks;
   });
 }
@@ -45,7 +45,7 @@ describe("SubagentSupervisor", () => {
         yield* startChild(supervisor, "one", first);
         yield* startChild(supervisor, "two", second);
         expect(supervisor.liveCount()).toBe(2);
-        const waiting = yield* Effect.fork(supervisor.wait([], "all", 5_000));
+        const waiting = yield* Effect.forkChild(supervisor.wait([], "all", 5_000));
         yield* Deferred.succeed(first, "first done");
         yield* Deferred.succeed(second, "second done");
         const result = yield* Fiber.join(waiting);
@@ -106,7 +106,7 @@ describe("SubagentSupervisor", () => {
         yield* startChild(supervisor, "one", first);
         yield* startChild(supervisor, "two", second);
         const timedOut = yield* supervisor.wait([], "any", 20);
-        const waiting = yield* Effect.fork(supervisor.wait([], "any", 5_000));
+        const waiting = yield* Effect.forkChild(supervisor.wait([], "any", 5_000));
         yield* Deferred.succeed(first, "first done");
         return { timedOut, any: yield* Fiber.join(waiting) };
       }),
@@ -169,13 +169,13 @@ describe("SubagentSupervisor", () => {
         const hooks = supervisor.register({ name: "worker" });
         const steps: string[] = [];
         yield* supervisor.steer(hooks.id, "pause");
-        const child = yield* Effect.fork(
+        const child = yield* Effect.forkChild(
           Effect.gen(function* () {
             yield* hooks.beforeStep();
             steps.push("step");
           }),
         );
-        yield* Effect.yieldNow();
+        yield* Effect.yieldNow;
         const whilePaused = { steps: [...steps], status: supervisor.list()[0]?.status };
         yield* supervisor.steer(hooks.id, "resume");
         yield* Fiber.join(child);
@@ -231,8 +231,8 @@ describe("SubagentSupervisor", () => {
             return done("never");
           }),
         );
-        yield* Effect.yieldNow();
-        const settling = yield* Effect.fork(supervisor.settleBeforeAnswer());
+        yield* Effect.yieldNow;
+        const settling = yield* Effect.forkChild(supervisor.settleBeforeAnswer());
         yield* Deferred.succeed(release, "found it");
         const notice = yield* Fiber.join(settling);
         const second = yield* supervisor.settleBeforeAnswer();
@@ -359,7 +359,7 @@ describe("SubagentSupervisor that outlives runs", () => {
         yield* startChild(supervisor, "worker", release);
         const paused = yield* startChild(supervisor, "held", yield* Deferred.make<string>());
         yield* supervisor.steer(paused.id, "pause");
-        yield* Effect.yieldNow();
+        yield* Effect.yieldNow;
         const notice = yield* supervisor.settleBeforeAnswer();
         return { notice, statuses: supervisor.list().map((child) => child.status) };
       }),
@@ -383,7 +383,7 @@ describe("SubagentSupervisor that outlives runs", () => {
         early.chargeSpend({ costUSD: 0.01, costIncomplete: false });
         attachment.detach();
         later.chargeSpend({ costUSD: 0.02, costIncomplete: false });
-        yield* Effect.yieldNow();
+        yield* Effect.yieldNow;
       }),
     );
     expect(charged).toEqual([0.01]);
@@ -403,7 +403,7 @@ describe("SubagentSupervisor that outlives runs", () => {
         expect(released).toEqual([]);
         yield* Deferred.succeed(release, "done");
         yield* supervisor.awaitFinished();
-        yield* Effect.yieldNow();
+        yield* Effect.yieldNow;
         expect(released).toEqual(["browser"]);
 
         const idle = supervisor.attachRun({ chargeSpend: noCharge });
@@ -437,16 +437,16 @@ describe("SubagentSupervisor that outlives runs", () => {
         supervisor.attachRun({ chargeSpend: noCharge }).detach();
         const release = yield* Deferred.make<string>();
         yield* startChild(supervisor, "worker", release);
-        const woken = yield* Effect.fork(supervisor.awaitFinished());
-        yield* Effect.yieldNow();
-        const beforeFinish = woken.unsafePoll();
+        const woken = yield* Effect.forkChild(supervisor.awaitFinished());
+        yield* Effect.yieldNow;
+        const beforeFinish = woken.pollUnsafe();
         yield* Deferred.succeed(release, "done");
         yield* Fiber.join(woken);
         const finished = supervisor.takeFinished();
         return { beforeFinish, finished, again: supervisor.takeNotices() };
       }),
     );
-    expect(outcome.beforeFinish).toBeNull();
+    expect(outcome.beforeFinish).toBeUndefined();
     expect(outcome.finished.map((child) => [child.name, child.status])).toEqual([
       ["worker", "completed"],
     ]);
@@ -461,10 +461,10 @@ describe("SubagentSupervisor that outlives runs", () => {
         supervisor.attachRun({ chargeSpend: noCharge });
         yield* startChild(supervisor, "worker", yield* Deferred.make<string>());
         const message = yield* Deferred.make<void>();
-        const waiting = yield* Effect.fork(
+        const waiting = yield* Effect.forkChild(
           supervisor.wait([], "all", 60_000, Deferred.await(message)),
         );
-        yield* Effect.yieldNow();
+        yield* Effect.yieldNow;
         yield* Deferred.succeed(message, undefined);
         return yield* Fiber.join(waiting);
       }),

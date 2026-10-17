@@ -195,9 +195,9 @@ export function resolveCommandRisk(
     if (policyHook !== undefined) {
       const outcome = yield* policyHook(command).pipe(
         Effect.map((value) => ({ ok: true as const, value })),
-        Effect.catchAll(() => Effect.succeed({ ok: false as const })),
-        Effect.catchAllCause((cause) =>
-          Cause.isInterruptedOnly(cause)
+        Effect.catch(() => Effect.succeed({ ok: false as const })),
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
             ? Effect.failCause(cause)
             : Effect.succeed({ ok: false as const }),
         ),
@@ -350,12 +350,12 @@ export function classifyCommandRisk(
       })
       .pipe(
         Effect.timeout(CLASSIFIER_TIMEOUT),
-        Effect.catchAll(() =>
+        Effect.catch(() =>
           logger
             .warn("Command risk classifier failed closed", {
               errorType: "classifier_failed",
             })
-            .pipe(Effect.zipRight(Effect.succeed({ content: "high-risk" }))),
+            .pipe(Effect.andThen(Effect.succeed({ content: "high-risk" }))),
         ),
       );
     const durationMs = Date.now() - startedAt;

@@ -1,9 +1,8 @@
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileSystem } from "@effect/platform";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Duration, Effect, Fiber, Layer } from "effect";
+import { Duration, Effect, Fiber, FileSystem, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { formatMemorySourceTag } from "@/core/memory/source-trust";

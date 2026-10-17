@@ -1,9 +1,8 @@
 import { existsSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
-import { Effect, Fiber, Layer } from "effect";
+import { Effect, Fiber, FileSystem, Layer } from "effect";
 import { spawnOutputTruncationNotice } from "./capped-output";
 import {
   createShellCommandTools,

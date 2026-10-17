@@ -1,6 +1,5 @@
 import { spawn, type ChildProcess } from "child_process";
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import {
   SHELL_COMMAND_MAX_TIMEOUT_MS,
@@ -622,7 +621,7 @@ export function runShellCommand(input: {
    */
   readonly redact?: readonly KnownSecret[];
 }): Effect.Effect<ShellCommandOutput, Error> {
-  return Effect.async((resume) => {
+  return Effect.callback((resume) => {
     let settled = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let child: ChildProcess | undefined;
@@ -742,7 +741,7 @@ export function runShellCommand(input: {
         clearTimeout(timeoutId);
         timeoutId = null;
       }
-    }).pipe(Effect.zipRight(Effect.promise(() => terminateProcessGroup(spawned))));
+    }).pipe(Effect.andThen(Effect.promise(() => terminateProcessGroup(spawned))));
   });
 }
 
@@ -873,7 +872,7 @@ This command will be executed on your system. Only approve commands you trust.`;
             env: sanitizedEnv,
             redact: yield* toolKnownSecrets(),
           }).pipe(
-            Effect.catchAll((error: unknown) =>
+            Effect.catch((error: unknown) =>
               Effect.succeed({
                 stdout: "",
                 stderr: "",

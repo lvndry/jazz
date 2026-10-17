@@ -55,7 +55,7 @@ export function deliverWorkflowResult(input: {
   ).pipe(
     Effect.tap((result) => warnMissing(input.workflow, result.missing)),
     Effect.map((result) => result.queued),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       warnQueueFailure(input.workflow, error).pipe(Effect.as([] as readonly string[])),
     ),
   );
@@ -82,6 +82,6 @@ export function notifyWorkflowNotRun(input: {
   ).pipe(
     Effect.tap((result) => warnMissing(input.workflow, result.missing)),
     Effect.asVoid,
-    Effect.catchAll((error) => warnQueueFailure(input.workflow, error)),
+    Effect.catch((error) => warnQueueFailure(input.workflow, error)),
   );
 }

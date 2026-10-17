@@ -278,4 +278,4 @@ export interface MCPServerManager {
   readonly disconnectAllServers: () => Effect.Effect<void, MCPDisconnectionError, LoggerService>;
 }
 
-export const MCPServerManagerTag = Context.GenericTag<MCPServerManager>("MCPServerManager");
+export const MCPServerManagerTag = Context.Service<MCPServerManager>("MCPServerManager");

@@ -13,8 +13,7 @@
  */
 
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { toError } from "@/core/utils/errors";
 import { writeFileStringAtomic } from "@/core/utils/storage";
 
@@ -37,14 +36,14 @@ export function writeFileAtomically(
   content: string,
 ): Effect.Effect<void, Error> {
   return Effect.gen(function* () {
-    const exists = yield* fs.exists(target).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    const exists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(false)));
     const realTarget = exists
-      ? yield* fs.realPath(target).pipe(Effect.catchAll(() => Effect.succeed(target)))
+      ? yield* fs.realPath(target).pipe(Effect.catch(() => Effect.succeed(target)))
       : target;
     const mode = exists
       ? yield* fs.stat(realTarget).pipe(
           Effect.map((info) => info.mode & PERMISSION_BITS),
-          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.catch(() => Effect.succeed(undefined)),
         )
       : undefined;
 
@@ -85,7 +84,7 @@ export function replacePathAtomically(
     const stagingPath = siblingPath(destination, "stage");
     const removeStaging = fs
       .remove(stagingPath, { recursive: true })
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(Effect.catch(() => Effect.void));
 
     yield* stage(stagingPath).pipe(Effect.onError(() => removeStaging));
 
@@ -93,7 +92,7 @@ export function replacePathAtomically(
       Effect.gen(function* () {
         const destinationExists = yield* fs
           .exists(destination)
-          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+          .pipe(Effect.catch(() => Effect.succeed(false)));
         if (!destinationExists) {
           yield* fs.rename(stagingPath, destination).pipe(
             Effect.mapError(toError),
@@ -112,12 +111,12 @@ export function replacePathAtomically(
           Effect.mapError(toError),
           Effect.tapError(() =>
             fs.rename(backupPath, destination).pipe(
-              Effect.catchAll(() => Effect.void),
-              Effect.zipRight(removeStaging),
+              Effect.catch(() => Effect.void),
+              Effect.andThen(removeStaging),
             ),
           ),
         );
-        yield* fs.remove(backupPath, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
+        yield* fs.remove(backupPath, { recursive: true }).pipe(Effect.catch(() => Effect.void));
         yield* afterCommit;
       }),
     );

@@ -518,17 +518,17 @@ export function handleError(
       return;
     }
 
-    // Effect.tryPromise / Effect.try failures: surface the underlying cause (Effect's UnknownException)
+    // Effect.tryPromise / Effect.try failures: surface the underlying cause (Effect's UnknownError)
     const unknownException =
       typeof error === "object" &&
       error !== null &&
       "_tag" in error &&
-      (error as { _tag: string })._tag === "UnknownException" &&
-      "error" in error
-        ? (error as { error: unknown })
+      (error as { _tag: string })._tag === "UnknownError" &&
+      "cause" in error
+        ? (error as { cause: unknown })
         : null;
     if (unknownException) {
-      const cause = unknownException.error;
+      const cause = unknownException.cause;
       const message = toError(cause).message;
       yield* presentation.writeError(
         `❌ Error\n   ${message}\n\n💡 Suggestion: Check the error details and try again.\n\n📚 Logs: ${LOGS_LOCATION}\n   Related Commands:\n   • jazz --help\n`,

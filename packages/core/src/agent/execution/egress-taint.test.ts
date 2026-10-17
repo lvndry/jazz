@@ -1,6 +1,5 @@
-import { FileSystem } from "@effect/platform";
 import { describe, expect, it } from "bun:test";
-import { Effect, Exit, Layer } from "effect";
+import { Cause, Effect, Exit, FileSystem, Layer, Option } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
@@ -464,7 +463,7 @@ describe("ToolExecutor taint gate", () => {
     );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
-      const failure = exit.cause._tag === "Fail" ? exit.cause.error : undefined;
+      const failure = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
       expect(isRunParkRequested(failure)).toBe(true);
     }
     expect(executed).toEqual([]);

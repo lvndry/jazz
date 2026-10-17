@@ -7,8 +7,7 @@
  * topics that agents create as a conversation calls for them, discovered
  * from the memory directory rather than configured per agent.
  */
-import { FileSystem } from "@effect/platform";
-import { Context, Effect } from "effect";
+import { Context, Effect, FileSystem } from "effect";
 import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provenance";
 import type {
   FactSuggestion,
@@ -210,4 +209,4 @@ export interface MemoryService {
   ) => Effect.Effect<MemorySuggestionResolution, Error, FileSystem.FileSystem>;
 }
 
-export const MemoryServiceTag = Context.GenericTag<MemoryService>("MemoryService");
+export const MemoryServiceTag = Context.Service<MemoryService>("MemoryService");

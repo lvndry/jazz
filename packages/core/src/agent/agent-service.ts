@@ -93,7 +93,7 @@ export function getAgentByIdentifier(
     const agentService = yield* AgentServiceTag;
 
     const agent = yield* agentService.getAgent(identifier).pipe(
-      Effect.catchAll((error) => {
+      Effect.catch((error) => {
         if (error instanceof StorageNotFoundError) {
           return Effect.gen(function* () {
             const agents = yield* agentService.listAgents();

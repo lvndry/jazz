@@ -36,4 +36,4 @@ export interface WorkflowRegistryService {
 }
 
 export const WorkflowRegistryServiceTag =
-  Context.GenericTag<WorkflowRegistryService>("WorkflowRegistryService");
+  Context.Service<WorkflowRegistryService>("WorkflowRegistryService");

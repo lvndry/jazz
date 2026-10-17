@@ -5,7 +5,7 @@
  */
 
 import { realpath } from "node:fs/promises";
-import { Cause, Clock, Duration, Effect, Fiber, Option, Ref } from "effect";
+import { Cause, Duration, Effect, Fiber, Option, Ref } from "effect";
 import {
   MANAGE_MEMORY_TOOL_NAME,
   recordMemoryRecall,
@@ -375,8 +375,6 @@ interface LoopDeps {
   maxTokens: number | undefined;
   maxDurationMs: number | undefined;
   deadline: AgentRunContext["deadline"];
-  /** The clock `maxDurationMs` is measured against: Effect's, so a test can drive it. */
-  clock: Clock.Clock;
   /** Provider-only routing hint for iteration zero; never part of canonical messages. */
   initialProviderAdvisory: string | undefined;
   workspaceContext:
@@ -608,7 +606,7 @@ function finalizeRun(
   logger: LoggerService,
   agentName: string,
   maxIterations: number,
-  finalizeFiberRef: Ref.Ref<Option.Option<Fiber.RuntimeFiber<void, Error>>>,
+  finalizeFiberRef: Ref.Ref<Option.Option<Fiber.Fiber<void, Error>>>,
 ): Effect.Effect<AgentResponse, never, LoggerService> {
   return Effect.gen(function* () {
     const {
@@ -654,12 +652,12 @@ function finalizeRun(
       finished,
       costCapped: capped,
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         logger.warn("Failed to write agent token usage log", {
           errorType: telemetryErrorCategory(error),
         }),
       ),
-      Effect.fork,
+      Effect.forkChild,
     );
     yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
 
@@ -867,12 +865,7 @@ function answerReserveMs(limitMs: number): number {
 /** How often a time watcher re-reads a deadline that a human approval wait may have moved. */
 const TIME_LIMIT_POLL_MS = 1000;
 
-type TimeLimitDeps = Pick<LoopDeps, "runMetrics" | "maxDurationMs" | "deadline" | "clock">;
-
-/** Milliseconds since the run started, on the run's clock. */
-function runElapsedMs(deps: Pick<LoopDeps, "runMetrics" | "clock">): number {
-  return deps.clock.unsafeCurrentTimeMillis() - deps.runMetrics.startedAt.getTime();
-}
+type TimeLimitDeps = Pick<LoopDeps, "runMetrics" | "maxDurationMs" | "deadline">;
 
 /** Which part of the time limits to measure: up to the answer reserve, or up to the limits themselves. */
 type TimeSpan = "work" | "answer";
@@ -884,11 +877,12 @@ type TimeSpan = "work" | "answer";
  * limit is set.
  */
 function timeLeftMs(deps: TimeLimitDeps, span: TimeSpan): number | undefined {
-  const { maxDurationMs, deadline } = deps;
+  const { runMetrics, maxDurationMs, deadline } = deps;
   const reserve = (limitMs: number) => (span === "work" ? answerReserveMs(limitMs) : 0);
   const limits: number[] = [];
   if (maxDurationMs !== undefined) {
-    limits.push(maxDurationMs - reserve(maxDurationMs) - runElapsedMs(deps));
+    const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
+    limits.push(maxDurationMs - reserve(maxDurationMs) - elapsedMs);
   }
   if (deadline !== undefined) {
     limits.push(deadline.remainingMs() - reserve(deadline.budgetMs));
@@ -929,7 +923,6 @@ function remainingRunBudget(
     | "runMetrics"
     | "maxDurationMs"
     | "deadline"
-    | "clock"
     | "maxCostUSD"
     | "maxTokens"
     | "modelMetadata"
@@ -1171,7 +1164,7 @@ function handleToolPhase(
                 yield* toolRenderer.handleEvent(event);
                 const bridged = lifecycleEventForStreamEvent(event);
                 if (bridged !== undefined && Option.isSome(pluginRuntimeOption)) {
-                  yield* Effect.forkDaemon(
+                  yield* Effect.forkDetach(
                     pluginRuntimeOption.value
                       .emitLifecycleEvent({
                         event: bridged.event,
@@ -1180,7 +1173,7 @@ function handleToolPhase(
                         cwd: process.cwd(),
                         ...(bridged.data === undefined ? {} : { data: bridged.data }),
                       })
-                      .pipe(Effect.catchAll(() => Effect.void)),
+                      .pipe(Effect.catch(() => Effect.void)),
                   );
                 }
               }),
@@ -1553,7 +1546,7 @@ function recoverFromContextOverflow(
       undefined,
       undefined,
       deps.context.egressTaint,
-    ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    ).pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (compacted !== undefined && compacted.tokensAfter < compacted.tokensBefore) {
       state.currentMessages = compacted.messages;
       state.compactedSinceLastRequest = true;
@@ -1832,7 +1825,7 @@ function runIteration(
         );
     const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
     const timeLeftMs = workTimeLeftMs(deps);
-    const elapsedMs = runElapsedMs(deps);
+    const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
     const timeBudgetMsg =
       timeLeftMs !== undefined
         ? buildTimeBudgetPressureMessage(elapsedMs, elapsedMs + timeLeftMs)
@@ -1867,7 +1860,7 @@ function runIteration(
                       agentId: deps.agent.id,
                       conversationId: deps.actualConversationId,
                     })
-                    .pipe(Effect.catchAll(() => Effect.succeed(process.cwd())))
+                    .pipe(Effect.catch(() => Effect.succeed(process.cwd())))
                 : process.cwd();
             return yield* deps.workspaceContext!({
               cwd,
@@ -1907,7 +1900,7 @@ function runIteration(
     const pendingReceipts =
       memoryOpportunities === undefined
         ? undefined
-        : yield* Effect.fork(
+        : yield* Effect.forkChild(
             memoryOpportunities.begin({
               runId: options.runId ?? runMetrics.runId,
               iteration: iterationIndex,
@@ -1917,9 +1910,9 @@ function runIteration(
     const completionStartTime = Date.now();
     const attempt = yield* strategy
       .getCompletion(messagesForLLM, iterationIndex, toolsOffered(state))
-      .pipe(Effect.either);
-    if (attempt._tag === "Left") {
-      const error = attempt.left;
+      .pipe(Effect.result);
+    if (attempt._tag === "Failure") {
+      const error = attempt.failure;
       const overflowed = error instanceof LLMRequestError && error.contextOverflow === true;
       if (!overflowed || state.overflowRecoveryUsed) {
         return yield* Effect.fail(error);
@@ -1939,7 +1932,7 @@ function runIteration(
       return { kind: "continue" } as const;
     }
     state.overflowRecoveryUsed = false;
-    const result = attempt.right;
+    const result = attempt.success;
     if (memoryOpportunities !== undefined && pendingReceipts !== undefined) {
       const tickets = yield* Fiber.join(pendingReceipts);
       yield* memoryOpportunities.complete(tickets, requestMessages);
@@ -2158,7 +2151,7 @@ export function executeAgentLoop(
       yield* logger.pushLogGroup(
         conversationLogGroup(options.agent.id, runContext.actualConversationId),
       );
-      const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
+      const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.Fiber<void, Error>>>(
         Option.none(),
       );
       // A resumed session is the most expensive place to count with fresh
@@ -2201,7 +2194,7 @@ export function executeAgentLoop(
         const modelMetadata = yield* Effect.tryPromise({
           try: () => getModelsDevMetadata(model, provider),
           catch: () => new Error("Failed to fetch model metadata"),
-        }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 
         const effectiveContextWindow = resolveEffectiveContextWindow({
           provider,
@@ -2309,7 +2302,6 @@ export function executeAgentLoop(
           maxTokens,
           maxDurationMs,
           deadline,
-          clock: yield* Effect.clock,
           initialProviderAdvisory,
           workspaceContext,
           recentWorkspaceFiles: new Map(),
@@ -2388,7 +2380,7 @@ export function executeAgentLoop(
               closeStoppedBatch(state, options, "the run reached its time budget");
               durationCapped = true;
               state.iterationsUsed = i + 1;
-              const elapsedMs = runElapsedMs(deps);
+              const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
               yield* observer.onDurationCapReached(
                 agent.name,
                 maxDurationMs ?? elapsedMs,
@@ -2458,7 +2450,7 @@ export function executeAgentLoop(
           // starting another with no time left. The 50/80/90% pressure nudges are
           // injected per-iteration inside runIteration (see buildTimeBudgetPressureMessage).
           if (workTimeLeftMs(deps) === 0) {
-            const elapsedMs = runElapsedMs(deps);
+            const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
             durationCapped = true;
             state.iterationsUsed = i + 1;
             yield* observer.onDurationCapReached(agent.name, maxDurationMs ?? elapsedMs, elapsedMs);
@@ -2499,19 +2491,19 @@ export function executeAgentLoop(
                   finalRequest.pipe(Effect.map(Option.some)),
                   timeRunsOut(deps, "answer").pipe(Effect.as(Option.none<RunIterationResult>())),
                 )
-          ).pipe(Effect.either, Effect.ensuring(Effect.sync(() => completeIteration(runMetrics))));
-          if (finalStep._tag === "Left") {
+          ).pipe(Effect.result, Effect.ensuring(Effect.sync(() => completeIteration(runMetrics))));
+          if (finalStep._tag === "Failure") {
             yield* logger.warn("Final answer request failed; returning what the run had", {
               agentId: agent.id,
               conversationId: runContext.actualConversationId,
-              error: String(finalStep.left),
+              error: String(finalStep.failure),
             });
-          } else if (Option.isNone(finalStep.right)) {
+          } else if (Option.isNone(finalStep.success)) {
             yield* logger.warn("Final answer ran out of time; returning what the run had", {
               agentId: agent.id,
               conversationId: runContext.actualConversationId,
             });
-          } else if (finalStep.right.value.kind === "interrupted") {
+          } else if (finalStep.success.value.kind === "interrupted") {
             interrupted = true;
           }
           yield* reportCheckpoint(state, options, deps.context.egressTaint);
@@ -2551,12 +2543,12 @@ export function executeAgentLoop(
         // A run that dies here never reaches finalizeRun, so `agent_run_completed`
         // is never emitted. Record the failure instead. Interrupts (Ctrl+C, double
         // Esc) are not failures and are left unrecorded.
-        Effect.tapErrorCause((cause) =>
-          Cause.isInterruptedOnly(cause)
+        Effect.tapCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
             ? Effect.void
             : emitAgentRunFailed(
                 runContext.runMetrics,
-                Cause.failureOption(cause).pipe(Option.getOrElse(() => Cause.pretty(cause))),
+                Cause.findErrorOption(cause).pipe(Option.getOrElse(() => Cause.pretty(cause))),
               ),
         ),
       ),
@@ -2567,7 +2559,7 @@ export function executeAgentLoop(
         if (Option.isSome(fiberOption)) {
           yield* Fiber.await(fiberOption.value).pipe(
             Effect.asVoid,
-            Effect.catchAll(() => Effect.void),
+            Effect.catch(() => Effect.void),
           );
         }
 

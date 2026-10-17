@@ -26,4 +26,4 @@ export interface GoalStore {
   ) => Effect.Effect<GoalRecord, Error>;
 }
 
-export class GoalStoreTag extends Context.Tag("GoalStore")<GoalStoreTag, GoalStore>() {}
+export class GoalStoreTag extends Context.Service<GoalStoreTag, GoalStore>()("GoalStore") {}

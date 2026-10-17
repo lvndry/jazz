@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
@@ -35,7 +34,7 @@ export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
 
         const target = yield* shell
           .resolvePath(buildKeyFromContext(context), args.path)
-          .pipe(Effect.catchAll(() => Effect.succeed(null)));
+          .pipe(Effect.catch(() => Effect.succeed(null)));
 
         if (target === null) {
           return {

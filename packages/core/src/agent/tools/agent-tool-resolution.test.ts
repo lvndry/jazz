@@ -251,11 +251,11 @@ describe("selectable category defaults", () => {
         }).pipe(
           Effect.provide(createToolRegistryLayer()),
           Effect.provideService(AgentConfigServiceTag, {
-            get: () => Effect.dieMessage("unused config lookup"),
-            getOrFail: () => Effect.dieMessage("unused config lookup"),
+            get: () => Effect.die(new Error("unused config lookup")),
+            getOrFail: () => Effect.die(new Error("unused config lookup")),
             getOrElse: (_key, fallback) => Effect.succeed(fallback),
             has: () => Effect.succeed(false),
-            set: () => Effect.dieMessage("unexpected config mutation"),
+            set: () => Effect.die(new Error("unexpected config mutation")),
             revision: Effect.succeed(0),
             secretStorageUnavailable: () => false,
             reloadIfChanged: () => Effect.succeed(false),

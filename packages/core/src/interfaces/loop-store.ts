@@ -21,4 +21,4 @@ export interface LoopStore {
   ) => Effect.Effect<LoopRecord, Error>;
 }
 
-export class LoopStoreTag extends Context.Tag("LoopStore")<LoopStoreTag, LoopStore>() {}
+export class LoopStoreTag extends Context.Service<LoopStoreTag, LoopStore>()("LoopStore") {}

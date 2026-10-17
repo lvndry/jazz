@@ -12,7 +12,7 @@ async function parse(toolName: string, servers: readonly string[] = SERVERS) {
   return Effect.runPromise(
     parseServerNameFromToolName(toolName, servers).pipe(
       Effect.map((name) => name as string | null),
-      Effect.catchAll(() => Effect.succeed(null)),
+      Effect.catch(() => Effect.succeed(null)),
     ),
   );
 }

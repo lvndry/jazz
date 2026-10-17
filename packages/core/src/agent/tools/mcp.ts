@@ -156,9 +156,9 @@ function ensureConnected(
       "progress",
     );
 
-    const connectResult = yield* Effect.either(mcpManager.connectServer(serverConfig));
-    if (connectResult._tag === "Left") {
-      const error = connectResult.left;
+    const connectResult = yield* Effect.result(mcpManager.connectServer(serverConfig));
+    if (connectResult._tag === "Failure") {
+      const error = connectResult.failure;
       yield* presentation.presentStatus(
         `Failed to connect to ${toPascalCase(serverName)} MCP server`,
         "warning",
@@ -219,21 +219,21 @@ function executeMCPTool(
       void Effect.runPromise(
         presentation
           .presentStatus(`${toolName}${share}${detail}`, "progress")
-          .pipe(Effect.catchAllCause(() => Effect.void)),
+          .pipe(Effect.catchCause(() => Effect.void)),
       );
     };
 
-    const callResult = yield* Effect.either(
+    const callResult = yield* Effect.result(
       mcpManager.callTool(serverName, toolName, args, reportProgress),
     );
 
-    if (callResult._tag === "Left") {
-      const error = callResult.left;
+    if (callResult._tag === "Failure") {
+      const error = callResult.failure;
       yield* logger.error("MCP tool execution failed", { errorType: "mcp_call_failed" });
       return { success: false, result: null, error: error.reason };
     }
 
-    const result = callResult.right;
+    const result = callResult.success;
 
     if (result.isError === true) {
       const content = result.content;
@@ -381,17 +381,17 @@ export function buildResourceTools(
         const connected = yield* ensureConnected(serverConfig);
         if (connected !== undefined) return connected;
 
-        const resources = yield* Effect.either(mcpManager.getServerResources(serverName));
-        if (resources._tag === "Left") {
-          return { success: false, result: null, error: resources.left.reason };
+        const resources = yield* Effect.result(mcpManager.getServerResources(serverName));
+        if (resources._tag === "Failure") {
+          return { success: false, result: null, error: resources.failure.reason };
         }
 
         const filter =
           typeof args["filter"] === "string" ? args["filter"].toLowerCase() : undefined;
         const matched =
           filter === undefined
-            ? resources.right
-            : resources.right.filter((resource) =>
+            ? resources.success
+            : resources.success.filter((resource) =>
                 [resource.uri, resource.name, resource.title, resource.description]
                   .filter((value): value is string => typeof value === "string")
                   .some((value) => value.toLowerCase().includes(filter)),
@@ -412,7 +412,7 @@ export function buildResourceTools(
           success: true,
           result: {
             resources: shown,
-            total: resources.right.length,
+            total: resources.success.length,
             ...(filter !== undefined ? { matched: matched.length } : {}),
             ...(matched.length > shown.length
               ? {
@@ -449,12 +449,12 @@ export function buildResourceTools(
         const connected = yield* ensureConnected(serverConfig);
         if (connected !== undefined) return connected;
 
-        const contents = yield* Effect.either(mcpManager.readResource(serverName, uri));
-        if (contents._tag === "Left") {
-          return { success: false, result: null, error: contents.left.reason };
+        const contents = yield* Effect.result(mcpManager.readResource(serverName, uri));
+        if (contents._tag === "Failure") {
+          return { success: false, result: null, error: contents.failure.reason };
         }
 
-        const rendered = contents.right.map(renderResourceContent).join("\n\n");
+        const rendered = contents.success.map(renderResourceContent).join("\n\n");
 
         return {
           success: true,

@@ -580,7 +580,7 @@ export class OneShotPresentationService implements PresentationService {
     this.ensureStdinReaderStarted();
     const toolCallId = request.toolCallId;
     const pendingApprovals = this.pendingApprovals;
-    return Effect.async<ApprovalOutcome, never>((resume) => {
+    return Effect.callback<ApprovalOutcome, never>((resume) => {
       pendingApprovals.set(toolCallId, (outcome) => resume(Effect.succeed(outcome)));
       return Effect.sync(() => {
         pendingApprovals.delete(toolCallId);
@@ -655,7 +655,7 @@ export class OneShotPresentationService implements PresentationService {
       }
       return answer;
     };
-    return Effect.async<UserInputOutcome, never>((resume) => {
+    return Effect.callback<UserInputOutcome, never>((resume) => {
       pendingUserInputs.set(requestId, (response) => {
         if (response === undefined) {
           resume(Effect.succeed({ kind: "unavailable" }));
@@ -721,7 +721,7 @@ export class OneShotPresentationService implements PresentationService {
     );
     this.ensureStdinReaderStarted();
     const pendingSecrets = this.pendingSecrets;
-    return Effect.async<SecretInputOutcome, never>((resume) => {
+    return Effect.callback<SecretInputOutcome, never>((resume) => {
       pendingSecrets.set(requestId, (outcome) => resume(Effect.succeed(outcome)));
       return Effect.sync(() => {
         pendingSecrets.delete(requestId);

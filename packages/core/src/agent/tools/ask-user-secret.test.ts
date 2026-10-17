@@ -1,7 +1,6 @@
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { afterEach, describe, expect, it } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Cause, Effect, FileSystem, Layer, Option } from "effect";
 import { z } from "zod";
 import { isRunParkRequested } from "@/core/agent/run/park-signal";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -251,7 +250,9 @@ describe("ask_user_secret", () => {
     );
     expect(exit._tag).toBe("Failure");
     const error =
-      exit._tag === "Failure" && exit.cause._tag === "Fail" ? exit.cause.error : undefined;
+      exit._tag === "Failure"
+        ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
+        : undefined;
     expect(isRunParkRequested(error)).toBe(true);
     if (isRunParkRequested(error)) {
       expect(error.pending).toEqual({

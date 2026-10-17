@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
@@ -81,7 +80,7 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
           const st = yield* fs
             .stat(target)
             .pipe(
-              Effect.catchAll((error) =>
+              Effect.catch((error) =>
                 args.force === true ? Effect.succeed(null) : Effect.fail(error as Error),
               ),
             );

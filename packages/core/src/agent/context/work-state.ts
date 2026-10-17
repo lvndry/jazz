@@ -78,7 +78,7 @@ export function readWorkState(
         return undefined;
       }
     }),
-    Effect.catchAll(() => Effect.succeed(undefined)),
+    Effect.catch(() => Effect.succeed(undefined)),
   );
 }
 
@@ -104,7 +104,7 @@ export function patchWorkState(
           return merged;
         },
         catch: (error) => error,
-      }).pipe(Effect.catchAll(() => Effect.succeed(merged)));
+      }).pipe(Effect.catch(() => Effect.succeed(merged)));
     }),
   );
 }

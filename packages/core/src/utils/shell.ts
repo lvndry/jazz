@@ -93,7 +93,7 @@ export function execCommand(
   args: readonly string[],
   options?: ExecCommandOptions,
 ): Effect.Effect<string, Error> {
-  return Effect.async<string, Error>((resume) => {
+  return Effect.callback<string, Error>((resume) => {
     const child = spawn(command, args as string[], {
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
@@ -149,7 +149,7 @@ export function execCommandWithStdin(
   stdin: string,
   options?: ExecCommandOptions,
 ): Effect.Effect<void, Error> {
-  return Effect.async<void, Error>((resume) => {
+  return Effect.callback<void, Error>((resume) => {
     const child = spawn(command, args as string[], {
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
@@ -211,7 +211,7 @@ export function execCommandWithStdinCapturingOutput(
   stdin: string,
   options?: ExecCommandOptions,
 ): Effect.Effect<CommandOutput, Error> {
-  return Effect.async<CommandOutput, Error>((resume) => {
+  return Effect.callback<CommandOutput, Error>((resume) => {
     const child = spawn(command, args as string[], {
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,

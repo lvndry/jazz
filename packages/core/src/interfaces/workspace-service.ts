@@ -6,8 +6,7 @@
  * dumps, and intermediate artifacts live, referenced from memory rather than
  * duplicated into it.
  */
-import { FileSystem } from "@effect/platform";
-import { Context, Effect } from "effect";
+import { Context, Effect, FileSystem } from "effect";
 
 export interface WorkspaceDirectoryEntry {
   readonly name: string;
@@ -90,4 +89,4 @@ export interface WorkspaceService {
   ) => Effect.Effect<WorkspaceMutationOutcome, Error, FileSystem.FileSystem>;
 }
 
-export const WorkspaceServiceTag = Context.GenericTag<WorkspaceService>("WorkspaceService");
+export const WorkspaceServiceTag = Context.Service<WorkspaceService>("WorkspaceService");

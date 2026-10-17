@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { formatByteSize } from "@/core/utils/string";
 
 /**
@@ -27,7 +26,7 @@ export function measureFootprint(
 ): Effect.Effect<Footprint | undefined, never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const root = yield* fs.stat(target).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    const root = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (root === undefined) {
       return undefined;
     }
@@ -46,16 +45,14 @@ export function measureFootprint(
       }
       const names = yield* fs
         .readDirectory(directory)
-        .pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+        .pipe(Effect.catch(() => Effect.succeed([] as string[])));
       for (const name of names) {
         if (visited >= entryLimit) {
           return { files, bytes, truncated: true };
         }
         visited += 1;
         const entryPath = `${directory}/${name}`;
-        const info = yield* fs
-          .stat(entryPath)
-          .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        const info = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(undefined)));
         if (info === undefined) {
           continue;
         }
