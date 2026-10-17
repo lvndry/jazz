@@ -41,11 +41,11 @@ describe("resolveVirtualPath", () => {
 
     try {
       const result = await Effect.runPromise(
-        resolveVirtualPath(root, "link/file.txt", options).pipe(Effect.either),
+        resolveVirtualPath(root, "link/file.txt", options).pipe(Effect.result),
       );
-      expect(result._tag).toBe("Left");
-      if (result._tag === "Left") {
-        expect(result.left).toBeInstanceOf(VirtualPathViolation);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure).toBeInstanceOf(VirtualPathViolation);
       }
     } finally {
       fs.rmSync(root, { recursive: true, force: true });

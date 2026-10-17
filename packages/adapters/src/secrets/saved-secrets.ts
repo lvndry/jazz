@@ -70,7 +70,7 @@ function updateIndex(
     }),
   ).pipe(
     Effect.as(true),
-    Effect.catchAll(() => Effect.succeed(false)),
+    Effect.catch(() => Effect.succeed(false)),
   );
 }
 

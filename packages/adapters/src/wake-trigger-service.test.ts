@@ -2,7 +2,6 @@ import * as fsSync from "node:fs";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   MAX_WAKE_TRIGGERS_PER_AGENT,
@@ -10,7 +9,7 @@ import {
 } from "@jazz/core/constants/wake-triggers";
 import type { WakeTriggerOsScheduler } from "@jazz/core/wake-triggers/wake-trigger-os-scheduler";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import {
   claimDueWakeTriggers,
   claimWakeTrigger,
@@ -45,7 +44,7 @@ function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
 }
 
 function runEither<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
-  return runEffect(eff.pipe(Effect.either));
+  return runEffect(eff.pipe(Effect.result));
 }
 
 function makeService(osScheduler?: WakeTriggerOsScheduler): WakeTriggerServiceImpl {
@@ -127,7 +126,7 @@ describe("add", () => {
     const result = await runEither(
       service.add("agent-1", "conv-1", "1d", "one too many", "reason", "UTC"),
     );
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   }, 30_000);
 
   test("rejects a prompt exceeding the max length", async () => {
@@ -136,7 +135,7 @@ describe("add", () => {
     const result = await runEither(
       service.add("agent-1", "conv-1", "30m", tooLong, "reason", "UTC"),
     );
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects a fire time already in the past", async () => {
@@ -417,7 +416,7 @@ describe("damaged and versioned trigger files", () => {
     fs.writeFileSync(filePath, newer);
     const service = makeService(makeFakeOsScheduler().scheduler);
     const result = await runEither(service.add("agent1", "c1", "2h", "new", "r", "UTC"));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     expect(fs.readFileSync(filePath, "utf8")).toBe(newer);
   });
 });

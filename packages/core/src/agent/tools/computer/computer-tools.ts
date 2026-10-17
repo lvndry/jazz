@@ -220,7 +220,7 @@ export function createComputerAppsTool(): Tool<AgentConfigService> {
             untrusted: untrusted(COMPUTER_APPS_TOOL_NAME),
           } satisfies ToolExecutionResult;
         }),
-        Effect.catchAll(toFailure),
+        Effect.catch(toFailure),
       ),
     createSummary: (result) => (result.success ? "Listed the apps you may control" : undefined),
   });
@@ -288,7 +288,7 @@ export function createComputerObserveTool(): Tool<AgentConfigService> {
           result: `observation: c${String(observation.generation)}\n${observation.text}`,
           untrusted: untrusted(`${COMPUTER_OBSERVE_TOOL_NAME} ${observation.appName}`),
         } satisfies ToolExecutionResult;
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
     createSummary: (result) => (result.success ? "Looked at a window" : undefined),
   });
 }
@@ -359,7 +359,7 @@ export function createComputerWaitTool(): Tool<AgentConfigService> {
           result: `${verdict}\nobservation: c${String(observation.generation)}\n${observation.text}`,
           untrusted: untrusted(`${COMPUTER_WAIT_TOOL_NAME} ${observation.appName}`),
         } satisfies ToolExecutionResult;
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
     createSummary: (result) => (result.success ? "Waited on a window" : undefined),
   });
 }
@@ -638,7 +638,7 @@ function performAction(
       return await session.perform(input, known, args.captureAfter === true);
     });
     return reportResult(report, source);
-  }).pipe(Effect.catchAll(toFailure));
+  }).pipe(Effect.catch(toFailure));
 }
 
 const pointerParameters = z
@@ -783,7 +783,7 @@ export function createComputerHandoffTools(): ApprovalToolPair<AgentConfigServic
           success: true,
           result: `The person finished the step. Every earlier observation is cleared. ${OBSERVE_HINT}`,
         } satisfies ToolExecutionResult;
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
   });
 }
 
@@ -858,7 +858,7 @@ export function createComputerGrantAppTool(): ApprovalToolPair<AgentConfigServic
             args.foreground === true ? "with foreground access" : "(background)"
           } for ${String(DEFAULT_GRANT_EXPIRY_MS / 3_600_000)} hours. The app now works without asking in this and later runs.`,
         } satisfies ToolExecutionResult;
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
   });
 }
 
@@ -895,7 +895,7 @@ export function createComputerInstallDriverTool(): ApprovalToolPair<AgentConfigS
           success: true,
           result: `Installed the driver at ${path}. Retry the computer tool; its first successful session pins this build automatically.`,
         } satisfies ToolExecutionResult;
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
   });
 }
 
@@ -971,7 +971,7 @@ export function createComputerAcknowledgeDriverTool(): ApprovalToolPair<AgentCon
           success: true,
           result: `Pinned the driver build ${executablePath} (SHA-256 ${sha256.slice(0, 12)}...). Retry the computer tool.`,
         } satisfies ToolExecutionResult;
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
   });
 }
 
@@ -997,6 +997,6 @@ export function createComputerEndTool(): Tool<AgentConfigService> {
           return { success: true, result: "Computer use ended." } satisfies ToolExecutionResult;
         },
         catch: toError,
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
   });
 }

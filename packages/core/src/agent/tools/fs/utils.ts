@@ -1,6 +1,5 @@
 import { spawn } from "child_process";
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import type { ToolRiskLevel } from "@/core/types/tools";
 import { toError } from "@/core/utils/errors";
 import { terminateProcessGroup } from "@/core/utils/process";
@@ -91,7 +90,7 @@ export function spawnCollect(
     input?: string;
   } = {},
 ): Effect.Effect<CollectedProcessOutput, never, never> {
-  return Effect.async<CollectedProcessOutput>((resume) => {
+  return Effect.callback<CollectedProcessOutput>((resume) => {
     const child = spawn(cmd, args, {
       cwd: options.cwd,
       stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
@@ -189,7 +188,7 @@ export function readGitignorePatterns(
     const path = `${dir.replace(/\/+$/, "")}/.gitignore`;
     const content = yield* fs.readFileString(path).pipe(
       Effect.map(String),
-      Effect.catchAll(() => Effect.succeed("")),
+      Effect.catch(() => Effect.succeed("")),
     );
     const parsed = parseGitignoreToGlob(content);
     // Always include default ignore patterns (node_modules, .git) alongside

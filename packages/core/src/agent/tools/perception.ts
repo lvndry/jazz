@@ -30,7 +30,7 @@
  * provider whose models support the requested role — rather than returning a bare refusal.
  */
 
-import { Effect, Either, Option } from "effect";
+import { Effect, Option, Result } from "effect";
 import { z } from "zod";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -340,7 +340,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
         Effect.tap(() =>
           logger.info("Bound model companion", { agentId: parentAgent.id, role, modelId }),
         ),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           logger.debug("Companion binding not saved; it holds for this session only", {
             agentId: parentAgent.id,
             role,
@@ -509,15 +509,15 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       let companion = firstCompanion;
 
       while (true) {
-        const attempt = yield* run(companion).pipe(Effect.either);
-        if (Either.isRight(attempt)) {
+        const attempt = yield* run(companion).pipe(Effect.result);
+        if (Result.isSuccess(attempt)) {
           yield* bindCompanion(parentAgent, role, agentModelString(companion.config.llm));
-          return { kind: "done", value: attempt.right } as const;
+          return { kind: "done", value: attempt.success } as const;
         }
 
         const failedModel = agentModelString(companion.config.llm);
         triedModels.add(failedModel);
-        const reason = `${failedModel} failed: ${attempt.left.message}`;
+        const reason = `${failedModel} failed: ${attempt.failure.message}`;
 
         if (presentation.canPromptForApproval?.() !== true || Option.isNone(terminalOption)) {
           return {

@@ -8,14 +8,13 @@
  * throwaway tool registry.
  */
 
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { FileStorageService } from "@jazz/adapters/storage/file";
 import { agentConfigProblems } from "@jazz/core/agent/agent-config-problems";
 import { registerAllTools } from "@jazz/core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "@jazz/core/agent/tools/tool-registry";
 import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 
 /** What `config validate` prints about agents. */
 export interface AgentValidationReport {
@@ -31,7 +30,7 @@ function builtinToolNames(): Effect.Effect<ReadonlySet<string>> {
     return new Set(yield* registry.listAllTools());
   }).pipe(
     Effect.provide(createToolRegistryLayer()),
-    Effect.catchAll(() => Effect.succeed(new Set<string>())),
+    Effect.catch(() => Effect.succeed(new Set<string>())),
   );
 }
 
@@ -41,7 +40,7 @@ export function validateAgents(storageDirectory: string): Effect.Effect<AgentVal
     const fs = yield* FileSystem.FileSystem;
     const storage = new FileStorageService(storageDirectory, fs);
     const inspection = yield* storage.inspectAgentFiles().pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.succeed({
           agents: [],
           unreadable: [{ path: `${storageDirectory}/agents`, reason: error.reason }],

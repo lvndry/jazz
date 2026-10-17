@@ -1,4 +1,3 @@
-import { FileSystem } from "@effect/platform";
 import { controlGoal, listOwnedGoals, pendingGoalInput } from "@jazz/adapters/goals/goal-actions";
 import {
   displayConversationTitle,
@@ -24,7 +23,7 @@ import type { ChatMessage } from "@jazz/core/types/message";
 import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { requireInteractiveTerminal } from "@/cli/helpers/interactive-terminal";
 import {
   agentChoicesFor,
@@ -68,7 +67,7 @@ export function wizardCommand() {
   return requireInteractiveTerminal(
     "jazz",
     'Run `jazz` in a terminal. From a script, use `jazz run --agent <id> "<prompt>"`, or pipe messages to `jazz agent chat <agent>`, one per line.',
-  ).pipe(Effect.zipRight(wizardSession()));
+  ).pipe(Effect.andThen(wizardSession()));
 }
 
 /** The home menu loop, once a terminal that can prompt is known to be present. */
@@ -94,7 +93,7 @@ function wizardSession() {
       const jazzState = yield* JazzStateServiceTag;
       const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
         Effect.map((value) => (typeof value === "string" ? value : null)),
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
       );
       const appConfig = yield* configService.appConfig;
       const providerCount = configuredProviderNames(appConfig).length;
@@ -149,17 +148,17 @@ function wizardSession() {
           // Run create agent flow and start chat with newly created agent
           const creationResult = yield* createAgentCommand(
             selection === "create-agent:ollama" ? { initialProvider: "ollama" } : {},
-          ).pipe(Effect.either);
+          ).pipe(Effect.result);
 
-          if (creationResult._tag === "Left") {
+          if (creationResult._tag === "Failure") {
             // Creation failed
-            yield* terminal.error(`Failed to create agent: ${String(creationResult.left)}`);
+            yield* terminal.error(`Failed to create agent: ${String(creationResult.failure)}`);
             break;
           }
 
           // Fetch agents after creation and pick the most recently created one
           const agentsAfterCreate = yield* agentService.listAgents().pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               Effect.gen(function* () {
                 yield* terminal.error(`Failed to retrieve agents: ${String(error)}`);
                 return [] as Agent[];
@@ -180,7 +179,7 @@ function wizardSession() {
 
           // Start chat with the newly created agent
           yield* startChatWithAgent(newest).pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               Effect.gen(function* () {
                 yield* terminal.error(`Failed to start chat with created agent: ${String(error)}`);
               }),
@@ -193,7 +192,7 @@ function wizardSession() {
 
         case "list-agents": {
           let listedAgents = yield* agentService.listAgents().pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               Effect.gen(function* () {
                 yield* terminal.error(`Could not read your agents: ${String(error)}`);
                 return [] as Agent[];
@@ -226,14 +225,14 @@ function wizardSession() {
                 break;
               case "edit":
                 yield* editAgentCommand(selectedAgent.id).pipe(
-                  Effect.catchAll((error) =>
+                  Effect.catch((error) =>
                     terminal.error(`${selectedAgent.name} was not changed: ${String(error)}`),
                   ),
                 );
                 yield* terminal.clear();
                 listedAgents = yield* agentService
                   .listAgents()
-                  .pipe(Effect.catchAll(() => Effect.succeed(listedAgents)));
+                  .pipe(Effect.catch(() => Effect.succeed(listedAgents)));
                 break;
               case "delete": {
                 const deleted = yield* confirmAndDeleteAgent(selectedAgent);
@@ -293,7 +292,7 @@ function wizardSession() {
 
     yield* terminal.log("");
     yield* Effect.sync(() => process.exit(0));
-  }).pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
+  }).pipe(Effect.catch((error) => Effect.fail(toError(error))));
 }
 
 /** Everything home needs before it goes up. */
@@ -342,7 +341,7 @@ function conversationActivity(agents: readonly Agent[]) {
     const titles = new Map<string, string>();
     for (const agent of agents) {
       const history = yield* loadHistory(agent.id).pipe(
-        Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+        Effect.catch(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
       );
       for (const conversation of history.conversations) {
         titles.set(conversation.conversationId, displayConversationTitle(conversation.title));
@@ -450,7 +449,7 @@ function waitingWork(agents: readonly Agent[], titles: ReadonlyMap<string, strin
     Effect.provide(makeFileGoalStoreLayer()),
     Effect.provide(makeFileLoopStoreLayer()),
     Effect.provide(makeFileRunStoreLayer()),
-    Effect.catchAll(() => Effect.succeed([] as WaitingSource[])),
+    Effect.catch(() => Effect.succeed([] as WaitingSource[])),
   );
 }
 
@@ -544,7 +543,7 @@ function selectAgent(
   title: string,
   action: string,
 ): Effect.Effect<Agent | null, never, never> {
-  return Effect.async<Agent | null>((resume) => {
+  return Effect.callback<Agent | null>((resume) => {
     const sorted = sortAgents(agents, lastUsedAgentId);
     store.setActiveMenu(
       {
@@ -585,7 +584,7 @@ function startChatWithAgent(
     yield* jazzState
       .set("wizard.lastUsedAgentId", agent.id)
       .pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           terminal.warn(
             `Could not remember ${agent.name} as the last used agent: ${error.message}`,
           ),
@@ -598,7 +597,7 @@ function startChatWithAgent(
     // Start the chat session
     const chatService = yield* ChatServiceTag;
     yield* chatService.startChatSession(agent, options).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.gen(function* () {
           yield* terminal.error(`Chat session error: ${String(error)}`);
         }),
@@ -630,7 +629,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
 
     for (const agent of agents) {
       const history = yield* loadHistory(agent.id).pipe(
-        Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+        Effect.catch(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
       );
       for (const conversation of history.conversations) {
         titles.set(conversation.conversationId, displayConversationTitle(conversation.title));
@@ -761,12 +760,12 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
 function openConversation(agent: Agent, conversationId: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const loaded = yield* Effect.either(loadConversation(agent.id, conversationId));
-    if (loaded._tag === "Left") {
-      yield* terminal.error(`Could not open this conversation: ${loaded.left.message}`);
+    const loaded = yield* Effect.result(loadConversation(agent.id, conversationId));
+    if (loaded._tag === "Failure") {
+      yield* terminal.error(`Could not open this conversation: ${loaded.failure.message}`);
       return false;
     }
-    const conversation = loaded.right;
+    const conversation = loaded.success;
     if (conversation === null) {
       yield* terminal.warn("That conversation is no longer saved.");
       return false;

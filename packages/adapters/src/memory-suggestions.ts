@@ -8,7 +8,6 @@
 
 import { randomBytes } from "node:crypto";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import type {
   FactSuggestion,
   FactSuggestionInput,
@@ -21,7 +20,7 @@ import { replaceControlCharacters } from "@jazz/core/utils/control-characters";
 import { toError } from "@jazz/core/utils/errors";
 import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { isValidStorageKey, writeFileStringAtomic } from "@jazz/core/utils/storage";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 
 const QUEUE_FILENAME = ".pending-memory.json";
 

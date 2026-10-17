@@ -196,11 +196,11 @@ export function withRunRecording<E, R>(
     let stopHeartbeat: Effect.Effect<void, never> = Effect.void;
     if (occupancyService !== undefined) {
       const heartbeat = yield* writeOccupancy().pipe(
-        Effect.zipRight(
-          Effect.fork(
+        Effect.andThen(
+          Effect.forkChild(
             Effect.forever(
               Effect.sleep(Duration.millis(OCCUPANCY_HEARTBEAT_MS)).pipe(
-                Effect.zipRight(writeOccupancy()),
+                Effect.andThen(writeOccupancy()),
               ),
             ),
           ),
@@ -222,7 +222,7 @@ export function withRunRecording<E, R>(
         yield* writeFinalOccupancy("completed");
         return result;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.gen(function* () {
             yield* writeFinalOccupancy(isRunParkRequested(error) ? "input-required" : "failed");
             return yield* Effect.fail(error);
@@ -287,21 +287,21 @@ export function withRunRecording<E, R>(
 
     return yield* effect.pipe(
       Effect.tap((response) =>
-        moveTo(completedState(response)).pipe(Effect.zipRight(writeFinalOccupancy("completed"))),
+        moveTo(completedState(response)).pipe(Effect.andThen(writeFinalOccupancy("completed"))),
       ),
-      Effect.catchAll((error) => {
+      Effect.catch((error) => {
         if (!isRunParkRequested(error)) {
           return moveTo(failureState(error))
-            .pipe(Effect.zipRight(writeFinalOccupancy("failed")))
-            .pipe(Effect.zipRight(Effect.fail(error)));
+            .pipe(Effect.andThen(writeFinalOccupancy("failed")))
+            .pipe(Effect.andThen(Effect.fail(error)));
         }
         const expiresAt = new Date(
           Date.now() + (input.parkTtlMs ?? DEFAULT_PARK_TTL_MS),
         ).toISOString();
         return store.transition(input.runId, parkedState(error, expiresAt)).pipe(
           Effect.tap((updated) => store.save(withCost(updated))),
-          Effect.zipRight(writeFinalOccupancy("input-required")),
-          Effect.zipRight(
+          Effect.andThen(writeFinalOccupancy("input-required")),
+          Effect.andThen(
             Effect.fail(
               new RunParkRequested({
                 pending: error.pending,
@@ -322,7 +322,7 @@ export function withRunRecording<E, R>(
             (failure) => !isRunParkRequested(failure),
             (failure) =>
               moveTo(failureState(failure)).pipe(
-                Effect.zipRight(
+                Effect.andThen(
                   Effect.fail(
                     new Error(
                       `The run needed an approval nobody could answer, and could not be saved for later: ${

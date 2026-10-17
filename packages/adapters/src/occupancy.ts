@@ -94,6 +94,6 @@ export function createOccupancyServiceLayer(
           const current = yield* readEntries;
           return Object.values(prune(current));
         }),
-      ).pipe(Effect.catchAll(() => Effect.succeed([]))),
+      ).pipe(Effect.catch(() => Effect.succeed([]))),
   });
 }

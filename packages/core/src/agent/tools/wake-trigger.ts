@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { WakeTriggerRecord, WakeTriggerService } from "@/core/interfaces/wake-trigger-service";
@@ -92,7 +91,7 @@ export function createRegisterTriggerTool(): Tool<WakeTriggerToolDeps> {
           },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -141,7 +140,7 @@ export function createListTriggersTool(): Tool<WakeTriggerToolDeps> {
           },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -186,7 +185,7 @@ export function createCancelTriggerTool(): Tool<WakeTriggerToolDeps> {
           ...(outcome.success ? {} : { error: outcome.message }),
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,

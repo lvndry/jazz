@@ -113,7 +113,7 @@ function notifyCap(input: RunAccountingInput, check: BlockingCap): Effect.Effect
     ...enqueueOptions(input),
   }).pipe(
     Effect.asVoid,
-    Effect.catchAll((error) => reportAccountingError("queue a spend-cap notification", error)),
+    Effect.catch((error) => reportAccountingError("queue a spend-cap notification", error)),
   );
 }
 
@@ -166,7 +166,7 @@ export function guardRunStart(input: RunAccountingInput): Effect.Effect<CapCheck
         ? checkAndReserveSpendCaps(input.appConfig.daemon, subject, input.reservationId, options)
         : checkSpendCaps(input.appConfig.daemon, subject, options)
     ).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         reportAccountingError("read the spend ledger", error).pipe(
           Effect.as<CapCheck>({ kind: "clear" }),
         ),
@@ -186,7 +186,7 @@ export function releaseRunReservation(input: RunAccountingInput): Effect.Effect<
     return Effect.void;
   }
   return releaseInFlightSpend(input.reservationId, input.home).pipe(
-    Effect.catchAll((error) => reportAccountingError("release a spend reservation", error)),
+    Effect.catch((error) => reportAccountingError("release a spend reservation", error)),
   );
 }
 
@@ -209,7 +209,7 @@ export function runStopNotification(
   if (Exit.isSuccess(exit)) {
     return undefined;
   }
-  const failure = Cause.failureOption(exit.cause);
+  const failure = Cause.findErrorOption(exit.cause);
   const error = Option.isSome(failure) ? failure.value : undefined;
   if (isRunParkRequested(error)) {
     if (error.runId === undefined || error.expiresAt === undefined) {
@@ -228,7 +228,7 @@ export function runStopNotification(
     !input.unattended ||
     error instanceof SpendCapReachedError ||
     error instanceof GenerationInterruptedError ||
-    Cause.isInterruptedOnly(exit.cause)
+    Cause.hasInterruptsOnly(exit.cause)
   ) {
     return undefined;
   }
@@ -272,7 +272,7 @@ export function settleRunAccounting(
         runId,
       },
       input.home,
-    ).pipe(Effect.catchAll((error) => reportAccountingError("record a run's spend", error)));
+    ).pipe(Effect.catch((error) => reportAccountingError("record a run's spend", error)));
     const notification = runStopNotification(input, exit);
     if (notification !== undefined) {
       yield* enqueueNotification(notifyTargets(input.appConfig), notification.event, {
@@ -280,7 +280,7 @@ export function settleRunAccounting(
         ...enqueueOptions(input),
       }).pipe(
         Effect.asVoid,
-        Effect.catchAll((error) => reportAccountingError("queue a notification", error)),
+        Effect.catch((error) => reportAccountingError("queue a notification", error)),
       );
     }
   });
@@ -310,7 +310,7 @@ export function recordLateChildSpend(
       runId,
     },
     input.home,
-  ).pipe(Effect.catchAll((error) => reportAccountingError("record a sub-agent's spend", error)));
+  ).pipe(Effect.catch((error) => reportAccountingError("record a sub-agent's spend", error)));
 }
 
 /**
@@ -324,7 +324,7 @@ export function nextCycleBlockedBySpend(
 ): Effect.Effect<SpendCapReachedError | undefined> {
   return guardRunStart({ ...input, internal: false, freeLocalModel: false, unattended: true }).pipe(
     Effect.as(undefined),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed(error instanceof SpendCapReachedError ? error : undefined),
     ),
   );

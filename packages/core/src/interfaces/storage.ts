@@ -44,7 +44,7 @@ export interface StorageService {
   readonly deleteAgent: (id: string) => Effect.Effect<void, StorageError | StorageNotFoundError>;
 }
 
-export const StorageServiceTag = Context.GenericTag<StorageService>("StorageService");
+export const StorageServiceTag = Context.Service<StorageService>("StorageService");
 
 /** An agent file that exists but could not be read as an agent. */
 export interface UnreadableAgentFile {

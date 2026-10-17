@@ -7,13 +7,12 @@
  * chat with, the same pieces the home menu's "Resume" hands to the chat.
  */
 
-import type { FileSystem } from "@effect/platform";
 import { loadConversationOrNull } from "@jazz/adapters/history/conversation-history-service";
 import { listConversationLogs } from "@jazz/adapters/history/conversation-log";
 import type { Agent } from "@jazz/core/types";
 import { ValidationError } from "@jazz/core/types/errors";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 
 export interface ContinueOptions {
   /** Continue a saved conversation. */
@@ -26,7 +25,7 @@ export interface ContinuedSession {
   readonly conversationId?: string;
   readonly initialHistory?: ChatMessage[];
   readonly initialUiTranscript?: NonNullable<
-    Effect.Effect.Success<ReturnType<typeof loadConversationOrNull>>
+    Effect.Success<ReturnType<typeof loadConversationOrNull>>
   >["uiTranscript"];
 }
 
@@ -59,7 +58,7 @@ export function continuedSessionOptions(
       options.conversation ??
       (yield* listConversationLogs(agent.id, historyDirectory).pipe(
         Effect.map((logs) => logs[0]?.conversationId),
-        Effect.catchAll(() => Effect.succeed(undefined)),
+        Effect.catch(() => Effect.succeed(undefined)),
       ));
     if (conversationId === undefined) {
       return yield* Effect.fail(

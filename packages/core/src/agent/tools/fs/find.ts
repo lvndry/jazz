@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import glob from "fast-glob";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -404,7 +403,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       for (const line of lines) {
         const trimmed = line.trim();
         const name = trimmed.split("/").pop() || "";
-        const stat = yield* fs.stat(trimmed).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const stat = yield* fs.stat(trimmed).pipe(Effect.catch(() => Effect.succeed(null)));
         const type: "file" | "dir" | "symlink" = stat
           ? stat.type === "Directory"
             ? "dir"

@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
@@ -107,7 +106,7 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
         // If destination exists and force is false, fail
         const destExists = yield* fs
           .exists(destination)
-          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+          .pipe(Effect.catch(() => Effect.succeed(false)));
 
         if (destExists && args.force !== true) {
           return {
@@ -119,7 +118,7 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
 
         return yield* moveAtomically(fs, source, destination, destExists).pipe(
           Effect.map(() => ({ success: true, result: `Moved: ${source} → ${destination}` })),
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.succeed({
               success: false,
               result: null,
@@ -155,7 +154,7 @@ function moveAtomically(
     ? Effect.fail(new Error("destination exists"))
     : fs.rename(source, destination).pipe(Effect.mapError(toError));
   return direct.pipe(
-    Effect.catchAll((error) => {
+    Effect.catch((error) => {
       if (!destinationExists && !isCrossDeviceError(error)) {
         return Effect.fail(error);
       }
@@ -165,7 +164,7 @@ function moveAtomically(
         destination,
         (stagingPath) =>
           fs.rename(source, stagingPath).pipe(
-            Effect.catchAll((renameError) => {
+            Effect.catch((renameError) => {
               if (!isCrossDeviceError(renameError)) {
                 return Effect.fail(toError(renameError));
               }

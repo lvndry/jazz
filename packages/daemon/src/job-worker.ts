@@ -142,7 +142,7 @@ export function finishBatchFanIn(agentId: string, batchId: string, outcome: Deli
     const baseDirectory = jobBatchDirectory();
     yield* settleBatchFanIn(baseDirectory, agentId, batchId, outcome);
     if (outcome.delivered) {
-      yield* archiveBatch(baseDirectory, agentId, batchId).pipe(Effect.catchAll(() => Effect.void));
+      yield* archiveBatch(baseDirectory, agentId, batchId).pipe(Effect.catch(() => Effect.void));
     }
   });
 }
@@ -156,7 +156,7 @@ function deliverOwedAgentFanIns(agentId: string) {
     const owed = yield* listUndeliveredAgentBatches(jobBatchDirectory(), agentId, Date.now());
     for (const batch of owed) {
       yield* deliverBatchFanIn(agentId, batch.id).pipe(
-        Effect.catchAllCause((cause) =>
+        Effect.catchCause((cause) =>
           Effect.sync(() => {
             process.stderr.write(
               `jazz job batch ${batch.id} fan-in failed: ${Cause.pretty(cause)}\n`,
@@ -186,14 +186,14 @@ const COMPLETE_JOB_RETRY_MS = 1_000;
  */
 function heartbeat(claimed: ClaimedJob, leaseOwner: string) {
   return Effect.sleep(Duration.millis(JOB_LEASE_HEARTBEAT_MS)).pipe(
-    Effect.zipRight(
+    Effect.andThen(
       renewJobLease(
         jobBatchDirectory(),
         claimed.agentId,
         claimed.batchId,
         claimed.jobId,
         leaseOwner,
-      ).pipe(Effect.catchAll(() => Effect.succeed(true))),
+      ).pipe(Effect.catch(() => Effect.succeed(true))),
     ),
     Effect.repeat({ while: (stillOurs) => stillOurs }),
     Effect.asVoid,
@@ -308,7 +308,7 @@ function runJobCommand(claimed: ClaimedJob, leaseOwner: string) {
 function runClaimedJob(claimed: ClaimedJob, leaseOwner: string) {
   return Effect.gen(function* () {
     const outcome = yield* runJobCommand(claimed, leaseOwner).pipe(
-      Effect.raceFirst(heartbeat(claimed, leaseOwner).pipe(Effect.zipRight(Effect.never))),
+      Effect.raceFirst(heartbeat(claimed, leaseOwner).pipe(Effect.andThen(Effect.never))),
     );
 
     // Recording the outcome retries on its own: a lock held for a moment by a sibling job must
@@ -322,7 +322,7 @@ function runClaimedJob(claimed: ClaimedJob, leaseOwner: string) {
     ).pipe(
       Effect.retry(
         Schedule.exponential(Duration.millis(COMPLETE_JOB_RETRY_MS)).pipe(
-          Schedule.intersect(Schedule.recurs(COMPLETE_JOB_ATTEMPTS - 1)),
+          Schedule.upTo({ times: COMPLETE_JOB_ATTEMPTS - 1 }),
         ),
       ),
     );
@@ -346,7 +346,7 @@ function runClaimedJobs(claimed: readonly ClaimedJob[], leaseOwner: string) {
     claimed,
     (job) =>
       runClaimedJob(job, leaseOwner).pipe(
-        Effect.catchAllCause((cause) =>
+        Effect.catchCause((cause) =>
           Effect.sync(() => {
             process.stderr.write(
               `jazz job ${job.batchId}/${job.jobId} could not be recorded: ${Cause.pretty(cause)}\n`,
@@ -376,7 +376,7 @@ export function drainAgentJobs(agentId: string) {
         Date.now(),
         WORKER_POOL_SIZE,
         leaseOwner,
-      ).pipe(Effect.catchAll(() => Effect.succeed<readonly ClaimedJob[]>([])));
+      ).pipe(Effect.catch(() => Effect.succeed<readonly ClaimedJob[]>([])));
 
       if (claimed.length > 0) {
         yield* runClaimedJobs(claimed, leaseOwner);
@@ -384,7 +384,7 @@ export function drainAgentJobs(agentId: string) {
       }
 
       const nextAt = yield* nextClaimableAt(baseDirectory, agentId).pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
       );
       if (nextAt === null) {
         yield* deliverOwedAgentFanIns(agentId);
@@ -416,19 +416,19 @@ export function runDueJobs() {
     if (sweepStartedAt >= nextCompletedBatchSweepAtMs) {
       nextCompletedBatchSweepAtMs = sweepStartedAt + COMPLETED_BATCH_SWEEP_INTERVAL_MS;
       yield* archiveCompletedBatches(baseDirectory, sweepStartedAt).pipe(
-        Effect.catchAll(() => Effect.succeed(0)),
+        Effect.catch(() => Effect.succeed(0)),
       );
     }
 
     yield* reclaimExpiredLeases(baseDirectory, Date.now()).pipe(
-      Effect.catchAll(() => Effect.succeed([])),
+      Effect.catch(() => Effect.succeed([])),
     );
     const undelivered = yield* listUndeliveredBatches(baseDirectory).pipe(
-      Effect.catchAll(() => Effect.succeed([])),
+      Effect.catch(() => Effect.succeed([])),
     );
     for (const { agentId, batchId } of undelivered) {
       yield* deliverBatchFanIn(agentId, batchId).pipe(
-        Effect.catchAllCause((cause) =>
+        Effect.catchCause((cause) =>
           Effect.sync(() => {
             process.stderr.write(
               `jazz job batch ${batchId} fan-in failed: ${Cause.pretty(cause)}\n`,
@@ -439,7 +439,7 @@ export function runDueJobs() {
     }
 
     const agentIds = yield* listAgentIdsWithActiveBatches(baseDirectory).pipe(
-      Effect.catchAll(() => Effect.succeed<readonly string[]>([])),
+      Effect.catch(() => Effect.succeed<readonly string[]>([])),
     );
     for (const agentId of agentIds) {
       const claimed = yield* claimDueJobs(
@@ -448,7 +448,7 @@ export function runDueJobs() {
         Date.now(),
         WORKER_POOL_SIZE,
         leaseOwner,
-      ).pipe(Effect.catchAll(() => Effect.succeed<readonly ClaimedJob[]>([])));
+      ).pipe(Effect.catch(() => Effect.succeed<readonly ClaimedJob[]>([])));
       yield* runClaimedJobs(claimed, leaseOwner);
     }
   });

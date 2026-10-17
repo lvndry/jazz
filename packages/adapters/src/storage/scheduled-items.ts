@@ -214,7 +214,7 @@ function hasClaimableItem<Item extends ScheduledItem>(
     Effect.map((items) =>
       (items ?? []).some((item) => scheduledItemClaimable(store, agentId, item, now)),
     ),
-    Effect.catchAll((error) => Effect.succeed(error instanceof CorruptStateFileError)),
+    Effect.catch((error) => Effect.succeed(error instanceof CorruptStateFileError)),
   );
 }
 
@@ -233,7 +233,7 @@ export function claimDueItems<Item extends ScheduledItem>(
     const names = yield* Effect.tryPromise({
       try: () => nodeFs.readdir(baseDirectory),
       catch: (error) => error,
-    }).pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+    }).pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const agentIds = names
       .filter((name) => name.endsWith(".json"))
       .map((name) => name.slice(0, -".json".length))
@@ -251,7 +251,7 @@ export function claimDueItems<Item extends ScheduledItem>(
         agentId,
         now,
         (item) => item.fireAt <= now,
-      ).pipe(Effect.catchAll(() => Effect.succeed([] as Item[])));
+      ).pipe(Effect.catch(() => Effect.succeed([] as Item[])));
       for (const item of claimed) {
         claims.push({ agentId, item });
       }

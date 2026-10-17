@@ -506,7 +506,7 @@ export function installService(
     // Unload first, ignoring failure — a re-install has nothing loaded yet the first time,
     // and load-while-already-loaded is where launchd would otherwise silently no-op.
     yield* execCommand("launchctl", ["unload", LAUNCHD_PLIST_PATH]).pipe(
-      Effect.catchAll(() => Effect.void),
+      Effect.catch(() => Effect.void),
     );
     yield* execCommand("launchctl", ["load", LAUNCHD_PLIST_PATH]).pipe(
       Effect.mapError((error) => new ServiceInstallError(error.message)),
@@ -523,16 +523,16 @@ export function uninstallService(): Effect.Effect<void, ServiceInstallError> {
     const initSystem = detectInitSystem();
     if (initSystem === "systemd") {
       yield* execCommand("systemctl", ["disable", "--now", SYSTEMD_SERVICE_NAME]).pipe(
-        Effect.catchAll(() => Effect.void),
+        Effect.catch(() => Effect.void),
       );
       yield* Effect.tryPromise({
         try: () => nodeFs.rm(SYSTEMD_UNIT_PATH, { force: true }),
         catch: (error) => new ServiceInstallError(String(error)),
       });
-      yield* execCommand("systemctl", ["daemon-reload"]).pipe(Effect.catchAll(() => Effect.void));
+      yield* execCommand("systemctl", ["daemon-reload"]).pipe(Effect.catch(() => Effect.void));
     } else if (initSystem === "launchd") {
       yield* execCommand("launchctl", ["unload", LAUNCHD_PLIST_PATH]).pipe(
-        Effect.catchAll(() => Effect.void),
+        Effect.catch(() => Effect.void),
       );
       yield* Effect.tryPromise({
         try: () => nodeFs.rm(LAUNCHD_PLIST_PATH, { force: true }),

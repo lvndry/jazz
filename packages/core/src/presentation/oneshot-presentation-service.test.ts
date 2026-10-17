@@ -20,7 +20,7 @@ function makeApprovalRequest(overrides: Partial<ApprovalRequest> = {}): Approval
 }
 
 /** Wait for one macrotask tick — long enough for any pending microtasks (e.g.
- * Effect's fiber scheduling the `Effect.async` registration) to settle. */
+ * Effect's fiber scheduling the `Effect.callback` registration) to settle. */
 function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }

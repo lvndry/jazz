@@ -216,7 +216,7 @@ function getPackageManagerVersion(
   return Effect.gen(function* () {
     const { spawn } = yield* Effect.promise(() => import("child_process"));
 
-    return yield* Effect.async<PackageManagerInfo | null, never>((resume) => {
+    return yield* Effect.callback<PackageManagerInfo | null, never>((resume) => {
       const child = spawn(command, ["--version"], {
         stdio: ["ignore", "pipe", "ignore"],
         shell: true,
@@ -376,7 +376,7 @@ function installUpdate(
 
     const installArgs = buildInstallArgs(pmInfo.name, packageName);
 
-    yield* Effect.async<void, UpdateInstallError>((resume) => {
+    yield* Effect.callback<void, UpdateInstallError>((resume) => {
       const child = spawn(pmInfo.name, installArgs, {
         stdio: "inherit",
         shell: true,
@@ -423,9 +423,9 @@ export function updateCommand(options?: {
     yield* terminal.info("Checking for updates...");
     yield* terminal.log("");
 
-    const checkOutcome = yield* checkForUpdate().pipe(Effect.either);
-    if (checkOutcome._tag === "Left") {
-      const checkError: UpdateCheckError = checkOutcome.left;
+    const checkOutcome = yield* checkForUpdate().pipe(Effect.result);
+    if (checkOutcome._tag === "Failure") {
+      const checkError: UpdateCheckError = checkOutcome.failure;
       yield* logger.error("Failed to check for updates", { errorType: "update_check_failed" });
       yield* terminal.error("Failed to check for updates:");
       yield* terminal.log(`   ${checkError.message}`);
@@ -434,7 +434,7 @@ export function updateCommand(options?: {
       process.exitCode = 1;
       return;
     }
-    const versionInfo = checkOutcome.right;
+    const versionInfo = checkOutcome.success;
 
     yield* terminal.log(`📦 Current version: ${versionInfo.currentVersion}`);
     yield* terminal.log(`📦 Latest version:  ${versionInfo.latestVersion}`);
@@ -462,9 +462,9 @@ export function updateCommand(options?: {
       packageJson.name,
       versionInfo.latestVersion,
       terminal,
-    ).pipe(Effect.either);
-    if (installOutcome._tag === "Left") {
-      const installError: UpdateInstallError = installOutcome.left;
+    ).pipe(Effect.result);
+    if (installOutcome._tag === "Failure") {
+      const installError: UpdateInstallError = installOutcome.failure;
       yield* logger.error("Failed to install update", { errorType: "update_install_failed" });
       yield* terminal.error("Failed to install update:");
       yield* terminal.log(`   ${installError.message}`);

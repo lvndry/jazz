@@ -4,7 +4,6 @@
  * so both read the same and decide the same way.
  */
 
-import type { FileSystem } from "@effect/platform";
 import type { MemoryService } from "@jazz/core/interfaces/memory-service";
 import type { MemorySuggestion } from "@jazz/core/interfaces/memory-suggestion";
 import {
@@ -15,7 +14,7 @@ import {
 } from "@jazz/core/interfaces/terminal";
 import { storedClaimText } from "@jazz/core/memory/source-trust";
 import { suggestionDestinationPath } from "@jazz/core/memory/suggestion-destination";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 
 /** The line a suggestion is known by: the user's quoted words, or the lesson's rule. */
 export function suggestionHeadline(suggestion: MemorySuggestion): string {

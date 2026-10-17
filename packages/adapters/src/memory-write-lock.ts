@@ -4,11 +4,10 @@
  * IDs that writes assign.
  */
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { toError } from "@jazz/core/utils/errors";
 import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import { withLock } from "@jazz/core/utils/storage";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 
 export const MEMORY_WRITE_LOCK_FILENAME = ".write.lock";
 

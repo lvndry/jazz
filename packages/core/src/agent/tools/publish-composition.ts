@@ -23,8 +23,7 @@ import { lstat, mkdir, readFile, readdir } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
@@ -205,7 +204,7 @@ function workingDirectoryFor(
     const shell = yield* FileSystemContextServiceTag;
     const cwd = yield* shell
       .getCwd(buildKeyFromContext(context))
-      .pipe(Effect.catchAll(() => Effect.succeed(process.cwd())));
+      .pipe(Effect.catch(() => Effect.succeed(process.cwd())));
     return typeof cwd === "string" && cwd.length > 0 ? cwd : process.cwd();
   });
 }

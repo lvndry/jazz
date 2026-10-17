@@ -10,10 +10,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { afterEach, describe, expect, it } from "bun:test";
-import { Effect, Fiber } from "effect";
+import { Effect, Fiber, FileSystem } from "effect";
 import { replacePathAtomically, writeFileAtomically } from "./atomic-replace";
 
 const scratch: string[] = [];
@@ -66,7 +65,7 @@ describe("writeFileAtomically", () => {
     const target = join(directory, "big.txt");
     const moduleUrl = new URL("./atomic-replace.ts", import.meta.url).href;
     const script = `
-      import { FileSystem } from "@effect/platform";
+      import { FileSystem } from "effect";
       import { NodeFileSystem } from "@effect/platform-node";
       import { Effect } from "effect";
       import { writeFileAtomically } from ${JSON.stringify(moduleUrl)};
@@ -114,8 +113,8 @@ describe("replacePathAtomically", () => {
       withFs((fs) =>
         replacePathAtomically(fs, destination, (stagingPath) =>
           fs.makeDirectory(stagingPath).pipe(
-            Effect.zipRight(fs.writeFileString(join(stagingPath, "half.txt"), "half")),
-            Effect.zipRight(Effect.never),
+            Effect.andThen(fs.writeFileString(join(stagingPath, "half.txt"), "half")),
+            Effect.andThen(Effect.never),
             Effect.mapError((error) => new Error(String(error))),
           ),
         ),
@@ -138,7 +137,7 @@ describe("replacePathAtomically", () => {
       withFs((fs) =>
         replacePathAtomically(fs, destination, (stagingPath) =>
           fs.makeDirectory(stagingPath).pipe(
-            Effect.zipRight(fs.writeFileString(join(stagingPath, "fresh.txt"), "fresh")),
+            Effect.andThen(fs.writeFileString(join(stagingPath, "fresh.txt"), "fresh")),
             Effect.mapError((error) => new Error(String(error))),
           ),
         ),

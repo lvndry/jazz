@@ -387,4 +387,4 @@ export interface TelemetryService {
   readonly shutdown: () => Effect.Effect<void, TelemetryError>;
 }
 
-export const TelemetryServiceTag = Context.GenericTag<TelemetryService>("TelemetryService");
+export const TelemetryServiceTag = Context.Service<TelemetryService>("TelemetryService");

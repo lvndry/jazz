@@ -49,7 +49,7 @@ export function createJazzStateServiceLayer(
         onCorrupt: "quarantine",
       }).pipe(Effect.map((state) => state ?? {}));
       let state: Record<string, unknown> = yield* withLock(lockPath, readState).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.sync(() => {
             console.error(`[jazz] ${statePath} could not be read: ${error.message}`);
             return {};

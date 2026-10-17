@@ -42,4 +42,4 @@ export interface LoggerService {
   readonly popLogGroup: () => Effect.Effect<void, never>;
 }
 
-export const LoggerServiceTag = Context.GenericTag<LoggerService>("LoggerService");
+export const LoggerServiceTag = Context.Service<LoggerService>("LoggerService");

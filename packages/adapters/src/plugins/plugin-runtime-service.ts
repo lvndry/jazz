@@ -115,7 +115,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
       this.openSession({ agentId }),
       (session: PluginSession) => Effect.sync(() => session.listTools()),
       (session: PluginSession) => session.close(),
-    ).pipe(Effect.catchAll(() => Effect.succeed([] as readonly PluginToolInfo[])));
+    ).pipe(Effect.catch(() => Effect.succeed([] as readonly PluginToolInfo[])));
   }
 
   runAgentTool(
@@ -129,7 +129,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
       (session: PluginSession) => session.runTool(name, args, cwd),
       (session: PluginSession) => session.close(),
     ).pipe(
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         Effect.succeed<PluginToolResult>({
           content: `plugin tool ${name} is unavailable`,
           isError: true,
@@ -149,7 +149,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
       (session: PluginSession) => session.prepareTool(name, args, cwd),
       (session: PluginSession) => session.close(),
     ).pipe(
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         Effect.succeed({ content: `plugin tool ${name} is unavailable`, isError: true as const }),
       ),
     );
@@ -167,7 +167,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
       (session: PluginSession) => session.executePreparedTool(name, args, prepared, cwd),
       (session: PluginSession) => session.close(),
     ).pipe(
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         Effect.succeed({ content: `plugin tool ${name} is unavailable`, isError: true as const }),
       ),
     );
@@ -178,7 +178,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
       this.openSession({ agentId }),
       (session: PluginSession) => Effect.sync(() => session.listCommands()),
       (session: PluginSession) => session.close(),
-    ).pipe(Effect.catchAll(() => Effect.succeed([] as readonly PluginCommandInfo[])));
+    ).pipe(Effect.catch(() => Effect.succeed([] as readonly PluginCommandInfo[])));
   }
 
   runAgentCommand(
@@ -190,7 +190,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
       this.openSession({ agentId }),
       (session: PluginSession) => session.runCommand(name, args),
       (session: PluginSession) => session.close(),
-    ).pipe(Effect.catchAll(() => Effect.succeed<PluginCommandResult>({})));
+    ).pipe(Effect.catch(() => Effect.succeed<PluginCommandResult>({})));
   }
 
   listAllPersonas(): Effect.Effect<readonly PluginPersonaInfo[]> {
@@ -200,7 +200,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
           manifest.personas.map((persona) => ({ ...persona, pluginId: manifest.id })),
         ),
       ),
-      Effect.catchAll(() => Effect.succeed([] as readonly PluginPersonaInfo[])),
+      Effect.catch(() => Effect.succeed([] as readonly PluginPersonaInfo[])),
     );
   }
 
@@ -211,21 +211,21 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
           manifest.skills.map((skill) => ({ ...skill, pluginId: manifest.id })),
         ),
       ),
-      Effect.catchAll(() => Effect.succeed([] as readonly PluginSkillInfo[])),
+      Effect.catch(() => Effect.succeed([] as readonly PluginSkillInfo[])),
     );
   }
 
   hasNotificationPlugin(): Effect.Effect<boolean> {
     return Effect.tryPromise(() => this.options.loader.listEnabledManifests()).pipe(
       Effect.map((manifests) => manifests.some((manifest) => manifest.claimsNotifications)),
-      Effect.catchAll(() => Effect.succeed(false)),
+      Effect.catch(() => Effect.succeed(false)),
     );
   }
 
   emitLifecycleEvent(event: LifecycleEvent): Effect.Effect<void> {
     return Effect.tryPromise(() => this.options.loader.listEnabledForAgent(event.agentId)).pipe(
       Effect.flatMap((enabledPlugins) =>
-        Effect.gen(this, function* () {
+        Effect.gen({ self: this }, function* () {
           const cached = this.lifecycleSessions.get(event.agentId);
           if (cached !== undefined && sameEnabledPlugins(cached.enabledPlugins, enabledPlugins)) {
             yield* cached.session.emitLifecycle(event);
@@ -241,7 +241,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
           yield* opened.emitLifecycle(event);
         }),
       ),
-      Effect.catchAll(() => Effect.void),
+      Effect.catch(() => Effect.void),
     );
   }
 }

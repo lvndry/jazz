@@ -18,13 +18,12 @@
  */
 
 import path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { toError } from "@jazz/core/utils/errors";
 import { getWebhookDeliveriesDirectory } from "@jazz/core/utils/paths";
 import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 
 /**
  * How many delivery keys each webhook remembers.
@@ -64,7 +63,7 @@ function readClaimed(fs: FileSystem.FileSystem, filePath: string) {
       const decoded = decodeStateFile(raw, "delivery claim file", DELIVERIES_KIND);
       return decoded.status === "ok" ? decoded.content : [];
     }),
-    Effect.catchAll(() => Effect.succeed<readonly string[]>([])),
+    Effect.catch(() => Effect.succeed<readonly string[]>([])),
   );
 }
 

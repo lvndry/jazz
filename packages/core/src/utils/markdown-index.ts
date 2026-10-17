@@ -38,7 +38,7 @@ export function scanMarkdownIndex<T>(
     const stat = yield* Effect.tryPromise({
       try: () => fs.stat(options.dir),
       catch: toError,
-    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    }).pipe(Effect.catch(() => Effect.succeed(null)));
 
     if (!stat || !stat.isDirectory()) {
       return [];
@@ -101,7 +101,7 @@ export function loadCachedIndex<T>(
     catch: toError,
   }).pipe(
     Effect.map((content) => JSON.parse(content) as readonly T[]),
-    Effect.catchAll(() =>
+    Effect.catch(() =>
       Effect.gen(function* () {
         const items = yield* options.scan;
 
@@ -122,7 +122,7 @@ export function loadCachedIndex<T>(
               catch: toError,
             }),
           ),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         );
 
         return items;

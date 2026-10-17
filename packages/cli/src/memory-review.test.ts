@@ -2,13 +2,12 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { MemoryServiceImpl } from "@jazz/adapters/memory-service";
 import type { PromptChoice, TerminalService } from "@jazz/core/interfaces/terminal";
 import { quotedSentenceKeys } from "@jazz/core/memory/source-trust";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import { reviewMemorySuggestions, suggestionChoices } from "./memory-review";
 
 let directory: string;

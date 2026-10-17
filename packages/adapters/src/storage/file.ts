@@ -3,7 +3,6 @@
  * filesystem.
  */
 
-import { FileSystem } from "@effect/platform";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import {
   StorageServiceTag,
@@ -22,7 +21,7 @@ import { parseJson } from "@jazz/core/utils/json";
 import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import { migrateAgentProviderName } from "@jazz/core/utils/provider-migration";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
-import { Effect, Layer, Option } from "effect";
+import { Effect, FileSystem, Layer, Option } from "effect";
 
 /**
  * Agent JSON may omit its timestamps: a hand-written or repo-template agent has no reason to
@@ -113,7 +112,7 @@ export class FileStorageService implements StorageService {
                 reason: `Failed to create directory: ${String(error)}`,
               }),
           ),
-          Effect.catchAll(() => Effect.void), // Ignore if directory already exists
+          Effect.catch(() => Effect.void), // Ignore if directory already exists
         );
       }.bind(this),
     );
@@ -142,9 +141,7 @@ export class FileStorageService implements StorageService {
         // show up later, from a backup or a synced machine.
         const migration = migrateAgentProviderName(parsed);
         if (migration.changed) {
-          yield* this.writeJsonFile(path, migration.record).pipe(
-            Effect.catchAll(() => Effect.void),
-          );
+          yield* this.writeJsonFile(path, migration.record).pipe(Effect.catch(() => Effect.void));
         }
 
         const rawData = migration.record as Omit<Agent, "createdAt" | "updatedAt"> & {
@@ -289,11 +286,11 @@ export class FileStorageService implements StorageService {
         const unreadable: UnreadableAgentFile[] = [];
         for (const file of files) {
           const path = `${dir}/${file}`;
-          const result = yield* Effect.either(this.readAgentFile(path));
-          if (result._tag === "Right") {
-            agents.push(result.right);
+          const result = yield* Effect.result(this.readAgentFile(path));
+          if (result._tag === "Success") {
+            agents.push(result.success);
           } else {
-            const error = result.left;
+            const error = result.failure;
             unreadable.push({
               path,
               reason: error._tag === "StorageError" ? error.reason : "the file disappeared",

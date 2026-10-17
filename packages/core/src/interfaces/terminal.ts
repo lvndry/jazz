@@ -316,4 +316,4 @@ export interface TerminalService {
   readonly cleanup?: () => void;
 }
 
-export const TerminalServiceTag = Context.GenericTag<TerminalService>("TerminalService");
+export const TerminalServiceTag = Context.Service<TerminalService>("TerminalService");

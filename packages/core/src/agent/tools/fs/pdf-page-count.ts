@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
@@ -108,7 +107,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
             yield* Effect.tryPromise({
               try: () => pdfParser.destroy(),
               catch: toError,
-            }).pipe(Effect.catchAll(() => Effect.void));
+            }).pipe(Effect.catch(() => Effect.void));
           }
         } catch (error) {
           return {

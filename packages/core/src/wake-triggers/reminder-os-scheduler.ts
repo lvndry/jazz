@@ -33,8 +33,7 @@ export interface ReminderOsScheduler {
   ) => Effect.Effect<void, Error>;
 }
 
-export const ReminderOsSchedulerTag =
-  Context.GenericTag<ReminderOsScheduler>("ReminderOsScheduler");
+export const ReminderOsSchedulerTag = Context.Service<ReminderOsScheduler>("ReminderOsScheduler");
 
 function buildFireArgs(agentId: string, reminderId: string): readonly string[] {
   return ["--output", "quiet", "reminder", "fire", "--agent", agentId, "--id", reminderId];

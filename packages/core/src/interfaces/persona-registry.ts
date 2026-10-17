@@ -33,4 +33,4 @@ export interface PersonaRegistryService {
 }
 
 export const PersonaRegistryServiceTag =
-  Context.GenericTag<PersonaRegistryService>("PersonaRegistryService");
+  Context.Service<PersonaRegistryService>("PersonaRegistryService");

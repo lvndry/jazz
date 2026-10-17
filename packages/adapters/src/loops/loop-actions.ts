@@ -80,8 +80,8 @@ export function startLoop(options: {
 }) {
   return Effect.gen(function* () {
     const loops = yield* LoopStoreTag;
-    const agent = yield* getAgentByIdentifier(options.agentId).pipe(Effect.either);
-    if (agent._tag === "Left") {
+    const agent = yield* getAgentByIdentifier(options.agentId).pipe(Effect.result);
+    if (agent._tag === "Failure") {
       const refused: StartLoopOutcome = {
         kind: "refused",
         reason: `No agent "${options.agentId}".`,
@@ -103,7 +103,7 @@ export function startLoop(options: {
     const created = yield* loops
       .create(
         newLoop({
-          agentId: agent.right.id,
+          agentId: agent.success.id,
           name,
           prompt: options.prompt,
           schedule: options.schedule,
@@ -118,11 +118,11 @@ export function startLoop(options: {
           ...(options.budget !== undefined ? { budget: options.budget } : {}),
         }),
       )
-      .pipe(Effect.either);
+      .pipe(Effect.result);
     const outcome: StartLoopOutcome =
-      created._tag === "Left"
-        ? { kind: "refused", reason: created.left.message }
-        : { kind: "started", loop: created.right };
+      created._tag === "Failure"
+        ? { kind: "refused", reason: created.failure.message }
+        : { kind: "started", loop: created.success };
     return outcome;
   });
 }
@@ -174,17 +174,17 @@ export function controlLoop(
     }
     const saved = yield* loops
       .compareAndSet(loop.loopId, loop.version, decision.next)
-      .pipe(Effect.either);
+      .pipe(Effect.result);
     const outcome: LoopControlOutcome =
-      saved._tag === "Left"
+      saved._tag === "Failure"
         ? {
             kind: "refused",
             cause: "refused",
-            reason: `Could not update loop ${loop.name}: ${saved.left.message}`,
+            reason: `Could not update loop ${loop.name}: ${saved.failure.message}`,
           }
         : {
             kind: "applied",
-            loop: saved.right,
+            loop: saved.success,
             ...(decision.note !== undefined ? { note: decision.note } : {}),
           };
     return outcome;

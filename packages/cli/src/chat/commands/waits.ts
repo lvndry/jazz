@@ -54,7 +54,7 @@ export function handleWaitsCommand(context: CommandContext, args: readonly strin
     const jobQueue = jobQueueOption.value;
     const batches = yield* jobQueue
       .listActiveBatches(context.agent.id)
-      .pipe(Effect.catchAll(() => Effect.succeed([])));
+      .pipe(Effect.catch(() => Effect.succeed([])));
     const items = backgroundItems(batches, context.conversationId);
     const [subcommand, handle] = args;
 
@@ -88,9 +88,7 @@ export function handleWaitsCommand(context: CommandContext, args: readonly strin
       }
       const outcome = yield* jobQueue
         .cancelBatch(context.agent.id, chosen.batchId)
-        .pipe(
-          Effect.catchAll((error) => Effect.succeed({ success: false, message: error.message })),
-        );
+        .pipe(Effect.catch((error) => Effect.succeed({ success: false, message: error.message })));
       yield* outcome.success ? terminal.success(outcome.message) : terminal.warn(outcome.message);
       return { shouldContinue: true };
     }

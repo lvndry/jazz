@@ -122,7 +122,7 @@ export interface SchedulerService {
   readonly getSchedulerType: () => "launchd" | "cron" | "in-process" | "unsupported";
 }
 
-export const SchedulerServiceTag = Context.GenericTag<SchedulerService>("SchedulerService");
+export const SchedulerServiceTag = Context.Service<SchedulerService>("SchedulerService");
 
 /**
  * Get the directory for storing schedule metadata.
@@ -461,7 +461,7 @@ function readStoredSchedules(): Effect.Effect<readonly StoredSchedule[], Error> 
       const content = yield* Effect.tryPromise({
         try: () => fs.readFile(file, "utf-8"),
         catch: toError,
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      }).pipe(Effect.catch(() => Effect.succeed(null)));
       if (content === null) continue;
       const parsed = parseScheduledWorkflow(content);
       if (parsed) stored.push({ entry: parsed.entry, file, legacy: parsed.legacy });
@@ -554,7 +554,7 @@ abstract class MetadataScheduler implements SchedulerService {
           try: () =>
             fs.unlink(this.metadataPath({ workflowName, label: label ?? DEFAULT_SCHEDULE_LABEL })),
           catch: toError,
-        }).pipe(Effect.catchAll(() => Effect.void));
+        }).pipe(Effect.catch(() => Effect.void));
       }.bind(this),
     );
   }
@@ -568,7 +568,7 @@ abstract class MetadataScheduler implements SchedulerService {
           return stored.map((record) => record.entry);
         }
         for (const record of legacy) {
-          yield* this.migrateLegacy(record).pipe(Effect.catchAll(() => Effect.void));
+          yield* this.migrateLegacy(record).pipe(Effect.catch(() => Effect.void));
         }
         return (yield* readStoredSchedules())
           .filter((record) => !record.legacy)
@@ -601,7 +601,7 @@ abstract class MetadataScheduler implements SchedulerService {
         const { entry } = record;
         yield* this.removeLegacyArtifact(entry.workflowName);
         yield* Effect.tryPromise({ try: () => fs.unlink(record.file), catch: toError }).pipe(
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         );
         yield* this.schedule({
           workflowName: entry.workflowName,
@@ -631,11 +631,9 @@ class LaunchdScheduler extends MetadataScheduler {
 
   private unloadAndRemove(plistPath: string): Effect.Effect<void, Error> {
     return Effect.gen(function* () {
-      yield* execCommand("launchctl", ["unload", plistPath]).pipe(
-        Effect.catchAll(() => Effect.void),
-      );
+      yield* execCommand("launchctl", ["unload", plistPath]).pipe(Effect.catch(() => Effect.void));
       yield* Effect.tryPromise({ try: () => fs.unlink(plistPath), catch: toError }).pipe(
-        Effect.catchAll(() => Effect.void),
+        Effect.catch(() => Effect.void),
       );
     });
   }
@@ -653,7 +651,7 @@ class LaunchdScheduler extends MetadataScheduler {
         });
         // Unload existing job if present (ignore errors)
         yield* execCommand("launchctl", ["unload", plistPath]).pipe(
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         );
         yield* Effect.tryPromise({
           try: () => fs.writeFile(plistPath, plistContent, "utf-8"),
@@ -683,7 +681,7 @@ class CronScheduler extends MetadataScheduler {
 
   private getCurrentCrontab(): Effect.Effect<string, Error> {
     return execCommand("crontab", ["-l"]).pipe(
-      Effect.catchAll(() => Effect.succeed("")), // No crontab returns error
+      Effect.catch(() => Effect.succeed("")), // No crontab returns error
     );
   }
 

@@ -1,10 +1,9 @@
 import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type FileSystem } from "@effect/platform/FileSystem";
 import { type Agent } from "@jazz/core/types/index";
 import { describe, expect, it, mock } from "bun:test";
-import { Effect, Option } from "effect";
+import { Cause, Effect, type FileSystem, Option } from "effect";
 import { FileStorageService } from "./file";
 
 // Mock FileSystem
@@ -37,7 +36,7 @@ const mockFS = {
   truncate: mock(() => Effect.void),
   utimes: mock(() => Effect.void),
   writeFile: mock(() => Effect.void),
-} as unknown as FileSystem;
+} as unknown as FileSystem.FileSystem;
 
 const AGENT: Agent = {
   id: "a1",
@@ -152,8 +151,12 @@ describe("FileStorageService", () => {
 
     expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
-      // @ts-expect-error - accessing error
-      expect(result.cause.error._tag).toBe("StorageNotFoundError");
+      expect(
+        (
+          Option.getOrUndefined(Cause.findErrorOption(result.cause)) as
+            { _tag?: string } | undefined
+        )?._tag,
+      ).toBe("StorageNotFoundError");
     }
   });
 });

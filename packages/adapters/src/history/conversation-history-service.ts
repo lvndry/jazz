@@ -27,7 +27,6 @@
  */
 
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { assertConversationWritable } from "@jazz/core/agent/detach/ownership";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
@@ -37,7 +36,7 @@ import { toError } from "@jazz/core/utils/errors";
 import { getHistoryDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode } from "@jazz/core/utils/private-mode";
 import { withLock } from "@jazz/core/utils/storage";
-import { Effect, Option } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import {
   agentConversationLockPath,
   archiveConversationLog,
@@ -117,7 +116,7 @@ export const conversationsInUseByRecords: ConversationsInUse = (agentId) =>
       inUse.add(run.conversationId);
     }
     return inUse;
-  }).pipe(Effect.catchAllDefect((defect) => Effect.fail(toError(defect))));
+  }).pipe(Effect.catchDefect((defect) => Effect.fail(toError(defect))));
 
 export interface SaveConversationOptions {
   readonly fenceHeldBy?: string;
@@ -165,19 +164,19 @@ function archiveBeyondRetention(
       return [];
     }
 
-    const inUse = yield* conversationsInUse(agentId).pipe(Effect.either);
-    if (inUse._tag === "Left") {
+    const inUse = yield* conversationsInUse(agentId).pipe(Effect.result);
+    if (inUse._tag === "Failure") {
       yield* logHousekeeping(
         "warn",
         "Conversation retention skipped: goal, loop and run records could not be read",
-        { agentId, error: inUse.left.message },
+        { agentId, error: inUse.failure.message },
       );
       return [];
     }
 
     const archived: string[] = [];
     for (const stale of candidates) {
-      if (inUse.right.has(stale.conversationId)) {
+      if (inUse.success.has(stale.conversationId)) {
         continue;
       }
       const archivePath = yield* archiveConversationLog(stale.agentId, stale.conversationId, dir);
@@ -219,12 +218,12 @@ export function archiveLegacyHistory(
     const fs = yield* FileSystem.FileSystem;
     const names = yield* fs
       .readDirectory(historyDirectory)
-      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+      .pipe(Effect.catch(() => Effect.succeed<string[]>([])));
     const legacyNames: string[] = [];
     for (const name of names) {
       const info = yield* fs
         .stat(path.join(historyDirectory, name))
-        .pipe(Effect.catchAll(() => Effect.succeed(null)));
+        .pipe(Effect.catch(() => Effect.succeed(null)));
       const isLegacyIndex = info?.type === "File" && name.endsWith(LEGACY_INDEX_EXTENSION);
       const isLegacySessions =
         info?.type === "Directory" && name === LEGACY_SESSIONS_DIRECTORY_NAME;
@@ -258,7 +257,7 @@ export function archiveLegacyHistory(
     }
     return moved;
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       logHousekeeping("warn", "Legacy history cleanup failed", {
         error: toError(error).message,
       }).pipe(Effect.as([] as readonly string[])),
@@ -364,7 +363,7 @@ export function loadHistory(
     const conversations: ConversationSummary[] = [];
     for (const log of logs) {
       const conversation = yield* readConversationLog(log.agentId, log.conversationId, dir).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           logHousekeeping("warn", "Conversation left out of history: its log cannot be read", {
             conversationId: log.conversationId,
             error: error.message,
@@ -404,7 +403,7 @@ export function loadConversationOrNull(
   dir?: string,
 ): Effect.Effect<Conversation | null, never, FileSystem.FileSystem> {
   return loadConversation(agentId, conversationId, dir).pipe(
-    Effect.catchAll(() => Effect.succeed(null)),
+    Effect.catch(() => Effect.succeed(null)),
   );
 }
 

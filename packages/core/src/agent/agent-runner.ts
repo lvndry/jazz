@@ -5,8 +5,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { FileSystem } from "@effect/platform";
-import { Cause, Effect, Option, Scope } from "effect";
+import { Cause, Effect, FileSystem, Option, Scope } from "effect";
 import {
   DEFAULT_MAX_ITERATIONS,
   DEFAULT_MAX_LLM_RETRIES,
@@ -202,7 +201,7 @@ export function resolveInjectedPreferences(
         ),
       };
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         logger
           .warn("Failed to read memory; running without it", {
             errorCategory: telemetryErrorCategory(error),
@@ -220,7 +219,7 @@ function resolveCanGenerateMedia(
     const metadata = yield* Effect.tryPromise({
       try: () => getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
       catch: (error) => error,
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    }).pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (metadata === undefined) return false;
 
     return metadata.generatesImage || metadata.generatesAudio || metadata.generatesVideo;
@@ -235,7 +234,7 @@ function resolveSupportedAttachmentKinds(
     const metadata = yield* Effect.tryPromise({
       try: () => getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
       catch: (error) => error,
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 
     // Ollama reports the capabilities of the model file actually on this host, which the
     // catalog usually knows nothing about — most local tags are absent from models.dev
@@ -246,7 +245,7 @@ function resolveSupportedAttachmentKinds(
       const baseUrl = llmService.resolveLocalProviderBaseUrl("ollama", llmConfig);
       const extras = yield* llmService
         .fetchOllamaModelDetails(baseUrl, agent.config.llm.model)
-        .pipe(Effect.catchAll(() => Effect.succeed<OllamaShowExtras>({})));
+        .pipe(Effect.catch(() => Effect.succeed<OllamaShowExtras>({})));
 
       // Today this only ever yields "image" — the provider cannot transport anything else — but
       // the mapping stays exhaustive so widening it is a one-line change in one place.
@@ -286,7 +285,7 @@ export function resolveLlamaCppServerModel(
     const baseUrl = llmService.resolveLocalProviderBaseUrl("llamacpp", llmConfig);
     return yield* llmService
       .fetchLlamaCppServerModel(baseUrl, llmConfig?.llamacpp?.api_key)
-      .pipe(Effect.catchAll(() => Effect.succeed<LlamaCppServerModel>({})));
+      .pipe(Effect.catch(() => Effect.succeed<LlamaCppServerModel>({})));
   });
 }
 
@@ -306,7 +305,7 @@ export function resolveVllmServerModel(
     const baseUrl = llmService.resolveLocalProviderBaseUrl("vllm", llmConfig);
     return yield* llmService
       .fetchVllmServerModel(baseUrl, preferredModelId, llmConfig?.vllm?.api_key)
-      .pipe(Effect.catchAll(() => Effect.succeed<VllmServerModel>({})));
+      .pipe(Effect.catch(() => Effect.succeed<VllmServerModel>({})));
   });
 }
 
@@ -325,7 +324,7 @@ export function resolveOllamaRunningContextWindow(
     const baseUrl = llmService.resolveLocalProviderBaseUrl("ollama", llmConfig);
     const extras = yield* llmService
       .fetchOllamaModelDetails(baseUrl, model)
-      .pipe(Effect.catchAll(() => Effect.succeed<OllamaShowExtras>({})));
+      .pipe(Effect.catch(() => Effect.succeed<OllamaShowExtras>({})));
     return extras.runningContextWindow;
   });
 }
@@ -340,7 +339,7 @@ export function resolveSglangServerModel(
     const baseUrl = llmService.resolveLocalProviderBaseUrl("sglang", llmConfig);
     return yield* llmService
       .fetchSglangServerModel(baseUrl, preferredModelId, llmConfig?.sglang?.api_key)
-      .pipe(Effect.catchAll(() => Effect.succeed<SglangServerModel>({})));
+      .pipe(Effect.catch(() => Effect.succeed<SglangServerModel>({})));
   });
 }
 
@@ -530,7 +529,7 @@ function initializeAgentRun(
     const resolvedPersona = resolvedPersonaService
       ? yield* resolvedPersonaService
           .getPersonaByIdentifier(persona)
-          .pipe(Effect.catchAll(() => Effect.succeed(null)))
+          .pipe(Effect.catch(() => Effect.succeed(null)))
       : null;
     const toolProfile = resolvedPersona?.toolProfile;
     // Attended terminal runs are unlimited by default (a person can `continue`); unattended
@@ -594,7 +593,7 @@ function initializeAgentRun(
             (session) => session.close(),
           ).pipe(
             Effect.map(Option.some),
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               logger
                 .warn("Plugin session failed to open; using deterministic behavior", {
                   errorCategory: telemetryErrorCategory(error),
@@ -612,8 +611,8 @@ function initializeAgentRun(
               skills: relevantSkills.map(({ name, description }) => ({ name, description })),
             })
             .pipe(
-              Effect.catchAllCause((cause) =>
-                Cause.isInterruptedOnly(cause)
+              Effect.catchCause((cause) =>
+                Cause.hasInterruptsOnly(cause)
                   ? Effect.failCause(cause)
                   : logger
                       .warn("Plugin skill routing failed; using deterministic behavior", {
@@ -647,13 +646,13 @@ function initializeAgentRun(
 
     // Registered per run rather than globally, because whether it exists at all depends on
     // the config: an agent with no peers never sees the tool.
-    yield* registerPeerTools().pipe(Effect.catchAll(() => Effect.void));
-    yield* registerBrowserAdoptionTools().pipe(Effect.catchAll(() => Effect.void));
+    yield* registerPeerTools().pipe(Effect.catch(() => Effect.void));
+    yield* registerBrowserAdoptionTools().pipe(Effect.catch(() => Effect.void));
 
     // Register MCP tools for this agent if needed (only connects to relevant servers)
     // This happens before validation so MCP tools are available
     const connectedMCPServers = yield* registerMCPToolsForAgent(agentToolNames).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.gen(function* () {
           const logger = yield* LoggerServiceTag;
           yield* logger.warn("Failed to register MCP tools for agent", {
@@ -1321,7 +1320,7 @@ export class AgentRunner {
         const pricing = yield* Effect.tryPromise({
           try: () => getModelsDevMetadata(runContext.model, runContext.provider),
           catch: () => undefined,
-        }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 
         return yield* withRunRecording(
           {
@@ -1447,7 +1446,7 @@ export class AgentRunner {
             (openedSession) => openedSession.close(),
           ).pipe(
             Effect.map(Option.some),
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               logger
                 .warn("Plugin session failed to open for /compact; summarizing without pruning", {
                   errorCategory: telemetryErrorCategory(error),

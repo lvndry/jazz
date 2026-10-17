@@ -14,8 +14,7 @@
  */
 
 import { isAbsolute, resolve as resolvePath } from "node:path";
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import puppeteer from "puppeteer-core";
 import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
@@ -175,7 +174,7 @@ export function createPdfTool(
             ),
           catch: (error) => new Error(`Failed to render PDF: ${toError(error).message}`),
         });
-        yield* fs.remove(htmlPath).pipe(Effect.catchAll(() => Effect.void));
+        yield* fs.remove(htmlPath).pipe(Effect.catch(() => Effect.void));
 
         const artifact: GeneratedArtifact = {
           kind: "pdf",
@@ -192,7 +191,7 @@ export function createPdfTool(
           artifacts: [artifact],
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -221,7 +220,7 @@ function resolveWorkingDirectory(
     const shell = yield* FileSystemContextServiceTag;
     const cwd = yield* shell
       .getCwd(buildKeyFromContext(context))
-      .pipe(Effect.catchAll(() => Effect.succeed(process.cwd())));
+      .pipe(Effect.catch(() => Effect.succeed(process.cwd())));
     return typeof cwd === "string" && cwd.length > 0 ? cwd : process.cwd();
   });
 }

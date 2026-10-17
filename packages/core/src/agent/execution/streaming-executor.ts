@@ -1,4 +1,16 @@
-import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Queue, Ref, Stream } from "effect";
+import {
+  Cause,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Queue,
+  Ref,
+  Result,
+  Stream,
+} from "effect";
 import {
   isModelOutputEvent,
   makeUserVisibleLlmRetrySchedule,
@@ -173,7 +185,7 @@ export function executeWithStreaming(
               provider,
               llmOptions,
             );
-            const streamFiber = yield* Effect.fork(
+            const streamFiber = yield* Effect.forkChild(
               Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
                 Effect.gen(function* () {
                   if (isModelOutputEvent(event)) {
@@ -212,20 +224,20 @@ export function executeWithStreaming(
             const exit = yield* Fiber.await(streamFiber);
             if (Exit.isFailure(exit)) {
               yield* streamingResult.cancel;
-              const errorOption = Cause.failureOption(exit.cause);
+              const errorOption = Cause.findErrorOption(exit.cause);
               if (Option.isSome(errorOption)) {
                 return yield* Effect.fail(errorOption.value);
               }
-              const defectOption = Cause.dieOption(exit.cause);
-              if (Option.isSome(defectOption)) {
-                return yield* Effect.die(defectOption.value);
+              const defectResult = Cause.findDefect(exit.cause);
+              if (Result.isSuccess(defectResult)) {
+                return yield* Effect.die(defectResult.success);
               }
             }
 
             const fromRef = yield* Ref.get(completionRef);
             const completion = yield* streamingResult.response.pipe(
               Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
-              Effect.catchAll(() =>
+              Effect.catch(() =>
                 fromRef
                   ? Effect.succeed(fromRef)
                   : Effect.gen(function* () {
@@ -326,7 +338,7 @@ export function executeWithStreaming(
           ).pipe(
             Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
             Effect.tapError((error) =>
-              Cause.isTimeoutException(error)
+              Cause.isTimeoutError(error)
                 ? showAgentStatus(
                     `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
                     "warning",
@@ -345,7 +357,7 @@ export function executeWithStreaming(
             yield* renderer
               .flush()
               .pipe(
-                Effect.catchAll(() =>
+                Effect.catch(() =>
                   logger.debug("Renderer flush failed", { errorType: "renderer_flush_failed" }),
                 ),
               );
@@ -361,7 +373,7 @@ export function executeWithStreaming(
 
           return yield* Effect.raceFirst(
             completionWithRetries,
-            Deferred.await(interruptDeferred).pipe(Effect.zipRight(interruptedCompletion)),
+            Deferred.await(interruptDeferred).pipe(Effect.andThen(interruptedCompletion)),
           );
         });
       },
@@ -389,7 +401,7 @@ export function executeWithStreaming(
                 : { message: `${agentName} has completed the task.`, title: "Jazz Task Complete" };
             yield* notificationServiceOption.value
               .notify(notice.message, { title: notice.title, sound: true })
-              .pipe(Effect.catchAll(() => Effect.void));
+              .pipe(Effect.catch(() => Effect.void));
           }
         });
       },
@@ -407,7 +419,7 @@ export function executeWithStreaming(
           // Discard any press that arrived while nothing was racing this queue (between
           // batches, or held over from a batch that resolved on its own first) — only a
           // press that lands while this specific race is live should count.
-          yield* Queue.takeAll(backgroundQueue);
+          yield* Queue.clear(backgroundQueue);
           yield* Queue.take(backgroundQueue);
         });
       },

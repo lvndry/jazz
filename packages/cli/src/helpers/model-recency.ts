@@ -58,6 +58,6 @@ export function recordModelUsage(
         object[key] = at;
         return object;
       }, {});
-    yield* jazzState.set(MODEL_USAGE_KEY, pruned).pipe(Effect.catchAll(() => Effect.void));
+    yield* jazzState.set(MODEL_USAGE_KEY, pruned).pipe(Effect.catch(() => Effect.void));
   });
 }

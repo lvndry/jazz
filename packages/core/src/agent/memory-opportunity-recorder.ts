@@ -7,8 +7,7 @@
  * work proportional to everything ever remembered in front of each call. Writes
  * by other processes show up on the next run.
  */
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import type { MemoryEntrySnapshot, MemorySnapshot } from "@/core/interfaces/memory-service";
 import type { ChatMessage } from "@/core/types/message";
@@ -84,14 +83,14 @@ export function createMemoryOpportunityRecorder(options: {
           }),
         ),
         Effect.provideService(FileSystem.FileSystem, options.fileSystem),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           logFailure("begin")(error).pipe(Effect.as<readonly MemoryOpportunityTicket[]>([])),
         ),
       ),
     complete: (tickets, messages) =>
       completeMemoryOpportunities(tickets, messages).pipe(
         Effect.provideService(FileSystem.FileSystem, options.fileSystem),
-        Effect.catchAll(logFailure("complete")),
+        Effect.catch(logFailure("complete")),
       ),
     invalidateSnapshot: () => {
       snapshot = undefined;

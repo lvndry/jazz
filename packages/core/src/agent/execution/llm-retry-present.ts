@@ -50,7 +50,7 @@ export function withLongRunningLlmNotice<A, E, R>(
   slowHintAfterSeconds: number = LLM_SLOW_MODEL_HINT_SECONDS,
 ): Effect.Effect<A, E, R> {
   return Effect.gen(function* () {
-    const noticeFiber = yield* Effect.fork(
+    const noticeFiber = yield* Effect.forkChild(
       Effect.sleep(Duration.seconds(slowHintAfterSeconds)).pipe(
         Effect.flatMap(() => hasStartedResponding),
         Effect.flatMap((started) =>
@@ -82,7 +82,7 @@ export function makeUserVisibleLlmRetrySchedule(
   presentRetry?: (notice: LlmRetryNotice) => Effect.Effect<void, never>,
 ) {
   return llmRetryDelays().pipe(
-    Schedule.checkEffect(() =>
+    Schedule.while(() =>
       Effect.gen(function* () {
         const attemptsUsed = yield* Ref.get(attemptRef);
         if (attemptsUsed >= maxRetries) {
@@ -94,7 +94,7 @@ export function makeUserVisibleLlmRetrySchedule(
     ),
     // Announced here rather than in the check: only this stage sees the final delay, after
     // jitter and any Retry-After, so the wait it names is the wait that happens.
-    Schedule.modifyDelayEffect(([, error], delay) =>
+    Schedule.modifyDelay(({ input: error, duration: delay }) =>
       Effect.gen(function* () {
         const notice = retryNotice(agentName, error, yield* Ref.get(attemptRef), maxRetries, delay);
         if (presentRetry === undefined) {

@@ -33,4 +33,4 @@ export interface AgentConfigService {
   readonly reloadIfChanged: () => Effect.Effect<boolean, never>;
 }
 
-export const AgentConfigServiceTag = Context.GenericTag<AgentConfigService>("AgentConfigService");
+export const AgentConfigServiceTag = Context.Service<AgentConfigService>("AgentConfigService");

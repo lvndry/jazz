@@ -9,8 +9,7 @@
  * Legacy aliases: `view_workspace` / `manage_workspace`.
  */
 
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { WorkspaceService, WorkspaceViewOutcome } from "@/core/interfaces/workspace-service";
@@ -103,7 +102,7 @@ export function createViewWorkspaceTool(): Tool<WorkspaceToolDeps> {
           result: { formatted, outcome },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -204,7 +203,7 @@ export function createManageWorkspaceTool(): Tool<WorkspaceToolDeps> {
           ...(outcome.success ? {} : { error: outcome.message }),
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,

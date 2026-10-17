@@ -4,8 +4,7 @@
  * woken when the condition holds or the time runs out, so a wait never holds a turn open.
  * Bounded by `SHELL_COMMAND_MAX_TIMEOUT_MS`; longer waits compose with `register_trigger`.
  */
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import {
   SHELL_COMMAND_MAX_TIMEOUT_MS,
@@ -69,7 +68,7 @@ function runFirstCheck(
         exitCode: attempt.exitCode,
         output: tailForModel(attempt.stdout.trim() || attempt.stderr.trim()),
       })),
-      Effect.catchAll((error) => Effect.succeed({ exitCode: -1, output: toError(error).message })),
+      Effect.catch((error) => Effect.succeed({ exitCode: -1, output: toError(error).message })),
     );
   });
 }
@@ -169,7 +168,7 @@ function createCancelWaitForTool(): Tool<WaitToolDeps> {
           ...(outcome.success ? {} : { error: outcome.message }),
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,
@@ -311,7 +310,7 @@ The command runs repeatedly and unattended, in the background, until it succeeds
           },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,

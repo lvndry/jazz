@@ -18,8 +18,7 @@
   ],
   "dependencies": {
     "@ai-sdk/provider": "^4.0.29",
-    "@effect/platform": "^0.97.2",
-    "@effect/platform-node": "^0.108.3",
+    "@effect/platform-node": "^4.0.5",
     "@modelcontextprotocol/client": "^2.3.1",
     "@noble/hashes": "^2.4.0",
     "@perplexity-ai/perplexity_ai": "^0.39.0",
@@ -30,7 +29,7 @@
     "cronstrue": "^3.32.0",
     "defuddle": "^0.19.5",
     "diff": "^9.0.0",
-    "effect": "^3.22.3",
+    "effect": "^4.0.5",
     "exa-js": "^2.25.0",
     "fast-glob": "^3.3.3",
     "gpt-tokenizer": "^4.0.3",

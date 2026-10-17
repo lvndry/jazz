@@ -31,7 +31,7 @@ describe("withConversationTurn", () => {
       Effect.gen(function* () {
         const firstStarted = yield* Deferred.make<void>();
         const finishFirst = yield* Deferred.make<void>();
-        const first = yield* Effect.fork(
+        const first = yield* Effect.forkChild(
           turn(
             Effect.gen(function* () {
               order.push("first starts");
@@ -42,7 +42,7 @@ describe("withConversationTurn", () => {
           ),
         );
         yield* Deferred.await(firstStarted);
-        const second = yield* Effect.fork(
+        const second = yield* Effect.forkChild(
           turn(
             Effect.sync(() => {
               order.push("second runs");
@@ -68,8 +68,8 @@ describe("withConversationTurn", () => {
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const started = yield* Deferred.make<void>();
-        const holder = yield* Effect.fork(
-          turn(Effect.zipRight(Deferred.succeed(started, undefined), Effect.never)),
+        const holder = yield* Effect.forkChild(
+          turn(Effect.andThen(Deferred.succeed(started, undefined), Effect.never)),
         );
         yield* Deferred.await(started);
         const result = yield* turn(Effect.void, { maxWaitMs: 100 }).pipe(Effect.exit);
@@ -87,11 +87,11 @@ describe("withConversationTurn", () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const started = yield* Deferred.make<void>();
-        const holder = yield* Effect.fork(
-          turn(Effect.zipRight(Deferred.succeed(started, undefined), Effect.never)),
+        const holder = yield* Effect.forkChild(
+          turn(Effect.andThen(Deferred.succeed(started, undefined), Effect.never)),
         );
         yield* Deferred.await(started);
-        const waiter = yield* Effect.fork(turn(Effect.void));
+        const waiter = yield* Effect.forkChild(turn(Effect.void));
         yield* Effect.sleep("100 millis");
         yield* Fiber.interrupt(waiter);
         yield* Fiber.interrupt(holder);
@@ -121,8 +121,8 @@ describe("withConversationTurn", () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const started = yield* Deferred.make<void>();
-        const holder = yield* Effect.fork(
-          turn(Effect.zipRight(Deferred.succeed(started, undefined), Effect.never)),
+        const holder = yield* Effect.forkChild(
+          turn(Effect.andThen(Deferred.succeed(started, undefined), Effect.never)),
         );
         yield* Deferred.await(started);
         yield* withConversationTurn("agent-1", "conv-2", Effect.void, {

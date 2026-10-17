@@ -130,7 +130,7 @@ export function createProposeGoalTool(): Tool<GoalStoreTag> {
           },
         } satisfies ToolExecutionResult;
       }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.succeed({
             success: false,
             result: null,

@@ -1,6 +1,5 @@
-import { FileSystem } from "@effect/platform";
 import { afterEach, describe, expect, it } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import { OneShotPresentationService } from "@/core/presentation/oneshot-presentation-service";
 import { SkillServiceTag } from "@/core/skills/skill-service";
 import { executeWithoutStreaming } from "./batch-executor";

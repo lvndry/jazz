@@ -14,7 +14,6 @@
  */
 
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { MCPServerConfig, MCPServerDefinitionSource } from "@jazz/core/interfaces/mcp-server";
 import { collectKnownSecrets, type KnownSecret } from "@jazz/core/secrets/redaction";
@@ -65,7 +64,7 @@ import {
   migrateKeyringProviderName,
 } from "@jazz/core/utils/provider-migration";
 import { resolveStorageDirectory, withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
-import { Effect, Layer, Option } from "effect";
+import { Effect, FileSystem, Layer, Option } from "effect";
 import {
   describeKeyringBackend,
   detectKeyringBackend,
@@ -211,7 +210,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           const dir = path.substring(0, path.lastIndexOf("/"));
           yield* this.fs
             .makeDirectory(dir, { recursive: true, mode: CONFIG_DIR_MODE })
-            .pipe(Effect.catchAll(() => Effect.void));
+            .pipe(Effect.catch(() => Effect.void));
         }
 
         yield* withLock(`${path}.lock`, this.writeValueLocked(path, key, value, secret)).pipe(
@@ -219,7 +218,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           Effect.orDie,
         );
       }.bind(this),
-    ).pipe(Effect.catchAll(() => Effect.void));
+    ).pipe(Effect.catch(() => Effect.void));
   }
 
   /** Re-read, patch, validate, atomically persist, then commit the new in-memory view. */
@@ -385,9 +384,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         const path = this.configPath;
         if (path === undefined) return false;
 
-        const stat = yield* this.fs
-          .stat(path)
-          .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        const stat = yield* this.fs.stat(path).pipe(Effect.catch(() => Effect.succeed(undefined)));
         const modified = stat?.mtime;
         const at = Option.isOption(modified)
           ? Option.getOrUndefined(modified)?.getTime()
@@ -397,7 +394,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
 
         const content = yield* this.fs
           .readFileString(path)
-          .pipe(Effect.catchAll(() => Effect.succeed("")));
+          .pipe(Effect.catch(() => Effect.succeed("")));
         const document = parseConfigDocument(content);
         if (document === undefined) {
           process.stderr.write(
@@ -441,7 +438,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         this.currentRevision += 1;
         return true;
       }.bind(this),
-    ).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    ).pipe(Effect.catch(() => Effect.succeed(false)));
   }
 }
 
@@ -869,8 +866,8 @@ function chmodQuietly(
   mode: number,
 ): Effect.Effect<void, never> {
   return Effect.suspend(() => fs.chmod(filePath, mode)).pipe(
-    Effect.catchAll(() => Effect.void),
-    Effect.catchAllDefect(() => Effect.void),
+    Effect.catch(() => Effect.void),
+    Effect.catchDefect(() => Effect.void),
   );
 }
 
@@ -1081,11 +1078,11 @@ function readOptionalConfigFile(
   filePath: string,
 ): Effect.Effect<GlobalConfigFileOnDisk | undefined, ConfigurationError> {
   return Effect.gen(function* () {
-    const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    const exists = yield* fs.exists(filePath).pipe(Effect.catch(() => Effect.succeed(false)));
     if (!exists) return undefined;
 
     const content = yield* fs.readFileString(filePath).pipe(
-      Effect.catchAll((cause) =>
+      Effect.catch((cause) =>
         Effect.fail(
           new ConfigurationError({
             field: "file",
@@ -1152,9 +1149,7 @@ function loadConfigFiles(
     // If custom config path is provided, validate and use it exclusively
     if (customConfigPath) {
       const expandedPath = expandHome(customConfigPath);
-      const exists = yield* fs
-        .exists(expandedPath)
-        .pipe(Effect.catchAll(() => Effect.succeed(false)));
+      const exists = yield* fs.exists(expandedPath).pipe(Effect.catch(() => Effect.succeed(false)));
 
       if (!exists) {
         return yield* Effect.fail(
@@ -1210,13 +1205,11 @@ function readMcpDefinitions(
   filePath: string,
 ): Effect.Effect<McpDefinitions, never> {
   return Effect.gen(function* () {
-    const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    const exists = yield* fs.exists(filePath).pipe(Effect.catch(() => Effect.succeed(false)));
     if (!exists) {
       return {};
     }
-    const content = yield* fs
-      .readFileString(filePath)
-      .pipe(Effect.catchAll(() => Effect.succeed("")));
+    const content = yield* fs.readFileString(filePath).pipe(Effect.catch(() => Effect.succeed("")));
     if (!content.trim()) {
       return {};
     }
@@ -1416,7 +1409,7 @@ function writeUserMcpDefinitions(
     const filePath = userAgentsMcpPath();
     yield* fs
       .makeDirectory(path.dirname(filePath), { recursive: true, mode: stateDirectoryMode() })
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(Effect.catch(() => Effect.void));
     yield* writeFileStringAtomic(
       filePath,
       `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`,
@@ -1504,7 +1497,7 @@ export function writeAgentsMcpServer(
       yield* writeUserMcpDefinitions(fs, { ...existing, [name]: definition });
     });
     yield* commit.pipe(
-      Effect.catchAllCause((cause) =>
+      Effect.catchCause((cause) =>
         Effect.gen(function* () {
           const unrestored: string[] = [];
           for (const [account, previous] of previousValues) {

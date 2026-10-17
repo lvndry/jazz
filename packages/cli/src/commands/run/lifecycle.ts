@@ -188,7 +188,7 @@ function resumeWithAnswer(runId: string, outcome: ResumeRunOptions["outcome"], j
       settled.response.content,
     );
   }).pipe(
-    Effect.catchAll((error) => fail(getErrorMessage(error))),
+    Effect.catch((error) => fail(getErrorMessage(error))),
     Effect.provide(makeFileRunStoreLayer()),
     Effect.provide(makeFileGoalStoreLayer()),
     Effect.provide(makeFileLoopStoreLayer()),
@@ -237,9 +237,7 @@ export function answerRunSecretCommand(options: {
     };
     return yield* resumeWithAnswer(options.runId, outcome, options.json);
   }).pipe(
-    Effect.catchAll((error) =>
-      Effect.sync(() => failEnvelope(options.json, getErrorMessage(error))),
-    ),
+    Effect.catch((error) => Effect.sync(() => failEnvelope(options.json, getErrorMessage(error)))),
     Effect.provide(makeFileRunStoreLayer()),
   );
 }
@@ -271,9 +269,7 @@ export function cancelRunCommand(options: { readonly runId: string; readonly jso
       `Cancelled run ${options.runId}.`,
     );
   }).pipe(
-    Effect.catchAll((error) =>
-      Effect.sync(() => failEnvelope(options.json, getErrorMessage(error))),
-    ),
+    Effect.catch((error) => Effect.sync(() => failEnvelope(options.json, getErrorMessage(error)))),
     Effect.provide(makeFileRunStoreLayer()),
   );
 }

@@ -1,12 +1,11 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { AgentConfigServiceImpl } from "@jazz/adapters/config";
 import type { AppConfig } from "@jazz/core/types/config";
 import { afterEach, describe, expect, it } from "bun:test";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { applySpendLimit, parseSpendLimitInput, SPEND_LIMIT_SETTINGS } from "./spend-limits";
 
 const directories: string[] = [];

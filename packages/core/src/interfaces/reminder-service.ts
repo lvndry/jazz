@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Context, Effect } from "effect";
+import { Context, Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type DeliveryState, DeliveryStateSchema } from "@/core/utils/delivery";
 
@@ -61,4 +60,4 @@ export interface ReminderService {
   ) => Effect.Effect<CancelReminderOutcome, Error, FileSystem.FileSystem>;
 }
 
-export const ReminderServiceTag = Context.GenericTag<ReminderService>("ReminderService");
+export const ReminderServiceTag = Context.Service<ReminderService>("ReminderService");

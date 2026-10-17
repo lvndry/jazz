@@ -132,7 +132,7 @@ interface Entry {
   readonly mailbox: string[];
   pauseRequested: boolean;
   resumeGate: Deferred.Deferred<void> | undefined;
-  fiber: Fiber.RuntimeFiber<void> | undefined;
+  fiber: Fiber.Fiber<void> | undefined;
   result: ToolExecutionResult | undefined;
   retrieveId: string | undefined;
   finishedAt: number | undefined;

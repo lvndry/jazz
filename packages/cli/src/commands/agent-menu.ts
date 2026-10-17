@@ -47,7 +47,7 @@ export function showAgentList(
   lastUsedAgentId: string | null | undefined,
   previouslyOpenedId?: string,
 ): Effect.Effect<Agent | null, never, never> {
-  return Effect.async<Agent | null>((resume) => {
+  return Effect.callback<Agent | null>((resume) => {
     const sorted = sortAgents(agents, lastUsedAgentId);
     store.setActiveMenu(
       {
@@ -83,7 +83,7 @@ export function showAgentDetails(
   metadata: Awaited<ReturnType<typeof getModelsDevMetadata>>,
   hostUrl: string | undefined,
 ): Effect.Effect<void, never, never> {
-  return Effect.async<void>((resume) => {
+  return Effect.callback<void>((resume) => {
     store.setActiveMenu(
       {
         kind: "agent-details",
@@ -102,7 +102,7 @@ export function showAgentActions(
   options: { withStart?: boolean | undefined } = {},
 ): Effect.Effect<AgentAction, never, never> {
   const withStart = options.withStart ?? true;
-  return Effect.async<AgentAction>((resume) => {
+  return Effect.callback<AgentAction>((resume) => {
     store.setActiveMenu(
       {
         kind: "menu",
@@ -137,7 +137,7 @@ export function confirmAndDeleteAgent(agent: Agent) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const history = yield* loadHistory(agent.id).pipe(
-      Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+      Effect.catch(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
     );
     const saved = history.conversations.length;
     const keeps =
@@ -163,10 +163,10 @@ export function confirmAndDeleteAgent(agent: Agent) {
       return false;
     }
     const outcome = yield* deleteAgentCommand(agent.id, { skipConfirmation: true }).pipe(
-      Effect.either,
+      Effect.result,
     );
-    if (outcome._tag === "Left") {
-      yield* terminal.error(`${agent.name} was not deleted: ${String(outcome.left)}`);
+    if (outcome._tag === "Failure") {
+      yield* terminal.error(`${agent.name} was not deleted: ${String(outcome.failure)}`);
       return false;
     }
     return true;
@@ -180,7 +180,7 @@ export function modelMetadataFor(agent: Agent) {
     : Effect.tryPromise({
         try: () => getModelsDevMetadata(agent.config.llm.model, agent.config.llm.provider),
         catch: (error) => error,
-      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 }
 
 /** The server a local-model agent talks to, for the details screen. */

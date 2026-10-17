@@ -29,13 +29,13 @@ export function promptFailedRunsWarning() {
     const scheduler = yield* SchedulerServiceTag;
     const scheduled = yield* scheduler
       .listScheduled()
-      .pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+      .pipe(Effect.catch(() => Effect.succeed([] as const)));
 
     if (scheduled.length === 0) return;
 
-    yield* markInterruptedRuns().pipe(Effect.catchAll(() => Effect.succeed(0)));
+    yield* markInterruptedRuns().pipe(Effect.catch(() => Effect.succeed(0)));
     const history = yield* loadRunHistory().pipe(
-      Effect.catchAll(() => Effect.succeed([] as WorkflowRunRecord[])),
+      Effect.catch(() => Effect.succeed([] as WorkflowRunRecord[])),
     );
 
     if (history.length === 0) return;
@@ -90,5 +90,5 @@ export function promptFailedRunsWarning() {
       `   Triage:      jazz workflow history <workflow>  →  inspect, then re-schedule if needed`,
     );
     yield* terminal.log("");
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.catch(() => Effect.void));
 }

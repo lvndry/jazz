@@ -35,7 +35,7 @@ export function fireWakeTriggerCommand(options: { agent: string; id: string }) {
 
     yield* osScheduler
       .cancelFire(options.agent, options.id, trigger?.osSchedulerJobId)
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(Effect.catch(() => Effect.void));
   }).pipe(
     Effect.ensuring(drainNotifyOutbox().pipe(Effect.ignore)),
     Effect.provide(makeFileRunStoreLayer()),

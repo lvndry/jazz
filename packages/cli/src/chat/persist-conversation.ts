@@ -7,7 +7,6 @@
  * title from the first user message. Naming an empty conversation makes it worth saving too.
  */
 
-import { FileSystem } from "@effect/platform";
 import {
   saveConversation,
   type ConversationRevision,
@@ -16,7 +15,7 @@ import {
   type ConversationUiEntry,
 } from "@jazz/adapters/history/conversation-history-service";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 
 export interface PersistConversationInput {
   readonly ephemeral: boolean;

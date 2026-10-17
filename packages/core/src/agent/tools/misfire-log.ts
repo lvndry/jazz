@@ -82,7 +82,7 @@ export function recordMisfire(
       });
     },
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.void));
+  }).pipe(Effect.catch(() => Effect.void));
 }
 
 function parseLine(line: string): MisfireEntry | undefined {
@@ -118,5 +118,5 @@ export function readMisfires(filter?: {
         maxBytes: 2 * MISFIRE_LOG_MAX_BYTES,
       }),
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.succeed([] as readonly MisfireEntry[])));
+  }).pipe(Effect.catch(() => Effect.succeed([] as readonly MisfireEntry[])));
 }

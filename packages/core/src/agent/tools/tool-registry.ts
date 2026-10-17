@@ -1,4 +1,4 @@
-import { Cause, Chunk, Effect, Layer, Option } from "effect";
+import { Cause, Effect, Layer, Option } from "effect";
 import { recordMisfire } from "@/core/agent/tools/misfire-log";
 import {
   logToolExecutionApproval,
@@ -428,24 +428,22 @@ class DefaultToolRegistry implements ToolRegistry {
           : tool.execute(secretGate.args, context);
       // Execute tool and catch all errors (both Effect typed failures and defects/throws)
       // Use sandbox to promote defects into the error channel, then either to convert to values
-      const eitherResult = yield* execution.pipe(Effect.sandbox, Effect.either);
+      const eitherResult = yield* execution.pipe(Effect.sandbox, Effect.result);
 
       let unredacted: ToolExecutionResult;
-      if (eitherResult._tag === "Left") {
-        const cause = eitherResult.left;
+      if (eitherResult._tag === "Failure") {
+        const cause = eitherResult.failure;
 
         // Extract error message from the Cause: check typed failure first, then defects
-        const failureOpt = Cause.failureOption(cause);
+        const failureOpt = Cause.findErrorOption(cause);
         let errorMessage: string;
         if (Option.isSome(failureOpt)) {
           const failure = failureOpt.value;
           errorMessage = toError(failure).message;
         } else {
-          const defects = Cause.defects(cause);
-          const firstDefect = Chunk.get(defects, 0);
-          errorMessage = Option.isSome(firstDefect)
-            ? toError(firstDefect.value).message
-            : "Unknown error";
+          const firstDefect = cause.reasons.find(Cause.isDieReason);
+          errorMessage =
+            firstDefect !== undefined ? toError(firstDefect.defect).message : "Unknown error";
         }
 
         unredacted = {
@@ -454,7 +452,7 @@ class DefaultToolRegistry implements ToolRegistry {
           error: errorMessage,
         };
       } else {
-        unredacted = eitherResult.right;
+        unredacted = eitherResult.success;
       }
       const knownSecrets = yield* toolKnownSecrets();
       const result = redactToolResult(unredacted, knownSecrets);
@@ -484,7 +482,7 @@ class DefaultToolRegistry implements ToolRegistry {
 
       return result;
     }).pipe(
-      Effect.catchAll((error: ToolNotFoundError | Error) => {
+      Effect.catch((error: ToolNotFoundError | Error) => {
         return Effect.gen(function* () {
           const errorMessage = toError(error).message;
           yield* logToolExecutionError(name, 0, errorMessage);

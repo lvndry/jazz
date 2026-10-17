@@ -183,7 +183,7 @@ export function addSkillCommand(
     const existing = yield* Effect.tryPromise({
       try: () => lstat(target.directory),
       catch: toError,
-    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    }).pipe(Effect.catch(() => Effect.succeed(null)));
     if (existing !== null) {
       return yield* Effect.fail(
         new FileSystemError({

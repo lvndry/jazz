@@ -107,14 +107,15 @@ export function retryWithBackoff<E, A, R>(
 
   // Create a schedule with exponential backoff
   // Schedule.exponential creates delays that grow exponentially: base * 2^attempt
-  // We intersect with Schedule.recurs to limit the number of retries
-  // and use Schedule.whileInput to conditionally retry based on error type
+  // We cap it with Schedule.upTo to limit the number of retries
+  // and use Schedule.while to conditionally retry based on error type
   const schedule = Schedule.exponential(`${initialDelayMs} millis`).pipe(
-    Schedule.modifyDelay((_, delay) =>
-      Duration.min(delay, Duration.millis(Math.max(0, maxDelayMs))),
+    Schedule.modifyDelay(({ duration }) =>
+      Effect.succeed(Duration.min(duration, Duration.millis(Math.max(0, maxDelayMs)))),
     ),
-    Schedule.intersect(Schedule.recurs(maxRetries)),
-    Schedule.whileInput((error: E) => shouldRetry(error)),
+    Schedule.upTo({ times: maxRetries }),
+    Schedule.setInputType<E>(),
+    Schedule.while(({ input }) => shouldRetry(input)),
   );
 
   return effect.pipe(Effect.retry(schedule));

@@ -9,10 +9,9 @@
  */
 
 import os from "node:os";
-import { FileSystem } from "@effect/platform";
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
 import { describe, expect, it, mock, spyOn } from "bun:test";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, FileSystem, Layer, Stream } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";

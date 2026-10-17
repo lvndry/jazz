@@ -21,7 +21,7 @@ export function emitTelemetry(
     // defect raised while running.
     return Effect.suspend(() => emit(maybeTelemetry.value));
   }).pipe(
-    Effect.catchAll(() => Effect.void),
-    Effect.catchAllDefect(() => Effect.void),
+    Effect.catch(() => Effect.void),
+    Effect.catchDefect(() => Effect.void),
   );
 }

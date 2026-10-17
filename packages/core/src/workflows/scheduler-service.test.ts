@@ -335,9 +335,9 @@ describe("SchedulerService", () => {
     it("rejects an invalid cron expression without touching disk", async () => {
       const scheduler = new InProcessScheduler();
       const result = await Effect.runPromise(
-        scheduler.schedule({ ...request, schedule: "not a cron" }).pipe(Effect.either),
+        scheduler.schedule({ ...request, schedule: "not a cron" }).pipe(Effect.result),
       );
-      expect(result._tag).toBe("Left");
+      expect(result._tag).toBe("Failure");
 
       const isScheduled = await Effect.runPromise(
         scheduler.isScheduled(`${testWorkflowName}/default`),
@@ -347,9 +347,9 @@ describe("SchedulerService", () => {
 
     it("rejects a label that is not a slug", async () => {
       const result = await Effect.runPromise(
-        new InProcessScheduler().schedule({ ...request, label: "Not A Slug" }).pipe(Effect.either),
+        new InProcessScheduler().schedule({ ...request, label: "Not A Slug" }).pipe(Effect.result),
       );
-      expect(result._tag).toBe("Left");
+      expect(result._tag).toBe("Failure");
     });
 
     it("unschedule removes the metadata file", async () => {
@@ -385,7 +385,7 @@ describe("SchedulerService", () => {
       const result = await Effect.runPromise(
         program.pipe(
           Effect.provide(SchedulerServiceLayer),
-          Effect.catchAll((e) => Effect.fail(e)),
+          Effect.catch((e) => Effect.fail(e)),
         ),
       );
 
@@ -417,7 +417,7 @@ describe("SchedulerService", () => {
       const result = await Effect.runPromise(
         program.pipe(
           Effect.provide(SchedulerServiceLayer),
-          Effect.catchAll((e) => Effect.fail(e)),
+          Effect.catch((e) => Effect.fail(e)),
         ),
       );
 
@@ -481,7 +481,7 @@ describe("SchedulerService", () => {
       const result = await Effect.runPromise(
         program.pipe(
           Effect.provide(SchedulerServiceLayer),
-          Effect.catchAll((e) => Effect.fail(e)),
+          Effect.catch((e) => Effect.fail(e)),
         ),
       );
 

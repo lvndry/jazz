@@ -8,7 +8,6 @@
  * result fields so the chat loop owns transcript repainting, saving the original conversation,
  * and session lifecycle. Formatting and storage use the existing shared services directly.
  */
-import { FileSystem } from "@effect/platform";
 import {
   ConversationChangedError,
   conversationRevision,
@@ -26,7 +25,7 @@ import { report, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { typedText } from "@jazz/core/memory/source-trust";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import * as fmt from "@/cli/utils/list-format";
 import type { CommandContext, CommandResult } from "./types";
 
@@ -41,12 +40,12 @@ export function handleRenameCommand(
       context.ephemeral === true
         ? Effect.succeed(null)
         : loadConversation(context.agent.id, context.conversationId);
-    const loaded = yield* Effect.either(prior);
-    if (loaded._tag === "Left") {
-      yield* terminal.error(`Could not rename conversation: ${loaded.left.message}`);
+    const loaded = yield* Effect.result(prior);
+    if (loaded._tag === "Failure") {
+      yield* terminal.error(`Could not rename conversation: ${loaded.failure.message}`);
       return { shouldContinue: true, skipTranscriptRepaint: true };
     }
-    const current = loaded.right?.title ?? context.conversationTitle ?? "";
+    const current = loaded.success?.title ?? context.conversationTitle ?? "";
     const entered =
       args.length > 0
         ? args[0]
@@ -63,29 +62,29 @@ export function handleRenameCommand(
       return { shouldContinue: true, skipTranscriptRepaint: true };
     }
     if (context.ephemeral !== true) {
-      const saved = yield* Effect.either(
+      const saved = yield* Effect.result(
         saveConversation({
           agentId: context.agent.id,
           conversationId: context.conversationId,
           title,
           titleSource: "user",
-          startedAt: loaded.right?.startedAt ?? context.sessionStartedAt.toISOString(),
+          startedAt: loaded.success?.startedAt ?? context.sessionStartedAt.toISOString(),
           messages: [...context.conversationHistory],
-          ...(loaded.right?.uiTranscript !== undefined
-            ? { uiTranscript: loaded.right.uiTranscript }
+          ...(loaded.success?.uiTranscript !== undefined
+            ? { uiTranscript: loaded.success.uiTranscript }
             : {}),
           basedOn: context.conversationRevision,
         }),
       );
-      if (saved._tag === "Left") {
-        yield* terminal.error(`Could not rename conversation: ${saved.left.message}`);
+      if (saved._tag === "Failure") {
+        yield* terminal.error(`Could not rename conversation: ${saved.failure.message}`);
         return { shouldContinue: true, skipTranscriptRepaint: true };
       }
       yield* terminal.success(`Renamed conversation: ${title}`);
       return {
         shouldContinue: true,
         newConversationTitle: title,
-        conversationRevision: saved.right,
+        conversationRevision: saved.success,
         skipTranscriptRepaint: true,
       };
     }
@@ -194,10 +193,10 @@ export function handleTreeCommand(terminal: TerminalService, context: CommandCon
     }
     const agentId = context.agent.id;
     const branches = yield* readConversationBranches(agentId, context.conversationId).pipe(
-      Effect.either,
+      Effect.result,
     );
-    if (branches._tag === "Left") {
-      yield* terminal.error(`Could not read this conversation: ${branches.left.message}`);
+    if (branches._tag === "Failure") {
+      yield* terminal.error(`Could not read this conversation: ${branches.failure.message}`);
       return { shouldContinue: true, skipTranscriptRepaint: true };
     }
     const nowMs = Date.now();
@@ -205,7 +204,7 @@ export function handleTreeCommand(terminal: TerminalService, context: CommandCon
       message.role === "user" && message.entryId !== undefined ? [{ message, index }] : [],
     );
     const choices = [
-      ...branches.right.map((branch) => ({
+      ...branches.success.map((branch) => ({
         name: `${branch.current ? "current · " : ""}${branch.label || "(empty)"}`,
         description: `${String(branch.messageCount)} messages${branch.lastAt === null ? "" : ` · ${formatRelativeWhen(Date.parse(branch.lastAt), nowMs)}`}`,
         value: `branch:${branch.tipId}`,
@@ -216,7 +215,7 @@ export function handleTreeCommand(terminal: TerminalService, context: CommandCon
         value: `edit:${String(index)}`,
       })),
     ];
-    if (branches.right.length <= 1 && editable.length === 0) {
+    if (branches.success.length <= 1 && editable.length === 0) {
       yield* terminal.info("This conversation has no other branches yet.");
       return { shouldContinue: true, skipTranscriptRepaint: true };
     }
@@ -247,7 +246,7 @@ export function handleTreeCommand(terminal: TerminalService, context: CommandCon
       };
     }
 
-    const branch = branches.right.find((candidate) => candidate.tipId === target);
+    const branch = branches.success.find((candidate) => candidate.tipId === target);
     if (branch === undefined || branch.current) {
       return { shouldContinue: true, skipTranscriptRepaint: true };
     }
@@ -256,12 +255,12 @@ export function handleTreeCommand(terminal: TerminalService, context: CommandCon
       conversationId: context.conversationId,
       to: branch.tipId,
       basedOn: context.conversationRevision,
-    }).pipe(Effect.either);
-    if (moved._tag === "Left") {
+    }).pipe(Effect.result);
+    if (moved._tag === "Failure") {
       yield* terminal.error(
-        moved.left instanceof ConversationChangedError
+        moved.failure instanceof ConversationChangedError
           ? "This conversation was saved from somewhere else meanwhile; run /tree again."
-          : `Could not switch branches: ${moved.left.message}`,
+          : `Could not switch branches: ${moved.failure.message}`,
       );
       return { shouldContinue: true, skipTranscriptRepaint: true };
     }
@@ -270,9 +269,9 @@ export function handleTreeCommand(terminal: TerminalService, context: CommandCon
       shouldContinue: true,
       newHistory: [
         ...context.conversationHistory.filter((message) => message.role === "system"),
-        ...moved.right.messages,
+        ...moved.success.messages,
       ],
-      conversationRevision: conversationRevision(moved.right.messages),
+      conversationRevision: conversationRevision(moved.success.messages),
     };
   });
 }
@@ -291,7 +290,7 @@ export function handleResumeCommand(
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const history = yield* loadHistory(agent.id).pipe(
-      Effect.catchAll(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
+      Effect.catch(() => Effect.succeed({ agentId: agent.id, conversations: [] })),
     );
 
     if (history.conversations.length === 0) {

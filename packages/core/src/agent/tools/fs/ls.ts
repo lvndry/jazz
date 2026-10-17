@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import glob from "fast-glob";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -54,7 +53,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
 
         if (args.path) {
           const pathResult = yield* shell.resolvePath(buildKeyFromContext(context), args.path).pipe(
-            Effect.catchAll((error: unknown) => {
+            Effect.catch((error: unknown) => {
               pathError = toError(error).message;
               return Effect.succeed(null);
             }),
@@ -70,7 +69,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
 
         // Validate path exists and is a directory
         const statResult = yield* fs.stat(resolvedPath).pipe(
-          Effect.catchAll((error: unknown) =>
+          Effect.catch((error: unknown) =>
             Effect.succeed({
               _error: `Path not found: ${resolvedPath}. ${toError(error).message}`,
             }),
@@ -117,7 +116,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
         const entries = yield* Effect.tryPromise({
           try: () => glob("**", globOptions),
           catch: toError,
-        }).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+        }).pipe(Effect.catch(() => Effect.succeed([] as string[])));
 
         const results: { path: string; name: string; type: "file" | "dir" }[] = [];
 
@@ -144,7 +143,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
 
         return { success: true, result: results };
       }).pipe(
-        Effect.catchAll((error: unknown) =>
+        Effect.catch((error: unknown) =>
           Effect.succeed({
             success: false,
             result: null,

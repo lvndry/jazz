@@ -5,14 +5,13 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { MemoryServiceImpl } from "@jazz/adapters/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { AGENT_PROCESS_ENV } from "@jazz/core/utils/env";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, type FileSystem, Layer } from "effect";
 import { acceptSuggestionCommand } from "./memory";
 
 let directory: string;
@@ -76,20 +75,20 @@ describe("jazz memory accept", () => {
               }),
           }),
         ),
-        Effect.either,
+        Effect.result,
       ),
     );
     const entry = await run(service.view("personal/always/check-prior-art.md"));
     if (agentStarted) {
-      expect(result._tag).toBe("Left");
-      if (result._tag === "Left") {
-        expect(result.left.message).toContain("started by a Jazz agent");
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure.message).toContain("started by a Jazz agent");
       }
       expect(entry.kind).toBe("not_found");
       expect(await run(service.pendingSuggestions())).toEqual(before);
       expect(successes).toEqual([]);
     } else {
-      expect(result._tag).toBe("Right");
+      expect(result._tag).toBe("Success");
       expect(entry.kind).toBe("file");
       expect(await run(service.pendingSuggestions())).toEqual([]);
       expect(successes).toEqual(["Saved to personal/always/check-prior-art.md."]);

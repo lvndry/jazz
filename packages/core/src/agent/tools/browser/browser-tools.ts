@@ -266,7 +266,7 @@ export function createBrowserNavigateTool(): Tool<AgentConfigService> {
           BROWSER_NAVIGATE_TOOL_NAME,
           session.launchSummary === undefined ? "" : `\n${session.launchSummary}`,
         );
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
     createSummary: (result) => (result.success ? "Opened a page in the browser" : undefined),
   });
 }
@@ -287,7 +287,7 @@ export function createBrowserBackTool(): Tool<AgentConfigService> {
     handler: (_args, context) =>
       withBrowser(context, (session) => session.back()).pipe(
         Effect.map((state) => pageResult(state, "browser_back")),
-        Effect.catchAll(toFailure),
+        Effect.catch(toFailure),
       ),
   });
 }
@@ -342,7 +342,7 @@ export function createBrowserSnapshotTool(): Tool<AgentConfigService> {
           result: `${header}\nrefs: ${String(refCount)}\n\n${renderSnapshot(page.snapshot, advice, args.startLine)}`,
           untrusted: { kind: "external", source: `browser_snapshot ${page.url}` },
         } satisfies ToolExecutionResult;
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
     createSummary: (result) => (result.success ? "Read the browser page" : undefined),
   });
 }
@@ -396,7 +396,7 @@ export function createBrowserScreenshotTool(): Tool<AgentConfigService> {
           artifacts: [artifact],
           untrusted: { kind: "external", source: `browser_screenshot ${state.url}` },
         } satisfies ToolExecutionResult;
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
     createSummary: (result) => (result.success ? "Saved a browser screenshot" : undefined),
   });
 }
@@ -422,7 +422,7 @@ export function createBrowserCloseTool(): Tool<AgentConfigService> {
           return { success: true, result: "The browser is closed." } satisfies ToolExecutionResult;
         },
         catch: toError,
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
   });
 }
 
@@ -495,7 +495,7 @@ export function createBrowserTabsTool(): Tool<AgentConfigService> {
           success: true,
           result: `Closed tab ${closed.closed}. ${now}`,
         } satisfies ToolExecutionResult;
-      }).pipe(Effect.catchAll(toFailure)),
+      }).pipe(Effect.catch(toFailure)),
     createSummary: (result) => (result.success ? "Used the browser tabs" : undefined),
   });
 }
@@ -805,7 +805,7 @@ export function createBrowserActTools(): ApprovalToolPair<AgentConfigService> {
     handler: (args, context) =>
       withBrowser(context, (session) => runSteps(session, args.actions, context)).pipe(
         Effect.map((outcome) => stepsResult(args.actions, outcome)),
-        Effect.catchAll(toFailure),
+        Effect.catch(toFailure),
       ),
     createSummary: (result) => (result.success ? "Acted on the browser page" : undefined),
   });
@@ -874,7 +874,7 @@ export function createBrowserAdoptTabTools(): ApprovalToolPair<AgentConfigServic
     handler: (args, context) =>
       withBrowser(context, (session) => session.adopt(args.match, args.name)).pipe(
         Effect.map((state) => pageResult(state, BROWSER_ADOPT_TAB_TOOL_NAME, SNAPSHOT_HINT)),
-        Effect.catchAll(toFailure),
+        Effect.catch(toFailure),
       ),
     createSummary: (result) => (result.success ? "Shared a browser tab" : undefined),
   });

@@ -175,6 +175,6 @@ export interface PluginRuntimeService {
   readonly hasNotificationPlugin: () => Effect.Effect<boolean>;
 }
 
-export const PluginRuntimeServiceTag = Context.GenericTag<PluginRuntimeService>(
+export const PluginRuntimeServiceTag = Context.Service<PluginRuntimeService>(
   "@jazz/core/PluginRuntimeService",
 );

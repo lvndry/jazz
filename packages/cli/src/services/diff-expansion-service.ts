@@ -86,7 +86,7 @@ class DiffExpansionServiceImpl implements DiffExpansionService {
 // Service Context
 // ============================================================================
 
-export const DiffExpansionServiceTag = Context.GenericTag<DiffExpansionService>(
+export const DiffExpansionServiceTag = Context.Service<DiffExpansionService>(
   "cli/services/DiffExpansionService",
 );
 

@@ -23,7 +23,6 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { isAbsolute } from "node:path";
-import { FileSystem } from "@effect/platform";
 import {
   controlGoal,
   getOwnedGoal,
@@ -124,7 +123,7 @@ import { getJazzInstanceId } from "@jazz/core/utils/instance-id";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { filterCapableModels } from "@jazz/core/utils/model-capabilities";
 import { configuredProviderApiKey } from "@jazz/core/utils/provider-model";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { Hono } from "hono";
 import {
   daemonGate,
@@ -438,7 +437,7 @@ export function makeHandler(
   app.post("/daemon/pause", () =>
     runEffect(
       Effect.map(pauseDaemon(), () => json({ ok: true, paused: true })).pipe(
-        Effect.catchAll((error) => Effect.succeed(json({ ok: false, error: error.message }, 500))),
+        Effect.catch((error) => Effect.succeed(json({ ok: false, error: error.message }, 500))),
       ),
     ),
   );
@@ -452,7 +451,7 @@ export function makeHandler(
     }
     return runEffect(
       Effect.map(resumeDaemon(), () => json({ ok: true, paused: false })).pipe(
-        Effect.catchAll((error) => Effect.succeed(json({ ok: false, error: error.message }, 500))),
+        Effect.catch((error) => Effect.succeed(json({ ok: false, error: error.message }, 500))),
       ),
     );
   });
@@ -686,7 +685,7 @@ function whenOpen<E, R>(start: Effect.Effect<Response, E, R>) {
 /** The 503 a paused daemon answers a request that would start work, or `undefined` when open. */
 function daemonPausedRefusal() {
   return Effect.map(
-    daemonGate().pipe(Effect.catchAll(() => Effect.succeed({ kind: "open" } as const))),
+    daemonGate().pipe(Effect.catch(() => Effect.succeed({ kind: "open" } as const))),
     (gate) =>
       gate.kind === "open"
         ? undefined
@@ -762,7 +761,7 @@ async function createGoalRoute(
       );
       return json({ ok: true, goal: record }, 201);
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.succeed(json({ ok: false, error: toError(error).message }, 400)),
       ),
     ),
@@ -1915,7 +1914,7 @@ function fireWebhook(
           fallbackTitle: `webhook: ${webhook.name}`,
           messages: response.messages ?? priorRecord?.messages ?? [],
         }).pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.gen(function* () {
               const logger = yield* Effect.serviceOption(LoggerServiceTag);
               if (logger._tag === "Some") {
@@ -1944,7 +1943,7 @@ function fireWebhook(
       ...(response.costIncomplete === true ? { costIncomplete: true } : {}),
     });
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.gen(function* () {
         if (isRunParkRequested(error) && error.runId !== undefined) {
           return json(
@@ -2009,7 +2008,7 @@ function answerPeerNow(peer: PeerConfig, agentIdentifier: string, question: stri
         return json({ ok: false, parked: true, question: outcome.question }, 200);
     }
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       logPeerFailure("Peer answer failed", peer, error).pipe(
         Effect.as(json({ ok: false, error: "could not answer" }, 500)),
       ),
@@ -2042,7 +2041,7 @@ function answerA2A(
 ) {
   return Effect.gen(function* () {
     const gate = yield* daemonGate().pipe(
-      Effect.catchAll(() => Effect.succeed({ kind: "open" } as const)),
+      Effect.catch(() => Effect.succeed({ kind: "open" } as const)),
     );
     if (gate.kind === "paused") {
       return json({
@@ -2063,7 +2062,7 @@ function answerA2A(
     );
     return json(response);
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       logPeerFailure("A2A request failed", peer, error).pipe(
         Effect.as(
           json({
@@ -2100,7 +2099,7 @@ function startRun(
 
     return json({ ok: true, answer: response.content, conversationId });
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.gen(function* () {
         if (isRunParkRequested(error) && error.runId !== undefined) {
           return json(
@@ -2323,7 +2322,7 @@ function listModels(provider: ProviderName, role?: CompanionRole) {
     });
   }).pipe(
     Effect.timeout(MODEL_LISTING_TIMEOUT),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed(
         json(
           {
@@ -2494,7 +2493,7 @@ function createPersona(body: PersonaWriteBody) {
       ...(style !== undefined ? { style } : {}),
     });
     return json({ ok: true, persona: projectPersona(persona) }, 201);
-  }).pipe(Effect.catchAll((error) => Effect.succeed(personaErrorResponse(error))));
+  }).pipe(Effect.catch((error) => Effect.succeed(personaErrorResponse(error))));
 }
 
 /**
@@ -2515,7 +2514,7 @@ function updatePersona(identifier: string, body: PersonaWriteBody) {
       ...(typeof body.style === "string" ? { style: body.style } : {}),
     });
     return json({ ok: true, persona: projectPersona(persona) });
-  }).pipe(Effect.catchAll((error) => Effect.succeed(personaErrorResponse(error))));
+  }).pipe(Effect.catch((error) => Effect.succeed(personaErrorResponse(error))));
 }
 
 function deletePersona(identifier: string) {
@@ -2524,7 +2523,7 @@ function deletePersona(identifier: string) {
     const existing = yield* findPersona(personaService, identifier);
     yield* personaService.deletePersona(existing.id);
     return json({ ok: true, id: existing.id });
-  }).pipe(Effect.catchAll((error) => Effect.succeed(personaErrorResponse(error))));
+  }).pipe(Effect.catch((error) => Effect.succeed(personaErrorResponse(error))));
 }
 
 /**
@@ -2536,7 +2535,7 @@ function deletePersona(identifier: string) {
 function findPersona(personaService: PersonaService, identifier: string) {
   return personaService
     .getPersona(identifier)
-    .pipe(Effect.catchAll(() => personaService.getPersonaByName(identifier)));
+    .pipe(Effect.catch(() => personaService.getPersonaByName(identifier)));
 }
 
 function listPersonas() {
@@ -2554,7 +2553,7 @@ function listPersonas() {
       })),
     });
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed(
         json(
           {
@@ -2611,7 +2610,7 @@ function showAgent(identifier: string) {
   return Effect.gen(function* () {
     const agent = yield* getAgentByIdentifier(identifier);
     return json({ ok: true, agent: projectAgentDetail(agent) });
-  }).pipe(Effect.catchAll((error) => Effect.succeed(agentErrorResponse(error))));
+  }).pipe(Effect.catch((error) => Effect.succeed(agentErrorResponse(error))));
 }
 
 function createAgent(body: AgentWriteBody) {
@@ -2623,7 +2622,7 @@ function createAgent(body: AgentWriteBody) {
       body.config ?? {},
     );
     return json({ ok: true, agent: projectAgentDetail(agent) }, 201);
-  }).pipe(Effect.catchAll((error) => Effect.succeed(agentErrorResponse(error))));
+  }).pipe(Effect.catch((error) => Effect.succeed(agentErrorResponse(error))));
 }
 
 /**
@@ -2643,7 +2642,7 @@ function updateAgent(identifier: string, body: AgentWriteBody) {
       ...(body.config !== undefined ? { config: body.config as AgentConfig } : {}),
     });
     return json({ ok: true, agent: projectAgentDetail(agent) });
-  }).pipe(Effect.catchAll((error) => Effect.succeed(agentErrorResponse(error))));
+  }).pipe(Effect.catch((error) => Effect.succeed(agentErrorResponse(error))));
 }
 
 function deleteAgent(identifier: string) {
@@ -2652,7 +2651,7 @@ function deleteAgent(identifier: string) {
     const existing = yield* getAgentByIdentifier(identifier);
     yield* agentService.deleteAgent(existing.id);
     return json({ ok: true, id: existing.id });
-  }).pipe(Effect.catchAll((error) => Effect.succeed(agentErrorResponse(error))));
+  }).pipe(Effect.catch((error) => Effect.succeed(agentErrorResponse(error))));
 }
 
 /** What a remote client needs to render and answer a parked run, one shape per pending kind. */
@@ -2722,7 +2721,7 @@ function answerRun(runId: string, outcome: ResumeRunOptions["outcome"]) {
     }
     return json({ ok: true, runId, ...result.owner, answer: settled.response.content });
   }).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed(
         isRunParkRequested(error) && error.runId !== undefined
           ? json(

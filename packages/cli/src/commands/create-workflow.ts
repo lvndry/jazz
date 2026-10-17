@@ -75,7 +75,7 @@ export function createWorkflowCommand() {
     yield* terminal.info("Press ESC at any step to go back.");
 
     const agents = yield* listAllAgents().pipe(
-      Effect.catchAll(() => Effect.succeed([] as readonly Agent[])),
+      Effect.catch(() => Effect.succeed([] as readonly Agent[])),
     );
 
     const answers = yield* Effect.tryPromise({

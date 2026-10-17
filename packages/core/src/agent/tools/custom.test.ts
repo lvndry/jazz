@@ -1,7 +1,6 @@
 import os from "node:os";
-import { FileSystem } from "@effect/platform";
 import { describe, expect, it, mock } from "bun:test";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, FileSystem, Layer, Stream } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -152,7 +151,7 @@ describe("registerCustomToolsForAgent", () => {
     const agent = makeAgent([recordToolDefinition], ["propose_action"]);
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         registerCustomToolsForAgent(agent, agent.config.tools ?? []).pipe(
           Effect.provide(
             Layer.mergeAll(
@@ -164,10 +163,10 @@ describe("registerCustomToolsForAgent", () => {
       ),
     );
 
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(AgentConfigurationError);
-      const message = String((result.left as AgentConfigurationError).message);
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(AgentConfigurationError);
+      const message = String((result.failure as AgentConfigurationError).message);
       expect(message).toContain("propose_action");
       expect(message).toContain("builtin or MCP");
       expect(message).not.toContain("definition changed");
@@ -183,7 +182,7 @@ describe("registerCustomToolsForAgent", () => {
     const agent = makeAgent([aliasShadowingDefinition], ["glob"]);
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         registerCustomToolsForAgent(agent, agent.config.tools ?? []).pipe(
           Effect.provide(
             Layer.mergeAll(
@@ -195,10 +194,10 @@ describe("registerCustomToolsForAgent", () => {
       ),
     );
 
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(AgentConfigurationError);
-      expect(String((result.left as AgentConfigurationError).message)).toContain("glob");
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(AgentConfigurationError);
+      expect(String((result.failure as AgentConfigurationError).message)).toContain("glob");
     }
   });
 
@@ -212,7 +211,7 @@ describe("registerCustomToolsForAgent", () => {
     const agent = makeAgent([badHandlerDefinition], ["bad_handler_tool"]);
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         registerCustomToolsForAgent(agent, agent.config.tools ?? []).pipe(
           Effect.provide(
             Layer.mergeAll(
@@ -224,10 +223,10 @@ describe("registerCustomToolsForAgent", () => {
       ),
     );
 
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(AgentConfigurationError);
-      const message = String((result.left as AgentConfigurationError).message);
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(AgentConfigurationError);
+      const message = String((result.failure as AgentConfigurationError).message);
       expect(message).toContain("bad_handler_tool");
       expect(message).toContain("shell_exec");
     }
@@ -246,7 +245,7 @@ describe("registerCustomToolsForAgent", () => {
     const agent = makeAgent([rawUnvalidatedDefinition], ["Not A Valid Name!"]);
 
     const result = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         registerCustomToolsForAgent(agent, agent.config.tools ?? []).pipe(
           Effect.provide(
             Layer.mergeAll(
@@ -258,10 +257,10 @@ describe("registerCustomToolsForAgent", () => {
       ),
     );
 
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(AgentConfigurationError);
-      expect(String((result.left as AgentConfigurationError).message)).toContain(
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(AgentConfigurationError);
+      expect(String((result.failure as AgentConfigurationError).message)).toContain(
         "Invalid custom tool name",
       );
     }
@@ -909,7 +908,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     };
 
     const secondRunResult = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         AgentRunner.run({
           agent: secondAgent,
           userInput: "please propose an action",
@@ -924,10 +923,10 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       ),
     );
 
-    expect(secondRunResult._tag).toBe("Left");
-    if (secondRunResult._tag === "Left") {
-      expect(secondRunResult.left).toBeInstanceOf(AgentConfigurationError);
-      const message = String((secondRunResult.left as AgentConfigurationError).message);
+    expect(secondRunResult._tag).toBe("Failure");
+    if (secondRunResult._tag === "Failure") {
+      expect(secondRunResult.failure).toBeInstanceOf(AgentConfigurationError);
+      const message = String((secondRunResult.failure as AgentConfigurationError).message);
       expect(message).toContain("propose_action");
       expect(message).toContain("definition changed");
     }

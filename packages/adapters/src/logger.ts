@@ -17,7 +17,7 @@ import { redactHeldUserSecrets, redactHeldUserSecretsDeep } from "@jazz/core/sec
 import type { LoggingConfig } from "@jazz/core/types/config";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { stateFileMode } from "@jazz/core/utils/private-mode";
-import { Effect, FiberRef, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import {
   LOG_PRUNE_INTERVAL_MS,
   logRetentionPolicy,
@@ -214,16 +214,34 @@ class LogWriteQueue {
 // Singleton queue for all log writes
 const logQueue = new LogWriteQueue();
 
+let loggerInstanceCount = 0;
+
+/**
+ * Fiber-local mutation of a log scope: the new value is written into the running fiber's
+ * context, so later effects in this fiber and fibers it forks afterwards see it.
+ */
+function updateLogScope(
+  logScopeRef: Context.Reference<readonly string[]>,
+  update: (groups: readonly string[]) => readonly string[],
+): Effect.Effect<void, never> {
+  return Effect.withFiber((fiber) => {
+    fiber.setContext(Context.add(fiber.context, logScopeRef, update(fiber.getRef(logScopeRef))));
+    return Effect.void;
+  });
+}
+
 /**
  * Provides a custom logger implementation that maintains plain formatting
  */
-
 export class LoggerServiceImpl implements LoggerService {
-  private readonly logScopeRef: FiberRef.FiberRef<readonly string[]>;
+  private readonly logScopeRef: Context.Reference<readonly string[]>;
 
   constructor(conversationId?: string) {
-    this.logScopeRef = FiberRef.unsafeMake<readonly string[]>(
-      conversationId ? [conversationId] : [],
+    const initialScope: readonly string[] = conversationId ? [conversationId] : [];
+    loggerInstanceCount += 1;
+    this.logScopeRef = Context.Reference<readonly string[]>(
+      `jazz/LoggerService/logScope/${loggerInstanceCount}`,
+      { defaultValue: () => initialScope },
     );
   }
 
@@ -231,24 +249,24 @@ export class LoggerServiceImpl implements LoggerService {
    * Replace the active conversation scope.
    */
   setLogGroup(conversationId: string): Effect.Effect<void, never> {
-    return FiberRef.set(this.logScopeRef, [conversationId]);
+    return updateLogScope(this.logScopeRef, () => [conversationId]);
   }
 
   /**
    * Clear all scopes after an interactive session or command ends.
    */
   clearLogGroup(): Effect.Effect<void, never> {
-    return FiberRef.set(this.logScopeRef, []);
+    return updateLogScope(this.logScopeRef, () => []);
   }
 
   /** Add a nested run's log group in this fiber without changing its parent. */
   pushLogGroup(conversationId: string): Effect.Effect<void, never> {
-    return FiberRef.update(this.logScopeRef, (groups) => [...groups, conversationId]);
+    return updateLogScope(this.logScopeRef, (groups) => [...groups, conversationId]);
   }
 
   /** Restore the parent run's destination after a nested run finishes. */
   popLogGroup(): Effect.Effect<void, never> {
-    return FiberRef.update(this.logScopeRef, (groups) => groups.slice(0, -1));
+    return updateLogScope(this.logScopeRef, (groups) => groups.slice(0, -1));
   }
 
   writeToFile(
@@ -258,7 +276,7 @@ export class LoggerServiceImpl implements LoggerService {
   ): Effect.Effect<void, never> {
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
+      const conversationId = (yield* logScopeRef).at(-1);
       // Write operations are now synchronous (queued internally)
       if (conversationId !== undefined) {
         writeFormattedLogToSessionFile(level, conversationId, message, meta);
@@ -272,7 +290,7 @@ export class LoggerServiceImpl implements LoggerService {
     if (!shouldLog("debug")) return Effect.void;
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
+      const conversationId = (yield* logScopeRef).at(-1);
       return yield* Effect.sync(() => {
         if (conversationId !== undefined) {
           void writeFormattedLogToSessionFile("debug", conversationId, message, meta);
@@ -287,7 +305,7 @@ export class LoggerServiceImpl implements LoggerService {
     if (!shouldLog("info")) return Effect.void;
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
+      const conversationId = (yield* logScopeRef).at(-1);
       return yield* Effect.sync(() => {
         if (conversationId !== undefined) {
           void writeFormattedLogToSessionFile("info", conversationId, message, meta);
@@ -302,7 +320,7 @@ export class LoggerServiceImpl implements LoggerService {
     if (!shouldLog("warn")) return Effect.void;
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
+      const conversationId = (yield* logScopeRef).at(-1);
       return yield* Effect.sync(() => {
         if (conversationId !== undefined) {
           void writeFormattedLogToSessionFile("warn", conversationId, message, meta);
@@ -317,7 +335,7 @@ export class LoggerServiceImpl implements LoggerService {
     if (!shouldLog("error")) return Effect.void;
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
+      const conversationId = (yield* logScopeRef).at(-1);
       return yield* Effect.sync(() => {
         if (conversationId !== undefined) {
           void writeFormattedLogToSessionFile("error", conversationId, message, meta);
@@ -331,7 +349,7 @@ export class LoggerServiceImpl implements LoggerService {
   logToolCall(toolName: string, args: Record<string, unknown>): Effect.Effect<void, never> {
     const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const conversationId = (yield* FiberRef.get(logScopeRef)).at(-1);
+      const conversationId = (yield* logScopeRef).at(-1);
       if (conversationId !== undefined) {
         // Write is now synchronous (queued internally)
         writeToolCallToSessionFile(conversationId, toolName, args);

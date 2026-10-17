@@ -14,7 +14,7 @@ const context: ToolExecutionContext = { agentId: "agent-1" };
 
 function runWithFakeReminderService<A>(
   fakeService: ReminderService,
-  eff: Effect.Effect<A, Error, ReminderService | import("@effect/platform").FileSystem.FileSystem>,
+  eff: Effect.Effect<A, Error, ReminderService | import("effect").FileSystem.FileSystem>,
 ) {
   return Effect.runPromise(
     eff.pipe(

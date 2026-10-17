@@ -292,16 +292,16 @@ function resolveLocalSummarizerModel(
     if (provider === "llamacpp") {
       return yield* llmService
         .fetchLlamaCppServerModel(baseUrl, llmConfig?.llamacpp?.api_key)
-        .pipe(Effect.catchAll(() => Effect.succeed<LlamaCppServerModel>({})));
+        .pipe(Effect.catch(() => Effect.succeed<LlamaCppServerModel>({})));
     }
     if (provider === "vllm") {
       return yield* llmService
         .fetchVllmServerModel(baseUrl, preferredModelId, llmConfig?.vllm?.api_key)
-        .pipe(Effect.catchAll(() => Effect.succeed<VllmServerModel>({})));
+        .pipe(Effect.catch(() => Effect.succeed<VllmServerModel>({})));
     }
     return yield* llmService
       .fetchSglangServerModel(baseUrl, preferredModelId, llmConfig?.sglang?.api_key)
-      .pipe(Effect.catchAll(() => Effect.succeed<SglangServerModel>({})));
+      .pipe(Effect.catch(() => Effect.succeed<SglangServerModel>({})));
   });
 }
 
@@ -642,7 +642,7 @@ export const Summarizer = {
         `Context window ~${Math.round(compactThresholdRatio * 100)}% full of ${maxTokens.toLocaleString()} tokens: auto-compacting conversation history...`,
       );
 
-      const attempt = yield* Effect.either(
+      const attempt = yield* Effect.result(
         Summarizer.compact(
           currentMessages,
           agent,
@@ -656,18 +656,21 @@ export const Summarizer = {
         ),
       );
 
-      if (attempt._tag === "Left") {
-        const reason = attempt.left instanceof Error ? attempt.left.message : String(attempt.left);
+      if (attempt._tag === "Failure") {
+        const reason =
+          attempt.failure instanceof Error ? attempt.failure.message : String(attempt.failure);
         yield* logger.warn("Automatic compaction failed; history left unchanged", {
           agentId: agent.id,
           conversationId,
           errorType:
-            attempt.left instanceof SummaryRejectedError ? attempt.left.reason : "summarizer_error",
+            attempt.failure instanceof SummaryRejectedError
+              ? attempt.failure.reason
+              : "summarizer_error",
         });
         return { kind: "failed", reason } as const;
       }
 
-      const outcome = attempt.right;
+      const outcome = attempt.success;
       if (outcome === undefined) {
         return { kind: "stuck" } as const;
       }
@@ -736,7 +739,7 @@ export const Summarizer = {
       ): Effect.Effect<void> =>
         Effect.gen(function* () {
           if (Option.isNone(pluginRuntime)) return;
-          yield* Effect.forkDaemon(
+          yield* Effect.forkDetach(
             pluginRuntime.value
               .emitLifecycleEvent({
                 event,
@@ -745,7 +748,7 @@ export const Summarizer = {
                 cwd: process.cwd(),
                 data,
               })
-              .pipe(Effect.catchAll(() => Effect.void)),
+              .pipe(Effect.catch(() => Effect.void)),
           );
         });
       const egressTainted =
@@ -1000,7 +1003,7 @@ export const Summarizer = {
       const summarizerMetadata = yield* Effect.tryPromise({
         try: () => getModelsDevMetadata(summarizerHint.modelId, summarizerModelConfig.provider),
         catch: () => new Error("Failed to fetch summarizer model metadata"),
-      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 
       const summarizerWindow = resolveEffectiveContextWindow({
         provider: summarizerModelConfig.provider,

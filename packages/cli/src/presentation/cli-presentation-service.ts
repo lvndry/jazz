@@ -96,28 +96,28 @@ export class CLIPresentationService implements PresentationService {
   }
 
   presentThinking(agentName: string, isFirstIteration: boolean): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const msg = yield* this.formatThinking(agentName, isFirstIteration);
       yield* this.writeLine(msg);
     });
   }
 
   presentCompletion(agentName: string): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const msg = yield* this.formatCompletion(agentName);
       yield* this.writeLine(msg);
     });
   }
 
   presentWarning(agentName: string, message: string): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const msg = yield* this.formatWarning(agentName, message);
       yield* this.writeLine(msg);
     });
   }
 
   presentAgentResponse(agentName: string, content: string): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const formatted = yield* this.formatAgentResponse(agentName, content);
       yield* this.writeOutput(formatted);
     });
@@ -231,7 +231,7 @@ export class CLIPresentationService implements PresentationService {
   }
 
   requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       if (!this.interactive) {
         // Nobody can answer a prompt here. Decline, and tell the model why so it
         // routes around instead of retrying into the same wall.
@@ -378,7 +378,7 @@ export class CLIPresentationService implements PresentationService {
   }
 
   requestUserInput(request: UserInputRequest): Effect.Effect<UserInputOutcome, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const separator = chalk.dim(separatorLine(50));
 
       // Display the question
@@ -413,7 +413,7 @@ export class CLIPresentationService implements PresentationService {
 
   /** Ask for a secret with one bullet drawn per character, when this terminal can prompt. */
   requestSecretInput(request: SecretInputRequest): Effect.Effect<SecretInputOutcome, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       if (!this.interactive) {
         return { kind: "unavailable" } as const;
       }
@@ -434,7 +434,7 @@ export class CLIPresentationService implements PresentationService {
   }
 
   requestFilePicker(request: FilePickerRequest): Effect.Effect<string, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const separator = chalk.dim(separatorLine(50));
 
       // Display the prompt

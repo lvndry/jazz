@@ -1,14 +1,13 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   MAX_WORKSPACE_FILE_BYTES,
   MAX_WORKSPACE_FILES_PER_AGENT,
 } from "@jazz/core/constants/workspace";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import { WorkspaceServiceImpl } from "./workspace-service";
 
 let tmpDir: string;
@@ -26,7 +25,7 @@ function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
 }
 
 function runEither<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
-  return runEffect(eff.pipe(Effect.either));
+  return runEffect(eff.pipe(Effect.result));
 }
 
 function makeService(maxTotalBytesPerAgent?: number): WorkspaceServiceImpl {
@@ -101,7 +100,7 @@ describe("create", () => {
     const service = makeService();
     const tooBig = "x".repeat(MAX_WORKSPACE_FILE_BYTES + 1);
     const result = await runEither(service.create("agent-1", "big.txt", tooBig));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects once the configured per-agent total-byte cap is exceeded", async () => {
@@ -110,7 +109,7 @@ describe("create", () => {
     const service = makeService(100);
     await runEffect(service.create("agent-1", "a.txt", "x".repeat(60)));
     const result = await runEither(service.create("agent-1", "b.txt", "x".repeat(60)));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("defaults the total-byte cap to DEFAULT_MAX_WORKSPACE_TOTAL_BYTES_PER_AGENT when unset", async () => {
@@ -130,7 +129,7 @@ describe("create", () => {
       fs.writeFileSync(path.join(agentRoot, `file-${i}.txt`), "x");
     }
     const result = await runEither(service.create("agent-1", "one-too-many.txt", "x"));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   }, 15_000);
 });
 
@@ -205,25 +204,25 @@ describe("path safety", () => {
   test("rejects .. traversal", async () => {
     const service = makeService();
     const result = await runEither(service.create("agent-1", "../escape.txt", "x"));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects a null byte", async () => {
     const service = makeService();
     const result = await runEither(service.create("agent-1", "notes\0.txt", "x"));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects paths deeper than the max depth", async () => {
     const service = makeService();
     const result = await runEither(service.create("agent-1", "a/b/c/d/e/f/g.txt", "x"));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects an invalid agent id", async () => {
     const service = makeService();
     const result = await runEither(service.view("../not-an-agent", "notes.txt"));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("rejects reading through a symlink that escapes the workspace root", async () => {
@@ -236,7 +235,7 @@ describe("path safety", () => {
 
     try {
       const result = await runEither(service.view("agent-1", "link/secret.txt"));
-      expect(result._tag).toBe("Left");
+      expect(result._tag).toBe("Failure");
     } finally {
       fs.rmSync(outsideDir, { recursive: true, force: true });
     }

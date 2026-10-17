@@ -4,13 +4,12 @@ import os from "node:os";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { join } from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { type AppConfig } from "@jazz/core/types/index";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import { Cause, Effect, Exit, Layer } from "effect";
+import { Cause, Effect, Exit, FileSystem, Layer } from "effect";
 import {
   AgentConfigServiceImpl,
   createConfigLayer,
@@ -885,7 +884,7 @@ describe("AgentConfigService.set checks what callers hand it", () => {
 
     const exit = await Effect.runPromiseExit(service.set("maxRetries", "5"));
 
-    expect(Exit.isFailure(exit) && Cause.isDie(exit.cause)).toBe(true);
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
     expect(existsSync(configPath)).toBe(false);
     expect(await Effect.runPromise(service.get("maxRetries"))).toBeUndefined();
   });
@@ -933,7 +932,7 @@ describe("AgentConfigService.set checks what callers hand it", () => {
 
     const exit = await Effect.runPromiseExit(service.set("maxRetries", 5));
 
-    expect(Exit.isFailure(exit) && Cause.isDie(exit.cause)).toBe(true);
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
     expect(await Effect.runPromise(service.get<number>("maxRetries"))).toBe(2);
     expect(await Effect.runPromise(service.revision)).toBe(0);
   });
@@ -982,7 +981,7 @@ describe("writes against the latest file", () => {
         }).pipe(Effect.provide(layer)),
       );
 
-      expect(Exit.isFailure(exit) && Cause.isDie(exit.cause)).toBe(true);
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
       expect(await Bun.file(configPath).text()).toBe("{ broken");
     } finally {
       await rm(home, { recursive: true, force: true });

@@ -100,7 +100,7 @@ export function drainNotifyOutbox(options: DrainOptions = {}) {
     const baseDirectory = outboxDirectory(options.home);
     const now = options.now ?? Date.now();
     const claims = yield* claimDueItems(NOTIFY_OUTBOX_STORE, baseDirectory, now).pipe(
-      Effect.catchAll(() => Effect.succeed([])),
+      Effect.catch(() => Effect.succeed([])),
     );
     const send =
       options.send ?? ((target, item, context) => sendToTarget(target, item.event, context));
@@ -142,7 +142,7 @@ export function drainNotifyOutbox(options: DrainOptions = {}) {
             options.now ?? Date.now(),
           );
       yield* record.pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.sync(() =>
             process.stderr.write(
               `[jazz] Could not record a notification's delivery on "${targetName}": ${error.message}\n`,

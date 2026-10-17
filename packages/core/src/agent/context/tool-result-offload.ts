@@ -112,7 +112,7 @@ export function readOffloadedToolResult(
   return Effect.tryPromise({
     try: () => nodeFs.readFile(toolResultOffloadPath(agentId, conversationId, toolCallId), "utf-8"),
     catch: (error) => error,
-  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+  }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 }
 
 function isUntrustedProvenance(value: unknown): value is UntrustedProvenance {
@@ -154,7 +154,7 @@ export function readOffloadedToolResultProvenance(
     catch: (error) => error,
   }).pipe(
     Effect.map((stored) => (isUntrustedProvenance(stored) ? stored : framed())),
-    Effect.catchAll(() => Effect.succeed(framed())),
+    Effect.catch(() => Effect.succeed(framed())),
   );
 }
 

@@ -142,7 +142,7 @@ export function executeWithoutStreaming(
           ).pipe(
             Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
             Effect.tapError((error) =>
-              Cause.isTimeoutException(error)
+              Cause.isTimeoutError(error)
                 ? showAgentStatus(
                     `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
                     "warning",

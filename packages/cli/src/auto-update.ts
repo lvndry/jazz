@@ -3,12 +3,11 @@
  * timestamp file, so it doesn't hit the registry on every invocation.
  */
 
-import { FileSystem } from "@effect/platform";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { stateDirectoryMode, stateFileMode } from "@jazz/core/utils/private-mode";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { checkForUpdate } from "./commands/update";
 import { getGlyphs } from "./ui/glyphs";
 
@@ -38,12 +37,12 @@ export function autoCheckForUpdate(): Effect.Effect<
     // Ensure data directory exists
     yield* fs
       .makeDirectory(dataDir, { recursive: true, mode: stateDirectoryMode() })
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(Effect.catch(() => Effect.void));
 
     // Read last check timestamp
     const lastCheckStr = yield* fs
       .readFileString(checkFilePath)
-      .pipe(Effect.catchAll(() => Effect.succeed("0")));
+      .pipe(Effect.catch(() => Effect.succeed("0")));
 
     const lastCheck = parseInt(lastCheckStr.trim(), 10) || 0;
     const now = Date.now();
@@ -58,7 +57,7 @@ export function autoCheckForUpdate(): Effect.Effect<
     // Perform the check with a timeout to avoid blocking startup for too long
     const result = yield* checkForUpdate().pipe(
       Effect.timeout(2000), // 2 seconds timeout
-      Effect.catchAll(() => {
+      Effect.catch(() => {
         // Log error but don't fail the program
         return Effect.gen(function* () {
           yield* logger.debug("Auto-update check failed", { errorType: "check_failed" });
@@ -69,7 +68,7 @@ export function autoCheckForUpdate(): Effect.Effect<
 
     // Update the last check timestamp regardless of result to avoid blocking startup repeatedly on failures
     yield* fs.writeFileString(checkFilePath, now.toString(), { mode: stateFileMode() }).pipe(
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         Effect.gen(function* () {
           yield* logger.warn("Failed to write update check timestamp", {
             errorType: "state_write_failed",

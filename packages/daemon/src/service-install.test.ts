@@ -227,11 +227,11 @@ describe("waiting for the daemon to prove it is reachable", () => {
     });
     try {
       const result = await Effect.runPromise(
-        Effect.either(
+        Effect.result(
           waitForDaemonHealthy({ host: "127.0.0.1", port: server.port ?? 0 }, "systemd", 2_000),
         ),
       );
-      expect(result._tag).toBe("Right");
+      expect(result._tag).toBe("Success");
     } finally {
       server.stop(true);
     }
@@ -242,11 +242,11 @@ describe("waiting for the daemon to prove it is reachable", () => {
     // immediately after `systemctl restart` still reported success.
     const unusedPort = 41287;
     const result = await Effect.runPromise(
-      Effect.either(waitForDaemonHealthy({ host: "127.0.0.1", port: unusedPort }, "systemd", 500)),
+      Effect.result(waitForDaemonHealthy({ host: "127.0.0.1", port: unusedPort }, "systemd", 500)),
     );
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left.message).toContain("journalctl -u jazz-daemon");
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure.message).toContain("journalctl -u jazz-daemon");
     }
   });
 
@@ -263,11 +263,11 @@ describe("waiting for the daemon to prove it is reachable", () => {
     });
     try {
       const result = await Effect.runPromise(
-        Effect.either(
+        Effect.result(
           waitForDaemonHealthy({ host: "0.0.0.0", port: server.port ?? 0 }, "launchd", 2_000),
         ),
       );
-      expect(result._tag).toBe("Right");
+      expect(result._tag).toBe("Success");
     } finally {
       server.stop(true);
     }
@@ -283,27 +283,27 @@ describe("resolving who to run the service as", () => {
 
   it("refuses when $SUDO_USER is absent — there is no non-root identity to preserve", async () => {
     delete process.env["SUDO_USER"];
-    const result = await Effect.runPromise(Effect.either(resolveInvokingUser()));
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left.message).toContain("SUDO_USER");
+    const result = await Effect.runPromise(Effect.result(resolveInvokingUser()));
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure.message).toContain("SUDO_USER");
     }
   });
 
   it("refuses a SUDO_USER containing characters unsafe to place after a shell tilde", async () => {
     process.env["SUDO_USER"] = "bob; rm -rf /";
-    const result = await Effect.runPromise(Effect.either(resolveInvokingUser()));
-    expect(result._tag).toBe("Left");
+    const result = await Effect.runPromise(Effect.result(resolveInvokingUser()));
+    expect(result._tag).toBe("Failure");
   });
 
   it("resolves the real invoking user's actual home directory", async () => {
     const realUsername = os.userInfo().username;
     process.env["SUDO_USER"] = realUsername;
-    const result = await Effect.runPromise(Effect.either(resolveInvokingUser()));
-    expect(result._tag).toBe("Right");
-    if (result._tag === "Right") {
-      expect(result.right.username).toBe(realUsername);
-      expect(result.right.home).toBe(os.homedir());
+    const result = await Effect.runPromise(Effect.result(resolveInvokingUser()));
+    expect(result._tag).toBe("Success");
+    if (result._tag === "Success") {
+      expect(result.success.username).toBe(realUsername);
+      expect(result.success.home).toBe(os.homedir());
     }
   });
 });

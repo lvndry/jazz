@@ -1,10 +1,9 @@
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { toError } from "@jazz/core/utils/errors";
 import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { decodeStateFile, encodeStateFile, type StateFileKind } from "@jazz/core/utils/state-file";
 import { writeFileStringAtomic } from "@jazz/core/utils/storage";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 
 /**
  * Tracks how many distinct sessions a command has been auto-approved in.
@@ -65,14 +64,8 @@ export function loadCommandApprovals(): Effect.Effect<
     const content = yield* fs
       .readFileString(approvalsPath)
       .pipe(
-        Effect.catchAll((e) =>
-          e &&
-          typeof e === "object" &&
-          "_tag" in e &&
-          (e as { _tag: string })._tag === "SystemError" &&
-          (e as { reason?: string }).reason === "NotFound"
-            ? Effect.succeed("")
-            : Effect.fail(toError(e)),
+        Effect.catch((error) =>
+          error.reason._tag === "NotFound" ? Effect.succeed("") : Effect.fail(toError(error)),
         ),
       );
 

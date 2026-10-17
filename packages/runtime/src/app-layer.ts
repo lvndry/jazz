@@ -5,7 +5,6 @@
  */
 
 import path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createAgentServiceLayer } from "@jazz/adapters/agent-service";
 import { createConfigLayer, validateConfigFiles } from "@jazz/adapters/config";
@@ -82,7 +81,7 @@ import { resolveStorageDirectory } from "@jazz/core/utils/storage";
 import { emitTelemetry } from "@jazz/core/utils/telemetry-emit";
 import { SchedulerServiceLayer } from "@jazz/core/workflows/scheduler-service";
 import { WorkflowsLive } from "@jazz/core/workflows/workflow-service";
-import { Cause, Duration, Effect, Exit, Fiber, Layer, Option } from "effect";
+import { Cause, Duration, Effect, Exit, FileSystem, Fiber, Layer, Option } from "effect";
 import { reportStartupFailure } from "./startup-failure";
 import { validateAgents } from "./validate-agents";
 
@@ -523,7 +522,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
       isOfflineMode() ||
       options.skipUpdateCheck === true;
     const startupCheck = shouldSkipUpdateCheck ? Effect.void : autoCheckForUpdate();
-    const fiber = yield* Effect.fork(startupCheck.pipe(Effect.zipRight(effect)));
+    const fiber = yield* Effect.forkChild(startupCheck.pipe(Effect.andThen(effect)));
     // Interrupt must run in this runtime, so the Node signal handler only requests it.
     type ShutdownRequest = { _tag: "request" };
     const handler = (signal: ShutdownSignal): void => shutdownSignals.handle(signal);
@@ -540,7 +539,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
         }),
     );
 
-    const shutdownRequest = Effect.async<ShutdownRequest>((resume) => {
+    const shutdownRequest = Effect.callback<ShutdownRequest>((resume) => {
       requestShutdownRef.current = () => {
         requestShutdownRef.current = null;
         resume(Effect.succeed({ _tag: "request" }));
@@ -558,7 +557,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
         Effect.flatMap((result) =>
           result._tag === "signal"
             ? Fiber.interrupt(fiber).pipe(
-                Effect.zipRight(Fiber.await(fiber)),
+                Effect.andThen(Fiber.await(fiber)),
                 Effect.map((exit) => ({ _tag: "exit" as const, exit })),
               )
             : Effect.succeed(result),
@@ -580,12 +579,12 @@ export function runCliEffect<R, E extends JazzError | Error>(
         // Stop sampling and deliver buffered telemetry before shutdown.
         const telemetry = yield* Effect.serviceOption(TelemetryServiceTag);
         if (Option.isSome(telemetry)) {
-          yield* telemetry.value.shutdown().pipe(Effect.catchAll(() => Effect.void));
+          yield* telemetry.value.shutdown().pipe(Effect.catch(() => Effect.void));
         }
 
         const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
         if (Option.isSome(mcpManager)) {
-          yield* mcpManager.value.disconnectAllServers().pipe(Effect.catchAll(() => Effect.void));
+          yield* mcpManager.value.disconnectAllServers().pipe(Effect.catch(() => Effect.void));
         }
 
         yield* Effect.promise(flushLogs);
@@ -607,12 +606,12 @@ export function runCliEffect<R, E extends JazzError | Error>(
     );
 
     if (Exit.isFailure(exit)) {
-      if (Exit.isInterrupted(exit)) {
+      if (Cause.hasInterrupts(exit.cause)) {
         shutdownSignals.reportStopped();
         return;
       }
 
-      const maybeError = Cause.failureOption(exit.cause);
+      const maybeError = Cause.findErrorOption(exit.cause);
       if (Option.isSome(maybeError)) {
         yield* handleError(maybeError.value);
         const failureExitCode = exitCodeForFailure(maybeError.value);
@@ -636,7 +635,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
       ),
     ),
     Effect.scoped,
-    Effect.catchAll((error) => reportStartupFailure(error, options.onStartupFailure)),
+    Effect.catch((error) => reportStartupFailure(error, options.onStartupFailure)),
   ) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect).finally(() => {
@@ -677,7 +676,7 @@ export async function runConfigValidation(configPath?: string): Promise<void> {
     return;
   }
 
-  const failure = Cause.failureOption(exit.cause);
+  const failure = Cause.findErrorOption(exit.cause);
   console.error(Option.isSome(failure) ? failure.value.message : Cause.pretty(exit.cause));
   process.exitCode = 1;
 }

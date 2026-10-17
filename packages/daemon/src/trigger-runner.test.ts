@@ -37,7 +37,7 @@ describe("runTick", () => {
         claimWorkflows: Effect.succeed([slowWorkflowClaim]),
         runWorkflow: () =>
           Deferred.succeed(workflowStarted, undefined).pipe(
-            Effect.zipRight(Deferred.await(workflowReleased)),
+            Effect.andThen(Deferred.await(workflowReleased)),
           ),
         claimReminders: () => Effect.succeed([{ agentId: "agent-1", item: reminder }]),
         deliverReminder: (_agentId, delivered) =>
@@ -63,7 +63,7 @@ describe("runTick", () => {
       const work = tickWork({
         drainJobBatches: Effect.sync(() => {
           drains += 1;
-        }).pipe(Effect.zipRight(Deferred.await(released))),
+        }).pipe(Effect.andThen(Deferred.await(released))),
       });
       yield* runTick({}, work);
       yield* runTick({}, work);
@@ -97,7 +97,7 @@ describe("runTick while paused", () => {
     });
     await Effect.runPromise(
       runTick({ runWorkflows: true, startNew: false }, work).pipe(
-        Effect.zipRight(Effect.sleep("20 millis")),
+        Effect.andThen(Effect.sleep("20 millis")),
       ),
     );
     expect(started.sort()).toEqual(["notifications", "reminder"]);

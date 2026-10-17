@@ -48,7 +48,7 @@ export function setupAgent(
     const presentation = yield* PresentationServiceTag;
     yield* logger.setLogGroup(conversationId);
     yield* registerPeerTools().pipe(
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         presentation.presentStatus(
           "Peer tools could not be registered. Try restarting Jazz.",
           "warning",
@@ -68,9 +68,9 @@ export function setupAgent(
     // Register MCP tools for this agent (connects to relevant servers)
     // This happens before the first message as part of agent setup
     // Errors are handled gracefully - failed MCPs are logged but conversation continues
-    const setupResult = yield* registerMCPToolsForAgent(agentToolNames).pipe(Effect.either);
+    const setupResult = yield* registerMCPToolsForAgent(agentToolNames).pipe(Effect.result);
 
-    if (setupResult._tag === "Left") {
+    if (setupResult._tag === "Failure") {
       // MCP setup had errors, but we continue anyway
       yield* logger.warn("Some MCP connections failed during agent setup", {
         errorType: "connection_failed",
@@ -85,7 +85,7 @@ export function setupAgent(
       );
     } else {
       yield* logger.debug("Agent setup completed - MCP tools registered");
-      yield* registerMcpPromptCommands(setupResult.right);
+      yield* registerMcpPromptCommands(setupResult.success);
     }
   });
 }
@@ -112,13 +112,13 @@ function registerMcpPromptCommands(
     const commands: { name: string; description: string; usage?: string }[] = [];
 
     for (const serverName of connectedServers) {
-      const prompts = yield* mcpManager.getServerPrompts(serverName).pipe(Effect.either);
-      if (prompts._tag === "Left") {
+      const prompts = yield* mcpManager.getServerPrompts(serverName).pipe(Effect.result);
+      if (prompts._tag === "Failure") {
         yield* logger.debug("MCP prompt listing failed", { errorType: "prompt_list_failed" });
         continue;
       }
 
-      for (const prompt of prompts.right) {
+      for (const prompt of prompts.success) {
         const declared = prompt.arguments ?? [];
         commands.push({
           name: `${serverName}:${prompt.name}`,

@@ -1,12 +1,11 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { MAX_REMINDERS_PER_AGENT, REMINDER_TEXT_MAX_LENGTH } from "@jazz/core/constants/reminders";
 import type { ReminderOsScheduler } from "@jazz/core/wake-triggers/reminder-os-scheduler";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import {
   claimDueReminders,
   claimReminder,
@@ -40,7 +39,7 @@ function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
 }
 
 function runEither<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
-  return runEffect(eff.pipe(Effect.either));
+  return runEffect(eff.pipe(Effect.result));
 }
 
 function makeService(osScheduler?: ReminderOsScheduler): ReminderServiceImpl {
@@ -129,14 +128,14 @@ describe("add", () => {
       expect(outcome.success).toBe(true);
     }
     const result = await runEither(service.add("agent-1", "1d", "one too many", "UTC"));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   }, 30_000);
 
   test("rejects text exceeding the max length", async () => {
     const service = makeService();
     const tooLong = "x".repeat(REMINDER_TEXT_MAX_LENGTH + 1);
     const result = await runEither(service.add("agent-1", "30m", tooLong, "UTC"));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
   });
 
   test("two near-simultaneous adds both land without corrupting the file", async () => {
@@ -402,7 +401,7 @@ describe("damaged and versioned reminder files", () => {
     const newer = JSON.stringify({ schemaVersion: 99, reminders: [] });
     fs.writeFileSync(filePath, newer);
     const result = await runEither(makeService(makeFakeOsScheduler().scheduler).list("agent1"));
-    expect(result._tag).toBe("Left");
+    expect(result._tag).toBe("Failure");
     expect(fs.readFileSync(filePath, "utf8")).toBe(newer);
   });
 });

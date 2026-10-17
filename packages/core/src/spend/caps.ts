@@ -148,7 +148,7 @@ export function listCapAgents(): Effect.Effect<readonly CapAgent[]> {
         ? Effect.succeed<readonly CapAgent[]>([])
         : service.value.listAgents().pipe(
             Effect.map((agents) => agents.map((agent) => ({ id: agent.id, name: agent.name }))),
-            Effect.catchAll(() => Effect.succeed<readonly CapAgent[]>([])),
+            Effect.catch(() => Effect.succeed<readonly CapAgent[]>([])),
           ),
     ),
   );

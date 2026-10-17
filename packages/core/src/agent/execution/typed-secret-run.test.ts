@@ -1,6 +1,5 @@
-import { FileSystem } from "@effect/platform";
 import { afterEach, describe, expect, it } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import { z } from "zod";
 import { closeUserSecretStore, openUserSecretStore } from "@/core/secrets/user-secrets";
 import { SkillServiceTag } from "@/core/skills/skill-service";

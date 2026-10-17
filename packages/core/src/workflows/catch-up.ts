@@ -158,9 +158,7 @@ export function getCatchUpCandidates() {
     const scheduler = yield* SchedulerServiceTag;
     const workflowService = yield* WorkflowServiceTag;
 
-    const scheduled = yield* scheduler
-      .listScheduled()
-      .pipe(Effect.catchAll(() => Effect.succeed([])));
+    const scheduled = yield* scheduler.listScheduled().pipe(Effect.catch(() => Effect.succeed([])));
     if (scheduled.length === 0) {
       return [];
     }
@@ -174,7 +172,7 @@ export function getCatchUpCandidates() {
     for (const entry of scheduled) {
       const workflow = yield* workflowService
         .getWorkflow(entry.workflowName)
-        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        .pipe(Effect.catch(() => Effect.succeed(undefined)));
 
       if (!workflow) continue;
 
@@ -232,7 +230,7 @@ export function claimWorkflowRuns(
     for (const entry of entries) {
       const workflow = yield* workflowService
         .getWorkflow(entry.workflowName)
-        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        .pipe(Effect.catch(() => Effect.succeed(undefined)));
       if (workflow === undefined) {
         yield* logger.warn("Catch-up skipped: workflow not found", {
           workflow: entry.workflowName,
@@ -321,7 +319,7 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
       });
     const finish = (update: Parameters<typeof updateRunRecord>[1]) =>
       updateRunRecord(record.id, { completedAt: new Date().toISOString(), ...update }).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           logger.warn("Workflow run record could not be updated", {
             workflow: entry.workflowName,
             error: toError(error).message,
@@ -329,8 +327,8 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
         ),
       );
 
-    const agentResult = yield* getAgentByIdentifier(entry.agent).pipe(Effect.either);
-    if (agentResult._tag === "Left") {
+    const agentResult = yield* getAgentByIdentifier(entry.agent).pipe(Effect.result);
+    if (agentResult._tag === "Failure") {
       yield* logger.warn("Catch-up skipped: agent not found", {
         workflow: entry.workflowName,
         agent: entry.agent,
@@ -342,7 +340,7 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
 
     const workflowContent = yield* workflowService
       .loadWorkflow(entry.workflowName)
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      .pipe(Effect.catch(() => Effect.succeed(undefined)));
     if (!workflowContent) {
       yield* logger.warn("Catch-up skipped: workflow content not available", {
         workflow: entry.workflowName,
@@ -376,7 +374,7 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
     });
 
     yield* AgentRunner.run({
-      agent: agentResult.right,
+      agent: agentResult.success,
       userInput: prompt,
       conversationId: formatAgentRunId(entry, new Date(record.startedAt)),
       pinInitialMessage: true,
@@ -403,12 +401,12 @@ export function runClaimedWorkflow(claim: ClaimedWorkflowRun) {
           config: notifyConfig,
           workflow: entry.workflowName,
           deliver: workflow.deliver,
-          agentId: agentResult.right.id,
+          agentId: agentResult.success.id,
           answer: response.content,
         }),
       ),
       Effect.tapError((error) => finish({ status: "failed", error: toError(error).message })),
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         logger.warn("Catch-up run failed", {
           workflow: entry.workflowName,
           error: toError(error).message,
@@ -429,7 +427,7 @@ export function runCatchUpForWorkflows(entries: readonly ScheduledWorkflow[]) {
   }
   return claimWorkflowRuns(entries).pipe(
     Effect.flatMap((claims) => Effect.forEach(claims, runClaimedWorkflow, { discard: true })),
-    Effect.catchAll(() => Effect.void),
+    Effect.catch(() => Effect.void),
   );
 }
 
@@ -442,9 +440,7 @@ export function runCatchUpForWorkflows(entries: readonly ScheduledWorkflow[]) {
 export function claimInProcessScheduledWorkflows() {
   return Effect.gen(function* () {
     const scheduler = yield* SchedulerServiceTag;
-    const scheduled = yield* scheduler
-      .listScheduled()
-      .pipe(Effect.catchAll(() => Effect.succeed([])));
+    const scheduled = yield* scheduler.listScheduled().pipe(Effect.catch(() => Effect.succeed([])));
     if (scheduled.length === 0) {
       return [] as ClaimedWorkflowRun[];
     }

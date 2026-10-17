@@ -6,9 +6,8 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileSystem } from "@effect/platform";
 import { describe, expect, it, spyOn } from "bun:test";
-import { Cause, Deferred, Effect, Either, Exit, Fiber, Layer, Option } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Result } from "effect";
 import { applyApprovalEdit, ToolExecutor } from "./tool-executor";
 import type { AgentConfigService } from "../../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
@@ -532,7 +531,7 @@ describe("ToolExecutor.executeToolCalls", () => {
 
     const program = Effect.gen(function* () {
       const interruptDeferred = yield* Deferred.make<void>();
-      const fiber = yield* Effect.fork(
+      const fiber = yield* Effect.forkChild(
         ToolExecutor.executeToolCalls(
           toolCalls,
           { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
@@ -563,7 +562,7 @@ describe("ToolExecutor.executeToolCalls", () => {
 
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
-      const error = Cause.failureOption(exit.cause);
+      const error = Cause.findErrorOption(exit.cause);
       expect(Option.isSome(error)).toBe(true);
       if (Option.isSome(error)) {
         expect(error.value).toBeInstanceOf(GenerationInterruptedError);
@@ -593,7 +592,7 @@ describe("ToolExecutor.executeToolCalls", () => {
         Effect.never.pipe(
           Effect.onInterrupt(() =>
             Effect.sleep("20 millis").pipe(
-              Effect.zipRight(
+              Effect.andThen(
                 Effect.sync(() => {
                   finalizerRan = true;
                 }),
@@ -608,7 +607,7 @@ describe("ToolExecutor.executeToolCalls", () => {
     ];
 
     const program = Effect.gen(function* () {
-      const fiber = yield* Effect.fork(
+      const fiber = yield* Effect.forkChild(
         ToolExecutor.executeToolCalls(
           toolCalls,
           { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
@@ -676,7 +675,7 @@ describe("ToolExecutor.executeToolCalls", () => {
       const backgroundDeferred = yield* Deferred.make<void>();
       const completions: DetachedToolResult[] = [];
 
-      const fiber = yield* Effect.fork(
+      const fiber = yield* Effect.forkChild(
         ToolExecutor.executeToolCalls(
           toolCalls,
           { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
@@ -1810,28 +1809,28 @@ describe("bound media during approval preflight", () => {
             "parent",
             "conv",
             "parent",
-          ).pipe(Effect.provide(makeTestLayer({ registry, presentation })), Effect.either),
+          ).pipe(Effect.provide(makeTestLayer({ registry, presentation })), Effect.result),
         );
       try {
         const parked = await run(context);
-        expect(parked._tag).toBe("Left");
+        expect(parked._tag).toBe("Failure");
         expect(child).not.toHaveBeenCalled();
         expect(siblingExecutions).toBe(0);
         const resumed = await run({
           ...context,
           resolvedApprovals: new Map([["sibling", { approved: true }]]),
         });
-        expect(resumed._tag).toBe("Right");
-        if (Either.isRight(resumed))
-          expect(resumed.right.map((result) => result.success)).toEqual([true, true]);
+        expect(resumed._tag).toBe("Success");
+        if (Result.isSuccess(resumed))
+          expect(resumed.success.map((result) => result.success)).toEqual([true, true]);
         expect(child).toHaveBeenCalledTimes(1);
         expect(siblingExecutions).toBe(1);
         const standalone = await run({ ...context, getAutoApprovePolicy: () => "high-risk" }, [
           calls[0]!,
         ]);
-        expect(standalone._tag).toBe("Right");
-        if (Either.isRight(standalone))
-          expect(standalone.right.map((result) => result.success)).toEqual([true]);
+        expect(standalone._tag).toBe("Success");
+        if (Result.isSuccess(standalone))
+          expect(standalone.success.map((result) => result.success)).toEqual([true]);
         expect(child).toHaveBeenCalledTimes(2);
       } finally {
         child.mockRestore();

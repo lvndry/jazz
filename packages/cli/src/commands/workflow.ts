@@ -98,7 +98,7 @@ export function listWorkflowsCommand(options: { readonly json?: boolean } = {}) 
     // Resolve scheduled and running status (best-effort; ignore scheduler errors on unsupported platforms)
     const scheduledNames = yield* scheduler.listScheduled().pipe(
       Effect.map((list) => new Set(list.map((s) => s.workflowName))),
-      Effect.catchAll(() => Effect.succeed(new Set<string>())),
+      Effect.catch(() => Effect.succeed(new Set<string>())),
     );
     const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
     const { runningNames, staleNames } = yield* loadRunHistory().pipe(
@@ -118,7 +118,7 @@ export function listWorkflowsCommand(options: { readonly json?: boolean } = {}) 
         }
         return { runningNames: running, staleNames: stale };
       }),
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         Effect.succeed({ runningNames: new Set<string>(), staleNames: new Set<string>() }),
       ),
     );
@@ -182,7 +182,7 @@ export function showWorkflowCommand(workflowName: string) {
     const workflowService = yield* WorkflowServiceTag;
 
     const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.gen(function* () {
           yield* terminal.error(`Workflow not found: ${workflowName}`);
           yield* terminal.info("Run 'jazz workflow list' to see available workflows.");
@@ -309,7 +309,7 @@ export function runWorkflowCommand(
       const scheduler = yield* SchedulerServiceTag;
       const allScheduled = yield* scheduler
         .listScheduled()
-        .pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+        .pipe(Effect.catch(() => Effect.succeed([] as const)));
       const scheduleMeta = allScheduled.find(
         (s) => s.workflowName === workflowName && s.label === scheduleLabel,
       );
@@ -350,7 +350,7 @@ export function runWorkflowCommand(
     }).pipe(Effect.option);
     const updateThisRun = (update: WorkflowRunUpdate): Effect.Effect<void> =>
       Option.isSome(runRecord)
-        ? updateRunRecord(runRecord.value.id, update).pipe(Effect.catchAll(() => Effect.void))
+        ? updateRunRecord(runRecord.value.id, update).pipe(Effect.catch(() => Effect.void))
         : Effect.void;
 
     // Helper: mark the just-opened "running" record as failed. Called on
@@ -365,7 +365,7 @@ export function runWorkflowCommand(
 
     // Load the workflow
     const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.gen(function* () {
           yield* markFailed(`Workflow not found: ${workflowName}`);
           yield* say(() => terminal.error(`Workflow not found: ${workflowName}`));
@@ -387,10 +387,10 @@ export function runWorkflowCommand(
 
     // Try to get the specified agent, or prompt user to select one
     let agent: Agent;
-    const agentResult = yield* getAgentByIdentifier(agentIdentifier).pipe(Effect.either);
+    const agentResult = yield* getAgentByIdentifier(agentIdentifier).pipe(Effect.result);
 
-    if (agentResult._tag === "Right") {
-      agent = agentResult.right;
+    if (agentResult._tag === "Success") {
+      agent = agentResult.success;
       yield* say(() =>
         terminal.info(`Using agent: ${agent.name} (${agentModelString(agent.config.llm)})`),
       );
@@ -462,13 +462,13 @@ export function runWorkflowCommand(
       autoApprove: autoApprovePolicy === true,
     });
 
-    const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
+    const history = yield* loadRunHistory().pipe(Effect.catch(() => Effect.succeed([])));
     const firedBy = isSchedulerTriggered
       ? yield* Effect.flatMap(SchedulerServiceTag, (scheduler) => scheduler.listScheduled()).pipe(
           Effect.map((all) =>
             all.find((s) => s.workflowName === workflowName && s.label === scheduleLabel),
           ),
-          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.catch(() => Effect.succeed(undefined)),
         )
       : undefined;
     const prompt = renderWorkflowPrompt(workflow.prompt, {
@@ -517,9 +517,10 @@ export function runWorkflowCommand(
     const runResult = yield* (
       options?.timeoutMs != null
         ? runEffect.pipe(
-            Effect.timeoutFail({
+            Effect.timeoutOrElse({
               duration: Duration.millis(options.timeoutMs),
-              onTimeout: () => new Error(`Run exceeded the ${options.timeoutMs}ms timeout.`),
+              orElse: () =>
+                Effect.fail(new Error(`Run exceeded the ${options.timeoutMs}ms timeout.`)),
             }),
           )
         : runEffect
@@ -537,7 +538,7 @@ export function runWorkflowCommand(
           status: "failed",
           error: toError(error).message,
           ...(runSpend?.costUSD !== undefined ? { costUSD: runSpend.costUSD } : {}),
-        }).pipe(Effect.catchAll(() => Effect.void)),
+        }).pipe(Effect.catch(() => Effect.void)),
       ),
       // The generic top-level error handler renders this failure (e.g. an
       // LLMRateLimitError after retries are exhausted) but never sets the
@@ -635,8 +636,8 @@ export function runWorkflowCommand(
     });
 
   return command.pipe(
-    Effect.catchAll(reportFailure),
-    Effect.catchAllDefect(reportFailure),
+    Effect.catch(reportFailure),
+    Effect.catchDefect(reportFailure),
     Effect.provide(makeOneShotPresentationServiceLayer(options?.eventTypes ?? new Set())),
   );
 }
@@ -670,7 +671,7 @@ export function scheduleWorkflowCommand(
 
     // Load the workflow to verify it exists
     const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.gen(function* () {
           yield* terminal.error(`Workflow not found: ${workflowName}`);
           yield* terminal.info("Run 'jazz workflow list' to see available workflows.");
@@ -729,11 +730,11 @@ export function scheduleWorkflowCommand(
     const workflowAgentId = workflow.metadata.agent || "default";
 
     // Try to verify the agent exists
-    const agentResult = yield* getAgentByIdentifier(workflowAgentId).pipe(Effect.either);
+    const agentResult = yield* getAgentByIdentifier(workflowAgentId).pipe(Effect.result);
 
-    if (agentResult._tag === "Right") {
+    if (agentResult._tag === "Success") {
       agentId = workflowAgentId;
-      agentName = agentResult.right.name;
+      agentName = agentResult.success.name;
       yield* terminal.info(`Using agent: ${agentName}`);
     } else {
       // Agent not found or not specified - prompt user to select one
@@ -901,7 +902,7 @@ export function catchupWorkflowCommand() {
     yield* terminal.log("");
 
     const candidates = yield* getCatchUpCandidates().pipe(
-      Effect.catchAll(() => Effect.succeed([] as readonly CatchUpCandidate[])),
+      Effect.catch(() => Effect.succeed([] as readonly CatchUpCandidate[])),
     );
 
     if (candidates.length === 0) {
@@ -1023,7 +1024,7 @@ export function workflowHistoryCommand(workflowName?: string) {
     }
     yield* terminal.log("");
 
-    yield* markInterruptedRuns().pipe(Effect.catchAll(() => Effect.succeed(0)));
+    yield* markInterruptedRuns().pipe(Effect.catch(() => Effect.succeed(0)));
     const runs = yield* getRecentRuns(20);
 
     // Filter by workflow name if provided
@@ -1099,7 +1100,7 @@ export function selectAgentForWorkflow(
   agents: readonly Agent[],
   prompt: string,
 ): Effect.Effect<Agent | null, never> {
-  return Effect.async<Agent | null, never>((resume) => {
+  return Effect.callback<Agent | null, never>((resume) => {
     store.setActiveMenu(
       {
         kind: "agents",

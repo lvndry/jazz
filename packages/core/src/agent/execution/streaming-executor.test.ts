@@ -1,7 +1,6 @@
-import { FileSystem } from "@effect/platform";
-import { describe, expect, it, mock } from "bun:test";
-import { Clock, Effect, Fiber, Layer, Queue, TestClock, TestContext } from "effect";
-import { Stream } from "effect";
+import { afterEach, describe, expect, it, mock, setSystemTime } from "bun:test";
+import { Clock, Effect, Fiber, FileSystem, Layer, Queue, Stream } from "effect";
+import { TestClock } from "effect/testing";
 import { executeWithStreaming } from "./streaming-executor";
 import { ToolExecutor } from "./tool-executor";
 import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
@@ -720,15 +719,27 @@ function hangingStream(
   onAbandoned: () => void,
   onStarted: () => void = () => {},
 ): Stream.Stream<never, never> {
-  return Stream.async<never, never>(() => {
-    onStarted();
-    return Effect.sync(onAbandoned);
-  });
+  return Stream.callback<never, never>(() =>
+    Effect.sync(onStarted).pipe(
+      Effect.andThen(Effect.addFinalizer(() => Effect.sync(onAbandoned))),
+    ),
+  );
 }
 
 /**
- * Runs the harness on Effect's test clock, which moves only when `drive` moves it, so the run's
- * time budget and retry backoff never depend on how fast the machine reaches each step.
+ * Moves `Date.now()`, which the run measures its time budget with, and then Effect's test clock,
+ * which wakes the run's sleeps, to the same instant. In that order, so a woken timer already
+ * reads the new time.
+ */
+function moveClocksTo(timestampMs: number): Effect.Effect<void> {
+  return Effect.sync(() => setSystemTime(new Date(timestampMs))).pipe(
+    Effect.andThen(TestClock.setTime(timestampMs)),
+  );
+}
+
+/**
+ * Runs the harness on a test clock that moves only when `drive` moves it, so the run's time
+ * budget and retry backoff never depend on how fast the machine reaches each step.
  */
 function runOnTestClock(
   harness: ReturnType<typeof makeStreamingHarness>,
@@ -736,31 +747,33 @@ function runOnTestClock(
 ): Promise<{ result: AgentResponse; elapsedMs: number }> {
   return Effect.runPromise(
     Effect.gen(function* () {
-      yield* TestClock.setTime(harness.startedAtMs);
-      const run = yield* Effect.fork(harness.program);
+      yield* moveClocksTo(harness.startedAtMs);
+      const run = yield* Effect.forkChild(harness.program);
       yield* drive;
       const result = yield* Fiber.join(run);
       const elapsedMs = (yield* Clock.currentTimeMillis) - harness.startedAtMs;
       return { result, elapsedMs };
-    }).pipe(Effect.provide(TestContext.TestContext)),
+    }).pipe(Effect.provide(TestClock.layer()), Effect.ensuring(Effect.sync(() => setSystemTime()))),
   );
 }
 
-/** Real time the test waits between looks at the test clock's pending sleeps. */
+/** Real time the test waits after each clock step, so timers started by that step can register. */
 const SLEEP_REGISTRATION_POLL_MS = 1;
 
+/** How far the test clock moves per step: one millisecond, so every timer fires at its exact due time. */
+const CLOCK_STEP_MS = 1;
+
 /**
- * Moves the test clock from one pending sleep to the next, earliest first, until `reached`
- * holds. The clock never passes `latestWakeMs`, so sleeps due later (the slow-model notice, the
- * step timeout) stay pending, and it never jumps past a timer that has yet to register.
+ * Moves the test clock forward one millisecond at a time until `reached` holds. The clock never
+ * passes `latestWakeMs`, so sleeps due later (the slow-model notice, the step timeout) stay
+ * pending, and a timer that registers between steps is never skipped.
  */
 function advanceClockUntil(reached: () => boolean, latestWakeMs: number): Effect.Effect<void> {
   return Effect.gen(function* () {
     while (!reached()) {
-      const pendingWakeTimes = yield* TestClock.sleeps();
-      const dueWakeTimes = [...pendingWakeTimes].filter((wakeMs) => wakeMs <= latestWakeMs);
-      if (dueWakeTimes.length > 0) {
-        yield* TestClock.setTime(Math.min(...dueWakeTimes));
+      const nowMs = yield* Clock.currentTimeMillis;
+      if (nowMs < latestWakeMs) {
+        yield* moveClocksTo(Math.min(nowMs + CLOCK_STEP_MS, latestWakeMs));
       }
       yield* Effect.promise(() => Bun.sleep(SLEEP_REGISTRATION_POLL_MS));
     }
@@ -783,12 +796,16 @@ function scriptedLLMService(
 }
 
 describe("executeWithStreaming cancellation", () => {
+  afterEach(() => {
+    setSystemTime();
+  });
+
   it("Esc during retry backoff stops the run without waiting out the backoff", async () => {
     let attempts = 0;
     const retryAnnounced = Effect.runSync(Queue.unbounded<void>());
     const harness = makeStreamingHarness({
       maxRetries: 5,
-      onRetryAnnounced: () => Queue.unsafeOffer(retryAnnounced, undefined),
+      onRetryAnnounced: () => Queue.offerUnsafe(retryAnnounced, undefined),
       llmService: scriptedLLMService(() => {
         attempts += 1;
         return Effect.succeed({
@@ -802,7 +819,7 @@ describe("executeWithStreaming cancellation", () => {
     const { result, elapsedMs } = await runOnTestClock(
       harness,
       Queue.take(retryAnnounced).pipe(
-        Effect.zipRight(Effect.sync(() => harness.interrupt.current?.())),
+        Effect.andThen(Effect.sync(() => harness.interrupt.current?.())),
       ),
     );
 
@@ -821,7 +838,7 @@ describe("executeWithStreaming cancellation", () => {
             () => {
               abandoned += 1;
             },
-            () => Queue.unsafeOffer(streamStarted, undefined),
+            () => Queue.offerUnsafe(streamStarted, undefined),
           ),
           response: Effect.never,
           cancel: Effect.void,
@@ -856,7 +873,7 @@ describe("executeWithStreaming cancellation", () => {
             cancel: Effect.void,
           }),
         () => {
-          Queue.unsafeOffer(fallbackStarted, undefined);
+          Queue.offerUnsafe(fallbackStarted, undefined);
           return Effect.never.pipe(
             Effect.onInterrupt(() =>
               Effect.sync(() => {
@@ -889,7 +906,7 @@ describe("executeWithStreaming cancellation", () => {
             () => {
               abandoned += 1;
             },
-            () => Queue.unsafeOffer(callStarted, undefined),
+            () => Queue.offerUnsafe(callStarted, undefined),
           ),
           response: Effect.never,
           cancel: Effect.void,

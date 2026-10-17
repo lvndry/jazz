@@ -291,7 +291,7 @@ export class InkTerminalService implements TerminalService {
       step?: PromptStep;
     },
   ): Effect.Effect<string | undefined, never> {
-    return Effect.async<string | undefined>((resume) => {
+    return Effect.callback<string | undefined>((resume) => {
       const validateFn = options?.validate;
       const isCancellable = options?.cancellable === true || options?.secret === true;
       const isSimple = options?.simple === true;
@@ -388,7 +388,7 @@ export class InkTerminalService implements TerminalService {
       validate?: (input: string) => boolean | string;
     },
   ): Effect.Effect<string, never> {
-    return Effect.async((resume) => {
+    return Effect.callback((resume) => {
       // Store the validate function to ensure it's properly passed to the prompt
       const validateFn = options?.validate;
 
@@ -422,7 +422,7 @@ export class InkTerminalService implements TerminalService {
       step?: PromptStep;
     },
   ): Effect.Effect<T | undefined, never> {
-    return Effect.async<T | undefined>((resume) => {
+    return Effect.callback<T | undefined>((resume) => {
       const choices = normalizeChoices(options.choices);
       const customAnswer = options.customAnswer;
       store.setPrompt({
@@ -458,7 +458,7 @@ export class InkTerminalService implements TerminalService {
     message: string,
     defaultValue: boolean = false,
   ): Effect.Effect<boolean | undefined, never> {
-    return Effect.async<boolean | undefined>((resume) => {
+    return Effect.callback<boolean | undefined>((resume) => {
       store.setPrompt({
         type: "confirm",
         message,
@@ -485,7 +485,7 @@ export class InkTerminalService implements TerminalService {
     },
   ): Effect.Effect<T | undefined, never> {
     const remove = options.remove;
-    return Effect.async<T | undefined>((resume) => {
+    return Effect.callback<T | undefined>((resume) => {
       const choices = normalizeChoices(options.choices);
       store.setPrompt({
         type: "search",
@@ -517,7 +517,7 @@ export class InkTerminalService implements TerminalService {
       step?: PromptStep;
     },
   ): Effect.Effect<readonly T[] | undefined, never> {
-    return Effect.async<readonly T[] | undefined>((resume) => {
+    return Effect.callback<readonly T[] | undefined>((resume) => {
       const choices = normalizeChoices(options.choices);
       store.setPrompt({
         type: "checkbox",

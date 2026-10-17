@@ -9,8 +9,7 @@
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
@@ -532,7 +531,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         const outputMode = args.outputMode ?? "content";
 
         // Check path exists
-        const stat = yield* fs.stat(start).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const stat = yield* fs.stat(start).pipe(Effect.catch(() => Effect.succeed(null)));
         if (stat === null) {
           return yield* Effect.fail(new Error(`Path does not exist: ${start}`));
         }

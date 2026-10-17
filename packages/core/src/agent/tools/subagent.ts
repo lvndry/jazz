@@ -815,11 +815,11 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
               hooks,
               workDigest,
             }).pipe(
-              Effect.catchAllCause((cause) =>
+              Effect.catchCause((cause) =>
                 Effect.succeed<ToolExecutionResult>({
                   success: false,
                   result: null,
-                  error: Cause.isInterruptedOnly(cause)
+                  error: Cause.hasInterruptsOnly(cause)
                     ? "The sub-agent was stopped."
                     : `${toError(Cause.squash(cause)).message}\n${workDigest.describe()}`,
                 }),
@@ -999,7 +999,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             try: () =>
               getModelsDevMetadata(parentAgent.config.llm.model, parentAgent.config.llm.provider),
             catch: () => new Error("Failed to fetch model metadata"),
-          }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+          }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 
           const contextWindowMaxTokens = resolveEffectiveContextWindow({
             provider: parentAgent.config.llm.provider,

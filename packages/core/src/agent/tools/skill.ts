@@ -47,7 +47,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
 
           const skills = yield* skillService
             .listSkills()
-            .pipe(Effect.catchAll(() => Effect.succeed([] as readonly SkillMetadata[])));
+            .pipe(Effect.catch(() => Effect.succeed([] as readonly SkillMetadata[])));
 
           const ranked = scoreSkillsForQuery(query, skills, limit);
           if (ranked.length === 0) {

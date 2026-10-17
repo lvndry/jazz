@@ -4,7 +4,6 @@
  */
 
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { MAX_REMINDERS_PER_AGENT, REMINDER_TEXT_MAX_LENGTH } from "@jazz/core/constants/reminders";
 import type {
   AddReminderOutcome,
@@ -24,7 +23,7 @@ import {
   createReminderOsScheduler,
   type ReminderOsScheduler,
 } from "@jazz/core/wake-triggers/reminder-os-scheduler";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import {
   claimDueItems,
   claimItem,
@@ -142,7 +141,7 @@ export class ReminderServiceImpl implements ReminderService {
       const fs = yield* FileSystem.FileSystem;
       yield* fs
         .makeDirectory(baseReminderDirectory, { recursive: true, mode: stateDirectoryMode() })
-        .pipe(Effect.catchAll((error) => Effect.fail(toError(error))));
+        .pipe(Effect.catch((error) => Effect.fail(toError(error))));
       return yield* withLock(lockPath, operation);
     });
   }
@@ -196,7 +195,7 @@ export class ReminderServiceImpl implements ReminderService {
             ? {}
             : yield* (yield* this.resolveOsScheduler())
                 .scheduleFire(agentId, reminderId, fireAt)
-                .pipe(Effect.catchAll(() => Effect.succeed({})));
+                .pipe(Effect.catch(() => Effect.succeed({})));
 
           const reminder: ReminderRecord = {
             id: reminderId,
@@ -247,7 +246,7 @@ export class ReminderServiceImpl implements ReminderService {
             const osScheduler = yield* this.resolveOsScheduler();
             yield* osScheduler
               .cancelFire(agentId, id, removedReminder.osSchedulerJobId)
-              .pipe(Effect.catchAll(() => Effect.void));
+              .pipe(Effect.catch(() => Effect.void));
           }
 
           return { success: true, message: "Reminder cancelled." } satisfies CancelReminderOutcome;
@@ -286,7 +285,7 @@ export function claimDueReminders(
       for (const { agentId, item } of claims) {
         yield* osScheduler
           .cancelFire(agentId, item.id, item.osSchedulerJobId)
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
       }
     }
     return claims;

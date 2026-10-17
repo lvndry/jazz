@@ -346,7 +346,7 @@ export function runAgentOnceCommand(
         yield* Effect.tryPromise({
           try: () => readFirstStdinLine(),
           catch: () => new Error("Failed to read --input-stdin from stdin."),
-        }).pipe(Effect.catchAll(() => Effect.succeed(undefined))),
+        }).pipe(Effect.catch(() => Effect.succeed(undefined))),
       );
       if (!frame.ok) {
         return yield* failOneShot(frame.error, outputOptions);
@@ -363,7 +363,7 @@ export function runAgentOnceCommand(
       prompt = yield* Effect.tryPromise({
         try: () => readStdin(),
         catch: () => new Error("Failed to read prompt from stdin."),
-      }).pipe(Effect.catchAll(() => Effect.succeed("")));
+      }).pipe(Effect.catch(() => Effect.succeed("")));
     }
     if (prompt.trim().length === 0) {
       return yield* failOneShot(
@@ -483,7 +483,7 @@ export function runAgentOnceCommand(
           cwd: process.cwd(),
           ...(data !== undefined ? { data } : {}),
         });
-      }).pipe(Effect.catchAll(() => Effect.void));
+      }).pipe(Effect.catch(() => Effect.void));
 
     yield* emitLifecycle("user-prompt", { prompt: prompt.slice(0, 2000) });
 
@@ -520,7 +520,7 @@ export function runAgentOnceCommand(
         ? {
             checkQueuedMessage: () => inbox.take(),
             awaitQueuedMessage: () =>
-              Effect.async<void>((resume) => {
+              Effect.callback<void>((resume) => {
                 const cancel = inbox.onceWaiting(() => resume(Effect.void));
                 return Effect.sync(cancel);
               }),
@@ -579,7 +579,7 @@ export function runAgentOnceCommand(
                 );
               }),
         ),
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.sync(() => {
             process.stderr.write(
               `Warning: failed to save conversation "${conversationKey}": ${getErrorMessage(error)}\n`,
@@ -672,7 +672,7 @@ export function runAgentOnceCommand(
           process.exitCode = ONE_SHOT_EXIT.parked;
         }),
     ),
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       failOneShot(
         getErrorMessage(error),
         outputOptions,

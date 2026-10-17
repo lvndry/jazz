@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   EMPTY_CONVERSATION_REVISION,
@@ -10,7 +9,7 @@ import {
 } from "@jazz/adapters/history/conversation-history-service";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import {
   persistConversationIfNeeded,
   shouldPersistConversation,

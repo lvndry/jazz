@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import type {
   FactSuggestionInput,
@@ -9,7 +8,7 @@ import type {
 } from "@jazz/core/interfaces/memory-suggestion";
 import { quotedSentenceKeys } from "@jazz/core/memory/source-trust";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, type FileSystem } from "effect";
 import { MemoryServiceImpl } from "./memory-service";
 import { MAX_PENDING_SUGGESTIONS } from "./memory-suggestions";
 
@@ -152,8 +151,8 @@ describe("lesson proposals", () => {
     fs.writeFileSync(path.join(tmpDir, ".pending-memory.json"), "{not json");
 
     expect(await runEffect(service.pendingSuggestions())).toEqual([]);
-    const outcome = await runEffect(service.proposeLesson(priorArt).pipe(Effect.either));
-    expect(outcome._tag).toBe("Left");
+    const outcome = await runEffect(service.proposeLesson(priorArt).pipe(Effect.result));
+    expect(outcome._tag).toBe("Failure");
   });
 
   test("an accept and a reject racing on one lesson never both succeed", async () => {

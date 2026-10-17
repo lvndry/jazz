@@ -31,11 +31,11 @@ export interface PeerLedgerService {
   readonly record: (entry: LedgerEntry) => Effect.Effect<void, never>;
 }
 
-export const PeerLedgerServiceTag = Context.GenericTag<PeerLedgerService>("PeerLedgerService");
+export const PeerLedgerServiceTag = Context.Service<PeerLedgerService>("PeerLedgerService");
 
 /** Finding a peer's bearer token. */
 export interface PeerTokenService {
   readonly resolveToken: (peerName: string) => Effect.Effect<string | undefined, never>;
 }
 
-export const PeerTokenServiceTag = Context.GenericTag<PeerTokenService>("PeerTokenService");
+export const PeerTokenServiceTag = Context.Service<PeerTokenService>("PeerTokenService");

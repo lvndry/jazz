@@ -24,5 +24,4 @@ export interface SavedSecretsService {
   readonly storageDescription: Effect.Effect<string>;
 }
 
-export const SavedSecretsServiceTag =
-  Context.GenericTag<SavedSecretsService>("SavedSecretsService");
+export const SavedSecretsServiceTag = Context.Service<SavedSecretsService>("SavedSecretsService");

@@ -275,9 +275,9 @@ describe("resumeDaemon", () => {
     const test = harness(config);
     await spent({ unattended: true, costUSD: 2 });
     const refused = await Effect.runPromise(
-      Effect.either(guardRunStart({ ...workflowRun, home: jazzHome })),
+      Effect.result(guardRunStart({ ...workflowRun, home: jazzHome })),
     );
-    expect(refused._tag).toBe("Left");
+    expect(refused._tag).toBe("Failure");
 
     const state = await test.run(resumeDaemon());
 
@@ -300,7 +300,7 @@ describe("resumeDaemon", () => {
 
     await test.run(resumeDaemon());
     const check = await Effect.runPromise(
-      Effect.either(
+      Effect.result(
         guardRunStart({
           ...workflowRun,
           appConfig: { daemon: { dailyCostUSD: 1, monthlyCostUSD: 1 } } as AppConfig,
@@ -309,7 +309,7 @@ describe("resumeDaemon", () => {
       ),
     );
 
-    expect(check._tag === "Left" && check.left.message).toContain("monthly cap");
+    expect(check._tag === "Failure" && check.failure.message).toContain("monthly cap");
   });
 });
 

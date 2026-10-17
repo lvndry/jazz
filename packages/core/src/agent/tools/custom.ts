@@ -81,7 +81,7 @@ function runCustomToolCommand(
   env: ProcessEnvRecord,
   timeoutMs: number,
 ): Effect.Effect<CommandExecutionOutcome> {
-  return Effect.async<CommandExecutionOutcome>((resume) => {
+  return Effect.callback<CommandExecutionOutcome>((resume) => {
     const [command, ...args] = argv;
     if (!command) {
       resume(Effect.succeed({ ok: false, error: "Custom tool command is empty" }));
@@ -171,7 +171,7 @@ function runCustomToolCommand(
     return Effect.sync(() => {
       clearTimers();
       settled = true;
-    }).pipe(Effect.zipRight(Effect.promise(() => terminateProcessGroup(spawned))));
+    }).pipe(Effect.andThen(Effect.promise(() => terminateProcessGroup(spawned))));
   });
 }
 
@@ -415,7 +415,7 @@ export function registerCustomToolsForAgent(
         // name again is expected — it's not necessarily a collision. Only
         // fail if the existing registration is NOT this same custom-tool
         // definition (a different custom tool, or a builtin/MCP tool).
-        const existingDefinition = Option.fromNullable(
+        const existingDefinition = Option.fromNullishOr(
           existingTool.value.sourceCustomToolDefinition,
         );
 

@@ -33,7 +33,7 @@ function reportFailureOnce(error: string): void {
 export class NotificationServiceImpl implements NotificationService {
   /** Returns at once; the notification is sent on a background fiber so a run never waits on it. */
   notify(message: string, options?: NotificationOptions): Effect.Effect<void, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const configService = yield* Effect.serviceOption(AgentConfigServiceTag);
       const appConfig = Option.isSome(configService) ? yield* configService.value.appConfig : null;
       const notificationsConfig = appConfig?.notifications;
@@ -46,7 +46,7 @@ export class NotificationServiceImpl implements NotificationService {
       if (Option.isSome(pluginRuntime)) {
         const pluginHandles = yield* pluginRuntime.value
           .hasNotificationPlugin()
-          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+          .pipe(Effect.catch(() => Effect.succeed(false)));
         if (pluginHandles) {
           return;
         }
@@ -67,7 +67,7 @@ export class NotificationServiceImpl implements NotificationService {
         Effect.tap((outcome) =>
           outcome.delivered ? Effect.void : Effect.sync(() => reportFailureOnce(outcome.error)),
         ),
-        Effect.forkDaemon,
+        Effect.forkDetach,
       );
     });
   }

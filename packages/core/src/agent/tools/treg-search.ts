@@ -82,13 +82,13 @@ export function executeTregSearch(
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const free = yield* Effect.either(
+    const free = yield* Effect.result(
       Effect.tryPromise({
         try: () => callTinyFish(args, token),
         catch: () => new Error("Free treg search unavailable"),
       }),
     );
-    let response: SearchResponse | undefined = free._tag === "Right" ? free.right : undefined;
+    let response: SearchResponse | undefined = free._tag === "Success" ? free.success : undefined;
     if (!response || response.results.length === 0) {
       yield* logger.info("Treg search using capped paid fallback", { provider: "treg" });
       response = yield* Effect.tryPromise({

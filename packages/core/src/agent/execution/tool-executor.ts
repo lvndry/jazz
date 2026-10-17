@@ -3,7 +3,7 @@
  * classification, approval gating, concurrency limits, timeouts, and interruption.
  */
 
-import { Cause, Effect, Either, Exit, Fiber, Option } from "effect";
+import { Cause, Effect, Exit, Fiber, Option, Result } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { resolveCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
@@ -295,7 +295,7 @@ export class ToolExecutor {
       let timeoutMs = overrideTimeoutMs;
       const toolMeta = yield* registry
         .getTool(name)
-        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        .pipe(Effect.catch(() => Effect.succeed(undefined)));
       if (timeoutMs === undefined) {
         timeoutMs = toolMeta?.timeoutMs;
         // Long-running tools (e.g. user interaction) with no explicit timeout run indefinitely
@@ -320,9 +320,9 @@ export class ToolExecutor {
       const execution = registry.executeTool(name, args, context);
       const result = yield* timeoutMs !== undefined
         ? execution.pipe(
-            Effect.timeoutFail({
+            Effect.timeoutOrElse({
               duration: timeoutMs,
-              onTimeout: () => new ToolTimeoutError({ toolName: name, timeoutMs }),
+              orElse: () => Effect.fail(new ToolTimeoutError({ toolName: name, timeoutMs })),
             }),
             Effect.catchTag("ToolTimeoutError", (timeout) =>
               Effect.gen(function* () {
@@ -523,7 +523,7 @@ export class ToolExecutor {
         const registry = yield* ToolRegistryTag;
         const toolMeta = yield* registry
           .getTool(name)
-          .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+          .pipe(Effect.catch(() => Effect.succeed(undefined)));
         telemetryToolName = toolMeta?.name ?? "unknown";
         const isLongRunning = toolMeta?.longRunning === true;
 
@@ -667,7 +667,7 @@ export class ToolExecutor {
           // Get the tool's risk level to check against auto-approve policy
           const toolInfo = yield* registry
             .getTool(name)
-            .pipe(Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })));
+            .pipe(Effect.catch(() => Effect.succeed({ riskLevel: "high-risk" as const })));
           let riskLevel = plainGateRisk ?? toolInfo.riskLevel;
 
           const getCurrentPolicy = () => context.getAutoApprovePolicy?.();
@@ -971,7 +971,7 @@ export class ToolExecutor {
             finalToolName = approvalResult.executeToolName;
             const executeToolMeta = yield* registry
               .getTool(finalToolName)
-              .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+              .pipe(Effect.catch(() => Effect.succeed(undefined)));
             telemetryToolName = executeToolMeta?.name ?? "unknown";
 
             yield* logger.debug("Execution tool completed after approval", {
@@ -1156,7 +1156,7 @@ export class ToolExecutor {
       // Do this in parallel so large tool batches don't pay a sequential pre-pass.
       const uniqueToolNames = Array.from(new Set(toolNames));
       const toolResults = yield* Effect.all(
-        uniqueToolNames.map((toolName) => Effect.either(registry.getTool(toolName))),
+        uniqueToolNames.map((toolName) => Effect.result(registry.getTool(toolName))),
         { concurrency: MAX_CONCURRENT_TOOLS },
       );
       const approvalToolNameSet = new Set<string>();
@@ -1164,9 +1164,9 @@ export class ToolExecutor {
       for (let i = 0; i < uniqueToolNames.length; i++) {
         const uniqueToolName = uniqueToolNames[i];
         const toolResult = toolResults[i];
-        if (uniqueToolName && toolResult && Either.isRight(toolResult)) {
-          toolMetaByName.set(uniqueToolName, toolResult.right);
-          if (toolResult.right.approvalExecuteToolName) {
+        if (uniqueToolName && toolResult && Result.isSuccess(toolResult)) {
+          toolMetaByName.set(uniqueToolName, toolResult.success);
+          if (toolResult.success.approvalExecuteToolName) {
             approvalToolNameSet.add(uniqueToolName);
           }
         }
@@ -1294,7 +1294,7 @@ export class ToolExecutor {
               ...context,
               toolCallId: toolCall.id,
               approvalPhase: "preflight",
-            }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+            }).pipe(Effect.catch(() => Effect.succeed(undefined)));
             if (probe === undefined || !isApprovalRequiredResult(probe.result)) continue;
             if (!isRequestBoundToTool(toolMeta, probe.result)) continue;
             request = probe.result;
@@ -1389,9 +1389,7 @@ export class ToolExecutor {
       const park = yield* parkTheBatch;
       if (park !== undefined) return yield* Effect.fail(park);
 
-      const settleToolBatch = (
-        toolFibers: ReadonlyArray<Fiber.RuntimeFiber<ToolCallOutcome, Error>>,
-      ) =>
+      const settleToolBatch = (toolFibers: ReadonlyArray<Fiber.Fiber<ToolCallOutcome, Error>>) =>
         Effect.gen(function* () {
           const awaitResults = Effect.all(
             toolFibers.map((fiber) => Fiber.join(fiber)),
@@ -1434,10 +1432,10 @@ export class ToolExecutor {
                 if (fiber === undefined || toolCall === undefined || toolCall.type !== "function") {
                   continue;
                 }
-                const poll = yield* Fiber.poll(fiber);
+                const poll = yield* Effect.sync(() => Option.fromUndefinedOr(fiber.pollUnsafe()));
                 if (
                   Option.isNone(poll) ||
-                  (Option.isSome(poll) && Exit.isInterrupted(poll.value))
+                  (Option.isSome(poll) && Exit.hasInterrupts(poll.value))
                 ) {
                   yield* renderer.handleEvent({
                     type: "tool_execution_complete",
@@ -1475,7 +1473,7 @@ export class ToolExecutor {
 
       /**
        * Tool calls run as daemon fibers so a call detached into the background (Ctrl+B)
-       * outlives this batch; a plain `Effect.fork` child is interrupted as soon as its
+       * outlives this batch; a plain `Effect.forkChild` child is interrupted as soon as its
        * parent scope closes. Being daemons, they are not interrupted with the run on their
        * own, so every fiber is interrupted explicitly when this batch is interrupted
        * (`--timeout`, SIGTERM, a run deadline, a parent's race). `Fiber.interrupt` waits for
@@ -1486,7 +1484,7 @@ export class ToolExecutor {
         Effect.gen(function* () {
           const toolFibers = yield* Effect.all(
             toolCalls.map((toolCall) =>
-              Effect.forkDaemon(
+              Effect.forkDetach(
                 Effect.interruptible(
                   // Tapped once here rather than at each of the several places a call can
                   // finish, so a new return path cannot quietly stop reporting.
@@ -1561,7 +1559,7 @@ export interface ToolCallOutcome {
  * so the caller decides how that summary reaches the model.
  */
 function detachInFlightToolCalls(
-  toolFibers: ReadonlyArray<Fiber.RuntimeFiber<ToolCallOutcome, Error>>,
+  toolFibers: ReadonlyArray<Fiber.Fiber<ToolCallOutcome, Error>>,
   toolCalls: readonly ToolCall[],
   renderer: StreamingRenderer | null,
   displayConfig: DisplayConfig,
@@ -1576,7 +1574,7 @@ function detachInFlightToolCalls(
       if (fiber === undefined || toolCall === undefined) continue;
       const name = toolCall.type === "function" ? toolCall.function.name : "unknown";
 
-      const poll = yield* Fiber.poll(fiber);
+      const poll = yield* Effect.sync(() => Option.fromUndefinedOr(fiber.pollUnsafe()));
       if (Option.isSome(poll) && Exit.isSuccess(poll.value)) {
         // Already finished naturally in the gap between the signal firing and this
         // running — its real result, not a placeholder.
@@ -1608,7 +1606,7 @@ function detachInFlightToolCalls(
         });
       }
 
-      yield* Effect.forkDaemon(
+      yield* Effect.forkDetach(
         Fiber.await(fiber).pipe(
           Effect.flatMap((exit) =>
             Effect.sync(() => {

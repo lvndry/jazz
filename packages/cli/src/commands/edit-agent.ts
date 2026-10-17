@@ -190,7 +190,7 @@ export function editAgentCommand(
       // Get current provider info for model selection
       const currentProviderInfo = yield* llmService
         .getProvider(agent.config.llm.provider)
-        .pipe(Effect.catchAll(() => Effect.succeed(null as LLMProvider | null)));
+        .pipe(Effect.catch(() => Effect.succeed(null as LLMProvider | null)));
 
       // Check if current model is reasoning model (needed for field choices)
       // Use models.dev metadata directly for more accuracy (especially for newer models)
@@ -289,7 +289,7 @@ export function editAgentCommand(
               // Discover tools from server with timeout (45 seconds per server to allow for authentication)
               const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
                 Effect.timeout("45 seconds"),
-                Effect.catchAll((error) =>
+                Effect.catch((error) =>
                   Effect.gen(function* () {
                     // Log detailed error information
                     const errorMessage = toError(error).message;
@@ -386,7 +386,7 @@ export function editAgentCommand(
                 `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name}`,
               );
             }).pipe(
-              Effect.catchAll(() =>
+              Effect.catch(() =>
                 Effect.gen(function* () {
                   // If discovery/registration fails, continue without this server's tools
                   yield* logger.warn("MCP tool discovery or registration failed", {
@@ -691,12 +691,12 @@ async function promptForAgentUpdates(
 
       let providerInfo: LLMProvider;
       const providerResult = await Effect.runPromise(
-        llmService.getProvider(llmProvider).pipe(Effect.either),
+        llmService.getProvider(llmProvider).pipe(Effect.result),
       );
       if (
-        providerResult._tag === "Left" &&
+        providerResult._tag === "Failure" &&
         (llmProvider === "vllm" || llmProvider === "sglang") &&
-        providerResult.left.reason === "unauthorized"
+        providerResult.failure.reason === "unauthorized"
       ) {
         const keyResult = await ensureProviderApiKey({
           configService,
@@ -705,14 +705,14 @@ async function promptForAgentUpdates(
           displayName: providerDisplayName,
           required: true,
           force: true,
-          reason: providerResult.left.message,
+          reason: providerResult.failure.message,
         });
         if (keyResult === "cancelled") continue;
         providerInfo = await Effect.runPromise(llmService.getProvider(llmProvider));
-      } else if (providerResult._tag === "Left") {
-        throw providerResult.left;
+      } else if (providerResult._tag === "Failure") {
+        throw providerResult.failure;
       } else {
-        providerInfo = providerResult.right;
+        providerInfo = providerResult.success;
       }
 
       const soleLiveModel =

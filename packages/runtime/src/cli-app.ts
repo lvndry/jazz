@@ -797,12 +797,10 @@ async function runRemoteHelper(helper: () => Promise<void>): Promise<void> {
   try {
     await helper();
   } catch (error) {
-    const { Cause, Runtime } = await import("effect");
-    let failure: unknown = Runtime.isFiberFailure(error)
-      ? Cause.squash(error[Runtime.FiberFailureCauseId])
-      : error;
-    if (Cause.isUnknownException(failure)) {
-      failure = failure.error;
+    const { Cause } = await import("effect");
+    let failure: unknown = error;
+    if (Cause.isUnknownError(failure)) {
+      failure = failure.cause;
     }
     process.stderr.write(`${failure instanceof Error ? failure.message : String(failure)}\n`);
     process.exitCode = 1;

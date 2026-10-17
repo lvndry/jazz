@@ -126,7 +126,7 @@ class LaunchdOneShotScheduler implements OneShotOsScheduler {
         // Unload a stale job with the same label first, ignoring errors (there usually isn't
         // one — item ids are fresh per registration).
         yield* execCommand("launchctl", ["unload", plistFilePath]).pipe(
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         );
 
         yield* Effect.tryPromise({
@@ -146,12 +146,12 @@ class LaunchdOneShotScheduler implements OneShotOsScheduler {
       function* (this: LaunchdOneShotScheduler) {
         const plistFilePath = jobPlistPath(this.config, agentId, itemId);
         yield* execCommand("launchctl", ["unload", plistFilePath]).pipe(
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         );
         yield* Effect.tryPromise({
           try: () => fs.unlink(plistFilePath),
           catch: toError,
-        }).pipe(Effect.catchAll(() => Effect.void));
+        }).pipe(Effect.catch(() => Effect.void));
       }.bind(this),
     );
   }
@@ -228,7 +228,7 @@ class AtOneShotScheduler implements OneShotOsScheduler {
     if (osSchedulerJobId === undefined) {
       return Effect.void;
     }
-    return execCommand("atrm", [osSchedulerJobId]).pipe(Effect.catchAll(() => Effect.void));
+    return execCommand("atrm", [osSchedulerJobId]).pipe(Effect.catch(() => Effect.void));
   }
 }
 
@@ -296,7 +296,7 @@ export function createOneShotOsScheduler(
     if (platform === "linux") {
       const hasAt = yield* execCommand("which", ["at"]).pipe(
         Effect.map(() => true),
-        Effect.catchAll(() => Effect.succeed(false)),
+        Effect.catch(() => Effect.succeed(false)),
       );
       return hasAt ? new AtOneShotScheduler(config) : new NoopOneShotScheduler("in-process");
     }

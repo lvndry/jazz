@@ -2,8 +2,7 @@
  * `Tool` shape and the `ToolRegistry` interface agents use to register,
  * discover, and execute tools.
  */
-import { FileSystem } from "@effect/platform";
-import { Context, Effect } from "effect";
+import { Context, Effect, FileSystem } from "effect";
 import type z from "zod";
 import type { GoalStoreTag } from "@/core/interfaces/goal-store";
 import type { WorkspaceService } from "@/core/interfaces/workspace-service";
@@ -407,4 +406,4 @@ export interface ToolRegistry {
   >;
 }
 
-export const ToolRegistryTag = Context.GenericTag<ToolRegistry>("ToolRegistry");
+export const ToolRegistryTag = Context.Service<ToolRegistry>("ToolRegistry");

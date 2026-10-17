@@ -78,7 +78,7 @@ function persist(
       fallbackTitle: turn.fallbackTitle,
       messages,
     }).pipe(
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         logger.warn("Unattended conversation save failed", {
           source: logSource(turn.source),
           errorType: "save_failed",
@@ -255,8 +255,8 @@ export function hasParkedRun(conversationId: string) {
 export function runUnattendedTurn(turn: UnattendedTurn) {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const agentResult = yield* getAgentByIdentifier(turn.agentId).pipe(Effect.either);
-    if (agentResult._tag === "Left") {
+    const agentResult = yield* getAgentByIdentifier(turn.agentId).pipe(Effect.result);
+    if (agentResult._tag === "Failure") {
       yield* logger.warn("Unattended run skipped: agent not found", {
         source: logSource(turn.source),
         errorType: "agent_not_found",
@@ -268,7 +268,7 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
       };
       return missingAgent;
     }
-    const agent = agentResult.right;
+    const agent = agentResult.success;
 
     // The lease spans the load and the save, so the turn builds on whatever the turn before it
     // saved instead of forking beside it.
@@ -290,7 +290,7 @@ export function runUnattendedTurn(turn: UnattendedTurn) {
           ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
         }).pipe(
           Effect.map(classifyTurnResponse),
-          Effect.catchAll((error) => Effect.succeed(classifyTurnOutcome({ ok: false, error }))),
+          Effect.catch((error) => Effect.succeed(classifyTurnOutcome({ ok: false, error }))),
         );
 
         switch (outcome.kind) {

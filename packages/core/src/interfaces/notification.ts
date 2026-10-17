@@ -27,5 +27,4 @@ export interface NotificationService {
   readonly desktopAvailable: () => Effect.Effect<boolean, never>;
 }
 
-export const NotificationServiceTag =
-  Context.GenericTag<NotificationService>("NotificationService");
+export const NotificationServiceTag = Context.Service<NotificationService>("NotificationService");

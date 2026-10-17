@@ -88,4 +88,4 @@ export interface PersonaService {
   ) => Effect.Effect<Persona, StorageError | PersonaNotFoundError | StorageNotFoundError>;
 }
 
-export const PersonaServiceTag = Context.GenericTag<PersonaService>("PersonaService");
+export const PersonaServiceTag = Context.Service<PersonaService>("PersonaService");

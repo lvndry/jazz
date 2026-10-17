@@ -154,7 +154,7 @@ export class TelemetryServiceImpl implements TelemetryService {
         }
       }
     }).pipe(
-      Effect.zipRight(
+      Effect.andThen(
         this.appendEvent(
           "agent_run_started",
           { ...data, process: data.process ?? sampleProcessResources() },

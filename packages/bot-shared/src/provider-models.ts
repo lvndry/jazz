@@ -21,9 +21,7 @@ export async function listModelsForProvider(
 ): Promise<ProviderModelChoice[]> {
   const apiKey = llmProviderApiKeyFromEnv(provider);
   const models = await Effect.runPromise(
-    listModelsForProviderShared(provider, { apiKey }).pipe(
-      Effect.catchAll(() => Effect.succeed([])),
-    ),
+    listModelsForProviderShared(provider, { apiKey }).pipe(Effect.catch(() => Effect.succeed([]))),
   );
   return [...models]
     .sort((left, right) => left.id.localeCompare(right.id))

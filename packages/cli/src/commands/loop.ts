@@ -140,9 +140,7 @@ export function startLoopCommand(options: StartLoopOptions) {
       `${yield* describeLoopNow(outcome.loop, "cli")}\n\n${describeDaemonStart(`Loop ${outcome.loop.name}`, daemon)}`,
     );
   }).pipe(
-    Effect.catchAll((error) =>
-      Effect.sync(() => failEnvelope(options.json, toError(error).message)),
-    ),
+    Effect.catch((error) => Effect.sync(() => failEnvelope(options.json, toError(error).message))),
     provideStores,
   );
 }

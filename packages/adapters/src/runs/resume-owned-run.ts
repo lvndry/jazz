@@ -46,9 +46,7 @@ export function pendingRunInput(runId: string) {
   });
 }
 
-export type PendingRunInput = NonNullable<
-  Effect.Effect.Success<ReturnType<typeof pendingRunInput>>
->;
+export type PendingRunInput = NonNullable<Effect.Success<ReturnType<typeof pendingRunInput>>>;
 
 /** What a person answers a goal's or loop's waiting run with. */
 export type RunAnswer =

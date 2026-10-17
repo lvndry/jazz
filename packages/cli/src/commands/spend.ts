@@ -75,12 +75,12 @@ export function describeCap(cap: CapStatus, keyWidth: number): string {
 export function spendCommand(options: { readonly json: boolean }) {
   return Effect.gen(function* () {
     const appConfig = yield* (yield* AgentConfigServiceTag).appConfig;
-    const report = yield* readSpend(Date.now()).pipe(Effect.either);
-    if (report._tag === "Left") {
-      failEnvelope(options.json, `Could not read the spend ledger: ${report.left.message}`);
+    const report = yield* readSpend(Date.now()).pipe(Effect.result);
+    if (report._tag === "Failure") {
+      failEnvelope(options.json, `Could not read the spend ledger: ${report.failure.message}`);
       return;
     }
-    const spend = report.right;
+    const spend = report.success;
     const daemonState = yield* Effect.promise(() => readDaemonStateFile(daemonStatePath()));
     const agents = yield* listCapAgents();
     const caps = capStatuses(appConfig.daemon, spend, {

@@ -63,7 +63,7 @@ function set(key: string, value?: string) {
 }
 
 function failure(exit: Exit.Exit<void, ConfigurationValidationError>) {
-  const error = Exit.isFailure(exit) ? Cause.failureOption(exit.cause) : undefined;
+  const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : undefined;
   return error?._tag === "Some" ? error.value : undefined;
 }
 

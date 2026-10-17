@@ -21,7 +21,7 @@ export async function listPersonaNames(
 ): Promise<string[]> {
   const service = new PersonaServiceImpl({ baseDataPath: jazzHome, builtinPersonasDir });
   const personas = await Effect.runPromise(
-    service.listPersonas().pipe(Effect.catchAll(() => Effect.succeed<readonly Persona[]>([]))),
+    service.listPersonas().pipe(Effect.catch(() => Effect.succeed<readonly Persona[]>([]))),
   );
   const names = [...new Set(personas.map((persona) => persona.name))].filter(
     (name) => name !== "summarizer",

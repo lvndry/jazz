@@ -61,4 +61,4 @@ export interface RunStore {
   >;
 }
 
-export class RunStoreTag extends Context.Tag("RunStore")<RunStoreTag, RunStore>() {}
+export class RunStoreTag extends Context.Service<RunStoreTag, RunStore>()("RunStore") {}

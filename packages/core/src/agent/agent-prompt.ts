@@ -64,7 +64,7 @@ function resolveUserInputAttachments(
       return { attachments, notes };
     }),
     // Ingestion is best-effort: a probe or stat failure must not stop the turn.
-    Effect.catchAll(() => Effect.succeed({ attachments: [], notes: [] })),
+    Effect.catch(() => Effect.succeed({ attachments: [], notes: [] })),
   );
 }
 

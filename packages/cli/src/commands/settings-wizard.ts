@@ -172,10 +172,10 @@ function manageAgents() {
     const terminal = yield* TerminalServiceTag;
     const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
       Effect.map((value) => (typeof value === "string" ? value : null)),
-      Effect.catchAll(() => Effect.succeed(null)),
+      Effect.catch(() => Effect.succeed(null)),
     );
     let listedAgents = yield* agentService.listAgents().pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.gen(function* () {
           yield* terminal.error(`Could not read your agents: ${String(error)}`);
           return [] as Agent[];
@@ -202,13 +202,13 @@ function manageAgents() {
           break;
         case "edit":
           yield* editAgentCommand(selectedAgent.id).pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               terminal.error(`${selectedAgent.name} was not changed: ${String(error)}`),
             ),
           );
           listedAgents = yield* agentService
             .listAgents()
-            .pipe(Effect.catchAll(() => Effect.succeed(listedAgents)));
+            .pipe(Effect.catch(() => Effect.succeed(listedAgents)));
           break;
         case "delete": {
           const deleted = yield* confirmAndDeleteAgent(selectedAgent);
@@ -307,7 +307,7 @@ export function settingsMenuOptions(config: AppConfig): ActiveMenuOption[] {
 function showConfigMenu(
   options: readonly ActiveMenuOption[],
 ): Effect.Effect<SettingsMenuAction, never, never> {
-  return Effect.async<SettingsMenuAction>((resume) => {
+  return Effect.callback<SettingsMenuAction>((resume) => {
     store.setActiveMenu(
       {
         kind: "menu",
@@ -357,7 +357,7 @@ function copyCredential(
             "Could not access a clipboard. Install a clipboard utility and try again.",
           ),
     ),
-    Effect.catchAll((error) => terminal.error(`Could not copy credential: ${error.message}`)),
+    Effect.catch((error) => terminal.error(`Could not copy credential: ${error.message}`)),
   );
 }
 
@@ -471,20 +471,20 @@ function configureLLMProviders() {
             { hidden: true, keys: ["e", "c"] },
           );
           if (credentialAction === "c") {
-            const result = yield* Effect.either(
+            const result = yield* Effect.result(
               Effect.tryPromise({
                 try: loadChatGPTCredential,
                 catch: (error) => error as Error,
               }),
             );
-            if (result._tag === "Left") {
-              yield* terminal.error(`Could not read ChatGPT credential: ${result.left.message}`);
-            } else if (!result.right) {
+            if (result._tag === "Failure") {
+              yield* terminal.error(`Could not read ChatGPT credential: ${result.failure.message}`);
+            } else if (!result.success) {
               yield* terminal.error("ChatGPT credential is unavailable. Sign in again.");
             } else {
               yield* copyCredential(
                 terminal,
-                JSON.stringify(result.right),
+                JSON.stringify(result.success),
                 "ChatGPT OAuth credential",
               );
             }

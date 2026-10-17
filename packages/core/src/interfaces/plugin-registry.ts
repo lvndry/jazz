@@ -40,6 +40,6 @@ export interface PluginRegistryService {
   ) => Effect.Effect<readonly InstalledPluginRecord[], PluginRegistryError>;
 }
 
-export const PluginRegistryServiceTag = Context.GenericTag<PluginRegistryService>(
+export const PluginRegistryServiceTag = Context.Service<PluginRegistryService>(
   "@jazz/core/PluginRegistryService",
 );

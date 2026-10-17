@@ -48,11 +48,11 @@ describe("requireValidAgentId", () => {
       Effect.runPromise(requireValidAgentId("agent-1_test", TestAgentIdError)),
     ).resolves.toBeUndefined();
     const invalid = await Effect.runPromise(
-      requireValidAgentId("../agent", TestAgentIdError).pipe(Effect.either),
+      requireValidAgentId("../agent", TestAgentIdError).pipe(Effect.result),
     );
-    expect(invalid._tag).toBe("Left");
-    if (invalid._tag === "Left") {
-      expect(invalid.left).toBeInstanceOf(TestAgentIdError);
+    expect(invalid._tag).toBe("Failure");
+    if (invalid._tag === "Failure") {
+      expect(invalid.failure).toBeInstanceOf(TestAgentIdError);
     }
   });
 });
