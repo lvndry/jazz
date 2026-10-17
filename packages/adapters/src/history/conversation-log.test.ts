@@ -356,6 +356,7 @@ describe("recordConversationTranscript", () => {
       recordConversationTranscript(
         {
           ...record([userMessage("plan the trip")], UNTITLED_CONVERSATION_TITLE),
+          titleSource: "user",
           basedOn: conversationRevision([userMessage("plan the trip")]),
         },
         tmpDir,
@@ -450,7 +451,11 @@ describe("recordConversationTranscript", () => {
     );
     await runEffect(
       recordConversationTranscript(
-        { ...record([userMessage("hi")], "Second title"), basedOn: afterFirst },
+        {
+          ...record([userMessage("hi")], "Second title"),
+          titleSource: "user",
+          basedOn: afterFirst,
+        },
         tmpDir,
       ),
     );
@@ -969,6 +974,94 @@ describe("deriveConversationTitle", () => {
     expect(deriveConversationTitle(undefined, [])).toBeUndefined();
     expect(displayConversationTitle(undefined)).toBe(UNTITLED_CONVERSATION_TITLE);
     expect(displayConversationTitle("Trip planning")).toBe("Trip planning");
+  });
+});
+
+describe("conversation titles across compaction", () => {
+  function checkpoint(title: string): ChatMessage {
+    return {
+      role: "assistant",
+      content: `## Title\n${title}\n\n## Goal\nPlan the trip`,
+      kind: "summary",
+    };
+  }
+
+  test("a conversation Jazz named takes the title of its latest checkpoint", async () => {
+    const first = await runEffect(
+      recordConversationTranscript(record([userMessage("plan the trip")]), tmpDir),
+    );
+    const compacted = [checkpoint("Italy rail itinerary"), userMessage("and the hotels?")];
+    const second = await runEffect(
+      recordConversationTranscript({ ...record(compacted), basedOn: first }, tmpDir),
+    );
+    const named = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(named?.title).toBe("Italy rail itinerary");
+    expect(named?.titleSource).toBe("auto");
+
+    await runEffect(
+      recordConversationTranscript(
+        {
+          ...record([checkpoint("Rome hotel shortlist"), userMessage("book it")]),
+          basedOn: second,
+        },
+        tmpDir,
+      ),
+    );
+    const renamed = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(renamed?.title).toBe("Rome hotel shortlist");
+  });
+
+  test("a title a person gave survives compaction", async () => {
+    const first = await runEffect(
+      recordConversationTranscript(
+        { ...record([userMessage("plan the trip")], "Summer holiday"), titleSource: "user" },
+        tmpDir,
+      ),
+    );
+    await runEffect(
+      recordConversationTranscript(
+        {
+          ...record([checkpoint("Italy rail itinerary"), userMessage("and the hotels?")], ""),
+          basedOn: first,
+        },
+        tmpDir,
+      ),
+    );
+    const session = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
+    expect(session?.title).toBe("Summer holiday");
+    expect(session?.titleSource).toBe("user");
+  });
+
+  test("in a log from before title sources, only a title unlike the first message is a person's", () => {
+    const events = (title: string) => [
+      {
+        type: "conversation" as const,
+        version: CONVERSATION_LOG_VERSION,
+        agentId: AGENT_ID,
+        conversationId: CONVERSATION_ID,
+        startedAt: "2026-08-01T10:00:00.000Z",
+        titleFormat: REAL_TITLES_FORMAT,
+      },
+      {
+        type: "message" as const,
+        at: "2026-08-01T10:00:01.000Z",
+        message: userMessage("plan the trip to Italy for the whole family next summer please"),
+      },
+      { type: "meta" as const, at: "2026-08-01T10:00:02.000Z", title },
+      {
+        type: "message" as const,
+        at: "2026-08-01T10:00:03.000Z",
+        message: checkpoint("Italy rail itinerary"),
+      },
+    ];
+    const derived = reduceConversationLog(
+      events("plan the trip to Italy for the whole family next…"),
+    );
+    expect(derived?.title).toBe("Italy rail itinerary");
+
+    const renamed = reduceConversationLog(events("Summer holiday"));
+    expect(renamed?.title).toBe("Summer holiday");
+    expect(renamed?.titleSource).toBe("user");
   });
 });
 

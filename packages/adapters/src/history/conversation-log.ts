@@ -42,6 +42,7 @@ import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { gzipSync } from "node:zlib";
 import { FileSystem } from "@effect/platform";
+import { checkpointTitle } from "@jazz/core/agent/context/checkpoint-title";
 import { isTerminalOutputKind } from "@jazz/core/interfaces/terminal";
 import { typedText } from "@jazz/core/memory/source-trust";
 import type { ChatMessage } from "@jazz/core/types/message";
@@ -107,6 +108,20 @@ export const UNTITLED_CONVERSATION_TITLE = "untitled conversation";
  * no title; the first save of such a log drops those records and stamps the format.
  */
 export const REAL_TITLES_FORMAT = 2;
+
+/**
+ * Header `titleFormat` of logs that mark the titles a person gave with `titleSource: "user"`.
+ * In an older log an unmarked title counts as a person's when it is not the first user message
+ * cut short, which is the only title Jazz derived itself.
+ */
+export const TITLE_SOURCE_FORMAT = 3;
+
+/**
+ * Who named a conversation: `user` for a title a person gave it, which nothing renames;
+ * `auto` for one Jazz chose (the first user message, a run's name, a compaction checkpoint's
+ * title), which the next checkpoint replaces.
+ */
+export type ConversationTitleSource = "user" | "auto";
 
 /** How a conversation is named on screen. */
 export function displayConversationTitle(title: string | undefined): string {
@@ -197,7 +212,8 @@ export interface ConversationLogHeader {
   readonly conversationId: string;
   readonly startedAt: string;
   readonly title?: string;
-  /** {@link REAL_TITLES_FORMAT} once every stored title is a real one. */
+  readonly titleSource?: "user";
+  /** {@link TITLE_SOURCE_FORMAT} for logs created since titles carry their source. */
   readonly titleFormat?: number;
 }
 
@@ -231,6 +247,7 @@ export interface ConversationLogMeta {
   readonly type: "meta";
   readonly at: string;
   readonly title?: string;
+  readonly titleSource?: "user";
 }
 
 /** Version 3 and older: compaction replaced the transcript, and what follows starts over. */
@@ -293,8 +310,12 @@ export type ConversationUiEntry = PresentationEntry;
 export interface Conversation {
   readonly agentId: string;
   readonly conversationId: string;
-  /** Undefined until it is given one or its first user message names it. */
+  /**
+   * A title a person gave it, else its latest compaction checkpoint's, else the one it started
+   * with or its first user message; undefined while it has none of these.
+   */
   readonly title: string | undefined;
+  readonly titleSource: ConversationTitleSource;
   readonly startedAt: string;
   /** When the newest message was recorded, or null before anything was said. */
   readonly lastMessageAt: string | null;
@@ -307,8 +328,10 @@ export interface Conversation {
  * A conversation as handed to a save: the log stamps each message with when it was recorded,
  * and refuses the save unless `basedOn` is the revision it holds.
  */
-export type ConversationToSave = Omit<Conversation, "lastMessageAt"> & {
+export type ConversationToSave = Omit<Conversation, "lastMessageAt" | "titleSource"> & {
   readonly basedOn: ConversationRevision;
+  /** `user` records `title` as a person's, which nothing renames; any other title only names a new log. */
+  readonly titleSource?: ConversationTitleSource;
 };
 
 /**
@@ -383,6 +406,7 @@ export function parseConversationLogLine(
         conversationId,
         startedAt: optionalString(parsed["startedAt"]) ?? at,
         ...(title === undefined ? {} : { title }),
+        ...(parsed["titleSource"] === "user" ? { titleSource: "user" as const } : {}),
         ...(typeof parsed["titleFormat"] === "number"
           ? { titleFormat: parsed["titleFormat"] }
           : {}),
@@ -436,7 +460,12 @@ export function parseConversationLogLine(
     case "meta": {
       const title = optionalString(parsed["title"]);
       if (title === undefined) return null;
-      return { type: "meta", at, title };
+      return {
+        type: "meta",
+        at,
+        title,
+        ...(parsed["titleSource"] === "user" ? { titleSource: "user" as const } : {}),
+      };
     }
     case "rewrite":
       return { type: "rewrite", at };
@@ -539,7 +568,7 @@ export function isStoredTitle(
 ): title is string {
   return (
     title !== undefined &&
-    (header?.titleFormat === REAL_TITLES_FORMAT || title !== UNTITLED_CONVERSATION_TITLE)
+    ((header?.titleFormat ?? 0) >= REAL_TITLES_FORMAT || title !== UNTITLED_CONVERSATION_TITLE)
   );
 }
 
@@ -563,6 +592,71 @@ export function deriveConversationTitle(
   return firstLine.length > DERIVED_TITLE_CHARS
     ? `${firstLine.slice(0, DERIVED_TITLE_CHARS - 1).trimEnd()}…`
     : firstLine;
+}
+
+/**
+ * Whether an unmarked title in a log from before {@link TITLE_SOURCE_FORMAT} was a person's:
+ * anything other than the first user message cut short, which is how Jazz named a conversation
+ * itself.
+ */
+function isLegacyUserTitle(title: string, firstUserMessage: ChatMessage | undefined): boolean {
+  if (firstUserMessage === undefined) return true;
+  const typed = typedText(firstUserMessage).replace(/\s+/g, " ").trim();
+  const stem = title.endsWith("…") ? title.slice(0, -1).trimEnd() : title;
+  return stem.length === 0 || !typed.startsWith(stem);
+}
+
+/**
+ * The title a conversation goes by, and who gave it: the latest title a person gave, else the
+ * title of the latest compaction checkpoint in `messages`, else the latest stored title, else
+ * the first line of the first user message.
+ */
+export function resolveConversationTitle(
+  events: readonly ConversationLogEvent[],
+  messages: readonly ChatMessage[],
+): { readonly title: string | undefined; readonly source: ConversationTitleSource } {
+  let header: ConversationLogHeader | null = null;
+  let firstUserMessage: ChatMessage | undefined;
+  for (const event of events) {
+    if (event.type === "conversation") {
+      header = event;
+    } else if (
+      event.type === "message" &&
+      event.message.role === "user" &&
+      firstUserMessage === undefined
+    ) {
+      firstUserMessage = event.message;
+    }
+  }
+  const marksSource = header?.titleFormat === TITLE_SOURCE_FORMAT;
+
+  let userTitle: string | undefined;
+  let storedTitle: string | undefined;
+  for (const event of events) {
+    if (event.type !== "conversation" && event.type !== "meta") continue;
+    if (!isStoredTitle(event.title, header)) continue;
+    const isUser =
+      event.titleSource === "user" ||
+      (!marksSource && isLegacyUserTitle(event.title, firstUserMessage));
+    if (isUser) {
+      userTitle = event.title;
+    } else {
+      storedTitle = event.title;
+    }
+  }
+  if (userTitle !== undefined) {
+    return { title: userTitle, source: "user" };
+  }
+
+  let summaryTitle: string | undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.kind === "summary") {
+      summaryTitle = checkpointTitle(message.content);
+      break;
+    }
+  }
+  return { title: summaryTitle ?? deriveConversationTitle(storedTitle, messages), source: "auto" };
 }
 
 /** The part of a log event the conversation tree is built from. */
@@ -592,7 +686,6 @@ export function reduceConversationLog(
   events: readonly ConversationLogEvent[],
 ): Conversation | null {
   let header: ConversationLogHeader | null = null;
-  let title: string | undefined;
   let lastMessageAt: string | null = null;
   // Undefined until a UI event is read: a log that never saved scrollback is repainted from its
   // messages, while a saved empty snapshot (after `/clear`) must stay empty.
@@ -603,16 +696,11 @@ export function reduceConversationLog(
     switch (event.type) {
       case "conversation":
         header = event;
-        title = isStoredTitle(event.title, header) ? event.title : title;
         break;
       case "message":
         lastMessageAt = event.at;
         break;
       case "meta":
-        if (isStoredTitle(event.title, header)) {
-          title = event.title;
-        }
-        break;
       case "rewrite":
       case "context":
       case "leaf":
@@ -646,10 +734,12 @@ export function reduceConversationLog(
   const messages = contextPath(
     buildConversationTree(events.map(treeEvent), header.conversationId),
   ).messages.map(({ id, message }) => ({ ...message, entryId: id }));
+  const title = resolveConversationTitle(events, messages);
   return {
     agentId: header.agentId,
     conversationId: header.conversationId,
-    title: deriveConversationTitle(title, messages),
+    title: title.title,
+    titleSource: title.source,
     startedAt: header.startedAt,
     lastMessageAt,
     messages,
@@ -920,7 +1010,8 @@ export function moveConversationLog(
 
 interface AppendState {
   readonly tree: TreeAppendState;
-  readonly title: string | undefined;
+  /** The title a person gave the conversation, which a save marks again only when it changes. */
+  readonly userTitle: string | undefined;
   readonly uiEntryIds: readonly string[];
   readonly uiEntryFingerprints: readonly string[];
 }
@@ -1162,7 +1253,9 @@ export function migrateLegacyTitles(content: string): string | null {
   const lines = content.split("\n");
   const events = parseConversationLogRecords(lines);
   const header = events.find((event) => event?.type === "conversation");
-  if (header?.type !== "conversation" || header.titleFormat === REAL_TITLES_FORMAT) return null;
+  if (header?.type !== "conversation" || (header.titleFormat ?? 0) >= REAL_TITLES_FORMAT) {
+    return null;
+  }
   const kept: string[] = [];
   lines.forEach((line, index) => {
     const event = events[index];
@@ -1192,7 +1285,7 @@ function appendStateFromContent(content: string): AppendState | null {
       buildConversationTree(events.map(treeEvent), conversation.conversationId),
       messageFingerprint,
     ),
-    title: conversation.title,
+    userTitle: conversation.titleSource === "user" ? conversation.title : undefined,
     uiEntryIds: uiTranscript.map((entry) => entry.id),
     uiEntryFingerprints: uiTranscript.map(uiEntryFingerprint),
   };
@@ -1335,6 +1428,7 @@ export interface ConversationTranscriptInput {
   readonly agentId: string;
   readonly conversationId: string;
   readonly title: string | undefined;
+  readonly titleSource?: ConversationTitleSource;
   readonly startedAt: string;
   readonly messages: readonly ChatMessage[];
   readonly uiTranscript?: readonly ConversationUiEntry[];
@@ -1409,8 +1503,9 @@ export function recordConversationTranscript(
     const chunks: string[] = [];
     if (loaded.needsLeadingNewline) chunks.push("\n");
 
+    const title = (input.title ?? "").trim();
+    const userTitle = input.titleSource === "user" && title.length > 0 ? title : undefined;
     if (!state) {
-      const title = (input.title ?? "").trim();
       chunks.push(
         serializeEvent({
           type: "conversation",
@@ -1419,12 +1514,13 @@ export function recordConversationTranscript(
           conversationId: input.conversationId,
           startedAt: input.startedAt,
           ...(title.length === 0 ? {} : { title }),
-          titleFormat: REAL_TITLES_FORMAT,
+          ...(userTitle === undefined ? {} : { titleSource: "user" as const }),
+          titleFormat: TITLE_SOURCE_FORMAT,
         }),
       );
       state = {
         tree: { leafId: null, path: [], afterContext: 0, contextId: null, parents: new Map() },
-        title: deriveConversationTitle(title, messages),
+        userTitle,
         uiEntryIds: [],
         uiEntryFingerprints: [],
       };
@@ -1464,9 +1560,8 @@ export function recordConversationTranscript(
       }
     }
 
-    const nextTitle = deriveConversationTitle(input.title, messages) ?? state.title;
-    if (nextTitle !== undefined && nextTitle !== state.title) {
-      chunks.push(serializeEvent({ type: "meta", at: now, title: nextTitle }));
+    if (userTitle !== undefined && userTitle !== state.userTitle) {
+      chunks.push(serializeEvent({ type: "meta", at: now, title: userTitle, titleSource: "user" }));
     }
 
     let nextUiEntryIds = state.uiEntryIds;
@@ -1499,7 +1594,7 @@ export function recordConversationTranscript(
         identity,
         state: {
           tree: plan.state,
-          title: nextTitle,
+          userTitle: userTitle ?? state.userTitle,
           uiEntryIds: nextUiEntryIds,
           uiEntryFingerprints: nextUiEntryFingerprints,
         },

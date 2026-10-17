@@ -345,6 +345,7 @@ describe("resumed transcript after reclaim", () => {
     agentId: "agent",
     conversationId: "conversation",
     title: "",
+    titleSource: "auto",
     startedAt: "2026-09-26T00:00:00.000Z",
     lastMessageAt: null,
     messages: [{ role: "user", content: "start" }],
@@ -401,6 +402,7 @@ describe("egress taint in a returned transcript", () => {
     agentId: "agent",
     conversationId: "conversation",
     title: "",
+    titleSource: "auto",
     startedAt: "2026-09-26T00:00:00.000Z",
     lastMessageAt: null,
     messages: [
@@ -441,6 +443,7 @@ describe("memory authority in a returned transcript", () => {
     agentId: "agent",
     conversationId: "conversation",
     title: "",
+    titleSource: "auto",
     startedAt: "2026-09-26T00:00:00.000Z",
     lastMessageAt: null,
     messages: [{ role: "user", content: "remember I take the 8:10 train", memorySource: local }],

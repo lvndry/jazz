@@ -29,6 +29,7 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { UNTRUSTED_DATA_INSTRUCTION } from "@/core/utils/untrusted-content";
 import type { AdvisedDecision, ReduceToolResultsFn } from "./advised-tool-clearing";
+import { CHECKPOINT_TITLE_HEADING } from "./checkpoint-title";
 import { logContextRung } from "./context-telemetry";
 import { resolveContextThresholds } from "./context-thresholds";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER, PINNED_KINDS } from "./context-window-manager";
@@ -106,7 +107,9 @@ const SUMMARIZER_INPUT_BUDGET_RATIO = 0.6;
  * merges auditable and lets the resumed agent find active work without inferring
  * it from free-form prose.
  */
-const SUMMARY_CHECKPOINT_FORMAT = `## Goal
+const SUMMARY_CHECKPOINT_FORMAT = `${CHECKPOINT_TITLE_HEADING}
+
+## Goal
 
 ## Constraints & Preferences
 
@@ -139,7 +142,7 @@ const SUMMARY_CHECKPOINT_INSTRUCTIONS = `Output only a Markdown checkpoint using
 
 ${SUMMARY_CHECKPOINT_FORMAT}
 
-Include every heading, even when its content is \`(none)\`. Keep each section concise. Preserve exact file paths, function names, commands, IDs, values, and error messages where they matter. In \`## Covered So Far\`, list every file or source the transcript shows was read, searched, or examined (with exact paths), and anything that was explicitly skipped or left unread. ${UNTRUSTED_DATA_INSTRUCTION}`;
+Include every heading, even when its content is \`(none)\`. Under \`${CHECKPOINT_TITLE_HEADING}\`, write one line of 3 to 8 words naming what the whole conversation is about, the way a person would name it in a list of their conversations. Keep each section concise. Preserve exact file paths, function names, commands, IDs, values, and error messages where they matter. In \`## Covered So Far\`, list every file or source the transcript shows was read, searched, or examined (with exact paths), and anything that was explicitly skipped or left unread. ${UNTRUSTED_DATA_INSTRUCTION}`;
 
 /**
  * Build the throwaway agent that performs summarization.

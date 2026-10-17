@@ -306,6 +306,9 @@ export function saveConversation(
             agentId: conversation.agentId,
             conversationId: conversation.conversationId,
             title: conversation.title,
+            ...(conversation.titleSource === undefined
+              ? {}
+              : { titleSource: conversation.titleSource }),
             startedAt: conversation.startedAt,
             messages: conversation.messages,
             basedOn: conversation.basedOn,
@@ -349,7 +352,8 @@ export function moveConversationLeaf(
  * being read to draw a picker.
  *
  * A log that cannot be read (one written by a newer Jazz) is left out and logged, so one bad
- * file never empties the whole list.
+ * file never empties the whole list. A log with no messages and no title is left out too: it
+ * holds only slash commands run in a session that never talked to the agent.
  */
 export function loadHistory(
   agentId: string,
@@ -367,7 +371,9 @@ export function loadHistory(
           }).pipe(Effect.as(null)),
         ),
       );
-      if (conversation) conversations.push(summarize(conversation));
+      if (conversation && (conversation.messages.length > 0 || conversation.title !== undefined)) {
+        conversations.push(summarize(conversation));
+      }
     }
     conversations.sort((left, right) => lastActivityMs(right) - lastActivityMs(left));
     return { agentId, conversations };
