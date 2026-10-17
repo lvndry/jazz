@@ -1,5 +1,5 @@
 /**
- * Per-delta cost and retained heap of a long interactive chat, through the
+ * Per-delta cost and retained memory of a long interactive chat, through the
  * production store and each renderer's projection of it. Every turn is a user
  * message, a streamed reasoning block, two write receipts carrying full diffs
  * and a streamed answer, then a turn receipt: the shape of a working session.
@@ -9,9 +9,10 @@
  * classic: the Ink output snapshot). Terminal painting is left out; the
  * ui-pipeline suite covers it.
  *
- * The cost to watch is the delta at the last turn against the first: a
- * transcript-length term shows up as that ratio, not in the absolute numbers.
- * Each renderer runs in its own child so retained heap is measured alone.
+ * The cost to watch is the median delta over the last turns against the first:
+ * a transcript-length term shows up as that ratio, not in the absolute numbers.
+ * Each renderer runs in its own child so retained memory is measured alone;
+ * retained data leaves out compiled code, which varies from run to run.
  * BENCH_CHAT_TURNS sets the session length (default 300).
  */
 import { fullGC, heapStats } from "bun:jsc";
@@ -33,17 +34,52 @@ const RECEIPTS_PER_TURN = 2;
 /** Diff lines per write receipt; a mid-sized edit. */
 const RECEIPT_DIFF_LINES = 80;
 const VIEWPORT = { width: 120, height: 40 } as const;
+/**
+ * Turns driven and cleared before measuring, so compiled code and module caches are already
+ * in the baseline heap and the first measured turn runs warm.
+ */
+const WARMUP_TURNS = 20;
+/** Turns timed at each end of the session; medians keep a collection pause from posing as cost. */
+const SAMPLED_TURNS = 5;
+/**
+ * Heap snapshot classes that hold compiled code and object shapes rather than data. JIT tiering
+ * moves them by megabytes between runs of the same commit, so the data metric leaves them out.
+ */
+const CODE_CLASS =
+  /CodeBlock|Executable|Module|Structure|SymbolTable|SourceCode|PropertyTable|RareData|GetterSetter/;
 
 const observation = z.object({
   firstTurnResponseDeltaMs: z.number().finite().nonnegative(),
   lastTurnResponseDeltaMs: z.number().finite().nonnegative(),
   firstTurnReasoningDeltaMs: z.number().finite().nonnegative(),
   lastTurnReasoningDeltaMs: z.number().finite().nonnegative(),
+  retainedDataBytes: z.number().finite(),
   retainedHeapBytes: z.number().finite(),
   documentEntries: z.number().int().nonnegative(),
   turns: z.number().int().positive(),
 });
 type Observation = z.infer<typeof observation>;
+
+interface HeapSnapshot {
+  readonly nodes: readonly number[];
+  readonly nodeClassNames: readonly string[];
+}
+/** Fields per node in a JSC heap snapshot: id, size, class index, flags. */
+const SNAPSHOT_NODE_FIELDS = 4;
+
+/** Live bytes outside compiled code, from a heap snapshot taken after a full collection. */
+function liveDataBytes(): number {
+  fullGC();
+  const snapshot = Bun.generateHeapSnapshot() as unknown as HeapSnapshot;
+  let total = 0;
+  for (let index = 0; index < snapshot.nodes.length; index += SNAPSHOT_NODE_FIELDS) {
+    const className = snapshot.nodeClassNames[snapshot.nodes[index + 2] ?? 0] ?? "";
+    if (!CODE_CLASS.test(className)) {
+      total += snapshot.nodes[index + 1] ?? 0;
+    }
+  }
+  return total;
+}
 
 /** Re-project each commit the way the mounted renderer would. */
 function attachConsumer(source: UIStore, kind: ConsumerKind): () => void {
@@ -54,10 +90,18 @@ function attachConsumer(source: UIStore, kind: ConsumerKind): () => void {
     source.getOutputSnapshot();
     return unsubscribe;
   }
-  const transcript = createFullscreenTranscript();
-  const layout = createTranscriptLayout();
+  let mountedDocument = "";
+  let transcript = createFullscreenTranscript();
+  let layout = createTranscriptLayout();
   return source.subscribePresentation(() => {
     const presentation = source.getPresentationSnapshot();
+    const documentKey = `${presentation.document.id}:${String(presentation.documentGeneration)}`;
+    if (documentKey !== mountedDocument) {
+      mountedDocument = documentKey;
+      layout.dispose();
+      transcript = createFullscreenTranscript();
+      layout = createTranscriptLayout();
+    }
     const blocks = transcript(presentation, presentation.ephemeral.regions);
     const index = layout.update(blocks, {
       width: VIEWPORT.width,
@@ -80,26 +124,30 @@ function receiptDiff(turn: number, receipt: number): string {
     .join("\n");
 }
 
-interface TurnTiming {
-  readonly responseDeltaMs: number;
-  readonly reasoningDeltaMs: number;
+interface DeltaSamples {
+  readonly response: number[];
+  readonly reasoning: number[];
 }
 
-async function driveTurn(source: UIStore, turn: number): Promise<TurnTiming> {
+function median(samples: readonly number[]): number {
+  const sorted = [...samples].sort((first, second) => first - second);
+  return sorted[Math.floor(sorted.length / 2)] ?? 0;
+}
+
+async function driveTurn(source: UIStore, turn: number, samples?: DeltaSamples): Promise<void> {
   source.printOutput({ type: "user", message: `question ${String(turn)}`, timestamp: new Date() });
   await commit();
 
   const reasoningId = source.openEphemeral("reasoning", "Reasoning", 6);
   await commit();
   let reasoningText = "";
-  let reasoningMs = 0;
   for (let delta = 0; delta < REASONING_DELTAS_PER_TURN; delta += 1) {
     const chunk = `considering option ${String(delta)} for turn ${String(turn)}. `;
     reasoningText += chunk;
     const start = performance.now();
     source.appendEphemeral(reasoningId, chunk);
     await commit();
-    reasoningMs += performance.now() - start;
+    samples?.reasoning.push(performance.now() - start);
   }
   source.collapseEphemeral(reasoningId, {
     line: "Reasoning",
@@ -140,7 +188,6 @@ async function driveTurn(source: UIStore, turn: number): Promise<TurnTiming> {
     await commit();
   }
 
-  let responseMs = 0;
   for (let delta = 0; delta < RESPONSE_DELTAS_PER_TURN; delta += 1) {
     const chunk =
       delta % 10 === 9
@@ -149,7 +196,7 @@ async function driveTurn(source: UIStore, turn: number): Promise<TurnTiming> {
     const start = performance.now();
     source.appendStream("response", chunk);
     await commit();
-    responseMs += performance.now() - start;
+    samples?.response.push(performance.now() - start);
   }
   source.finalizeStream();
   source.settleTurnThought();
@@ -159,38 +206,36 @@ async function driveTurn(source: UIStore, turn: number): Promise<TurnTiming> {
     timestamp: new Date(),
   });
   await commit();
-  return {
-    responseDeltaMs: responseMs / RESPONSE_DELTAS_PER_TURN,
-    reasoningDeltaMs: reasoningMs / REASONING_DELTAS_PER_TURN,
-  };
 }
 
 async function worker(kind: ConsumerKind, turns: number): Promise<Observation> {
-  fullGC();
-  const before = heapStats().heapSize;
   const source = new UIStore();
   const detach = attachConsumer(source, kind);
-  let first: TurnTiming | undefined;
-  let last: TurnTiming | undefined;
+  for (let turn = 0; turn < WARMUP_TURNS; turn += 1) {
+    await driveTurn(source, turn);
+  }
+  source.clearOutputs();
+  await commit();
+  const dataBefore = liveDataBytes();
+  fullGC();
+  const before = heapStats().heapSize;
+  const first: DeltaSamples = { response: [], reasoning: [] };
+  const last: DeltaSamples = { response: [], reasoning: [] };
   for (let turn = 0; turn < turns; turn += 1) {
-    const timing = await driveTurn(source, turn);
-    if (turn === 0) {
-      first = timing;
-    }
-    last = timing;
+    const samples = turn < SAMPLED_TURNS ? first : turn >= turns - SAMPLED_TURNS ? last : undefined;
+    await driveTurn(source, turn, samples);
   }
   fullGC();
   const retainedHeapBytes = heapStats().heapSize - before;
+  const retainedDataBytes = liveDataBytes() - dataBefore;
   const documentEntries = source.getDocumentSnapshot().entries.length;
   detach();
-  if (first === undefined || last === undefined) {
-    throw new Error("No turns were driven");
-  }
   return {
-    firstTurnResponseDeltaMs: first.responseDeltaMs,
-    lastTurnResponseDeltaMs: last.responseDeltaMs,
-    firstTurnReasoningDeltaMs: first.reasoningDeltaMs,
-    lastTurnReasoningDeltaMs: last.reasoningDeltaMs,
+    firstTurnResponseDeltaMs: median(first.response),
+    lastTurnResponseDeltaMs: median(last.response),
+    firstTurnReasoningDeltaMs: median(first.reasoning),
+    lastTurnReasoningDeltaMs: median(last.reasoning),
+    retainedDataBytes,
     retainedHeapBytes,
     documentEntries,
     turns,
@@ -235,7 +280,7 @@ if (process.argv[2] === "--worker") {
       throw new Error("No chat transcript observation returned");
     }
     console.error(
-      `${kind}: response delta ${observed.firstTurnResponseDeltaMs.toFixed(4)}ms → ${observed.lastTurnResponseDeltaMs.toFixed(4)}ms, reasoning delta ${observed.firstTurnReasoningDeltaMs.toFixed(4)}ms → ${observed.lastTurnReasoningDeltaMs.toFixed(4)}ms, retained heap ${String(observed.retainedHeapBytes)} bytes`,
+      `${kind}: response delta ${observed.firstTurnResponseDeltaMs.toFixed(4)}ms → ${observed.lastTurnResponseDeltaMs.toFixed(4)}ms, reasoning delta ${observed.firstTurnReasoningDeltaMs.toFixed(4)}ms → ${observed.lastTurnReasoningDeltaMs.toFixed(4)}ms, retained data ${String(observed.retainedDataBytes)} bytes, retained heap with compiled code ${String(observed.retainedHeapBytes)} bytes`,
     );
     results.push({ ...result, metrics: { ...observed } });
   }
