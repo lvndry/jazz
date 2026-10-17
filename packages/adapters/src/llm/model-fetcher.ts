@@ -432,29 +432,80 @@ export async function fetchOllamaModelDetails(
   };
 }
 
-async function fetchOllamaShow(
+/**
+ * How long one answer from an Ollama probe (`/api/show`, `/api/ps`) is reused. A run start asks
+ * for the same model's details from the attachment check, the context-window check and the model
+ * listing within a second or two; a model loaded or unloaded since then shows up once this passes.
+ */
+const OLLAMA_PROBE_REUSE_MS = 10_000;
+
+interface OllamaProbeEntry {
+  readonly answer: Promise<unknown>;
+  readonly startedAtMs: number;
+}
+
+const ollamaProbes = new Map<string, OllamaProbeEntry>();
+
+/** Forget every reused Ollama probe answer. */
+export function clearOllamaProbeCache(): void {
+  ollamaProbes.clear();
+}
+
+/**
+ * `probe`'s answer, shared with every caller asking the same `key` within
+ * {@link OLLAMA_PROBE_REUSE_MS}. A probe that failed (undefined) answers `fallback` and is not
+ * kept, so the next caller asks the server again.
+ */
+function reuseOllamaProbe<T>(
+  key: string,
+  probe: () => Promise<T | undefined>,
+  fallback: T,
+): Promise<T> {
+  const now = Date.now();
+  const cached = ollamaProbes.get(key);
+  if (cached !== undefined && now - cached.startedAtMs < OLLAMA_PROBE_REUSE_MS) {
+    return cached.answer as Promise<T>;
+  }
+  const answer = probe().then((value) => {
+    if (value === undefined) {
+      ollamaProbes.delete(key);
+      return fallback;
+    }
+    return value;
+  });
+  ollamaProbes.set(key, { answer, startedAtMs: now });
+  return answer;
+}
+
+function fetchOllamaShow(
   baseUrl: string,
   modelName: string,
   signal?: AbortSignal,
 ): Promise<OllamaShowExtras> {
-  try {
-    const response = await fetch(`${baseUrl}/show`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: modelName }),
-      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
-    });
-    if (!response.ok) return {};
-    const data = (await response.json()) as OllamaShowResponse;
-    const ctx = extractOllamaContextLength(data.model_info);
-    return {
-      ...(ctx !== undefined ? { contextWindow: ctx } : {}),
-      ...(typeof data.template === "string" ? { template: data.template } : {}),
-      ...(Array.isArray(data.capabilities) ? { capabilities: data.capabilities } : {}),
-    };
-  } catch {
-    return {};
-  }
+  return reuseOllamaProbe(
+    `show\u0000${baseUrl}\u0000${modelName}`,
+    async (): Promise<OllamaShowExtras | undefined> => {
+      try {
+        const response = await fetch(`${baseUrl}/show`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: modelName }),
+          signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
+        });
+        if (!response.ok) return undefined;
+        const data = (await response.json()) as OllamaShowResponse;
+        const ctx = extractOllamaContextLength(data.model_info);
+        return {
+          ...(ctx !== undefined ? { contextWindow: ctx } : {}),
+          ...(typeof data.template === "string" ? { template: data.template } : {}),
+          ...(Array.isArray(data.capabilities) ? { capabilities: data.capabilities } : {}),
+        };
+      } catch {
+        return undefined;
+      }
+    },
+    {},
+  );
 }
 
 /** `/api/ps` names models with an explicit tag, so an untagged request means `:latest`. */
@@ -469,20 +520,26 @@ interface OllamaRunningModel {
 }
 
 /** Everything Ollama has loaded right now (`/api/ps` is server-wide); empty when it does not answer. */
-export async function fetchOllamaRunningModels(
+export function fetchOllamaRunningModels(
   baseUrl: string,
   signal?: AbortSignal,
 ): Promise<readonly OllamaRunningModel[]> {
-  try {
-    const response = await fetch(`${baseUrl}/ps`, {
-      signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
-    });
-    if (!response.ok) return [];
-    const data = (await response.json()) as { models?: OllamaRunningModel[] };
-    return data.models ?? [];
-  } catch {
-    return [];
-  }
+  return reuseOllamaProbe(
+    `ps\u0000${baseUrl}`,
+    async (): Promise<readonly OllamaRunningModel[] | undefined> => {
+      try {
+        const response = await fetch(`${baseUrl}/ps`, {
+          signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
+        });
+        if (!response.ok) return undefined;
+        const data = (await response.json()) as { models?: OllamaRunningModel[] };
+        return data.models ?? [];
+      } catch {
+        return undefined;
+      }
+    },
+    [],
+  );
 }
 
 function runningContextWindowOf(

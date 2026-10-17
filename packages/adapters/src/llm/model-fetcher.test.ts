@@ -2,6 +2,7 @@ import type { ModelsDevMetadata, ModelsDevModelEntry } from "@jazz/core/utils/mo
 import { afterAll, describe, expect, it, mock, beforeEach } from "bun:test";
 import { Effect } from "effect";
 import {
+  clearOllamaProbeCache,
   createModelFetcher,
   fetchLlamaCppServerModel,
   fetchOllamaModelDetails,
@@ -13,6 +14,10 @@ import {
   resolveOllamaToolSupport,
   type OllamaModel,
 } from "./model-fetcher";
+
+beforeEach(() => {
+  clearOllamaProbeCache();
+});
 
 function modelsDevEntry(
   overrides: Partial<ModelsDevModelEntry> & { id: string },
@@ -1420,5 +1425,55 @@ describe("fetchOllamaRunningContextWindow", () => {
       contextWindow: 262144,
       runningContextWindow: 32768,
     });
+  });
+});
+
+describe("Ollama probes at run start", () => {
+  it("share one /api/show and one /api/ps between callers asking about the same model", async () => {
+    const requested: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = String(input);
+      requested.push(url.slice(url.lastIndexOf("/")));
+      return Promise.resolve(
+        url.endsWith("/ps")
+          ? Response.json({ models: [] })
+          : Response.json({ capabilities: ["completion", "tools"] }),
+      );
+    }) as unknown as typeof fetch;
+    try {
+      const [first, second] = await Promise.all([
+        fetchOllamaModelDetails("http://ollama.test/api", "gemma4"),
+        fetchOllamaModelDetails("http://ollama.test/api", "gemma4"),
+      ]);
+      await fetchOllamaRunningContextWindow("http://ollama.test/api", "gemma4");
+
+      expect(first.capabilities).toEqual(["completion", "tools"]);
+      expect(second).toEqual(first);
+      expect(requested.sort()).toEqual(["/ps", "/show"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("asks again after a failed probe instead of keeping the failure", async () => {
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(() => {
+      calls += 1;
+      return calls === 1
+        ? Promise.reject(new Error("connection refused"))
+        : Promise.resolve(Response.json({ capabilities: ["completion"] }));
+    }) as unknown as typeof fetch;
+    try {
+      const shown = (url: string) =>
+        fetchOllamaModelDetails(url, "gemma4", undefined, []).then(
+          (details) => details.capabilities,
+        );
+      expect(await shown("http://ollama.test/api")).toBeUndefined();
+      expect(await shown("http://ollama.test/api")).toEqual(["completion"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
