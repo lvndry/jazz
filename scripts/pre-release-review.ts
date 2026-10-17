@@ -121,12 +121,12 @@ export function validateReviewReport(value: unknown, context: ReviewContext): Re
   exactCoverage(reviewedCommits, context.commits, "commit");
   exactCoverage(reviewedFiles, context.changedFiles, "file");
   if (!Array.isArray(report["findings"])) throw new Error("Invalid findings");
+  const changedFiles = new Set(context.changedFiles);
   const findings = report["findings"].map((item: unknown): Finding => {
     const finding = object(item);
     const findingPath = text(finding["path"], "finding path");
     validateReviewPath(findingPath);
-    if (!context.changedFiles.includes(findingPath))
-      throw new Error("Finding outside review scope");
+    if (!changedFiles.has(findingPath)) throw new Error("Finding outside review scope");
     if (finding["status"] !== "fixed" && finding["status"] !== "unresolved") {
       throw new Error("Invalid finding status");
     }

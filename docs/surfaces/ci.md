@@ -122,6 +122,10 @@ PR. An open review PR for the same main snapshot is not duplicated. Reports and 
 saved as run artifacts. A budget stop, incomplete coverage, invalid report, or failed check
 prevents publication.
 
+Dependencies install first in a separate container with only the checkout mounted and no
+provider credentials or review data. Lifecycle scripts finish before the reviewer receives its
+credential.
+
 The review agent runs with high-risk approval in Docker, with only `/workspace` (the checkout)
 and `/review` (review data and the private Jazz home) mounted. It receives the ChatGPT credential
 but no host Actions/runtime environment, GitHub token, or Docker socket. Source and dependencies

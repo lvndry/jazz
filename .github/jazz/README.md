@@ -189,9 +189,11 @@ fix PR manually, then run the release workflow when ready; **Pre Release Review*
 automatic release gate and never creates a release.
 
 The review job checks out main with `persist-credentials: false`. A read-only `GITHUB_TOKEN`
-fetches the scope snapshot; it is not passed to the agent. The agent runs inside Docker with
-only the checkout and review-data directories mounted, at `/workspace` and `/review`. The
-container receives no host Actions/runtime environment, GitHub token, or Docker socket. It does
+fetches the scope snapshot; it is not passed to the agent. Dependency installation runs first in
+a separate container with only the checkout mounted, without provider credentials or review
+data. The agent runs inside Docker with only the checkout and review-data directories mounted,
+at `/workspace` and `/review`. The container receives no host Actions/runtime environment,
+GitHub token, or Docker socket. It does
 receive the ChatGPT credential, and shared OAuth queuing and post-run rotation updates apply.
 Its `autoApprove: high-risk` policy allows unattended edits and targeted tests. Shell access can
 change both mounts and reach the network; the container limits host access but does not isolate

@@ -19,6 +19,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 interface WorkflowStep {
+  readonly if?: string;
   readonly name: string;
   readonly uses?: string;
   readonly run?: string;
@@ -104,6 +105,29 @@ function writeArtifacts(review: string): void {
 }
 
 describe("pre-release workflow isolation", () => {
+  test("dependency lifecycle scripts run before reviewer credentials are available", () => {
+    const install = step(workflow.jobs.review, "Install review dependencies without credentials");
+    const agent = step(workflow.jobs.review, "Review and fix unreleased commits");
+    expect(workflow.jobs.review.steps.indexOf(install)).toBeLessThan(
+      workflow.jobs.review.steps.indexOf(agent),
+    );
+    const instructions = step(
+      workflow.jobs.review,
+      "Prepare agent and instructions outside the checkout",
+    );
+    expect(workflow.jobs.review.steps.indexOf(instructions)).toBeLessThan(
+      workflow.jobs.review.steps.indexOf(install),
+    );
+    expect(install.if).toBe(agent.if);
+    expect(install.env ?? {}).toEqual({});
+    expect(install.run).toContain("bun install --frozen-lockfile");
+    expect(install.run).toContain("source=$GITHUB_WORKSPACE,target=/workspace");
+    expect(install.run).not.toContain("/review");
+    expect(install.run).not.toContain("--env");
+    expect(install.run).not.toContain("JAZZ_CHATGPT_CREDENTIAL");
+    expect(agent.run).not.toMatch(/bun install|npm install/);
+  });
+
   test("manual main snapshots and a fresh publisher never persist checkout credentials", () => {
     expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
     expect(workflow["cache-mode"]).toBe("none");
