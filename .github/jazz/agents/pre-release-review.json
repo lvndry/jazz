@@ -1,0 +1,26 @@
+{
+  "id": "pre-release-review",
+  "name": "pre-release-review",
+  "description": "Reviews every commit since the latest published release, verifies introduced bugs, and fixes them with regression tests for one pull request",
+  "config": {
+    "persona": "coder",
+    "llm": {
+      "provider": "chatgpt",
+      "model": "gpt-6-luna",
+      "reasoning": "high"
+    },
+    "tools": [
+      "context_info",
+      "find",
+      "grep",
+      "execute_command",
+      "ls",
+      "read_file",
+      "edit_file",
+      "write_file",
+      "spawn_subagent",
+      "wait_subagents",
+      "summarize_context"
+    ]
+  }
+}
