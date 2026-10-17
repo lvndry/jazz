@@ -34,6 +34,7 @@ import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/pa
 import { describe, expect, it } from "bun:test";
 import { Context, Effect, Layer } from "effect";
 import {
+  EVENT_POLL_MS,
   makeA2AHandler,
   makeHandler,
   makePeerInviteHandler,
@@ -1732,5 +1733,48 @@ describe("the daemon's attention routes", () => {
       }
       rmSync(home, { recursive: true, force: true });
     }
+  }, 20_000);
+
+  it("never starts polling for a client that left during the first snapshot", async () => {
+    const layer = Layer.mergeAll(
+      Layer.succeed(RunStoreTag, new InMemoryRunStore()),
+      Layer.succeed(GoalStoreTag, new InMemoryGoalStore()),
+      Layer.succeed(LoopStoreTag, new InMemoryLoopStore()),
+      Layer.succeed(AgentConfigServiceTag, {
+        reloadIfChanged: () => Effect.succeed(false),
+        appConfig: Effect.succeed({}),
+      } as unknown as AgentConfigService),
+    );
+    let snapshotsRead = 0;
+    let releaseFirstSnapshot: () => void = () => {};
+    const firstSnapshotHeld = new Promise<void>((resolve) => {
+      releaseFirstSnapshot = resolve;
+    });
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, async (effect) => {
+      snapshotsRead += 1;
+      if (snapshotsRead === 1) {
+        await firstSnapshotHeld;
+      }
+      return Effect.runPromise(
+        effect.pipe(Effect.provide(layer)) as Effect.Effect<never, never, never>,
+      );
+    });
+    const controller = new AbortController();
+    const response = await handle(
+      request("GET", "/events", {
+        headers: { authorization: "Bearer s3cret" },
+        signal: controller.signal,
+      }),
+    );
+    const reader = response.body!.getReader();
+    const firstRead = reader.read();
+    await Bun.sleep(0);
+
+    controller.abort();
+    releaseFirstSnapshot();
+    expect((await firstRead).done).toBe(true);
+    await Bun.sleep(EVENT_POLL_MS + 500);
+
+    expect(snapshotsRead).toBe(1);
   }, 20_000);
 });
