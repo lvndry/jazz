@@ -15,14 +15,15 @@
  *    family-default seed.
  *
  * The `gpt-tokenizer` encoders (~3.5 MB of BPE tables, hundreds of ms to
- * evaluate) are deferred past startup: statically imported they sit on every
- * startup's critical path, and even a top-level dynamic import just moves the
- * evaluation into startup's event-loop gaps, which is still startup. The
- * preload starts ~1.5 s after module load (well after first paint) and, as a
- * backstop, at the first OpenAI-family count. Until it lands, OpenAI text is
- * priced with the same ratio estimate other families use; such estimates are
- * deliberately not message-cached, so the first exact count after the
- * encoders arrive supersedes them.
+ * evaluate) load only when an OpenAI-family count first asks for one, and only
+ * that family's encoder. Statically imported they would sit on every startup's
+ * critical path, and a timed preload would spend that CPU in every process,
+ * whatever its model, often while an answer is streaming. The first count comes
+ * just before an LLM request, so the encoder evaluates while the request waits
+ * for its first token. Until it lands, OpenAI text is priced with the same
+ * ratio estimate other families use; such estimates are deliberately not
+ * message-cached, so the first exact count after the encoder arrives
+ * supersedes them.
  *
  * The seed values (Claude ≈ 3.5 chars/token, Gemini ≈ 4.0, etc.) come from
  * empirical samples across long English+JSON traces. They drift toward truth
@@ -39,11 +40,6 @@ import type { ChatMessage } from "@/core/types/message";
 import { estimateAttachmentsTokens } from "./attachment-tokens";
 
 type CountTokens = (text: string) => number;
-
-interface GptEncoders {
-  readonly cl100k: CountTokens;
-  readonly o200k: CountTokens;
-}
 
 /** Tokenizer family — drives both encoding choice and default ratio. */
 export type ModelFamily =
@@ -100,62 +96,55 @@ const RATIO_MIN = 2.0;
 /** Upper bound on calibrated chars-per-token. */
 const RATIO_MAX = 6.0;
 
-/**
- * The gpt-tokenizer encoders once the background preload has resolved, or
- * undefined until then (or forever, if the package failed to load — the
- * ratio fallback keeps counting in that case).
- */
-let gptEncoders: GptEncoders | undefined;
-let gptEncodersReady: Promise<void> | undefined;
+type TokenizerFamily = "openai-o200k" | "openai-cl100k";
 
 /**
- * How long after module load the background encoder preload starts.
- *
- * Interactive startup (config load, agent catalog, TUI init, first paint) takes
- * several hundred ms; starting the preload inside that window just reschedules
- * ~300 ms of encoder evaluation into startup's event-loop gaps and buys nothing
- * (measured). Starting it after first paint moves the cost out of the window
- * users actually feel, and any real count — the first LLM round trip is always
- * later than this — finds the encoders loaded.
+ * Each family's gpt-tokenizer encoder once it has loaded; absent until then (or forever, if the
+ * package failed to load — the ratio fallback keeps counting in that case).
  */
-const DEFER_ENCODER_PRELOAD_MS = 1500;
+const gptEncoders = new Map<TokenizerFamily, CountTokens>();
+const gptEncoderLoads = new Map<TokenizerFamily, Promise<void>>();
 
-async function loadGptEncoders(): Promise<void> {
-  if (gptEncoders !== undefined) return;
-  const [cl100k, o200k] = await Promise.all([
-    import("gpt-tokenizer/encoding/cl100k_base"),
-    import("gpt-tokenizer/encoding/o200k_base"),
-  ]);
-  gptEncoders = { cl100k: cl100k.countTokens, o200k: o200k.countTokens };
+async function importGptEncoder(family: TokenizerFamily): Promise<CountTokens> {
+  const encoding =
+    family === "openai-o200k"
+      ? await import("gpt-tokenizer/encoding/o200k_base")
+      : await import("gpt-tokenizer/encoding/cl100k_base");
+  return encoding.countTokens;
+}
+
+function ensureGptEncoder(family: TokenizerFamily): Promise<void> {
+  let load = gptEncoderLoads.get(family);
+  if (load === undefined) {
+    load = importGptEncoder(family).then(
+      (countTokens) => {
+        gptEncoders.set(family, countTokens);
+      },
+      (error: unknown) => {
+        process.stderr.write(
+          `jazz: gpt-tokenizer failed to load; OpenAI models fall back to ratio estimates: ${String(error)}\n`,
+        );
+      },
+    );
+    gptEncoderLoads.set(family, load);
+  }
+  return load;
 }
 
 /**
- * Await the encoder preload. Callers that need exact counts immediately
+ * Load every OpenAI-family encoder. Callers that need exact counts immediately
  * (tests, one-shot scripts) can await this; the agent loop never does — it
  * tolerates the short estimate window described above.
  */
-export function ensureGptEncoders(): Promise<void> {
-  gptEncodersReady ??= loadGptEncoders().catch((error) => {
-    gptEncoders = undefined;
-    process.stderr.write(
-      `jazz: gpt-tokenizer failed to load; OpenAI models fall back to ratio estimates: ${String(error)}\n`,
-    );
-  });
-  return gptEncodersReady;
+export async function ensureGptEncoders(): Promise<void> {
+  await Promise.all([ensureGptEncoder("openai-o200k"), ensureGptEncoder("openai-cl100k")]);
 }
 
 /** Test hook: forget the loaded encoders to exercise the not-yet-loaded path. */
 export function resetGptEncodersForTests(): void {
-  gptEncoders = undefined;
-  gptEncodersReady = undefined;
+  gptEncoders.clear();
+  gptEncoderLoads.clear();
 }
-
-// Unreferenced so a one-shot invocation that never counts an OpenAI model
-// (and exits before the delay) never pays for the tables at all.
-const deferredEncoderPreload = setTimeout(() => {
-  void ensureGptEncoders();
-}, DEFER_ENCODER_PRELOAD_MS);
-deferredEncoderPreload.unref();
 
 /**
  * True for families counted with a real tokenizer rather than a ratio.
@@ -164,7 +153,7 @@ deferredEncoderPreload.unref();
  * does not depend on the calibrated ratio — so calibration has nothing to
  * invalidate for these models.
  */
-function isTokenizerBacked(family: ModelFamily): boolean {
+function isTokenizerBacked(family: ModelFamily): family is TokenizerFamily {
   return family === "openai-o200k" || family === "openai-cl100k";
 }
 
@@ -292,7 +281,7 @@ export class TokenCounter {
    *
    * Uses gpt-tokenizer for OpenAI families (exact). Falls back to the
    * calibrated or family-default chars-per-token ratio for other providers,
-   * and temporarily for OpenAI families until the encoder preload lands.
+   * and temporarily for OpenAI families until their encoder has loaded.
    */
   countText(text: string, hint: ModelHint): number {
     if (text.length === 0) return 0;
@@ -301,10 +290,10 @@ export class TokenCounter {
     if (isTokenizerBacked(family)) {
       const cached = this.bpeCaches.get(family)?.get(text);
       if (cached !== undefined) return cached;
-      const encoders = gptEncoders;
-      if (encoders !== undefined) {
+      const countTokens = gptEncoders.get(family);
+      if (countTokens !== undefined) {
         try {
-          const counted = family === "openai-o200k" ? encoders.o200k(text) : encoders.cl100k(text);
+          const counted = countTokens(text);
           this.rememberBpeCount(family, text, counted);
           return counted;
         } catch {
@@ -313,11 +302,11 @@ export class TokenCounter {
           // not cache, so the failure is never mistaken for a count.
         }
       } else {
-        // Backstop for a count that arrives before the deferred preload ran:
-        // start loading now (this call still estimates), the next one is exact.
-        void ensureGptEncoders();
+        // The first count for this family starts its encoder loading; this call
+        // still estimates, a later one is exact.
+        void ensureGptEncoder(family);
       }
-      // The encoders have not finished loading. Price the text the same way
+      // The encoder has not finished loading. Price the text the same way
       // every non-tokenizer family is priced; countMessageText keeps such
       // estimates out of the message cache so the next call is exact.
     }
@@ -377,7 +366,8 @@ export class TokenCounter {
     // exact count, so it must not be cached — a cached estimate would pin the
     // message at a value the real tokenizer would not produce. Everything
     // else (ratio-backed families, and exact BPE counts) is safe to cache.
-    const cacheable = !isTokenizerBacked(inferFamily(hint)) || gptEncoders !== undefined;
+    const family = inferFamily(hint);
+    const cacheable = !isTokenizerBacked(family) || gptEncoders.has(family);
     const cached = cacheable ? this.messageCache.get(msg) : undefined;
     if (cached !== undefined) return cached;
 

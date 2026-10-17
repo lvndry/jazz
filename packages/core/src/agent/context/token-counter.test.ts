@@ -9,7 +9,7 @@ import {
 } from "./token-counter";
 
 // The counter lazy-loads the encoders in the background; tests assert exact
-// counts, so wait for the preload explicitly.
+// counts, so wait for the encoders explicitly.
 let countCl100k: (text: string) => number;
 let countO200k: (text: string) => number;
 beforeAll(async () => {
@@ -107,15 +107,15 @@ describe("TokenCounter — encoders still loading (ratio fallback window)", () =
       const hint: ModelHint = { provider: "openai", modelId: "gpt-4o" };
       const text = "a".repeat(80);
 
-      // Same math as the non-tokenizer families until the preload lands.
+      // Same math as the non-tokenizer families until the encoder has loaded.
       expect(counter.countText(text, hint)).toBe(Math.ceil(80 / 4.0));
     } finally {
-      // Re-arm the background preload for any later test.
+      // Load the encoders again for any later test.
       void ensureGptEncoders();
     }
   });
 
-  it("a count before the preload lands starts loading; the next count is exact", async () => {
+  it("a count before the encoder has loaded starts loading; the next count is exact", async () => {
     resetGptEncodersForTests();
     try {
       const counter = new TokenCounter();
@@ -139,7 +139,7 @@ describe("TokenCounter — encoders still loading (ratio fallback window)", () =
       const message = userMsg("a".repeat(80));
 
       // Encoders not yet loaded: the message is priced by ratio and must not
-      // be cached, so it is re-priced (exactly) once the preload lands.
+      // be cached, so it is re-priced (exactly) once the encoder has loaded.
       const estimate = counter.countMessage(message, hint);
       await ensureGptEncoders();
       const exact = counter.countMessage(message, hint);
