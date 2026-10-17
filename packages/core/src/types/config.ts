@@ -405,6 +405,7 @@ export const WEB_SEARCH_PROVIDERS = [
   "brave",
   "perplexity",
   "linkup",
+  "treg",
 ] as const;
 
 export type WebSearchProviderName = (typeof WEB_SEARCH_PROVIDERS)[number];
@@ -423,6 +424,7 @@ export interface WebSearchConfig {
   readonly tavily?: WebSearchProviderConfig;
   readonly brave?: WebSearchProviderConfig;
   readonly perplexity?: WebSearchProviderConfig;
+  readonly treg?: WebSearchProviderConfig;
   readonly linkup?: WebSearchProviderConfig;
   readonly provider?: WebSearchProviderName;
 }
