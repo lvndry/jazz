@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { Effect } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { TelemetryService } from "@/core/interfaces/telemetry";
@@ -7,6 +7,7 @@ import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
 import { LLMRateLimitError } from "@/core/types/errors";
 import {
   beginIteration,
+  closeAgentRunTelemetry,
   completeIteration,
   computeRunCost,
   createAgentRunMetrics,
@@ -417,5 +418,82 @@ describe("computeRunCost", () => {
     const { costUSD } = computeRunCost(metrics, pricing);
 
     expect(costUSD).toBeCloseTo(0.1 + 0.05, 8);
+  });
+});
+
+describe("closeAgentRunTelemetry", () => {
+  function recordingTelemetry() {
+    const calls: string[] = [];
+    const record = (name: string) => () =>
+      Effect.sync(() => {
+        calls.push(name);
+      });
+    const telemetry = {
+      recordAgentRunCompleted: record("completed"),
+      recordAgentRunFailed: record("failed"),
+      endAgentRun: record("ended"),
+    } as unknown as TelemetryService;
+    return { calls, telemetry };
+  }
+
+  function runScoped<Error>(
+    telemetry: TelemetryService,
+    metrics: ReturnType<typeof createMetrics>,
+    body: Effect.Effect<void, Error>,
+  ): Effect.Effect<void, Error> {
+    return Effect.scoped(
+      Effect.gen(function* () {
+        yield* Effect.addFinalizer((exit) => closeAgentRunTelemetry(metrics, exit));
+        yield* body;
+      }),
+    ).pipe(Effect.provideService(TelemetryServiceTag, telemetry));
+  }
+
+  it("ends an interrupted run without recording a failure", async () => {
+    const { calls, telemetry } = recordingTelemetry();
+    const metrics = createMetrics();
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>();
+        const fiber = yield* Effect.forkChild(
+          runScoped(
+            telemetry,
+            metrics,
+            Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
+          ),
+        );
+        yield* Deferred.await(started);
+        yield* Fiber.interrupt(fiber);
+      }),
+    );
+
+    expect(calls).toEqual(["ended"]);
+  });
+
+  it("records a failure that happened before the loop could record one", async () => {
+    const { calls, telemetry } = recordingTelemetry();
+    const metrics = createMetrics();
+
+    await Effect.runPromiseExit(runScoped(telemetry, metrics, Effect.fail(new Error("boom"))));
+
+    expect(calls).toEqual(["failed"]);
+  });
+
+  it("records nothing more once the run reported its own failure", async () => {
+    const { calls, telemetry } = recordingTelemetry();
+    const metrics = createMetrics();
+
+    await Effect.runPromiseExit(
+      runScoped(
+        telemetry,
+        metrics,
+        emitAgentRunFailed(metrics, new Error("boom")).pipe(
+          Effect.andThen(Effect.fail(new Error("boom"))),
+        ),
+      ),
+    );
+
+    expect(calls).toEqual(["failed"]);
   });
 });
