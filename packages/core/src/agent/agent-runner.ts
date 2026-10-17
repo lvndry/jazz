@@ -836,8 +836,9 @@ function initializeAgentRun(
       options.trustUserInputAsMemorySource === true && options.isResume !== true
         ? { id: `user:${runMetrics.runId}`, text: userInput }
         : undefined;
-    const memorySources =
-      options.memorySources ?? collectMemorySources(history, currentMemorySource);
+    const memorySources: MemorySource[] = [
+      ...(options.memorySources ?? collectMemorySources(history, currentMemorySource)),
+    ];
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
@@ -1015,6 +1016,9 @@ function initializeAgentRun(
       expandedToolNames,
       messages,
       ...(memoryOpportunities !== undefined ? { memoryOpportunities } : {}),
+      admitMemorySource: (source: MemorySource) => {
+        memorySources.push(source);
+      },
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       ...(Option.isSome(pluginSession)
         ? {

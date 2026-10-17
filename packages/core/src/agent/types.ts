@@ -59,6 +59,17 @@ export type ChatTurnOptions = Pick<
   | "offersShellEscape"
 >;
 
+/** A message delivered into a run while it works, at the start of its next step. */
+export interface QueuedMessage {
+  /** What the model reads, framing included. */
+  readonly content: string;
+  /**
+   * What the person typed, when the message carries their own words. It becomes a memory
+   * source the model may quote, exactly as the run's first message is.
+   */
+  readonly typed?: string;
+}
+
 /** A durable controller that starts runs on its own: a loop or a goal. */
 export type RunStarter = "loop" | "goal";
 
@@ -332,12 +343,12 @@ export interface AgentRunnerOptions {
   /**
    * Optional callback polled at the start of an iteration, before its LLM call,
    * to inject a queued user message into the running conversation.
-   * When it returns a non-empty string, that string is appended as a user
-   * message so the agent can incorporate mid-run guidance immediately.
+   * When it returns a message with non-empty content, that content is appended as a
+   * user message so the agent can incorporate mid-run guidance immediately.
    * `spawn_subagent` sets it on the child to deliver messages the user addressed to
    * that sub-agent; other internal runs (compaction, extraction) leave it unset.
    */
-  readonly checkQueuedMessage?: () => string | undefined;
+  readonly checkQueuedMessage?: () => QueuedMessage | undefined;
   /**
    * Completes once a message `checkQueuedMessage` would deliver is waiting. A tool that would
    * hold the run for long (`wait_subagents`) returns early on it, so the message is read now.
@@ -575,6 +586,8 @@ export interface AgentRunContext {
   readonly messages: ConversationMessages;
   /** Records which memory entries each model request could have used; absent without memory. */
   readonly memoryOpportunities?: MemoryOpportunityRecorder;
+  /** Adds a source to the ones `context.memorySources` lists, for a user message delivered mid-run. */
+  readonly admitMemorySource?: (source: MemorySource) => void;
   /**
    * Host-rendered, provider-only context for the first LLM request.
    * Never push this into `messages`: canonical history must remain byte-equivalent.

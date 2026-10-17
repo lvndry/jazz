@@ -470,13 +470,15 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
                     ? presentation.recordEphemeralRegionParentMessage(regionId, fromParent)
                     : presentation.appendEphemeralRegion(regionId, `↳ parent: ${fromParent}`),
                 );
-                return frameParentMessage(fromParent);
+                return { content: frameParentMessage(fromParent) };
               }
               if (presentation.takeEphemeralRegionMessage === undefined) {
                 return undefined;
               }
               const steering = Effect.runSync(presentation.takeEphemeralRegionMessage(regionId));
-              return steering === undefined ? undefined : frameSteeringMessage(steering);
+              return steering === undefined
+                ? undefined
+                : { content: frameSteeringMessage(steering) };
             },
           }
         : {}),

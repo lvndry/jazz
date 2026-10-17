@@ -1215,7 +1215,7 @@ describe("spawn_subagent steering", () => {
       await runSpawn(steerable);
       const check = captured.options?.checkQueuedMessage;
       expect(check).toBeDefined();
-      const delivered = check?.();
+      const delivered = check?.()?.content;
       expect(delivered).toContain("try the corner cells first");
       expect(delivered).toContain("continue the task");
       expect(check?.()).toBeUndefined();

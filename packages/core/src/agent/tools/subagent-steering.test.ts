@@ -170,7 +170,7 @@ describe("sub-agents the parent steers", () => {
       supervisor,
     );
     expect(steered.success).toBe(true);
-    const delivered = children.started[0]!.checkQueuedMessage?.();
+    const delivered = children.started[0]!.checkQueuedMessage?.()?.content;
     expect(delivered).toContain("[MESSAGE FROM THE PARENT AGENT WHILE YOU WORK]");
     expect(delivered).toContain("only direct flights");
     expect(children.started[0]!.checkQueuedMessage?.()).toBeUndefined();

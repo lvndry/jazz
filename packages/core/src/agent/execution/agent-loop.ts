@@ -26,6 +26,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import { formatMemorySourceTag } from "@/core/memory/source-trust";
 import type {
   ChatMessage,
   ConversationMessages,
@@ -45,7 +46,7 @@ import {
   LLMRateLimitError,
   LLMRequestError,
 } from "@/core/types/errors";
-import type { MemoryDelivery } from "@/core/types/message";
+import type { MemoryDelivery, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { WorkspaceContextInput, WorkspaceFileActivity } from "@/core/types/plugin";
 import type { StreamEvent } from "@/core/types/streaming";
@@ -395,6 +396,7 @@ interface LoopDeps {
    */
   supportedAttachmentKinds: readonly AttachmentKind[];
   memoryOpportunities: AgentRunContext["memoryOpportunities"];
+  admitMemorySource: AgentRunContext["admitMemorySource"];
 }
 
 export const MELTDOWN_WINDOW_SIZE = 10;
@@ -1612,8 +1614,22 @@ function runIteration(
     }
     const queuedMessage =
       finalAnswerReason === undefined ? options.checkQueuedMessage?.() : undefined;
-    if (queuedMessage) {
-      const queued: ChatMessage = { role: "user", content: queuedMessage };
+    if (queuedMessage !== undefined && queuedMessage.content.length > 0) {
+      const memorySource: MemorySource | undefined =
+        queuedMessage.typed !== undefined && deps.admitMemorySource !== undefined
+          ? { id: `user:${runMetrics.runId}:step-${iterationIndex}`, text: queuedMessage.typed }
+          : undefined;
+      const queued: ChatMessage =
+        memorySource === undefined
+          ? { role: "user", content: queuedMessage.content }
+          : {
+              role: "user",
+              content: `${queuedMessage.content}\n\n${formatMemorySourceTag(memorySource.id)}`,
+              memorySource,
+            };
+      if (memorySource !== undefined) {
+        deps.admitMemorySource?.(memorySource);
+      }
       state.currentMessages.push(queued);
       if (messageCarriesEgressTaint(queued)) {
         deps.context.egressTaint?.mark("a background task's output");
@@ -2295,6 +2311,7 @@ export function executeAgentLoop(
           runRecursive,
           supportedAttachmentKinds,
           memoryOpportunities,
+          admitMemorySource: runContext.admitMemorySource,
           subagents,
         };
         subagents.bindCostCap(maxCostUSD, () => computeRunCost(runMetrics, modelMetadata).costUSD);
