@@ -175,6 +175,72 @@ describe("installTerminalLifecycle", () => {
     expect(calls.resume).toBe(1);
   });
 
+  test("stops the process once when suspend throws before returning its transition", async () => {
+    const { listeners, kills, runtime } = stubRuntime();
+    const { calls, renderer } = stubRenderer();
+    const throwing = {
+      ...renderer,
+      isDestroyed: false,
+      suspend: () => {
+        calls.suspend += 1;
+        throw new Error("transition pending");
+      },
+    } as unknown as LifecycleRenderer;
+
+    installTerminalLifecycle(throwing, runtime);
+    expect(() => listeners.get("SIGTSTP")?.()).not.toThrow();
+    await Bun.sleep(0);
+
+    expect(kills).toEqual(["SIGSTOP"]);
+  });
+
+  test("a second ^Z during a pending suspend leaves the stop to the first", async () => {
+    const { listeners, kills, runtime } = stubRuntime();
+    const { calls, renderer } = stubRenderer();
+    let finishSuspend: (() => void) | undefined;
+    const pending = {
+      ...renderer,
+      isDestroyed: false,
+      suspend: () => {
+        calls.suspend += 1;
+        return new Promise<void>((resolve) => {
+          finishSuspend = resolve;
+        });
+      },
+    } as unknown as LifecycleRenderer;
+
+    installTerminalLifecycle(pending, runtime);
+    listeners.get("SIGTSTP")?.();
+    listeners.get("SIGTSTP")?.();
+    await Bun.sleep(0);
+    expect(calls.suspend).toBe(1);
+    expect(kills).toEqual([]);
+
+    finishSuspend?.();
+    await Bun.sleep(0);
+    expect(kills).toEqual(["SIGSTOP"]);
+  });
+
+  test("a resume that throws before returning its transition does not escape the handler", async () => {
+    const { listeners, runtime } = stubRuntime();
+    const { renderer } = stubRenderer();
+    const order: string[] = [];
+    const throwing = {
+      ...renderer,
+      isDestroyed: false,
+      requestRender: () => order.push("render"),
+      resume: () => {
+        throw new Error("resume requires completed suspension");
+      },
+    } as unknown as LifecycleRenderer;
+
+    installTerminalLifecycle(throwing, runtime, () => order.push("ground"));
+    expect(() => listeners.get("SIGCONT")?.()).not.toThrow();
+    await Bun.sleep(0);
+
+    expect(order).toEqual(["ground", "render"]);
+  });
+
   test("cleans up listeners and the renderer when lifecycle acquisition fails", () => {
     const { listeners, runtime } = stubRuntime();
     const { calls, renderer } = stubRenderer();

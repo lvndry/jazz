@@ -59,38 +59,37 @@ export interface LifecycleProcess {
   kill(pid: number, signal: string): unknown;
 }
 
+/** Resolve once a terminal transition finishes, whether it rejects or throws before starting. */
+function settleTransition(transition: () => Promise<void>): Promise<void> {
+  return new Promise<void>((resolve) => {
+    resolve(transition());
+  }).catch(() => undefined);
+}
+
 /**
  * Wires the renderer to the process events OpenTUI does not own, and returns the
  * idempotent release.
  *
- * Two of those events matter. Job control is the one OpenTUI documents as the
- * caller's: on suspend the terminal must be handed back before the process
- * stops, or the shell resumes into a broken screen; on continue we re-enter and
- * repaint.
+ * Job control is the event OpenTUI documents as the caller's: on suspend the
+ * terminal must be handed back before the process stops, or the shell resumes
+ * into a broken screen; on continue we re-enter and repaint. `suspend()` and
+ * `resume()` reject asynchronously when the native transition fails and throw
+ * synchronously when one is already pending, so both are settled the same way
+ * and a ^Z arriving while a suspend is in flight is left to that suspend.
  *
- * `exit` is the one it silently leaves open. OpenTUI installs handlers for the
- * configured exit signals and for uncaught errors, but never for `process.exit`
- * — so a plain exit tears the process down with mouse reporting and the
- * alternate screen still on, and the shell that gets the terminal back prints
- * every mouse move as a stray `35;97;18M`. jazz reaches exactly that path on a
- * normal quit, where the wizard ends on `process.exit(0)` and Effect's
- * finalizers (which is where the terminal cleanup lives) never run.
+ * `exit` also releases. OpenTUI's own exit handler pumps terminal restoration
+ * synchronously before this listener runs, and `destroy()` then finds nothing
+ * left to do; releasing here still drops the rest of the scope on a plain
+ * `process.exit(0)`, which is how the wizard ends a normal quit without running
+ * Effect's finalizers.
  *
  * Both job-control handlers check `isDestroyed` as well as `released`, because
  * OpenTUI destroys the renderer from its own signal handlers without telling us:
  * `exitHandler` is just `destroy()`, and it does not exit the process, so a
  * first Ctrl+C leaves a destroyed renderer while jazz runs its graceful
  * shutdown. `destroy()` also restores ISIG, so a ^Z in that window arrives as a
- * real SIGTSTP. Neither `suspend()` nor `resume()` checks `isDestroyed` itself,
- * and `destroy()` does not null `rendererPtr` — so an unguarded handler would
- * call into a freed renderer, and `resume()` would re-enter raw mode and start
- * the terminal keep-alive with no TUI left to run.
- *
- * Exit listeners may only do synchronous work. `destroy()` is synchronous here
- * because it defers to `finalizeDestroy()` only while `rendering` is true, which
- * needs a registered frame callback, and jazz registers none. Were that to
- * change, the deferred path still runs `cleanupBeforeDestroy()` — which is what
- * disables mouse reporting — so only the alternate-screen restore would be lost.
+ * real SIGTSTP, and resuming a destroyed renderer would re-enter raw mode with
+ * no TUI left to run.
  */
 export function installTerminalLifecycle(
   renderer: LifecycleRenderer,
@@ -103,25 +102,30 @@ export function installTerminalLifecycle(
     if (!renderer.isDestroyed) renderer.destroy();
   });
 
+  let suspending = false;
   const onSuspend = (): void => {
-    if (released || renderer.isDestroyed) return;
+    if (released || renderer.isDestroyed || suspending) {
+      return;
+    }
+    suspending = true;
     renderer.resetTerminalBgColor();
     // ^Z must still stop the process when handing the terminal back fails.
-    void renderer
-      .suspend()
-      .catch(() => undefined)
-      .then(() => runtime.kill(runtime.pid, "SIGSTOP"));
+    void settleTransition(() => renderer.suspend()).then(() => {
+      suspending = false;
+      runtime.kill(runtime.pid, "SIGSTOP");
+    });
   };
   const onContinue = (): void => {
-    if (released || renderer.isDestroyed) return;
-    void renderer
-      .resume()
-      .catch(() => undefined)
-      .then(() => {
-        if (released || renderer.isDestroyed) return;
-        afterResume();
-        renderer.requestRender();
-      });
+    if (released || renderer.isDestroyed) {
+      return;
+    }
+    void settleTransition(() => renderer.resume()).then(() => {
+      if (released || renderer.isDestroyed) {
+        return;
+      }
+      afterResume();
+      renderer.requestRender();
+    });
   };
   const onExit = (): void => {
     release();

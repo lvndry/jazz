@@ -1,12 +1,12 @@
 /**
- * The version boundary between Jazz's terminal ownership and OpenTUI 0.5.11.
+ * The boundary between Jazz's terminal ownership and OpenTUI's private renderer contract.
  *
  * React/native mutations already schedule demand frames. Full physical-screen
  * invalidation additionally needs OpenTUI's private repaint flag, because its
  * public requestRender only diffs intended buffers. Validate that contract on
  * acquisition and fail startup explicitly if it changes; never silently lose
- * blank-cell repair. Native writer failures are also observed here because
- * this OpenTUI version logs them instead of emitting its public render:error.
+ * blank-cell repair. Native frame presentation failures are also observed here
+ * because OpenTUI logs them instead of emitting its public render:error.
  */
 
 import type { CliRenderer } from "@opentui/core";
@@ -36,16 +36,22 @@ export function observeNativeFailure(
   renderer: CliRenderer,
   onFailure: (error: Error) => void,
 ): () => void {
-  const backend = renderer as unknown as { renderNative?: () => unknown };
-  const original = backend.renderNative;
-  if (typeof original !== "function") throw new Error("Unsupported OpenTUI native writer contract");
-  const observed = (): unknown => {
-    const result = original.call(renderer);
-    if (result === "failed") onFailure(new Error("OpenTUI native output failed"));
+  const backend = renderer as unknown as { presentNativeScene?: () => Promise<unknown> };
+  const original = backend.presentNativeScene;
+  if (typeof original !== "function") {
+    throw new Error("Unsupported OpenTUI native presentation contract");
+  }
+  const observed = async (): Promise<unknown> => {
+    const result = await original.call(renderer);
+    if (result === "failed") {
+      onFailure(new Error("OpenTUI native output failed"));
+    }
     return result;
   };
-  backend.renderNative = observed;
+  backend.presentNativeScene = observed;
   return () => {
-    if (backend.renderNative === observed) backend.renderNative = original;
+    if (backend.presentNativeScene === observed) {
+      backend.presentNativeScene = original;
+    }
   };
 }

@@ -15,7 +15,7 @@ import { createTerminalOracle } from "./testing/terminal-oracle";
 
 test("runtime errors hand off once after releasing the native renderer", async () => {
   const oracle = await createTerminalOracle({ width: 60, height: 20 });
-  const originalWriter: unknown = Reflect.get(oracle.renderer, "renderNative");
+  const originalWriter: unknown = Reflect.get(oracle.renderer, "presentNativeScene");
   const diagnostics: string[] = [];
   const originalStderr = process.stderr.write;
   process.stderr.write = (chunk: unknown): boolean => {
@@ -63,7 +63,7 @@ test("runtime errors hand off once after releasing the native renderer", async (
     ]);
     expect(oracle.renderer.listenerCount("render:error")).toBe(0);
     expect(oracle.renderer.listenerCount("handler:error")).toBe(0);
-    expect(Reflect.get(oracle.renderer, "renderNative")).toBe(originalWriter);
+    expect(Reflect.get(oracle.renderer, "presentNativeScene")).toBe(originalWriter);
   } finally {
     handle.release();
     oracle.dispose();
@@ -75,12 +75,12 @@ test("partial setup releases acquisitions even when a listener cleanup throws", 
   const listeners = new Map<string, () => void>();
   let releases = 0;
   let restored = false;
-  const nativeWriter = (): string => "rendered";
+  const nativeWriter = async (): Promise<string> => "rendered";
   const setupFailure = new Error("event acquisition failed");
   const backend = {
     forceFullRepaintRequested: false,
     requestRender: () => undefined,
-    renderNative: nativeWriter,
+    presentNativeScene: nativeWriter,
     on: (event: string, listener: () => void) => {
       if (event === "handler:error") throw setupFailure;
       listeners.set(event, listener);
@@ -100,7 +100,7 @@ test("partial setup releases acquisitions even when a listener cleanup throws", 
           renderer: backend as unknown as CliRenderer,
           release: () => {
             releases++;
-            restored = backend.renderNative === nativeWriter;
+            restored = backend.presentNativeScene === nativeWriter;
           },
         }),
         onFailure: resolve,
@@ -119,8 +119,8 @@ test("partial setup releases acquisitions even when a listener cleanup throws", 
 test("a rejected native frame triggers handoff without a public render error event", async () => {
   const oracle = await createTerminalOracle({ width: 60, height: 20 });
   await oracle.flush();
-  const originalWriter: unknown = Reflect.get(oracle.renderer, "renderNative");
-  Reflect.set(oracle.renderer, "renderNative", () => "failed");
+  const originalWriter: unknown = Reflect.get(oracle.renderer, "presentNativeScene");
+  Reflect.set(oracle.renderer, "presentNativeScene", async () => "failed");
   const originalStderr = process.stderr.write;
   process.stderr.write = (() => true) as typeof process.stderr.write;
   let releases = 0;
@@ -148,7 +148,7 @@ test("a rejected native frame triggers handoff without a public render error eve
     expect(oracle.renderer.isDestroyed).toBe(true);
   } finally {
     handle?.release();
-    Reflect.set(oracle.renderer, "renderNative", originalWriter);
+    Reflect.set(oracle.renderer, "presentNativeScene", originalWriter);
     oracle.dispose();
     process.stderr.write = originalStderr;
   }
