@@ -73,18 +73,17 @@ beside it.
 
 ## 5. Keyring entries
 
-API keys, tokens and sign-ins live in the OS keyring, one entry per setting. The entry's
-account is the setting (`llm.openai.api_key`, `daemon.token`, `chatgpt.oauth.credential`, and
-so on) and its service is `jazz`, or a name starting with `jazz.` for a home that keeps its
-own entries.
+API keys, tokens and sign-ins live in the OS keyring, in one entry per Jazz home. Its service
+is `jazz.<id>.vault` and its account is `secrets`. Entries written by older versions use the
+service `jazz` or `jazz.<id>`, one per setting; Jazz moves them into the vault on first run.
 
 ```bash
 # macOS: list the entries, then delete each one by its service ("svce") and account ("acct")
 security dump-keychain | grep -B4 -A4 '"svce"<blob>="jazz'
 security delete-generic-password -s <service> -a <account>
 
-# Linux: list the entries for one account name, then clear each
-secret-tool search --all account llm.openai.api_key
+# Linux: list the vault entries, then clear each
+secret-tool search --all account secrets
 secret-tool clear service <service> account <account>
 ```
 

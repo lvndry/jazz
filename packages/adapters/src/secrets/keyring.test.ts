@@ -11,7 +11,9 @@ import {
   keyringGet,
   keyringServiceName,
   keyringSet,
-  migrateLegacyKeyringEntries,
+  keyringVaultServiceName,
+  migrateKeyringEntriesIntoVault,
+  type VaultLock,
 } from "./keyring";
 
 const originalDisable = process.env["JAZZ_DISABLE_KEYRING"];
@@ -132,6 +134,28 @@ describe("keyringServiceName", () => {
   });
 });
 
+describe("keyringVaultServiceName", () => {
+  it("names a service of its own beside the home's per-entry service", () => {
+    expect(keyringVaultServiceName("/home/sam/.jazz")).toBe(
+      `${keyringServiceName("/home/sam/.jazz")}.vault`,
+    );
+  });
+});
+
+const VAULT_SERVICE = "jazz.abc.vault";
+const VAULT_KEY = `${VAULT_SERVICE}\u0000secrets`;
+
+const withoutLock: VaultLock = (operation) => operation();
+
+function encodeVault(secrets: Record<string, string>): string {
+  return Buffer.from(JSON.stringify(secrets)).toString("base64");
+}
+
+function vaultIn(entries: Map<string, string>): Record<string, string> | undefined {
+  const raw = entries.get(VAULT_KEY);
+  return raw === undefined ? undefined : JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+}
+
 /** An in-memory keychain answering the `security` CLI the way macOS does, keyed by service and account. */
 function fakeMacosKeychain(entries: Map<string, string>): KeyringCommandRunner {
   const key = (service: string, account: string): string => `${service}\u0000${account}`;
@@ -146,79 +170,134 @@ function fakeMacosKeychain(entries: Map<string, string>): KeyringCommandRunner {
     stderr: "",
     unavailable: false,
   });
-  return (_command, args) =>
-    Effect.sync(() => {
-      const service = flag(args, "-s") ?? "";
-      const account = flag(args, "-a");
-      switch (args[0]) {
-        case "find-generic-password": {
-          if (account === undefined) {
-            const match = [...entries.keys()].find((entry) => entry.startsWith(`${service}\u0000`));
-            if (match === undefined) {
-              return result(false);
-            }
-            const matchedAccount = match.slice(service.length + 1);
-            return result(true, `attributes:\n    "acct"<blob>="${matchedAccount}"\n`);
+  const answer = (args: readonly string[]): CommandResult => {
+    const service = flag(args, "-s") ?? "";
+    const account = flag(args, "-a");
+    switch (args[0]) {
+      case "find-generic-password": {
+        if (account === undefined) {
+          const match = [...entries.keys()].find((entry) => entry.startsWith(`${service}\u0000`));
+          if (match === undefined) {
+            return result(false);
           }
-          const value = entries.get(key(service, account));
-          return value === undefined ? result(false) : result(true, `${value}\n`);
+          const matchedAccount = match.slice(service.length + 1);
+          return result(true, `attributes:\n    "acct"<blob>="${matchedAccount}"\n`);
         }
-        case "add-generic-password":
-          entries.set(key(service, account ?? ""), flag(args, "-w") ?? "");
-          return result(true);
-        case "delete-generic-password":
-          return result(entries.delete(key(service, account ?? "")));
-        default:
-          return result(false);
+        const value = entries.get(key(service, account));
+        return value === undefined ? result(false) : result(true, `${value}\n`);
       }
-    });
+      case "add-generic-password": {
+        const hex = flag(args, "-X");
+        const value = hex === undefined ? flag(args, "-w") : Buffer.from(hex, "hex").toString();
+        entries.set(key(service, account ?? ""), value ?? "");
+        return result(true);
+      }
+      case "delete-generic-password":
+        return result(entries.delete(key(service, account ?? "")));
+      default:
+        return result(false);
+    }
+  };
+  return (_command, args, stdin) =>
+    Effect.sync(() => (args[0] === "-i" ? answer((stdin ?? "").trim().split(" ")) : answer(args)));
 }
 
-describe("migrateLegacyKeyringEntries", () => {
-  it("moves every legacy entry into the home's service and deletes the originals", async () => {
+describe("migrateKeyringEntriesIntoVault", () => {
+  it("moves every item into the vault and deletes the originals", async () => {
     const entries = new Map([
       ["jazz\u0000llm.openai.api_key", "sk-legacy"],
       ["jazz\u0000peers.sam.token", "peer-token"],
       ["other-app\u0000llm.openai.api_key", "not jazz"],
     ]);
     const moved = await Effect.runPromise(
-      migrateLegacyKeyringEntries("macos", "jazz.abc", fakeMacosKeychain(entries)),
+      migrateKeyringEntriesIntoVault(
+        "macos",
+        "jazz",
+        VAULT_SERVICE,
+        fakeMacosKeychain(entries),
+        withoutLock,
+      ),
     );
 
     expect([...moved].sort()).toEqual(["llm.openai.api_key", "peers.sam.token"]);
-    expect(entries.get("jazz.abc\u0000llm.openai.api_key")).toBe("sk-legacy");
-    expect(entries.get("jazz.abc\u0000peers.sam.token")).toBe("peer-token");
+    expect(vaultIn(entries)).toEqual({
+      "llm.openai.api_key": "sk-legacy",
+      "peers.sam.token": "peer-token",
+    });
     expect([...entries.keys()].some((entry) => entry.startsWith("jazz\u0000"))).toBe(false);
     expect(entries.get("other-app\u0000llm.openai.api_key")).toBe("not jazz");
   });
 
-  it("keeps a value the home already has and still retires the legacy copy", async () => {
+  it("keeps a value the vault already has and still retires the item", async () => {
     const entries = new Map([
       ["jazz\u0000llm.openai.api_key", "sk-legacy"],
-      ["jazz.abc\u0000llm.openai.api_key", "sk-current"],
+      [VAULT_KEY, encodeVault({ "llm.openai.api_key": "sk-current" })],
     ]);
     await Effect.runPromise(
-      migrateLegacyKeyringEntries("macos", "jazz.abc", fakeMacosKeychain(entries)),
+      migrateKeyringEntriesIntoVault(
+        "macos",
+        "jazz",
+        VAULT_SERVICE,
+        fakeMacosKeychain(entries),
+        withoutLock,
+      ),
     );
 
-    expect(entries.get("jazz.abc\u0000llm.openai.api_key")).toBe("sk-current");
+    expect(vaultIn(entries)).toEqual({ "llm.openai.api_key": "sk-current" });
     expect(entries.has("jazz\u0000llm.openai.api_key")).toBe(false);
   });
 
-  it("stops without deleting when the scoped copy cannot be stored", async () => {
+  it("stops without deleting when the vault cannot be written", async () => {
     const entries = new Map([["jazz\u0000llm.openai.api_key", "sk-legacy"]]);
     const keychain = fakeMacosKeychain(entries);
     const refusingWrites: KeyringCommandRunner = (command, args, stdin) =>
-      args[0] === "add-generic-password"
+      args[0] === "-i"
         ? Effect.succeed({ ok: false, code: 1, stdout: "", stderr: "denied", unavailable: false })
         : keychain(command, args, stdin);
 
     const moved = await Effect.runPromise(
-      migrateLegacyKeyringEntries("macos", "jazz.abc", refusingWrites),
+      migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, refusingWrites, withoutLock),
     );
 
     expect(moved).toEqual([]);
     expect(entries.get("jazz\u0000llm.openai.api_key")).toBe("sk-legacy");
+  });
+
+  it("leaves a vault it cannot read untouched rather than overwrite what it holds", async () => {
+    const entries = new Map([["jazz\u0000llm.openai.api_key", "sk-legacy"]]);
+    const keychain = fakeMacosKeychain(entries);
+    const lockedVault: KeyringCommandRunner = (command, args, stdin) =>
+      args.includes(VAULT_SERVICE)
+        ? Effect.succeed({ ok: false, code: 51, stdout: "", stderr: "", unavailable: false })
+        : keychain(command, args, stdin);
+
+    const moved = await Effect.runPromise(
+      migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, lockedVault, withoutLock),
+    );
+
+    expect(moved).toEqual([]);
+    expect(entries.get("jazz\u0000llm.openai.api_key")).toBe("sk-legacy");
+    expect(entries.has(VAULT_KEY)).toBe(false);
+  });
+
+  it("leaves a vault in an unknown encoding untouched", async () => {
+    const entries = new Map([
+      ["jazz\u0000llm.openai.api_key", "sk-legacy"],
+      [VAULT_KEY, "not base64 json"],
+    ]);
+
+    const moved = await Effect.runPromise(
+      migrateKeyringEntriesIntoVault(
+        "macos",
+        "jazz",
+        VAULT_SERVICE,
+        fakeMacosKeychain(entries),
+        withoutLock,
+      ),
+    );
+
+    expect(moved).toEqual([]);
+    expect(entries.get(VAULT_KEY)).toBe("not base64 json");
   });
 
   it("migrates through secret-tool on Linux", async () => {
@@ -268,9 +347,12 @@ describe("migrateLegacyKeyringEntries", () => {
       });
 
     expect(
-      await Effect.runPromise(migrateLegacyKeyringEntries("libsecret", "jazz.abc", secretTool)),
+      await Effect.runPromise(
+        migrateKeyringEntriesIntoVault("libsecret", "jazz", VAULT_SERVICE, secretTool, withoutLock),
+      ),
     ).toEqual(["llm.openai.api_key"]);
-    expect([...entries]).toEqual([["jazz.abc\u0000llm.openai.api_key", "sk-legacy"]]);
+    expect([...entries.keys()]).toEqual([VAULT_KEY]);
+    expect(vaultIn(entries)).toEqual({ "llm.openai.api_key": "sk-legacy" });
   });
 
   it("reads a hex-encoded account name", async () => {
@@ -291,8 +373,10 @@ describe("migrateLegacyKeyringEntries", () => {
         : keychain(command, args, stdin);
 
     expect(
-      await Effect.runPromise(migrateLegacyKeyringEntries("macos", "jazz.abc", hexAttributes)),
+      await Effect.runPromise(
+        migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, hexAttributes, withoutLock),
+      ),
     ).toEqual([account]);
-    expect(entries.get(`jazz.abc\u0000${account}`)).toBe("value");
+    expect(vaultIn(entries)).toEqual({ [account]: "value" });
   });
 });
