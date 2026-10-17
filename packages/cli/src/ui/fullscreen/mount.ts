@@ -106,14 +106,22 @@ export function installTerminalLifecycle(
   const onSuspend = (): void => {
     if (released || renderer.isDestroyed) return;
     renderer.resetTerminalBgColor();
-    renderer.suspend();
-    runtime.kill(runtime.pid, "SIGSTOP");
+    // ^Z must still stop the process when handing the terminal back fails.
+    void renderer
+      .suspend()
+      .catch(() => undefined)
+      .then(() => runtime.kill(runtime.pid, "SIGSTOP"));
   };
   const onContinue = (): void => {
     if (released || renderer.isDestroyed) return;
-    renderer.resume();
-    afterResume();
-    renderer.requestRender();
+    void renderer
+      .resume()
+      .catch(() => undefined)
+      .then(() => {
+        if (released || renderer.isDestroyed) return;
+        afterResume();
+        renderer.requestRender();
+      });
   };
   const onExit = (): void => {
     release();

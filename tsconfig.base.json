@@ -3,8 +3,6 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
-    "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
 
     "paths": {

@@ -8,22 +8,26 @@
  * - Tracks reasoning and text streams
  */
 
+import type { Context } from "@ai-sdk/provider-utils";
 import type { LoggerService } from "@jazz/core/interfaces/logger";
 import type { ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
 import { toFinishReason, type FinishReason } from "@jazz/core/types/chat";
 import { type LLMError } from "@jazz/core/types/errors";
 import type { ToolCall } from "@jazz/core/types/tools";
-import type { LanguageModelUsage, streamText } from "ai";
+import type {
+  LanguageModelUsage,
+  OutputInterface,
+  StreamTextResult as AiStreamTextResult,
+  ToolSet,
+} from "ai";
 import { Chunk, Effect, Option } from "effect";
 import type { ParseChunk, ReasoningParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
 import { routerBilledCostUSD } from "./router-cost";
 import { toJazzToolCall } from "./tool-call-parts";
 
-/**
- * Type for AI SDK StreamText result
- */
-type StreamTextResult = ReturnType<typeof streamText>;
+/** The full `streamText` result; Jazz never passes `experimental_lowMemory`, which returns a narrower one. */
+export type StreamTextResult = AiStreamTextResult<ToolSet, Context, OutputInterface>;
 
 /**
  * Default for how long the stream may go without producing anything before it

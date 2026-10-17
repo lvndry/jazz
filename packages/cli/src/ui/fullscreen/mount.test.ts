@@ -92,9 +92,11 @@ describe("installTerminalLifecycle", () => {
         },
         suspend: () => {
           calls.suspend += 1;
+          return Promise.resolve();
         },
         resume: () => {
           calls.resume += 1;
+          return Promise.resolve();
         },
         requestRender: () => {},
         resetTerminalBgColor: () => {},
@@ -114,7 +116,7 @@ describe("installTerminalLifecycle", () => {
     expect(calls.destroy).toBe(1);
   });
 
-  test("re-applies the ground after the terminal is handed back from ^Z", () => {
+  test("re-applies the ground after the terminal is handed back from ^Z", async () => {
     const { listeners, runtime } = stubRuntime();
     const { calls, renderer } = stubRenderer();
     const order: string[] = [];
@@ -124,11 +126,13 @@ describe("installTerminalLifecycle", () => {
       resume: () => {
         calls.resume += 1;
         order.push("resume");
+        return Promise.resolve();
       },
     } as unknown as LifecycleRenderer;
 
     installTerminalLifecycle(tracked, runtime, () => order.push("ground"));
     listeners.get("SIGCONT")?.();
+    await Bun.sleep(0);
 
     expect(order).toEqual(["resume", "ground"]);
   });
@@ -147,7 +151,7 @@ describe("installTerminalLifecycle", () => {
     expect(listeners.size).toBe(0);
   });
 
-  test("hands the terminal back on suspend and re-enters on continue", () => {
+  test("hands the terminal back on suspend and re-enters on continue", async () => {
     const { listeners, kills, runtime } = stubRuntime();
     const { calls, renderer } = stubRenderer();
 
@@ -163,6 +167,8 @@ describe("installTerminalLifecycle", () => {
     expect(calls.suspend).toBe(1);
     // The stop has to come after the terminal is handed back, or the shell
     // resumes into a screen the renderer still owns.
+    expect(kills).toEqual([]);
+    await Bun.sleep(0);
     expect(kills).toEqual(["SIGSTOP"]);
 
     listeners.get("SIGCONT")?.();

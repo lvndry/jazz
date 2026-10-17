@@ -13,7 +13,7 @@
   "dependencies": {
     "@jazz/adapters": "workspace:*",
     "@jazz/core": "workspace:*",
-    "hono": "^4.13.5",
+    "hono": "^4.13.13",
     "plist": "^5.0.0"
   }
 }

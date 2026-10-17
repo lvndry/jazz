@@ -208,7 +208,6 @@ export async function createTerminalOracle(options: {
       exitOnCtrlC: false,
       exitSignals: [],
       consoleMode: "disabled",
-      useThread: false,
       useMouse: true,
       useKittyKeyboard: null,
       forwardEnvKeys: [],
