@@ -87,7 +87,8 @@ mid-run tells you nothing about the turn in flight. Use the daemon or `--watch` 
 A chat conversation is saved as the turn goes: your message before the first model call, then
 after every step (a model response and the tool results it asked for), and again when the turn
 ends or the process is stopped with Ctrl+C or SIGTERM. A turn killed outright keeps everything up
-to its last finished step. `/resume` dates each conversation by its newest message, and switches
+to its last finished step. A session that only ran slash commands, never messaging the agent or
+being renamed, is not saved. `/resume` dates each conversation by its newest message, and switches
 the chat to the conversation you pick, so later turns are saved into that conversation.
 
 A save only replaces history it has read. If the same conversation is saved from somewhere else

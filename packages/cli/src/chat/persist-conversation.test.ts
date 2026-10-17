@@ -69,7 +69,7 @@ describe("shouldPersistConversation", () => {
     expect(shouldPersistConversation(makeInput({ conversationHistory: [] }))).toBe(false);
   });
 
-  test("is true for a slash command before the first model turn", () => {
+  test("is false for a session that only ran slash commands", () => {
     expect(
       shouldPersistConversation(
         makeInput({
@@ -88,7 +88,7 @@ describe("shouldPersistConversation", () => {
           ],
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 

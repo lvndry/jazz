@@ -34,8 +34,7 @@ export function shouldPersistConversation(input: PersistConversationInput): bool
   return (
     !input.ephemeral &&
     ((input.title?.trim().length ?? 0) > 0 ||
-      input.conversationHistory.some((message) => message.role === "user") ||
-      input.uiTranscript?.some((entry) => entry.content.kind === "user") === true)
+      input.conversationHistory.some((message) => message.role === "user"))
   );
 }
 

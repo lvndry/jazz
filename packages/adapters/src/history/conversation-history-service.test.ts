@@ -446,6 +446,35 @@ describe("loadHistory", () => {
     expect(summary).not.toHaveProperty("messages");
   });
 
+  test("leaves out a log with no messages and no title", async () => {
+    await runEffect(
+      saveConversation(
+        makeConversation({
+          conversationId: "commands-only",
+          title: "",
+          messages: [],
+          uiTranscript: [
+            {
+              id: "/info",
+              timestamp: "2026-08-01T10:00:00.000Z",
+              content: { kind: "user", text: "/info" },
+            },
+          ],
+        }),
+        tmpDir,
+      ),
+    );
+    await runEffect(
+      saveConversation(
+        makeConversation({ conversationId: "renamed", title: "Named early", messages: [] }),
+        tmpDir,
+      ),
+    );
+
+    const listed = (await runEffect(loadHistory("agent-1", tmpDir))).conversations;
+    expect(listed.map((conversation) => conversation.conversationId)).toEqual(["renamed"]);
+  });
+
   test("lists the conversation spoken in most recently first, however recently another was saved", async () => {
     try {
       setSystemTime(new Date("2026-08-01T10:00:00.000Z"));
