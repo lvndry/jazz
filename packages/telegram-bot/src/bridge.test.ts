@@ -124,6 +124,8 @@ function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): 
     },
     answerQuestion: () => Promise.resolve(),
     answerSecret: () => Promise.resolve(),
+    sendMessage: () => Promise.resolve(),
+    delivered: () => false,
     cancel: () => {
       cancelled = true;
       settle({ ok: false, error: "cancelled" });

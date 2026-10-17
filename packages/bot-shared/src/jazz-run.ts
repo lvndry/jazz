@@ -43,6 +43,8 @@ export interface JazzEvent {
   readonly costUSD?: number;
   readonly costIncomplete?: boolean;
   readonly totalTokens?: number;
+  /** `user_message_delivered`: the messages the run took into its conversation. */
+  readonly ids?: readonly string[];
 }
 
 /**
@@ -156,6 +158,13 @@ export interface JazzRun {
   answerQuestion(requestId: string, response: string): Promise<void>;
   /** Hand the run a secret over its stdin pipe; the value is written nowhere else. */
   answerSecret(requestId: string, answer: SecretAnswer): Promise<void>;
+  /**
+   * Hand the run a message the person sent while it works. It reads it before its next model
+   * call; one sent during the final answer is never read, and `delivered` will not list it.
+   */
+  sendMessage(id: string, text: string): Promise<void>;
+  /** Whether the run reported taking the message `sendMessage` sent under `id`. */
+  delivered(id: string): boolean;
   cancel(): void;
 }
 
@@ -344,6 +353,7 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
 
   let cancelled = false;
   let lastSpend: RunSpend | undefined;
+  const deliveredMessageIds = new Set<string>();
   const killTimer = createKillTimer(() => child.kill(), options.runTimeoutMs + KILL_GRACE_MS);
   /** Prompts the run is parked on, by id; the kill timer is paused while any are open. */
   const waitingOnHuman = new Set<string>();
@@ -368,6 +378,11 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
     }
     if (typeof event.type !== "string") return;
     lastSpend = runSpendFromEvent(event) ?? lastSpend;
+    if (event.type === "user_message_delivered") {
+      for (const id of event.ids ?? []) {
+        deliveredMessageIds.add(id);
+      }
+    }
     handlers.onEvent?.(event);
     if (event.type === "approval_required" && event.toolCallId) {
       waitingOnHuman.add(event.toolCallId);
@@ -444,6 +459,10 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
       await writeStdin(userSecretResponseLine(requestId, answer));
       humanAnswered(requestId);
     },
+    sendMessage: async (id, text) => {
+      await writeStdin({ type: "user_message", id, text });
+    },
+    delivered: (id) => deliveredMessageIds.has(id),
     cancel: () => {
       cancelled = true;
       child.kill();

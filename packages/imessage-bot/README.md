@@ -116,24 +116,24 @@ is the same thing.
 
 ## Configuration
 
-| Variable                          | Default            | What it does                                                                                                                                                 |
-| --------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `IMESSAGE_ALLOWED_HANDLES`        | _(required)_       | Comma-separated phone numbers (E.164) or Apple IDs allowed to DM the agent. Punctuation and case are normalised.                                             |
-| `IMESSAGE_ALLOWED_GROUP_CHAT_IDS` | _(none)_           | Comma-separated `chat.db` rowids of group chats to answer in. Being allowed to DM does **not** admit you in a group.                                         |
-| `IMESSAGE_SELF_TRIGGER`           | _(none)_           | Prefix that makes a message you send yourself a question for the agent, e.g. `jazz`. Off by default, since the bridge must otherwise ignore its own replies. |
-| `IMESSAGE_OPERATOR_HANDLES`       | _(none)_           | Handles allowed to turn approvals off (`/mode yolo`). The account owner, texting through the self trigger, always can.                                       |
-| `IMSG_BIN`                        | `imsg`             | Path to the `imsg` binary.                                                                                                                                   |
-| `JAZZ_BIN`                        | `jazz`             | Path to the Jazz binary.                                                                                                                                     |
-| `JAZZ_HOME`                       | `~/.jazz-imessage` | Data directory: agents, conversations, reminders, usage.                                                                                                     |
-| `JAZZ_IMESSAGE_AGENT`             | `imessage`         | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in.                                                                 |
-| `JAZZ_APPROVAL_POLICY`            | `low-risk`         | Tier above which tools stop and ask.                                                                                                                         |
-| `JAZZ_AUTO_APPROVE_TOOLS`         | _(none)_           | Tool names that never prompt, whatever the policy.                                                                                                           |
-| `JAZZ_RUN_TIMEOUT_MS`             | `300000`           | Per-turn timeout.                                                                                                                                            |
-| `JAZZ_DAILY_COST_CAP_USD`         | `0` (off)          | Spend cap across all chats per day.                                                                                                                          |
-| `JAZZ_BOT_MAX_CONCURRENT_RUNS`    | `4`                | Agent runs in flight at once across every chat; the rest wait for a slot and are told so.                                                                    |
-| `JAZZ_BOT_MAX_QUEUED_MESSAGES`    | `5`                | Messages that may wait behind a chat's current run; more are dropped with a reply.                                                                           |
-| `JAZZ_BRIDGE_HEALTH_PORT`         | _(none)_           | Serve `GET /health` on `127.0.0.1:<port>`: `200` while the connection works, `503` once it has been down for 90 s.                                           |
-| `JAZZ_IMESSAGE_SHOW_REASONING`    | off                | Send the run's reasoning under the answer. Off by default: on iMessage it is extra notifications, not a folded quote.                                        |
+| Variable                          | Default            | What it does                                                                                                                                                         |
+| --------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IMESSAGE_ALLOWED_HANDLES`        | _(required)_       | Comma-separated phone numbers (E.164) or Apple IDs allowed to DM the agent. Punctuation and case are normalised.                                                     |
+| `IMESSAGE_ALLOWED_GROUP_CHAT_IDS` | _(none)_           | Comma-separated `chat.db` rowids of group chats to answer in. Being allowed to DM does **not** admit you in a group.                                                 |
+| `IMESSAGE_SELF_TRIGGER`           | _(none)_           | Prefix that makes a message you send yourself a question for the agent, e.g. `jazz`. Off by default, since the bridge must otherwise ignore its own replies.         |
+| `IMESSAGE_OPERATOR_HANDLES`       | _(none)_           | Handles allowed to turn approvals off (`/mode yolo`). The account owner, texting through the self trigger, always can.                                               |
+| `IMSG_BIN`                        | `imsg`             | Path to the `imsg` binary.                                                                                                                                           |
+| `JAZZ_BIN`                        | `jazz`             | Path to the Jazz binary.                                                                                                                                             |
+| `JAZZ_HOME`                       | `~/.jazz-imessage` | Data directory: agents, conversations, reminders, usage.                                                                                                             |
+| `JAZZ_IMESSAGE_AGENT`             | `imessage`         | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in.                                                                         |
+| `JAZZ_APPROVAL_POLICY`            | `low-risk`         | Tier above which tools stop and ask.                                                                                                                                 |
+| `JAZZ_AUTO_APPROVE_TOOLS`         | _(none)_           | Tool names that never prompt, whatever the policy.                                                                                                                   |
+| `JAZZ_RUN_TIMEOUT_MS`             | `300000`           | Per-turn timeout.                                                                                                                                                    |
+| `JAZZ_DAILY_COST_CAP_USD`         | `0` (off)          | Spend cap across all chats per day.                                                                                                                                  |
+| `JAZZ_BOT_MAX_CONCURRENT_RUNS`    | `4`                | Agent runs in flight at once across every chat; the rest wait for a slot and are told so.                                                                            |
+| `JAZZ_BOT_MAX_QUEUED_MESSAGES`    | `5`                | Messages that may wait behind a chat's current run (commands, other people's messages); more are dropped with a reply. The requester's own messages go into the run. |
+| `JAZZ_BRIDGE_HEALTH_PORT`         | _(none)_           | Serve `GET /health` on `127.0.0.1:<port>`: `200` while the connection works, `503` once it has been down for 90 s.                                                   |
+| `JAZZ_IMESSAGE_SHOW_REASONING`    | off                | Send the run's reasoning under the answer. Off by default: on iMessage it is extra notifications, not a folded quote.                                                |
 
 ## Commands
 

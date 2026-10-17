@@ -42,6 +42,7 @@ import {
 } from "./chat-sandbox";
 import { compositionLinkPath, type CompositionLinks } from "./compositions";
 import { type JazzComposition, type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
+import { routeBusyMessage, takeNextTurn } from "./mid-turn";
 import { createProgressReporter } from "./progress";
 import { splitReasoning } from "./reasoning";
 import { createRunLog } from "./run-log";
@@ -315,8 +316,10 @@ interface ChatState {
    * lets a typed reply be matched against the most recent one.
    */
   readonly pending: Map<string, PendingPrompt>;
-  /** Messages that arrived mid-turn, answered in order once it finishes. */
+  /** Messages that arrived mid-turn and could not go into the run, answered once it finishes. */
   readonly queue: InboundMessage[];
+  /** Messages handed to the run in flight, by the id the run reports taking them under. */
+  readonly sentIntoRun: { readonly id: string; readonly message: InboundMessage }[];
 }
 
 /**
@@ -367,9 +370,10 @@ export interface TurnRunner {
   /**
    * Handle one message from a conversation.
    *
-   * Safe to call concurrently: messages for the same conversation are queued
-   * and answered in order, and a message arriving while the agent is blocked on
-   * a prompt is offered to that prompt first when its sender is the requester.
+   * Safe to call concurrently. A message arriving while the agent is blocked on a
+   * prompt is offered to that prompt first when its sender is the requester. Otherwise
+   * the requester's plain message goes into the run in flight (see `mid-turn.ts`), and
+   * anything else is queued and answered once it finishes.
    */
   handle(message: InboundMessage): Promise<void>;
   /**
@@ -463,7 +467,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
   const stateFor = (chatId: ChatId): ChatState => {
     const existing = states.get(chatId);
     if (existing !== undefined) return existing;
-    const created: ChatState = { busy: false, pending: new Map(), queue: [] };
+    const created: ChatState = { busy: false, pending: new Map(), queue: [], sentIntoRun: [] };
     states.set(chatId, created);
     return created;
   };
@@ -889,6 +893,15 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     const envelope = await run.result;
     state.run = undefined;
     state.requester = undefined;
+    const sentIntoRun = state.sentIntoRun.splice(0);
+    const delivered = sentIntoRun.filter(({ id }) => run.delivered(id));
+    // A message the run never read (it arrived during the final answer) is answered next. A
+    // cancelled run drops them with the rest of the queue.
+    if (!run.cancelled()) {
+      state.queue.unshift(
+        ...sentIntoRun.filter(({ id }) => !run.delivered(id)).map(({ message }) => message),
+      );
+    }
     // Prompts still outstanding when the run ends are ones nothing will ever
     // read, and leaving them would eat the person's next message.
     await expirePending(chatId);
@@ -958,7 +971,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         .onAnswered({
           chatId,
           senderId: message.senderId,
-          question: prompt,
+          question: [prompt, ...delivered.map(({ message }) => message.text)].join("\n"),
           answer: envelope.answer,
           messageRef: answerRef,
         })
@@ -999,6 +1012,10 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       );
     },
   });
+
+  const isCommandText = (text: string): boolean => commands.isCommand(text) || isStopCommand(text);
+  /** Mints the id a message handed to a run is reported back under. */
+  let messageSequence = 0;
 
   const cancel = (chatId: ChatId, senderId: SenderId | undefined): CancelOutcome => {
     const state = stateFor(chatId);
@@ -1168,6 +1185,19 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
           return;
         }
         if (await resolveTypedReply(message)) return;
+        const route = routeBusyMessage({
+          runInFlight: state.run !== undefined,
+          requester: state.requester,
+          senderId: message.senderId,
+          isCommand: isCommandText(message.text),
+        });
+        if (route === "into-run" && state.run !== undefined) {
+          messageSequence += 1;
+          const id = `message-${messageSequence}`;
+          state.sentIntoRun.push({ id, message });
+          await state.run.sendMessage(id, message.text);
+          return;
+        }
         if (state.queue.length >= limits.maxQueuedMessages) {
           await send(message.chatId, [
             plainLine(
@@ -1192,7 +1222,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
             }
             if (!(await commands.handle(current))) await answer(current);
           });
-          next = state.queue.shift();
+          next = takeNextTurn(state.queue, isCommandText);
         }
       } finally {
         state.busy = false;

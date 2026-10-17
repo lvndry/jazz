@@ -165,12 +165,12 @@ The bridges read these when they start each run. Each bridge's README has the fu
 
 Bridge controls:
 
-| Variable                       | Effect                                                                                                                                                                             |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `JAZZ_BOT_MAX_CONCURRENT_RUNS` | Maximum active runs across a bridge process. Positive integer; defaults to 4.                                                                                                      |
-| `JAZZ_BOT_MAX_QUEUED_MESSAGES` | Maximum messages waiting behind a conversation’s active run. Positive integer; defaults to 5.                                                                                      |
-| `JAZZ_BRIDGE_HEALTH_PORT`      | Optional health HTTP port for iMessage, Photon and WhatsApp. Disabled when unset. Telegram and Discord use their existing HTTP servers.                                            |
-| `JAZZ_APPROVALS_HOME`          | Jazz home whose parked runs Telegram or Discord operators may approve or reject. Unset disables these chat commands. Runs as the bridge process, outside the conversation sandbox. |
+| Variable                       | Effect                                                                                                                                                                                    |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JAZZ_BOT_MAX_CONCURRENT_RUNS` | Maximum active runs across a bridge process. Positive integer; defaults to 4.                                                                                                             |
+| `JAZZ_BOT_MAX_QUEUED_MESSAGES` | Maximum messages waiting behind a conversation’s active run: commands and other people's messages. The requester's own messages go into the run instead. Positive integer; defaults to 5. |
+| `JAZZ_BRIDGE_HEALTH_PORT`      | Optional health HTTP port for iMessage, Photon and WhatsApp. Disabled when unset. Telegram and Discord use their existing HTTP servers.                                                   |
+| `JAZZ_APPROVALS_HOME`          | Jazz home whose parked runs Telegram or Discord operators may approve or reject. Unset disables these chat commands. Runs as the bridge process, outside the conversation sandbox.        |
 
 Shared by every bridge:
 
