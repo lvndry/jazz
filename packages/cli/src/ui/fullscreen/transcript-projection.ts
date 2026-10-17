@@ -3,123 +3,130 @@
  * blocks. Pure: the bridge owns one projector per mounted transcript and the
  * layout downstream relies on unchanged blocks keeping their identity.
  */
+import type { PresentationContent, PresentationEntry } from "@jazz/core/types/presentation-content";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { foldTurn } from "./turn-fold";
 import type { Block } from "./types";
 import { formatTurnReceipt } from "../../presentation/turn-receipt";
-import { contentFromOutput, outputFromEntry, projectDocumentEntries } from "../document";
+import {
+  contentFromOutput,
+  createEarlierTurnsProjection,
+  outputFromEntry,
+  projectEntries,
+  transcriptDocument,
+} from "../document";
 import type { EphemeralRegion, PresentationSnapshot } from "../store";
 import type { OutputEntry } from "../types";
 
-/** Project semantic source entries into fullscreen document blocks. */
-export function blocksFrom(
-  entries: readonly OutputEntry[],
-  streaming: string,
+/** The view state a block shows besides its entry. */
+interface BlockView {
+  readonly expandedReasoningIds: ReadonlySet<string>;
+  readonly liveReasoningIds: ReadonlySet<string>;
+  readonly expandedReceiptIds: ReadonlySet<string>;
+  readonly streamingId: string | undefined;
+}
+
+/** One entry's block, or undefined for an entry this transcript leaves out. */
+function entryBlock(
+  id: string,
+  content: PresentationContent,
+  seq: number,
+  view: BlockView,
+): Block | undefined {
+  switch (content.kind) {
+    case "user":
+      return { id, seq, kind: "user", text: content.text };
+    case "agent":
+      return {
+        id,
+        seq,
+        kind: "agent",
+        markdown: content.markdown,
+        ...(id === view.streamingId ? { streaming: true } : {}),
+      };
+    case "tool":
+      return {
+        id,
+        seq,
+        kind: "tool",
+        ...content.receipt,
+        ...(view.expandedReceiptIds.has(id) ? { expanded: true } : {}),
+      };
+    case "reasoning":
+      return {
+        id,
+        seq,
+        kind: "reasoning",
+        text: content.text,
+        collapsed: content.durationMs !== undefined && !view.expandedReasoningIds.has(id),
+        ...(content.durationMs === undefined ? {} : { durationMs: content.durationMs }),
+        ...(content.steps === undefined ? {} : { steps: content.steps }),
+        ...(content.tokens === undefined ? {} : { tokens: content.tokens }),
+        ...(id === view.streamingId || view.liveReasoningIds.has(id) ? { live: true } : {}),
+        ...(content.text.trim().length === 0 ? { readable: false } : {}),
+      };
+    case "report":
+      return { id, seq, kind: "report", report: content.report };
+    case "stopped":
+      return { id, seq, kind: "stopped", ...content.summary };
+    case "turn-receipt": {
+      const text = formatTurnReceipt(content);
+      return text === undefined ? undefined : { id, seq, kind: "notice", text, tone: "receipt" };
+    }
+    case "expanded":
+      return {
+        id,
+        seq,
+        kind: "tool",
+        app: "",
+        summary: "",
+        status: "ok",
+        expanded: true,
+        detail: content.text,
+      };
+    case "notice":
+      if (content.audience === "classic" || content.text.trim().length === 0) {
+        return undefined;
+      }
+      return {
+        id,
+        seq,
+        kind: "notice",
+        text: content.text,
+        tone: content.tone === "warn" ? "warn" : content.tone === "error" ? "error" : "info",
+      };
+    case "header":
+      return undefined;
+  }
+}
+
+/**
+ * The content a block is built from: what printing the entry as terminal output and reading it
+ * back yields, so plain user and notice text loses terminal escapes.
+ */
+function displayContent(content: PresentationContent): PresentationContent {
+  if (content.kind === "user") {
+    const text = stripAnsiCodes(content.text);
+    return text === content.text ? content : { kind: "user", text };
+  }
+  if (content.kind === "notice" && content.audience === undefined) {
+    const text = stripAnsiCodes(content.text);
+    return text === content.text ? content : { kind: "notice", text, tone: content.tone };
+  }
+  return content;
+}
+
+/** Live sub-agent lanes and reasoning panels whose source entry is not shown yet. */
+function regionBlocks(
   regions: readonly EphemeralRegion[],
-  expandedReasoningIds: ReadonlySet<string> = new Set(),
-  streamingId?: string,
-  liveReasoningIds: ReadonlySet<string> = new Set(),
-  expandedReceiptIds: ReadonlySet<string> = new Set(),
+  shown: (id: string) => boolean,
+  firstSeq: number,
 ): Block[] {
   const blocks: Block[] = [];
-  let seq = 0;
-  const sourceEntries = entries.map((entry, index) => ({
-    id: entry.id ?? `entry:${String(index)}`,
-    content: contentFromOutput(entry),
-    timestamp: entry.timestamp.toISOString(),
-  }));
-  for (const source of projectDocumentEntries(
-    { id: "projection", revision: 0, entries: sourceEntries },
-    { expandedReasoningIds, liveReasoningIds },
-  )) {
-    const entry = outputFromEntry(source);
-    const id = source.id;
-    const content = contentFromOutput(entry);
-    switch (content.kind) {
-      case "user":
-        blocks.push({ id, seq: seq++, kind: "user", text: content.text });
-        break;
-      case "agent":
-        blocks.push({
-          id,
-          seq: seq++,
-          kind: "agent",
-          markdown: content.markdown,
-          ...(id === streamingId ? { streaming: true } : {}),
-        });
-        break;
-      case "tool":
-        blocks.push({
-          id,
-          seq: seq++,
-          kind: "tool",
-          ...content.receipt,
-          ...(expandedReceiptIds.has(id) ? { expanded: true } : {}),
-        });
-        break;
-      case "reasoning":
-        blocks.push({
-          id,
-          seq: seq++,
-          kind: "reasoning",
-          text: content.text,
-          collapsed: content.durationMs !== undefined && !expandedReasoningIds.has(id),
-          ...(content.durationMs === undefined ? {} : { durationMs: content.durationMs }),
-          ...(content.steps === undefined ? {} : { steps: content.steps }),
-          ...(content.tokens === undefined ? {} : { tokens: content.tokens }),
-          ...(id === streamingId || liveReasoningIds.has(id) ? { live: true } : {}),
-          ...(content.text.trim().length === 0 ? { readable: false } : {}),
-        });
-        break;
-      case "report":
-        blocks.push({ id, seq: seq++, kind: "report", report: content.report });
-        break;
-      case "stopped":
-        blocks.push({ id, seq: seq++, kind: "stopped", ...content.summary });
-        break;
-      case "turn-receipt": {
-        const text = formatTurnReceipt(content);
-        if (text !== undefined)
-          blocks.push({ id, seq: seq++, kind: "notice", text, tone: "receipt" });
-        break;
-      }
-      case "expanded":
-        blocks.push({
-          id,
-          seq: seq++,
-          kind: "tool",
-          app: "",
-          summary: "",
-          status: "ok",
-          expanded: true,
-          detail: content.text,
-        });
-        break;
-      case "notice":
-        if (content.audience !== "classic" && content.text.trim().length > 0)
-          blocks.push({
-            id,
-            seq: seq++,
-            kind: "notice",
-            text: content.text,
-            tone: content.tone === "warn" ? "warn" : content.tone === "error" ? "error" : "info",
-          });
-        break;
-      case "header":
-        break;
-    }
-  }
-  if (streaming.trim().length > 0)
-    blocks.push({
-      id: streamingId ?? "streaming",
-      seq: seq++,
-      kind: "agent",
-      markdown: streaming,
-      streaming: true,
-    });
+  let seq = firstSeq;
   let lane = 0;
   for (const region of regions) {
-    if (region.kind === "reasoning" && entries.some((entry) => entry.id === region.id)) continue;
+    if (region.kind === "reasoning" && shown(region.id)) continue;
     if (region.kind === "reasoning")
       blocks.push({
         id: region.id,
@@ -141,6 +148,48 @@ export function blocksFrom(
         state: "running",
       });
   }
+  return blocks;
+}
+
+/** Project semantic source entries into fullscreen document blocks. */
+export function blocksFrom(
+  entries: readonly OutputEntry[],
+  streaming: string,
+  regions: readonly EphemeralRegion[],
+  expandedReasoningIds: ReadonlySet<string> = new Set(),
+  streamingId?: string,
+  liveReasoningIds: ReadonlySet<string> = new Set(),
+  expandedReceiptIds: ReadonlySet<string> = new Set(),
+): Block[] {
+  const view: BlockView = {
+    expandedReasoningIds,
+    liveReasoningIds,
+    expandedReceiptIds,
+    streamingId,
+  };
+  const blocks: Block[] = [];
+  let seq = 0;
+  const sourceEntries = entries.map((entry, index) => ({
+    id: entry.id ?? `entry:${String(index)}`,
+    content: contentFromOutput(entry),
+    timestamp: entry.timestamp.toISOString(),
+  }));
+  for (const source of projectEntries(sourceEntries, { expandedReasoningIds, liveReasoningIds })) {
+    const block = entryBlock(source.id, contentFromOutput(outputFromEntry(source)), seq, view);
+    if (block !== undefined) {
+      blocks.push(block);
+      seq += 1;
+    }
+  }
+  if (streaming.trim().length > 0)
+    blocks.push({
+      id: streamingId ?? "streaming",
+      seq: seq++,
+      kind: "agent",
+      markdown: streaming,
+      streaming: true,
+    });
+  blocks.push(...regionBlocks(regions, (id) => entries.some((entry) => entry.id === id), seq));
   return foldTurn(blocks);
 }
 
@@ -266,30 +315,135 @@ export type FullscreenTranscriptSources = Pick<
   "document" | "streamReveal" | "expandedReasoningIds" | "expandedReceiptIds" | "liveReasoningIds"
 >;
 
-/** One projector per mounted transcript; it keeps the previous blocks so unchanged ones are shared. */
+interface TranscriptView extends BlockView {
+  readonly streamReveal: PresentationSnapshot["streamReveal"];
+}
+
+function sameItems(previous: readonly Block[], next: readonly Block[]): boolean {
+  return previous.length === next.length && previous.every((block, index) => block === next[index]);
+}
+
+/** Whether the first pass keeps an entry: a reasoning entry with no text and no duration yet is left out. */
+function revealed(entry: PresentationEntry): boolean {
+  return (
+    entry.content.kind !== "reasoning" ||
+    entry.content.text.length > 0 ||
+    entry.content.durationMs !== undefined
+  );
+}
+
+/**
+ * One projector per mounted transcript. Earlier turns are projected once and reused until a
+ * turn ends or a view set changes for one of their entries; each call re-projects only the
+ * current turn and the live regions. A block equal to the one shown before keeps that object,
+ * so the layout reuses its measured rows.
+ */
 export function createFullscreenTranscript(): (
   sources: FullscreenTranscriptSources,
   regions: readonly EphemeralRegion[],
 ) => readonly Block[] {
-  let previous: readonly Block[] = [];
+  let shownById = new Map<string, Block>();
+  let earlierShown: readonly Block[] = [];
+  let tailShown: readonly Block[] = [];
+  let shown: readonly Block[] = [];
+  const share = (block: Block): Block => {
+    const previous = shownById.get(block.id);
+    return sameBlock(previous, block) ? previous : block;
+  };
+  /** Blocks of whole turns; `firstSeq` continues the numbering of the turns before them. */
+  const projectTurns = (
+    entries: readonly PresentationEntry[],
+    view: TranscriptView,
+    firstSeq: number,
+    revealedIds?: Set<string>,
+  ): Block[] => {
+    const blocks: Block[] = [];
+    let turnStart = 0;
+    while (turnStart < entries.length) {
+      let turnEnd = turnStart + 1;
+      while (turnEnd < entries.length && entries[turnEnd]?.content.kind !== "user") {
+        turnEnd += 1;
+      }
+      const turn =
+        turnStart === 0 && turnEnd === entries.length ? entries : entries.slice(turnStart, turnEnd);
+      const firstPass = projectEntries(turn, { streamReveal: view.streamReveal });
+      const turnBlocks: Block[] = [];
+      for (const source of projectEntries(firstPass, {
+        expandedReasoningIds: view.expandedReasoningIds,
+        liveReasoningIds: view.liveReasoningIds,
+      })) {
+        const block = entryBlock(
+          source.id,
+          displayContent(source.content),
+          firstSeq + blocks.length + turnBlocks.length,
+          view,
+        );
+        if (block !== undefined) {
+          turnBlocks.push(block);
+        }
+      }
+      for (const block of foldTurn(turnBlocks)) {
+        blocks.push(share(block));
+      }
+      if (revealedIds !== undefined) {
+        for (const source of firstPass) {
+          revealedIds.add(source.id);
+        }
+      }
+      turnStart = turnEnd;
+    }
+    return blocks;
+  };
+  const earlier = createEarlierTurnsProjection(projectTurns, (view: TranscriptView) => [
+    view.expandedReasoningIds,
+    view.liveReasoningIds,
+    view.expandedReceiptIds,
+  ]);
   return (sources, regions) => {
-    const outputs = projectDocumentEntries(sources.document, {
+    const document = transcriptDocument(sources.document);
+    const view: TranscriptView = {
+      expandedReasoningIds: sources.expandedReasoningIds,
+      liveReasoningIds: sources.liveReasoningIds,
+      expandedReceiptIds: sources.expandedReceiptIds,
+      streamingId: document.streamingId,
       streamReveal: sources.streamReveal,
-    }).map(outputFromEntry);
-    previous = transcriptBlocks(
-      {
-        outputs,
-        streaming: "",
-        regions,
-        expandedReasoningIds: sources.expandedReasoningIds,
-        expandedReceiptIds: sources.expandedReceiptIds,
-        liveReasoningIds: sources.liveReasoningIds,
-        ...(sources.document.streamingId === undefined
-          ? {}
-          : { streamingId: sources.document.streamingId }),
-      },
-      previous,
+    };
+    const earlierBlocks = earlier(document.earlierTurns, view);
+    const revealedIds = new Set<string>();
+    const currentBlocks = projectTurns(
+      document.currentTurn,
+      view,
+      earlierBlocks.length,
+      revealedIds,
     );
-    return previous;
+    const shownInDocument = (id: string): boolean => {
+      if (revealedIds.has(id)) {
+        return true;
+      }
+      if (document.currentTurn.some((entry) => entry.id === id)) {
+        return false;
+      }
+      const earlierEntry = document.earlierTurns.find((entry) => entry.id === id);
+      return earlierEntry !== undefined && revealed(earlierEntry);
+    };
+    const tail = [
+      ...currentBlocks,
+      ...regionBlocks(regions, shownInDocument, earlierBlocks.length + currentBlocks.length).map(
+        share,
+      ),
+    ];
+    if (earlierBlocks === earlierShown && sameItems(tailShown, tail)) {
+      return shown;
+    }
+    if (earlierBlocks !== earlierShown) {
+      shownById = new Map(earlierBlocks.map((block) => [block.id, block]));
+    }
+    for (const block of tail) {
+      shownById.set(block.id, block);
+    }
+    earlierShown = earlierBlocks;
+    tailShown = tail;
+    shown = earlierBlocks.length === 0 ? tail : [...earlierBlocks, ...tail];
+    return shown;
   };
 }
