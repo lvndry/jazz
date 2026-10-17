@@ -5,7 +5,7 @@
  */
 
 import { realpath } from "node:fs/promises";
-import { Cause, Duration, Effect, Fiber, Option, Ref } from "effect";
+import { Cause, Clock, Duration, Effect, Fiber, Option, Ref } from "effect";
 import {
   MANAGE_MEMORY_TOOL_NAME,
   recordMemoryRecall,
@@ -375,6 +375,8 @@ interface LoopDeps {
   maxTokens: number | undefined;
   maxDurationMs: number | undefined;
   deadline: AgentRunContext["deadline"];
+  /** The clock `maxDurationMs` is measured against: Effect's, so a test can drive it. */
+  clock: Clock.Clock;
   /** Provider-only routing hint for iteration zero; never part of canonical messages. */
   initialProviderAdvisory: string | undefined;
   workspaceContext:
@@ -865,7 +867,12 @@ function answerReserveMs(limitMs: number): number {
 /** How often a time watcher re-reads a deadline that a human approval wait may have moved. */
 const TIME_LIMIT_POLL_MS = 1000;
 
-type TimeLimitDeps = Pick<LoopDeps, "runMetrics" | "maxDurationMs" | "deadline">;
+type TimeLimitDeps = Pick<LoopDeps, "runMetrics" | "maxDurationMs" | "deadline" | "clock">;
+
+/** Milliseconds since the run started, on the run's clock. */
+function runElapsedMs(deps: Pick<LoopDeps, "runMetrics" | "clock">): number {
+  return deps.clock.unsafeCurrentTimeMillis() - deps.runMetrics.startedAt.getTime();
+}
 
 /** Which part of the time limits to measure: up to the answer reserve, or up to the limits themselves. */
 type TimeSpan = "work" | "answer";
@@ -877,12 +884,11 @@ type TimeSpan = "work" | "answer";
  * limit is set.
  */
 function timeLeftMs(deps: TimeLimitDeps, span: TimeSpan): number | undefined {
-  const { runMetrics, maxDurationMs, deadline } = deps;
+  const { maxDurationMs, deadline } = deps;
   const reserve = (limitMs: number) => (span === "work" ? answerReserveMs(limitMs) : 0);
   const limits: number[] = [];
   if (maxDurationMs !== undefined) {
-    const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
-    limits.push(maxDurationMs - reserve(maxDurationMs) - elapsedMs);
+    limits.push(maxDurationMs - reserve(maxDurationMs) - runElapsedMs(deps));
   }
   if (deadline !== undefined) {
     limits.push(deadline.remainingMs() - reserve(deadline.budgetMs));
@@ -923,6 +929,7 @@ function remainingRunBudget(
     | "runMetrics"
     | "maxDurationMs"
     | "deadline"
+    | "clock"
     | "maxCostUSD"
     | "maxTokens"
     | "modelMetadata"
@@ -1825,7 +1832,7 @@ function runIteration(
         );
     const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
     const timeLeftMs = workTimeLeftMs(deps);
-    const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
+    const elapsedMs = runElapsedMs(deps);
     const timeBudgetMsg =
       timeLeftMs !== undefined
         ? buildTimeBudgetPressureMessage(elapsedMs, elapsedMs + timeLeftMs)
@@ -2302,6 +2309,7 @@ export function executeAgentLoop(
           maxTokens,
           maxDurationMs,
           deadline,
+          clock: yield* Effect.clock,
           initialProviderAdvisory,
           workspaceContext,
           recentWorkspaceFiles: new Map(),
@@ -2380,7 +2388,7 @@ export function executeAgentLoop(
               closeStoppedBatch(state, options, "the run reached its time budget");
               durationCapped = true;
               state.iterationsUsed = i + 1;
-              const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
+              const elapsedMs = runElapsedMs(deps);
               yield* observer.onDurationCapReached(
                 agent.name,
                 maxDurationMs ?? elapsedMs,
@@ -2450,7 +2458,7 @@ export function executeAgentLoop(
           // starting another with no time left. The 50/80/90% pressure nudges are
           // injected per-iteration inside runIteration (see buildTimeBudgetPressureMessage).
           if (workTimeLeftMs(deps) === 0) {
-            const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
+            const elapsedMs = runElapsedMs(deps);
             durationCapped = true;
             state.iterationsUsed = i + 1;
             yield* observer.onDurationCapReached(agent.name, maxDurationMs ?? elapsedMs, elapsedMs);
