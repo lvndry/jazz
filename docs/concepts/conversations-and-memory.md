@@ -218,6 +218,25 @@ chat. It does not run
 for `--ephemeral` chats. A chat started with `--config` passes that same config file to the
 background process, retaining its agent store and provider settings.
 
+### Learning on demand with `/learn`
+
+`/learn` (or `/reflect`) runs that review now, mid-conversation, and then tidies memory:
+
+1. It shows what memory gained, changed, and lost since the chat started, from any agent or
+   from your own `/memory forget`.
+2. It reads what was said since the last review and suggests facts and lessons, like the pass
+   that runs when a chat closes. Closing the chat afterwards does not suggest them again.
+3. It reviews the store as a whole with those changes in hand and suggests removing entries
+   that another entry already covers, that you later contradicted, or that no longer hold, and
+   rewriting lessons that are too narrow or that cover the same situation. Your own facts are
+   never reworded; only lessons are.
+4. It opens the `/memory review` checklist with every suggestion at once, including any that
+   were already waiting.
+
+A kept removal is refused if the entry changed since it was suggested, and stays waiting. Like
+the other passes, `/learn` changes nothing until you keep a suggestion, and does nothing in an
+`--ephemeral` chat.
+
 Memory holds facts and preferences. It does not turn a procedure the agent worked out into a
 reusable [skill](./skills.md).
 

@@ -366,6 +366,17 @@ logs any it skipped. The chat skips the spawn for ephemeral sessions and for con
 no turn in this session. A hard kill (SIGTERM mid-chat) skips it too; the next close of that
 conversation covers the missed messages.
 
+A third way is `learn`, run in the foreground by `/learn` (alias `/reflect`). It claims the same
+watermark from the saved conversation, scans with the same chunk bound under the
+`memory-learner` id, then makes one curation call. That call receives the session's memory diff
+(a snapshot of every entry's first line and content hash, taken when the chat started, against
+the store now) and the suggestions already waiting. It holds `revise_memory`, which no agent is
+offered: the tool sits in the internal `memory_curation` category, which every registry listing
+skips. It queues `revision` suggestions: a delete or a lesson rewrite, each recorded against the
+entry's current text so a kept one fails if the entry changed. Fact entries are never rewritten,
+since they hold the user's quoted words. The chat then opens the review checklist over the whole
+queue.
+
 **The bar is deliberately narrow.** Only facts the user themselves stated or decided —
 stable preferences, recurring facts, standing project decisions — qualify. The model's own
 inferences, in-progress task state, tentative thoughts, secrets, and small talk do not.
