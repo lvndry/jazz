@@ -311,7 +311,7 @@ export function reflectConversationCommand(options: {
     if (conversation === null) {
       return;
     }
-    const unreflected = yield* claimUnreflectedMessages(
+    const { messages: unreflected } = yield* claimUnreflectedMessages(
       getMemoryDirectory(),
       agent.id,
       conversation.conversationId,

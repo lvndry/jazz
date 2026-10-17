@@ -171,6 +171,43 @@ describe("ToolRegistry", () => {
     expect(result.cats[0]?.id).toBe("cat1");
   });
 
+  it("leaves tools in an internal category out of every listing but still resolves them by name", async () => {
+    const internalCategory = {
+      id: "internal-cat",
+      displayName: "Internal",
+      loadTier: "eager" as const,
+      internal: true,
+    };
+    const tool: Tool<ToolRequirements> = {
+      name: "internal-tool",
+      description: "desc",
+      parameters: z.object({}),
+      hidden: false,
+      riskLevel: "low-risk",
+      disclosure: "private",
+      egress: false,
+      execute: () => Effect.succeed({ success: true, result: "" }),
+      createSummary: undefined,
+    };
+
+    const program = Effect.gen(function* () {
+      const registry = yield* ToolRegistryTag;
+      yield* registry.registerTool(tool, internalCategory);
+      return {
+        names: yield* registry.listTools(),
+        byCategory: yield* registry.listToolsByCategory(),
+        categories: yield* registry.listCategories(),
+        resolved: yield* registry.getTool("internal-tool"),
+      };
+    });
+
+    const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
+    expect(result.names).not.toContain("internal-tool");
+    expect(result.byCategory["Internal"]).toBeUndefined();
+    expect(result.categories.map((category) => category.id)).not.toContain("internal-cat");
+    expect(result.resolved.name).toBe("internal-tool");
+  });
+
   describe("load-tier splitting", () => {
     const eagerCategory = { id: "eager-cat", displayName: "Eager", loadTier: "eager" as const };
     const deferredCategory = {

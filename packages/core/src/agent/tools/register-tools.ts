@@ -40,7 +40,12 @@ import { createReportGoalCycleTool } from "./goal-report";
 import { createHttpRequestTool } from "./http";
 import { createJobQueueTools } from "./job-queue";
 import { createEndLoopTool } from "./loop";
-import { createManageMemoryTool, createProposeLessonTool, createViewMemoryTool } from "./memory";
+import {
+  createManageMemoryTool,
+  createProposeLessonTool,
+  createReviseMemoryTool,
+  createViewMemoryTool,
+} from "./memory";
 import { createWhoIsHereTool } from "./occupancy";
 import { createAskPeerTool, createRequestClarificationTool } from "./peer";
 import { createPerceptionTools } from "./perception";
@@ -64,6 +69,7 @@ import {
   HTTP_CATEGORY,
   JOB_QUEUE_CATEGORY,
   MEMORY_CATEGORY,
+  MEMORY_CURATION_CATEGORY,
   PEERS_CATEGORY,
   PERCEPTION_CATEGORY,
   REMINDER_CATEGORY,
@@ -239,6 +245,7 @@ export function registerMemoryTools(): Effect.Effect<void, Error, ToolRegistry> 
     yield* registerTool(createViewMemoryTool());
     yield* registerTool(createManageMemoryTool());
     yield* registerTool(createProposeLessonTool());
+    yield* registry.registerForCategory(MEMORY_CURATION_CATEGORY)(createReviseMemoryTool());
   });
 }
 

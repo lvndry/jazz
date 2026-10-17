@@ -118,6 +118,7 @@ import {
 } from "./chat/commands/goal";
 import { announceAgentSwitch } from "./chat/commands/handler";
 import { commandPanelTerminal, runsImmediately } from "./chat/commands/immediate";
+import { snapshotMemoryState } from "./chat/commands/learn";
 import { announceWaitingLoops } from "./chat/commands/loop";
 import {
   confirmSessionLimitOverage,
@@ -391,6 +392,9 @@ export class ChatServiceImpl implements ChatService {
           Effect.catchCause(() => Effect.succeed(pendingSuggestionCount)),
         );
       }
+      const memoryAtSessionStart = ephemeral
+        ? undefined
+        : yield* snapshotMemoryState().pipe(Effect.catchCause(() => Effect.succeed(undefined)));
       if (!ephemeral && conversationHistory.length > 0) {
         yield* announceWaitingGoals(conversationId).pipe(Effect.ignore);
         yield* announceWaitingLoops(conversationId).pipe(Effect.ignore);
@@ -610,6 +614,7 @@ export class ChatServiceImpl implements ChatService {
         sessionTurnCount,
         sessionLimits,
         sessionStartedAt,
+        memoryAtSessionStart,
         lastUsedAgentId,
         autoApprovePolicy,
         ...(autoApprovedCommands.length > 0 ? { autoApprovedCommands } : {}),

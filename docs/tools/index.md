@@ -19,7 +19,8 @@ and the [security model](../security/index.md).
 | ----------------------------------------------------------------------- | ------ |
 | **Agent-facing tools**                                                  | **79** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 20     |
-| Total registered                                                        | 99     |
+| Internal: granted only to Jazz's own `/learn` pass                      | 1      |
+| Total registered                                                        | 100    |
 | `read-only`                                                             | 40     |
 | `low-risk`                                                              | 20     |
 | `high-risk`                                                             | 16     |
@@ -184,6 +185,8 @@ available through `jazz run` or remote chat surfaces.
 ### Memory
 
 Memory tools are in the built-in bundle. Deny `manage_memory` to prevent writes, and `propose_lesson` to stop lesson proposals. See [Memory](../concepts/conversations-and-memory.md).
+
+`/learn` also gives its own pass `revise_memory`, which no agent receives: it queues the removal of a duplicated, contradicted or stale entry, or a rewrite of a lesson, for you to keep or drop in the same checklist.
 
 | Tool             | Risk        | Approval pair | What it does                                                                                                                                                                                                                                                       |
 | ---------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

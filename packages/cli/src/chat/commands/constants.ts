@@ -193,6 +193,13 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
     ],
   },
   {
+    name: "learn",
+    type: "learn",
+    description:
+      "Learn from the conversation so far and tidy memory, then keep or drop every change from one checklist",
+    aliases: ["reflect"],
+  },
+  {
     name: "limit",
     type: "limit",
     description: "Set a session turn, cost, or token limit (applied immediately)",

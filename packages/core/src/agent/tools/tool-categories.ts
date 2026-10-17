@@ -68,6 +68,13 @@ export const MEMORY_CATEGORY: ToolCategory = {
   displayName: "Memory",
   loadTier: "eager",
 };
+/** `/learn`'s cleanup suggestions, granted by name to that pass alone. */
+export const MEMORY_CURATION_CATEGORY: ToolCategory = {
+  id: "memory_curation",
+  displayName: "Memory curation",
+  loadTier: "eager",
+  internal: true,
+};
 export const WORKSPACE_CATEGORY: ToolCategory = {
   id: "workspace",
   displayName: "Scratchpad",

@@ -12,7 +12,7 @@ export function lessonDestinationPath(
   });
 }
 
-/** The entry a suggestion writes once kept. */
+/** The entry a suggestion writes, rewrites or removes once kept. */
 export function suggestionDestinationPath(suggestion: MemorySuggestion): string {
   return suggestion.kind === "lesson" ? lessonDestinationPath(suggestion) : suggestion.change.path;
 }

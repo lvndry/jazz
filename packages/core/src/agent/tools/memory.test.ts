@@ -3,14 +3,23 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
-import { MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
+import { MEMORY_EXTRACTOR_AGENT_ID, MEMORY_LEARNER_AGENT_ID } from "@/core/constants/memory";
 import type { MemoryService } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
-import type { FactSuggestionInput, LessonProposalInput } from "@/core/interfaces/memory-suggestion";
+import type {
+  FactSuggestionInput,
+  LessonProposalInput,
+  RevisionSuggestionInput,
+} from "@/core/interfaces/memory-suggestion";
 import { quotedSentenceKeys } from "@/core/memory/source-trust";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { sha256Hex } from "@/core/utils/hash";
-import { createManageMemoryTool, createProposeLessonTool, createViewMemoryTool } from "./memory";
+import {
+  createManageMemoryTool,
+  createProposeLessonTool,
+  createReviseMemoryTool,
+  createViewMemoryTool,
+} from "./memory";
 
 const context: ToolExecutionContext = {
   agentId: "agent-1",
@@ -465,6 +474,24 @@ describe("manage_memory", () => {
       ]);
     });
 
+    test("queues the /learn pass's creates the same way", async () => {
+      const suggestions: FactSuggestionInput[] = [];
+      const { service, writes } = queueingService(suggestions);
+      const result = await runWithMemory(
+        service,
+        createManageMemoryTool().execute(
+          { command: "create", subject: "Favorite fruit", topic: "Food", ...citation },
+          { ...extractorContext, agentId: MEMORY_LEARNER_AGENT_ID },
+        ),
+      );
+
+      expect(result.success).toBe(true);
+      expect(writes()).toBe(0);
+      expect(suggestions.map((suggestion) => suggestion.proposedBy)).toEqual([
+        MEMORY_LEARNER_AGENT_ID,
+      ]);
+    });
+
     test("queues an amendment with the content it replaces", async () => {
       const correction = "Actually, my favorite fruit is mango.";
       const suggestions: FactSuggestionInput[] = [];
@@ -618,5 +645,117 @@ describe("propose_lesson", () => {
 
     expect(result.success).toBe(false);
     expect(proposed).toBe(0);
+  });
+});
+
+describe("revise_memory", () => {
+  const entryPath = "personal/when/food/fruit.md";
+  const entryContent = 'The user said: "Banana."\n';
+
+  function serviceWith(
+    origin: "user" | "lesson",
+    revisions: RevisionSuggestionInput[],
+  ): Partial<MemoryService> {
+    return {
+      view: () =>
+        Effect.succeed({
+          kind: "file",
+          displayPath: `~/.jazz/memory/${entryPath}`,
+          virtualPath: entryPath,
+          content: entryContent,
+          startLine: 1,
+          totalLines: 2,
+          truncated: false,
+        }),
+      provenance: () =>
+        Effect.succeed({
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:00.000Z",
+          writeCount: 1,
+          writtenBy: ["agent-1"],
+          origin,
+        }),
+      delete: () => Effect.die("revise_memory must never delete directly"),
+      suggestRevision: (input) => {
+        revisions.push(input);
+        return Effect.succeed({
+          success: true,
+          message: "Suggested; it waits for the user to review.",
+          suggestion: {
+            ...input,
+            kind: "revision",
+            id: "def456",
+            proposedAt: "2026-10-17T00:00:00.000Z",
+          },
+        });
+      },
+    };
+  }
+
+  test("queues a removal against the entry's current text", async () => {
+    const revisions: RevisionSuggestionInput[] = [];
+    const result = await runWithMemory(
+      serviceWith("user", revisions) as MemoryService,
+      createReviseMemoryTool().execute(
+        { command: "delete", path: entryPath, reason: "favorite-fruit.md supersedes it." },
+        { ...context, agentId: MEMORY_LEARNER_AGENT_ID, conversationId: "conversation-1" },
+      ),
+    );
+
+    expect(result.success).toBe(true);
+    expect(revisions).toEqual([
+      {
+        change: { command: "delete", path: entryPath, previousContent: entryContent },
+        reason: "favorite-fruit.md supersedes it.",
+        proposedBy: MEMORY_LEARNER_AGENT_ID,
+        conversationId: "conversation-1",
+      },
+    ]);
+  });
+
+  test("queues a lesson rewrite in the lesson entry format", async () => {
+    const revisions: RevisionSuggestionInput[] = [];
+    const result = await runWithMemory(
+      serviceWith("lesson", revisions) as MemoryService,
+      createReviseMemoryTool().execute(
+        {
+          command: "rewrite_lesson",
+          path: entryPath,
+          rule: "Check what already exists before building.",
+          mistake: "Planned a duplicate app.",
+          reason: "Generalizes the rule.",
+        },
+        { ...context, agentId: MEMORY_LEARNER_AGENT_ID },
+      ),
+    );
+
+    expect(result.success).toBe(true);
+    expect(revisions[0]?.change).toEqual({
+      command: "rewrite",
+      path: entryPath,
+      previousContent: entryContent,
+      content:
+        "Check what already exists before building.\n\nLearned from: Planned a duplicate app.\n",
+    });
+  });
+
+  test("refuses to rewrite an entry that holds the user's words", async () => {
+    const revisions: RevisionSuggestionInput[] = [];
+    const result = await runWithMemory(
+      serviceWith("user", revisions) as MemoryService,
+      createReviseMemoryTool().execute(
+        {
+          command: "rewrite_lesson",
+          path: entryPath,
+          rule: "Likes mangoes.",
+          mistake: "n/a",
+          reason: "Shorter.",
+        },
+        { ...context, agentId: MEMORY_LEARNER_AGENT_ID },
+      ),
+    );
+
+    expect(result.success).toBe(false);
+    expect(revisions).toEqual([]);
   });
 });

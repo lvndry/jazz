@@ -88,6 +88,7 @@ import { createMemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import {
   MANAGE_MEMORY_TOOL_NAME,
   PROPOSE_LESSON_TOOL_NAME,
+  REVISE_MEMORY_TOOL_NAME,
   VIEW_MEMORY_TOOL_NAME,
 } from "./memory-recall-log";
 import {
@@ -706,7 +707,10 @@ function initializeAgentRun(
     // outright, so the model is never even offered a way to persist anything.
     if (options.disablePersistence === true) {
       combinedToolNames = combinedToolNames.filter(
-        (name) => name !== MANAGE_MEMORY_TOOL_NAME && name !== PROPOSE_LESSON_TOOL_NAME,
+        (name) =>
+          name !== MANAGE_MEMORY_TOOL_NAME &&
+          name !== PROPOSE_LESSON_TOOL_NAME &&
+          name !== REVISE_MEMORY_TOOL_NAME,
       );
     }
 

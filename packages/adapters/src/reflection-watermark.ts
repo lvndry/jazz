@@ -3,8 +3,10 @@
  * again is reflected on only for what was said since.
  *
  * A range is claimed before the pass runs, not after: two reflections of one conversation
- * (switching away, then quitting) must not both propose lessons from the same messages, and a
- * pass that fails part-way costs those messages a reflection rather than duplicating proposals.
+ * (switching away, then quitting) must not both propose lessons from the same messages. A
+ * detached pass that fails part-way costs those messages a reflection rather than duplicating
+ * proposals; `/learn`, which the person watches fail, releases its claim instead so the next pass
+ * covers them.
  */
 
 import * as path from "node:path";
@@ -64,6 +66,14 @@ function readWatermarks(
   });
 }
 
+/** Messages a pass took, and the watermarks before and after, so the claim can be released. */
+export interface ReflectionClaim {
+  readonly messages: readonly ChatMessage[];
+  readonly previousEntryId: string | undefined;
+  /** Undefined when nothing was claimed and the watermark did not move. */
+  readonly claimedEntryId: string | undefined;
+}
+
 /**
  * The messages after the last reflected one, marked as reflected. When the watermark's message
  * is no longer in the history (compaction folded it into a summary), the whole history is
@@ -74,7 +84,7 @@ export function claimUnreflectedMessages(
   agentId: string,
   conversationId: string,
   messages: readonly ChatMessage[],
-): Effect.Effect<readonly ChatMessage[], Error, FileSystem.FileSystem> {
+): Effect.Effect<ReflectionClaim, Error, FileSystem.FileSystem> {
   const file = path.join(memoryDirectory, WATERMARK_FILENAME);
   const key = `${agentId}/${conversationId}`;
   return withMemoryWriteLock(
@@ -94,7 +104,7 @@ export function claimUnreflectedMessages(
         .reverse()
         .find((message) => message.entryId !== undefined)?.entryId;
       if (unreflected.length === 0 || newestEntryId === undefined) {
-        return [];
+        return { messages: [], previousEntryId: lastEntryId, claimedEntryId: undefined };
       }
       const { [key]: _previous, ...others } = watermarks.lastEntryIdByConversation;
       const kept = Object.entries(others).slice(-(MAX_TRACKED_CONVERSATIONS - 1));
@@ -104,7 +114,44 @@ export function claimUnreflectedMessages(
           lastEntryIdByConversation: { ...Object.fromEntries(kept), [key]: newestEntryId },
         }),
       );
-      return unreflected;
+      return { messages: unreflected, previousEntryId: lastEntryId, claimedEntryId: newestEntryId };
+    }),
+  );
+}
+
+/**
+ * Put the watermark back where `claim` found it, so a failed pass's messages are reflected on
+ * next time. Left alone when another pass has claimed further since.
+ */
+export function releaseReflectionClaim(
+  memoryDirectory: string,
+  agentId: string,
+  conversationId: string,
+  claim: ReflectionClaim,
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
+  const file = path.join(memoryDirectory, WATERMARK_FILENAME);
+  const key = `${agentId}/${conversationId}`;
+  return withMemoryWriteLock(
+    memoryDirectory,
+    Effect.gen(function* () {
+      if (claim.claimedEntryId === undefined) {
+        return;
+      }
+      const fs = yield* FileSystem.FileSystem;
+      const watermarks = yield* readWatermarks(fs, file);
+      if (watermarks.lastEntryIdByConversation[key] !== claim.claimedEntryId) {
+        return;
+      }
+      const { [key]: _claimed, ...others } = watermarks.lastEntryIdByConversation;
+      yield* writeFileStringAtomic(
+        file,
+        encodeStateFile(WATERMARK_KIND, {
+          lastEntryIdByConversation:
+            claim.previousEntryId === undefined
+              ? others
+              : { ...others, [key]: claim.previousEntryId },
+        }),
+      );
     }),
   );
 }
