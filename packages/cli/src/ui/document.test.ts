@@ -1,9 +1,20 @@
 /** Tests source identity, projection independence, and atomic presentation commits. */
-import type { PresentationDocument } from "@jazz/core/types/presentation-content";
+import type {
+  PresentationDocument,
+  PresentationEntry,
+} from "@jazz/core/types/presentation-content";
 import { describe, expect, test } from "bun:test";
 import { createAccumulator, reduceEvent } from "../presentation/activity-reducer";
 import { createClassicProjection } from "./adapters/terminal-output-adapter";
-import { appendDocumentStream, settleDocumentStream, projectDocumentEntries } from "./document";
+import {
+  appendDocumentEntries,
+  appendDocumentStream,
+  createDocument,
+  projectDocumentEntries,
+  replaceDocumentEntry,
+  settleDocumentStream,
+  transcriptDocument,
+} from "./document";
 import { UIStore } from "./store";
 
 const initial = (): PresentationDocument => ({ id: "conversation", revision: 0, entries: [] });
@@ -48,7 +59,7 @@ describe("presentation document", () => {
         )
         .join(""),
     ).toBe("First paragraph.\n\n" + "Second ".repeat(100) + " paragraph.");
-    expect(settled.entries[0]).toBe(first.entries[0]);
+    expect(settled.entries[0]).toEqual(first.entries[0]);
   });
 
   test("publishes output and activity as one coherent revision", async () => {
@@ -299,5 +310,60 @@ describe("presentation document", () => {
     expect(receipts.every((entry) => entry.content.kind === "tool")).toBe(true);
     expect(new Set(receipts.map((entry) => entry.id)).size).toBe(3);
     expect(receipts.slice(0, 2)).toEqual([...saved]);
+  });
+
+  test("streamed deltas and printed entries copy only the current turn", () => {
+    const user = (id: string): PresentationEntry => ({
+      id,
+      content: { kind: "user", text: id },
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const notice = (id: string): PresentationEntry => ({
+      id,
+      content: { kind: "notice", text: id, tone: "info" },
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const opening = transcriptDocument(
+      createDocument("conversation", 0, [notice("banner"), user("q1"), notice("n1"), user("q2")]),
+    );
+    expect(opening.earlierTurns.map((entry) => entry.id)).toEqual(["banner", "q1", "n1"]);
+    expect(opening.currentTurn.map((entry) => entry.id)).toEqual(["q2"]);
+    const streaming = transcriptDocument(
+      appendDocumentStream(opening, "response", "partial", "answer", "2026-01-01T00:00:00.000Z"),
+    );
+    const extended = transcriptDocument(
+      appendDocumentStream(streaming, "response", " answer", "unused", "2026-01-01T00:00:00.000Z"),
+    );
+    expect(extended.earlierTurns).toBe(opening.earlierTurns);
+    expect(extended.entries.map((entry) => entry.id)).toEqual([
+      "banner",
+      "q1",
+      "n1",
+      "q2",
+      "answer",
+    ]);
+    expect(streaming.entries.at(-1)?.content).toEqual({ kind: "agent", markdown: "partial" });
+    const nextTurn = transcriptDocument(
+      appendDocumentEntries(settleDocumentStream(extended), [notice("n2"), user("q3")]),
+    );
+    expect(nextTurn.earlierTurns.map((entry) => entry.id)).toEqual([
+      "banner",
+      "q1",
+      "n1",
+      "q2",
+      "answer",
+      "n2",
+    ]);
+    expect(nextTurn.currentTurn.map((entry) => entry.id)).toEqual(["q3"]);
+    const edited = transcriptDocument(replaceDocumentEntry(nextTurn, notice("n1")));
+    expect(edited.currentTurn).toBe(nextTurn.currentTurn);
+    expect(edited.entries.map((entry) => entry.id)).toEqual(
+      nextTurn.entries.map((entry) => entry.id),
+    );
+    expect(JSON.parse(JSON.stringify(edited))).toEqual({
+      id: "conversation",
+      revision: edited.revision,
+      entries: JSON.parse(JSON.stringify(edited.entries)),
+    });
   });
 });
