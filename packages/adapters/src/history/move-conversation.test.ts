@@ -1,12 +1,11 @@
 import { existsSync } from "node:fs";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { testProposedGoal } from "@jazz/core/agent/goal/test-fixtures";
 import { getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { loadConversation, loadHistory, saveConversation } from "./conversation-history-service";
 import { holdConversationTurn } from "./conversation-lease";
 import {
@@ -184,7 +183,7 @@ describe("moveConversationToAgent", () => {
 
     const refused = await run(
       Effect.scoped(
-        Effect.zipRight(
+        Effect.andThen(
           holdConversationTurn(FROM_AGENT_ID, conversationId),
           moveConversationToAgent(FROM_AGENT_ID, TO_AGENT_ID, conversationId).pipe(Effect.flip),
         ),

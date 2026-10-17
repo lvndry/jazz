@@ -995,10 +995,10 @@ export class ChatServiceImpl implements ChatService {
                 agent.id,
                 nextAgent.id,
                 conversationId,
-              ).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem), Effect.either);
-              if (handOver._tag === "Left") {
+              ).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem), Effect.result);
+              if (handOver._tag === "Failure") {
                 yield* terminal.warn(
-                  `Still on ${agent.name}: this conversation can't move to ${nextAgent.name}. ${handOver.left.message}`,
+                  `Still on ${agent.name}: this conversation can't move to ${nextAgent.name}. ${handOver.failure.message}`,
                 );
                 yield* terminal.log("");
               } else {

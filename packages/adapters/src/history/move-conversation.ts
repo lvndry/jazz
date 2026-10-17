@@ -9,12 +9,11 @@
  */
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
-import { FileSystem } from "@effect/platform";
 import { toError } from "@jazz/core/utils/errors";
 import { getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { withLock } from "@jazz/core/utils/storage";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 import { ConversationBusyError, withConversationTurn } from "./conversation-lease";
 import {
   agentConversationLockPath,

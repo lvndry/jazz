@@ -520,7 +520,7 @@ export function runAgentOnceCommand(
         ? {
             checkQueuedMessage: () => inbox.take(),
             awaitQueuedMessage: () =>
-              Effect.async<void>((resume) => {
+              Effect.callback<void>((resume) => {
                 const cancel = inbox.onceWaiting(() => resume(Effect.void));
                 return Effect.sync(cancel);
               }),
