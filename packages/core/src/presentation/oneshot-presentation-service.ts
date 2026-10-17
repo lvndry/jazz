@@ -20,6 +20,7 @@ import type {
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { readConcealedLine } from "@/core/presentation/concealed-line";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
+import type { RunMessageInbox } from "@/core/presentation/run-message-inbox";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
 import { reportProgramStatus } from "@/core/utils/program-status";
@@ -124,6 +125,35 @@ function parseUserSecretResponseLine(line: string): UserSecretResponseLine | und
     };
   }
   return { type: "user_secret_response", requestId, outcome: { kind: "declined" } };
+}
+
+/** Shape of a line written to `stdinStream` to hand the running agent a new message. */
+interface UserMessageLine {
+  readonly type: "user_message";
+  readonly id: string;
+  readonly text: string;
+}
+
+function parseUserMessageLine(line: string): UserMessageLine | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return undefined;
+  }
+  const candidate = parsed as Record<string, unknown>;
+  if (
+    candidate["type"] === "user_message" &&
+    typeof candidate["id"] === "string" &&
+    typeof candidate["text"] === "string" &&
+    candidate["text"].trim().length > 0
+  ) {
+    return { type: "user_message", id: candidate["id"], text: candidate["text"] };
+  }
+  return undefined;
 }
 
 function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefined {
@@ -243,12 +273,19 @@ export class OneShotPresentationService implements PresentationService {
      *    calling tool must not confuse with a human declining.
      */
     private readonly askMode: "tty" | "protocol" | "none" = "none",
-  ) {}
+    /** Where `user_message` lines go. Only a run whose consumer can write them has one. */
+    private readonly inbox?: RunMessageInbox,
+  ) {
+    inbox?.connect({
+      startReading: () => this.ensureStdinReaderStarted(),
+      reportDelivered: (ids) => this.emitNdjson({ type: "user_message_delivered", ids }),
+    });
+  }
 
   /**
-   * Start listening for `approval_decision` lines on stdin, once. Called lazily
-   * from `requestApproval` so runs that never hit a gated tool never attach a
-   * listener. Malformed or unmatched lines are ignored.
+   * Start listening for protocol lines on stdin, once. Called lazily, from the first
+   * prompt or the first look at the inbox, so a run nobody can write to never attaches
+   * a listener. Malformed or unmatched lines are ignored.
    */
   private ensureStdinReaderStarted(): void {
     if (this.stdinReaderStarted) return;
@@ -302,6 +339,11 @@ export class OneShotPresentationService implements PresentationService {
           }
           this.pendingSecrets.delete(secret.requestId);
           resolveSecret(secret.outcome);
+          continue;
+        }
+        const message = this.inbox === undefined ? undefined : parseUserMessageLine(line);
+        if (message) {
+          this.inbox?.push(message.id, message.text);
         }
       }
     });
@@ -719,6 +761,7 @@ export function makeOneShotPresentationServiceLayer(
   emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
   onApprovalWaitStart?: () => void,
   askMode: "tty" | "protocol" | "none" = "none",
+  inbox?: RunMessageInbox,
 ) {
   return Layer.effect(
     PresentationServiceTag,
@@ -733,6 +776,7 @@ export function makeOneShotPresentationServiceLayer(
         undefined,
         onApprovalWaitStart,
         askMode,
+        inbox,
       );
     }),
   );
