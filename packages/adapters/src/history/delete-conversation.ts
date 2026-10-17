@@ -47,7 +47,7 @@ export class ConversationInUseError extends Error {
 }
 
 /** Why something still needs the conversation, or undefined when nothing does. */
-function conversationUse(
+export function conversationUse(
   agentId: string,
   conversationId: string,
 ): Effect.Effect<string | undefined, Error, FileSystem.FileSystem> {

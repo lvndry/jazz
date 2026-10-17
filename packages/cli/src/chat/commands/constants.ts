@@ -268,7 +268,8 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
   {
     name: "switch",
     type: "switch",
-    description: "Switch to a different agent in the same conversation",
+    description:
+      "Switch to a different agent in the same conversation; /resume later continues it with that agent",
     usage: "[agent]",
   },
   {

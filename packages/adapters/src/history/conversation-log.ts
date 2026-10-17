@@ -877,6 +877,47 @@ export function archiveConversationLog(
   });
 }
 
+/**
+ * Moves one conversation's live log from one agent to another, with its header naming the new
+ * agent. A log the destination agent already holds under the same id is archived first. The
+ * new log is written atomically before the old one is removed, so a crash leaves the
+ * conversation in one place or both, never neither. Returns false when there was no log to move.
+ */
+export function moveConversationLog(
+  fromAgentId: string,
+  toAgentId: string,
+  conversationId: string,
+  historyDirectory?: string,
+): Effect.Effect<boolean, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const sourcePath = conversationLogPath(fromAgentId, conversationId, historyDirectory);
+    const content = yield* readLogContent(fs, sourcePath);
+    if (content === null) {
+      return false;
+    }
+    const newlineIndex = content.indexOf("\n");
+    const headerLine = newlineIndex === -1 ? content : content.slice(0, newlineIndex);
+    const header = parseConversationLogLine(headerLine);
+    if (header?.type !== "conversation") {
+      return yield* Effect.fail(
+        new Error(`${sourcePath} does not start with a conversation header`),
+      );
+    }
+    const movedContent =
+      serializeEvent({ ...header, agentId: toAgentId }).replace(/\n$/, "") +
+      (newlineIndex === -1 ? "" : content.slice(newlineIndex));
+
+    yield* archiveConversationLog(toAgentId, conversationId, historyDirectory);
+    const destinationPath = conversationLogPath(toAgentId, conversationId, historyDirectory);
+    yield* writeFileStringAtomic(destinationPath, movedContent);
+    appendStateCache.delete(sourcePath);
+    appendStateCache.delete(destinationPath);
+    yield* fs.remove(sourcePath).pipe(Effect.mapError(toError));
+    return true;
+  });
+}
+
 interface AppendState {
   readonly tree: TreeAppendState;
   readonly title: string | undefined;
