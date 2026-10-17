@@ -342,12 +342,19 @@ export function createFullscreenTranscript(): (
   sources: FullscreenTranscriptSources,
   regions: readonly EphemeralRegion[],
 ) => readonly Block[] {
-  let shownById = new Map<string, Block>();
   let earlierShown: readonly Block[] = [];
   let tailShown: readonly Block[] = [];
+  let tailById = new Map<string, Block>();
   let shown: readonly Block[] = [];
+  /** Set while earlier turns are re-projected, when their shown blocks are worth indexing. */
+  let earlierById: Map<string, Block> | undefined;
+  let projectingEarlier = false;
   const share = (block: Block): Block => {
-    const previous = shownById.get(block.id);
+    let previous = tailById.get(block.id);
+    if (previous === undefined && projectingEarlier) {
+      earlierById ??= new Map(earlierShown.map((shownBlock) => [shownBlock.id, shownBlock]));
+      previous = earlierById.get(block.id);
+    }
     return sameBlock(previous, block) ? previous : block;
   };
   /** Blocks of whole turns; `firstSeq` continues the numbering of the turns before them. */
@@ -408,7 +415,10 @@ export function createFullscreenTranscript(): (
       streamingId: document.streamingId,
       streamReveal: sources.streamReveal,
     };
+    projectingEarlier = true;
     const earlierBlocks = earlier(document.earlierTurns, view);
+    projectingEarlier = false;
+    earlierById = undefined;
     const revealedIds = new Set<string>();
     const currentBlocks = projectTurns(
       document.currentTurn,
@@ -435,12 +445,7 @@ export function createFullscreenTranscript(): (
     if (earlierBlocks === earlierShown && sameItems(tailShown, tail)) {
       return shown;
     }
-    if (earlierBlocks !== earlierShown) {
-      shownById = new Map(earlierBlocks.map((block) => [block.id, block]));
-    }
-    for (const block of tail) {
-      shownById.set(block.id, block);
-    }
+    tailById = new Map(tail.map((block) => [block.id, block]));
     earlierShown = earlierBlocks;
     tailShown = tail;
     shown = earlierBlocks.length === 0 ? tail : [...earlierBlocks, ...tail];
