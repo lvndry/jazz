@@ -35,6 +35,14 @@ function startChild(
   });
 }
 
+/** Lets pending fibers settle off the stack, then forces a full collection. */
+async function collectGarbage() {
+  await Bun.sleep(0);
+  Bun.gc(true);
+  await Bun.sleep(0);
+  Bun.gc(true);
+}
+
 describe("SubagentSupervisor", () => {
   it("returns every child's result once none is running, and marks them read", async () => {
     const outcome = await Effect.runPromise(
@@ -471,6 +479,24 @@ describe("SubagentSupervisor that outlives runs", () => {
     );
     expect(outcome.outcome).toBe("interrupted");
     expect(outcome.subagents[0]?.status).toBe("running");
+  });
+
+  it("lets go of an answer once the parent has read it", async () => {
+    const supervisor = await Effect.runPromise(createSubagentSupervisor({ outlivesRuns: true }));
+    supervisor.attachRun({ chargeSpend: noCharge, saveResult: (child) => `saved-${child.id}` });
+    const answerRef = await Effect.runPromise(
+      Effect.gen(function* () {
+        const answer = { report: "the whole report" };
+        yield* finishedChild(supervisor, "digest", { success: true, result: answer });
+        yield* supervisor.wait([], "all", 5_000);
+        return new WeakRef(answer);
+      }),
+    );
+    await collectGarbage();
+
+    expect(answerRef.deref()).toBeUndefined();
+    const reread = await Effect.runPromise(supervisor.wait([], "all", 5_000));
+    expect(reread.subagents[0]).toMatchObject({ status: "completed", alreadyRead: true });
   });
 
   it("stops a child the user cancels", async () => {
