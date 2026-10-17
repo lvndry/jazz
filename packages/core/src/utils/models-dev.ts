@@ -1,13 +1,14 @@
 /**
- * Catalog integration for https://models.dev/api.json (~3MB JSON) — the single
+ * Catalog integration for https://models.dev/api.json (~6MB JSON) — the single
  * source of truth for model lists and metadata (context window, tool/vision
  * support, pricing) across providers.
  *
- * Lazy-loaded and cached in memory for `CACHE_TTL_MS`, mirrored to
- * `<jazz home>/cache/models-dev.json` so offline/airgapped runs (or a network
- * outage) fall back to the last snapshot instead of losing metadata entirely.
+ * Lazy-loaded and mirrored to `<jazz home>/cache/models-dev.json`, keeping only the fields
+ * Jazz reads. A snapshot younger than `CACHE_TTL_MS` is used without touching the network,
+ * so a short-lived `jazz run` does not download the catalog; an older one is refreshed, and
+ * offline/airgapped runs (or a network outage) fall back to it whatever its age.
  */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
@@ -16,7 +17,8 @@ import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 import { isOfflineMode } from "@/core/utils/runtime";
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+/** How long a catalog snapshot is used before it is fetched again; models.dev changes a few times a week. */
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10_000;
 const DISK_CACHE_FILE = "models-dev.json";
 
@@ -213,11 +215,47 @@ function diskCachePath(): string {
   return join(getUserDataDirectory(), "cache", DISK_CACHE_FILE);
 }
 
-async function writeDiskCache(rawJson: string): Promise<void> {
+/** The catalog with only the fields `buildData` reads, so the snapshot parses quickly. */
+function slimApi(api: ModelsDevApi): ModelsDevApi {
+  const slim: ModelsDevApi = {};
+  for (const [providerId, provider] of Object.entries(api)) {
+    const models = provider?.models;
+    if (!models || typeof models !== "object") continue;
+    const slimModels: Record<string, ModelsDevModelSpec> = {};
+    for (const [id, spec] of Object.entries(models)) {
+      if (!spec || typeof spec !== "object") continue;
+      slimModels[id] = {
+        ...(spec.name !== undefined && { name: spec.name }),
+        ...(spec.status !== undefined && { status: spec.status }),
+        ...(spec.release_date !== undefined && { release_date: spec.release_date }),
+        ...(spec.limit?.context !== undefined && { limit: { context: spec.limit.context } }),
+        ...(spec.tool_call !== undefined && { tool_call: spec.tool_call }),
+        ...(spec.reasoning !== undefined && { reasoning: spec.reasoning }),
+        ...(spec.temperature !== undefined && { temperature: spec.temperature }),
+        ...(spec.modalities !== undefined && { modalities: spec.modalities }),
+        ...(spec.cost !== undefined && {
+          cost: {
+            ...(spec.cost.input !== undefined && { input: spec.cost.input }),
+            ...(spec.cost.output !== undefined && { output: spec.cost.output }),
+            ...(spec.cost.cache_read !== undefined && { cache_read: spec.cost.cache_read }),
+            ...(spec.cost.cache_write !== undefined && { cache_write: spec.cost.cache_write }),
+          },
+        }),
+      };
+    }
+    slim[providerId] = { models: slimModels };
+  }
+  return slim;
+}
+
+async function writeDiskCache(api: ModelsDevApi): Promise<void> {
   try {
     const path = diskCachePath();
     await mkdir(dirname(path), { recursive: true, mode: stateDirectoryMode() });
-    await writeFile(path, rawJson, { encoding: "utf-8", mode: stateFileMode() });
+    await writeFile(path, JSON.stringify(slimApi(api)), {
+      encoding: "utf-8",
+      mode: stateFileMode(),
+    });
   } catch (error) {
     // Best-effort mirror — an unwritable cache dir must never break model listing,
     // but a silent failure here would leave operators unable to diagnose why
@@ -226,18 +264,33 @@ async function writeDiskCache(rawJson: string): Promise<void> {
   }
 }
 
-async function loadFromDiskCache(now: number): Promise<ModelsDevData | null> {
+async function loadFromDiskCache(expiresAt: number): Promise<ModelsDevData | null> {
   try {
     const raw = await readFile(diskCachePath(), "utf8");
     const api = JSON.parse(raw) as ModelsDevApi;
     if (!api || typeof api !== "object") return cachedData;
 
     cachedData = buildData(api);
-    cacheExpiry = now + CACHE_TTL_MS;
+    cacheExpiry = expiresAt;
     return cachedData;
   } catch {
     return cachedData;
   }
+}
+
+/** The disk snapshot when it is younger than `CACHE_TTL_MS`, or null when it is older or missing. */
+async function loadFreshDiskCache(now: number): Promise<ModelsDevData | null> {
+  let writtenAt: number;
+  try {
+    writtenAt = (await stat(diskCachePath())).mtimeMs;
+  } catch {
+    return null;
+  }
+  const expiresAt = writtenAt + CACHE_TTL_MS;
+  if (expiresAt <= now) {
+    return null;
+  }
+  return loadFromDiskCache(expiresAt);
 }
 
 /**
@@ -268,7 +321,12 @@ async function loadModelsDevData(): Promise<ModelsDevData | null> {
 
 async function fetchAndCacheModelsDevData(now: number): Promise<ModelsDevData | null> {
   if (isOfflineMode()) {
-    return loadFromDiskCache(now);
+    return loadFromDiskCache(now + CACHE_TTL_MS);
+  }
+
+  const fresh = await loadFreshDiskCache(now);
+  if (fresh !== null) {
+    return fresh;
   }
 
   try {
@@ -276,18 +334,17 @@ async function fetchAndCacheModelsDevData(now: number): Promise<ModelsDevData | 
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    if (!response.ok) return loadFromDiskCache(now);
+    if (!response.ok) return loadFromDiskCache(now + CACHE_TTL_MS);
 
-    const rawJson = await response.text();
-    const api = JSON.parse(rawJson) as ModelsDevApi;
-    if (!api || typeof api !== "object") return loadFromDiskCache(now);
+    const api = (await response.json()) as ModelsDevApi;
+    if (!api || typeof api !== "object") return loadFromDiskCache(now + CACHE_TTL_MS);
 
     cachedData = buildData(api);
     cacheExpiry = now + CACHE_TTL_MS;
-    await writeDiskCache(rawJson);
+    await writeDiskCache(api);
     return cachedData;
   } catch {
-    return loadFromDiskCache(now);
+    return loadFromDiskCache(now + CACHE_TTL_MS);
   }
 }
 

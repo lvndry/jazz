@@ -78,7 +78,9 @@ flowchart TD
     LOCAL -->|yes| ASK["Ask the local server<br/>Ollama /api/tags + /api/show<br/>llama.cpp /props<br/>vLLM + SGLang /v1/models<br/><i>no catalog needed at all</i>"]
     LOCAL -->|no| OFF{"JAZZ_OFFLINE?"}
 
-    OFF -->|no| FETCH["Fetch models.dev<br/>(or JAZZ_MODELS_DEV_URL mirror)"]
+    OFF -->|no| FRESH{"Snapshot under<br/>6 hours old?"}
+    FRESH -->|yes| READ
+    FRESH -->|no| FETCH["Fetch models.dev<br/>(or JAZZ_MODELS_DEV_URL mirror)"]
     FETCH --> SNAP["Refresh the snapshot<br/>~/.jazz/cache/models-dev.json"]
     OFF -->|yes| READ["Read the snapshot if present"]
 
@@ -98,6 +100,7 @@ Consequences worth knowing:
 - **Local models need no catalog.** Model lists, context windows, and tool-calling support are read straight from the local server. An airgapped install works with an empty cache.
 - **The 80% compaction threshold tracks the real window.** A 1M-context model gets a 1M-based threshold, not a guess.
 - **A brand-new model may be missing.** You get the provider's own metadata or a 128k default, and pricing display may be blank. Nothing breaks.
+- **The snapshot is reused for six hours.** A model added to models.dev since the last refresh shows up once the snapshot is older than that.
 - **`JAZZ_MODELS_DEV_URL`** points at an internal mirror for air-gapped networks that still want metadata. See [Local models](../getting-started/local-models.md).
 
 ---

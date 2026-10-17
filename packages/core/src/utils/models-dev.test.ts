@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
@@ -31,6 +31,16 @@ let jazzHome: string;
 
 function diskCachePath(): string {
   return join(jazzHome, "cache", "models-dev.json");
+}
+
+/** Seven hours: older than the six-hour snapshot lifetime. */
+const STALE_SNAPSHOT_AGE_MS = 7 * 60 * 60 * 1000;
+
+async function writeSnapshot(ageMs = 0): Promise<void> {
+  await mkdir(join(jazzHome, "cache"), { recursive: true });
+  await writeFile(diskCachePath(), JSON.stringify(SAMPLE_API), "utf8");
+  const writtenAt = new Date(Date.now() - ageMs);
+  await utimes(diskCachePath(), writtenAt, writtenAt);
 }
 
 function mockFetchSuccess(): ReturnType<typeof mock> {
@@ -75,9 +85,49 @@ describe("models-dev disk cache", () => {
     expect(JSON.parse(raw)).toEqual(SAMPLE_API);
   });
 
-  it("falls back to the disk snapshot when the fetch fails", async () => {
-    await mkdir(join(jazzHome, "cache"), { recursive: true });
-    await writeFile(diskCachePath(), JSON.stringify(SAMPLE_API), "utf8");
+  it("keeps only the fields Jazz reads in the snapshot", async () => {
+    const withExtras = {
+      anthropic: {
+        id: "anthropic",
+        npm: "@ai-sdk/anthropic",
+        models: {
+          "claude-test": {
+            ...SAMPLE_API.anthropic.models["claude-test"],
+            knowledge: "2025-01",
+            open_weights: false,
+            limit: { context: 200000, output: 64000 },
+          },
+        },
+      },
+    };
+    global.fetch = mock(() =>
+      Promise.resolve(new Response(JSON.stringify(withExtras), { status: 200 })),
+    ) as unknown as typeof fetch;
+
+    await getModelsDevProviderModels("anthropic");
+
+    expect(JSON.parse(await readFile(diskCachePath(), "utf8"))).toEqual(SAMPLE_API);
+  });
+
+  it("uses a snapshot younger than six hours without fetching", async () => {
+    await writeSnapshot();
+    const fetchMock = mockFetchSuccess();
+
+    const models = await getModelsDevProviderModels("anthropic");
+    expect(models.map((model) => model.id)).toEqual(["claude-test"]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches again once the snapshot is older than six hours", async () => {
+    await writeSnapshot(STALE_SNAPSHOT_AGE_MS);
+    const fetchMock = mockFetchSuccess();
+
+    await getModelsDevProviderModels("anthropic");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a stale disk snapshot when the fetch fails", async () => {
+    await writeSnapshot(STALE_SNAPSHOT_AGE_MS);
     mockFetchFailure();
 
     const models = await getModelsDevProviderModels("anthropic");
@@ -109,8 +159,7 @@ describe("models-dev disk cache", () => {
 describe("models-dev offline mode", () => {
   it("never fetches and serves the disk snapshot", async () => {
     process.env["JAZZ_OFFLINE"] = "1";
-    await mkdir(join(jazzHome, "cache"), { recursive: true });
-    await writeFile(diskCachePath(), JSON.stringify(SAMPLE_API), "utf8");
+    await writeSnapshot(STALE_SNAPSHOT_AGE_MS);
     const fetchMock = mockFetchSuccess();
 
     const models = await getModelsDevProviderModels("anthropic");
