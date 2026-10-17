@@ -181,11 +181,20 @@ class DefaultToolRegistry implements ToolRegistry {
     );
   }
 
+  /** Whether a tool is left out of listings: hidden, or in a category granted only by name. */
+  private isUnlisted(tool: Tool<ToolRequirements>): boolean {
+    const categoryId = this.toolCategories.get(tool.name);
+    return (
+      tool.hidden ||
+      (categoryId !== undefined && this.categories.get(categoryId)?.internal === true)
+    );
+  }
+
   listTools(): Effect.Effect<readonly string[], never> {
     return Effect.sync(() => {
       const names: string[] = [];
       this.tools.forEach((tool) => {
-        if (!tool.hidden) names.push(tool.name);
+        if (!this.isUnlisted(tool)) names.push(tool.name);
       });
       return names;
     });
@@ -319,7 +328,7 @@ class DefaultToolRegistry implements ToolRegistry {
       const categories: Record<string, string[]> = {};
 
       this.tools.forEach((tool, toolName) => {
-        if (!tool.hidden) {
+        if (!this.isUnlisted(tool)) {
           const categoryId = this.toolCategories.get(toolName);
           if (categoryId) {
             const category = this.categories.get(categoryId);
@@ -371,7 +380,7 @@ class DefaultToolRegistry implements ToolRegistry {
       const categoryIds = new Set<string>();
 
       this.tools.forEach((tool, toolName) => {
-        if (!tool.hidden) {
+        if (!this.isUnlisted(tool)) {
           const categoryId = this.toolCategories.get(toolName);
           if (categoryId) {
             categoryIds.add(categoryId);

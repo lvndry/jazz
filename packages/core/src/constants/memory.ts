@@ -36,6 +36,18 @@ export const DEFAULT_MEMORY_SCOPE = "personal";
  */
 export const MEMORY_EXTRACTOR_AGENT_ID = "memory-extractor";
 
+/** Agent id the `/learn` pass runs under: it reviews the conversation and the store together. */
+export const MEMORY_LEARNER_AGENT_ID = "memory-learner";
+
+/**
+ * Agents whose `manage_memory` creates and amends are queued for review instead of written:
+ * they choose what to save on their own, so the person keeps or drops their picks.
+ */
+export const SUGGEST_ONLY_MEMORY_AGENT_IDS: readonly string[] = [
+  MEMORY_EXTRACTOR_AGENT_ID,
+  MEMORY_LEARNER_AGENT_ID,
+];
+
 /**
  * Longest derived entry summary kept in the sidecar. Entries are one thought
  * each, so anything past this is prose that belongs in the body rather than in

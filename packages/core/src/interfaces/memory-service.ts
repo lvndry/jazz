@@ -17,6 +17,8 @@ import type {
   MemorySuggestion,
   MemorySuggestionOutcome,
   MemorySuggestionResolution,
+  RevisionSuggestion,
+  RevisionSuggestionInput,
 } from "./memory-suggestion";
 
 /** A memory entry as listings and the prompt see it: where it lives and its first line. */
@@ -189,7 +191,12 @@ export interface MemoryService {
     input: FactSuggestionInput,
   ) => Effect.Effect<MemorySuggestionOutcome<FactSuggestion>, Error, FileSystem.FileSystem>;
 
-  /** Fact suggestions and lessons waiting for review, oldest first. */
+  /** Queue removing or rewriting an existing entry for the person to review. Nothing is changed. */
+  readonly suggestRevision: (
+    input: RevisionSuggestionInput,
+  ) => Effect.Effect<MemorySuggestionOutcome<RevisionSuggestion>, Error, FileSystem.FileSystem>;
+
+  /** Fact suggestions, lessons and revisions waiting for review, oldest first. */
   readonly pendingSuggestions: () => Effect.Effect<
     readonly MemorySuggestion[],
     Error,

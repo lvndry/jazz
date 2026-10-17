@@ -5,7 +5,9 @@ import { NodeFileSystem } from "@effect/platform-node";
 import type {
   FactSuggestionInput,
   LessonProposalInput,
+  RevisionSuggestionInput,
 } from "@jazz/core/interfaces/memory-suggestion";
+import { formatLessonEntry } from "@jazz/core/memory/lesson-entry";
 import { quotedSentenceKeys } from "@jazz/core/memory/source-trust";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect, type FileSystem } from "effect";
@@ -339,5 +341,116 @@ describe("fact suggestions", () => {
     expect(entry.kind === "file" ? entry.content : undefined).toBe(
       'The user said: "My favorite fruit is mango."\n',
     );
+  });
+});
+
+describe("revision suggestions", () => {
+  const stalePath = "personal/when/food/fruit.md";
+  const staleContent = 'The user said: "Banana."\n';
+
+  function removal(previousContent = staleContent): RevisionSuggestionInput {
+    return {
+      change: { command: "delete", path: stalePath, previousContent },
+      reason: "personal/when/food/favorite-fruit.md already records the newer favorite.",
+      proposedBy: "memory-learner",
+      conversationId: "conversation-1",
+    };
+  }
+
+  test("a removal waits in the queue and leaves the entry in place", async () => {
+    const service = makeService();
+    await runEffect(service.create(stalePath, staleContent, { agentId: "agent-1" }));
+    const outcome = await runEffect(service.suggestRevision(removal()));
+
+    expect(outcome.success).toBe(true);
+    expect((await runEffect(service.pendingSuggestions())).map((item) => item.kind)).toEqual([
+      "revision",
+    ]);
+    expect((await runEffect(service.view(stalePath))).kind).toBe("file");
+  });
+
+  test("the same removal suggested twice is queued once", async () => {
+    const service = makeService();
+    await runEffect(service.suggestRevision(removal()));
+    await runEffect(service.suggestRevision(removal()));
+
+    expect(await runEffect(service.pendingSuggestions())).toHaveLength(1);
+  });
+
+  test("refuses a removal without a reason", async () => {
+    const service = makeService();
+    const outcome = await runEffect(service.suggestRevision({ ...removal(), reason: "  " }));
+
+    expect(outcome.success).toBe(false);
+    expect(await runEffect(service.pendingSuggestions())).toEqual([]);
+  });
+
+  test("accepting a removal deletes the unchanged entry and dequeues it", async () => {
+    const service = makeService();
+    await runEffect(service.create(stalePath, staleContent, { agentId: "agent-1" }));
+    const suggested = await runEffect(service.suggestRevision(removal()));
+    if (!suggested.success) {
+      throw new Error(suggested.message);
+    }
+
+    const accepted = await runEffect(service.acceptSuggestion(suggested.suggestion.id));
+
+    expect(accepted).toMatchObject({ success: true, message: `Removed ${stalePath}.` });
+    expect((await runEffect(service.view(stalePath))).kind).toBe("not_found");
+    expect(await runEffect(service.pendingSuggestions())).toEqual([]);
+  });
+
+  test("accepting a removal after the entry changed keeps it and leaves the suggestion waiting", async () => {
+    const service = makeService();
+    await runEffect(service.create(stalePath, staleContent, { agentId: "agent-1" }));
+    const suggested = await runEffect(service.suggestRevision(removal()));
+    if (!suggested.success) {
+      throw new Error(suggested.message);
+    }
+    await runEffect(
+      service.strReplace(stalePath, staleContent, 'The user said: "Mango."\n', {
+        agentId: "agent-1",
+      }),
+    );
+
+    const accepted = await runEffect(service.acceptSuggestion(suggested.suggestion.id));
+
+    expect(accepted.success).toBe(false);
+    expect((await runEffect(service.view(stalePath))).kind).toBe("file");
+    expect(await runEffect(service.pendingSuggestions())).toHaveLength(1);
+  });
+
+  test("accepting a lesson rewrite replaces the lesson's text", async () => {
+    const service = makeService();
+    const proposed = await runEffect(service.proposeLesson(priorArt));
+    if (!proposed.success) {
+      throw new Error(proposed.message);
+    }
+    const accepted = await runEffect(service.acceptSuggestion(proposed.suggestion.id));
+    const lessonPath = accepted.success ? accepted.path : undefined;
+    if (lessonPath === undefined) {
+      throw new Error("lesson was not saved");
+    }
+    const current = await runEffect(service.view(lessonPath));
+    const previousContent = current.kind === "file" ? current.content : "";
+    const rewritten = formatLessonEntry(
+      "Search for existing tools before proposing to build anything new.",
+      priorArt.mistake,
+    );
+    const suggested = await runEffect(
+      service.suggestRevision({
+        change: { command: "rewrite", path: lessonPath, previousContent, content: rewritten },
+        reason: "Covers tools as well as products.",
+        proposedBy: "memory-learner",
+      }),
+    );
+    if (!suggested.success) {
+      throw new Error(suggested.message);
+    }
+
+    expect((await runEffect(service.acceptSuggestion(suggested.suggestion.id))).success).toBe(true);
+    const entry = await runEffect(service.view(lessonPath));
+    expect(entry.kind === "file" ? entry.content : undefined).toBe(rewritten);
+    expect((await runEffect(service.provenance(lessonPath)))?.origin).toBe("lesson");
   });
 });

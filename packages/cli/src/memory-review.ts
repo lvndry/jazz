@@ -1,6 +1,6 @@
 /**
- * Reviewing what background passes want to add to memory: fact suggestions and lessons, kept or
- * ignored together from one multi-select list. Shared by `jazz memory review` and `/memory review`
+ * Reviewing what background passes want to change in memory: fact suggestions, lessons and
+ * revisions, kept or ignored together from one multi-select list. Shared by `jazz memory review` and `/memory review`
  * so both read the same and decide the same way.
  */
 
@@ -9,6 +9,7 @@ import type { MemorySuggestion } from "@jazz/core/interfaces/memory-suggestion";
 import {
   report,
   type PromptChoice,
+  type PromptTagTone,
   type ReportRow,
   type TerminalService,
 } from "@jazz/core/interfaces/terminal";
@@ -16,17 +17,38 @@ import { storedClaimText } from "@jazz/core/memory/source-trust";
 import { suggestionDestinationPath } from "@jazz/core/memory/suggestion-destination";
 import { Effect, type FileSystem } from "effect";
 
-/** The line a suggestion is known by: the user's quoted words, or the lesson's rule. */
+function firstLine(text: string): string {
+  return (
+    text
+      .split("\n")
+      .find((line) => line.trim().length > 0)
+      ?.trim() ?? ""
+  );
+}
+
+/**
+ * The line a suggestion is known by: the user's quoted words, the lesson's rule, or for a
+ * revision the entry it removes or the rule it rewrites to.
+ */
 export function suggestionHeadline(suggestion: MemorySuggestion): string {
-  return suggestion.kind === "lesson"
-    ? suggestion.rule
-    : storedClaimText(suggestion.change.content);
+  if (suggestion.kind === "lesson") {
+    return suggestion.rule;
+  }
+  if (suggestion.kind === "revision") {
+    return suggestion.change.command === "delete"
+      ? firstLine(storedClaimText(suggestion.change.previousContent))
+      : firstLine(suggestion.change.content);
+  }
+  return storedClaimText(suggestion.change.content);
 }
 
 /** Which kind of change keeping it makes, as a short tag. */
 export function suggestionKindTag(suggestion: MemorySuggestion): string {
   if (suggestion.kind === "lesson") {
     return "lesson";
+  }
+  if (suggestion.kind === "revision") {
+    return suggestion.change.command === "delete" ? "remove" : "rewrite";
   }
   return suggestion.change.command === "amend" ? "edit" : "fact";
 }
@@ -41,13 +63,22 @@ export function suggestionDetails(suggestion: MemorySuggestion): SuggestionDetai
   const details: SuggestionDetail[] = [];
   if (suggestion.kind === "lesson") {
     details.push({ label: "learned from", text: suggestion.mistake });
+  } else if (suggestion.kind === "revision") {
+    details.push({ label: "why", text: suggestion.reason });
+    if (suggestion.change.command === "rewrite") {
+      details.push({ label: "currently", text: firstLine(suggestion.change.previousContent) });
+    }
   } else if (suggestion.change.command === "amend") {
     details.push({
       label: "currently",
       text: storedClaimText(suggestion.change.previousContent).trim(),
     });
   }
-  details.push({ label: "saves to", text: suggestionDestinationPath(suggestion) });
+  const removes = suggestion.kind === "revision" && suggestion.change.command === "delete";
+  details.push({
+    label: removes ? "removes" : "saves to",
+    text: suggestionDestinationPath(suggestion),
+  });
   return details;
 }
 
@@ -71,6 +102,16 @@ export function suggestionListRows(suggestions: readonly MemorySuggestion[]): Re
   ];
 }
 
+function suggestionTagTone(suggestion: MemorySuggestion): PromptTagTone {
+  if (suggestion.kind === "lesson") {
+    return "accent";
+  }
+  if (suggestion.kind === "revision" && suggestion.change.command === "delete") {
+    return "warning";
+  }
+  return "muted";
+}
+
 /** One row per suggestion; its details show in the highlighted row's preview, in both renderers. */
 export function suggestionChoices(
   suggestions: readonly MemorySuggestion[],
@@ -79,7 +120,7 @@ export function suggestionChoices(
     name: suggestionHeadline(suggestion),
     value: suggestion.id,
     tag: suggestionKindTag(suggestion),
-    tagTone: suggestion.kind === "lesson" ? "accent" : "muted",
+    tagTone: suggestionTagTone(suggestion),
     preview: suggestionDetails(suggestion).map((detail) => [
       { text: `${detail.label}: ${detail.text}` },
     ]),
@@ -88,6 +129,8 @@ export function suggestionChoices(
 
 export interface ReviewDecision {
   readonly saved: readonly string[];
+  /** Entries a kept removal deleted. */
+  readonly removed: readonly string[];
   readonly dropped: number;
   /** Kept suggestions that could not be written, with why; they stay waiting. */
   readonly failed: readonly string[];
@@ -104,13 +147,19 @@ export function applyReviewDecision(
 ): Effect.Effect<ReviewDecision, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const saved: string[] = [];
+    const removed: string[] = [];
     const failed: string[] = [];
     let dropped = 0;
     for (const suggestion of suggestions) {
       if (keptIds.has(suggestion.id)) {
         const outcome = yield* memoryService.acceptSuggestion(suggestion.id);
         if (outcome.success) {
-          saved.push(outcome.path ?? suggestionDestinationPath(suggestion));
+          const entryPath = outcome.path ?? suggestionDestinationPath(suggestion);
+          if (suggestion.kind === "revision" && suggestion.change.command === "delete") {
+            removed.push(entryPath);
+          } else {
+            saved.push(entryPath);
+          }
         } else {
           failed.push(`${suggestion.id}: ${outcome.message}`);
         }
@@ -121,7 +170,7 @@ export function applyReviewDecision(
         }
       }
     }
-    return { saved, dropped, failed };
+    return { saved, removed, dropped, failed };
   });
 }
 
@@ -167,6 +216,11 @@ export function reviewMemorySuggestions(
         key: "saved",
         value: savedPath,
       })),
+      ...decision.removed.map((removedPath): ReportRow => ({
+        kind: "field",
+        key: "removed",
+        value: removedPath,
+      })),
       ...(decision.dropped > 0
         ? [{ kind: "field", key: "dropped", value: String(decision.dropped) } satisfies ReportRow]
         : []),
@@ -175,7 +229,7 @@ export function reviewMemorySuggestions(
       yield* terminal.log(report("memory", rows));
     }
     for (const failure of decision.failed) {
-      yield* terminal.warn(`Not saved, still waiting — ${failure}`);
+      yield* terminal.warn(`Not applied, still waiting — ${failure}`);
     }
   });
 }

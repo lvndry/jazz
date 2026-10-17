@@ -6,6 +6,7 @@ import type {
   ConversationRevision,
   ConversationUiEntry,
 } from "@jazz/adapters/history/conversation-history-service";
+import type { MemoryState } from "@jazz/core/memory/session-changes";
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
@@ -51,6 +52,7 @@ export type CommandType =
   | "goal"
   | "loop"
   | "waits"
+  | "learn"
   | "runSkill"
   | "runMcpPrompt"
   | "runPluginCommand"
@@ -170,6 +172,8 @@ export interface CommandContext {
   sessionLimits: SessionLimits;
   /** Timestamp when the chat session started (for /info duration). */
   sessionStartedAt: Date;
+  /** Memory as it stood when the chat session started (for /learn); absent when nothing persists. */
+  memoryAtSessionStart?: MemoryState | undefined;
   /** Current auto-approve policy (for /mode display). */
   autoApprovePolicy?: AutoApprovePolicy;
   /** Currently auto-approved command prefixes (for /mode display). */

@@ -145,6 +145,7 @@ import {
   handleTreeCommand,
 } from "./conversation";
 import { handleGoalCommand } from "./goal";
+import { handleLearnCommand } from "./learn";
 import { handleLoopCommand } from "./loop";
 import {
   confirmSessionLimitOverage,
@@ -226,6 +227,9 @@ export function handleSpecialCommand(
 
       case "waits":
         return yield* handleWaitsCommand(context, command.args);
+
+      case "learn":
+        return yield* handleLearnCommand(context);
 
       case "tools":
         return yield* handleToolsCommand(terminal, agent);

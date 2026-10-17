@@ -1,5 +1,5 @@
 /**
- * The queue of memory suggestions — fact writes and lessons — kept in one hidden file at the
+ * The queue of memory suggestions — fact writes, lessons and revisions — kept in one hidden file at the
  * memory root, waiting for the person to keep or ignore them.
  *
  * Every function here must run inside `withMemoryWriteLock`. A malformed queue reads as empty
@@ -15,6 +15,8 @@ import type {
   LessonProposalInput,
   MemorySuggestion,
   MemorySuggestionOutcome,
+  RevisionSuggestion,
+  RevisionSuggestionInput,
 } from "@jazz/core/interfaces/memory-suggestion";
 import { replaceControlCharacters } from "@jazz/core/utils/control-characters";
 import { toError } from "@jazz/core/utils/errors";
@@ -37,6 +39,7 @@ const SUGGESTION_ID_BYTES = 3;
 
 const MAX_RULE_CHARS = 500;
 const MAX_MISTAKE_CHARS = 500;
+const MAX_REASON_CHARS = 500;
 
 interface SuggestionQueue {
   readonly suggestions: readonly MemorySuggestion[];
@@ -72,6 +75,20 @@ function isChange(value: unknown): value is FactSuggestion["change"] {
   return false;
 }
 
+function isRevision(value: unknown): value is RevisionSuggestion["change"] {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (record["command"] === "delete") {
+    return hasStrings(record, ["path", "previousContent"]);
+  }
+  if (record["command"] === "rewrite") {
+    return hasStrings(record, ["path", "previousContent", "content"]);
+  }
+  return false;
+}
+
 function isSuggestion(value: unknown): value is MemorySuggestion {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -94,6 +111,9 @@ function isSuggestion(value: unknown): value is MemorySuggestion {
       keys.every((key) => typeof key === "string") &&
       isChange(record["change"])
     );
+  }
+  if (record["kind"] === "revision") {
+    return typeof record["reason"] === "string" && isRevision(record["change"]);
   }
   return false;
 }
@@ -153,6 +173,12 @@ function isSameSuggestion(waiting: MemorySuggestion, candidate: MemorySuggestion
     return (
       waiting.change.path === candidate.change.path &&
       normalizedWords(waiting.change.content) === normalizedWords(candidate.change.content)
+    );
+  }
+  if (waiting.kind === "revision" && candidate.kind === "revision") {
+    return (
+      waiting.change.path === candidate.change.path &&
+      waiting.change.command === candidate.change.command
     );
   }
   return false;
@@ -254,6 +280,28 @@ export function addFactSuggestion(
   } satisfies FactSuggestion);
 }
 
+export function addRevisionSuggestion(
+  fs: FileSystem.FileSystem,
+  memoryDirectory: string,
+  input: RevisionSuggestionInput,
+): Effect.Effect<MemorySuggestionOutcome<RevisionSuggestion>, Error> {
+  return Effect.gen(function* () {
+    const reason = replaceControlCharacters(input.reason, " ").trim();
+    if (reason.length === 0 || reason.length > MAX_REASON_CHARS) {
+      return {
+        success: false,
+        message: `A revision's reason must be 1–${MAX_REASON_CHARS} characters.`,
+      };
+    }
+    return yield* enqueue(fs, memoryDirectory, {
+      ...input,
+      reason,
+      kind: "revision",
+      ...queuedFields(),
+    } satisfies RevisionSuggestion);
+  });
+}
+
 export function findMemorySuggestion(
   fs: FileSystem.FileSystem,
   memoryDirectory: string,
@@ -279,9 +327,4 @@ export function removeMemorySuggestion(
     yield* writeQueue(memoryDirectory, { suggestions: remaining });
     return true;
   });
-}
-
-/** The entry an accepted lesson becomes: the rule first, since the first line is what recall shows. */
-export function formatAcceptedLesson(proposal: Pick<LessonProposal, "rule" | "mistake">): string {
-  return `${proposal.rule}\n\nLearned from: ${proposal.mistake}\n`;
 }

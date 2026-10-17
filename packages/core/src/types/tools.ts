@@ -378,6 +378,8 @@ export interface ToolCategory {
   readonly id: string;
   readonly displayName: string;
   readonly loadTier: ToolLoadTier;
+  /** Granted only by name to internal passes; left out of every tool listing and picker. */
+  readonly internal?: boolean;
 }
 
 export interface ToolExecutionContext {

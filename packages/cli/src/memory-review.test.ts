@@ -69,7 +69,7 @@ function fakeTerminal(options: {
     isInteractive: options.interactive,
     log: (message: unknown) =>
       Effect.sync(() => {
-        logged.push(String(message));
+        logged.push(typeof message === "string" ? message : JSON.stringify(message));
         return undefined;
       }),
     warn: (message: string) =>
@@ -144,7 +144,7 @@ describe("memory review", () => {
 
     const pending = await run(service.pendingSuggestions());
     expect(pending.map((suggestion) => suggestion.id)).toEqual([ids.fact]);
-    expect(logged.some((line) => line.startsWith("Not saved, still waiting"))).toBe(true);
+    expect(logged.some((line) => line.startsWith("Not applied, still waiting"))).toBe(true);
     expect((await run(service.view(lessonPath))).kind).toBe("file");
   });
 
@@ -164,5 +164,38 @@ describe("memory review", () => {
       [`saves to: ${fruitPath}`],
       ["learned from: Proposed building a tool that already existed.", `saves to: ${lessonPath}`],
     ]);
+  });
+
+  test("a removal reads as the entry it drops and reports it as removed once kept", async () => {
+    const service = makeService();
+    const stalePath = "personal/when/food/fruit.md";
+    const staleContent = 'The user said: "Banana."\n';
+    await run(service.create(stalePath, staleContent, { agentId: "agent-1" }));
+    const queued = await run(
+      service.suggestRevision({
+        change: { command: "delete", path: stalePath, previousContent: staleContent },
+        reason: "favorite-fruit.md records the newer favorite.",
+        proposedBy: "memory-learner",
+      }),
+    );
+    if (!queued.success) {
+      throw new Error(queued.message);
+    }
+
+    const [choice] = suggestionChoices(await run(service.pendingSuggestions()));
+    expect([choice?.name, choice?.tag, choice?.tagTone]).toEqual(["Banana.", "remove", "warning"]);
+    expect((choice?.preview ?? []).map((line) => line.map((span) => span.text).join(""))).toEqual([
+      "why: favorite-fruit.md records the newer favorite.",
+      `removes: ${stalePath}`,
+    ]);
+
+    const { terminal, logged } = fakeTerminal({
+      interactive: true,
+      answer: () => [queued.suggestion.id],
+    });
+    await run(reviewMemorySuggestions(terminal, service, "/memory"));
+
+    expect((await run(service.view(stalePath))).kind).toBe("not_found");
+    expect(logged.some((line) => line.includes("removed") && line.includes(stalePath))).toBe(true);
   });
 });

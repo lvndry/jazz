@@ -45,6 +45,7 @@ import type {
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { ALWAYS_SEGMENT, WHEN_SEGMENT, splitScopeAndRest } from "@jazz/core/memory/entry-path";
+import { formatLessonEntry } from "@jazz/core/memory/lesson-entry";
 import { suggestionDestinationPath } from "@jazz/core/memory/suggestion-destination";
 import { toError } from "@jazz/core/utils/errors";
 import { sha256Hex } from "@jazz/core/utils/hash";
@@ -67,8 +68,8 @@ import {
 import {
   addFactSuggestion,
   addLessonProposal,
+  addRevisionSuggestion,
   findMemorySuggestion,
-  formatAcceptedLesson,
   listMemorySuggestions,
   removeMemorySuggestion,
 } from "./memory-suggestions";
@@ -1338,50 +1339,69 @@ export class MemoryServiceImpl implements MemoryService {
         if (!resolved.ok) return resolved.failure satisfies MemoryMutationOutcome;
         const { scope, rest } = resolved;
 
-        return yield* this.withMemoryWriteLock(
-          scope,
-          Effect.gen(
-            function* (this: MemoryServiceImpl) {
-              const fs = yield* FileSystem.FileSystem;
-              const root = yield* this.ensureScopeRoot(scope);
-              const target = yield* resolveMemoryPath(root, rest);
-
-              if (target === root) {
-                return {
-                  success: false,
-                  message: "Error: cannot delete a scope's memory root",
-                } satisfies MemoryMutationOutcome;
-              }
-
-              const exists = yield* fs
-                .exists(target)
-                .pipe(Effect.catch(() => Effect.succeed(false)));
-              if (!exists) {
-                return {
-                  success: false,
-                  message: `Error: The path ${abbreviateHomePath(target)} does not exist`,
-                } satisfies MemoryMutationOutcome;
-              }
-
-              yield* eraseMemoryOpportunityReceiptsForScope(scope, this.receiptsDirectory);
-              yield* revokeClaimSentencesUnder(
-                fs,
-                this.baseMemoryDirectory,
-                path.join(scope, path.relative(root, target)),
-              );
-              yield* fs.remove(target, { recursive: true }).pipe(Effect.mapError(toError));
-
-              yield* forgetProvenance(fs, root, path.relative(root, target));
-
-              return {
-                success: true,
-                message: `Successfully deleted ${abbreviateHomePath(target)}`,
-              } satisfies MemoryMutationOutcome;
-            }.bind(this),
-          ),
-        );
+        return yield* this.withMemoryWriteLock(scope, this.deleteWhileLocked(scope, rest));
       }.bind(this),
     );
+
+  /**
+   * `delete`'s removal, for callers already holding the memory write lock, which is not
+   * reentrant. With `expectedContent`, a file whose text differs is left in place.
+   */
+  private deleteWhileLocked(
+    scope: string,
+    rest: string,
+    expectedContent?: string,
+  ): Effect.Effect<MemoryMutationOutcome, MemoryGuardrailViolation | Error, FileSystem.FileSystem> {
+    return Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* this.ensureScopeRoot(scope);
+        const target = yield* resolveMemoryPath(root, rest);
+
+        if (target === root) {
+          return {
+            success: false,
+            message: "Error: cannot delete a scope's memory root",
+          } satisfies MemoryMutationOutcome;
+        }
+
+        const exists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(false)));
+        if (!exists) {
+          return {
+            success: false,
+            message: `Error: The path ${abbreviateHomePath(target)} does not exist`,
+          } satisfies MemoryMutationOutcome;
+        }
+
+        if (expectedContent !== undefined) {
+          const current = yield* fs
+            .readFileString(target)
+            .pipe(Effect.catch(() => Effect.succeed(undefined)));
+          if (current !== expectedContent) {
+            return {
+              success: false,
+              message: `${abbreviateHomePath(target)} changed since this was suggested; it was kept.`,
+            } satisfies MemoryMutationOutcome;
+          }
+        }
+
+        yield* eraseMemoryOpportunityReceiptsForScope(scope, this.receiptsDirectory);
+        yield* revokeClaimSentencesUnder(
+          fs,
+          this.baseMemoryDirectory,
+          path.join(scope, path.relative(root, target)),
+        );
+        yield* fs.remove(target, { recursive: true }).pipe(Effect.mapError(toError));
+
+        yield* forgetProvenance(fs, root, path.relative(root, target));
+
+        return {
+          success: true,
+          message: `Successfully deleted ${abbreviateHomePath(target)}`,
+        } satisfies MemoryMutationOutcome;
+      }.bind(this),
+    );
+  }
 
   readonly rename: MemoryService["rename"] = (oldVirtualPath, newVirtualPath, writeContext) =>
     Effect.gen(
@@ -1489,6 +1509,17 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
+  readonly suggestRevision: MemoryService["suggestRevision"] = (input) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        return yield* withMemoryWriteLock(
+          this.baseMemoryDirectory,
+          addRevisionSuggestion(fs, this.baseMemoryDirectory, input),
+        );
+      }.bind(this),
+    );
+
   readonly pendingSuggestions: MemoryService["pendingSuggestions"] = () =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
@@ -1518,45 +1549,64 @@ export class MemoryServiceImpl implements MemoryService {
             return { success: false, message: resolved.failure.message } as const;
           }
           const written =
-            suggestion.kind === "lesson"
-              ? yield* this.createWhileLocked(
-                  resolved.scope,
-                  resolved.rest,
-                  formatAcceptedLesson(suggestion),
-                  {
-                    agentId: suggestion.proposedBy,
-                    entry: {
-                      origin: "lesson",
-                      failure: { kind: "correction", correctedBehavior: suggestion.mistake },
-                    },
-                  },
-                )
-              : suggestion.change.command === "create"
-                ? yield* this.createWhileLocked(
+            suggestion.kind === "revision"
+              ? suggestion.change.command === "delete"
+                ? yield* this.deleteWhileLocked(
                     resolved.scope,
                     resolved.rest,
-                    suggestion.change.content,
-                    {
-                      agentId: suggestion.proposedBy,
-                      quotedSentenceKeys: suggestion.quotedSentenceKeys,
-                      entry: { origin: "auto" },
-                    },
+                    suggestion.change.previousContent,
                   )
                 : yield* this.strReplaceWhileLocked(
                     resolved.scope,
                     resolved.rest,
                     suggestion.change.previousContent,
                     suggestion.change.content,
+                    { agentId: suggestion.proposedBy },
+                  )
+              : suggestion.kind === "lesson"
+                ? yield* this.createWhileLocked(
+                    resolved.scope,
+                    resolved.rest,
+                    formatLessonEntry(suggestion.rule, suggestion.mistake),
                     {
                       agentId: suggestion.proposedBy,
-                      quotedSentenceKeys: suggestion.quotedSentenceKeys,
+                      entry: {
+                        origin: "lesson",
+                        failure: { kind: "correction", correctedBehavior: suggestion.mistake },
+                      },
                     },
-                  );
+                  )
+                : suggestion.change.command === "create"
+                  ? yield* this.createWhileLocked(
+                      resolved.scope,
+                      resolved.rest,
+                      suggestion.change.content,
+                      {
+                        agentId: suggestion.proposedBy,
+                        quotedSentenceKeys: suggestion.quotedSentenceKeys,
+                        entry: { origin: "auto" },
+                      },
+                    )
+                  : yield* this.strReplaceWhileLocked(
+                      resolved.scope,
+                      resolved.rest,
+                      suggestion.change.previousContent,
+                      suggestion.change.content,
+                      {
+                        agentId: suggestion.proposedBy,
+                        quotedSentenceKeys: suggestion.quotedSentenceKeys,
+                      },
+                    );
           if (!written.success) {
             return { success: false, message: written.message } as const;
           }
           yield* removeMemorySuggestion(fs, this.baseMemoryDirectory, suggestion.id);
-          return { success: true, message: `Saved to ${targetPath}.`, path: targetPath } as const;
+          const removed = suggestion.kind === "revision" && suggestion.change.command === "delete";
+          return {
+            success: true,
+            message: removed ? `Removed ${targetPath}.` : `Saved to ${targetPath}.`,
+            path: targetPath,
+          } as const;
         }.bind(this),
       ),
     );

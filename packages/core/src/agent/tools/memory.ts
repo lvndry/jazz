@@ -1,12 +1,13 @@
 /**
  * `view_memory` and `manage_memory`: read and edit the shared persistent memory
  * files, presented with the line-numbered, view-a-range ergonomics of the
- * filesystem tools rather than raw content blobs.
+ * filesystem tools rather than raw content blobs. `propose_lesson` and
+ * `revise_memory` queue changes for the person to review instead of making them.
  */
 
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
-import { DEFAULT_MEMORY_SCOPE, MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
+import { DEFAULT_MEMORY_SCOPE, SUGGEST_ONLY_MEMORY_AGENT_IDS } from "@/core/constants/memory";
 import type {
   MemoryService,
   MemoryViewOutcome,
@@ -20,6 +21,7 @@ import {
   describeUnusableSubject,
   describeUnusableTopic,
 } from "@/core/memory/entry-path";
+import { formatLessonEntry } from "@/core/memory/lesson-entry";
 import {
   MAX_SOURCE_QUOTE_CHARS,
   describeQuoteRejection,
@@ -39,7 +41,11 @@ import { toError } from "@/core/utils/errors";
 import { sha256Hex } from "@/core/utils/hash";
 import { formatByteSize } from "@/core/utils/string";
 import { diffExceedsPreview } from "@/core/utils/tool-formatter";
-import { MANAGE_MEMORY_TOOL_NAME, PROPOSE_LESSON_TOOL_NAME } from "../memory-recall-log";
+import {
+  MANAGE_MEMORY_TOOL_NAME,
+  PROPOSE_LESSON_TOOL_NAME,
+  REVISE_MEMORY_TOOL_NAME,
+} from "../memory-recall-log";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type MemoryToolDeps = MemoryService | FileSystem.FileSystem;
@@ -287,9 +293,9 @@ function readEntryForChange(
 }
 
 /**
- * Called by the memory extractor, a create or amend passes every check a direct write would and
- * is then queued as a suggestion instead of written: the extractor chose what to save without the
- * person watching, so the person keeps or ignores its picks together with `/memory review`.
+ * Called by the memory extractor or the `/learn` pass, a create or amend passes every check a
+ * direct write would and is then queued as a suggestion instead of written: the pass chose what to
+ * save on its own, so the person keeps or ignores its picks together with `/memory review`.
  */
 export function createManageMemoryTool(): Tool<MemoryToolDeps> {
   return defineTool<MemoryToolDeps, ManageMemoryArgs>({
@@ -325,7 +331,7 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
           quotedSentenceKeys: quotedSentenceKeys(source, quote),
         };
         const addsClaim = args.command === "create" || args.command === "amend";
-        const suggestsOnly = context.agentId === MEMORY_EXTRACTOR_AGENT_ID;
+        const suggestsOnly = SUGGEST_ONLY_MEMORY_AGENT_IDS.includes(context.agentId);
         if (suggestsOnly && !addsClaim) {
           return {
             success: false,
@@ -596,4 +602,122 @@ export function createProposeLessonTool(): Tool<MemoryToolDeps> {
       return `Proposed lesson ${data.id}: the user reviews it with /memory review`;
     },
   });
+}
+
+const reviseMemoryParameters = z.discriminatedUnion("command", [
+  z.object({
+    command: z.literal("delete"),
+    path: z.string().min(1).describe('Scope-prefixed entry path, e.g. "personal/old.md".'),
+    reason: z
+      .string()
+      .min(1)
+      .describe(
+        "One sentence naming the entry that duplicates or contradicts this one, or what made it stale.",
+      ),
+  }),
+  z.object({
+    command: z.literal("rewrite_lesson"),
+    path: z.string().min(1).describe("Scope-prefixed path of a lesson entry."),
+    rule: z
+      .string()
+      .min(1)
+      .describe("The improved rule, general enough to act on in a different task."),
+    mistake: z.string().min(1).describe("The mistake the rule prevents, in one sentence."),
+    reason: z.string().min(1).describe("One sentence on what the rewrite improves."),
+  }),
+]);
+
+type ReviseMemoryArgs = z.infer<typeof reviseMemoryParameters>;
+
+/**
+ * Lets the `/learn` pass tidy the store: remove an entry that is duplicated, contradicted or
+ * stale, or sharpen a lesson's wording. Each call is queued against the entry's current text and
+ * applied only when the person keeps it in `/memory review`. Only lessons can be rewritten, since
+ * every other entry holds the user's own quoted words.
+ */
+export function createReviseMemoryTool(): Tool<MemoryToolDeps> {
+  return defineTool<MemoryToolDeps, ReviseMemoryArgs>({
+    name: REVISE_MEMORY_TOOL_NAME,
+    disclosure: "private",
+    summary: "Suggest removing a duplicate or stale memory entry, or rewriting a lesson.",
+    description:
+      "Suggest a cleanup for the user to review: delete an entry another entry already covers, one the user later contradicted, or one that no longer holds; " +
+      "or rewrite_lesson to sharpen a lesson's rule, or to fold a second lesson into it and delete the second. " +
+      "Read the entry with view_memory first.",
+    parameters: reviseMemoryParameters,
+    riskLevel: "low-risk",
+    hidden: false,
+    validate: makeZodValidator(reviseMemoryParameters),
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const memoryService = yield* MemoryServiceTag;
+        const currentEntry = yield* readEntryForChange(memoryService, args.path);
+        if (typeof currentEntry === "string") {
+          return {
+            success: false,
+            result: null,
+            error: currentEntry,
+          } satisfies ToolExecutionResult;
+        }
+        const queuedFields = {
+          reason: args.reason,
+          proposedBy: context.agentId,
+          ...(context.conversationId !== undefined
+            ? { conversationId: context.conversationId }
+            : {}),
+        };
+        if (args.command === "delete") {
+          const outcome = yield* memoryService.suggestRevision({
+            change: { command: "delete", path: args.path, previousContent: currentEntry.content },
+            ...queuedFields,
+          });
+          return revisionResult(outcome, currentEntry.content, "", args.path);
+        }
+        const provenance = yield* memoryService.provenance(args.path);
+        if (provenance?.origin !== "lesson") {
+          return {
+            success: false,
+            result: null,
+            error: `${args.path} holds the user's own words; only lessons can be rewritten.`,
+          } satisfies ToolExecutionResult;
+        }
+        const content = formatLessonEntry(args.rule.trim(), args.mistake.trim());
+        const outcome = yield* memoryService.suggestRevision({
+          change: {
+            command: "rewrite",
+            path: args.path,
+            previousContent: currentEntry.content,
+            content,
+          },
+          ...queuedFields,
+        });
+        return revisionResult(outcome, currentEntry.content, content, args.path);
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.succeed({
+            success: false,
+            result: null,
+            error: toError(error).message,
+          } satisfies ToolExecutionResult),
+        ),
+      ),
+    createSummary: (result) => {
+      if (!result.success) return undefined;
+      const data = result.result as { message: string };
+      return data.message;
+    },
+  });
+}
+
+function revisionResult(
+  outcome: { readonly success: boolean; readonly message: string },
+  oldContent: string,
+  newContent: string,
+  path: string,
+): ToolExecutionResult {
+  if (!outcome.success) {
+    return { success: false, result: null, error: outcome.message };
+  }
+  const { diff, wasTruncated, fullDiff } = memoryChangeDiff(oldContent, newContent, path);
+  return { success: true, result: { message: outcome.message, diff, wasTruncated, fullDiff } };
 }
