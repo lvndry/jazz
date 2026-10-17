@@ -44,9 +44,6 @@ import { createTelemetryServiceLayer } from "@jazz/adapters/telemetry/telemetry-
 import { createWakeTriggerServiceLayer } from "@jazz/adapters/wake-trigger-service";
 import { createWorkflowRegistryServiceLayer } from "@jazz/adapters/workflow-registry-service";
 import { createWorkspaceServiceLayer } from "@jazz/adapters/workspace-service";
-import { autoCheckForUpdate } from "@jazz/cli/auto-update";
-import { promptInteractiveCatchUp } from "@jazz/cli/catch-up-prompt";
-import { promptFailedRunsWarning } from "@jazz/cli/failed-run-prompt";
 import { createChatServiceLayer } from "@jazz/cli/chat-service-layer";
 import { createPlainTerminalServiceLayer } from "@jazz/cli/plain-terminal";
 import { CLIPresentationServiceLayer } from "@jazz/cli/presentation/cli-presentation-service";
@@ -515,11 +512,17 @@ export function runCliEffect<R, E extends JazzError | Error>(
     if (!shouldSkipCatchUp) {
       // Interactive prompt for catch-up - asks user if they want to run missed workflows
       // Runs selected workflows in background, then continues with the original command
+      const { promptInteractiveCatchUp } = yield* Effect.promise(
+        () => import("@jazz/cli/catch-up-prompt"),
+      );
       yield* promptInteractiveCatchUp();
 
       // Surface scheduled workflows whose most recent run ended in failure
       // (agent missing, quota exceeded, network error, etc.). One-shot info
       // line — does not block the command.
+      const { promptFailedRunsWarning } = yield* Effect.promise(
+        () => import("@jazz/cli/failed-run-prompt"),
+      );
       yield* promptFailedRunsWarning();
     }
 
@@ -527,7 +530,11 @@ export function runCliEffect<R, E extends JazzError | Error>(
       process.env["JAZZ_DISABLE_UPDATE_CHECK"] === "1" ||
       isOfflineMode() ||
       options.skipUpdateCheck === true;
-    const startupCheck = shouldSkipUpdateCheck ? Effect.void : autoCheckForUpdate();
+    const startupCheck = shouldSkipUpdateCheck
+      ? Effect.void
+      : Effect.promise(() => import("@jazz/cli/auto-update")).pipe(
+          Effect.flatMap((update) => update.autoCheckForUpdate()),
+        );
     const fiber = yield* Effect.forkChild(startupCheck.pipe(Effect.andThen(effect)));
     // Interrupt must run in this runtime, so the Node signal handler only requests it.
     type ShutdownRequest = { _tag: "request" };
