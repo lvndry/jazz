@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ActiveTool, ActivityState } from "../activity-state";
-import { DETACH_HINT_DELAY_MS, offersDetach } from "./tool-detach";
+import { DETACH_HINT_DELAY_MS, offersDetach, stillRunningWarning } from "./tool-detach";
 
 const NOW = 100_000;
 
@@ -41,5 +41,15 @@ describe("offersDetach", () => {
   test("offers when any one call in a parallel batch is long enough", () => {
     const batch = running(tool(500), tool(DETACH_HINT_DELAY_MS + 1, { toolCallId: "call-2" }));
     expect(offersDetach(batch, true, NOW)).toBe(true);
+  });
+});
+
+describe("stillRunningWarning", () => {
+  test("offers Ctrl+B when the run can detach the call", () => {
+    expect(stillRunningWarning("execute_command", 30, true)).toContain("Ctrl+B");
+  });
+
+  test("names only Esc when nothing would detach", () => {
+    expect(stillRunningWarning("execute_command", 30, false)).not.toContain("Ctrl+B");
   });
 });
