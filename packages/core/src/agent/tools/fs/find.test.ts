@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -11,10 +11,18 @@ function findResults(result: { result: unknown }): unknown {
 }
 
 describe("find tool", () => {
-  const testDir = join(tmpdir(), `jazz-find-test-${Date.now()}`);
+  /**
+   * Smart search widens from cwd to three parent levels and then HOME. Nesting the tree three
+   * levels under a private root and pointing HOME at that root keeps every widened root inside
+   * this test, instead of scanning the shared system temp dir and the real home directory.
+   */
+  const isolatedRoot = mkdtempSync(join(tmpdir(), "jazz-find-test-"));
+  const testDir = join(isolatedRoot, "first", "second", "tree");
+  const originalHome = process.env["HOME"];
   const tool = createFindTool();
 
   beforeAll(() => {
+    process.env["HOME"] = isolatedRoot;
     // Create a test directory tree:
     // testDir/
     //   foo.ts
@@ -35,7 +43,12 @@ describe("find tool", () => {
   });
 
   afterAll(() => {
-    rmSync(testDir, { recursive: true, force: true });
+    if (originalHome === undefined) {
+      delete process.env["HOME"];
+    } else {
+      process.env["HOME"] = originalHome;
+    }
+    rmSync(isolatedRoot, { recursive: true, force: true });
   });
 
   // ---------------------------------------------------------------
