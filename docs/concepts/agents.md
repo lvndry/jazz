@@ -174,6 +174,11 @@ preview of each, sharing the space between them, with the id to read the whole a
 Each child has its own context window. Use `resultSchema`, a JSON Schema with root type
 `object`, to require a validated structured result.
 
+A child runs on its parent's model unless the parent names another with `model`. The model
+must come from the parent's own provider and be able to call tools, so a parent on Claude
+Opus can hand mechanical work to Claude Haiku but cannot send a child to another provider.
+A model the provider does not list is refused, and the refusal names the ones it does.
+
 To run the same brief over many inputs, the parent calls `map_subagents` once with a `task`
 and up to 100 `inputs`. Each input becomes one child, and `{{input}}` in the task marks where
 it goes. Every child shares the persona, limits and `resultSchema`. Children past

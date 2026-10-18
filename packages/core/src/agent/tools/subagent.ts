@@ -4,7 +4,7 @@
  * compress the current conversation's context, respectively.
  */
 
-import { Cause, Effect } from "effect";
+import { Cause, Effect, Option } from "effect";
 import { z } from "zod";
 import {
   DEFAULT_MAX_LIVE_SUBAGENTS,
@@ -12,6 +12,7 @@ import {
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
+import { LLMServiceTag } from "@/core/interfaces/llm";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
@@ -135,6 +136,14 @@ const spawnSubagentSchema = z
       .default("default")
       .describe(
         "coder for code and git, researcher for read-only investigation, default otherwise.",
+      ),
+    model: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        "A model id from your own provider: a smaller one for mechanical work, a stronger one for hard analysis. Omit to use yours.",
       ),
     reasoning: z
       .enum(["disable", "minimal", "low", "medium", "high", "xhigh", "max"])
@@ -411,11 +420,11 @@ function runSubagent(args: SpawnSubagentArgs, context: ToolExecutionContext, run
       config: {
         ...parentAgent.config,
         persona: args.persona ?? "default",
-        ...(args.reasoning
-          ? {
-              llm: { ...parentAgent.config.llm, reasoning: args.reasoning },
-            }
-          : {}),
+        llm: {
+          ...parentAgent.config.llm,
+          ...(args.model !== undefined ? { model: args.model } : {}),
+          ...(args.reasoning ? { reasoning: args.reasoning } : {}),
+        },
       },
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -742,7 +751,7 @@ type DelegationCheck =
 
 /** What every delegation passes before a child is registered; a refusal says what to do instead. */
 function prepareDelegation(
-  args: Pick<SpawnSubagentArgs, "resultSchema">,
+  args: Pick<SpawnSubagentArgs, "resultSchema" | "model">,
   context: ToolExecutionContext,
 ) {
   return Effect.gen(function* () {
@@ -792,7 +801,39 @@ function prepareDelegation(
     if (supervisor === undefined) {
       return refuse("Sub-agents are not available in this run. Do this task yourself.");
     }
+
+    if (args.model !== undefined && args.model !== parentAgent.config.llm.model) {
+      const modelProblem = yield* checkChildModel(parentAgent, args.model);
+      if (modelProblem !== undefined) {
+        return refuse(modelProblem);
+      }
+    }
     return { ok: true, parentAgent, currentDepth, supervisor } satisfies DelegationCheck;
+  });
+}
+
+/** Most model ids a refused `model` lists back, so the refusal stays a short read. */
+const MAX_LISTED_MODELS = 40;
+
+/**
+ * Why `model` cannot run a child, or undefined when it can: a child stays on its parent's
+ * provider, on a model that provider lists and that can call tools.
+ */
+function checkChildModel(parentAgent: Agent, model: string) {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const providerName = parentAgent.config.llm.provider;
+    const provider = yield* llmService.getProvider(providerName).pipe(Effect.option);
+    if (Option.isNone(provider)) {
+      return `Could not list ${providerName}'s models. Omit model to use your own.`;
+    }
+    const usable = provider.value.supportedModels.filter((candidate) => candidate.supportsTools);
+    if (usable.some((candidate) => candidate.id === model)) {
+      return undefined;
+    }
+    const listed = usable.slice(0, MAX_LISTED_MODELS).map((candidate) => candidate.id);
+    const more = usable.length - listed.length;
+    return `${model} is not a ${providerName} model that can call tools. Use one of: ${listed.join(", ")}${more > 0 ? ` (and ${String(more)} more)` : ""}, or omit model.`;
   });
 }
 
@@ -905,7 +946,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
         "read_blackboard",
       ],
       disclosure: "private",
-      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, and the time, cost and token limits you give it, within what you have left. Start as many in parallel as the work splits into; a spawn past this run's concurrency or nesting limit returns the limit.`,
+      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools, your model unless you name another from your provider, and the time, cost and token limits you give it, within what you have left. Start as many in parallel as the work splits into; a spawn past this run's concurrency or nesting limit returns the limit.`,
       parameters: spawnSubagentSchema,
       hidden: false,
       // Spawning grants nothing: the child holds at most this run's tools under this run's
