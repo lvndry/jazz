@@ -10,7 +10,7 @@ Manage emails using [Himalaya CLI](https://github.com/pimalaya/himalaya) - a pow
 > **Config format note (Himalaya v2.x).** Himalaya v2 reorganized the config from the old
 > `backend.*` / `message.send.backend.*` schema into per-protocol tables (`[accounts.x.imap]`,
 > `[accounts.x.smtp]`, `[accounts.x.jmap]`). A v1 config silently loads with **zero backends**, so
-> every command fails with `No backend matching \`auto\` is configured`. If you see that error, the
+> every command fails with ``No backend matching `auto` is configured``. If you see that error, the
 > config is in the wrong format — see [references/providers.md](references/providers.md) for the v2
 > shape. `account list` shows the resolved backends per account; use it to confirm.
 
@@ -21,28 +21,36 @@ Manage emails using [Himalaya CLI](https://github.com/pimalaya/himalaya) - a pow
 0. **Install and set up if needed.** Run [Prerequisites Check](#prerequisites-check) before the first Himalaya command. If `himalaya` is missing, fetch the live README and install it. If no account is configured, walk the user through [Account Setup](#account-setup), then continue the original request (check mail, etc.). Do not stop at "go install Himalaya".
 
 1. **Always use `--json`** (the global flag) when you need to parse results (subject, from, id):
+
    ```bash
    himalaya envelope list -m INBOX -s 20 --json | jq '.envelopes[] | {id, subject, from, date}'
    ```
+
    Note: in v2 the flag is the **global `--json`**, not `--output json`. `envelope list` emits
    `{"envelopes":[...]}`; `account list` emits `{"accounts":[...]}`.
 
 2. **Non-interactive send** uses `message write` with flags and `--send` (no editor):
+
    ```bash
    himalaya message write --to "recipient@example.com" --subject "Subject" --body "Body text" --send
    ```
+
    Or feed the body via stdin:
+
    ```bash
    printf 'Body text' | himalaya message write --to "recipient@example.com" --subject "Subject" --send
    ```
+
    `--save <MAILBOX>` appends a copy (e.g. Sent) alongside `--send`.
 
 3. **Extract message IDs** for follow-up actions:
+
    ```bash
    himalaya envelope list -m INBOX -s 20 --json | jq -r '.envelopes[].id'
    ```
 
 4. **Batch operations** — pass multiple IDs; move/copy use `--to` (and optional `--from`):
+
    ```bash
    himalaya message move --to "Archives" <id1> <id2> <id3>
    himalaya message copy --to "Important" <id1> <id2>
@@ -73,7 +81,7 @@ Before any email operation:
    himalaya account list
    ```
 
-   If it errors with `No backend matching \`auto\` is configured`, the config is in the old
+   If it errors with ``No backend matching `auto` is configured``, the config is in the old
    (v1) format — don't treat it as "no account". Open the config and migrate it to the v2
    per-protocol schema (see [references/providers.md](references/providers.md)). If `account list`
    is truly empty → walk them through [Account Setup](#account-setup). Do not invent credentials.
@@ -132,7 +140,7 @@ When `himalaya account list` shows no accounts — e.g. the user just asked "che
 
 1. Say in one or two lines that mail isn't set up yet, and you will walk them through it so you can then do what they asked. Setup is part of the request, not a detour.
 2. Ask the provider with `ask_user_question`: Gmail, Outlook / Microsoft 365, iCloud, Proton Mail, Fastmail, other IMAP.
-3. Load [references/providers.md](references/providers.md) for that provider. Tell them the one thing they need *before* writing config:
+3. Load [references/providers.md](references/providers.md) for that provider. Tell them the one thing they need _before_ writing config:
    - **Gmail** — App Password at https://myaccount.google.com/apppasswords (2-Step Verification must be on).
    - **Outlook** — OAuth 2.0; basic auth is retired.
    - **iCloud** — app-specific password; IMAP login is the local-part only (`johnappleseed`, not the full address).
@@ -145,6 +153,7 @@ When `himalaya account list` shows no accounts — e.g. the user just asked "che
 5. When config is written, re-run `himalaya account list` (and `himalaya account check <name>` if it exists). If it shows `imap, smtp` backends, immediately continue the original request. Do not wait to be asked again.
 
 ### Headless / unattended
+
 Do not start a wizard. Write a one-line failure that Himalaya has no account configured, and stop.
 
 For detailed provider configs, see [references/providers.md](references/providers.md)
@@ -314,13 +323,13 @@ RUST_LOG=debug himalaya envelope list -m INBOX
 
 ### Common Errors
 
-| Error                                          | Solution                                                                 |
-| ---------------------------------------------- | ------------------------------------------------------------------------ |
-| `No backend matching \`auto\` is configured`   | Config is in the old v1 format. Migrate to the v2 per-protocol schema — see `references/providers.md`. |
-| `Mailbox is required` / `mailbox.alias.inbox` | Pass `-m INBOX` (or set `mailbox.alias.inbox` in config).                |
+| Error                                         | Solution                                                                                                                    |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| ``No backend matching `auto` is configured``  | Config is in the old v1 format. Migrate to the v2 per-protocol schema — see `references/providers.md`.                      |
+| `Mailbox is required` / `mailbox.alias.inbox` | Pass `-m INBOX` (or set `mailbox.alias.inbox` in config).                                                                   |
 | `Invalid credentials` (IMAP AUTHENTICATE)     | App password wrong/expired or 2-Step off. Regenerate at the provider; for Gmail, https://myaccount.google.com/apppasswords. |
-| `Account not found`                            | Use the exact account name from `himalaya account list`.                 |
-| `Connection refused` / `Certificate error`     | Check IMAP/SMTP host/port/TLS in config.                                 |
+| `Account not found`                           | Use the exact account name from `himalaya account list`.                                                                    |
+| `Connection refused` / `Certificate error`    | Check IMAP/SMTP host/port/TLS in config.                                                                                    |
 
 ### Reset Configuration
 
@@ -365,6 +374,7 @@ Your message body here.
 ```
 
 ### Adding Attachments (MML Syntax)
+
 Pipe MML through `mml` then into `himalaya message write` (see `himalaya message write --help`).
 
 ---
@@ -407,17 +417,17 @@ himalaya envelope search -m INBOX "from me@example.com and subject report"
 
 ## Quick Reference
 
-| Task        | Command                                                              |
-| ----------- | ------------------------------------------------------------------- |
-| Check inbox | `himalaya envelope list -m INBOX -s 20`                             |
-| Read email  | `himalaya message read <id> -m INBOX`                               |
-| Compose new | `himalaya message write --to ... --subject ... --body ... --send`   |
-| Reply       | `himalaya message reply <id> -m INBOX`                              |
-| Search      | `himalaya envelope search -m INBOX "from me@example.com"`           |
-| Mark read   | `himalaya flag add -f seen <id>`                                    |
-| Delete      | `himalaya message delete <id> -m INBOX`                             |
-| Move        | `himalaya message move --to <MBOX> <id...>`                         |
-| List boxes  | `himalaya mailbox list`                                             |
+| Task        | Command                                                           |
+| ----------- | ----------------------------------------------------------------- |
+| Check inbox | `himalaya envelope list -m INBOX -s 20`                           |
+| Read email  | `himalaya message read <id> -m INBOX`                             |
+| Compose new | `himalaya message write --to ... --subject ... --body ... --send` |
+| Reply       | `himalaya message reply <id> -m INBOX`                            |
+| Search      | `himalaya envelope search -m INBOX "from me@example.com"`         |
+| Mark read   | `himalaya flag add -f seen <id>`                                  |
+| Delete      | `himalaya message delete <id> -m INBOX`                           |
+| Move        | `himalaya message move --to <MBOX> <id...>`                       |
+| List boxes  | `himalaya mailbox list`                                           |
 
 - For provider-specific setup, see [references/providers.md](references/providers.md)
 - Official docs: https://github.com/pimalaya/himalaya

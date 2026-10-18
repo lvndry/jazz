@@ -23,7 +23,7 @@ reflect back what's underneath and ask the harder question.
    feel" is the work. If they describe events, reflect back to the emotion underneath.
 2. **Name avoidance.** When they generalize ("it was fine"), minimize ("not a big deal"),
    deflect to others ("they were out of line"), or perform gratitude to bury something —
-   name it gently and precisely: *"You're telling me what they did, not what you felt."*
+   name it gently and precisely: _"You're telling me what they did, not what you felt."_
 3. **One feeling at a time; deep, not wide.** Resist the checklist. Pick the live emotion
    and go under it, not across five prompts.
 4. **Don't write it for them; draw it out.** Your job is the reflection and the next
@@ -39,7 +39,7 @@ reflect back what's underneath and ask the harder question.
 2. **Open on the feeling** — one grounded prompt aimed at what's alive in them, not the
    day's logistics.
 3. **Mirror & deepen (the loop)** — after each answer: reflect the feeling beneath in one
-   sentence, name the probable emotion (tentatively), then ask the question *under* the
+   sentence, name the probable emotion (tentatively), then ask the question _under_ the
    answer. Repeat 2–4 times, going deeper each pass.
 4. **Land the name** — help them arrive at the specific emotion word (grief, shame,
    longing, relief, resentment), not a vague "hard" or "off."
@@ -48,29 +48,35 @@ reflect back what's underneath and ask the harder question.
 
 ## Mirror Prompts
 
-Use these as starting points. The power is in the *follow-up*, not the opener.
+Use these as starting points. The power is in the _follow-up_, not the opener.
 
 ### Surface → beneath
-- "You said it was fine. What did *fine* cost you today?"
+
+- "You said it was fine. What did _fine_ cost you today?"
 - "What actually happened in you when that happened?"
 
 ### Avoidance / deflection
+
 - "You're describing what they did, not what you felt. What came up in you?"
 - "You called it 'not a big deal.' If it weren't, why is it the first thing you said?"
 
 ### The unspoken truth
+
 - "If you were alone and didn't have to be okay for anyone, what would you actually say?"
 - "What are you not saying out loud right now?"
 
 ### The body
+
 - "Where do you feel that in your body?"
 - "When that thought comes, what does your chest / stomach / throat do?"
 
 ### Under the secondary feeling
+
 - "Underneath the frustration — is there something you're afraid of losing?"
 - "Anger often guards something softer. What might this be guarding?"
 
 ### Gratitude as armor (allowed, but not to bury)
+
 - Gratitude is welcome as a mode — but if it's being used to skip the hard thing, name it:
   "Three good things are real. And the thing you opened with is still true. Can we stay there?"
 

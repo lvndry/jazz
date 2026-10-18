@@ -23,6 +23,7 @@ A canvas file contains two top-level arrays:
 ## Nodes
 
 Nodes are objects placed on the canvas. There are four node types:
+
 - `text` - Text content with Markdown
 - `file` - Reference to files/attachments
 - `link` - External URL
@@ -31,6 +32,7 @@ Nodes are objects placed on the canvas. There are four node types:
 ### Z-Index Ordering
 
 Nodes are ordered by z-index in the array:
+
 - First node = bottom layer (displayed below others)
 - Last node = top layer (displayed above others)
 

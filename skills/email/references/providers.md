@@ -22,6 +22,7 @@ Detailed setup instructions for common email providers with Himalaya.
 > ```
 >
 > Password sources for `sasl.plain.password`:
+>
 > - `raw = "..."` — inline (testing only, never commit)
 > - `command = "pass show google/app-password"` — runs a command, uses stdout
 > - `keyring = "entry-name"` — OS keyring
@@ -75,6 +76,7 @@ sasl.plain.password.command = "security find-generic-password -a 'gmail' -s 'him
 ```
 
 Store the password once with:
+
 ```bash
 security add-generic-password -a 'gmail' -s 'himalaya-gmail-imap' -w 'APP_PASSWORD' -U
 security add-generic-password -a 'gmail' -s 'himalaya-gmail-smtp' -w 'APP_PASSWORD' -U

@@ -31,7 +31,7 @@ Create effective Jazz skills for automating workflows and specialized tasks.
 ```
 skill-name/
 ├── SKILL.md              # Required - main instructions
-├── reference.md          # Optional - detailed documentation  
+├── reference.md          # Optional - detailed documentation
 ├── examples.md           # Optional - usage examples
 └── scripts/              # Optional - utility scripts
 ```
@@ -95,6 +95,7 @@ The description determines when Jazz applies the skill.
 Context window is shared. Only add information Jazz doesn't already know.
 
 **Good:**
+
 ```markdown
 ## Generate report
 Use pandas for data analysis:
@@ -105,6 +106,7 @@ df = pd.read_csv("data.csv")
 ```
 
 **Bad:**
+
 ```markdown
 ## Generate report
 Data analysis is important for understanding patterns.
@@ -190,21 +192,25 @@ Run: `python scripts/analyze.py input.json`
 ## Creation Workflow
 
 ### Phase 1: Discovery (questionnaire if needed)
+
 Gather purpose, location, triggers, requirements, examples. If the user hasn't provided all of these, guide them through questions until you have enough info—then proceed to Phase 2.
 
 ### Phase 2: Design
+
 1. Draft skill name (lowercase, hyphens, max 64 chars)
 2. Write specific description
 3. Outline main sections
 4. Identify supporting files needed
 
 ### Phase 3: Implementation
+
 1. Create directory structure
 2. Write SKILL.md with frontmatter
 3. Create supporting files
 4. Add utility scripts if needed
 
 ### Phase 4: Verification
+
 - [ ] SKILL.md under 500 lines
 - [ ] Description is specific with trigger terms
 - [ ] Consistent terminology
@@ -226,6 +232,7 @@ Gather purpose, location, triggers, requirements, examples. If the user hasn't p
 ## Complete Example
 
 **Directory:**
+
 ```
 code-review/
 ├── SKILL.md
@@ -233,6 +240,7 @@ code-review/
 ```
 
 **SKILL.md:**
+
 ```markdown
 ---
 name: code-review

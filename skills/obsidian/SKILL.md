@@ -183,12 +183,10 @@ If a vault is not explicitly supplied when writing or creating notes, the skill 
 5. If no vault is found, the skill falls back to `~/Obsidian` then `~/Documents/Obsidian` as a final fallback.
 
 Notes:
+
 - The search is limited to the user's home subtree for safety and performance.
 - In interactive sessions the skill will prompt to choose when multiple vaults are found; in non-interactive/headless runs it will return the candidate list and refuse to guess.
 - The chosen vault path is logged and exposed in the skill's response so callers can confirm where content was written.
-
-
-
 
 Examples of candidate roots by platform (the skill chooses OS-appropriate defaults):
 

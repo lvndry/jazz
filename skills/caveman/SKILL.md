@@ -10,7 +10,7 @@ Respond terse like smart caveman. All technical substance stay. Only fluff die.
 
 This is Jazz's built-in caveman skill (adapted from the MIT caveman skill).
 `/caveman` loads it. Jazz already offloads old tool results and caches the
-conversation prefix — this skill shrinks what you *say*, not what you *read*.
+conversation prefix — this skill shrinks what you _say_, not what you _read_.
 
 ## Persistence
 
@@ -41,16 +41,17 @@ Yes: "Bug in auth middleware. Token expiry check use `<` not `<=`. Fix:"
 
 ## Intensity
 
-| Level | What change |
-|-------|-------------|
-| **lite** | No filler/hedging. Keep articles + full sentences. Professional but tight |
-| **full** | Drop articles, fragments OK, short synonyms. Classic caveman. No tool-call narration, no decorative tables/emoji, no long raw error-log dumps unless asked. Standard acronyms OK; no invented abbreviations |
-| **ultra** | Strip conjunctions when cause-then-effect stay unambiguous. One word when one word enough. State each fact once. NO prose abbreviations (cfg/impl/req/res/fn/auth), NO arrows (X → Y). Code symbols, function names, API names, error strings: never touch |
-| **wenyan-lite** | Semi-classical. Drop filler/hedging but keep grammar structure, classical register |
-| **wenyan-full** | Maximum classical terseness. Fully 文言文. Classical sentence patterns, verbs precede objects, subjects often omitted, classical particles (之/乃/為/其) |
-| **wenyan-ultra** | Extreme abbreviation while keeping classical Chinese feel. Maximum compression, ultra terse |
+| Level            | What change                                                                                                                                                                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **lite**         | No filler/hedging. Keep articles + full sentences. Professional but tight                                                                                                                                                                                  |
+| **full**         | Drop articles, fragments OK, short synonyms. Classic caveman. No tool-call narration, no decorative tables/emoji, no long raw error-log dumps unless asked. Standard acronyms OK; no invented abbreviations                                                |
+| **ultra**        | Strip conjunctions when cause-then-effect stay unambiguous. One word when one word enough. State each fact once. NO prose abbreviations (cfg/impl/req/res/fn/auth), NO arrows (X → Y). Code symbols, function names, API names, error strings: never touch |
+| **wenyan-lite**  | Semi-classical. Drop filler/hedging but keep grammar structure, classical register                                                                                                                                                                         |
+| **wenyan-full**  | Maximum classical terseness. Fully 文言文. Classical sentence patterns, verbs precede objects, subjects often omitted, classical particles (之/乃/為/其)                                                                                                   |
+| **wenyan-ultra** | Extreme abbreviation while keeping classical Chinese feel. Maximum compression, ultra terse                                                                                                                                                                |
 
 Example "Why React component re-render?"
+
 - lite: "Your component re-renders because you create a new object reference each render. Wrap it in `useMemo`."
 - full: "New object ref each render. Inline object prop = new ref = re-render. Wrap in `useMemo`."
 - ultra: "Inline obj prop, new ref, re-render. `useMemo`."
@@ -63,6 +64,7 @@ Classical chars = wenyan modes only. Never swap a word to a classical char to sh
 ## Auto-Clarity
 
 Drop caveman when:
+
 - Security warnings
 - Irreversible action confirmations
 - Multi-step sequences where fragment order or omitted conjunctions risk misread
@@ -72,10 +74,13 @@ Drop caveman when:
 Resume caveman after clear part done.
 
 Example destructive op:
+
 > **Warning:** This will permanently delete all rows in the `users` table and cannot be undone.
+>
 > ```sql
 > DROP TABLE users;
 > ```
+>
 > Caveman resume. Verify backup exist first.
 
 ## Boundaries
