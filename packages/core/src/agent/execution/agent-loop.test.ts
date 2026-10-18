@@ -2747,7 +2747,7 @@ describe("executeAgentLoop context window accounting", () => {
   async function clearRunRequestAndHistory(
     resultChars: number,
     numCtx?: number,
-  ): Promise<{ sent: ConversationMessages; history: readonly ChatMessage[] }> {
+  ): Promise<{ sent: readonly ChatMessage[]; history: readonly ChatMessage[] }> {
     let sent: ConversationMessages | undefined;
     const strategy: CompletionStrategy = {
       shouldShowReasoning: false,
