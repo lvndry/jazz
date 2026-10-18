@@ -155,7 +155,6 @@ const spawnSubagentSchema = z.object({
     .optional()
     .describe("Wall-clock minutes the child may work before it writes its answer."),
   maxCostUSD: z.number().positive().optional().describe("USD the child may spend."),
-  maxTokens: z.number().int().positive().optional().describe("Tokens the child may use."),
 });
 
 type SpawnSubagentArgs = z.infer<typeof spawnSubagentSchema>;
@@ -286,20 +285,21 @@ function tighterLimit(parentLeft: number | undefined, requested: number | undefi
 }
 
 /**
- * A child is capped like any run: by the same time, cost and token limits, set to what the
- * parent asked for, and never more than the parent itself has left. A limit neither sets is
- * left uncapped.
+ * A child is capped like any run: by the same time and cost limits, set to what the parent
+ * asked for, and never more than the parent itself has left. Its token limit is only what the
+ * parent has left: the cap counts every request's whole prompt, so a figure the parent picks
+ * runs out after a step or two. A limit neither sets is left uncapped.
  */
 export function childRunBudget(
   parentRemaining: RemainingRunBudget,
-  requested: Pick<SpawnSubagentArgs, "maxMinutes" | "maxCostUSD" | "maxTokens">,
+  requested: Pick<SpawnSubagentArgs, "maxMinutes" | "maxCostUSD">,
 ): RemainingRunBudget {
   const maxDurationMs = tighterLimit(
     parentRemaining.maxDurationMs,
     requested.maxMinutes === undefined ? undefined : requested.maxMinutes * 60_000,
   );
   const maxCostUSD = tighterLimit(parentRemaining.maxCostUSD, requested.maxCostUSD);
-  const maxTokens = tighterLimit(parentRemaining.maxTokens, requested.maxTokens);
+  const maxTokens = parentRemaining.maxTokens;
   return {
     ...(maxDurationMs !== undefined && { maxDurationMs }),
     ...(maxCostUSD !== undefined && { maxCostUSD }),
