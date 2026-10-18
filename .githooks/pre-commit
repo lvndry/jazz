@@ -1,10 +1,33 @@
 #!/bin/sh
+# `bun install` points core.hooksPath here on every checkout, CI runners included.
+if ! command -v pre-commit >/dev/null 2>&1; then
+  if [ -n "${CI:-}" ]; then
+    exit 0
+  fi
+  echo "pre-commit is not installed or its install is broken. Run: uv tool install --force pre-commit" >&2
+  exit 1
+fi
+
+# NUL-delimited so a filename containing a newline stays one path.
+staged_paths=$(mktemp)
+trap 'rm -f "$staged_paths"' EXIT
+git diff --cached --name-only -z --diff-filter=ACMR >"$staged_paths"
+
+# A staged path whose worktree copy differs also holds unstaged edits; `git add` would commit them.
+partially_staged=""
+if [ -s "$staged_paths" ]; then
+  partially_staged=$(git add --dry-run --pathspec-from-file="$staged_paths" --pathspec-file-nul)
+fi
+
 pre-commit run --hook-stage pre-commit
 exit_code=$?
 
-# If hooks modified files (exit 1 from prettier/eslint fixes), re-stage them and retry
+# Formatters exit 1 after fixing files: re-stage them and retry once, unless that would
+# also stage edits left out of the commit. Then the retry fails and the fixes are staged by hand.
 if [ $exit_code -ne 0 ]; then
-  git diff --name-only | xargs -r git add
+  if [ -s "$staged_paths" ] && [ -z "$partially_staged" ]; then
+    git add --pathspec-from-file="$staged_paths" --pathspec-file-nul
+  fi
   pre-commit run --hook-stage pre-commit
   exit_code=$?
 fi
