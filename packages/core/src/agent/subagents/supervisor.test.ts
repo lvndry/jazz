@@ -523,6 +523,48 @@ describe("SubagentSupervisor that outlives runs", () => {
   });
 });
 
+describe("SubagentSupervisor attachments", () => {
+  it("keeps charging an earlier run until it detaches, though a later run attached", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({ outlivesRuns: true });
+        const firstLive: number[] = [];
+        const firstLate: number[] = [];
+        const secondLive: number[] = [];
+        const released: string[] = [];
+        const first = supervisor.attachRun({
+          chargeSpend: (spend) => firstLive.push(spend.costUSD ?? 0),
+          chargeLateSpend: (spend) => Effect.sync(() => firstLate.push(spend.costUSD ?? 0)),
+        });
+        const child = supervisor.register({ name: "first's child" });
+        const release = yield* Deferred.make<void>();
+        yield* supervisor.start(
+          child.id,
+          Effect.gen(function* () {
+            yield* Deferred.await(release);
+            child.chargeSpend({ costUSD: 0.02, costIncomplete: false });
+            return done("done");
+          }),
+        );
+        supervisor.attachRun({ chargeSpend: (spend) => secondLive.push(spend.costUSD ?? 0) });
+        child.chargeSpend({ costUSD: 0.01, costIncomplete: false });
+        yield* first.releaseAfterChildren(Effect.sync(() => released.push("first")));
+        first.detach();
+        const releasedBeforeChildEnds = [...released];
+        yield* Deferred.succeed(release, undefined);
+        yield* supervisor.wait([], "all", 5_000);
+        yield* Effect.yieldNow;
+        return { firstLive, firstLate, secondLive, releasedBeforeChildEnds, released };
+      }),
+    );
+    expect(outcome.firstLive).toEqual([0.01]);
+    expect(outcome.firstLate).toEqual([0.02]);
+    expect(outcome.secondLive).toEqual([]);
+    expect(outcome.releasedBeforeChildEnds).toEqual([]);
+    expect(outcome.released).toEqual(["first"]);
+  });
+});
+
 describe("SubagentSupervisor queue", () => {
   it("queues children past the running limit and starts them in order as others finish", async () => {
     const states = await Effect.runPromise(

@@ -155,7 +155,9 @@ export interface SubagentSupervisor {
   readonly outlivesRuns: boolean;
   /**
    * Attach a run: the children it registers from now on save their answers and charge their
-   * spend through it. A later attach replaces it as the run new children belong to.
+   * spend through it. A later attach replaces it only as the run new children belong to. The
+   * earlier run stays attached, and its children keep charging it, until it detaches itself:
+   * it may still be running, with its own cost cap counting their spend.
    */
   readonly attachRun: (input: RunAttachmentInput) => RunAttachment;
   /** Children still running, paused or waiting on approval. */
