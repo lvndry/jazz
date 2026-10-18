@@ -3,11 +3,7 @@
  * to one result shape. Treg tries TinyFish free before a capped paid route.
  */
 
-import Perplexity from "@perplexity-ai/perplexity_ai";
 import { Effect, Schedule } from "effect";
-import Exa from "exa-js";
-import { LinkupClient } from "linkup-sdk";
-import Parallel from "parallel-web";
 import { z } from "zod";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -254,6 +250,7 @@ function executeExaSearch(
 
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
+    const { default: Exa } = yield* Effect.promise(() => import("exa-js"));
     const exa = new Exa(apiKey);
 
     yield* logger.debug("Web search provider request started", {
@@ -327,6 +324,7 @@ function executeParallelSearch(
 
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
+    const { default: Parallel } = yield* Effect.promise(() => import("parallel-web"));
     const parallel = new Parallel({ apiKey });
 
     yield* logger.debug("Web search provider request started", {
@@ -560,6 +558,9 @@ function executePerplexitySearch(
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
+    const { default: Perplexity } = yield* Effect.promise(
+      () => import("@perplexity-ai/perplexity_ai"),
+    );
     const client = new Perplexity({
       apiKey,
       defaultHeaders: { "X-Pplx-Integration": "jazz" },
@@ -618,6 +619,7 @@ function executeLinkupSearch(
 
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
+    const { LinkupClient } = yield* Effect.promise(() => import("linkup-sdk"));
     const client = new LinkupClient({ apiKey });
 
     yield* logger.debug("Web search provider request started", {

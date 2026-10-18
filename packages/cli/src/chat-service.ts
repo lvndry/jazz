@@ -39,12 +39,8 @@ import {
 import type { AgentResponse, ChatTurnOptions } from "@jazz/core/agent/types";
 import { apiKeyHint } from "@jazz/core/constants/provider-env-vars";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
-import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
-import {
-  ChatServiceTag,
-  type ChatService,
-  type ChatSessionEnd,
-} from "@jazz/core/interfaces/chat-service";
+import type { AgentService } from "@jazz/core/interfaces/agent-service";
+import type { ChatService, ChatSessionEnd } from "@jazz/core/interfaces/chat-service";
 import {
   FileSystemContextServiceTag,
   type FileSystemContextService,
@@ -58,11 +54,7 @@ import { type PersonaService } from "@jazz/core/interfaces/persona-service";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { type PresentationService } from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
-import {
-  ToolRegistryTag,
-  type ToolRegistry,
-  type ToolRequirements,
-} from "@jazz/core/interfaces/tool-registry";
+import { type ToolRegistry, type ToolRequirements } from "@jazz/core/interfaces/tool-registry";
 import type { SkillService } from "@jazz/core/skills/skill-service";
 import {
   type CapCheck,
@@ -1529,26 +1521,6 @@ export class ChatServiceImpl implements ChatService {
 function uiTranscriptFromStore(): readonly ConversationUiEntry[] {
   store.flushOutputBatchNow();
   return store.getDocumentSnapshot().entries;
-}
-
-/**
- * Create the chat service layer, retaining an explicit config path for detached reflection.
- */
-export function createChatServiceLayer(
-  configPath?: string,
-): Layer.Layer<
-  ChatService,
-  never,
-  | TerminalService
-  | LoggerService
-  | FileSystemContextService
-  | FileSystem.FileSystem
-  | AgentConfigService
-  | JazzStateService
-  | typeof ToolRegistryTag
-  | typeof AgentServiceTag
-> {
-  return Layer.succeed(ChatServiceTag, new ChatServiceImpl(configPath));
 }
 
 /**

@@ -16,7 +16,7 @@ import { StorageServiceTag, type StorageService } from "@jazz/core/interfaces/st
 import { StorageError } from "@jazz/core/types/errors";
 import { describe, expect, it, beforeEach, afterEach, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
-import { createPlainTerminalServiceLayer } from "../terminal";
+import { createPlainTerminalServiceLayer } from "../plain-terminal";
 import {
   acceptInviteCommand,
   backfillAskPeerTool,

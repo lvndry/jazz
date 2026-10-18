@@ -41,13 +41,36 @@ import type {
 import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
 import { retryWithBackoff } from "@jazz/core/utils/mcp";
-import type { Transport } from "@modelcontextprotocol/client";
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import type {
+  Client,
+  StreamableHTTPClientTransport,
+  Transport,
+} from "@modelcontextprotocol/client";
+import type { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Effect, Layer } from "effect";
 import { toElicitationFields } from "./elicitation-schema";
 import { createStoredTokenProvider, InteractiveAuthRequiredError } from "./oauth";
 import packageJson from "../../../../package.json";
+
+/** The MCP client SDK pieces a connection needs. */
+interface McpClientSdk {
+  readonly Client: typeof Client;
+  readonly StreamableHTTPClientTransport: typeof StreamableHTTPClientTransport;
+  readonly StdioClientTransport: typeof StdioClientTransport;
+}
+
+/** The MCP client SDK, loaded on the first connection instead of at startup. */
+async function loadMcpClientSdk(): Promise<McpClientSdk> {
+  const [client, stdio] = await Promise.all([
+    import("@modelcontextprotocol/client"),
+    import("@modelcontextprotocol/client/stdio"),
+  ]);
+  return {
+    Client: client.Client,
+    StreamableHTTPClientTransport: client.StreamableHTTPClientTransport,
+    StdioClientTransport: stdio.StdioClientTransport,
+  };
+}
 
 /**
  * Ceiling on a single connect attempt.
@@ -136,7 +159,10 @@ export class MCPServerManagerImpl implements MCPServerManager {
     this.elicitationHandler = undefined;
   }
 
-  private buildTransport(config: MCPServerConfig): {
+  private buildTransport(
+    config: MCPServerConfig,
+    sdk: McpClientSdk,
+  ): {
     transport: MCPTransport;
     transportType: MCPTransportType;
   } {
@@ -156,7 +182,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
       }
 
       return {
-        transport: new StreamableHTTPClientTransport(new URL(config.url), options),
+        transport: new sdk.StreamableHTTPClientTransport(new URL(config.url), options),
         transportType: "http",
       };
     }
@@ -164,7 +190,7 @@ export class MCPServerManagerImpl implements MCPServerManager {
     const sanitizedEnv = createSanitizedEnv(config.env || {});
 
     return {
-      transport: new StdioClientTransport({
+      transport: new sdk.StdioClientTransport({
         command: config.command,
         args: [...(config.args ?? [])],
         env: sanitizedEnv as Record<string, string>,
@@ -181,10 +207,10 @@ export class MCPServerManagerImpl implements MCPServerManager {
    * retried attempt gets its own client instance instead of reusing one whose internal
    * state may have been left half-initialized by the attempt that just failed.
    */
-  private buildClient(config: MCPServerConfig): Client {
+  private buildClient(config: MCPServerConfig, sdk: McpClientSdk): Client {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
-    const client = new Client(
+    const client = new sdk.Client(
       { name: "jazz", version: packageJson.version },
       {
         // Roots isn't declared: tools already take directories as parameters.
@@ -291,8 +317,9 @@ export class MCPServerManagerImpl implements MCPServerManager {
         { client: Client; transport: MCPTransport; transportType: MCPTransportType },
         Error
       > = Effect.gen(function* () {
-        const { transport, transportType } = manager.buildTransport(config);
-        const client = manager.buildClient(config);
+        const sdk = yield* Effect.promise(loadMcpClientSdk);
+        const { transport, transportType } = manager.buildTransport(config, sdk);
+        const client = manager.buildClient(config, sdk);
 
         yield* Effect.tryPromise({
           try: () => client.connect(transport as Transport),

@@ -24,7 +24,7 @@ import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { sampleProcessResources } from "@jazz/core/utils/process-resources";
 import { Effect, Layer } from "effect";
 import { FileTelemetrySink } from "./file-sink";
-import { OtlpMetricsSink } from "./metrics";
+import type { OtlpMetricsSink } from "./metrics";
 import { resolveOtlpConfig } from "./otlp-config";
 import { OtlpTelemetrySink } from "./otlp-sink";
 import { isEventReader, type TelemetrySink } from "./sink";
@@ -744,6 +744,8 @@ export function createTelemetryServiceLayer(): Layer.Layer<
       let metricsSink: OtlpMetricsSink | undefined;
       if (enabled && otlpConfig?.enabled === true) {
         if (otlpConfig.signals.includes("metrics")) {
+          // Loaded only when metrics are exported: the OpenTelemetry SDK costs ~100ms to load.
+          const { OtlpMetricsSink } = yield* Effect.promise(() => import("./metrics"));
           metricsSink = new OtlpMetricsSink(otlpConfig, packageJson.version, () => {
             Effect.runFork(logger.warn("OTLP metrics export failed"));
           });

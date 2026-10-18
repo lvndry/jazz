@@ -1,6 +1,6 @@
 import { isAbsolute, join } from "node:path";
 import { Effect, FileSystem, Option } from "effect";
-import puppeteer, { type ChromeReleaseChannel } from "puppeteer-core";
+import type { ChromeReleaseChannel } from "puppeteer-core";
 import shortuuid from "short-uuid";
 import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
@@ -15,6 +15,7 @@ import { getUserDataDirectory } from "@/core/utils/paths";
 import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 import { storageSafeSegment } from "@/core/utils/storage-id";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { loadPuppeteer } from "./browser/load-puppeteer";
 import { CHROME_RELEASE_CHANNELS } from "./chromium-default";
 import { openCompletedCompositionInBrowser } from "./composition-browser";
 import { type EgressPolicy, egressPolicyForContext } from "./guarded-fetch";
@@ -86,7 +87,7 @@ export function createSystemBrowserLookup(): BrowserExecutableLookup {
     configuredExecutablePath: process.env["PUPPETEER_EXECUTABLE_PATH"],
     findSystemChrome: async (channel) => {
       try {
-        return await puppeteer.executablePath(channel);
+        return (await loadPuppeteer()).executablePath(channel);
       } catch {
         return null;
       }
@@ -276,6 +277,7 @@ async function renderStaticScreenshot(
   policy: EgressPolicy,
   known: readonly KnownSecret[],
 ): Promise<void> {
+  const puppeteer = await loadPuppeteer();
   const browser = await puppeteer.launch({
     browser: "chrome",
     executablePath,

@@ -14,7 +14,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import { NodeFileSystem } from "@effect/platform-node";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";

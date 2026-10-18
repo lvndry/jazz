@@ -5,7 +5,7 @@
  */
 
 import path from "node:path";
-import { NodeFileSystem } from "@effect/platform-node";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { createAgentServiceLayer } from "@jazz/adapters/agent-service";
 import { createConfigLayer, validateConfigFiles } from "@jazz/adapters/config";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
@@ -44,13 +44,9 @@ import { createTelemetryServiceLayer } from "@jazz/adapters/telemetry/telemetry-
 import { createWakeTriggerServiceLayer } from "@jazz/adapters/wake-trigger-service";
 import { createWorkflowRegistryServiceLayer } from "@jazz/adapters/workflow-registry-service";
 import { createWorkspaceServiceLayer } from "@jazz/adapters/workspace-service";
-import { autoCheckForUpdate } from "@jazz/cli/auto-update";
-import { promptInteractiveCatchUp } from "@jazz/cli/catch-up-prompt";
-import { createChatServiceLayer } from "@jazz/cli/chat-service";
-import { promptFailedRunsWarning } from "@jazz/cli/failed-run-prompt";
+import { createChatServiceLayer } from "@jazz/cli/chat-service-layer";
+import { createPlainTerminalServiceLayer } from "@jazz/cli/plain-terminal";
 import { CLIPresentationServiceLayer } from "@jazz/cli/presentation/cli-presentation-service";
-import { InkPresentationServiceLayer } from "@jazz/cli/presentation/ink-presentation-service";
-import { createPlainTerminalServiceLayer, createTerminalServiceLayer } from "@jazz/cli/terminal";
 import {
   decideFullscreen,
   type FullscreenEnvironment,
@@ -84,6 +80,13 @@ import { WorkflowsLive } from "@jazz/core/workflows/workflow-service";
 import { Cause, Duration, Effect, Exit, FileSystem, Fiber, Layer, Option } from "effect";
 import { reportStartupFailure } from "./startup-failure";
 import { validateAgents } from "./validate-agents";
+
+/**
+ * How long exit waits for telemetry to reach its collector. A reachable collector answers in
+ * milliseconds; an unreachable one would otherwise hold every exit for the exporter's 10s
+ * timeout. Traces and logs left undelivered stay in the on-disk outbox for the next run.
+ */
+const TELEMETRY_SHUTDOWN_GRACE_MS = 1_500;
 
 /** Config used to select terminal and presentation layers. Exported for testing. */
 export interface PresentationConfig {
@@ -292,7 +295,13 @@ export function createAppLayer(
 
   const terminalLayer = presentationConfig.usePlainTerminal
     ? createPlainTerminalServiceLayer()
-    : createTerminalServiceLayer({ fullscreen: presentationConfig.useFullscreen });
+    : Layer.unwrap(
+        Effect.promise(() => import("@jazz/cli/terminal")).pipe(
+          Effect.map((terminal) =>
+            terminal.createTerminalServiceLayer({ fullscreen: presentationConfig.useFullscreen }),
+          ),
+        ),
+      );
 
   const storageLayer = Layer.effect(
     StorageServiceTag,
@@ -357,24 +366,18 @@ export function createAppLayer(
   const peerTokenServiceLayer = createPeerTokenServiceLayer();
   const savedSecretsLayer = Layer.sync(SavedSecretsServiceTag, () => createSavedSecretsService());
 
-  const chatLayer = createChatServiceLayer(configPath).pipe(
-    Layer.provide(terminalLayer),
-    Layer.provide(loggerLayer),
-    Layer.provide(shellLayer),
-    Layer.provide(configLayer),
-    Layer.provide(toolRegistryLayer),
-    Layer.provide(agentLayer),
-    Layer.provide(mcpServerManagerLayer),
-    Layer.provide(SkillsLive.layer),
-    Layer.provide(WorkflowsLive.layer),
-  );
+  const chatLayer = createChatServiceLayer(configPath);
 
-  // isQuiet: no output. useCLIPresentation: CLI (plain stdout). else: Ink UI.
+  // isQuiet: no output. useCLIPresentation: CLI (plain stdout). else: Ink UI, loaded only then.
   const presentationLayer = presentationConfig.isQuiet
     ? QuietPresentationServiceLayer
     : presentationConfig.useCLIPresentation
       ? CLIPresentationServiceLayer
-      : InkPresentationServiceLayer.pipe(Layer.provide(NotificationServiceLayer));
+      : Layer.unwrap(
+          Effect.promise(() => import("@jazz/cli/presentation/ink-presentation-service")).pipe(
+            Effect.map((presentation) => presentation.InkPresentationServiceLayer),
+          ),
+        ).pipe(Layer.provide(NotificationServiceLayer));
 
   // Create a complete layer by providing all dependencies
   return Layer.mergeAll(
@@ -509,11 +512,17 @@ export function runCliEffect<R, E extends JazzError | Error>(
     if (!shouldSkipCatchUp) {
       // Interactive prompt for catch-up - asks user if they want to run missed workflows
       // Runs selected workflows in background, then continues with the original command
+      const { promptInteractiveCatchUp } = yield* Effect.promise(
+        () => import("@jazz/cli/catch-up-prompt"),
+      );
       yield* promptInteractiveCatchUp();
 
       // Surface scheduled workflows whose most recent run ended in failure
       // (agent missing, quota exceeded, network error, etc.). One-shot info
       // line — does not block the command.
+      const { promptFailedRunsWarning } = yield* Effect.promise(
+        () => import("@jazz/cli/failed-run-prompt"),
+      );
       yield* promptFailedRunsWarning();
     }
 
@@ -521,7 +530,11 @@ export function runCliEffect<R, E extends JazzError | Error>(
       process.env["JAZZ_DISABLE_UPDATE_CHECK"] === "1" ||
       isOfflineMode() ||
       options.skipUpdateCheck === true;
-    const startupCheck = shouldSkipUpdateCheck ? Effect.void : autoCheckForUpdate();
+    const startupCheck = shouldSkipUpdateCheck
+      ? Effect.void
+      : Effect.promise(() => import("@jazz/cli/auto-update")).pipe(
+          Effect.flatMap((update) => update.autoCheckForUpdate()),
+        );
     const fiber = yield* Effect.forkChild(startupCheck.pipe(Effect.andThen(effect)));
     // Interrupt must run in this runtime, so the Node signal handler only requests it.
     type ShutdownRequest = { _tag: "request" };
@@ -576,16 +589,23 @@ export function runCliEffect<R, E extends JazzError | Error>(
           yield* logger.value.clearLogGroup();
         }
 
-        // Stop sampling and deliver buffered telemetry before shutdown.
+        // Stop sampling and deliver buffered telemetry, beside disconnecting MCP servers.
         const telemetry = yield* Effect.serviceOption(TelemetryServiceTag);
-        if (Option.isSome(telemetry)) {
-          yield* telemetry.value.shutdown().pipe(Effect.catch(() => Effect.void));
-        }
-
         const mcpManager = yield* Effect.serviceOption(MCPServerManagerTag);
-        if (Option.isSome(mcpManager)) {
-          yield* mcpManager.value.disconnectAllServers().pipe(Effect.catch(() => Effect.void));
-        }
+        yield* Effect.all(
+          [
+            Option.isSome(telemetry)
+              ? telemetry.value.shutdown().pipe(
+                  Effect.timeout(Duration.millis(TELEMETRY_SHUTDOWN_GRACE_MS)),
+                  Effect.catch(() => Effect.void),
+                )
+              : Effect.void,
+            Option.isSome(mcpManager)
+              ? mcpManager.value.disconnectAllServers().pipe(Effect.catch(() => Effect.void))
+              : Effect.void,
+          ],
+          { concurrency: "unbounded", discard: true },
+        );
 
         yield* Effect.promise(flushLogs);
       }),

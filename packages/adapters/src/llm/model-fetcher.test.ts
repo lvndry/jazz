@@ -1,7 +1,13 @@
+/**
+ * Exercises provider model discovery and local-server metadata probes with controlled responses.
+ * Ollama concurrency fixtures cover reuse-window replacement, independent caller cancellation,
+ * and listener cleanup without depending on a live model server or provider credentials.
+ */
 import type { ModelsDevMetadata, ModelsDevModelEntry } from "@jazz/core/utils/models-dev";
-import { afterAll, describe, expect, it, mock, beforeEach } from "bun:test";
+import { afterAll, describe, expect, it, mock, beforeEach, spyOn } from "bun:test";
 import { Effect } from "effect";
 import {
+  clearOllamaProbeCache,
   createModelFetcher,
   fetchLlamaCppServerModel,
   fetchOllamaModelDetails,
@@ -13,6 +19,10 @@ import {
   resolveOllamaToolSupport,
   type OllamaModel,
 } from "./model-fetcher";
+
+beforeEach(() => {
+  clearOllamaProbeCache();
+});
 
 function modelsDevEntry(
   overrides: Partial<ModelsDevModelEntry> & { id: string },
@@ -1420,5 +1430,241 @@ describe("fetchOllamaRunningContextWindow", () => {
       contextWindow: 262144,
       runningContextWindow: 32768,
     });
+  });
+});
+
+describe("Ollama probes at run start", () => {
+  it("keeps a replacement probe cached when an older expired probe fails", async () => {
+    const originalFetch = globalThis.fetch;
+    const now = spyOn(Date, "now").mockReturnValue(0);
+    const pending: ((response: Response) => void)[] = [];
+    globalThis.fetch = mock(
+      () => new Promise<Response>((resolve) => pending.push(resolve)),
+    ) as unknown as typeof fetch;
+    const show = () => fetchOllamaModelDetails("http://ollama.test/api", "gemma4", undefined, []);
+    try {
+      const old = show();
+      now.mockReturnValue(10_001);
+      const replacement = show();
+      pending[0]?.(new Response(null, { status: 503 }));
+      expect(await old).toEqual({});
+      const follower = show();
+      for (const resolve of pending.slice(1)) resolve(Response.json({ capabilities: ["tools"] }));
+      expect(await replacement).toEqual({ capabilities: ["tools"] });
+      expect(await follower).toEqual({ capabilities: ["tools"] });
+      expect(pending).toHaveLength(2);
+    } finally {
+      for (const resolve of pending) resolve(new Response(null, { status: 503 }));
+      now.mockRestore();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it.each(["leader", "follower"] as const)(
+    "cancels only the %s's wait while sharing both Ollama probes",
+    async (cancelledCaller) => {
+      const originalFetch = globalThis.fetch;
+      const pending: { readonly url: string; readonly resolve: (response: Response) => void }[] =
+        [];
+      const networkSignals: AbortSignal[] = [];
+      globalThis.fetch = mock((input: string | URL | Request, init?: RequestInit) => {
+        const signal = init?.signal;
+        if (signal) networkSignals.push(signal);
+        return new Promise<Response>((resolve, reject) => {
+          pending.push({ url: String(input), resolve });
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      }) as unknown as typeof fetch;
+      const leader = new AbortController();
+      const follower = new AbortController();
+      try {
+        const first = fetchOllamaModelDetails("http://ollama.test/api", "gemma4", leader.signal);
+        const second = fetchOllamaModelDetails("http://ollama.test/api", "gemma4", follower.signal);
+        const cancelled = cancelledCaller === "leader" ? first : second;
+        const surviving = cancelledCaller === "leader" ? second : first;
+        (cancelledCaller === "leader" ? leader : follower).abort();
+        const cancellation = await Promise.race([
+          cancelled.then((result) => ({ kind: "answered" as const, result })),
+          Bun.sleep(0).then(() => ({ kind: "waiting" as const })),
+        ]);
+        expect(cancellation).toEqual({ kind: "answered", result: {} });
+        expect(networkSignals.every((signal) => !signal.aborted)).toBe(true);
+        for (const request of pending) {
+          request.resolve(
+            request.url.endsWith("/ps")
+              ? Response.json({ models: [{ name: "gemma4:latest", context_length: 8192 }] })
+              : Response.json({ capabilities: ["completion", "tools"] }),
+          );
+        }
+        const expected = { capabilities: ["completion", "tools"], runningContextWindow: 8192 };
+        expect(await surviving).toEqual(expected);
+        expect(await fetchOllamaModelDetails("http://ollama.test/api", "gemma4")).toEqual(expected);
+        expect(pending).toHaveLength(2);
+      } finally {
+        for (const request of pending) request.resolve(new Response(null, { status: 503 }));
+        globalThis.fetch = originalFetch;
+      }
+    },
+  );
+
+  it("does not start a probe for an already-aborted caller", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(() => Promise.resolve(Response.json({ capabilities: ["tools"] })));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      expect(
+        await fetchOllamaModelDetails("http://ollama.test/api", "gemma4", AbortSignal.abort()),
+      ).toEqual({});
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it.each(["success", "failure", "abort"] as const)(
+    "removes caller abort listeners after probe %s",
+    async (outcome) => {
+      const originalFetch = globalThis.fetch;
+      const controller = new AbortController();
+      const added = spyOn(controller.signal, "addEventListener");
+      const removed = spyOn(controller.signal, "removeEventListener");
+      const pending: ((response: Response) => void)[] = [];
+      globalThis.fetch = mock(() => {
+        if (outcome === "failure") return Promise.reject(new Error("connection refused"));
+        if (outcome === "success") return Promise.resolve(Response.json({}));
+        return new Promise<Response>((resolve) => pending.push(resolve));
+      }) as unknown as typeof fetch;
+      try {
+        const result = fetchOllamaModelDetails(
+          "http://ollama.test/api",
+          "gemma4",
+          controller.signal,
+        );
+        if (outcome === "abort") controller.abort();
+        expect(await result).toEqual({});
+        const listeners = added.mock.calls
+          .filter(([type]) => type === "abort")
+          .map(([, listener]) => listener);
+        expect(listeners.length).toBeGreaterThan(0);
+        for (const listener of listeners) {
+          expect(
+            removed.mock.calls.some(
+              ([type, removedListener]) => type === "abort" && removedListener === listener,
+            ),
+          ).toBe(true);
+        }
+      } finally {
+        for (const resolve of pending) resolve(Response.json({}));
+        added.mockRestore();
+        removed.mockRestore();
+        globalThis.fetch = originalFetch;
+      }
+    },
+  );
+
+  it("share one /api/show and one /api/ps between callers asking about the same model", async () => {
+    const requested: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock((input: string | URL | Request) => {
+      const url = String(input);
+      requested.push(url.slice(url.lastIndexOf("/")));
+      return Promise.resolve(
+        url.endsWith("/ps")
+          ? Response.json({ models: [] })
+          : Response.json({ capabilities: ["completion", "tools"] }),
+      );
+    }) as unknown as typeof fetch;
+    try {
+      const [first, second] = await Promise.all([
+        fetchOllamaModelDetails("http://ollama.test/api", "gemma4"),
+        fetchOllamaModelDetails("http://ollama.test/api", "gemma4"),
+      ]);
+      await fetchOllamaRunningContextWindow("http://ollama.test/api", "gemma4");
+
+      expect(first.capabilities).toEqual(["completion", "tools"]);
+      expect(second).toEqual(first);
+      expect(requested.sort()).toEqual(["/ps", "/show"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("keeps answering a caller whose neighbour gave up on the shared probe", async () => {
+    let release: (response: Response) => void = () => {};
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    ) as unknown as typeof fetch;
+    try {
+      const impatient = new AbortController();
+      const first = fetchOllamaModelDetails(
+        "http://ollama.test/api",
+        "gemma4",
+        impatient.signal,
+        [],
+      );
+      const second = fetchOllamaModelDetails("http://ollama.test/api", "gemma4", undefined, []);
+      impatient.abort();
+      release(Response.json({ capabilities: ["completion", "tools"] }));
+
+      expect((await first).capabilities).toBeUndefined();
+      expect((await second).capabilities).toEqual(["completion", "tools"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("does not let a slow failed probe evict the probe that replaced it", async () => {
+    const realNow = Date.now;
+    let now = 1_000_000;
+    Date.now = () => now;
+    const pending: Array<(response: Response | Error) => void> = [];
+    const originalFetch = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = mock(() => {
+      requests += 1;
+      return new Promise<Response>((resolve, reject) => {
+        pending.push((outcome) => (outcome instanceof Error ? reject(outcome) : resolve(outcome)));
+      });
+    }) as unknown as typeof fetch;
+    try {
+      const slow = fetchOllamaModelDetails("http://ollama.test/api", "gemma4", undefined, []);
+      now += 60_000;
+      const fresh = fetchOllamaModelDetails("http://ollama.test/api", "gemma4", undefined, []);
+      pending[1]?.(Response.json({ capabilities: ["completion"] }));
+      await fresh;
+      pending[0]?.(new Error("connection reset"));
+      await slow;
+
+      await fetchOllamaModelDetails("http://ollama.test/api", "gemma4", undefined, []);
+      expect(requests).toBe(2);
+    } finally {
+      Date.now = realNow;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("asks again after a failed probe instead of keeping the failure", async () => {
+    let calls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(() => {
+      calls += 1;
+      return calls === 1
+        ? Promise.reject(new Error("connection refused"))
+        : Promise.resolve(Response.json({ capabilities: ["completion"] }));
+    }) as unknown as typeof fetch;
+    try {
+      const shown = (url: string) =>
+        fetchOllamaModelDetails(url, "gemma4", undefined, []).then(
+          (details) => details.capabilities,
+        );
+      expect(await shown("http://ollama.test/api")).toBeUndefined();
+      expect(await shown("http://ollama.test/api")).toEqual(["completion"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

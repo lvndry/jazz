@@ -57,7 +57,7 @@ Setting `llm.numCtx` limits Jazz's context accounting; it does not reconfigure t
 With `JAZZ_OFFLINE=1` (or `true`), Jazz skips these product-service requests:
 
 - **No update check**: the periodic npm registry version check is skipped (equivalent to `JAZZ_DISABLE_UPDATE_CHECK=1`).
-- **No models.dev fetch**: the model catalog (used for cloud-provider model lists and metadata enrichment like context windows and pricing) is not fetched. Jazz uses the on-disk snapshot at `~/.jazz/cache/models-dev.json` if one exists from a previous online run, and otherwise falls back to provider-reported metadata and defaults.
+- **No models.dev fetch**: the model catalog (used for cloud-provider model lists and metadata enrichment like context windows and pricing) is not fetched. Jazz uses the configured catalog URL’s on-disk snapshot if one exists from a previous online run (`~/.jazz/cache/models-dev.json` for the default catalog), and otherwise falls back to provider-reported metadata and defaults.
 - **No library fetch**: `jazz persona browse`, `jazz workflow browse` and `jazz skill browse` read the snapshots at `~/.jazz/cache/persona-registry.json`, `~/.jazz/cache/workflow-registry.json` and `~/.jazz/cache/skill-registry.json` from a previous online run, and error if there is none. Installing from the library is refused offline. Point `JAZZ_LIBRARY_URL` at an internal library, with `JAZZ_OFFLINE` unset, to browse and install inside the airgap.
 
 It does **not** block inference, `web_fetch`, `http_request`, remote MCP, OTLP export, or a command the agent runs. In an air-gapped deployment, use a local provider, disable OTLP export, omit network-capable tools and MCP servers, and enforce egress at the OS, container, or firewall boundary.
@@ -70,6 +70,11 @@ If you want catalog metadata (e.g. pricing display for cloud models) inside the 
 
 - **Seed the snapshot**: run Jazz once with network access (or copy `~/.jazz/cache/models-dev.json` from another machine). Every successful catalog fetch refreshes this snapshot, and offline mode reads it automatically.
 - **Mirror internally**: host a copy of `https://models.dev/api.json` on your network and set `JAZZ_MODELS_DEV_URL=http://mirror.internal/api.json` (leave `JAZZ_OFFLINE` unset so Jazz fetches from the mirror).
+
+Each mirror keeps its own snapshot at `~/.jazz/cache/models-dev.<sha256-of-url>.json`. Keep the
+same `JAZZ_MODELS_DEV_URL` when switching to offline mode; Jazz reads only that source’s snapshot
+and never substitutes a catalog from another URL. A snapshot without a source identifier from
+an older Jazz version is used only for the default catalog.
 
 ## Other network surfaces to know about
 

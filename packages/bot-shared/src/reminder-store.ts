@@ -15,7 +15,7 @@
  * not lost (the agent's own service quarantines a corrupt one on its next access).
  */
 
-import { NodeFileSystem } from "@effect/platform-node";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import {
   REMINDER_FILE_KIND,
   REMINDER_STORE,
