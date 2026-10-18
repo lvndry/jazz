@@ -30,6 +30,11 @@ already migrated vault values remain intact. Copying and retiring each legacy en
 same lock as vault updates, preventing another process from migrating a value after its deletion.
 Deletion leaves the vault unchanged while migration is incomplete, so a later retry cannot restore a secret that appeared to have been removed.
 
+On macOS, vault writes call the system Security framework through `osascript`, with the
+credential payload on stdin. This avoids the `security -i` parser's 4,095-byte command limit;
+large OAuth bundles and multiple provider keys can share the same vault. Newly created vaults
+allow the `security` CLI to read them without an additional application-access prompt.
+
 Read-back is one-way. `jazz config show` and `jazz config get` redact every secret, including MCP
 env and header values and values merged in from the keyring or the environment; `--reveal` is the
 explicit exception. A token is printed once, when it is minted.

@@ -21,6 +21,7 @@ import {
 } from "@jazz/core/utils/paths";
 import { quarantineCorruptFile } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
+import { writeMacosKeychainItem } from "./macos-keychain-write";
 
 /**
  * Base Keychain/libsecret service name. Each Jazz home keeps all its secrets in one vault entry
@@ -329,11 +330,6 @@ type VaultRead =
   | { readonly status: "corrupt" }
   | { readonly status: "failed" };
 
-/** Run a `security` subcommand fed on stdin, so the values it carries never appear in argv. */
-function runSecurityScript(run: KeyringCommandRunner, line: string): Effect.Effect<CommandResult> {
-  return run("security", ["-i"], `${line}\n`);
-}
-
 function encodeVault(secrets: VaultSecrets): string {
   return Buffer.from(JSON.stringify(secrets), "utf8").toString("base64");
 }
@@ -396,12 +392,11 @@ function osKeyringWriteVault(
   return Effect.gen(function* () {
     const encoded = encodeVault(secrets);
     if (backend === "macos") {
-      const hex = Buffer.from(encoded, "utf8").toString("hex");
-      const result = yield* runSecurityScript(
-        run,
-        `add-generic-password -U -s ${service} -a ${VAULT_ACCOUNT} -X ${hex}`,
-      );
-      return result.ok;
+      return yield* writeMacosKeychainItem(run, {
+        service,
+        account: VAULT_ACCOUNT,
+        value: encoded,
+      });
     }
     const result = yield* run(
       "secret-tool",
