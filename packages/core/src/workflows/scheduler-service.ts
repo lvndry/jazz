@@ -16,7 +16,6 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Option } from "effect";
-import * as plist from "plist";
 import { toError } from "@/core/utils/errors";
 import { stateDirectoryMode, stateFileMode } from "@/core/utils/private-mode";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
@@ -331,7 +330,11 @@ function launchdLabel(id: string): string {
 /**
  * Generate a launchd plist file content.
  */
-function generateLaunchdPlist(entry: ScheduleRequest, jazzInvocation: readonly string[]): string {
+function generateLaunchdPlist(
+  entry: ScheduleRequest,
+  jazzInvocation: readonly string[],
+  buildPlist: typeof import("plist").build,
+): string {
   const schedule = cronToLaunchdSchedule(entry.schedule);
   const logDir = path.join(getGlobalUserDataDirectory(), "logs");
   const id = scheduleId(entry);
@@ -361,7 +364,7 @@ function generateLaunchdPlist(entry: ScheduleRequest, jazzInvocation: readonly s
     },
   };
 
-  return plist.build(plistObject);
+  return buildPlist(plistObject);
 }
 
 const CRON_MARKER = "# Jazz schedule:";
@@ -642,7 +645,8 @@ class LaunchdScheduler extends MetadataScheduler {
     return Effect.gen(
       function* (this: LaunchdScheduler) {
         const jazzInvocation = yield* getJazzSchedulerInvocation();
-        const plistContent = generateLaunchdPlist(entry, jazzInvocation);
+        const { build: buildPlist } = yield* Effect.promise(() => import("plist"));
+        const plistContent = generateLaunchdPlist(entry, jazzInvocation, buildPlist);
         const plistPath = this.plistPath(launchdLabel(scheduleId(entry)));
 
         yield* Effect.tryPromise({

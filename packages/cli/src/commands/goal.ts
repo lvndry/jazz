@@ -27,10 +27,10 @@ import { isAgentStartedProcess } from "@jazz/core/utils/env";
 import { toError } from "@jazz/core/utils/errors";
 import { isDaemonSupervised } from "@jazz/daemon/service-install";
 import { Effect } from "effect";
-import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { AGENT_ANSWER_REFUSAL } from "@/cli/commands/run/lifecycle";
 import { describeGoalNow, describePlan } from "@/cli/goals/describe-goal";
 import { grantedPolicy } from "@/cli/helpers/approval-policy";
+import { describeDaemonStart, ensureDaemonRunning } from "@/cli/helpers/daemon-launch";
 import { emitEnvelope, failEnvelope } from "@/cli/helpers/json-output";
 
 function reportProposal(json: boolean, proposal: Exclude<GoalProposal, { kind: "failed" }>): void {

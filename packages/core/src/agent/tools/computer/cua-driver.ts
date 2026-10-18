@@ -7,8 +7,7 @@
  * The child lives as long as the run's computer session and is stopped when it closes.
  */
 
-import { Client } from "@modelcontextprotocol/client";
-import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import type { Client } from "@modelcontextprotocol/client";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { toError } from "@/core/utils/errors";
 import {
@@ -75,6 +74,10 @@ export class CuaDriver implements ComputerDriver {
 
   /** Start the driver, confirm it offers the required tools, and record which extended kinds it serves. */
   static async open(settings: CuaDriverSettings): Promise<CuaDriver> {
+    const [{ Client }, { StdioClientTransport }] = await Promise.all([
+      import("@modelcontextprotocol/client"),
+      import("@modelcontextprotocol/client/stdio"),
+    ]);
     const transport = new StdioClientTransport({
       command: settings.executablePath,
       args: [...(settings.args ?? ["mcp"])],

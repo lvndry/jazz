@@ -8,7 +8,7 @@
  * throwaway tool registry.
  */
 
-import { NodeFileSystem } from "@effect/platform-node";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import { FileStorageService } from "@jazz/adapters/storage/file";
 import { agentConfigProblems } from "@jazz/core/agent/agent-config-problems";
 import { registerAllTools } from "@jazz/core/agent/tools/register-tools";

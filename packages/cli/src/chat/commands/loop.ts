@@ -23,7 +23,7 @@ import { FileSystemContextServiceTag } from "@jazz/core/interfaces/fs";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { Effect } from "effect";
-import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
+import { describeDaemonStart, ensureDaemonRunning } from "@/cli/helpers/daemon-launch";
 import { describeLoopNow } from "@/cli/loops/describe-loop";
 import { builtinUsage } from "./constants";
 import type { CommandContext } from "./types";

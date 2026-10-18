@@ -29,8 +29,8 @@ import type { ApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { leadingWords } from "@jazz/core/utils/handle";
 import { currentProcessOwner } from "@jazz/core/utils/process";
 import { Effect } from "effect";
-import { describeDaemonStart, ensureDaemonRunning } from "@/cli/commands/daemon";
 import { describeGoalNow, describePlan, goalHandle } from "@/cli/goals/describe-goal";
+import { describeDaemonStart, ensureDaemonRunning } from "@/cli/helpers/daemon-launch";
 import { builtinUsage } from "./constants";
 import type { CommandContext, CommandResult } from "./types";
 

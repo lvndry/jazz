@@ -5,7 +5,6 @@
  * extracted content. Raw response bytes, connection time and body-read time are capped, and
  * returned content is labeled external/untrusted for the agent context.
  */
-import { Defuddle } from "defuddle/node";
 import { Effect } from "effect";
 import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
@@ -176,7 +175,10 @@ export function createWebFetchTool(): ReturnType<
 
         if (isHtml) {
           const extracted = yield* Effect.tryPromise({
-            try: () => Defuddle(body, args.url, { markdown: true }),
+            try: async () => {
+              const { Defuddle } = await import("defuddle/node");
+              return Defuddle(body, args.url, { markdown: true });
+            },
             catch: (error) => new Error(`Failed to extract content: ${toError(error).message}`),
           }).pipe(Effect.result);
 
