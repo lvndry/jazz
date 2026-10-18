@@ -92,6 +92,7 @@ import {
   VIEW_MEMORY_TOOL_NAME,
 } from "./memory-recall-log";
 import {
+  closeAgentRunTelemetry,
   computeRunCost,
   createAgentRunMetrics,
   emitAgentRunStarted,
@@ -561,6 +562,7 @@ function initializeAgentRun(
     });
 
     yield* emitAgentRunStarted(runMetrics);
+    yield* Effect.addFinalizer((exit) => closeAgentRunTelemetry(runMetrics, exit));
 
     // Level 1: List all available skills (metadata only)
     const relevantSkills = yield* skillService.listSkills();

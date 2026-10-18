@@ -195,6 +195,12 @@ export class TelemetryServiceImpl implements TelemetryService {
     );
   }
 
+  endAgentRun(
+    data: Parameters<TelemetryService["endAgentRun"]>[0],
+  ): Effect.Effect<void, TelemetryError> {
+    return Effect.sync(() => this.stopRunSampler(data.runId));
+  }
+
   recordLLMUsage(
     data: Parameters<TelemetryService["recordLLMUsage"]>[0],
   ): Effect.Effect<void, TelemetryError> {

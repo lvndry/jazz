@@ -289,6 +289,12 @@ export interface TelemetryService {
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
+   * End a started run that has no completed or failed record, such as an interrupted run.
+   * Stops the run's periodic process sampling without emitting an event.
+   */
+  readonly endAgentRun: (data: { readonly runId: string }) => Effect.Effect<void, TelemetryError>;
+
+  /**
    * Record LLM token usage from a single request.
    */
   readonly recordLLMUsage: (data: {

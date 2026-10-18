@@ -11,6 +11,7 @@ function stubTelemetry(overrides: Partial<TelemetryService>): TelemetryService {
     recordAgentRunStarted: notCalled,
     recordAgentRunCompleted: notCalled,
     recordAgentRunFailed: notCalled,
+    endAgentRun: notCalled,
     recordLLMUsage: notCalled,
     recordLLMRetry: notCalled,
     recordToolInvocation: notCalled,

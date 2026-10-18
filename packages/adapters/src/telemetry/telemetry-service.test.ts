@@ -528,6 +528,40 @@ describe("TelemetryServiceImpl usage aggregation", () => {
     expect(summary.classifierCompletionTokens).toBe(2);
   });
 
+  it("stops sampling a run that ends without a completed or failed record", async () => {
+    const sampleIntervalMs = 5;
+    const sink = new RecordingSink("memory");
+    const service = new TelemetryServiceImpl({
+      enabled: true,
+      bufferSize: 1000,
+      flushIntervalMs: 0,
+      processSampleIntervalMs: sampleIntervalMs,
+      sinks: [sink],
+    });
+    const countSamples = async () => {
+      await Effect.runPromise(service.flush());
+      return sink.written.filter((event) => event.type === "process_sample").length;
+    };
+
+    await Effect.runPromise(
+      service.recordAgentRunStarted({
+        runId: "interrupted-run",
+        agentId: "agent-1",
+        agentName: "researcher",
+        conversationId: "conv-1",
+      }),
+    );
+    await Bun.sleep(sampleIntervalMs * 6);
+    expect(await countSamples()).toBeGreaterThan(0);
+
+    await Effect.runPromise(service.endAgentRun({ runId: "interrupted-run" }));
+    const samplesAtEnd = await countSamples();
+    await Bun.sleep(sampleIntervalMs * 6);
+
+    expect(await countSamples()).toBe(samplesAtEnd);
+    await Effect.runPromise(service.shutdown());
+  });
+
   it("attaches a Jazz process snapshot to run start and end", async () => {
     const sink = new RecordingSink("memory");
     const service = makeService([sink]);

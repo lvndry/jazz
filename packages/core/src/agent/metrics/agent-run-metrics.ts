@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { Effect } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -122,6 +122,8 @@ export interface AgentRunMetrics {
   decisionCostUSD?: number;
   /** True when a non-local decision provider reported usage without a price. */
   decisionCostUnknown?: boolean;
+  /** True once `agent_run_completed` or `agent_run_failed` has been emitted for this run. */
+  terminalTelemetryRecorded?: boolean;
 }
 
 export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRunMetrics {
@@ -759,8 +761,14 @@ function emitAgentRunTelemetry(
   durationMs: number,
   details: { readonly iterationsUsed: number; readonly finished: boolean },
 ): Effect.Effect<void> {
-  const payload = buildTelemetryPayload(metrics, totalTokens, durationMs, details);
-  return emitTelemetry((telemetry) => telemetry.recordAgentRunCompleted(payload));
+  return Effect.suspend(() => {
+    if (metrics.terminalTelemetryRecorded === true) {
+      return Effect.void;
+    }
+    metrics.terminalTelemetryRecorded = true;
+    const payload = buildTelemetryPayload(metrics, totalTokens, durationMs, details);
+    return emitTelemetry((telemetry) => telemetry.recordAgentRunCompleted(payload));
+  });
 }
 
 /** Emit `agent_run_started` at the top of a run. Best-effort. */
@@ -783,18 +791,47 @@ export function emitAgentRunStarted(metrics: AgentRunMetrics): Effect.Effect<voi
  * reached. A run emits either this or `agent_run_completed`, never both.
  */
 export function emitAgentRunFailed(metrics: AgentRunMetrics, error: unknown): Effect.Effect<void> {
-  const durationMs = Date.now() - metrics.startedAt.getTime();
-  return emitTelemetry((telemetry) =>
-    telemetry.recordAgentRunFailed({
-      runId: metrics.runId,
-      ...(metrics.telemetryParent ? { telemetryParent: metrics.telemetryParent } : {}),
-      agentId: metrics.agentId,
-      agentName: metrics.agentName,
-      conversationId: metrics.conversationId,
-      error: telemetryErrorCategory(error),
-      durationMs,
-    }),
-  );
+  return Effect.suspend(() => {
+    if (metrics.terminalTelemetryRecorded === true) {
+      return Effect.void;
+    }
+    metrics.terminalTelemetryRecorded = true;
+    const durationMs = Date.now() - metrics.startedAt.getTime();
+    return emitTelemetry((telemetry) =>
+      telemetry.recordAgentRunFailed({
+        runId: metrics.runId,
+        ...(metrics.telemetryParent ? { telemetryParent: metrics.telemetryParent } : {}),
+        agentId: metrics.agentId,
+        agentName: metrics.agentName,
+        conversationId: metrics.conversationId,
+        error: telemetryErrorCategory(error),
+        durationMs,
+      }),
+    );
+  });
+}
+
+/**
+ * Close a started run's telemetry on whatever exit it took. A failure that nothing recorded yet
+ * emits `agent_run_failed`; an interrupted run, or one whose completion record was never
+ * reached, ends the run's process sampling without an event.
+ */
+export function closeAgentRunTelemetry(
+  metrics: AgentRunMetrics,
+  exit: Exit.Exit<unknown, unknown>,
+): Effect.Effect<void> {
+  return Effect.suspend(() => {
+    if (metrics.terminalTelemetryRecorded === true) {
+      return Effect.void;
+    }
+    if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) {
+      return emitAgentRunFailed(
+        metrics,
+        Cause.findErrorOption(exit.cause).pipe(Option.getOrElse(() => Cause.pretty(exit.cause))),
+      );
+    }
+    return emitTelemetry((telemetry) => telemetry.endAgentRun({ runId: metrics.runId }));
+  });
 }
 
 /** Emit `llm_usage` for a single completion. Best-effort. */

@@ -13,6 +13,7 @@ import {
   createInvite,
   getInvite,
   listInvites,
+  pendingRedeemLockCount,
   redeemInvite,
   revokeInvite,
   type KeyringDependency,
@@ -108,6 +109,19 @@ describe("redeemInvite", () => {
       redeemInvite({ id: created.record.id, secret: created.secret }, "bob"),
     );
     expect(correct.kind).toEqual("ok");
+  });
+
+  it("frees each id's redeem lock once its redemptions settle", async () => {
+    const created = await run(createInvite(CREATE_INPUT));
+
+    await Promise.all([
+      run(redeemInvite({ id: created.record.id, secret: created.secret }, "bob")),
+      run(redeemInvite({ id: created.record.id, secret: created.secret }, "bob")),
+      run(redeemInvite({ id: "1".repeat(32), secret: "x" }, "bob")),
+    ]);
+    await Bun.sleep(0);
+
+    expect(pendingRedeemLockCount()).toBe(0);
   });
 
   it("rejects an unknown id", async () => {

@@ -27,6 +27,7 @@ import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
 import { installShutdown } from "@jazz/bot-shared/shutdown";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
+import { BoundedLruCache } from "@jazz/core/utils/bounded-lru-cache";
 import qrcode from "qrcode-terminal";
 import {
   type AccessConfig,
@@ -58,8 +59,14 @@ const DEFAULT_BASE_AGENT_ID = "whatsapp";
 const CONNECTION_CHECK_MS = 15_000;
 const CONNECTION_STALE_AFTER_MS = 90_000;
 
+/**
+ * Refused chats remembered at once. Any stranger can add one, so the set is bounded; a chat
+ * forgotten past the cap is only logged again.
+ */
+const LOGGED_REJECTIONS_CAPACITY = 1_000;
+
 /** Chats already reported as refused, so the log says each thing once. */
-const loggedRejections = new Set<string>();
+const loggedRejections = new BoundedLruCache<string, true>(LOGGED_REJECTIONS_CAPACITY);
 
 interface BridgeConfig extends AccessConfig {
   /** Numbers allowed to widen a chat's authority (`/mode yolo`), compared as digits. */
@@ -289,8 +296,8 @@ export async function handleIncoming(
     // not addressed by produces a rejection for every message anyone sends, and
     // that would bury the line that actually matters — the one naming a group
     // JID an operator needs in order to add it to the allow-list.
-    if (!loggedRejections.has(message.chatJid)) {
-      loggedRejections.add(message.chatJid);
+    if (loggedRejections.get(message.chatJid) === undefined) {
+      loggedRejections.set(message.chatJid, true);
       console.error(`Ignoring messages from ${message.chatJid}: ${decision.reason}`);
     }
     return;
