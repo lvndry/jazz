@@ -88,15 +88,15 @@ function committedContent(fixture: Fixture, file: string): string {
 }
 
 describe(".githooks/pre-commit", () => {
-  test("lets a CI commit through when pre-commit is not installed", () => {
+  test("blocks a CI commit too when pre-commit is missing", () => {
     const fixture = createFixture({ "notes.md": "one\n" });
     writeFileSync(path.join(fixture.repository, "notes.md"), "two\n");
     git(fixture.repository, ["add", "notes.md"]);
 
     const result = commit(fixture, { PATH: basePath, CI: "true" });
 
-    expect(result.status).toBe(0);
-    expect(committedContent(fixture, "notes.md")).toBe("two\n");
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("uv tool install --force pre-commit");
   });
 
   test("blocks a local commit with the install command when pre-commit is missing", () => {
