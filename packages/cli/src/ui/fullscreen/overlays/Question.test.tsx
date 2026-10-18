@@ -200,3 +200,23 @@ describe("Question — long free-text answer", () => {
     expect(frame).toContain("onto more");
   });
 });
+
+describe("Question — row numbers", () => {
+  it("numbers rows by their place in the whole list once the window scrolls", async () => {
+    const choices = Array.from({ length: 12 }, (_unused, index) => ({
+      label: `option ${String(index + 1)}`,
+      value: `option-${String(index + 1)}`,
+    }));
+    const rendered = await draw(
+      <Question
+        model={{ kind: "question", mode: "select", message: "Pick one:", choices, selected: 11 }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const lines = rows(rendered.captureCharFrame());
+    expect(lines.some((line) => /\b12 +option 12\b/.test(line))).toBe(true);
+    expect(lines.some((line) => /\b3 +option 3\b/.test(line))).toBe(true);
+    expect(lines.some((line) => /\b1 +option 3\b/.test(line))).toBe(false);
+  });
+});
