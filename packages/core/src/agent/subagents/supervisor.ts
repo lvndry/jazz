@@ -36,9 +36,6 @@ import type {
 } from "@/core/types/tools";
 import { retrieveInstruction, type FinishedSubagent } from "./results";
 
-/** Sub-agents one run may have going at once. Matches `JAZZ_BOT_MAX_CONCURRENT_RUNS`. */
-export const MAX_LIVE_SUBAGENTS = 4;
-
 export type SubagentStatus =
   "running" | "paused" | "waiting-approval" | "completed" | "failed" | "cancelled";
 

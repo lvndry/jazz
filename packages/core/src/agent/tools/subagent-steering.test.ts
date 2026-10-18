@@ -5,6 +5,7 @@
  */
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { Deferred, Effect, Layer } from "effect";
+import { DEFAULT_MAX_LIVE_SUBAGENTS } from "@/core/constants/agent";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { PresentationService } from "@/core/interfaces/presentation";
@@ -14,11 +15,7 @@ import type { ToolExecutionResult } from "@/core/types/tools";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { createSubagentTools } from "./subagent";
 import { AgentRunner } from "../agent-runner";
-import {
-  createSubagentSupervisor,
-  MAX_LIVE_SUBAGENTS,
-  type SubagentSupervisor,
-} from "../subagents/supervisor";
+import { createSubagentSupervisor, type SubagentSupervisor } from "../subagents/supervisor";
 import { silentLogger } from "../test-logger";
 import type { AgentRunnerOptions } from "../types";
 
@@ -61,6 +58,7 @@ async function call(
   name: string,
   args: Record<string, unknown>,
   supervisor: SubagentSupervisor | undefined,
+  maxLiveSubagents?: number,
 ): Promise<ToolExecutionResult> {
   const result = await Effect.runPromise(
     (
@@ -68,6 +66,7 @@ async function call(
         agentId: parentAgent.id,
         parentAgent,
         ...(supervisor !== undefined ? { subagents: supervisor } : {}),
+        ...(maxLiveSubagents !== undefined ? { maxLiveSubagents } : {}),
       }) as Effect.Effect<ToolExecutionResult, unknown, LoggerService | PresentationService>
     ).pipe(Effect.provide(layer)),
   );
@@ -198,17 +197,43 @@ describe("sub-agents the parent steers", () => {
     });
   });
 
-  it(`refuses a spawn past ${String(MAX_LIVE_SUBAGENTS)} live children`, async () => {
+  it(`refuses a spawn past ${String(DEFAULT_MAX_LIVE_SUBAGENTS)} live children by default`, async () => {
     const children = mockChildren();
     restore = () => children.spy.mockRestore();
     const supervisor = await Effect.runPromise(createSubagentSupervisor());
-    for (let index = 0; index < MAX_LIVE_SUBAGENTS; index++) {
+    for (let index = 0; index < DEFAULT_MAX_LIVE_SUBAGENTS; index++) {
       expect((await call("spawn_subagent", { task: "t" }, supervisor)).success).toBe(true);
     }
     const refused = await call("spawn_subagent", { task: "t" }, supervisor);
     expect(refused.success).toBe(false);
     expect(refused.error).toContain("wait_subagents");
-    expect(children.started).toHaveLength(MAX_LIVE_SUBAGENTS);
+    expect(children.started).toHaveLength(DEFAULT_MAX_LIVE_SUBAGENTS);
+  });
+
+  it("refuses a spawn past the run's configured live limit", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    expect((await call("spawn_subagent", { task: "t" }, supervisor, 2)).success).toBe(true);
+    expect((await call("spawn_subagent", { task: "t" }, supervisor, 2)).success).toBe(true);
+    const refused = await call("spawn_subagent", { task: "t" }, supervisor, 2);
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("2 sub-agents are already running");
+    expect(children.started).toHaveLength(2);
+  });
+
+  it("counts a chat's children from earlier turns against the limit", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor({ outlivesRuns: true }));
+    const firstTurn = supervisor.attachRun({ chargeSpend: () => {} });
+    expect((await call("spawn_subagent", { task: "t" }, supervisor, 2)).success).toBe(true);
+    expect((await call("spawn_subagent", { task: "t" }, supervisor, 2)).success).toBe(true);
+    firstTurn.detach();
+    supervisor.attachRun({ chargeSpend: () => {} });
+    const refused = await call("spawn_subagent", { task: "t" }, supervisor, 2);
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("2 sub-agents are already running");
   });
 
   it("refuses to delegate in a run that cannot hold sub-agents", async () => {

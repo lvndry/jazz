@@ -7,6 +7,7 @@
 import { Cause, Effect } from "effect";
 import { z } from "zod";
 import {
+  DEFAULT_MAX_LIVE_SUBAGENTS,
   DEFAULT_MAX_SUBAGENT_DEPTH,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
@@ -35,11 +36,7 @@ import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import type { RunSpendReport } from "../metrics/agent-run-metrics";
 import { judgeAnswer } from "../run/answer-outcome";
 import { combinedProvenance, fitSubagentResults } from "../subagents/results";
-import {
-  MAX_LIVE_SUBAGENTS,
-  unknownSubagentNote,
-  type SubagentHooks,
-} from "../subagents/supervisor";
+import { unknownSubagentNote, type SubagentHooks } from "../subagents/supervisor";
 import { createSubagentWorkDigest, type SubagentWorkDigest } from "../subagents/work-digest";
 import type { AgentResponse } from "../types";
 
@@ -741,7 +738,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "spawn_subagent",
       companionTools: ["wait_subagents", "list_subagents", "steer_subagent"],
       disclosure: "private",
-      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, and the time, cost and token limits you give it, within what you have left; at most ${String(MAX_LIVE_SUBAGENTS)} run at once and nesting stops at depth 3.`,
+      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, and the time, cost and token limits you give it, within what you have left. Start as many in parallel as the work splits into; a spawn past this run's concurrency or nesting limit returns the limit.`,
       parameters: spawnSubagentSchema,
       hidden: false,
       // Spawning grants nothing: the child holds at most this run's tools under this run's
@@ -811,11 +808,12 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
               error: "Sub-agents are not available in this run. Do this task yourself.",
             };
           }
-          if (supervisor.liveCount() >= MAX_LIVE_SUBAGENTS) {
+          const maxLive = context.maxLiveSubagents ?? DEFAULT_MAX_LIVE_SUBAGENTS;
+          if (supervisor.liveCount() >= maxLive) {
             return {
               success: false,
               result: null,
-              error: `${String(MAX_LIVE_SUBAGENTS)} sub-agents are already running. Call wait_subagents or cancel one with steer_subagent before starting another.`,
+              error: `${String(maxLive)} sub-agents are already running. Call wait_subagents or cancel one with steer_subagent before starting another.`,
             };
           }
 

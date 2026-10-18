@@ -649,6 +649,7 @@ const configFileShape = {
   maxRetries: wholeNumber.exactOptional(),
   editor: text.exactOptional(),
   maxSubagentDepth: wholeNumber.exactOptional(),
+  maxLiveSubagents: positiveWholeNumber.exactOptional(),
   maxIterations: iterationCap.exactOptional(),
   maxSubagentIterations: iterationCap.exactOptional(),
   maxCostUSD: described(z.number().positive(), "a number greater than 0").exactOptional(),
