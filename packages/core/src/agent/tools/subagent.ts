@@ -4,7 +4,7 @@
  * compress the current conversation's context, respectively.
  */
 
-import { Cause, Effect } from "effect";
+import { Cause, Effect, Option } from "effect";
 import { z } from "zod";
 import {
   DEFAULT_MAX_LIVE_SUBAGENTS,
@@ -12,6 +12,7 @@ import {
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
+import { LLMServiceTag } from "@/core/interfaces/llm";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
@@ -36,7 +37,11 @@ import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import type { RunSpendReport } from "../metrics/agent-run-metrics";
 import { judgeAnswer } from "../run/answer-outcome";
 import { combinedProvenance, fitSubagentResults } from "../subagents/results";
-import { unknownSubagentNote, type SubagentHooks } from "../subagents/supervisor";
+import {
+  unknownSubagentNote,
+  type SubagentHooks,
+  type SubagentSupervisor,
+} from "../subagents/supervisor";
 import { createSubagentWorkDigest, type SubagentWorkDigest } from "../subagents/work-digest";
 import type { AgentResponse } from "../types";
 
@@ -131,6 +136,14 @@ const spawnSubagentSchema = z
       .default("default")
       .describe(
         "coder for code and git, researcher for read-only investigation, default otherwise.",
+      ),
+    model: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        "A model id from your own provider: a smaller one for mechanical work, a stronger one for hard analysis. Omit to use yours.",
       ),
     reasoning: z
       .enum(["disable", "minimal", "low", "medium", "high", "xhigh", "max"])
@@ -345,6 +358,19 @@ export function describeChildBudget(budget: RemainingRunBudget): string {
   return `- Your budget for this task is ${limits.join(", ")}. Plan to finish well inside it; when it runs out you are stopped and asked for your answer with what you have.\n`;
 }
 
+const BLACKBOARD_BRIEF_RULE =
+  "- Sibling sub-agents may be working on the same goal: read_blackboard before work another agent may have done, and post_to_blackboard findings they could use\n";
+
+/** Whether the child can reach the run's blackboard: the board exists and its tools are granted. */
+function sharesBlackboard(context: ToolExecutionContext): boolean {
+  return (
+    context.blackboard !== undefined &&
+    (context.effectiveToolNames === undefined ||
+      (context.effectiveToolNames.has("read_blackboard") &&
+        context.effectiveToolNames.has("post_to_blackboard")))
+  );
+}
+
 /** What `runSubagent` needs from the handler that validated the spawn. */
 interface SubagentRun {
   readonly parentAgent: Agent;
@@ -394,11 +420,11 @@ function runSubagent(args: SpawnSubagentArgs, context: ToolExecutionContext, run
       config: {
         ...parentAgent.config,
         persona: args.persona ?? "default",
-        ...(args.reasoning
-          ? {
-              llm: { ...parentAgent.config.llm, reasoning: args.reasoning },
-            }
-          : {}),
+        llm: {
+          ...parentAgent.config.llm,
+          ...(args.model !== undefined ? { model: args.model } : {}),
+          ...(args.reasoning ? { reasoning: args.reasoning } : {}),
+        },
       },
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -417,7 +443,7 @@ Rules:
 - Stay within the scope of the task — do not take unrequested side actions
 - Be concise; the parent agent needs the output, not background narration
 - Your response will be returned directly to the parent agent
-${describeChildBudget(budget)}
+${sharesBlackboard(context) ? BLACKBOARD_BRIEF_RULE : ""}${describeChildBudget(budget)}
 TASK:
 ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSchema, args.resultName) : ""}`;
 
@@ -524,6 +550,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
         : {}),
       ...childRunAuthority(context),
       ...(childTaint !== undefined ? { egressTaint: childTaint.taint } : {}),
+      ...(context.blackboard !== undefined ? { blackboard: context.blackboard } : {}),
       subagentDepth: currentDepth + 1,
       ...(outlivesTurn ? { outlivesTurn: true } : {}),
       ...(context.offersShellEscape === true ? { offersShellEscape: true } : {}),
@@ -674,6 +701,180 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
   });
 }
 
+/** Where each input goes in a `map_subagents` brief. */
+const INPUT_PLACEHOLDER = "{{input}}";
+
+/**
+ * Most sub-agents running or queued at once after a `map_subagents` call, and so the most inputs
+ * one call takes. Queued children hold their briefs and run context until they start, so this
+ * bounds what repeated maps can pile up, as well as the agentIds a call lists and the answers
+ * `wait_subagents` returns.
+ */
+const MAX_MAPPED_INPUTS = 100;
+
+const mapSubagentsSchema = spawnSubagentSchema
+  .extend({
+    task: z
+      .string()
+      .describe(
+        `Brief every child gets: every fact, path, constraint and the exact output shape. ${INPUT_PLACEHOLDER} marks where each child's input goes.`,
+      ),
+    inputs: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(MAX_MAPPED_INPUTS)
+      .describe("One child per input, in this order."),
+    name: z
+      .string()
+      .optional()
+      .describe("Role label; children are shown as '<name> 1', '<name> 2', and so on."),
+  })
+  .strict();
+
+type MapSubagentsArgs = z.infer<typeof mapSubagentsSchema>;
+
+/** One child's brief: the input in place of every placeholder, or after the brief when it has none. */
+export function briefForInput(task: string, input: string): string {
+  return task.includes(INPUT_PLACEHOLDER)
+    ? task.replaceAll(INPUT_PLACEHOLDER, input)
+    : `${task}\n\nInput:\n${input}`;
+}
+
+type DelegationCheck =
+  | {
+      readonly ok: true;
+      readonly parentAgent: Agent;
+      readonly currentDepth: number;
+      readonly supervisor: SubagentSupervisor;
+    }
+  | { readonly ok: false; readonly refusal: ToolExecutionResult };
+
+/** What every delegation passes before a child is registered; a refusal says what to do instead. */
+function prepareDelegation(
+  args: Pick<SpawnSubagentArgs, "resultSchema" | "model">,
+  context: ToolExecutionContext,
+) {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+    const refuse = (error: string): DelegationCheck => ({
+      ok: false,
+      refusal: { success: false, result: null, error },
+    });
+    const parentAgent = context.parentAgent;
+    if (!parentAgent) {
+      return refuse(
+        "Sub-agent tool requires parent agent context. This is a bug — please report it.",
+      );
+    }
+
+    // Refuse rather than silently running the child at the wrong depth: a
+    // parent told its delegation was declined can do the work itself.
+    const currentDepth = context.subagentDepth ?? 0;
+    const maxDepth = context.maxSubagentDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH;
+    if (currentDepth >= maxDepth) {
+      yield* logger.info("Sub-agent spawn refused at depth limit", {
+        parentAgentId: parentAgent.id,
+        currentDepth,
+        maxDepth,
+      });
+      return refuse(
+        `Sub-agent nesting limit reached (depth ${currentDepth} of ${maxDepth}). ` +
+          `Do this task yourself instead of delegating it further.`,
+      );
+    }
+
+    if (args.resultSchema) {
+      const schemaErrors = validateResultSchema(args.resultSchema);
+      if (schemaErrors.length > 0) {
+        return refuse(`Invalid resultSchema: ${schemaErrors.join("; ")}`);
+      }
+    }
+
+    const exhausted = exhaustedBudget(context.remainingRunBudget?.() ?? {});
+    if (exhausted !== undefined) {
+      return refuse(
+        `No ${exhausted} is left in this run's budget to delegate. Finish with what you have.`,
+      );
+    }
+
+    const supervisor = context.subagents;
+    if (supervisor === undefined) {
+      return refuse("Sub-agents are not available in this run. Do this task yourself.");
+    }
+
+    if (args.model !== undefined && args.model !== parentAgent.config.llm.model) {
+      const modelProblem = yield* checkChildModel(parentAgent, args.model);
+      if (modelProblem !== undefined) {
+        return refuse(modelProblem);
+      }
+    }
+    return { ok: true, parentAgent, currentDepth, supervisor } satisfies DelegationCheck;
+  });
+}
+
+/** Most model ids a refused `model` lists back, so the refusal stays a short read. */
+const MAX_LISTED_MODELS = 40;
+
+/**
+ * Why `model` cannot run a child, or undefined when it can: a child stays on its parent's
+ * provider, on a model that provider lists and that can call tools.
+ */
+function checkChildModel(parentAgent: Agent, model: string) {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const providerName = parentAgent.config.llm.provider;
+    const provider = yield* llmService.getProvider(providerName).pipe(Effect.option);
+    if (Option.isNone(provider)) {
+      return `Could not list ${providerName}'s models. Omit model to use your own.`;
+    }
+    const usable = provider.value.supportedModels.filter((candidate) => candidate.supportsTools);
+    if (usable.some((candidate) => candidate.id === model)) {
+      return undefined;
+    }
+    const listed = usable.slice(0, MAX_LISTED_MODELS).map((candidate) => candidate.id);
+    const more = usable.length - listed.length;
+    return `${model} is not a ${providerName} model that can call tools. Use one of: ${listed.join(", ")}${more > 0 ? ` (and ${String(more)} more)` : ""}, or omit model.`;
+  });
+}
+
+/**
+ * A registered child's whole run. Its budget is read when it starts, so a child that waited in
+ * the queue gets what the parent has left then, not when it was queued.
+ */
+function childWork(
+  args: SpawnSubagentArgs,
+  context: ToolExecutionContext,
+  run: Omit<SubagentRun, "budget" | "workDigest">,
+) {
+  const workDigest = createSubagentWorkDigest();
+  return Effect.suspend((): Effect.Effect<ToolExecutionResult, Error, ToolRequirements> => {
+    const remainingBudget = context.remainingRunBudget?.() ?? {};
+    const exhausted = exhaustedBudget(remainingBudget);
+    if (exhausted !== undefined) {
+      return Effect.succeed<ToolExecutionResult>({
+        success: false,
+        result: null,
+        error: `No ${exhausted} was left in the run's budget when this sub-agent's turn to start came.`,
+      });
+    }
+    return runSubagent(args, context, {
+      ...run,
+      budget: childRunBudget(remainingBudget, args),
+      workDigest,
+    });
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.succeed<ToolExecutionResult>({
+        success: false,
+        result: null,
+        error: Cause.hasInterruptsOnly(cause)
+          ? "The sub-agent was stopped."
+          : `${toError(Cause.squash(cause)).message}\n${workDigest.describe()}`,
+      }),
+    ),
+  );
+}
+
 // ─── Background Sub-Agent Tools ──────────────────────────────────────
 
 /** Longest single wait_subagents call; a longer wait is several calls. */
@@ -703,7 +904,7 @@ const waitSubagentsSchema = z.object({
 });
 
 const steerSubagentSchema = z.object({
-  id: z.string().describe("The agentId spawn_subagent returned."),
+  id: z.string().describe("The agentId spawn_subagent or map_subagents returned."),
   action: z
     .enum(["message", "pause", "resume", "cancel"])
     .describe(
@@ -736,9 +937,16 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
   return [
     defineTool({
       name: "spawn_subagent",
-      companionTools: ["wait_subagents", "list_subagents", "steer_subagent"],
+      companionTools: [
+        "map_subagents",
+        "wait_subagents",
+        "list_subagents",
+        "steer_subagent",
+        "post_to_blackboard",
+        "read_blackboard",
+      ],
       disclosure: "private",
-      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, and the time, cost and token limits you give it, within what you have left. Start as many in parallel as the work splits into; a spawn past this run's concurrency or nesting limit returns the limit.`,
+      description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools, your model unless you name another from your provider, and the time, cost and token limits you give it, within what you have left. Start as many in parallel as the work splits into; a spawn past this run's concurrency or nesting limit returns the limit.`,
       parameters: spawnSubagentSchema,
       hidden: false,
       // Spawning grants nothing: the child holds at most this run's tools under this run's
@@ -748,66 +956,11 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       validate: makeZodValidator(spawnSubagentSchema),
       handler: (args: SpawnSubagentArgs, context) =>
         Effect.gen(function* () {
-          const logger = yield* LoggerServiceTag;
-          const parentAgent = context.parentAgent;
-
-          if (!parentAgent) {
-            return {
-              success: false,
-              result: null,
-              error:
-                "Sub-agent tool requires parent agent context. This is a bug — please report it.",
-            };
+          const prepared = yield* prepareDelegation(args, context);
+          if (!prepared.ok) {
+            return prepared.refusal;
           }
-
-          // Refuse rather than silently running the child at the wrong depth: a
-          // parent told its delegation was declined can do the work itself.
-          const currentDepth = context.subagentDepth ?? 0;
-          const maxDepth = context.maxSubagentDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH;
-          if (currentDepth >= maxDepth) {
-            yield* logger.info("Sub-agent spawn refused at depth limit", {
-              parentAgentId: parentAgent.id,
-              currentDepth,
-              maxDepth,
-            });
-            return {
-              success: false,
-              result: null,
-              error:
-                `Sub-agent nesting limit reached (depth ${currentDepth} of ${maxDepth}). ` +
-                `Do this task yourself instead of delegating it further.`,
-            };
-          }
-
-          if (args.resultSchema) {
-            const schemaErrors = validateResultSchema(args.resultSchema);
-            if (schemaErrors.length > 0) {
-              return {
-                success: false,
-                result: null,
-                error: `Invalid resultSchema: ${schemaErrors.join("; ")}`,
-              };
-            }
-          }
-
-          const remainingBudget = context.remainingRunBudget?.() ?? {};
-          const exhausted = exhaustedBudget(remainingBudget);
-          if (exhausted !== undefined) {
-            return {
-              success: false,
-              result: null,
-              error: `No ${exhausted} is left in this run's budget to delegate. Finish with what you have.`,
-            };
-          }
-
-          const supervisor = context.subagents;
-          if (supervisor === undefined) {
-            return {
-              success: false,
-              result: null,
-              error: "Sub-agents are not available in this run. Do this task yourself.",
-            };
-          }
+          const { parentAgent, currentDepth, supervisor } = prepared;
           const maxLive = context.maxLiveSubagents ?? DEFAULT_MAX_LIVE_SUBAGENTS;
           if (supervisor.liveCount() >= maxLive) {
             return {
@@ -819,27 +972,9 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
 
           const subagentLabel = args.name?.trim() || `Sub-Agent (${args.persona})`;
           const hooks = supervisor.register({ name: subagentLabel });
-          const workDigest = createSubagentWorkDigest();
           yield* supervisor.start(
             hooks.id,
-            runSubagent(args, context, {
-              parentAgent,
-              currentDepth,
-              budget: childRunBudget(remainingBudget, args),
-              subagentLabel,
-              hooks,
-              workDigest,
-            }).pipe(
-              Effect.catchCause((cause) =>
-                Effect.succeed<ToolExecutionResult>({
-                  success: false,
-                  result: null,
-                  error: Cause.hasInterruptsOnly(cause)
-                    ? "The sub-agent was stopped."
-                    : `${toError(Cause.squash(cause)).message}\n${workDigest.describe()}`,
-                }),
-              ),
-            ),
+            childWork(args, context, { parentAgent, currentDepth, subagentLabel, hooks }),
           );
           return {
             success: true,
@@ -861,10 +996,76 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
     }),
 
     defineTool({
+      name: "map_subagents",
+      companionTools: ["wait_subagents", "list_subagents", "steer_subagent"],
+      disclosure: "private",
+      description: `Run one brief over a list of inputs: one child per input, each with a fresh context and the same persona, model, limits and resultSchema. Write ${INPUT_PLACEHOLDER} in task where each input goes. Returns every agentId at once, in input order; children past this run's concurrency limit queue and start as earlier ones finish. Collect every answer with one wait_subagents call.`,
+      parameters: mapSubagentsSchema,
+      hidden: false,
+      peerGrantRequired: true,
+      riskLevel: "read-only",
+      validate: makeZodValidator(mapSubagentsSchema),
+      handler: (args: MapSubagentsArgs, context) =>
+        Effect.gen(function* () {
+          const prepared = yield* prepareDelegation(args, context);
+          if (!prepared.ok) {
+            return prepared.refusal;
+          }
+          const { parentAgent, currentDepth, supervisor } = prepared;
+          const maxLive = context.maxLiveSubagents ?? DEFAULT_MAX_LIVE_SUBAGENTS;
+          const { inputs, ...shared } = args;
+          const room = Math.max(MAX_MAPPED_INPUTS, maxLive) - supervisor.liveCount();
+          if (inputs.length > room) {
+            return {
+              success: false,
+              result: null,
+              error: `${String(supervisor.liveCount())} sub-agents are already running or queued, leaving room for ${String(Math.max(0, room))} more. Call wait_subagents, or map fewer inputs.`,
+            };
+          }
+          const label = args.name?.trim() || `Sub-Agent (${args.persona})`;
+          const agentIds: string[] = [];
+          for (const [index, input] of inputs.entries()) {
+            const subagentLabel = `${label} ${String(index + 1)}`;
+            const hooks = supervisor.register({ name: subagentLabel });
+            yield* supervisor.startOrQueue(
+              hooks.id,
+              childWork(
+                { ...shared, task: briefForInput(args.task, input), name: subagentLabel },
+                context,
+                { parentAgent, currentDepth, subagentLabel, hooks },
+              ),
+              maxLive,
+            );
+            agentIds.push(hooks.id);
+          }
+          const queuedIds = new Set(
+            supervisor
+              .list()
+              .filter((child) => child.status === "queued")
+              .map((child) => child.id),
+          );
+          const queued = agentIds.filter((id) => queuedIds.has(id)).length;
+          return {
+            success: true,
+            result: {
+              agentIds,
+              running: agentIds.length - queued,
+              queued,
+              note: supervisor.outlivesRuns
+                ? "Started. They keep working after you answer, and you get a new turn as they finish. Call wait_subagents once when you need every answer this turn."
+                : "Started. Call wait_subagents once to collect every answer; steer_subagent messages, pauses or cancels one by agentId.",
+            },
+          };
+        }),
+      createSummary: (result) =>
+        result.success ? "Mapped a brief over sub-agents" : `map_subagents failed: ${result.error}`,
+    }),
+
+    defineTool({
       name: "list_subagents",
       disclosure: "private",
       description:
-        "Show each sub-agent you started: status (running, paused, waiting-approval, completed, failed, cancelled), what it is doing, what it has spent, and retrieveId once finished. Returns at once. Read answers with wait_subagents.",
+        "Show each sub-agent you started: status (queued, running, paused, waiting-approval, completed, failed, cancelled), what it is doing, what it has spent, and retrieveId once finished. Returns at once. Read answers with wait_subagents.",
       parameters: listSubagentsSchema,
       hidden: false,
       peerGrantRequired: true,

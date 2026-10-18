@@ -6,6 +6,7 @@
 import type { Effect } from "effect";
 import type z from "zod";
 import type { ToolActivityTracker } from "@/core/agent/run/tool-activity";
+import type { Blackboard } from "@/core/agent/subagents/blackboard";
 import type { SubagentSupervisor } from "@/core/agent/subagents/supervisor";
 import type { BrowserSessions } from "@/core/agent/tools/browser/session";
 import type { ComputerSessions } from "@/core/agent/tools/computer/session";
@@ -526,6 +527,8 @@ export interface ToolExecutionContext {
   readonly onToolEvent?: (event: ToolProgressEvent) => void;
   /** The sub-agents of the run executing this tool; set by the agent loop for every run. */
   readonly subagents?: SubagentSupervisor;
+  /** The board this run shares with its parent and every sub-agent in its tree. */
+  readonly blackboard?: Blackboard;
   /**
    * Completes once a person has sent a message the run will read at its next step. A tool that
    * waits on something else for long returns early on it, so the person is not kept waiting.

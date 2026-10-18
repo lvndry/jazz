@@ -6,15 +6,17 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { Deferred, Effect, Layer } from "effect";
 import { DEFAULT_MAX_LIVE_SUBAGENTS } from "@/core/constants/agent";
+import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Agent } from "@/core/types";
-import type { ToolExecutionResult } from "@/core/types/tools";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { createSubagentTools } from "./subagent";
 import { AgentRunner } from "../agent-runner";
+import { createBlackboard } from "../subagents/blackboard";
 import { createSubagentSupervisor, type SubagentSupervisor } from "../subagents/supervisor";
 import { silentLogger } from "../test-logger";
 import type { AgentRunnerOptions } from "../types";
@@ -40,9 +42,22 @@ const presentation = {
     }),
 } as unknown as PresentationService;
 
+const llmService = {
+  getProvider: () =>
+    Effect.succeed({
+      name: "openai",
+      supportedModels: [
+        { id: "gpt-test", supportsTools: true },
+        { id: "gpt-mini", supportsTools: true },
+        { id: "gpt-embed", supportsTools: false },
+      ],
+    }),
+} as unknown as LLMService;
+
 const layer = Layer.mergeAll(
   Layer.succeed(LoggerServiceTag, silentLogger),
   Layer.succeed(PresentationServiceTag, presentation),
+  Layer.succeed(LLMServiceTag, llmService),
 );
 
 function tool(name: string) {
@@ -51,6 +66,31 @@ function tool(name: string) {
     throw new Error(`${name} not found`);
   }
   return found;
+}
+
+/** `call` with extra tool context. */
+async function callWith(
+  name: string,
+  args: Record<string, unknown>,
+  supervisor: SubagentSupervisor,
+  extra: Partial<ToolExecutionContext>,
+): Promise<ToolExecutionResult> {
+  const result = await Effect.runPromise(
+    (
+      tool(name).execute(args, {
+        agentId: parentAgent.id,
+        parentAgent,
+        subagents: supervisor,
+        ...extra,
+      }) as Effect.Effect<
+        ToolExecutionResult,
+        unknown,
+        LoggerService | PresentationService | LLMService
+      >
+    ).pipe(Effect.provide(layer)),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  return result;
 }
 
 /** Run a tool, then let the children it forked start: forked fibers begin on a later macrotask. */
@@ -67,7 +107,11 @@ async function call(
         parentAgent,
         ...(supervisor !== undefined ? { subagents: supervisor } : {}),
         ...(maxLiveSubagents !== undefined ? { maxLiveSubagents } : {}),
-      }) as Effect.Effect<ToolExecutionResult, unknown, LoggerService | PresentationService>
+      }) as Effect.Effect<
+        ToolExecutionResult,
+        unknown,
+        LoggerService | PresentationService | LLMService
+      >
     ).pipe(Effect.provide(layer)),
   );
   await new Promise((resolve) => setImmediate(resolve));
@@ -234,6 +278,117 @@ describe("sub-agents the parent steers", () => {
     const refused = await call("spawn_subagent", { task: "t" }, supervisor, 2);
     expect(refused.success).toBe(false);
     expect(refused.error).toContain("2 sub-agents are already running");
+  });
+
+  it("maps one brief over every input, queueing past the live limit", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const mapped = await call(
+      "map_subagents",
+      { task: "Summarize {{input}} in one line.", inputs: ["a.md", "b.md", "c.md"], name: "doc" },
+      supervisor,
+      2,
+    );
+    expect(mapped.result).toMatchObject({ running: 2, queued: 1 });
+    expect(children.started.map((options) => options.userInput)).toEqual([
+      expect.stringContaining("Summarize a.md in one line."),
+      expect.stringContaining("Summarize b.md in one line."),
+    ]);
+
+    await Effect.runPromise(Deferred.succeed(children.answers[0]!, "a summary"));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(children.started).toHaveLength(3);
+    expect(children.started[2]?.userInput).toContain("Summarize c.md in one line.");
+
+    await Effect.runPromise(Deferred.succeed(children.answers[1]!, "b summary"));
+    await Effect.runPromise(Deferred.succeed(children.answers[2]!, "c summary"));
+    const waited = await call("wait_subagents", {}, supervisor);
+    expect(waited.result).toMatchObject({
+      subagents: [
+        { name: "doc 1", result: "a summary" },
+        { name: "doc 2", result: "b summary" },
+        { name: "doc 3", result: "c summary" },
+      ],
+    });
+  });
+
+  it("refuses a map that would leave more than 100 sub-agents running or queued", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const inputs = (count: number) => Array.from({ length: count }, (_, index) => String(index));
+    expect(
+      (await call("map_subagents", { task: "t", inputs: inputs(90) }, supervisor, 2)).success,
+    ).toBe(true);
+    const refused = await call("map_subagents", { task: "t", inputs: inputs(11) }, supervisor, 2);
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("room for 10 more");
+    expect(supervisor.liveCount()).toBe(90);
+  });
+
+  it("hands a child its parent's blackboard", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const blackboard = createBlackboard();
+    await callWith("spawn_subagent", { task: "t" }, supervisor, { blackboard });
+    expect(children.started[0]?.blackboard).toBe(blackboard);
+  });
+
+  it("runs a child on another model from the parent's provider", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const spawned = await call("spawn_subagent", { task: "t", model: "gpt-mini" }, supervisor);
+    expect(spawned.success).toBe(true);
+    expect(children.started[0]?.agent.config.llm).toMatchObject({
+      provider: "openai",
+      model: "gpt-mini",
+    });
+  });
+
+  it("runs every mapped child on the model the parent names", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const mapped = await call(
+      "map_subagents",
+      { task: "t {{input}}", inputs: ["a", "b"], model: "gpt-mini" },
+      supervisor,
+    );
+    expect(mapped.success).toBe(true);
+    expect(children.started.map((options) => options.agent.config.llm.model)).toEqual([
+      "gpt-mini",
+      "gpt-mini",
+    ]);
+  });
+
+  it("refuses a mapped batch on an unusable model before starting any child", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const refused = await call(
+      "map_subagents",
+      { task: "t {{input}}", inputs: ["a", "b"], model: "gpt-embed" },
+      supervisor,
+    );
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("Use one of: gpt-test, gpt-mini");
+    expect(children.started).toHaveLength(0);
+    expect(supervisor.list()).toHaveLength(0);
+  });
+
+  it("refuses a model its provider does not list, or one that cannot call tools", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    for (const model of ["claude-haiku", "gpt-embed"]) {
+      const refused = await call("spawn_subagent", { task: "t", model }, supervisor);
+      expect(refused.success).toBe(false);
+      expect(refused.error).toContain("Use one of: gpt-test, gpt-mini");
+    }
+    expect(children.started).toHaveLength(0);
   });
 
   it("refuses to delegate in a run that cannot hold sub-agents", async () => {

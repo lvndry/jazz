@@ -8,6 +8,7 @@ import { Effect, Layer } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
+import { createBlackboardTools } from "./blackboard";
 import {
   createBrowserActTools,
   createBrowserAdoptTabTools,
@@ -435,7 +436,7 @@ export function registerSubagentTools(): Effect.Effect<void, Error, ToolRegistry
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(SUBAGENT_CATEGORY);
 
-    for (const tool of createSubagentTools()) {
+    for (const tool of [...createSubagentTools(), ...createBlackboardTools()]) {
       yield* registerTool(tool);
     }
   });

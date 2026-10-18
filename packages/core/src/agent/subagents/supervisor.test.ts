@@ -37,6 +37,31 @@ function startChild(
   });
 }
 
+/** Like `startChild`, but queued behind `maxRunning` running children. */
+function queueChild(
+  supervisor: SubagentSupervisor,
+  name: string,
+  release: Deferred.Deferred<string>,
+  maxRunning: number,
+) {
+  return Effect.gen(function* () {
+    const hooks = supervisor.register({ name });
+    yield* supervisor.startOrQueue(
+      hooks.id,
+      Effect.gen(function* () {
+        yield* hooks.beforeStep();
+        const text = yield* Deferred.await(release);
+        return done(text);
+      }),
+      maxRunning,
+    );
+    return hooks;
+  });
+}
+
+const statusOf = (supervisor: SubagentSupervisor) =>
+  supervisor.list().map((child) => [child.name, child.status]);
+
 describe("SubagentSupervisor", () => {
   it("returns every child's result once none is running, and marks them read", async () => {
     const outcome = await Effect.runPromise(
@@ -495,5 +520,275 @@ describe("SubagentSupervisor that outlives runs", () => {
       }),
     );
     expect(status).toMatchObject({ status: "cancelled", error: "Cancelled by the user." });
+  });
+});
+
+describe("SubagentSupervisor attachments", () => {
+  it("keeps charging an earlier run until it detaches, though a later run attached", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({ outlivesRuns: true });
+        const firstLive: number[] = [];
+        const firstLate: number[] = [];
+        const secondLive: number[] = [];
+        const released: string[] = [];
+        const first = supervisor.attachRun({
+          chargeSpend: (spend) => firstLive.push(spend.costUSD ?? 0),
+          chargeLateSpend: (spend) => Effect.sync(() => firstLate.push(spend.costUSD ?? 0)),
+        });
+        const child = supervisor.register({ name: "first's child" });
+        const release = yield* Deferred.make<void>();
+        yield* supervisor.start(
+          child.id,
+          Effect.gen(function* () {
+            yield* Deferred.await(release);
+            child.chargeSpend({ costUSD: 0.02, costIncomplete: false });
+            return done("done");
+          }),
+        );
+        supervisor.attachRun({ chargeSpend: (spend) => secondLive.push(spend.costUSD ?? 0) });
+        child.chargeSpend({ costUSD: 0.01, costIncomplete: false });
+        yield* first.releaseAfterChildren(Effect.sync(() => released.push("first")));
+        first.detach();
+        const releasedBeforeChildEnds = [...released];
+        yield* Deferred.succeed(release, undefined);
+        yield* supervisor.wait([], "all", 5_000);
+        yield* Effect.yieldNow;
+        return { firstLive, firstLate, secondLive, releasedBeforeChildEnds, released };
+      }),
+    );
+    expect(outcome.firstLive).toEqual([0.01]);
+    expect(outcome.firstLate).toEqual([0.02]);
+    expect(outcome.secondLive).toEqual([]);
+    expect(outcome.releasedBeforeChildEnds).toEqual([]);
+    expect(outcome.released).toEqual(["first"]);
+  });
+});
+
+describe("SubagentSupervisor queue", () => {
+  it("queues children past the running limit and starts them in order as others finish", async () => {
+    const states = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor();
+        const releases = [
+          yield* Deferred.make<string>(),
+          yield* Deferred.make<string>(),
+          yield* Deferred.make<string>(),
+        ];
+        yield* queueChild(supervisor, "one", releases[0]!, 1);
+        yield* queueChild(supervisor, "two", releases[1]!, 1);
+        yield* queueChild(supervisor, "three", releases[2]!, 1);
+        const queued = statusOf(supervisor);
+        yield* Deferred.succeed(releases[0]!, "one done");
+        yield* Effect.yieldNow;
+        const afterFirst = statusOf(supervisor);
+        yield* Deferred.succeed(releases[1]!, "two done");
+        yield* Effect.yieldNow;
+        const afterSecond = statusOf(supervisor);
+        yield* Deferred.succeed(releases[2]!, "three done");
+        const waited = yield* supervisor.wait([], "all", 5_000);
+        return { queued, afterFirst, afterSecond, results: waited.subagents.map((c) => c.result) };
+      }),
+    );
+    expect(states.queued).toEqual([
+      ["one", "running"],
+      ["two", "queued"],
+      ["three", "queued"],
+    ]);
+    expect(states.afterFirst).toEqual([
+      ["one", "completed"],
+      ["two", "running"],
+      ["three", "queued"],
+    ]);
+    expect(states.afterSecond).toEqual([
+      ["one", "completed"],
+      ["two", "completed"],
+      ["three", "running"],
+    ]);
+    expect(states.results).toEqual(["one done", "two done", "three done"]);
+  });
+
+  it("drops a cancelled child from the queue without starting it", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor();
+        const first = yield* Deferred.make<string>();
+        const second = yield* Deferred.make<string>();
+        let secondStarted = false;
+        yield* queueChild(supervisor, "one", first, 1);
+        const hooks = supervisor.register({ name: "two" });
+        yield* supervisor.startOrQueue(
+          hooks.id,
+          Effect.gen(function* () {
+            secondStarted = true;
+            return done(yield* Deferred.await(second));
+          }),
+          1,
+        );
+        const steered = yield* supervisor.steer(hooks.id, "cancel");
+        yield* Deferred.succeed(first, "one done");
+        yield* Effect.yieldNow;
+        return { steered, secondStarted, statuses: statusOf(supervisor) };
+      }),
+    );
+    expect(outcome.steered).toMatchObject({ ok: true, status: "cancelled" });
+    expect(outcome.secondStarted).toBe(false);
+    expect(outcome.statuses).toEqual([
+      ["one", "completed"],
+      ["two", "cancelled"],
+    ]);
+  });
+
+  it("waits through the queue before the parent answers", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor();
+        const first = yield* Deferred.make<string>();
+        const second = yield* Deferred.make<string>();
+        yield* queueChild(supervisor, "one", first, 1);
+        yield* queueChild(supervisor, "two", second, 1);
+        const settling = yield* Effect.forkChild(supervisor.settleBeforeAnswer());
+        yield* Deferred.succeed(first, "one done");
+        yield* Effect.yieldNow;
+        yield* Deferred.succeed(second, "two done");
+        const notice = yield* Fiber.join(settling);
+        return { notice, statuses: statusOf(supervisor) };
+      }),
+    );
+    expect(outcome.statuses).toEqual([
+      ["one", "completed"],
+      ["two", "completed"],
+    ]);
+    expect(outcome.notice).toContain("one (");
+    expect(outcome.notice).toContain("two (");
+  });
+
+  it("never runs more children than the limit when several slots free at once", async () => {
+    const peak = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor();
+        const releases: Deferred.Deferred<string>[] = [];
+        let active = 0;
+        let highest = 0;
+        for (let index = 0; index < 6; index++) {
+          const release = yield* Deferred.make<string>();
+          releases.push(release);
+          const hooks = supervisor.register({ name: `child ${String(index)}` });
+          yield* supervisor.startOrQueue(
+            hooks.id,
+            Effect.gen(function* () {
+              active++;
+              highest = Math.max(highest, active);
+              const text = yield* Deferred.await(release);
+              active--;
+              return done(text);
+            }),
+            2,
+          );
+        }
+        yield* Effect.yieldNow;
+        for (let batch = 0; batch < releases.length; batch += 2) {
+          yield* Deferred.succeed(releases[batch]!, "done");
+          yield* Deferred.succeed(releases[batch + 1]!, "done");
+          yield* Effect.yieldNow;
+          yield* Effect.yieldNow;
+        }
+        yield* supervisor.wait([], "all", 5_000);
+        return highest;
+      }),
+    );
+    expect(peak).toBe(2);
+  });
+
+  it("pauses a child paused while queued once it starts, and resumes it", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor();
+        const first = yield* Deferred.make<string>();
+        const second = yield* Deferred.make<string>();
+        yield* queueChild(supervisor, "one", first, 1);
+        const queued = yield* queueChild(supervisor, "two", second, 1);
+        yield* supervisor.steer(queued.id, "pause");
+        yield* Deferred.succeed(first, "one done");
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        const whilePaused = statusOf(supervisor);
+        yield* supervisor.steer(queued.id, "resume");
+        yield* Deferred.succeed(second, "two done");
+        const waited = yield* supervisor.wait([queued.id], "all", 5_000);
+        return { whilePaused, finished: waited.subagents[0]?.status };
+      }),
+    );
+    expect(outcome.whilePaused).toEqual([
+      ["one", "completed"],
+      ["two", "paused"],
+    ]);
+    expect(outcome.finished).toBe("completed");
+  });
+
+  it("charges a queued child's spend to its ended run, and releases the run after it", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor({ outlivesRuns: true });
+        const late: number[] = [];
+        const released: string[] = [];
+        const attachment = supervisor.attachRun({
+          chargeSpend: () => {},
+          chargeLateSpend: (spend) => Effect.sync(() => late.push(spend.costUSD ?? 0)),
+        });
+        const first = yield* Deferred.make<string>();
+        const second = yield* Deferred.make<string>();
+        yield* queueChild(supervisor, "one", first, 1);
+        const queuedHooks = supervisor.register({ name: "two" });
+        yield* supervisor.startOrQueue(
+          queuedHooks.id,
+          Effect.gen(function* () {
+            const text = yield* Deferred.await(second);
+            queuedHooks.chargeSpend({ costUSD: 0.03, costIncomplete: false });
+            return done(text);
+          }),
+          1,
+        );
+        yield* attachment.releaseAfterChildren(Effect.sync(() => released.push("run")));
+        attachment.detach();
+        yield* Deferred.succeed(first, "one done");
+        yield* Effect.yieldNow;
+        const afterFirst = [...released];
+        yield* Deferred.succeed(second, "two done");
+        yield* supervisor.wait([], "all", 5_000);
+        yield* Effect.yieldNow;
+        return { afterFirst, released, late };
+      }),
+    );
+    expect(outcome.afterFirst).toEqual([]);
+    expect(outcome.released).toEqual(["run"]);
+    expect(outcome.late).toEqual([0.03]);
+  });
+
+  it("stops queued children on close without starting them", async () => {
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const supervisor = yield* createSubagentSupervisor();
+        const first = yield* Deferred.make<string>();
+        let queuedStarted = false;
+        yield* queueChild(supervisor, "one", first, 1);
+        const hooks = supervisor.register({ name: "two" });
+        yield* supervisor.startOrQueue(
+          hooks.id,
+          Effect.sync(() => {
+            queuedStarted = true;
+            return done("two done");
+          }),
+          1,
+        );
+        yield* supervisor.close();
+        return { queuedStarted, statuses: statusOf(supervisor) };
+      }),
+    );
+    expect(outcome.queuedStarted).toBe(false);
+    expect(outcome.statuses).toEqual([
+      ["one", "cancelled"],
+      ["two", "cancelled"],
+    ]);
   });
 });
