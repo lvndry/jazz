@@ -203,11 +203,36 @@ function fakeMacosKeychain(entries: Map<string, string>): KeyringCommandRunner {
         return result(false);
     }
   };
-  return (_command, args, stdin) =>
-    Effect.sync(() => (args[0] === "-i" ? answer((stdin ?? "").trim().split(" ")) : answer(args)));
+  return (command, args, stdin) =>
+    Effect.sync(() => {
+      if (command === "osascript") {
+        const item = JSON.parse(stdin ?? "") as { service: string; account: string; value: string };
+        entries.set(key(item.service, item.account), item.value);
+        return result(true, "0\n");
+      }
+      return args[0] === "-i" ? answer((stdin ?? "").trim().split(" ")) : answer(args);
+    });
 }
 
 describe("migrateKeyringEntriesIntoVault", () => {
+  it("migrates a large credential without exceeding security's interactive line limit", async () => {
+    const credential = "token-".repeat(4_000);
+    const entries = new Map([["jazz\u0000chatgpt.oauth.credential", credential]]);
+    const keychain = fakeMacosKeychain(entries);
+    const boundedSecurity: KeyringCommandRunner = (command, args, stdin) =>
+      args[0] === "-i" && Buffer.byteLength(stdin ?? "") > 4_095
+        ? Effect.succeed({ ok: false, code: 1, stdout: "", stderr: "", unavailable: false })
+        : keychain(command, args, stdin);
+
+    const migration = await Effect.runPromise(
+      migrateKeyringEntriesIntoVault("macos", "jazz", VAULT_SERVICE, boundedSecurity, withoutLock),
+    );
+
+    expect(migration.complete).toBe(true);
+    expect(vaultIn(entries)).toEqual({ "chatgpt.oauth.credential": credential });
+    expect(entries.has("jazz\u0000chatgpt.oauth.credential")).toBe(false);
+  });
+
   it("moves every item into the vault and deletes the originals", async () => {
     const entries = new Map([
       ["jazz\u0000llm.openai.api_key", "sk-legacy"],
@@ -257,7 +282,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
     const entries = new Map([["jazz\u0000llm.openai.api_key", "sk-legacy"]]);
     const keychain = fakeMacosKeychain(entries);
     const refusingWrites: KeyringCommandRunner = (command, args, stdin) =>
-      args[0] === "-i"
+      command === "osascript"
         ? Effect.succeed({ ok: false, code: 1, stdout: "", stderr: "denied", unavailable: false })
         : keychain(command, args, stdin);
 
@@ -455,7 +480,10 @@ const entriesFile = ${JSON.stringify(entriesFile)};
 const failureFile = ${JSON.stringify(failureFile)};
 const callsFile = ${JSON.stringify(callsFile)};
 let args = process.argv.slice(2);
-if (args[0] === "-i") args = fs.readFileSync(0, "utf8").trim().split(" ");
+if (process.argv[1].endsWith("osascript")) {
+  const item = JSON.parse(fs.readFileSync(0, "utf8"));
+  args = ["add-generic-password", "-s", item.service, "-a", item.account, "-w", item.value];
+}
 const flag = (name) => args[args.indexOf(name) + 1];
 const service = flag("-s");
 const account = args.includes("-a") ? flag("-a") : undefined;
@@ -486,7 +514,8 @@ if (args[0] === "find-generic-password") {
     process.stdout.write('    "acct"<blob>="' + match.slice(service.length + 1) + '"\n');
   }
 } else if (args[0] === "add-generic-password") {
-  entries[key] = Buffer.from(flag("-X"), "hex").toString();
+  entries[key] = flag("-w");
+  process.stdout.write("0\n");
   fs.writeFileSync(entriesFile, JSON.stringify(entries));
 } else if (args[0] === "delete-generic-password") {
   if (!(key in entries)) process.exit(44);
@@ -495,6 +524,7 @@ if (args[0] === "find-generic-password") {
 } else process.exit(2);
 `;
     fs.writeFileSync(path.join(directory, "security"), executable, { mode: 0o700 });
+    fs.writeFileSync(path.join(directory, "osascript"), executable, { mode: 0o700 });
   });
 
   afterEach(() => {
