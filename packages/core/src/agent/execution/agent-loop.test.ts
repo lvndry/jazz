@@ -18,6 +18,7 @@ import { frameUntrusted } from "@/core/utils/untrusted-content";
 import {
   buildBudgetPressureMessage,
   buildCostBudgetPressureMessage,
+  buildPostClearMessage,
   buildPostCompactionMessage,
   buildTimeBudgetPressureMessage,
   buildTokenBudgetPressureMessage,
@@ -1187,6 +1188,17 @@ describe("executeAgentLoop", () => {
   it("appends the run progress even when there is no budget to measure against", () => {
     const message = buildPostCompactionMessage(postCompactionUsage(9_500, 0), "do not redo it");
     expect(message.content).toContain("do not redo it");
+  });
+
+  it("carries the context_info report for the history after tool results are cleared", () => {
+    const usage = postCompactionUsage(5_200, 10_000);
+    const message = buildPostClearMessage(usage);
+    expect(message?.role).toBe("user");
+    expect(message?.content).toContain(formatContextUsageReport(describeContextUsage(usage)));
+  });
+
+  it("sends no post-clear report when there is no budget to measure against", () => {
+    expect(buildPostClearMessage(postCompactionUsage(5_200, 0))).toBeNull();
   });
 
   it("returns no context nudge when there is no budget to measure against", () => {
@@ -2730,6 +2742,64 @@ describe("executeAgentLoop context window accounting", () => {
     expect(results).toHaveLength(PROTECTED_TOOL_CYCLES + 1);
     expect(results[0]).toStartWith("[tool result");
     for (const recent of results.slice(1)) expect(recent).toStartWith("recent ");
+  });
+
+  async function clearRunRequestAndHistory(
+    resultChars: number,
+    numCtx?: number,
+  ): Promise<{ sent: readonly ChatMessage[]; history: readonly ChatMessage[] }> {
+    let sent: ConversationMessages | undefined;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages) => {
+        sent ??= messages;
+        return Effect.succeed({
+          completion: { id: "c1", model: "qwen3.6:27b", content: "done" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ agent: ollamaAgent(numCtx) as AgentRunnerOptions["agent"] }),
+        makeRunContext({
+          provider: "ollama",
+          model: "qwen3.6:27b",
+          agent: ollamaAgent(numCtx) as AgentRunContext["agent"],
+          messages: toolHistory(resultChars) as AgentRunContext["messages"],
+        }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+    return { sent: sent ?? [], history: result.messages ?? [] };
+  }
+
+  const carriesUsageReport = (message: ChatMessage) =>
+    message.content?.includes("remainingTokens:") === true;
+
+  it("sends the fresh usage report with the request after a clear, never into history", async () => {
+    // ~57% of a pinned 60k window: over the clear line, and under the warn line once cleared.
+    const { sent, history } = await clearRunRequestAndHistory(20_000, 60_000);
+    expect(sent.some(carriesUsageReport)).toBe(true);
+    expect(history.some(carriesUsageReport)).toBe(false);
+  });
+
+  it("sends no usage report when nothing was cleared", async () => {
+    const { sent } = await clearRunRequestAndHistory(20_000);
+    expect(sent.some(carriesUsageReport)).toBe(false);
+  });
+
+  it("leaves the live figure to the pressure warning when a clear stays over the warn line", async () => {
+    // ~34k tokens against 38k clears the oldest result and lands near 75%: warned, not compacted.
+    const { sent } = await clearRunRequestAndHistory(20_000, 38_000);
+    expect(sent.some((message) => message.content?.includes("CONTEXT WARNING"))).toBe(true);
+    expect(sent.some(carriesUsageReport)).toBe(false);
   });
 
   it("tells the model to resume the original task after mid-run compaction", async () => {

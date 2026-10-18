@@ -307,6 +307,24 @@ export function buildPostCompactionMessage(
   };
 }
 
+/**
+ * After the clear rung shortens or stubs older tool results, the model's last `context_info`
+ * figure still counts their full bodies. Without a fresh report it reads the stale
+ * percentage and wraps up early, or keeps gathering on a budget it already spent.
+ */
+export function buildPostClearMessage(
+  usage: ContextUsageStats,
+): { role: "user"; content: string } | null {
+  if (usage.maxTokens <= 0) {
+    return null;
+  }
+  const report = formatContextUsageReport(describeContextUsage(usage));
+  return {
+    role: "user",
+    content: `[TOOL RESULTS CLEARED: Some older tool results were shortened or replaced with placeholders to free space. A placeholder says how to get its result back.]\n\nContext after clearing (any earlier usage figure is out of date):\n${report}`,
+  };
+}
+
 export interface TrackedToolCall {
   name: string;
   arguments: string;
@@ -1657,6 +1675,7 @@ function runIteration(
     // threshold nothing is touched, so the model keeps the evidence it gathered
     // and the prompt-cache prefix never moves. A failed write (read-only CI,
     // container) still stubs; the placeholder then says to re-run the tool.
+    let toolResultsCleared = false;
     if (
       runContextWindowManager.usage(state.currentMessages).ratio >= CONTEXT_CLEAR_THRESHOLD_RATIO
     ) {
@@ -1681,6 +1700,7 @@ function runIteration(
             retrievableIds,
           });
       if (cleared.clearedCount > 0) {
+        toolResultsCleared = true;
         state.currentMessages = [
           state.currentMessages[0],
           ...cleared.messages.slice(1),
@@ -1821,20 +1841,20 @@ function runIteration(
     // the resumed run continues instead of re-reading everything and looping out of its
     // budget on its own repetition.
     const runProgress = justCompacted ? extractRunProgress(state.currentMessages) : undefined;
+    const requestUsage: ContextUsageStats = {
+      currentTokens: postCompactionUsage.currentTokens,
+      maxTokens: postCompactionUsage.budgetTokens,
+      ...runContextWindowManager.thresholdRatios,
+    };
+    // A pressure nudge already states the live percentage, so the post-clear report
+    // only fills in when usage dropped below the warn threshold.
     const contextMsg = justCompacted
-      ? buildPostCompactionMessage(
-          {
-            currentTokens: postCompactionUsage.currentTokens,
-            maxTokens: postCompactionUsage.budgetTokens,
-            ...runContextWindowManager.thresholdRatios,
-          },
-          runProgress?.summary,
-        )
-      : buildContextPressureMessage(
+      ? buildPostCompactionMessage(requestUsage, runProgress?.summary)
+      : (buildContextPressureMessage(
           postCompactionUsage.currentTokens,
           postCompactionUsage.budgetTokens,
           runContextWindowManager.thresholdRatios,
-        );
+        ) ?? (toolResultsCleared ? buildPostClearMessage(requestUsage) : null));
     const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
     const timeLeftMs = workTimeLeftMs(deps);
     const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
