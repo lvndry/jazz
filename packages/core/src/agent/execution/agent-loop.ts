@@ -220,6 +220,22 @@ export function buildTokenBudgetPressureMessage(
 }
 
 /**
+ * Returns an ephemeral pressure message at 50%/80%/90% of `maxOutputTokens` written
+ * (own completion tokens accumulated so far).
+ */
+export function buildOutputTokenBudgetPressureMessage(
+  completionTokens: number,
+  maxOutputTokens: number,
+): { role: "user"; content: string } | null {
+  if (maxOutputTokens <= 0) return null;
+  return budgetPressureMessage(
+    completionTokens / maxOutputTokens,
+    "OUTPUT TOKEN",
+    `${completionTokens.toLocaleString()}/${maxOutputTokens.toLocaleString()} output tokens written`,
+  );
+}
+
+/**
  * Returns an ephemeral cost-budget pressure message at 50%/80%/90% of `maxCostUSD` spent.
  */
 export function buildCostBudgetPressureMessage(
@@ -391,6 +407,7 @@ interface LoopDeps {
   /** Cost/token/duration ceilings and pricing, for the ephemeral pressure nudges. Undefined = uncapped. */
   maxCostUSD: number | undefined;
   maxTokens: number | undefined;
+  maxOutputTokens: number | undefined;
   maxDurationMs: number | undefined;
   deadline: AgentRunContext["deadline"];
   /** Provider-only routing hint for iteration zero; never part of canonical messages. */
@@ -944,12 +961,18 @@ function remainingRunBudget(
     | "deadline"
     | "maxCostUSD"
     | "maxTokens"
+    | "maxOutputTokens"
     | "modelMetadata"
     | "subagents"
   >,
 ): RemainingRunBudget {
-  const { runMetrics, maxCostUSD, maxTokens, modelMetadata, subagents } = deps;
-  const remaining: { maxDurationMs?: number; maxCostUSD?: number; maxTokens?: number } = {};
+  const { runMetrics, maxCostUSD, maxTokens, maxOutputTokens, modelMetadata, subagents } = deps;
+  const remaining: {
+    maxDurationMs?: number;
+    maxCostUSD?: number;
+    maxTokens?: number;
+    maxOutputTokens?: number;
+  } = {};
   const timeLeftMs = workTimeLeftMs(deps);
   if (timeLeftMs !== undefined) {
     remaining.maxDurationMs = timeLeftMs;
@@ -966,6 +989,9 @@ function remainingRunBudget(
   if (maxTokens !== undefined) {
     const used = runMetrics.totalPromptTokens + runMetrics.totalCompletionTokens;
     remaining.maxTokens = Math.max(0, maxTokens - used);
+  }
+  if (maxOutputTokens !== undefined) {
+    remaining.maxOutputTokens = Math.max(0, maxOutputTokens - runMetrics.totalCompletionTokens);
   }
   return remaining;
 }
@@ -1616,6 +1642,7 @@ function runIteration(
     maxIterations,
     maxCostUSD,
     maxTokens,
+    maxOutputTokens,
     modelMetadata,
     runRecursive,
     reduceToolResults,
@@ -1869,6 +1896,10 @@ function runIteration(
             maxTokens,
           )
         : null;
+    const outputTokenBudgetMsg =
+      maxOutputTokens !== undefined
+        ? buildOutputTokenBudgetPressureMessage(runMetrics.totalCompletionTokens, maxOutputTokens)
+        : null;
     // Reuses the same cost math as the hard-stop check in the outer loop (computeRunCost),
     // so the nudge and the eventual cutoff never disagree about how much has been spent.
     const costBudgetMsg =
@@ -1912,6 +1943,7 @@ function runIteration(
       budgetMsg?.content,
       timeBudgetMsg?.content,
       tokenBudgetMsg?.content,
+      outputTokenBudgetMsg?.content,
       costBudgetMsg?.content,
       ...deps.subagents.takeNotices(),
       state.unreadSubagentNotice,
@@ -2211,6 +2243,7 @@ export function executeAgentLoop(
           maxIterations,
           maxCostUSD,
           maxTokens,
+          maxOutputTokens,
           maxDurationMs,
           deadline,
           initialProviderAdvisory,
@@ -2332,6 +2365,7 @@ export function executeAgentLoop(
           maxIterations,
           maxCostUSD,
           maxTokens,
+          maxOutputTokens,
           maxDurationMs,
           deadline,
           initialProviderAdvisory,
@@ -2477,6 +2511,20 @@ export function executeAgentLoop(
               yield* observer.onTokenCapReached(agent.name, maxTokens, totalTokens);
               break;
             }
+          }
+
+          if (
+            maxOutputTokens !== undefined &&
+            runMetrics.totalCompletionTokens >= maxOutputTokens
+          ) {
+            tokenCapped = true;
+            state.iterationsUsed = i + 1;
+            yield* observer.onOutputTokenCapReached(
+              agent.name,
+              maxOutputTokens,
+              runMetrics.totalCompletionTokens,
+            );
+            break;
           }
 
           // An iteration that finished right at the deadline stops here rather than

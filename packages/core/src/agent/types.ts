@@ -179,6 +179,12 @@ export interface AgentRunnerOptions {
    */
   readonly maxTokens?: number;
   /**
+   * Per-run ceiling on the tokens the run writes: completion tokens only, reasoning included,
+   * with prompts left out. A parent sets it on a sub-agent it spawns. Checked between
+   * iterations like `maxTokens`; there is no app-config fallback, so unset means uncapped.
+   */
+  readonly maxOutputTokens?: number;
+  /**
    * Wall-clock spend budget in ms. The agent gets ephemeral pressure nudges at 50/80/90% of
    * its work time, which is 85% of the budget; once that is spent the run is stopped wherever
    * it is, a model call or tool included, and writes its answer in the remaining 15%.
@@ -636,6 +642,8 @@ export interface AgentRunContext {
   readonly maxCostUSD: number | undefined;
   /** Token ceiling, already resolved from the call site and config. Undefined = uncapped. */
   readonly maxTokens: number | undefined;
+  /** Completion-token ceiling from the call site. Undefined = uncapped. */
+  readonly maxOutputTokens: number | undefined;
   /** Wall-clock budget in ms, already resolved from the call site and config. Undefined = uncapped. */
   readonly maxDurationMs: number | undefined;
   /** The external deadline from `AgentRunnerOptions.deadline`. Undefined = none. */

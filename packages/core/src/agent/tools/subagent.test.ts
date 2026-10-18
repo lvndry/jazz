@@ -437,13 +437,28 @@ describe("spawn_subagent time budget", () => {
       const { presentation } = createPresentationHarness();
       await runSpawnArgs(
         presentation,
-        { task: "do a thing", persona: "default", maxMinutes: 180, maxCostUSD: 5, maxTokens: 500 },
-        { remainingRunBudget: () => ({ maxDurationMs: 60_000, maxCostUSD: 0.4 }) },
+        {
+          task: "do a thing",
+          persona: "default",
+          maxMinutes: 180,
+          maxCostUSD: 5,
+          maxOutputTokens: 8_000,
+        },
+        {
+          remainingRunBudget: () => ({
+            maxDurationMs: 60_000,
+            maxCostUSD: 0.4,
+            maxTokens: 500,
+            maxOutputTokens: 2_000,
+          }),
+        },
       );
 
       expect(captured?.maxDurationMs).toBe(60_000);
       expect(captured?.maxCostUSD).toBe(0.4);
       expect(captured?.maxTokens).toBe(500);
+      expect(captured?.maxOutputTokens).toBe(2_000);
+      expect(captured?.userInput).toContain("2,000 tokens of output");
       expect(captured?.userInput).toContain("1 minutes");
       expect(captured?.userInput).toContain("$0.40");
       expect(captured?.userInput).toContain("500 tokens");
@@ -471,7 +486,7 @@ describe("spawn_subagent time budget", () => {
           persona: "default",
           maxMinutes: 2.5,
           maxCostUSD: 0.1,
-          maxTokens: 500,
+          maxOutputTokens: 4_000,
         },
         {
           remainingRunBudget: () => ({
@@ -484,7 +499,8 @@ describe("spawn_subagent time budget", () => {
 
       expect(captured?.maxDurationMs).toBe(150_000);
       expect(captured?.maxCostUSD).toBe(0.1);
-      expect(captured?.maxTokens).toBe(500);
+      expect(captured?.maxTokens).toBe(1_000_000);
+      expect(captured?.maxOutputTokens).toBe(4_000);
       expect(captured?.userInput).toContain("2 minutes");
     } finally {
       spy.mockRestore();
@@ -506,6 +522,23 @@ describe("spawn_subagent time budget", () => {
       await runSpawn(presentation, { remainingRunBudget: () => ({ maxDurationMs: 31_000 }) });
 
       expect(captured?.userInput).toContain("31 seconds");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("refuses a per-child token limit instead of spawning the child", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive");
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawnArgs(presentation, {
+        task: "do a thing",
+        persona: "default",
+        maxTokens: 500,
+      })) as { success: boolean };
+
+      expect(result.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();
     }

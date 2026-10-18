@@ -546,6 +546,7 @@ function initializeAgentRun(
     // uncapped, unlike maxIterations which always falls back to DEFAULT_MAX_ITERATIONS.
     const resolvedMaxCostUSD = resolvePositiveCap(options.maxCostUSD ?? appConfig.maxCostUSD);
     const resolvedMaxTokens = resolvePositiveCap(options.maxTokens ?? appConfig.maxTokens);
+    const resolvedMaxOutputTokens = resolvePositiveCap(options.maxOutputTokens);
     const resolvedMaxDurationMs = resolvePositiveCap(
       options.maxDurationMs ?? appConfig.maxDurationMs,
     );
@@ -1065,6 +1066,7 @@ function initializeAgentRun(
       maxIterations: resolvedMaxIterations,
       maxCostUSD: resolvedMaxCostUSD,
       maxTokens: resolvedMaxTokens,
+      maxOutputTokens: resolvedMaxOutputTokens,
       maxDurationMs: resolvedMaxDurationMs,
       deadline: options.deadline,
       knownSkills: relevantSkills,

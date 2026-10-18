@@ -144,6 +144,7 @@ function makeRunContext(): AgentRunContext {
     maxIterations: DEFAULT_MAX_ITERATIONS,
     maxCostUSD: undefined,
     maxTokens: undefined,
+    maxOutputTokens: undefined,
     maxDurationMs: undefined,
     deadline: undefined,
   };
