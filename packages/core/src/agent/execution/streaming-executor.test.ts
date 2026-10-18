@@ -157,6 +157,7 @@ describe("executeWithStreaming", () => {
       maxIterations: DEFAULT_MAX_ITERATIONS,
       maxCostUSD: undefined,
       maxTokens: undefined,
+      maxOutputTokens: undefined,
       maxDurationMs: undefined,
       deadline: undefined,
       maxRetries: 1,
@@ -417,6 +418,7 @@ describe("executeWithStreaming", () => {
       maxIterations: DEFAULT_MAX_ITERATIONS,
       maxCostUSD: undefined,
       maxTokens: undefined,
+      maxOutputTokens: undefined,
       maxDurationMs: undefined,
       deadline: undefined,
     };
@@ -541,6 +543,7 @@ describe("executeWithStreaming", () => {
       maxIterations: DEFAULT_MAX_ITERATIONS,
       maxCostUSD: undefined,
       maxTokens: undefined,
+      maxOutputTokens: undefined,
       maxDurationMs: undefined,
       deadline: undefined,
     };
@@ -677,6 +680,7 @@ function makeStreamingHarness(input: {
     maxIterations: DEFAULT_MAX_ITERATIONS,
     maxCostUSD: undefined,
     maxTokens: undefined,
+    maxOutputTokens: undefined,
     maxDurationMs: input.maxDurationMs,
     deadline: undefined,
     maxRetries: input.maxRetries ?? 1,

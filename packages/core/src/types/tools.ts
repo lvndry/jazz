@@ -685,6 +685,8 @@ export interface RemainingRunBudget {
   readonly maxCostUSD?: number;
   /** Tokens left under the run's `maxTokens`. */
   readonly maxTokens?: number;
+  /** Completion tokens left under the run's `maxOutputTokens`. */
+  readonly maxOutputTokens?: number;
 }
 
 /** What became of one call in a tool batch that was stopped before it finished. */

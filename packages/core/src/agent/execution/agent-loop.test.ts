@@ -167,6 +167,10 @@ function recordingObserver() {
       Effect.sync(() => void calls.push(`cost-cap:${name}:${maxCostUSD}:${costUSD}`)),
     onTokenCapReached: (name: string, maxTokens: number, totalTokens: number) =>
       Effect.sync(() => void calls.push(`token-cap:${name}:${maxTokens}:${totalTokens}`)),
+    onOutputTokenCapReached: (name: string, maxOutputTokens: number, completionTokens: number) =>
+      Effect.sync(
+        () => void calls.push(`output-token-cap:${name}:${maxOutputTokens}:${completionTokens}`),
+      ),
     onDurationCapReached: (name: string, maxDurationMs: number, elapsedMs: number) =>
       Effect.sync(() => void calls.push(`duration-cap:${name}:${maxDurationMs}:${elapsedMs}`)),
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
@@ -265,6 +269,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
     maxIterations: DEFAULT_MAX_ITERATIONS,
     maxCostUSD: undefined,
     maxTokens: undefined,
+    maxOutputTokens: undefined,
     maxDurationMs: undefined,
     deadline: undefined,
     ...overrides,
@@ -3062,6 +3067,32 @@ describe("executeAgentLoop cost and token caps", () => {
 
     // One working call, then the tool-less final answer.
     expect(calls()).toBe(2);
+    expect(result.tokenCapped).toBe(true);
+  });
+
+  it("stops on maxOutputTokens counting only completion tokens, never the prompt", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+
+    const { strategy, calls } = toolLoopStrategy({ promptTokens: 10_000, completionTokens: 100 });
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 10 }),
+        makeRunContext({ maxIterations: 10, maxOutputTokens: 150 }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    // Two working calls write 200 tokens, crossing 150; then the tool-less final answer.
+    expect(calls()).toBe(3);
     expect(result.tokenCapped).toBe(true);
   });
 

@@ -158,6 +158,12 @@ const spawnSubagentSchema = z
       .optional()
       .describe("Wall-clock minutes the child may work before it writes its answer."),
     maxCostUSD: z.number().positive().optional().describe("USD the child may spend."),
+    maxOutputTokens: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Tokens the child may write across its whole run, reasoning included."),
   })
   .strict();
 
@@ -289,14 +295,15 @@ function tighterLimit(parentLeft: number | undefined, requested: number | undefi
 }
 
 /**
- * A child is capped like any run: by the same time and cost limits, set to what the parent
- * asked for, and never more than the parent itself has left. Its token limit is only what the
- * parent has left: the cap counts every request's whole prompt, so a figure the parent picks
- * runs out after a step or two. A limit neither sets is left uncapped.
+ * A child is capped like any run: by the same time, cost and output-token limits, set to what
+ * the parent asked for, and never more than the parent itself has left. Its total-token limit
+ * is only what the parent has left: that cap counts every request's whole prompt, so a figure
+ * the parent picks runs out after a step or two, which is why the parent caps what the child
+ * writes instead. A limit neither sets is left uncapped.
  */
 export function childRunBudget(
   parentRemaining: RemainingRunBudget,
-  requested: Pick<SpawnSubagentArgs, "maxMinutes" | "maxCostUSD">,
+  requested: Pick<SpawnSubagentArgs, "maxMinutes" | "maxCostUSD" | "maxOutputTokens">,
 ): RemainingRunBudget {
   const maxDurationMs = tighterLimit(
     parentRemaining.maxDurationMs,
@@ -304,10 +311,12 @@ export function childRunBudget(
   );
   const maxCostUSD = tighterLimit(parentRemaining.maxCostUSD, requested.maxCostUSD);
   const maxTokens = parentRemaining.maxTokens;
+  const maxOutputTokens = tighterLimit(parentRemaining.maxOutputTokens, requested.maxOutputTokens);
   return {
     ...(maxDurationMs !== undefined && { maxDurationMs }),
     ...(maxCostUSD !== undefined && { maxCostUSD }),
     ...(maxTokens !== undefined && { maxTokens }),
+    ...(maxOutputTokens !== undefined && { maxOutputTokens }),
   };
 }
 
@@ -328,6 +337,9 @@ export function describeChildBudget(budget: RemainingRunBudget): string {
     budget.maxCostUSD !== undefined ? `$${budget.maxCostUSD.toFixed(2)}` : undefined,
     budget.maxTokens !== undefined
       ? `${budget.maxTokens.toLocaleString("en-US")} tokens`
+      : undefined,
+    budget.maxOutputTokens !== undefined
+      ? `${budget.maxOutputTokens.toLocaleString("en-US")} tokens of output`
       : undefined,
   ].filter((limit) => limit !== undefined);
   if (limits.length === 0) {
@@ -446,6 +458,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
       ...(budget.maxDurationMs !== undefined ? { maxDurationMs: budget.maxDurationMs } : {}),
       ...(budget.maxCostUSD !== undefined ? { maxCostUSD: budget.maxCostUSD } : {}),
       ...(budget.maxTokens !== undefined ? { maxTokens: budget.maxTokens } : {}),
+      ...(budget.maxOutputTokens !== undefined ? { maxOutputTokens: budget.maxOutputTokens } : {}),
       // Every way the child ends, a failure included, is paid for by the parent: by the run that
       // started it, or after that run ended, recorded for it.
       onRunSpend: (spend) => {
@@ -1080,6 +1093,9 @@ function exhaustedBudget(remaining: RemainingRunBudget): string | undefined {
   }
   if (remaining.maxTokens !== undefined && remaining.maxTokens <= 0) {
     return "token allowance";
+  }
+  if (remaining.maxOutputTokens !== undefined && remaining.maxOutputTokens <= 0) {
+    return "output token allowance";
   }
   return undefined;
 }

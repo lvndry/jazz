@@ -32,6 +32,12 @@ export interface AgentLoopObserver {
     maxTokens: number,
     totalTokens: number,
   ): Effect.Effect<void, never, never>;
+  /** Cumulative own completion tokens reached the run's `maxOutputTokens` cap. */
+  onOutputTokenCapReached(
+    agentName: string,
+    maxOutputTokens: number,
+    completionTokens: number,
+  ): Effect.Effect<void, never, never>;
   /** Wall-clock elapsed time reached the configured `maxDurationMs` budget. */
   onDurationCapReached(
     agentName: string,
@@ -123,6 +129,11 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
       presentation.presentWarning(
         agentName,
         `token cap reached (${totalTokens.toLocaleString()} tokens, limit ${maxTokens.toLocaleString()}) - run stopped`,
+      ),
+    onOutputTokenCapReached: (agentName, maxOutputTokens, completionTokens) =>
+      presentation.presentWarning(
+        agentName,
+        `output token cap reached (${completionTokens.toLocaleString()} tokens written, limit ${maxOutputTokens.toLocaleString()}) - run stopped`,
       ),
     onDurationCapReached: (agentName, maxDurationMs, elapsedMs) =>
       presentation.presentWarning(
