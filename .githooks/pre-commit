@@ -8,18 +8,26 @@ if ! command -v pre-commit >/dev/null 2>&1; then
   exit 1
 fi
 
-staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+# NUL-delimited so a filename containing a newline stays one path.
+staged_paths=$(mktemp)
+trap 'rm -f "$staged_paths"' EXIT
+git diff --cached --name-only -z --diff-filter=ACMR >"$staged_paths"
+
+# A staged path whose worktree copy differs also holds unstaged edits; `git add` would commit them.
+partially_staged=""
+if [ -s "$staged_paths" ]; then
+  partially_staged=$(git add --dry-run --pathspec-from-file="$staged_paths" --pathspec-file-nul)
+fi
 
 pre-commit run --hook-stage pre-commit
 exit_code=$?
 
-# Formatters exit 1 after fixing files; re-stage only what was staged, then retry once.
+# Formatters exit 1 after fixing files: re-stage them and retry once, unless that would
+# also stage edits left out of the commit. Then the retry fails and the fixes are staged by hand.
 if [ $exit_code -ne 0 ]; then
-  printf '%s\n' "$staged_files" | while IFS= read -r staged_file; do
-    if [ -n "$staged_file" ]; then
-      git add -- "$staged_file"
-    fi
-  done
+  if [ -s "$staged_paths" ] && [ -z "$partially_staged" ]; then
+    git add --pathspec-from-file="$staged_paths" --pathspec-file-nul
+  fi
   pre-commit run --hook-stage pre-commit
   exit_code=$?
 fi
