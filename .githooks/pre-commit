@@ -1,9 +1,6 @@
 #!/bin/sh
-# `bun install` points core.hooksPath here on every checkout, CI runners included.
+# `bun install` points core.hooksPath here on every checkout, so CI workflows that commit install pre-commit too.
 if ! command -v pre-commit >/dev/null 2>&1; then
-  if [ -n "${CI:-}" ]; then
-    exit 0
-  fi
   echo "pre-commit is not installed or its install is broken. Run: uv tool install --force pre-commit" >&2
   exit 1
 fi

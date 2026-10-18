@@ -62,6 +62,7 @@
     "lint": "bun eslint packages plugins scripts --cache --cache-strategy content --no-error-on-unmatched-pattern",
     "lint:fix": "bun eslint packages plugins scripts --fix --cache --cache-strategy content",
     "format": "bun prettier --write packages docs",
+    "format:check": "bun prettier --check --log-level warn \"**/*.{ts,tsx,md}\"",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "bench": "bun bench/run.ts",

@@ -27,6 +27,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: bun run plugin:community-catalog
+      - name: Install pre-commit
+        run: pipx install pre-commit
       - name: Install GitHub CLI
         run: |
           type -p gh >/dev/null || (sudo apt-get update && sudo apt-get install -y gh)
