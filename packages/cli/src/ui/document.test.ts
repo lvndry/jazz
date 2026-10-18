@@ -355,11 +355,20 @@ describe("presentation document", () => {
       "n2",
     ]);
     expect(nextTurn.currentTurn.map((entry) => entry.id)).toEqual(["q3"]);
-    const edited = transcriptDocument(replaceDocumentEntry(nextTurn, notice("n1")));
+    const replacement: PresentationEntry = {
+      ...notice("n1"),
+      content: { kind: "notice", text: "n1 edited", tone: "info" },
+    };
+    const edited = transcriptDocument(replaceDocumentEntry(nextTurn, replacement));
     expect(edited.currentTurn).toBe(nextTurn.currentTurn);
     expect(edited.entries.map((entry) => entry.id)).toEqual(
       nextTurn.entries.map((entry) => entry.id),
     );
+    expect(edited.entries.find((entry) => entry.id === "n1")?.content).toEqual({
+      kind: "notice",
+      text: "n1 edited",
+      tone: "info",
+    });
     expect(JSON.parse(JSON.stringify(edited))).toEqual({
       id: "conversation",
       revision: edited.revision,

@@ -127,6 +127,32 @@ describe("instance-owned transcript layout", () => {
     incremental.dispose();
   });
 
+  it("regroups a tool run when the next tool call lands right after it", () => {
+    const tool = (id: string): Block => ({
+      id,
+      seq: 1,
+      kind: "tool",
+      app: "write_file",
+      summary: `wrote ${id}`,
+      status: "ok",
+      detail: "line one\nline two",
+    });
+    const question: Block = { id: "u0", seq: 1, kind: "user", text: "question" };
+    const firstTool = tool("t0");
+    const incremental = createTranscriptLayout();
+    incremental.update([question, firstTool], epoch());
+    const grown = [question, firstTool, tool("t1")];
+    const actual = incremental.update(grown, epoch());
+    const fresh = createTranscriptLayout();
+    const expected = fresh.update(grown, epoch());
+    expect(actual.flatten()).toEqual(expected.flatten());
+    for (const block of grown) {
+      expect(actual.blockBounds(block.id)).toEqual(expected.blockBounds(block.id));
+    }
+    fresh.dispose();
+    incremental.dispose();
+  });
+
   it("retires retained indexes so late reads cannot resurrect disposed caches", () => {
     const layout = createTranscriptLayout();
     const blocks = [agent("retired", "old paragraph", true)];
