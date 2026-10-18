@@ -222,6 +222,20 @@ describe("sub-agents the parent steers", () => {
     expect(children.started).toHaveLength(2);
   });
 
+  it("counts a chat's children from earlier turns against the limit", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor({ outlivesRuns: true }));
+    const firstTurn = supervisor.attachRun({ chargeSpend: () => {} });
+    expect((await call("spawn_subagent", { task: "t" }, supervisor, 2)).success).toBe(true);
+    expect((await call("spawn_subagent", { task: "t" }, supervisor, 2)).success).toBe(true);
+    firstTurn.detach();
+    supervisor.attachRun({ chargeSpend: () => {} });
+    const refused = await call("spawn_subagent", { task: "t" }, supervisor, 2);
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("2 sub-agents are already running");
+  });
+
   it("refuses to delegate in a run that cannot hold sub-agents", async () => {
     const result = await call("spawn_subagent", { task: "t" }, undefined);
     expect(result.success).toBe(false);

@@ -9,9 +9,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, mock, spyOn, type Mock } from "bun:test";
 import { Effect, Fiber, FileSystem, Layer, Stream } from "effect";
 import {
+  DEFAULT_MAX_LIVE_SUBAGENTS,
+  DEFAULT_MAX_SUBAGENT_ITERATIONS,
+} from "@/core/constants/agent";
+import {
   AgentRunner,
   createNestedRunExecutor,
   renderSkillRoutingAdvisory,
+  resolveDelegationLimits,
   resolveOllamaRunningContextWindow,
   resolveSglangServerModel,
   resolveVllmServerModel,
@@ -265,6 +270,33 @@ const mockLlmService = {
   supportsNativeWebSearch: mock(() => Effect.succeed(false)),
   resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
 } as unknown as LLMService;
+
+describe("resolveDelegationLimits", () => {
+  it("hands the tree the configured live limit", () => {
+    expect(resolveDelegationLimits({ maxLiveSubagents: 3 }, undefined, true).maxLiveSubagents).toBe(
+      3,
+    );
+  });
+
+  it("defaults the live limit when config leaves it unset", () => {
+    expect(resolveDelegationLimits({}, undefined, true).maxLiveSubagents).toBe(
+      DEFAULT_MAX_LIVE_SUBAGENTS,
+    );
+  });
+
+  it("caps unattended sub-agent iterations and leaves attended ones unlimited", () => {
+    expect(resolveDelegationLimits({}, undefined, false).maxSubagentIterations).toBe(
+      DEFAULT_MAX_SUBAGENT_ITERATIONS,
+    );
+    expect(resolveDelegationLimits({}, undefined, true).maxSubagentIterations).toBe(Infinity);
+  });
+
+  it("prefers the run's requested iterations over config", () => {
+    expect(
+      resolveDelegationLimits({ maxSubagentIterations: 50 }, 7, false).maxSubagentIterations,
+    ).toBe(7);
+  });
+});
 
 describe("resolveVllmServerModel", () => {
   it("reads the currently served model and context window", async () => {

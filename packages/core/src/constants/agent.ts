@@ -38,7 +38,10 @@ export const MAX_CONCURRENT_TOOLS = 10;
  */
 export const DEFAULT_MAX_SUBAGENT_DEPTH = 3;
 
-/** Sub-agents one run may have going at once when config sets no `maxLiveSubagents`. */
+/**
+ * Sub-agents running at once when config sets no `maxLiveSubagents`: per run, or per chat when
+ * children outlive the turn that started them.
+ */
 export const DEFAULT_MAX_LIVE_SUBAGENTS = 10;
 
 /** Tool execution timeout in milliseconds (3 minutes) */

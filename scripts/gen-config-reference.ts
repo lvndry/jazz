@@ -171,7 +171,8 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Editor for `jazz persona edit` and `jazz mcp add`, such as `code --wait`. Defaults to `$VISUAL`, then `$EDITOR`, then `vi`.",
   maxSubagentDepth:
     "How many levels of sub-agents may nest. Defaults to 3; 0 turns delegation off.",
-  maxLiveSubagents: "Sub-agents one run may have going at once. Defaults to 10.",
+  maxLiveSubagents:
+    "Sub-agents running at once in a run, or in a chat across its turns. Defaults to 10.",
   maxIterations:
     "Model rounds per top-level run. 0 = unlimited. Unset: unlimited in a terminal, 100 when unattended; `--max-iterations` wins. A user-visible warning fires at 50/70/90% of the cap.",
   maxSubagentIterations:

@@ -542,7 +542,7 @@ export interface ToolExecutionContext {
   readonly subagentDepth?: number;
   /** Nesting limit for this run, resolved once by the runner so a whole tree agrees. */
   readonly maxSubagentDepth?: number;
-  /** Sub-agents this run may have going at once. */
+  /** Sub-agents running at once under this run's supervisor, which a chat shares across turns. */
   readonly maxLiveSubagents?: number;
   /**
    * Callback to replace conversation messages with compacted versions.

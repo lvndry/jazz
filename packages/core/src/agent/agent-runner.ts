@@ -55,7 +55,7 @@ import {
 } from "@/core/spend/run-accounting";
 import type { RunOrigin } from "@/core/spend/sources";
 import type { AttachmentKind } from "@/core/types/attachment";
-import type { LLMConfig } from "@/core/types/config";
+import type { AppConfig, LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
@@ -429,6 +429,33 @@ const UNANSWERED_HISTORY_TOOL_RESULT =
  */
 function resolvePositiveCap(value: number | undefined): number | undefined {
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/**
+ * The limits a run hands its whole sub-agent tree, resolved once from config so every level
+ * agrees. `maxSubagentIterations` 0 means unlimited; unset falls back to unlimited when attended
+ * and the unattended default otherwise.
+ */
+export function resolveDelegationLimits(
+  appConfig: Pick<AppConfig, "maxSubagentDepth" | "maxLiveSubagents" | "maxSubagentIterations">,
+  requestedSubagentIterations: number | undefined,
+  attended: boolean,
+): {
+  readonly maxSubagentDepth: number;
+  readonly maxLiveSubagents: number;
+  readonly maxSubagentIterations: number;
+} {
+  return {
+    maxSubagentDepth: Math.max(
+      0,
+      Math.floor(appConfig.maxSubagentDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH),
+    ),
+    maxLiveSubagents: appConfig.maxLiveSubagents ?? DEFAULT_MAX_LIVE_SUBAGENTS,
+    maxSubagentIterations: resolveIterationCap(
+      requestedSubagentIterations ?? appConfig.maxSubagentIterations,
+      attended ? Infinity : DEFAULT_MAX_SUBAGENT_ITERATIONS,
+    ),
+  };
 }
 
 /**
@@ -983,16 +1010,7 @@ function initializeAgentRun(
         : {}),
       ...(options.outlivesTurn === true ? { outlivesTurn: true } : {}),
       subagentDepth: options.subagentDepth ?? 0,
-      maxSubagentDepth: Math.max(
-        0,
-        Math.floor(appConfig.maxSubagentDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH),
-      ),
-      maxLiveSubagents: appConfig.maxLiveSubagents ?? DEFAULT_MAX_LIVE_SUBAGENTS,
-      // 0 means unlimited for sub-agents too; the fallback is the attended/unattended default.
-      maxSubagentIterations: resolveIterationCap(
-        options.maxSubagentIterations ?? appConfig.maxSubagentIterations,
-        attended ? Infinity : DEFAULT_MAX_SUBAGENT_ITERATIONS,
-      ),
+      ...resolveDelegationLimits(appConfig, options.maxSubagentIterations, attended),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.offersShellEscape === true ? { offersShellEscape: true } : {}),
       onAutoApproveCommand:
