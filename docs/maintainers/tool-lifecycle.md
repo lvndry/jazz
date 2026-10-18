@@ -467,7 +467,7 @@ Tools are registered by category at startup, except MCP:
 | Sub Agents             | 6       | `spawn_subagent` `map_subagents` `list_subagents` `wait_subagents` `steer_subagent` `summarize_context` |
 | User Interaction       | 3       | `ask_user_question` `ask_file_picker` `ask_user_secret`                                                 |
 | Compositions           | 1       | `create_composition`                                                                                    |
-| **Total agent-facing** | **39**  | plus 7 hidden `execute_*` counterparts                                                                  |
+| **Total agent-facing** | **40**  | plus 7 hidden `execute_*` counterparts                                                                  |
 | **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section`: per agent                                              |
 | **MCP**                | dynamic | `mcp_<server>_<tool>`: per agent, connected lazily                                                      |
 

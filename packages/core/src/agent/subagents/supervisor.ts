@@ -316,11 +316,6 @@ export function createSubagentSupervisor(
         if (entry === undefined || FINISHED.has(entry.status)) {
           return;
         }
-        if (entry.status === "queued") {
-          entry.status = "running";
-          entry.startedAt = Date.now();
-          yield* signalChange;
-        }
         const fiber = yield* work.pipe(
           Effect.map((result) => finish(id, result)),
           Effect.onInterrupt(() =>
@@ -343,7 +338,10 @@ export function createSubagentSupervisor(
         }
       });
 
-    /** Start queued children while slots are free; a cancelled one is dropped from the queue. */
+    /**
+     * Start queued children while slots are free; a cancelled one is dropped from the queue. Each
+     * child's slot is taken here, before its fiber is forked, so the next pass counts it.
+     */
     const drainQueue = () => {
       while (!closing && queue.length > 0) {
         const next = queue[0]!;
@@ -356,6 +354,9 @@ export function createSubagentSupervisor(
           return;
         }
         queue.shift();
+        entry.status = "running";
+        entry.startedAt = Date.now();
+        signalChangeSync();
         Effect.runFork(next.begin);
       }
     };

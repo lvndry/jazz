@@ -269,6 +269,20 @@ describe("sub-agents the parent steers", () => {
     });
   });
 
+  it("refuses a map that would leave more than 100 sub-agents running or queued", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const inputs = (count: number) => Array.from({ length: count }, (_, index) => String(index));
+    expect(
+      (await call("map_subagents", { task: "t", inputs: inputs(90) }, supervisor, 2)).success,
+    ).toBe(true);
+    const refused = await call("map_subagents", { task: "t", inputs: inputs(11) }, supervisor, 2);
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("room for 10 more");
+    expect(supervisor.liveCount()).toBe(90);
+  });
+
   it("refuses to delegate in a run that cannot hold sub-agents", async () => {
     const result = await call("spawn_subagent", { task: "t" }, undefined);
     expect(result.success).toBe(false);

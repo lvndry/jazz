@@ -682,8 +682,10 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
 const INPUT_PLACEHOLDER = "{{input}}";
 
 /**
- * Most inputs one `map_subagents` call takes. Each becomes a child the result lists by agentId
- * and `wait_subagents` returns an answer for, so this bounds both.
+ * Most sub-agents running or queued at once after a `map_subagents` call, and so the most inputs
+ * one call takes. Queued children hold their briefs and run context until they start, so this
+ * bounds what repeated maps can pile up, as well as the agentIds a call lists and the answers
+ * `wait_subagents` returns.
  */
 const MAX_MAPPED_INPUTS = 100;
 
@@ -933,6 +935,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
 
     defineTool({
       name: "map_subagents",
+      companionTools: ["wait_subagents", "list_subagents", "steer_subagent"],
       disclosure: "private",
       description: `Run one brief over a list of inputs: one child per input, each with a fresh context and the same persona, limits and resultSchema. Write ${INPUT_PLACEHOLDER} in task where each input goes. Returns every agentId at once, in input order; children past this run's concurrency limit queue and start as earlier ones finish. Collect every answer with one wait_subagents call.`,
       parameters: mapSubagentsSchema,
@@ -949,6 +952,14 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           const { parentAgent, currentDepth, supervisor } = prepared;
           const maxLive = context.maxLiveSubagents ?? DEFAULT_MAX_LIVE_SUBAGENTS;
           const { inputs, ...shared } = args;
+          const room = Math.max(MAX_MAPPED_INPUTS, maxLive) - supervisor.liveCount();
+          if (inputs.length > room) {
+            return {
+              success: false,
+              result: null,
+              error: `${String(supervisor.liveCount())} sub-agents are already running or queued, leaving room for ${String(Math.max(0, room))} more. Call wait_subagents, or map fewer inputs.`,
+            };
+          }
           const label = args.name?.trim() || `Sub-Agent (${args.persona})`;
           const agentIds: string[] = [];
           for (const [index, input] of inputs.entries()) {
