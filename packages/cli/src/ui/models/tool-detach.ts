@@ -25,3 +25,18 @@ export function offersDetach(activity: ActivityState, canDetach: boolean, now: n
     (tool) => tool.classifying !== true && now - tool.startedAt >= DETACH_HINT_DELAY_MS,
   );
 }
+
+/**
+ * The periodic warning for a tool call that is still running. It names Ctrl+B only when
+ * `canDetach`, so the warning never advertises a key that would do nothing.
+ */
+export function stillRunningWarning(
+  toolName: string,
+  elapsedSeconds: number,
+  canDetach: boolean,
+): string {
+  const keys = canDetach
+    ? "press Ctrl+B to background or Esc twice to interrupt"
+    : "press Esc twice to interrupt";
+  return `Tool ${toolName} still running after ${elapsedSeconds}s (${keys})`;
+}

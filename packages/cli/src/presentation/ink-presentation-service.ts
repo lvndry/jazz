@@ -55,6 +55,7 @@ import {
   type ReceiptFacts,
 } from "@/cli/ui/models/interrupt";
 import { retryLine } from "@/cli/ui/models/retry";
+import { stillRunningWarning } from "@/cli/ui/models/tool-detach";
 import { terminalCellWidth } from "@/cli/ui/text/terminal-cells";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
@@ -1082,11 +1083,20 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (!this.documentLease()) return;
       if (!this.acc.activeTools.has(toolCallId)) return;
       const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
-      const text = `Tool ${toolName} still running after ${elapsedSeconds}s (press Esc twice to interrupt)`;
       if (this.streamTarget.kind === "ephemeral") {
-        store.appendEphemeral(this.streamTarget.regionId, text, "note");
+        // Ctrl+B detaches the parent run's batch, not this sub-agent's call.
+        store.appendEphemeral(
+          this.streamTarget.regionId,
+          stillRunningWarning(toolName, elapsedSeconds, false),
+          "note",
+        );
       } else {
-        store.printOutput({ type: "warn", message: text, timestamp: new Date() });
+        const canDetach = store.getSessionSnapshot().backgroundHandler !== null;
+        store.printOutput({
+          type: "warn",
+          message: stillRunningWarning(toolName, elapsedSeconds, canDetach),
+          timestamp: new Date(),
+        });
       }
       // Re-arm so multi-minute tools keep reassuring the user instead of
       // going silent after a single warning.
