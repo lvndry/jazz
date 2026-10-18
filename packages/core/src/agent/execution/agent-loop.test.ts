@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Duration, Effect, Fiber, FileSystem, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
@@ -48,12 +48,17 @@ import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import { SkillServiceTag } from "../../skills/skill-service";
 import { describeContextUsage, formatContextUsageReport } from "../context/context-usage";
 import type { RecursiveRunner } from "../context/summarizer";
-import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
+import { DEFAULT_TOKEN_COUNTER, ensureGptEncoders } from "../context/token-counter";
 import { PROTECTED_TOOL_CYCLES } from "../context/tool-result-clearing";
 import { readOffloadedToolResult } from "../context/tool-result-offload";
 import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 import { createSubagentSupervisor } from "../subagents/supervisor";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
+
+/** Token counts drive the context ladder, so measure with the real encoders rather than the estimate used while they load. */
+beforeAll(async () => {
+  await ensureGptEncoders();
+});
 
 // Shared mocks
 const mockLogger = {
