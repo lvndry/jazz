@@ -174,15 +174,22 @@ preview of each, sharing the space between them, with the id to read the whole a
 Each child has its own context window. Use `resultSchema`, a JSON Schema with root type
 `object`, to require a validated structured result.
 
+To run the same brief over many inputs, the parent calls `map_subagents` once with a `task`
+and up to 100 `inputs`. Each input becomes one child, and `{{input}}` in the task marks where
+it goes. Every child shares the persona, limits and `resultSchema`. Children past
+`maxLiveSubagents` wait as `queued` and start as earlier ones finish, so one `wait_subagents`
+call collects every answer, in input order.
+
 While children work, the parent can manage them:
 
-| Tool             | What it does                                                                                   |
-| ---------------- | ---------------------------------------------------------------------------------------------- |
-| `wait_subagents` | Waits until any or all of them finish, and returns their answers in one call                   |
-| `list_subagents` | Each child's status (running, paused, waiting on an approval, done), activity and spend so far |
-| `steer_subagent` | Sends a child new guidance, pauses it, resumes it or cancels it                                |
+| Tool             | What it does                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------------- |
+| `wait_subagents` | Waits until any or all of them finish, and returns their answers in one call                    |
+| `map_subagents`  | Starts one child per input from a single brief, queueing past the live limit                    |
+| `list_subagents` | Each child's status (queued, running, paused, waiting on an approval, done), activity and spend |
+| `steer_subagent` | Sends a child new guidance, pauses it, resumes it or cancels it                                 |
 
-An agent granted `spawn_subagent` gets these three with it. Guidance and pauses take effect
+An agent granted `spawn_subagent` gets these four with it. Guidance and pauses take effect
 before the child's next model call, and a paused child spends nothing. Cancelling stops it at
 once, with the tools and processes it started. A child that finishes is announced to the parent
 on its next step, and guidance a child finished too early to read is reported back as

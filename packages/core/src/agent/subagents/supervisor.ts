@@ -37,7 +37,7 @@ import type {
 import { retrieveInstruction, type FinishedSubagent } from "./results";
 
 export type SubagentStatus =
-  "running" | "paused" | "waiting-approval" | "completed" | "failed" | "cancelled";
+  "queued" | "running" | "paused" | "waiting-approval" | "completed" | "failed" | "cancelled";
 
 /** What the parent sees of one child. */
 export interface SubagentSnapshot {
@@ -125,7 +125,8 @@ interface Entry {
    * is charged before then, and the link holds the whole run's context alive.
    */
   run: RunLink | undefined;
-  readonly startedAt: number;
+  /** When it registered, then when it left the queue and began. */
+  startedAt: number;
   status: SubagentStatus;
   lastActivity: string | undefined;
   liveCostUSD: number;
@@ -165,6 +166,15 @@ export interface SubagentSupervisor {
   readonly start: <R>(
     id: string,
     work: Effect.Effect<ToolExecutionResult, never, R>,
+  ) => Effect.Effect<void, never, R>;
+  /**
+   * Start a registered child now when fewer than `maxRunning` are running, or queue it to start
+   * when one finishes. Queued children start in the order they were queued.
+   */
+  readonly startOrQueue: <R>(
+    id: string,
+    work: Effect.Effect<ToolExecutionResult, never, R>,
+    maxRunning: number,
   ) => Effect.Effect<void, never, R>;
   /** Every child's status, without answers. */
   readonly list: () => readonly SubagentSnapshot[];
@@ -258,6 +268,12 @@ export function createSubagentSupervisor(
       ? "Stopped when the conversation ended."
       : "Stopped when the parent run ended.";
     let spentUSD: () => number | undefined = () => undefined;
+    const queue: {
+      readonly id: string;
+      readonly begin: Effect.Effect<void>;
+      readonly maxRunning: number;
+    }[] = [];
+    let closing = false;
 
     const signalChange = Effect.gen(function* () {
       const previous = changed;
@@ -291,6 +307,58 @@ export function createSubagentSupervisor(
     });
 
     const isLive = (entry: Entry) => !FINISHED.has(entry.status);
+    const runningCount = () =>
+      [...entries.values()].filter((entry) => isLive(entry) && entry.status !== "queued").length;
+
+    const forkChild = <R>(id: string, work: Effect.Effect<ToolExecutionResult, never, R>) =>
+      Effect.gen(function* () {
+        const entry = entries.get(id);
+        if (entry === undefined || FINISHED.has(entry.status)) {
+          return;
+        }
+        if (entry.status === "queued") {
+          entry.status = "running";
+          entry.startedAt = Date.now();
+          yield* signalChange;
+        }
+        const fiber = yield* work.pipe(
+          Effect.map((result) => finish(id, result)),
+          Effect.onInterrupt(() =>
+            Effect.sync(() =>
+              finish(
+                id,
+                {
+                  success: false,
+                  result: null,
+                  error: entry.cancelReason ?? stoppedReason,
+                },
+                true,
+              ),
+            ),
+          ),
+          Effect.forkIn(scope),
+        );
+        if (!FINISHED.has(entry.status)) {
+          entry.fiber = fiber;
+        }
+      });
+
+    /** Start queued children while slots are free; a cancelled one is dropped from the queue. */
+    const drainQueue = () => {
+      while (!closing && queue.length > 0) {
+        const next = queue[0]!;
+        const entry = entries.get(next.id);
+        if (entry === undefined || entry.status !== "queued") {
+          queue.shift();
+          continue;
+        }
+        if (runningCount() >= next.maxRunning) {
+          return;
+        }
+        queue.shift();
+        Effect.runFork(next.begin);
+      }
+    };
 
     const finish = (id: string, result: ToolExecutionResult, cancelled = false) => {
       const entry = entries.get(id);
@@ -321,6 +389,7 @@ export function createSubagentSupervisor(
         Effect.runFork(releaseFinishedRun(run));
       }
       signalChangeSync();
+      drainQueue();
     };
 
     /**
@@ -509,32 +578,31 @@ export function createSubagentSupervisor(
         };
       },
 
-      start: (id, work) =>
+      start: (id, work) => forkChild(id, work),
+
+      startOrQueue: <R>(
+        id: string,
+        work: Effect.Effect<ToolExecutionResult, never, R>,
+        maxRunning: number,
+      ) =>
         Effect.gen(function* () {
           const entry = entries.get(id);
-          if (entry === undefined) {
+          if (entry === undefined || FINISHED.has(entry.status)) {
             return;
           }
-          const fiber = yield* work.pipe(
-            Effect.map((result) => finish(id, result)),
-            Effect.onInterrupt(() =>
-              Effect.sync(() =>
-                finish(
-                  id,
-                  {
-                    success: false,
-                    result: null,
-                    error: entry.cancelReason ?? stoppedReason,
-                  },
-                  true,
-                ),
-              ),
-            ),
-            Effect.forkIn(scope),
-          );
-          if (!FINISHED.has(entry.status)) {
-            entry.fiber = fiber;
+          const othersRunning = runningCount() - 1;
+          if (queue.length === 0 && othersRunning < maxRunning) {
+            yield* forkChild(id, work);
+            return;
           }
+          entry.status = "queued";
+          const context = yield* Effect.context<R>();
+          queue.push({
+            id,
+            begin: forkChild(id, work).pipe(Effect.provideContext(context)),
+            maxRunning,
+          });
+          yield* signalChange;
         }),
 
       list: () => [...entries.values()].map((entry) => snapshot(entry, false)),
@@ -685,22 +753,21 @@ export function createSubagentSupervisor(
           const children = [...entries.values()];
           // Outliving the turn, a paused child can still be resumed and a running one still
           // reports back, so the answer leaves both as they are.
-          const paused = outlivesRuns ? [] : children.filter((entry) => entry.status === "paused");
-          for (const entry of paused) {
-            yield* cancelEntry(
-              entry,
-              "Cancelled because the parent answered while this sub-agent was paused.",
-            );
-          }
-          if (!outlivesRuns) {
-            yield* Effect.forEach(
-              children.filter(isLive),
-              (entry) =>
-                entry.fiber === undefined
-                  ? Effect.void
-                  : Fiber.await(entry.fiber).pipe(Effect.asVoid),
-              { concurrency: "unbounded", discard: true },
-            );
+          const paused: Entry[] = [];
+          // Queued children start as running ones finish, so this waits on the queue too; one
+          // paused before it left the queue pauses once it starts, and is cancelled then.
+          while (!outlivesRuns) {
+            for (const entry of children.filter((child) => child.status === "paused")) {
+              paused.push(entry);
+              yield* cancelEntry(
+                entry,
+                "Cancelled because the parent answered while this sub-agent was paused.",
+              );
+            }
+            if (!children.some(isLive)) {
+              break;
+            }
+            yield* Deferred.await(changed);
           }
           const unread = children.filter(
             (entry) => FINISHED.has(entry.status) && !entry.collected && !entry.offeredAtAnswer,
@@ -736,6 +803,7 @@ export function createSubagentSupervisor(
 
       close: () =>
         Effect.gen(function* () {
+          closing = true;
           // Gathered first: a child finishing below lets go of its run.
           const runs = new Set<RunLink>(currentRun === undefined ? [] : [currentRun]);
           for (const entry of entries.values()) {

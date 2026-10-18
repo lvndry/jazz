@@ -236,6 +236,39 @@ describe("sub-agents the parent steers", () => {
     expect(refused.error).toContain("2 sub-agents are already running");
   });
 
+  it("maps one brief over every input, queueing past the live limit", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const mapped = await call(
+      "map_subagents",
+      { task: "Summarize {{input}} in one line.", inputs: ["a.md", "b.md", "c.md"], name: "doc" },
+      supervisor,
+      2,
+    );
+    expect(mapped.result).toMatchObject({ running: 2, queued: 1 });
+    expect(children.started.map((options) => options.userInput)).toEqual([
+      expect.stringContaining("Summarize a.md in one line."),
+      expect.stringContaining("Summarize b.md in one line."),
+    ]);
+
+    await Effect.runPromise(Deferred.succeed(children.answers[0]!, "a summary"));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(children.started).toHaveLength(3);
+    expect(children.started[2]?.userInput).toContain("Summarize c.md in one line.");
+
+    await Effect.runPromise(Deferred.succeed(children.answers[1]!, "b summary"));
+    await Effect.runPromise(Deferred.succeed(children.answers[2]!, "c summary"));
+    const waited = await call("wait_subagents", {}, supervisor);
+    expect(waited.result).toMatchObject({
+      subagents: [
+        { name: "doc 1", result: "a summary" },
+        { name: "doc 2", result: "b summary" },
+        { name: "doc 3", result: "c summary" },
+      ],
+    });
+  });
+
   it("refuses to delegate in a run that cannot hold sub-agents", async () => {
     const result = await call("spawn_subagent", { task: "t" }, undefined);
     expect(result.success).toBe(false);
