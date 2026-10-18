@@ -49,7 +49,9 @@ any of them is used up, the parent is told to finish with what it has instead of
 Sub-agents running at the same time share that remainder: each reports its spend after every
 step, and both the parent's and every child's cost check count what the others have spent so far,
 so together they stop at the parent's `maxCostUSD`. `maxTokens` is still counted per run: each
-child gets the parent's remaining tokens.
+child gets the parent's remaining tokens. A parent can tighten a child's time (`maxMinutes`) and
+cost (`maxCostUSD`) when it spawns it, but not its tokens: the cap counts every request's whole
+prompt, so a child's first step alone can use most of a small figure.
 
 ## Where to set them
 

@@ -117,45 +117,49 @@ function frameParentMessage(message: string): string {
 
 // ─── Sub-Agent Tool ──────────────────────────────────────────────────
 
-const spawnSubagentSchema = z.object({
-  task: z
-    .string()
-    .describe(
-      "Self-contained brief: every fact, path, constraint and the exact output shape the child needs.",
-    ),
-  name: z
-    .string()
-    .optional()
-    .describe("Short role label shown in the sub-agent panel, e.g. 'Curriculum coach'."),
-  persona: z
-    .enum(["default", "coder", "researcher"])
-    .optional()
-    .default("default")
-    .describe("coder for code and git, researcher for read-only investigation, default otherwise."),
-  reasoning: z
-    .enum(["disable", "minimal", "low", "medium", "high", "xhigh", "max"])
-    .optional()
-    .describe("Omit to inherit yours. Raise for hard analysis, lower for mechanical work."),
-  resultSchema: z
-    .record(z.string(), z.unknown())
-    .optional()
-    .describe(
-      "JSON Schema the child's result must validate against; you get its summary plus the structured result.",
-    ),
-  resultName: z
-    .string()
-    .min(1)
-    .max(120)
-    .optional()
-    .describe("Label for the structured result in prompts and errors."),
-  maxMinutes: z
-    .number()
-    .positive()
-    .max(MAX_REQUESTED_MINUTES)
-    .optional()
-    .describe("Wall-clock minutes the child may work before it writes its answer."),
-  maxCostUSD: z.number().positive().optional().describe("USD the child may spend."),
-});
+const spawnSubagentSchema = z
+  .object({
+    task: z
+      .string()
+      .describe(
+        "Self-contained brief: every fact, path, constraint and the exact output shape the child needs.",
+      ),
+    name: z
+      .string()
+      .optional()
+      .describe("Short role label shown in the sub-agent panel, e.g. 'Curriculum coach'."),
+    persona: z
+      .enum(["default", "coder", "researcher"])
+      .optional()
+      .default("default")
+      .describe(
+        "coder for code and git, researcher for read-only investigation, default otherwise.",
+      ),
+    reasoning: z
+      .enum(["disable", "minimal", "low", "medium", "high", "xhigh", "max"])
+      .optional()
+      .describe("Omit to inherit yours. Raise for hard analysis, lower for mechanical work."),
+    resultSchema: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        "JSON Schema the child's result must validate against; you get its summary plus the structured result.",
+      ),
+    resultName: z
+      .string()
+      .min(1)
+      .max(120)
+      .optional()
+      .describe("Label for the structured result in prompts and errors."),
+    maxMinutes: z
+      .number()
+      .positive()
+      .max(MAX_REQUESTED_MINUTES)
+      .optional()
+      .describe("Wall-clock minutes the child may work before it writes its answer."),
+    maxCostUSD: z.number().positive().optional().describe("USD the child may spend."),
+  })
+  .strict();
 
 type SpawnSubagentArgs = z.infer<typeof spawnSubagentSchema>;
 

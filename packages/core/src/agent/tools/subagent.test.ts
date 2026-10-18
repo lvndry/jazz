@@ -510,6 +510,23 @@ describe("spawn_subagent time budget", () => {
     }
   });
 
+  it("refuses a per-child token limit instead of spawning the child", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive");
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawnArgs(presentation, {
+        task: "do a thing",
+        persona: "default",
+        maxTokens: 500,
+      })) as { success: boolean };
+
+      expect(result.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("refuses a time limit too large to convert to milliseconds exactly", async () => {
     const spy = spyOn(AgentRunner, "runRecursive");
     try {
