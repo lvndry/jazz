@@ -18,6 +18,8 @@ const gridSchema = z.strictObject({
     z.array(z.strictObject({ chars: z.string(), width: z.number().int().min(0).max(2) })),
   ),
 });
+/** How long a resize may take to reach both the native buffer and the observed screen. */
+const RESIZE_SETTLE_TIMEOUT_MS = 5_000;
 const resultSchema = z.strictObject({ sequence: z.number().int().nonnegative(), grid: gridSchema });
 const gridText = (grid: TerminalGrid): string =>
   grid.cells.map((row) => row.map((cell) => cell.chars).join("")).join("\n");
@@ -162,18 +164,28 @@ test.skipIf(process.platform === "win32")(
           gridText(grid).includes(`answerMARK-${second}`) &&
           gridText(grid).includes("composerMARK"),
       );
-      let expected = await waitResult(await command("capture"));
+      // The repaint after a resize can reach the PTY after the native buffer is captured, so
+      // compare until both settle; only a mismatch that outlasts the timeout is a failure.
       const resizeStarted = performance.now();
-      while (expected.columns !== 100 || expected.rows !== 30) {
-        if (performance.now() - resizeStarted > 5_000)
-          throw new Error(
-            `Native PTY resize did not reach 100x30 (${expected.columns}x${expected.rows})`,
-          );
+      for (;;) {
+        const expected = await waitResult(await command("capture"));
+        const resized = expected.columns === 100 && expected.rows === 30;
+        await observer.drain();
+        const differences = resized ? compareTerminalGrids(expected, observer.captureGrid()) : [];
+        if (resized && differences.length === 0) {
+          break;
+        }
+        if (performance.now() - resizeStarted > RESIZE_SETTLE_TIMEOUT_MS) {
+          if (!resized) {
+            throw new Error(
+              `Native PTY resize did not reach 100x30 (${expected.columns}x${expected.rows})`,
+            );
+          }
+          expect(differences).toEqual([]);
+          break;
+        }
         await Bun.sleep(10);
-        expected = await waitResult(await command("capture"));
       }
-      await observer.drain();
-      expect(compareTerminalGrids(expected, observer.captureGrid())).toEqual([]);
       await command("exit");
       expect(await child.exited).toBe(0);
     } finally {
