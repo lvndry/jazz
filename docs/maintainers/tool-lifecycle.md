@@ -454,22 +454,22 @@ invents a value, and the `SSH_` block applies regardless. Implementation:
 
 Tools are registered by category at startup, except MCP:
 
-| Category               | Tools   | Examples                                                                                                |
-| ---------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
-| File Management        | 15      | `read_file` `write_file` `edit_file` `find` `grep` `read_pdf` `pdf_page_count` `mkdir` `rm` `mv` `cp`   |
-| Shell Commands         | 1       | `execute_command` (`unknown`; classified before the approval decision)                                  |
-| Web Search / Web Fetch | 2       | `web_search` `web_fetch`                                                                                |
-| HTTP                   | 1       | `http_request`                                                                                          |
-| Todo                   | 2       | `manage_todos` `list_todos`                                                                             |
-| Memory                 | 2       | `view_memory` `manage_memory`                                                                           |
-| Reminders              | 3       | `add_reminder` `list_reminders` `cancel_reminder`                                                       |
-| Context                | 3       | `context_info` `get_time` `retrieve_tool_result`                                                        |
-| Sub Agents             | 6       | `spawn_subagent` `map_subagents` `list_subagents` `wait_subagents` `steer_subagent` `summarize_context` |
-| User Interaction       | 3       | `ask_user_question` `ask_file_picker` `ask_user_secret`                                                 |
-| Compositions           | 1       | `create_composition`                                                                                    |
-| **Total agent-facing** | **40**  | plus 7 hidden `execute_*` counterparts                                                                  |
-| **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section`: per agent                                              |
-| **MCP**                | dynamic | `mcp_<server>_<tool>`: per agent, connected lazily                                                      |
+| Category               | Tools   | Examples                                                                                                                                       |
+| ---------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| File Management        | 15      | `read_file` `write_file` `edit_file` `find` `grep` `read_pdf` `pdf_page_count` `mkdir` `rm` `mv` `cp`                                          |
+| Shell Commands         | 1       | `execute_command` (`unknown`; classified before the approval decision)                                                                         |
+| Web Search / Web Fetch | 2       | `web_search` `web_fetch`                                                                                                                       |
+| HTTP                   | 1       | `http_request`                                                                                                                                 |
+| Todo                   | 2       | `manage_todos` `list_todos`                                                                                                                    |
+| Memory                 | 2       | `view_memory` `manage_memory`                                                                                                                  |
+| Reminders              | 3       | `add_reminder` `list_reminders` `cancel_reminder`                                                                                              |
+| Context                | 3       | `context_info` `get_time` `retrieve_tool_result`                                                                                               |
+| Sub Agents             | 8       | `spawn_subagent` `map_subagents` `list_subagents` `wait_subagents` `steer_subagent` `post_to_blackboard` `read_blackboard` `summarize_context` |
+| User Interaction       | 3       | `ask_user_question` `ask_file_picker` `ask_user_secret`                                                                                        |
+| Compositions           | 1       | `create_composition`                                                                                                                           |
+| **Total agent-facing** | **42**  | plus 7 hidden `execute_*` counterparts                                                                                                         |
+| **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section`: per agent                                                                                     |
+| **MCP**                | dynamic | `mcp_<server>_<tool>`: per agent, connected lazily                                                                                             |
 
 **MCP is lazy by design.** Servers are child processes; connecting six of them at boot makes
 `jazz` slow to start and hangs the CLI when one misbehaves. Instead, an agent's MCP tools are

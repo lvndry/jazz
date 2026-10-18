@@ -11,10 +11,11 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Agent } from "@/core/types";
-import type { ToolExecutionResult } from "@/core/types/tools";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { createSubagentTools } from "./subagent";
 import { AgentRunner } from "../agent-runner";
+import { createBlackboard } from "../subagents/blackboard";
 import { createSubagentSupervisor, type SubagentSupervisor } from "../subagents/supervisor";
 import { silentLogger } from "../test-logger";
 import type { AgentRunnerOptions } from "../types";
@@ -51,6 +52,27 @@ function tool(name: string) {
     throw new Error(`${name} not found`);
   }
   return found;
+}
+
+/** `call` with extra tool context. */
+async function callWith(
+  name: string,
+  args: Record<string, unknown>,
+  supervisor: SubagentSupervisor,
+  extra: Partial<ToolExecutionContext>,
+): Promise<ToolExecutionResult> {
+  const result = await Effect.runPromise(
+    (
+      tool(name).execute(args, {
+        agentId: parentAgent.id,
+        parentAgent,
+        subagents: supervisor,
+        ...extra,
+      }) as Effect.Effect<ToolExecutionResult, unknown, LoggerService | PresentationService>
+    ).pipe(Effect.provide(layer)),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  return result;
 }
 
 /** Run a tool, then let the children it forked start: forked fibers begin on a later macrotask. */
@@ -281,6 +303,15 @@ describe("sub-agents the parent steers", () => {
     expect(refused.success).toBe(false);
     expect(refused.error).toContain("room for 10 more");
     expect(supervisor.liveCount()).toBe(90);
+  });
+
+  it("hands a child its parent's blackboard", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const blackboard = createBlackboard();
+    await callWith("spawn_subagent", { task: "t" }, supervisor, { blackboard });
+    expect(children.started[0]?.blackboard).toBe(blackboard);
   });
 
   it("refuses to delegate in a run that cannot hold sub-agents", async () => {

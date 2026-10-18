@@ -182,18 +182,27 @@ call collects every answer, in input order.
 
 While children work, the parent can manage them:
 
-| Tool             | What it does                                                                                    |
-| ---------------- | ----------------------------------------------------------------------------------------------- |
-| `wait_subagents` | Waits until any or all of them finish, and returns their answers in one call                    |
-| `map_subagents`  | Starts one child per input from a single brief, queueing past the live limit                    |
-| `list_subagents` | Each child's status (queued, running, paused, waiting on an approval, done), activity and spend |
-| `steer_subagent` | Sends a child new guidance, pauses it, resumes it or cancels it                                 |
+| Tool                 | What it does                                                                                    |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `wait_subagents`     | Waits until any or all of them finish, and returns their answers in one call                    |
+| `map_subagents`      | Starts one child per input from a single brief, queueing past the live limit                    |
+| `list_subagents`     | Each child's status (queued, running, paused, waiting on an approval, done), activity and spend |
+| `steer_subagent`     | Sends a child new guidance, pauses it, resumes it or cancels it                                 |
+| `post_to_blackboard` | Posts a finding to the board the parent and every child share                                   |
+| `read_blackboard`    | Reads that board, oldest first, by topic or only posts newer than the last read                 |
 
-An agent granted `spawn_subagent` gets these four with it. Guidance and pauses take effect
+An agent granted `spawn_subagent` gets these six with it. Guidance and pauses take effect
 before the child's next model call, and a paused child spends nothing. Cancelling stops it at
 once, with the tools and processes it started. A child that finishes is announced to the parent
 on its next step, and guidance a child finished too early to read is reported back as
 `undeliveredMessages`.
+
+Children can share findings without going through the parent. The parent and every
+child in its tree read and write one blackboard: a child posts what a sibling could use
+(a located file, a ruled-out lead, a sourced fact) and checks the board before starting work
+another child may have done. In chat the board lasts for the conversation; elsewhere for the
+run. It keeps the latest 500 posts. A post written after its author read external content is
+marked untrusted, and so is the read that returns it.
 
 Delegation limits:
 

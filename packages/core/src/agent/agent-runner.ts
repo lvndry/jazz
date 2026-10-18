@@ -107,6 +107,7 @@ import { discoverProjectInstructions, type ProjectInstructionFile } from "./proj
 import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
 import { ToolActivityTracker } from "./run/tool-activity";
+import { createBlackboard } from "./subagents/blackboard";
 import { saveSubagentResult } from "./subagents/results";
 import { createSubagentSupervisor } from "./subagents/supervisor";
 import {
@@ -946,6 +947,7 @@ function initializeAgentRun(
       conversationId: actualConversationId,
       model,
       egressTaint: options.egressTaint ?? createEgressTaint(history),
+      blackboard: options.blackboard ?? createBlackboard(),
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
       ...(Option.isSome(pluginSession)
         ? {

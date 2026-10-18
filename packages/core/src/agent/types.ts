@@ -36,6 +36,7 @@ import type { Agent } from "../types";
 import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
 import type { MemoryOpportunityRecorder } from "./memory-opportunity-recorder";
 import type { createAgentRunMetrics, RunSpendReport } from "./metrics/agent-run-metrics";
+import type { Blackboard } from "./subagents/blackboard";
 import type { SubagentSupervisor } from "./subagents/supervisor";
 
 /**
@@ -373,6 +374,11 @@ export interface AgentRunnerOptions {
    * own, and its sub-agents end with it.
    */
   readonly subagents?: SubagentSupervisor;
+  /**
+   * The board shared with the run's parent and siblings: a sub-agent gets its parent's, and a
+   * chat passes one board for the whole conversation. Unset, the run starts an empty one.
+   */
+  readonly blackboard?: Blackboard;
   /**
    * Awaited at the start of each iteration, before `checkQueuedMessage` and the LLM call.
    * `spawn_subagent` sets it on a child so the parent can pause it there; a paused child makes
