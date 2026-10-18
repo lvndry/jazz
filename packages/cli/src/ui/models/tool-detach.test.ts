@@ -46,10 +46,14 @@ describe("offersDetach", () => {
 
 describe("stillRunningWarning", () => {
   test("offers Ctrl+B when the run can detach the call", () => {
-    expect(stillRunningWarning("execute_command", 30, true)).toContain("Ctrl+B");
+    expect(stillRunningWarning("execute_command", 30, true)).toBe(
+      "Tool execute_command still running after 30s (press Ctrl+B to background or Esc twice to interrupt)",
+    );
   });
 
   test("names only Esc when nothing would detach", () => {
-    expect(stillRunningWarning("execute_command", 30, false)).not.toContain("Ctrl+B");
+    expect(stillRunningWarning("execute_command", 30, false)).toBe(
+      "Tool execute_command still running after 30s (press Esc twice to interrupt)",
+    );
   });
 });
