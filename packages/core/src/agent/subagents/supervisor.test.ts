@@ -1,3 +1,5 @@
+/** Supervisor behavior checks; the GC retention assertion runs in a fresh process to isolate VM roots. */
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "bun:test";
 import { Deferred, Effect, Fiber } from "effect";
 import type { ToolExecutionResult } from "@/core/types/tools";
@@ -33,14 +35,6 @@ function startChild(
     );
     return hooks;
   });
-}
-
-/** Lets pending fibers settle off the stack, then forces a full collection. */
-async function collectGarbage() {
-  await Bun.sleep(0);
-  Bun.gc(true);
-  await Bun.sleep(0);
-  Bun.gc(true);
 }
 
 describe("SubagentSupervisor", () => {
@@ -481,22 +475,13 @@ describe("SubagentSupervisor that outlives runs", () => {
     expect(outcome.subagents[0]?.status).toBe("running");
   });
 
-  it("lets go of an answer once the parent has read it", async () => {
-    const supervisor = await Effect.runPromise(createSubagentSupervisor({ outlivesRuns: true }));
-    supervisor.attachRun({ chargeSpend: noCharge, saveResult: (child) => `saved-${child.id}` });
-    const answerRef = await Effect.runPromise(
-      Effect.gen(function* () {
-        const answer = { report: "the whole report" };
-        yield* finishedChild(supervisor, "digest", { success: true, result: answer });
-        yield* supervisor.wait([], "all", 5_000);
-        return new WeakRef(answer);
-      }),
-    );
-    await collectGarbage();
-
-    expect(answerRef.deref()).toBeUndefined();
-    const reread = await Effect.runPromise(supervisor.wait([], "all", 5_000));
-    expect(reread.subagents[0]).toMatchObject({ status: "completed", alreadyRead: true });
+  it("lets go of an answer once the parent has read it", () => {
+    const child = spawnSync(process.execPath, [`${import.meta.dir}/supervisor-gc.fixture.ts`], {
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    expect(child.stderr).toBe("");
+    expect(child.status).toBe(0);
   });
 
   it("stops a child the user cancels", async () => {
