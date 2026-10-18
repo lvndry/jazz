@@ -659,7 +659,9 @@ describe("AgentRunner", () => {
           Effect.provide(createToolRegistryLayer()),
           Effect.provideService(AgentConfigServiceTag, {
             ...mockAgentConfigService,
-            appConfig: Effect.succeed({ ...mockAppConfig, maxLiveSubagents: 2 }),
+            appConfig: mockAgentConfigService.appConfig.pipe(
+              Effect.map((config) => ({ ...config, maxLiveSubagents: 2 })),
+            ),
           }),
           Effect.provideService(PresentationServiceTag, {
             ...mockPresentationService,
