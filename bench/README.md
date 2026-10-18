@@ -54,6 +54,7 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 | activity-reducer         | `reduceEvent` fold over a recorded run                                                           | per stream event            |
 | mcp-schema               | `convertMCPSchemaToZod` per tool and per 40-tool server                                          | per MCP connection          |
 | ui-pipeline              | store delta to terminal paint in Ink/OpenTUI, pacing and resize                                  | per frame                   |
+| chat-transcript          | per-delta store + projection cost at turn 1 vs last, retained heap, per renderer                 | per stream delta            |
 | conversation-memory      | isolated renderer children, retained heap, post-clear heap, RSS and sampled transient cells      | long conversations          |
 | filesystem-config-models | real 100/1k/10k capped approval scans; configuration read/validate; model catalog decode/resolve | approval / startup          |
 | startup                  | source and compiled --version; fresh/warm compiled PTY home to accepted draft                    | per invocation              |

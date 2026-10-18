@@ -78,6 +78,12 @@ export interface TranscriptRow extends RenderRow {
 export const LIVE_REASONING_LINES = 3;
 const REASONING_INDENT = 2;
 const RECEIPT_GAP = 2;
+/**
+ * Chunks an update may re-index after the shared base before the base is rebuilt to include
+ * them. Bounds per-update indexing to the newest chunks; a rebuild costs the whole transcript
+ * once per this many new chunks.
+ */
+const REBASE_CHUNKS = 64;
 
 export interface TranscriptLayoutEpoch {
   readonly width: number;
@@ -1529,6 +1535,8 @@ export function createTranscriptLayout(
   let lastChunks: readonly Chunk[] = [];
   let lastEpoch: string | undefined;
   let lastIndex: LayoutIndex | undefined;
+  /** Position of a streaming answer in the last update's blocks, or -1. */
+  let lastStreamingAt = -1;
   let cachedRowCount = 0;
   const rowCache = new Map<Chunk, readonly TranscriptRow[]>();
   let disposed = false;
@@ -1636,50 +1644,87 @@ export function createTranscriptLayout(
 
   type LayoutIndex = TranscriptLayoutIndex & Record<typeof INDEX_CONTEXT, IndexContext>;
 
+  type BlockBounds = { first: number; last: number };
+  type PartSpan = { chunk: number; part: SourcePart };
+
+  /** Source lookups for a run of chunks; never changed once an index reads it. */
+  interface SourceLookup {
+    readonly blocks: Map<string, BlockBounds>;
+    readonly parts: Map<string, PartSpan[]>;
+  }
+
   interface IndexContext {
     current: Chunk[];
     prefix: Float64Array;
-    blocks: Map<string, { first: number; last: number }>;
-    parts: Map<string, { chunk: number; part: SourcePart }[]>;
+    /** Lookups for the first `baseChunks` chunks, shared by later indexes while they stay. */
+    base: SourceLookup;
+    baseChunks: number;
+    /** Lookups for the chunks after the base, rebuilt by every update. */
+    tail: SourceLookup;
+  }
+
+  function emptyLookup(): SourceLookup {
+    return { blocks: new Map(), parts: new Map() };
   }
 
   /**
-   * Records one chunk's row offsets and source lookups into a shared index
-   * context. Reused by the cold build and the incremental append/tail path
-   * so both produce identical prefix/blocks/parts entries.
+   * Records one chunk's row offset and source lookups. Shared by the cold build and the
+   * incremental tail so both produce identical prefix/blocks/parts entries.
    */
-  function indexChunk(chunk: Chunk, index: number, offset: number, context: IndexContext): number {
-    context.prefix[index + 1] = offset + chunk.length;
+  function indexChunk(
+    chunk: Chunk,
+    index: number,
+    prefix: Float64Array,
+    lookup: SourceLookup,
+  ): void {
+    const offset = prefix[index] ?? 0;
+    prefix[index + 1] = offset + chunk.length;
     for (const part of chunk.parts) {
       const first = offset + (part.rows[0] ?? 0);
       const last = offset + (part.rows[part.rows.length - 1] ?? 0);
-      const previous = context.blocks.get(part.blockId);
-      context.blocks.set(part.blockId, {
+      const previous = lookup.blocks.get(part.blockId);
+      lookup.blocks.set(part.blockId, {
         first: Math.min(previous?.first ?? first, first),
         last: Math.max(previous?.last ?? last, last),
       });
       const key = `${part.blockId}\0${part.partId}`;
-      const spans = context.parts.get(key) ?? [];
-      spans.push({ chunk: index, part });
-      context.parts.set(key, spans);
+      const spans = lookup.parts.get(key);
+      if (spans === undefined) lookup.parts.set(key, [{ chunk: index, part }]);
+      else spans.push({ chunk: index, part });
     }
-    return offset + chunk.length;
   }
 
-  function indexAll(context: IndexContext): void {
-    for (let index = 0; index < context.current.length; index++) {
-      const chunk = context.current[index];
+  function indexRange(
+    chunks: readonly Chunk[],
+    from: number,
+    to: number,
+    prefix: Float64Array,
+    lookup: SourceLookup,
+  ): void {
+    for (let index = from; index < to; index++) {
+      const chunk = chunks[index];
       if (chunk === undefined) continue;
-      indexChunk(chunk, index, context.prefix[index] ?? 0, context);
+      indexChunk(chunk, index, prefix, lookup);
     }
   }
 
   function indexFromContext(context: IndexContext): LayoutIndex {
     const current = context.current;
     const prefix = context.prefix;
-    const blocks = context.blocks;
-    const parts = context.parts;
+    const { base, tail } = context;
     const length = prefix[current.length] ?? 0;
+    const blockBounds = (blockId: string): BlockBounds | undefined => {
+      const early = base.blocks.get(blockId);
+      const late = tail.blocks.get(blockId);
+      if (early === undefined || late === undefined) return early ?? late;
+      return { first: Math.min(early.first, late.first), last: Math.max(early.last, late.last) };
+    };
+    const spansFor = (key: string): readonly PartSpan[] => {
+      const early = base.parts.get(key);
+      const late = tail.parts.get(key);
+      if (early === undefined || late === undefined) return early ?? late ?? [];
+      return [...early, ...late];
+    };
     let flattened: readonly TranscriptRow[] | undefined;
     function locate(position: number): number {
       let low = 0;
@@ -1708,10 +1753,10 @@ export function createTranscriptLayout(
           };
     }
     function sourceRow(target: RowSource): number | undefined {
-      const spans = parts.get(`${target.blockId}\0${target.partId}`);
+      const spans = spansFor(`${target.blockId}\0${target.partId}`);
       let nearest: number | undefined;
       let distance = Number.POSITIVE_INFINITY;
-      for (const span of spans ?? []) {
+      for (const span of spans) {
         const chunk = current[span.chunk];
         if (chunk === undefined) continue;
         let low = 0;
@@ -1742,7 +1787,7 @@ export function createTranscriptLayout(
           }
         }
       }
-      return nearest ?? blocks.get(target.blockId)?.first;
+      return nearest ?? blockBounds(target.blockId)?.first;
     }
     function window(top: number, count: number): readonly TranscriptRow[] {
       assertActive();
@@ -1772,8 +1817,11 @@ export function createTranscriptLayout(
       sourceAt,
       sourceRow,
       window,
-      hasPart: (source) => parts.has(`${source.blockId}\0${source.partId}`),
-      blockBounds: (blockId) => blocks.get(blockId),
+      hasPart: (source) => {
+        const key = `${source.blockId}\0${source.partId}`;
+        return base.parts.has(key) || tail.parts.has(key);
+      },
+      blockBounds,
       flatten: () => {
         assertActive();
         return (flattened ??= window(0, length));
@@ -1789,20 +1837,42 @@ export function createTranscriptLayout(
       return lastIndex;
     if (signature !== lastEpoch) {
       chunks = [];
+      lastBlocks = undefined;
       rowCache.clear();
       cachedRowCount = 0;
       forgetStreamingRows();
     }
-    if (!blocks.some((block) => block.kind === "agent" && block.streaming === true))
-      forgetStreamingRows();
+    const previousBlocks = lastBlocks ?? [];
+    const comparable = Math.min(previousBlocks.length, blocks.length);
+    let sharedBlocks = 0;
+    while (sharedBlocks < comparable && previousBlocks[sharedBlocks] === blocks[sharedBlocks]) {
+      sharedBlocks++;
+    }
+    // A chunk ending before the first changed block keeps its place: the block after it is
+    // unchanged too, so neither its tool-run grouping nor the next breathing row can differ.
+    let keptChunks = 0;
+    let keptBlocks = 0;
+    for (const chunk of chunks) {
+      if (keptBlocks + chunk.blocks.length >= sharedBlocks) break;
+      keptBlocks += chunk.blocks.length;
+      keptChunks++;
+    }
+    let streamingAt = lastStreamingAt < sharedBlocks ? lastStreamingAt : -1;
+    for (let index = sharedBlocks; streamingAt < 0 && index < blocks.length; index++) {
+      const block = blocks[index];
+      if (block?.kind === "agent" && block.streaming === true) streamingAt = index;
+    }
+    lastStreamingAt = streamingAt;
+    if (streamingAt < 0) forgetStreamingRows();
     const capturedEpoch: TranscriptLayoutEpoch = {
       ...epoch,
       colors: { ...epoch.colors },
       glyphs: { ...epoch.glyphs },
     };
-    const previous = new Map(chunks.map((chunk) => [chunk.blocks[0], chunk]));
-    const next: Chunk[] = [];
-    for (let index = 0; index < blocks.length;) {
+    const replaced = chunks.slice(keptChunks);
+    const previous = new Map(replaced.map((chunk) => [chunk.blocks[0], chunk]));
+    const next: Chunk[] = chunks.slice(0, keptChunks);
+    for (let index = keptBlocks; index < blocks.length;) {
       const head = blocks[index];
       if (head === undefined) break;
       const breathing = needsBreathingRow(head, blocks[index - 1]);
@@ -1822,51 +1892,42 @@ export function createTranscriptLayout(
           : measure(members, breathing, capturedEpoch),
       );
     }
-    const retained = new Set(next);
-    for (const [chunk, rows] of rowCache) {
-      if (!retained.has(chunk)) {
-        cachedRowCount -= rows.length;
-        rowCache.delete(chunk);
-      }
+    const retained = new Set(next.slice(keptChunks));
+    for (const chunk of replaced) {
+      if (retained.has(chunk)) continue;
+      const rows = rowCache.get(chunk);
+      if (rows === undefined) continue;
+      cachedRowCount -= rows.length;
+      rowCache.delete(chunk);
     }
     chunks = next;
     lastBlocks = blocks;
     lastEpoch = signature;
     const shared = Math.min(lastChunks.length, next.length);
-    let reusable = 0;
+    let reusable = Math.min(keptChunks, shared);
     while (reusable < shared && lastChunks[reusable] === next[reusable]) reusable++;
-    if (lastIndex === undefined || reusable === 0 || signature !== lastEpoch) {
-      const context: IndexContext = {
-        current: [...next],
-        prefix: new Float64Array(next.length + 1),
-        blocks: new Map(),
-        parts: new Map(),
-      };
-      indexAll(context);
-      lastIndex = indexFromContext(context);
+    const old = lastIndex?.[INDEX_CONTEXT];
+    const prefix = new Float64Array(next.length + 1);
+    let context: IndexContext;
+    if (
+      old !== undefined &&
+      reusable >= old.baseChunks &&
+      next.length - old.baseChunks <= REBASE_CHUNKS
+    ) {
+      prefix.set(old.prefix.subarray(0, old.baseChunks + 1), 0);
+      const tail = emptyLookup();
+      indexRange(next, old.baseChunks, next.length, prefix, tail);
+      context = { current: next, prefix, base: old.base, baseChunks: old.baseChunks, tail };
     } else {
-      const old = lastIndex[INDEX_CONTEXT];
-      const prefix = new Float64Array(next.length + 1);
-      prefix.set(old.prefix.subarray(0, reusable + 1), 0);
-      const blocks = new Map<string, { first: number; last: number }>();
-      const parts = new Map<string, { chunk: number; part: SourcePart }[]>();
-      const boundary = old.prefix[reusable] ?? 0;
-      for (const [key, value] of old.blocks) if (value.first < boundary) blocks.set(key, value);
-      for (const [key, value] of old.parts)
-        if (value.some((span) => span.chunk < reusable)) parts.set(key, value);
-      const context: IndexContext = {
-        current: [...next],
-        prefix,
-        blocks,
-        parts,
-      };
-      for (let index = reusable; index < next.length; index++) {
-        const chunk = next[index];
-        if (chunk === undefined) continue;
-        indexChunk(chunk, index, prefix[index] ?? 0, context);
-      }
-      lastIndex = indexFromContext(context);
+      // The chunks unchanged since the last update are the likeliest to stay; the rest is tail.
+      const baseChunks = old === undefined ? 0 : reusable;
+      const base = emptyLookup();
+      const tail = emptyLookup();
+      indexRange(next, 0, baseChunks, prefix, base);
+      indexRange(next, baseChunks, next.length, prefix, tail);
+      context = { current: next, prefix, base, baseChunks, tail };
     }
+    lastIndex = indexFromContext(context);
     lastChunks = next;
     return lastIndex;
   }
@@ -1878,6 +1939,7 @@ export function createTranscriptLayout(
       chunks = [];
       lastBlocks = undefined;
       lastIndex = undefined;
+      lastStreamingAt = -1;
       lastEpoch = undefined;
       rowCache.clear();
       cachedRowCount = 0;

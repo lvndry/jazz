@@ -1,7 +1,8 @@
 /** Proves classic Static promotion is a disposable, lossless document projection. */
 import type { PresentationDocument } from "@jazz/core/types/presentation-content";
 import { describe, expect, test } from "bun:test";
-import { appendDocumentStream, settleDocumentStream } from "../document";
+import { appendDocumentEntries, appendDocumentStream, settleDocumentStream } from "../document";
+import { UIStore } from "../store";
 import { createClassicProjection, type ClassicProjection } from "./terminal-output-adapter";
 
 const at = "2026-01-01T00:00:00.000Z";
@@ -119,5 +120,70 @@ describe("classic output projection", () => {
     const source = appendDocumentStream(initial(), "response", full, "answer", at);
     expect(text(project(source))).toBe(full);
     expect(text(project(settleDocumentStream(source)))).toBe(full);
+  });
+
+  test("re-projecting earlier turns keeps a settled answer's slices in place", () => {
+    const project = createClassicProjection();
+    let document = appendDocumentEntries(initial(), [
+      { id: "question-1", content: { kind: "user", text: "first" }, timestamp: at },
+      {
+        id: "thought-1",
+        content: { kind: "reasoning", text: "why", label: "Reasoning", durationMs: 10 },
+        timestamp: at,
+      },
+    ]);
+    const paragraphs = [0, 1, 2, 3].map(
+      (index) => `Paragraph ${String(index)} ${"words ".repeat(60)}ends.\n\n`,
+    );
+    for (const paragraph of paragraphs) {
+      document = appendDocumentStream(document, "response", paragraph, "answer-1", at);
+      project(document);
+    }
+    document = appendDocumentEntries(settleDocumentStream(document), [
+      { id: "question-2", content: { kind: "user", text: "second" }, timestamp: at },
+    ]);
+    const settled = project(document);
+    const ids = settled.entries.map((entry) => entry.id);
+    expect(ids.filter((id) => id.startsWith("answer-1:slice:")).length).toBeGreaterThan(1);
+    const expanded = project(document, 0, { expandedReasoningIds: new Set(["thought-1"]) });
+    expect(expanded.entries.map((entry) => entry.id)).toEqual(ids);
+    expect(text(expanded)).toBe(paragraphs.join(""));
+  });
+
+  test("printed history only grows, and later output lands after an expanded replay", async () => {
+    const store = new UIStore();
+    const seen: string[][] = [];
+    store.subscribeOutput(() => {
+      const ids = store.getOutputSnapshot().entries.map((entry) => entry.id);
+      const before = seen.at(-1) ?? [];
+      expect(ids.slice(0, before.length)).toEqual(before);
+      seen.push(ids);
+    });
+    const commit = (): Promise<void> => Promise.resolve();
+    store.printOutput({ type: "user", message: "question", timestamp: new Date(0) });
+    await commit();
+    const reasoning = store.openEphemeral("reasoning", "Reasoning", 4);
+    store.appendEphemeral(reasoning, "weighing it");
+    store.collapseEphemeral(reasoning, { durationMs: 100 });
+    store.appendStream("response", "The answer.");
+    store.finalizeStream();
+    store.settleTurnThought();
+    await commit();
+    expect(store.expandLastReasoning("append")).toBe(true);
+    await commit();
+    const replayAt = store
+      .getOutputSnapshot()
+      .entries.findIndex((entry) => entry.id.includes(":expanded:"));
+    expect(replayAt).toBeGreaterThan(0);
+    store.printOutput({ type: "user", message: "next question", timestamp: new Date(0) });
+    store.appendStream("response", "Next answer.");
+    store.finalizeStream();
+    await commit();
+    const entries = store.getOutputSnapshot().entries;
+    expect(entries[replayAt]?.id).toContain(":expanded:");
+    expect(entries.slice(replayAt + 1).map((entry) => entry.message)).toEqual([
+      "next question",
+      { kind: "agent", markdown: "Next answer." },
+    ]);
   });
 });

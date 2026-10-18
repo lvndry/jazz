@@ -45,16 +45,186 @@ export function outputFromEntry(entry: PresentationEntry): OutputEntryWithId {
   };
 }
 
+/**
+ * The presentation document split at the start of the current turn. Earlier turns are one array
+ * shared by every revision until the next user message; a streamed delta, a printed entry or a
+ * reasoning update copies only the current turn. Renderer projections are turn-local (reasoning
+ * and plan receipts fold within a turn), so they cache earlier turns by array identity and
+ * re-project the current turn alone. `entries` joins both on first read, once per revision, for
+ * durable readers.
+ */
+export class TranscriptDocument implements PresentationDocument {
+  readonly id: string;
+  readonly revision: number;
+  /** Every entry before the current turn's user message; never ends inside a turn. */
+  readonly earlierTurns: readonly PresentationEntry[];
+  /** From the last user message on, or every entry while there is none. */
+  readonly currentTurn: readonly PresentationEntry[];
+  readonly streamingId?: string;
+  private joined: readonly PresentationEntry[] | undefined;
+
+  constructor(
+    id: string,
+    revision: number,
+    earlierTurns: readonly PresentationEntry[],
+    currentTurn: readonly PresentationEntry[],
+    streamingId?: string,
+  ) {
+    this.id = id;
+    this.revision = revision;
+    this.earlierTurns = earlierTurns;
+    this.currentTurn = currentTurn;
+    if (streamingId !== undefined) {
+      this.streamingId = streamingId;
+    }
+  }
+
+  get entries(): readonly PresentationEntry[] {
+    if (this.joined === undefined) {
+      this.joined =
+        this.earlierTurns.length === 0
+          ? this.currentTurn
+          : this.currentTurn.length === 0
+            ? this.earlierTurns
+            : [...this.earlierTurns, ...this.currentTurn];
+    }
+    return this.joined;
+  }
+
+  /** Serializes as the plain document it stands for. */
+  toJSON(): PresentationDocument {
+    return {
+      id: this.id,
+      revision: this.revision,
+      entries: this.entries,
+      ...(this.streamingId === undefined ? {} : { streamingId: this.streamingId }),
+    };
+  }
+}
+
+function replaceAt(
+  entries: readonly PresentationEntry[],
+  index: number,
+  entry: PresentationEntry,
+): readonly PresentationEntry[] {
+  const replaced = entries.slice();
+  replaced[index] = entry;
+  return replaced;
+}
+
+function lastUserIndex(entries: readonly PresentationEntry[]): number {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.content.kind === "user") {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function documentWithTurn(
+  id: string,
+  revision: number,
+  earlierTurns: readonly PresentationEntry[],
+  entries: readonly PresentationEntry[],
+  streamingId: string | undefined,
+): TranscriptDocument {
+  const boundary = lastUserIndex(entries);
+  if (boundary <= 0) {
+    return new TranscriptDocument(id, revision, earlierTurns, entries, streamingId);
+  }
+  return new TranscriptDocument(
+    id,
+    revision,
+    [...earlierTurns, ...entries.slice(0, boundary)],
+    entries.slice(boundary),
+    streamingId,
+  );
+}
+
+export function createDocument(
+  id: string,
+  revision: number,
+  entries: readonly PresentationEntry[],
+  streamingId?: string,
+): TranscriptDocument {
+  return documentWithTurn(id, revision, [], entries, streamingId);
+}
+
+/** Accept any document shape; the store builds only TranscriptDocuments. */
+export function transcriptDocument(document: PresentationDocument): TranscriptDocument {
+  if (document instanceof TranscriptDocument) {
+    return document;
+  }
+  return createDocument(document.id, document.revision, document.entries, document.streamingId);
+}
+
+function withCurrentTurn(
+  document: TranscriptDocument,
+  currentTurn: readonly PresentationEntry[],
+  streamingId: string | undefined,
+): TranscriptDocument {
+  return documentWithTurn(
+    document.id,
+    document.revision + 1,
+    document.earlierTurns,
+    currentTurn,
+    streamingId,
+  );
+}
+
+export function lastDocumentEntry(document: PresentationDocument): PresentationEntry | undefined {
+  const source = transcriptDocument(document);
+  return source.currentTurn.at(-1) ?? source.earlierTurns.at(-1);
+}
+
+/** The entry with this id, searching the current turn (where live entries are) first. */
+export function findDocumentEntry(
+  document: PresentationDocument,
+  id: string,
+): PresentationEntry | undefined {
+  const source = transcriptDocument(document);
+  return (
+    source.currentTurn.find((entry) => entry.id === id) ??
+    source.earlierTurns.find((entry) => entry.id === id)
+  );
+}
+
+/** Replace the entry with the same id; one in an earlier turn costs a copy of earlier turns. */
+export function replaceDocumentEntry(
+  document: PresentationDocument,
+  entry: PresentationEntry,
+): PresentationDocument {
+  const source = transcriptDocument(document);
+  const turnIndex = source.currentTurn.findIndex((candidate) => candidate.id === entry.id);
+  if (turnIndex >= 0) {
+    return new TranscriptDocument(
+      source.id,
+      source.revision + 1,
+      source.earlierTurns,
+      replaceAt(source.currentTurn, turnIndex, entry),
+      source.streamingId,
+    );
+  }
+  const earlierIndex = source.earlierTurns.findIndex((candidate) => candidate.id === entry.id);
+  if (earlierIndex < 0) {
+    return document;
+  }
+  return new TranscriptDocument(
+    source.id,
+    source.revision + 1,
+    replaceAt(source.earlierTurns, earlierIndex, entry),
+    source.currentTurn,
+    source.streamingId,
+  );
+}
+
 export function appendDocumentEntries(
   document: PresentationDocument,
   entries: readonly PresentationEntry[],
 ): PresentationDocument {
   if (entries.length === 0) return document;
-  return {
-    ...document,
-    revision: document.revision + 1,
-    entries: [...document.entries, ...entries],
-  };
+  const source = transcriptDocument(document);
+  return withCurrentTurn(source, [...source.currentTurn, ...entries], source.streamingId);
 }
 
 export function appendDocumentStream(
@@ -65,10 +235,11 @@ export function appendDocumentStream(
   timestamp: string,
 ): PresentationDocument {
   if (delta.length === 0) return document;
-  const last = document.entries.at(-1);
+  const source = transcriptDocument(document);
+  const last = source.currentTurn.at(-1);
   const matching =
     last !== undefined &&
-    last.id === document.streamingId &&
+    last.id === source.streamingId &&
     (kind === "response" ? last.content.kind === "agent" : last.content.kind === "reasoning");
   if (matching && last !== undefined) {
     const content = last.content;
@@ -78,22 +249,26 @@ export function appendDocumentStream(
         : content.kind === "reasoning"
           ? { ...content, text: content.text + delta }
           : content;
-    return {
-      ...document,
-      revision: document.revision + 1,
-      entries: [...document.entries.slice(0, -1), { ...last, content: nextContent }],
-    };
+    return new TranscriptDocument(
+      source.id,
+      source.revision + 1,
+      source.earlierTurns,
+      replaceAt(source.currentTurn, source.currentTurn.length - 1, {
+        ...last,
+        content: nextContent,
+      }),
+      source.streamingId,
+    );
   }
   const content: PresentationContent =
     kind === "response"
       ? { kind: "agent", markdown: delta }
       : { kind: "reasoning", text: delta, label: "Reasoning" };
-  return {
-    ...document,
-    revision: document.revision + 1,
-    streamingId: nextId,
-    entries: [...document.entries, { id: nextId, content, timestamp }],
-  };
+  return withCurrentTurn(
+    source,
+    [...source.currentTurn, { id: nextId, content, timestamp }],
+    nextId,
+  );
 }
 
 /**
@@ -104,21 +279,27 @@ export function insertBeforeDocumentStream(
   document: PresentationDocument,
   entry: PresentationEntry,
 ): PresentationDocument {
-  const last = document.entries.at(-1);
-  if (last === undefined || last.id !== document.streamingId || last.content.kind !== "agent") {
-    return appendDocumentEntries(settleDocumentStream(document), [entry]);
+  const source = transcriptDocument(document);
+  const last = source.currentTurn.at(-1);
+  if (last === undefined || last.id !== source.streamingId || last.content.kind !== "agent") {
+    return appendDocumentEntries(settleDocumentStream(source), [entry]);
   }
-  return {
-    ...document,
-    revision: document.revision + 1,
-    entries: [...document.entries.slice(0, -1), entry, last],
-  };
+  return withCurrentTurn(
+    source,
+    [...source.currentTurn.slice(0, -1), entry, last],
+    source.streamingId,
+  );
 }
 
 export function settleDocumentStream(document: PresentationDocument): PresentationDocument {
   if (document.streamingId === undefined) return document;
-  const { streamingId: _streamingId, ...settled } = document;
-  return { ...settled, revision: document.revision + 1 };
+  const source = transcriptDocument(document);
+  return new TranscriptDocument(
+    source.id,
+    source.revision + 1,
+    source.earlierTurns,
+    source.currentTurn,
+  );
 }
 
 /** Transient renderer state; accepted source text is never paced or collapsed. */
@@ -129,14 +310,99 @@ export interface DocumentViewOptions {
   readonly streamReveal?: { readonly id: string; readonly length: number } | null;
 }
 
+/** Whether `next` holds the same entry objects as `previous`, then possibly more. */
+export function extendsEntries(
+  previous: readonly PresentationEntry[],
+  next: readonly PresentationEntry[],
+): boolean {
+  if (next.length < previous.length) {
+    return false;
+  }
+  for (let index = 0; index < previous.length; index += 1) {
+    if (previous[index] !== next[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Whether any of `ids` is in one snapshot of a view set and not the other. */
+export function membershipChanged(
+  ids: ReadonlySet<string>,
+  previous: ReadonlySet<string> | undefined,
+  next: ReadonlySet<string> | undefined,
+): boolean {
+  if (previous === next) {
+    return false;
+  }
+  for (const id of previous ?? []) {
+    if (ids.has(id) && next?.has(id) !== true) {
+      return true;
+    }
+  }
+  for (const id of next ?? []) {
+    if (ids.has(id) && previous?.has(id) !== true) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Projects earlier turns once and extends the result as turns end. They are re-projected whole
+ * only when an entry in them was replaced, or a view set changed membership for one of their ids.
+ */
+export function createEarlierTurnsProjection<Item, View extends object>(
+  project: (entries: readonly PresentationEntry[], view: View, start: number) => readonly Item[],
+  viewSets: (view: View) => readonly (ReadonlySet<string> | undefined)[],
+): (earlierTurns: readonly PresentationEntry[], view: View) => readonly Item[] {
+  let source: readonly PresentationEntry[] = [];
+  let ids = new Set<string>();
+  let items: readonly Item[] = [];
+  let sets: readonly (ReadonlySet<string> | undefined)[] = [];
+  return (earlierTurns, view) => {
+    const nextSets = viewSets(view);
+    const viewChanged = nextSets.some((set, index) => membershipChanged(ids, sets[index], set));
+    sets = nextSets;
+    if (earlierTurns === source && !viewChanged) {
+      return items;
+    }
+    if (!viewChanged && extendsEntries(source, earlierTurns)) {
+      const added = earlierTurns.slice(source.length);
+      items = [...items, ...project(added, view, items.length)];
+      for (const entry of added) {
+        ids.add(entry.id);
+      }
+    } else {
+      items = project(earlierTurns, view, 0);
+      ids = new Set(earlierTurns.map((entry) => entry.id));
+    }
+    source = earlierTurns;
+    return items;
+  };
+}
+
 /** Fold settled reasoning within a user turn without changing durable source facts. */
 export function projectDocumentEntries(
   document: PresentationDocument,
   options: DocumentViewOptions = {},
 ): readonly PresentationEntry[] {
+  return projectEntries(document.entries, options);
+}
+
+/**
+ * Fold settled reasoning within each user turn of `entries`. Folding never crosses a user
+ * entry, so projecting earlier turns and the current turn apart and joining them is the same as
+ * projecting the whole document.
+ */
+export function projectEntries(
+  entries: readonly PresentationEntry[],
+  options: DocumentViewOptions = {},
+): readonly PresentationEntry[] {
   const projected: Array<PresentationEntry | undefined> = [];
   let thoughtIndex: number | undefined;
-  for (const original of document.entries) {
+  let folded = false;
+  for (const original of entries) {
     let entry = original;
     const content = entry.content;
     if (content.kind === "user") thoughtIndex = undefined;
@@ -167,6 +433,7 @@ export function projectDocumentEntries(
       const previous = thoughtIndex === undefined ? undefined : projected[thoughtIndex];
       if (previous?.content.kind === "reasoning" && thoughtIndex !== undefined) {
         projected[thoughtIndex] = undefined;
+        folded = true;
         const prior = previous.content;
         entry = {
           ...entry,
@@ -185,6 +452,9 @@ export function projectDocumentEntries(
       thoughtIndex = projected.length;
     }
     projected.push(entry);
+  }
+  if (!folded) {
+    return projected as PresentationEntry[];
   }
   return projected.filter((entry): entry is PresentationEntry => entry !== undefined);
 }

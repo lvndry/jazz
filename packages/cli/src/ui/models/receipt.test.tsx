@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { renderToString } from "ink";
+import { receiptParts, receiptPlainText, summaryRestatesReason, toolReceipt } from "./receipt";
 import { reduceEvent, createAccumulator } from "../../presentation/activity-reducer";
 import { CLIRenderer } from "../../presentation/cli-renderer";
 import { stripAnsiCodes } from "../../utils/string-utils";
-import { blocksFrom } from "../fullscreen/bridge";
 import { createLayoutFixture } from "../fullscreen/testing/layout-fixture";
+import { blocksFrom } from "../fullscreen/transcript-projection";
 import { getGlyphs } from "../glyphs";
 import { OutputEntryView } from "../OutputEntryView";
-import { receiptParts, receiptPlainText, summaryRestatesReason, toolReceipt } from "./receipt";
 
 const { rows: layoutRows } = createLayoutFixture();
 
