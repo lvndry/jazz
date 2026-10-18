@@ -28,8 +28,8 @@ The duration cap interrupts work at its deadline.
 
 Use a cost cap to bound delegation spend. Token caps work without pricing data.
 
-Two more shape delegation itself: `maxSubagentIterations` (30) and `maxSubagentDepth` (3), where
-`0` disables delegation outright.
+Three more shape delegation itself: `maxSubagentIterations` (30), `maxLiveSubagents` (10), and
+`maxSubagentDepth` (3), where `0` disables delegation outright.
 
 ## What the cost includes
 

@@ -9,6 +9,7 @@ import { Cause, Effect, FileSystem, Option, Scope } from "effect";
 import {
   DEFAULT_MAX_ITERATIONS,
   DEFAULT_MAX_LLM_RETRIES,
+  DEFAULT_MAX_LIVE_SUBAGENTS,
   DEFAULT_MAX_SUBAGENT_DEPTH,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
   resolveIterationCap,
@@ -986,6 +987,7 @@ function initializeAgentRun(
         0,
         Math.floor(appConfig.maxSubagentDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH),
       ),
+      maxLiveSubagents: appConfig.maxLiveSubagents ?? DEFAULT_MAX_LIVE_SUBAGENTS,
       // 0 means unlimited for sub-agents too; the fallback is the attended/unattended default.
       maxSubagentIterations: resolveIterationCap(
         options.maxSubagentIterations ?? appConfig.maxSubagentIterations,

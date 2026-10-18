@@ -75,6 +75,7 @@ Run `jazz config validate` for the same diagnostics and a non-zero exit status, 
 | `maxIterations`         |       — | Reason-and-act cycles for a top-level run. Unset: unlimited in a terminal, `100` when unattended; warning at 50/70/90% of the cap |
 | `maxSubagentIterations` |       — | Reason-and-act cycles for each delegated child run. Unset: unlimited under an attended run, `30` when unattended                  |
 | `maxSubagentDepth`      |     `3` | Delegation levels below the top-level run; `0` disables delegation                                                                |
+| `maxLiveSubagents`      |    `10` | Sub-agents one run may have going at once                                                                                         |
 | `maxRetries`            |    `10` | Retries per model call after transient provider failures, shared by streaming and its fallback                                    |
 | `editor`                |         | Editor for `jazz persona edit` / `jazz mcp add`, e.g. `code --wait`; falls back to `$VISUAL`, `$EDITOR`, `vi`                     |
 | `maxCostUSD`            |   unset | Own and delegated model spend in US dollars                                                                                       |

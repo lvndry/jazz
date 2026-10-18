@@ -194,7 +194,8 @@ Delegation limits:
   child's allowlist, so delegation cannot widen reach.
 - **Depth stops at 3.** A subagent can spawn one, but the chain ends there. `maxSubagentDepth: 0`
   disables delegation outright.
-- **At most four at once,** each with **30 iterations** by default, against the parent's 100.
+- **At most ten at once** by default (`maxLiveSubagents`), each with **30 iterations** by default,
+  against the parent's 100.
 - **Cost rolls up and is shared.** Each child's spend is added to the parent's as it happens, so
   children running together stop at the parent's `maxCostUSD` instead of each spending the whole
   remainder. An unpriced child marks the total cost as unknown. A chat child that finishes after

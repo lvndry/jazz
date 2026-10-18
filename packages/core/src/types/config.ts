@@ -60,6 +60,8 @@ export interface AppConfig {
   readonly editor?: string;
   /** Sub-agent nesting levels allowed. Defaults to 3; 0 disables delegation. */
   readonly maxSubagentDepth?: number;
+  /** Sub-agents one run may have going at once. Defaults to 10. */
+  readonly maxLiveSubagents?: number;
   /** Iteration budget for a top-level run. Defaults to 100; --max-iterations wins. */
   readonly maxIterations?: number;
   /** Iteration budget for a sub-agent run. Defaults to 30. */

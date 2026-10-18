@@ -38,6 +38,9 @@ export const MAX_CONCURRENT_TOOLS = 10;
  */
 export const DEFAULT_MAX_SUBAGENT_DEPTH = 3;
 
+/** Sub-agents one run may have going at once when config sets no `maxLiveSubagents`. */
+export const DEFAULT_MAX_LIVE_SUBAGENTS = 10;
+
 /** Tool execution timeout in milliseconds (3 minutes) */
 export const TOOL_TIMEOUT_MS = 3 * 60 * 1000;
 

@@ -542,6 +542,8 @@ export interface ToolExecutionContext {
   readonly subagentDepth?: number;
   /** Nesting limit for this run, resolved once by the runner so a whole tree agrees. */
   readonly maxSubagentDepth?: number;
+  /** Sub-agents this run may have going at once. */
+  readonly maxLiveSubagents?: number;
   /**
    * Callback to replace conversation messages with compacted versions.
    * Used by summarize_context to actually update the executor's message array.
