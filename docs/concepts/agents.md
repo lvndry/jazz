@@ -181,7 +181,7 @@ A model the provider does not list is refused, and the refusal names the ones it
 
 To run the same brief over many inputs, the parent calls `map_subagents` once with a `task`
 and up to 100 `inputs`. Each input becomes one child, and `{{input}}` in the task marks where
-it goes. Every child shares the persona, limits and `resultSchema`. Children past
+it goes. Every child shares the persona, `model`, limits and `resultSchema`. Children past
 `maxLiveSubagents` wait as `queued` and start as earlier ones finish, so one `wait_subagents`
 call collects every answer, in input order.
 

@@ -348,6 +348,37 @@ describe("sub-agents the parent steers", () => {
     });
   });
 
+  it("runs every mapped child on the model the parent names", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const mapped = await call(
+      "map_subagents",
+      { task: "t {{input}}", inputs: ["a", "b"], model: "gpt-mini" },
+      supervisor,
+    );
+    expect(mapped.success).toBe(true);
+    expect(children.started.map((options) => options.agent.config.llm.model)).toEqual([
+      "gpt-mini",
+      "gpt-mini",
+    ]);
+  });
+
+  it("refuses a mapped batch on an unusable model before starting any child", async () => {
+    const children = mockChildren();
+    restore = () => children.spy.mockRestore();
+    const supervisor = await Effect.runPromise(createSubagentSupervisor());
+    const refused = await call(
+      "map_subagents",
+      { task: "t {{input}}", inputs: ["a", "b"], model: "gpt-embed" },
+      supervisor,
+    );
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("Use one of: gpt-test, gpt-mini");
+    expect(children.started).toHaveLength(0);
+    expect(supervisor.list()).toHaveLength(0);
+  });
+
   it("refuses a model its provider does not list, or one that cannot call tools", async () => {
     const children = mockChildren();
     restore = () => children.spy.mockRestore();

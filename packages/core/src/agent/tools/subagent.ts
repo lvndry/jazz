@@ -999,7 +999,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       name: "map_subagents",
       companionTools: ["wait_subagents", "list_subagents", "steer_subagent"],
       disclosure: "private",
-      description: `Run one brief over a list of inputs: one child per input, each with a fresh context and the same persona, limits and resultSchema. Write ${INPUT_PLACEHOLDER} in task where each input goes. Returns every agentId at once, in input order; children past this run's concurrency limit queue and start as earlier ones finish. Collect every answer with one wait_subagents call.`,
+      description: `Run one brief over a list of inputs: one child per input, each with a fresh context and the same persona, model, limits and resultSchema. Write ${INPUT_PLACEHOLDER} in task where each input goes. Returns every agentId at once, in input order; children past this run's concurrency limit queue and start as earlier ones finish. Collect every answer with one wait_subagents call.`,
       parameters: mapSubagentsSchema,
       hidden: false,
       peerGrantRequired: true,
