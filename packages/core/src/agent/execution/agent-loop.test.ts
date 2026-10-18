@@ -18,6 +18,7 @@ import { frameUntrusted } from "@/core/utils/untrusted-content";
 import {
   buildBudgetPressureMessage,
   buildCostBudgetPressureMessage,
+  buildPostClearMessage,
   buildPostCompactionMessage,
   buildTimeBudgetPressureMessage,
   buildTokenBudgetPressureMessage,
@@ -1187,6 +1188,17 @@ describe("executeAgentLoop", () => {
   it("appends the run progress even when there is no budget to measure against", () => {
     const message = buildPostCompactionMessage(postCompactionUsage(9_500, 0), "do not redo it");
     expect(message.content).toContain("do not redo it");
+  });
+
+  it("carries the context_info report for the history after tool results are cleared", () => {
+    const usage = postCompactionUsage(5_200, 10_000);
+    const message = buildPostClearMessage(usage);
+    expect(message?.role).toBe("user");
+    expect(message?.content).toContain(formatContextUsageReport(describeContextUsage(usage)));
+  });
+
+  it("sends no post-clear report when there is no budget to measure against", () => {
+    expect(buildPostClearMessage(postCompactionUsage(5_200, 0))).toBeNull();
   });
 
   it("returns no context nudge when there is no budget to measure against", () => {
