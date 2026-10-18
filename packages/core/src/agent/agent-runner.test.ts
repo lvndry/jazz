@@ -25,6 +25,9 @@ import {
 } from "./agent-runner";
 import { createEgressTaint } from "./execution/egress-taint";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
+import { createSubagentSupervisor } from "./subagents/supervisor";
+import { createSubagentTools } from "./tools/subagent";
+import { createToolRegistryLayer } from "./tools/tool-registry";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
@@ -611,6 +614,77 @@ describe("AgentRunner", () => {
   });
 
   describe("run", () => {
+    it("enforces the configured live limit on subagents requested by the model", async () => {
+      const supervisor = await Effect.runPromise(createSubagentSupervisor({ outlivesRuns: true }));
+      const children = spyOn(AgentRunner, "runRecursive").mockReturnValue(Effect.never);
+      let requests = 0;
+      const llm: LLMService = {
+        ...mockLlmService,
+        createChatCompletion: () => {
+          requests += 1;
+          return Effect.succeed({
+            id: `fanout-${requests}`,
+            model: "gpt-4",
+            content: requests === 1 ? "" : "done",
+            ...(requests === 1
+              ? {
+                  toolCalls: Array.from({ length: 3 }, (_, index) => ({
+                    id: `spawn-${index}`,
+                    type: "function" as const,
+                    function: {
+                      name: "spawn_subagent",
+                      arguments: JSON.stringify({ task: `investigation ${index}` }),
+                    },
+                  })),
+                }
+              : {}),
+          });
+        },
+      };
+      try {
+        const program = Effect.gen(function* () {
+          const registry = yield* ToolRegistryTag;
+          for (const tool of createSubagentTools()) yield* registry.registerTool(tool);
+          return yield* AgentRunner.run({
+            ...defaultOptions,
+            agent: {
+              ...mockAgent,
+              config: { ...mockAgent.config, tools: ["spawn_subagent"] },
+            },
+            stream: false,
+            maxIterations: 2,
+            subagents: supervisor,
+          });
+        }).pipe(
+          Effect.provide(createToolRegistryLayer()),
+          Effect.provideService(AgentConfigServiceTag, {
+            ...mockAgentConfigService,
+            appConfig: Effect.succeed({ ...mockAppConfig, maxLiveSubagents: 2 }),
+          }),
+          Effect.provideService(PresentationServiceTag, {
+            ...mockPresentationService,
+            openEphemeralRegion: () => Effect.succeed("child-region"),
+            appendEphemeralRegion: () => Effect.void,
+            collapseEphemeralRegion: () => Effect.void,
+            signalToolExecutionStarted: () => Effect.void,
+          }),
+        );
+        const response = await runWithTestLayers(program, { llm });
+        expect(supervisor.liveCount()).toBe(2);
+        const results = response.messages?.filter((message) => message.role === "tool") ?? [];
+        expect(results).toHaveLength(3);
+        expect(
+          results.filter((message) => message.content?.includes("already running")),
+        ).toHaveLength(1);
+        expect(
+          results.some((message) => message.content?.includes("2 sub-agents are already running")),
+        ).toBe(true);
+      } finally {
+        await Effect.runPromise(supervisor.close());
+        children.mockRestore();
+      }
+    });
+
     it("uses the vLLM model currently served for this run", async () => {
       const requestedModels: string[] = [];
       const preferredModels: string[] = [];
