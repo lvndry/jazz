@@ -349,6 +349,19 @@ export function describeChildBudget(budget: RemainingRunBudget): string {
   return `- Your budget for this task is ${limits.join(", ")}. Plan to finish well inside it; when it runs out you are stopped and asked for your answer with what you have.\n`;
 }
 
+const BLACKBOARD_BRIEF_RULE =
+  "- Sibling sub-agents may be working on the same goal: read_blackboard before work another agent may have done, and post_to_blackboard findings they could use\n";
+
+/** Whether the child can reach the run's blackboard: the board exists and its tools are granted. */
+function sharesBlackboard(context: ToolExecutionContext): boolean {
+  return (
+    context.blackboard !== undefined &&
+    (context.effectiveToolNames === undefined ||
+      (context.effectiveToolNames.has("read_blackboard") &&
+        context.effectiveToolNames.has("post_to_blackboard")))
+  );
+}
+
 /** What `runSubagent` needs from the handler that validated the spawn. */
 interface SubagentRun {
   readonly parentAgent: Agent;
@@ -421,7 +434,7 @@ Rules:
 - Stay within the scope of the task — do not take unrequested side actions
 - Be concise; the parent agent needs the output, not background narration
 - Your response will be returned directly to the parent agent
-${describeChildBudget(budget)}
+${sharesBlackboard(context) ? BLACKBOARD_BRIEF_RULE : ""}${describeChildBudget(budget)}
 TASK:
 ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSchema, args.resultName) : ""}`;
 
@@ -528,6 +541,7 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
         : {}),
       ...childRunAuthority(context),
       ...(childTaint !== undefined ? { egressTaint: childTaint.taint } : {}),
+      ...(context.blackboard !== undefined ? { blackboard: context.blackboard } : {}),
       subagentDepth: currentDepth + 1,
       ...(outlivesTurn ? { outlivesTurn: true } : {}),
       ...(context.offersShellEscape === true ? { offersShellEscape: true } : {}),
@@ -882,7 +896,14 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
   return [
     defineTool({
       name: "spawn_subagent",
-      companionTools: ["map_subagents", "wait_subagents", "list_subagents", "steer_subagent"],
+      companionTools: [
+        "map_subagents",
+        "wait_subagents",
+        "list_subagents",
+        "steer_subagent",
+        "post_to_blackboard",
+        "read_blackboard",
+      ],
       disclosure: "private",
       description: `Delegate a self-contained task to a child agent with a fresh context. Returns an agentId at once while the child works; collect its final answer with wait_subagents, and steer it with steer_subagent. Use it when the work would flood this context, for independent investigations run in parallel (start them all, then wait once), or for a specialist persona. Do small lookups and ordered edits to the same files yourself. The child gets at most your tools and the same model, and the time, cost and token limits you give it, within what you have left. Start as many in parallel as the work splits into; a spawn past this run's concurrency or nesting limit returns the limit.`,
       parameters: spawnSubagentSchema,

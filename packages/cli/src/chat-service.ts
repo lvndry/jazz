@@ -32,6 +32,7 @@ import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
 import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
+import { createBlackboard } from "@jazz/core/agent/subagents/blackboard";
 import {
   createSubagentSupervisor,
   subagentWakeMessage,
@@ -326,6 +327,7 @@ export class ChatServiceImpl implements ChatService {
       // the chat waits for the user starts a turn. They belong to one conversation: leaving it
       // or ending the session stops them.
       let subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
+      let blackboard = createBlackboard();
       const stopSubagents = Effect.gen(function* () {
         const live = subagents.liveCount();
         yield* subagents.close();
@@ -951,6 +953,7 @@ export class ChatServiceImpl implements ChatService {
               }
               yield* stopSubagents;
               subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
+              blackboard = createBlackboard();
               yield* attachTo(conversationId);
               conversationTitle = commandResult.newConversationTitle;
               savedRevision = commandResult.conversationRevision ?? EMPTY_CONVERSATION_REVISION;
@@ -1190,7 +1193,7 @@ export class ChatServiceImpl implements ChatService {
             ...(historyCompactedSinceLastTurn ? { historyCompacted: true } : {}),
             origin: deliveryTurn?.origin ?? { source: goalTurn === undefined ? "chat" : "goal" },
             // A goal cycle is charged as one run, so its sub-agents end with it.
-            ...(goalTurn === undefined ? { subagents } : {}),
+            ...(goalTurn === undefined ? { subagents, blackboard } : {}),
             onFailedTurn: (messages) => {
               failedTurnMessages = [...messages];
             },
