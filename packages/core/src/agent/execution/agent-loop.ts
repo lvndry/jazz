@@ -308,7 +308,7 @@ export function buildPostCompactionMessage(
 }
 
 /**
- * After the clear rung stubs older tool results, the model's last `context_info`
+ * After the clear rung shortens or stubs older tool results, the model's last `context_info`
  * figure still counts their full bodies. Without a fresh report it reads the stale
  * percentage and wraps up early, or keeps gathering on a budget it already spent.
  */
@@ -321,7 +321,7 @@ export function buildPostClearMessage(
   const report = formatContextUsageReport(describeContextUsage(usage));
   return {
     role: "user",
-    content: `[TOOL RESULTS CLEARED: Older tool results were replaced with stubs to free space. Each stub says how to get its result back.]\n\nContext after clearing (any earlier usage figure is out of date):\n${report}`,
+    content: `[TOOL RESULTS CLEARED: Some older tool results were shortened or replaced with placeholders to free space. A placeholder says how to get its result back.]\n\nContext after clearing (any earlier usage figure is out of date):\n${report}`,
   };
 }
 
