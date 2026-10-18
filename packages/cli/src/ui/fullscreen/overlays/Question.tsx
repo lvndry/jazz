@@ -62,7 +62,7 @@ const HINT_ROWS = 1;
 /** Rail, space. The gutter every row shares. */
 const GUTTER = 2;
 
-/** `10 ` — two digits plus a space, so the tenth visible row stays aligned. */
+/** `10 ` — two digits plus a space, so the tenth row stays aligned. */
 const NUMBER_COLUMN = 3;
 
 /** `[x] ` — the checkbox mark and the space after it. */
@@ -292,8 +292,9 @@ function windowStartForRows(heights: readonly number[], selected: number, rows: 
   return start;
 }
 
-function windowChoiceNumber(offset: number): string {
-  return `${String(offset + 1).padStart(NUMBER_COLUMN - 1)} `;
+/** A row's position in the whole list, so it matches the number key that picks it. */
+function choiceNumber(index: number): string {
+  return `${String(index + 1).padStart(NUMBER_COLUMN - 1)} `;
 }
 
 function takeVisible<Item>(
@@ -857,7 +858,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                         {isSelected ? `${glyphs.arrow} ` : " ".repeat(GUTTER)}
                       </text>
                       <text style={{ fg: THEME.muted, width: NUMBER_COLUMN, flexShrink: 0 }}>
-                        {windowChoiceNumber(offset)}
+                        {choiceNumber(index)}
                       </text>
                       {isSelected ? (
                         <WrappedCaretValue
@@ -914,7 +915,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
                             {isSelected && row === 0 ? `${glyphs.arrow} ` : " ".repeat(GUTTER)}
                           </text>
                           <text style={{ fg: THEME.muted, width: NUMBER_COLUMN, flexShrink: 0 }}>
-                            {row === 0 ? windowChoiceNumber(offset) : " ".repeat(NUMBER_COLUMN)}
+                            {row === 0 ? choiceNumber(index) : " ".repeat(NUMBER_COLUMN)}
                           </text>
                           {checkbox ? (
                             <text style={{ width: CHECKBOX_COLUMN, flexShrink: 0 }}>
