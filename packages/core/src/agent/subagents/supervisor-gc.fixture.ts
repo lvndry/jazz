@@ -19,10 +19,17 @@ const answerRef = await Effect.runPromise(
     return new WeakRef(answer);
   }),
 );
-await Bun.sleep(0);
-Bun.gc(true);
-await Bun.sleep(0);
-Bun.gc(true);
+/** GC may retain a weak target across early turns; allow a bounded number of distinct host tasks. */
+async function awaitCollection(reference: WeakRef<object>): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  do {
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    Bun.gc(true);
+    if (reference.deref() === undefined) return;
+  } while (Date.now() < deadline);
+}
+
+await awaitCollection(answerRef);
 assert.equal(answerRef.deref(), undefined, "the supervisor still retains a collected answer");
 const reread = await Effect.runPromise(supervisor.wait([], "all", 5_000));
 assert.equal(reread.subagents[0]?.status, "completed");

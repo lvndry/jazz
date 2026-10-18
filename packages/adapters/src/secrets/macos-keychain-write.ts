@@ -2,7 +2,7 @@
  * Writes a generic-password item through macOS Security.framework using the system JavaScript
  * bridge. The fixed script receives JSON on stdin, so neither process arguments nor the
  * `security -i` command parser carry credentials. New items trust the `security` reader as well
- * as their creating process. An explicit keychain path supports isolated integration tests.
+ * as the `osascript` writer explicitly. An explicit keychain path supports isolated integration tests.
  */
 import { Effect } from "effect";
 import type { KeyringCommandRunner } from "./keyring";
@@ -36,8 +36,13 @@ function run() {
   var trusted = Ref();
   status = $.SecTrustedApplicationCreateFromPath('/usr/bin/security', trusted);
   if (status !== 0) return String(status);
+  var writer = Ref();
+  status = $.SecTrustedApplicationCreateFromPath('/usr/bin/osascript', writer);
+  if (status !== 0) return String(status);
   var access = Ref();
-  status = $.SecAccessCreate($('Jazz secrets'), $([ObjC.castRefToObject(trusted[0])]), access);
+  status = $.SecAccessCreate($('Jazz secrets'), $([
+    ObjC.castRefToObject(trusted[0]), ObjC.castRefToObject(writer[0])
+  ]), access);
   if (status !== 0) return String(status);
   var item = {class: 'genp', svce: payload.service, acct: payload.account,
               v_Data: data, acls: ObjC.castRefToObject(access[0])};

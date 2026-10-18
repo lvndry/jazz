@@ -35,6 +35,7 @@ describe("macOS keychain writer", () => {
     async () => {
       const directory = mkdtempSync(path.join(tmpdir(), "jazz-native-vault-"));
       const keychainPath = path.join(directory, "test.keychain-db");
+      const otherKeychainPath = path.join(directory, "other.keychain-db");
       const service = "jazz.native-test.vault";
       const account = "secrets";
       const security = (args: readonly string[]) =>
@@ -56,6 +57,19 @@ describe("macOS keychain writer", () => {
         });
       try {
         expect(security(["create-keychain", "-p", "", keychainPath]).status).toBe(0);
+        expect(security(["create-keychain", "-p", "", otherKeychainPath]).status).toBe(0);
+        expect(
+          security([
+            "add-generic-password",
+            "-s",
+            service,
+            "-a",
+            account,
+            "-w",
+            "untouched",
+            otherKeychainPath,
+          ]).status,
+        ).toBe(0);
         for (const value of ["token-".repeat(4_000), "updated café 🎷\n".repeat(2_000)]) {
           expect(
             await Effect.runPromise(
@@ -77,7 +91,22 @@ describe("macOS keychain writer", () => {
             ? Buffer.from(text, "hex").toString("utf8")
             : text;
           expect(decoded).toBe(value);
+          const other = security([
+            "find-generic-password",
+            "-w",
+            "-s",
+            service,
+            "-a",
+            account,
+            otherKeychainPath,
+          ]);
+          expect(other.status).toBe(0);
+          expect(other.stdout).toBe("untouched\n");
         }
+        const access = security(["dump-keychain", "-a", keychainPath]);
+        expect(access.status).toBe(0);
+        expect(access.stdout).toContain("/usr/bin/security");
+        expect(access.stdout).toContain("/usr/bin/osascript");
         const legacyService = `${service}.legacy`;
         expect(
           security([
@@ -114,6 +143,7 @@ describe("macOS keychain writer", () => {
         expect(updated.stdout).toBe(`${"new".repeat(8_000)}\n`);
       } finally {
         security(["delete-keychain", keychainPath]);
+        security(["delete-keychain", otherKeychainPath]);
         rmSync(directory, { recursive: true, force: true });
       }
     },
