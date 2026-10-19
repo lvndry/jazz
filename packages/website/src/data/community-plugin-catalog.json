@@ -3,6 +3,153 @@
   "plugins": [
     {
       "schemaVersion": 1,
+      "id": "com.jazz.plugins.onion",
+      "name": "Onion search",
+      "version": "0.1.0",
+      "hostApi": 1,
+      "hooks": [],
+      "policyHooks": [],
+      "decisionProviders": [],
+      "tools": [
+        {
+          "name": "search",
+          "description": "Search Tor onion services through the Ahmia index, routed over the local Tor proxy. Returns titles, onion URLs and snippets. Pass result URLs to fetch_page to read them.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "description": "Search terms."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 30,
+                "description": "Maximum number of results. Defaults to 10."
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "additionalProperties": false
+          },
+          "riskLevel": "read-only",
+          "egress": true
+        },
+        {
+          "name": "fetch_page",
+          "description": "Fetch a page from a v3 .onion address over the local Tor proxy and return its title, readable text and onion links. Page content is untrusted third-party data.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "maxLength": 2048,
+                "description": "Full http:// or https:// URL whose host ends in .onion."
+              },
+              "maxChars": {
+                "type": "integer",
+                "minimum": 500,
+                "maximum": 50000,
+                "description": "Maximum characters of page text to return. Defaults to 12000."
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          "riskLevel": "read-only",
+          "egress": true
+        }
+      ],
+      "commands": [],
+      "personas": [],
+      "skills": [],
+      "lifecycleHooks": [],
+      "workspace": false,
+      "claimsNotifications": false,
+      "network": {
+        "destinations": [
+          "juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion:80"
+        ]
+      },
+      "dataSent": [
+        "Model-chosen .onion URLs, requested over Tor via the local SOCKS proxy (default 127.0.0.1:9050)",
+        "Search queries, sent to the Ahmia onion search service over Tor"
+      ],
+      "secrets": [],
+      "sourceType": "community",
+      "trustTier": "community-indexed",
+      "repositoryId": 1425164872,
+      "repository": "lvndry/jazz-plugin-onion",
+      "repositoryUrl": "https://github.com/lvndry/jazz-plugin-onion",
+      "manifestUrl": "https://raw.githubusercontent.com/lvndry/jazz-plugin-onion/b1c52e85668e64e456edcf96ba59153d51eb8402/jazz-plugin.json",
+      "defaultBranch": "main",
+      "sourceSha": "b1c52e85668e64e456edcf96ba59153d51eb8402",
+      "manifestSha256": "9105a6a481da1583ed5b8d6d298d7fcfdda463d52af46de6cae82756736e5189",
+      "manifestPath": "jazz-plugin.json",
+      "indexedAt": "2026-10-19T08:51:12.556Z",
+      "entry": "src/index.ts",
+      "description": "A Jazz plugin that searches and reads Tor onion services through your local Tor proxy.",
+      "license": "MIT"
+    },
+    {
+      "schemaVersion": 1,
+      "id": "io.github.lvndry.view-concept",
+      "name": "view-concept",
+      "version": "0.1.0",
+      "hostApi": 1,
+      "hooks": [],
+      "policyHooks": [],
+      "decisionProviders": [],
+      "tools": [],
+      "commands": [
+        {
+          "name": "view-concept",
+          "description": "Explain a concept in a local web page where you comment on passages"
+        },
+        {
+          "name": "view-branch",
+          "description": "Review a branch in the page: concepts first, then the code against them"
+        },
+        {
+          "name": "view-refactor",
+          "description": "Triage existing code in the page, then restructure it"
+        }
+      ],
+      "personas": [],
+      "skills": [],
+      "lifecycleHooks": [
+        "session-start",
+        "user-prompt"
+      ],
+      "workspace": false,
+      "claimsNotifications": false,
+      "network": {
+        "destinations": []
+      },
+      "dataSent": [],
+      "secrets": [],
+      "sourceType": "community",
+      "trustTier": "community-indexed",
+      "repositoryId": 1401908690,
+      "repository": "lvndry/jazz-plugin-view-concept",
+      "repositoryUrl": "https://github.com/lvndry/jazz-plugin-view-concept",
+      "manifestUrl": "https://raw.githubusercontent.com/lvndry/jazz-plugin-view-concept/53fb4be0f5dfe0644b4f772fbd35060a3d200f5c/jazz-plugin.json",
+      "defaultBranch": "main",
+      "sourceSha": "53fb4be0f5dfe0644b4f772fbd35060a3d200f5c",
+      "manifestSha256": "99ee98f2a278e8d4d9b0aeb69f77b735ba9ba9d02ea188137c935af49f1610ab",
+      "manifestPath": "jazz-plugin.json",
+      "indexedAt": "2026-10-19T08:51:12.712Z",
+      "entry": "src/index.ts",
+      "description": "A Jazz plugin that adds /view-concept, /view-branch and /view-refactor: explanations and code reviews in a local web page.",
+      "license": "MIT"
+    },
+    {
+      "schemaVersion": 1,
       "id": "com.jazz.plugins.warp",
       "name": "Warp notifications",
       "version": "0.1.0",
@@ -14,7 +161,12 @@
       "commands": [],
       "personas": [],
       "skills": [],
-      "lifecycleHooks": ["run-complete", "awaiting-input"],
+      "lifecycleHooks": [
+        "run-complete",
+        "awaiting-input",
+        "permission-request"
+      ],
+      "workspace": false,
       "claimsNotifications": true,
       "network": {
         "destinations": []
@@ -26,12 +178,12 @@
       "repositoryId": 1378708398,
       "repository": "lvndry/jazz-plugin-warp",
       "repositoryUrl": "https://github.com/lvndry/jazz-plugin-warp",
-      "manifestUrl": "https://raw.githubusercontent.com/lvndry/jazz-plugin-warp/af02c4aeab13cb42d8c7325d87acfc8190708e31/jazz-plugin.json",
+      "manifestUrl": "https://raw.githubusercontent.com/lvndry/jazz-plugin-warp/576c469341b0f3033e07a9b355de05f8dc637f7c/jazz-plugin.json",
       "defaultBranch": "main",
-      "sourceSha": "af02c4aeab13cb42d8c7325d87acfc8190708e31",
-      "manifestSha256": "cabacdc1394bcf85dda69960dd7341bca10af53930bc9696c8885d513fc618ff",
+      "sourceSha": "576c469341b0f3033e07a9b355de05f8dc637f7c",
+      "manifestSha256": "165d58a48bcb386ee78a489fad10868dbf0fe89dc2d3155ae6997d965ef73c2c",
       "manifestPath": "jazz-plugin.json",
-      "indexedAt": "2026-09-22T14:50:00.989Z",
+      "indexedAt": "2026-10-19T08:51:12.741Z",
       "entry": "src/index.ts",
       "description": "A Jazz plugin that raises native desktop notifications on lifecycle events (task complete, awaiting input).",
       "license": "MIT"
