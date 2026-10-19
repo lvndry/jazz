@@ -913,11 +913,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private printOutro(event: Extract<StreamEvent, { type: "complete" }>): void {
     const usage = event.response.usage;
     if (usage) {
-      // Push the prompt-side count to the persistent footer so users have
-      // visibility on context-window pressure between turns.
+      // The reply joins the history the next request sends, so the context it fills is
+      // prompt plus completion: a 15K-token file write would otherwise leave the meter
+      // that far below the count compaction triggers on.
       this.acc.lastPromptTokens = usage.promptTokens;
-      if (this.streamTarget.kind === "scrollback")
-        store.updateRunStats({ tokensInContext: usage.promptTokens });
+      if (this.streamTarget.kind === "scrollback") {
+        store.updateRunStats({ tokensInContext: usage.promptTokens + usage.completionTokens });
+      }
       store.addSessionUsage({
         promptTokens: usage.promptTokens,
         completionTokens: usage.completionTokens,

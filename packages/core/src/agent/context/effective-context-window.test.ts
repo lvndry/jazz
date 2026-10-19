@@ -37,6 +37,37 @@ describe("resolveEffectiveContextWindow", () => {
     expect(effective).toMatchObject({ tokens: 65536, source: "server" });
   });
 
+  it("uses vLLM's served window over a smaller hosted listing of the same model", () => {
+    expect(
+      resolveEffectiveContextWindow({
+        provider: "vllm",
+        modelMaxTokens: 120000,
+        serverContextWindow: 262144,
+      }),
+    ).toMatchObject({ tokens: 262144, source: "server" });
+  });
+
+  it("caps a vLLM pin at the served window, not a smaller hosted listing", () => {
+    expect(
+      resolveEffectiveContextWindow({
+        provider: "vllm",
+        modelMaxTokens: 120000,
+        pinnedContextWindow: 200000,
+        serverContextWindow: 262144,
+      }),
+    ).toMatchObject({ tokens: 200000, source: "pinned" });
+  });
+
+  it("uses llama-server's reported window over a smaller hosted listing", () => {
+    expect(
+      resolveEffectiveContextWindow({
+        provider: "llamacpp",
+        modelMaxTokens: 120000,
+        serverContextWindow: 262144,
+      }),
+    ).toMatchObject({ tokens: 262144, source: "server" });
+  });
+
   it("caps vLLM accounting at its served limit even when numCtx is higher", () => {
     const effective = resolveEffectiveContextWindow({
       provider: "vllm",

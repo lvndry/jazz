@@ -299,7 +299,7 @@ below also runs), it adds latency mid-run, and a summary is lossy: a detail the 
 might not survive. Mitigations:
 
 - **`llm.summarizerModel` is configurable per agent.** Point compaction at a cheap fast model while the main agent runs an expensive one. Falls back to the agent's own model, with a warning if the configured value is unparseable.
-- **It's visible.** You get a `Context window ~80% full: auto-compacting…` warning, then `Compacted 64 → 12 messages (saved ~48000 tokens)`. Never silent.
+- **It's visible.** You get a `Context window ~83% full (~100,046 of 120,000 tokens): auto-compacting…` warning, then `Compacted 64 → 12 messages (saved ~48000 tokens)`. Never silent.
 - **You can force it.** `/compact` in chat, or the `summarize_context` tool, which the agent can call itself when it knows it's about to go deep. Both go through `Summarizer.compact`, the same path automatic compaction takes: recent messages kept, the earlier summary merged, a journal entry written. They differ from it only in when they run.
 - **It's skipped when pointless.** If there's nothing in the middle worth summarizing, the messages come back untouched, with no "auto-compacting" notice, and the loop trims instead.
 - **A bad summary never replaces history.** An empty summary, or one the summarizer model cut off at its output limit, is refused and the original messages stay.
@@ -424,11 +424,14 @@ An unpinned Ollama agent gets a warning at run start rather than a silent assump
 because Ollama exposes a loaded model's window on `/api/ps` but has no endpoint for the
 server default before anything is loaded.
 
-The catalog is no help here at all: models.dev carries no `ollama`, `llamacpp`, `vllm`, or `sglang` provider,
-so a local model resolves to the 128k unknown-model placeholder rather than to a real
-maximum. That placeholder is never treated as a ceiling: a pinned window above it is
-honoured, because the user pinned it and configured the server to serve it. Only a
-_genuinely known_ maximum caps a runtime window.
+The catalog says nothing reliable about a local server. models.dev carries no `ollama`,
+`llamacpp`, `vllm`, or `sglang` provider, so a local model either resolves to the 128k
+unknown-model placeholder or matches a hosted listing of the same weights by name. Those
+listings disagree with each other: `qwen3.8-27b` appears at 262144 on most hosts and at
+120000 on one. So a window the server reports is never capped by the catalog: vLLM serving
+262144 is accounted at 262144. The catalog maximum only caps a `numCtx` pin the server has
+not confirmed, and the placeholder never caps anything: a pinned window above it is
+honoured, because the user pinned it and configured the server to serve it.
 
 ### The per-agent ceiling
 

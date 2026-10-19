@@ -1174,6 +1174,32 @@ describe("InkStreamingRenderer", () => {
   });
 
   describe("metrics outro", () => {
+    test("counts the reply in the context meter, since the next request sends it", () => {
+      const renderer = new InkStreamingRenderer(
+        "TestAgent",
+        true,
+        { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+        { textBufferMs: 0 },
+      );
+      try {
+        emitStreamStart(renderer);
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "complete",
+            response: {
+              ...completeResponse(""),
+              usage: { promptTokens: 82_347, completionTokens: 15_446, totalTokens: 97_793 },
+            },
+            totalDurationMs: 50,
+            metrics: { firstTokenLatencyMs: 10 },
+          }),
+        );
+        expect(store.getRunStatsSnapshot().tokensInContext).toBe(97_793);
+      } finally {
+        Effect.runSync(renderer.reset());
+      }
+    });
+
     test("closes a multi-step turn with one receipt, not one per model request", () => {
       const renderer = new InkStreamingRenderer(
         "TestAgent",
