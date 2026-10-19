@@ -63,10 +63,14 @@ function positiveTokenCount(value: number | undefined): number | undefined {
 
 /**
  * Resolve the context window to account against. Cloud providers always get their
- * advertised window; local providers get the smaller runtime window whenever one is
- * known. A runtime window is capped by the model maximum only when that maximum is
- * genuinely known — capping a deliberate `num_ctx` against the unknown-model
- * placeholder would understate the window the user configured the server to serve.
+ * advertised window; local providers get the runtime window whenever one is known.
+ *
+ * A window the server reports is what it serves, so nothing caps it. The model
+ * maximum for a local model comes from some hosted listing of the same weights on
+ * models.dev, and those disagree with each other and with the local server (one host
+ * lists a 262K model at 120K). It only caps a `num_ctx` pin the server never
+ * confirmed, and only when that maximum is known at all: capping against the
+ * unknown-model placeholder would understate the window the user configured.
  */
 export function resolveEffectiveContextWindow(
   input: EffectiveContextWindowInput,
@@ -118,7 +122,7 @@ function resolveRuntimeContextWindow(
     if (input.provider === "vllm" || input.provider === "sglang") {
       const server = positiveTokenCount(input.serverContextWindow);
       return {
-        tokens: capToModelMax(server !== undefined ? Math.min(pinned, server) : pinned),
+        tokens: server !== undefined ? Math.min(pinned, server) : capToModelMax(pinned),
         source: "pinned",
         ...advertised,
       };
@@ -128,7 +132,7 @@ function resolveRuntimeContextWindow(
 
   const server = positiveTokenCount(input.serverContextWindow);
   if (server !== undefined) {
-    return { tokens: capToModelMax(server), source: "server", ...advertised };
+    return { tokens: server, source: "server", ...advertised };
   }
 
   return {

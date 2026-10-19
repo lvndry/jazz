@@ -130,7 +130,7 @@ export function executeWithStreaming(
     const strategy: CompletionStrategy = {
       shouldShowReasoning,
 
-      getCompletion(currentMessages, _iteration, toolsAllowed) {
+      getCompletion(currentMessages, _iteration, toolsAllowed, contextWindow) {
         return Effect.gen(function* () {
           // Reset for this iteration
           yield* Ref.set(completionRef, undefined);
@@ -191,7 +191,9 @@ export function executeWithStreaming(
                   if (isModelOutputEvent(event)) {
                     yield* Ref.set(outputStartedRef, true);
                   }
-                  yield* renderer.handleEvent(event);
+                  yield* renderer.handleEvent(
+                    event.type === "stream_start" ? { ...event, contextWindow } : event,
+                  );
                   if (event.type === "text_chunk") {
                     yield* Ref.set(textAccumulatorRef, event.accumulated);
                   }

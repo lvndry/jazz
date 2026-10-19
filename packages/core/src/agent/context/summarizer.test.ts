@@ -139,12 +139,15 @@ const mockPresentationService: PresentationService = {
 };
 
 // Create a mock layer for testing
-function createTestLayer(overrides?: { readonly llm?: LLMService }) {
+function createTestLayer(overrides?: {
+  readonly llm?: LLMService;
+  readonly presentation?: PresentationService;
+}) {
   return Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, mockLogger),
     Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
     Layer.succeed(LLMServiceTag, overrides?.llm ?? mockLLMService),
-    Layer.succeed(PresentationServiceTag, mockPresentationService),
+    Layer.succeed(PresentationServiceTag, overrides?.presentation ?? mockPresentationService),
   );
 }
 
@@ -656,6 +659,50 @@ describe("Summarizer", () => {
       );
 
       expect(result.kind).toBe("not-needed");
+    });
+
+    it("reports the measured usage in the auto-compacting warning, not the threshold", async () => {
+      const warnings: string[] = [];
+      const presentation: PresentationService = {
+        ...mockPresentationService,
+        presentWarning: (_agentName, message) =>
+          Effect.sync(() => {
+            warnings.push(message);
+          }),
+      };
+      const filler = "x ".repeat(200);
+      const messages: ConversationMessages = [
+        { role: "system", content: "You are an assistant" },
+        { role: "user", content: `Review this PR. ${filler}` },
+        ...Array.from({ length: 20 }, (_, index) => ({
+          role: "assistant" as const,
+          content: `Findings for file ${index}. ${filler}`,
+        })),
+      ];
+      const maxTokens = 500;
+
+      await Effect.runPromise(
+        Summarizer.compactIfNeeded(
+          messages,
+          createMockAgent(),
+          "conv-1",
+          createMockRecursiveRunner("Summary."),
+          maxTokens,
+        ).pipe(Effect.provide(createTestLayer({ presentation }))) as Effect.Effect<
+          AutoCompaction,
+          never,
+          never
+        >,
+      );
+
+      const warning = warnings.find((message) => message.includes("auto-compacting"));
+      const match = warning?.match(/~(\d+)% full \(~([\d,]+) of ([\d,]+) tokens\)/);
+      expect(match).not.toBeNull();
+      const [, percent, current, max] = match!;
+      const currentTokens = Number(current!.replaceAll(",", ""));
+      expect(Number(max!.replaceAll(",", ""))).toBe(maxTokens);
+      expect(currentTokens).toBeGreaterThan(maxTokens * 0.8);
+      expect(Number(percent)).toBe(Math.round((currentTokens / maxTokens) * 100));
     });
 
     it("keeps a user-role message after compacting a single-shot tool-call run", async () => {

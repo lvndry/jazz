@@ -639,7 +639,7 @@ export const Summarizer = {
 
       yield* presentationService.presentWarning(
         agent.name,
-        `Context window ~${Math.round(compactThresholdRatio * 100)}% full of ${maxTokens.toLocaleString()} tokens: auto-compacting conversation history...`,
+        `Context window ~${Math.round((currentTokens / maxTokens) * 100)}% full (~${currentTokens.toLocaleString()} of ${maxTokens.toLocaleString()} tokens): auto-compacting conversation history...`,
       );
 
       const attempt = yield* Effect.result(
