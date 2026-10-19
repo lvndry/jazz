@@ -168,7 +168,7 @@ describe("InkStreamingRenderer", () => {
           type: "stream_start",
           provider: "child-provider",
           model: "child-model",
-          pinnedContextWindow: 900,
+          contextWindow: 900,
           timestamp: 0,
         }),
       );
@@ -1174,6 +1174,20 @@ describe("InkStreamingRenderer", () => {
   });
 
   describe("metrics outro", () => {
+    test("shows the run's resolved window as the meter's denominator", () => {
+      const renderer = createRenderer();
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "stream_start",
+          provider: "vllm",
+          model: "qwen3.8-27b",
+          contextWindow: 262_144,
+          timestamp: 0,
+        }),
+      );
+      expect(store.getRunStatsSnapshot().maxContextTokens).toBe(262_144);
+    });
+
     test("counts the reply in the context meter, since the next request sends it", () => {
       const renderer = new InkStreamingRenderer(
         "TestAgent",

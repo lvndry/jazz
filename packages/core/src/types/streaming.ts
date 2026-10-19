@@ -31,11 +31,10 @@ export type StreamEvent =
       model: string;
       timestamp: number;
       /**
-       * `num_ctx` sent to a local server for this request. It is the window the
-       * server will honour, so consumers showing context usage must prefer it
-       * over the model's advertised maximum.
+       * The context window this run accounts against, the same number compaction
+       * uses. Consumers showing context usage display it as the denominator.
        */
-      pinnedContextWindow?: number;
+      contextWindow?: number;
     }
   | {
       type: "complete";

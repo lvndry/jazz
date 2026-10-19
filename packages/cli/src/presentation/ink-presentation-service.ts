@@ -5,7 +5,6 @@
  * the Ink UI is active. See cli-renderer.ts for the non-Ink fallback path.
  */
 
-import { resolveEffectiveContextWindow } from "@jazz/core/agent/context/effective-context-window";
 import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
@@ -654,8 +653,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.seenLength = 0;
         this.hasStreamedText = false;
         if (this.streamTarget.kind === "scrollback") {
-          store.updateRunStats({ provider: event.provider, model: event.model });
-          this.resolveContextWindow(event.provider, event.model, event.pinnedContextWindow);
+          store.updateRunStats({
+            provider: event.provider,
+            model: event.model,
+            ...(event.contextWindow !== undefined && { maxContextTokens: event.contextWindow }),
+          });
         }
       }
 
@@ -1032,51 +1034,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
         /* pricing unavailable */
       });
     return undefined;
-  }
-
-  /**
-   * Resolve the context window the request will actually get and publish it to the
-   * footer, so tokens-in-context renders as `12.3k/200k` instead of a bare count —
-   * and so the denominator matches the one compaction accounts against.
-   */
-  private resolveContextWindow(
-    provider: string,
-    model: string,
-    pinnedContextWindow: number | undefined,
-  ): void {
-    const publish = (modelMaxTokens: number | undefined): void => {
-      if (!this.documentLease()) return;
-      const effective = resolveEffectiveContextWindow({
-        provider,
-        ...(modelMaxTokens !== undefined && { modelMaxTokens }),
-        ...(pinnedContextWindow !== undefined && { pinnedContextWindow }),
-      });
-      store.updateRunStats({ maxContextTokens: effective.tokens });
-    };
-
-    const cached = getModelsDevMetadataSync(model, provider);
-    if (cached !== undefined) {
-      publish(cached.contextWindow);
-      return;
-    }
-    // A pinned window stands on its own: the catalog has no local-provider entry
-    // to wait for, and the footer must not show the maximum the run is not getting.
-    if (pinnedContextWindow !== undefined) {
-      publish(undefined);
-    }
-    void getModelsDevMetadata(model, provider)
-      .then((meta) => {
-        if (meta === undefined) return;
-        // Guard against a stale write: if the user switched models while the
-        // fetch was in flight, this response no longer describes the active
-        // model and must not overwrite the footer denominator.
-        const stats = store.getRunStatsSnapshot();
-        if (stats.model !== model || stats.provider !== provider) return;
-        publish(meta.contextWindow);
-      })
-      .catch(() => {
-        /* context window unavailable — footer shows the bare count */
-      });
   }
 
   private setupToolTimeout(toolCallId: string, toolName: string): void {

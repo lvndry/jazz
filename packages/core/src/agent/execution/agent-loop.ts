@@ -561,6 +561,7 @@ export interface CompletionStrategy {
     messages: ConversationMessages,
     iteration: number,
     toolsAllowed: boolean,
+    contextWindow: number,
   ): Effect.Effect<
     { completion: ChatCompletionResponse; interrupted: boolean },
     LLMRateLimitError | Error,
@@ -1973,7 +1974,7 @@ function runIteration(
           );
     const completionStartTime = Date.now();
     const attempt = yield* strategy
-      .getCompletion(messagesForLLM, iterationIndex, toolsOffered(state))
+      .getCompletion(messagesForLLM, iterationIndex, toolsOffered(state), contextWindowMaxTokens)
       .pipe(Effect.result);
     if (attempt._tag === "Failure") {
       const error = attempt.failure;

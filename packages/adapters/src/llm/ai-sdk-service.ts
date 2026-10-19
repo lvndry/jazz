@@ -2572,8 +2572,6 @@ class AISDKService implements LLMService {
                       options.reasoning !== undefined && options.reasoning !== "disable",
                     startTime: Date.now(),
                     toolsDisabled,
-                    ...(typeof options.num_ctx === "number" &&
-                      options.num_ctx > 0 && { pinnedContextWindow: options.num_ctx }),
                     ...(providerNativeToolNames && { providerNativeToolNames }),
                     ...(reasoningParser ? { reasoningParser } : {}),
                     ...(prepared
