@@ -332,6 +332,13 @@ const VAULT_ACCOUNT = "secrets";
 const MACOS_ITEM_NOT_FOUND_EXIT_CODE = 44;
 
 /**
+ * `security` exit statuses for a dialog that did not grant access. `security` exits with the low
+ * byte of the keychain status: 51 for errSecAuthFailed (-25293, what Deny returns), 128 for
+ * errSecUserCanceled (-128), 36 for errSecInteractionNotAllowed (-25308, no dialog could be shown).
+ */
+const MACOS_DIALOG_REFUSED_EXIT_CODES = new Set([51, 128, 36]);
+
+/**
  * How long one read of the vault answers later lookups in this process.
  *
  * Startup resolves config secrets, MCP headers and the provider-rename migration one after another,
@@ -811,15 +818,25 @@ function readOldMacosVault(
           ? "failed"
           : result.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE
             ? "absent"
-            : "refused";
-    logInfo("keyring: read old vault through security", {
+            : result.code !== null && MACOS_DIALOG_REFUSED_EXIT_CODES.has(result.code)
+              ? "refused"
+              : "failed";
+    const details = {
       service,
       status,
       exitCode: result.code,
       timedOut: result.timedOut === true,
       dialogTimeoutMs: timeoutMs,
       durationMs: Date.now() - startedAt,
-    });
+    };
+    if (status === "failed") {
+      logWarning("keyring: reading the old vault through security failed; adoption will retry", {
+        ...details,
+        stderr: result.stderr.trim().split("\n")[0],
+      });
+    } else {
+      logInfo("keyring: read old vault through security", details);
+    }
     return status === "ok" ? { status, value: result.stdout.replace(/\n$/, "") } : { status };
   });
 }

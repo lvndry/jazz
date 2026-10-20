@@ -587,6 +587,44 @@ describe("adoptMacosOsascriptVault", () => {
     expect(vaultIn(entries)).toBeUndefined();
   });
 
+  it("counts only dialog statuses from security as a refusal", async () => {
+    for (const [exitCode, expected] of [
+      [51, { moved: [], complete: false, refused: true }],
+      [128, { moved: [], complete: false, refused: true }],
+      [36, { moved: [], complete: false, refused: true }],
+      [1, { moved: [], complete: false }],
+      [50, { moved: [], complete: false }],
+    ] as const) {
+      const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
+      const keychain = fakeMacosKeychain(entries);
+      const failingSecurityRead: KeyringCommandRunner = (command, args, stdin) =>
+        command === "osascript"
+          ? Effect.succeed({
+              ok: true,
+              code: 0,
+              stdout: "-25293\n",
+              stderr: "",
+              unavailable: false,
+            })
+          : args[0] === "find-generic-password" && args.includes("-w")
+            ? Effect.succeed({
+                ok: false,
+                code: exitCode,
+                stdout: "",
+                stderr: "security: SecKeychainSearchCopyNext: failed\n",
+                unavailable: false,
+              })
+            : keychain(command, args, stdin);
+
+      expect(
+        await Effect.runPromise(
+          adoptMacosOsascriptVault(VAULT_SERVICE, failingSecurityRead, withoutLock, false),
+        ),
+      ).toEqual(expected);
+      expect(entries.has(SINGLE_ITEM_VAULT_KEY)).toBe(true);
+    }
+  });
+
   it("decodes every way an earlier build stored the old vault", async () => {
     const secrets = { "llm.openai.api_key": "sk-one", "peers.sam.token": "peer-token" };
     const json = JSON.stringify(secrets);
