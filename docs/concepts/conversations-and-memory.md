@@ -40,7 +40,13 @@ To delete a conversation, highlight it in the `/resume` list, press Ctrl+D, and 
 Enter (Esc keeps it). Deleting removes its history, its archived copy, its working state and
 logs, and the screenshots taken in it. Jazz refuses while something still uses the conversation:
 the chat you are in, another open chat, a turn that is running, a goal or loop still working in
-it, a run waiting to finish, a scheduled wake-up, or background work still reporting back to it.
+it, a run still working or waiting for your answer, a scheduled wake-up, or background work
+still reporting back to it. A run waiting for your answer is named in the message: answer it,
+or drop it with `jazz runs cancel <run id>`. A run whose answer deadline passed no longer counts.
+
+`/switch` moves the conversation to the agent you pick and is refused for the same reasons, with
+one difference: background jobs that already finished but have not reported back yet move with
+the conversation, and report to the new agent. Only jobs still running keep it where it is.
 
 A save only ever adds to a conversation; nothing said in it is removed or hidden. `/retry` and
 editing an earlier message start a branch, and the answer they replace stays in the

@@ -4,8 +4,10 @@
  * resuming then picks the conversation up with the agent it last moved to.
  *
  * A conversation something still needs under its current agent (a goal, loop, run, wake
- * trigger, job batch, another chat, a turn under way) is refused, as for deletion: those
- * records name the agent and would lose the conversation if it moved.
+ * trigger, running job batch, another chat, a turn under way) is refused, as for deletion:
+ * those records name the agent and would lose the conversation if it moved. A job batch that
+ * finished but has not reported back moves with the conversation instead, so its report reaches
+ * the new agent; a provider that is down cannot then pin the conversation to its agent.
  */
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
@@ -23,6 +25,7 @@ import {
   moveConversationLog,
 } from "./conversation-log";
 import { ConversationInUseError, conversationUse } from "./delete-conversation";
+import { JobQueueServiceImpl, moveCarriableConversationBatches } from "../job-queue-service";
 
 /** Where a conversation's work state is kept once a newer copy replaces it, beside its archived log. */
 export function archivedWorkStateDirectory(agentId: string, conversationId: string): string {
@@ -111,16 +114,40 @@ export function moveConversationToAgent(
   const toLock = agentConversationLockPath(toAgentId);
   // Same order for every mover, so two moves in opposite directions never deadlock.
   const [firstLock, secondLock] = fromLock < toLock ? [fromLock, toLock] : [toLock, fromLock];
+  const jobBatchDirectory = new JobQueueServiceImpl().baseJobBatchDirectory;
   const moveUnderLocks = Effect.gen(function* () {
     for (const agentId of [fromAgentId, toAgentId]) {
-      const use = yield* conversationUse(agentId, conversationId);
+      const use = yield* conversationUse(agentId, conversationId, {
+        carriesUndeliveredBatches: true,
+      });
       if (use !== undefined) {
         return yield* Effect.fail(new ConversationInUseError(use));
       }
     }
     return yield* withLock(
       firstLock,
-      withLock(secondLock, moveConversationFiles(fromAgentId, toAgentId, conversationId)),
+      withLock(
+        secondLock,
+        Effect.gen(function* () {
+          const carriedBatchIds = yield* moveCarriableConversationBatches(
+            jobBatchDirectory,
+            fromAgentId,
+            toAgentId,
+            conversationId,
+          );
+          return yield* moveConversationFiles(fromAgentId, toAgentId, conversationId).pipe(
+            Effect.tapError(() =>
+              moveCarriableConversationBatches(
+                jobBatchDirectory,
+                toAgentId,
+                fromAgentId,
+                conversationId,
+                carriedBatchIds,
+              ).pipe(Effect.ignore),
+            ),
+          );
+        }),
+      ),
     );
   });
   return withConversationTurn(

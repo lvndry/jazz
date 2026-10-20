@@ -3,6 +3,8 @@ import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { testProposedGoal } from "@jazz/core/agent/goal/test-fixtures";
+import { createRunRecord } from "@jazz/core/agent/run/run-record";
+import type { RunState } from "@jazz/core/agent/run/run-state";
 import { getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
 import { Effect, FileSystem } from "effect";
@@ -16,7 +18,9 @@ import {
 } from "./conversation-log";
 import { ConversationInUseError } from "./delete-conversation";
 import { archivedWorkStateDirectory, moveConversationToAgent } from "./move-conversation";
+import { JobQueueServiceImpl } from "../job-queue-service";
 import { FileGoalStore } from "../storage/goal-store";
+import { FileRunStore } from "../storage/run-store";
 
 const FROM_AGENT_ID = "move-from-agent";
 const TO_AGENT_ID = "move-to-agent";
@@ -53,6 +57,87 @@ async function writeWorkFile(agentId: string, conversationId: string, name: stri
   const workFile = path.join(getWorkStateDirectory(agentId, conversationId), name);
   await nodeFs.mkdir(path.dirname(workFile), { recursive: true });
   await nodeFs.writeFile(workFile, "kept");
+}
+
+let runCounter = 0;
+async function parkRun(conversationId: string, expiresAt: Date): Promise<string> {
+  runCounter += 1;
+  const runId = `aaaaaaaa-0000-0000-0000-${String(runCounter).padStart(12, "0")}`;
+  const parked: RunState = {
+    kind: "input-required",
+    pending: {
+      kind: "tool-approval",
+      request: {
+        toolCallId: "call_1",
+        toolName: "execute_command",
+        message: "Kill the leftover process",
+        executeToolName: "execute_command_execute",
+        executeArgs: { command: "kill 4242" },
+      },
+    },
+    snapshot: { messages: [], iteration: 1 },
+    expiresAt: expiresAt.toISOString(),
+  };
+  const created = createRunRecord({
+    runId,
+    agentId: FROM_AGENT_ID,
+    conversationId,
+    input: "Background job batch finished",
+    now: new Date(),
+  });
+  await Effect.runPromise(new FileRunStore().save({ ...created, state: parked }));
+  return runId;
+}
+
+const DAY_MS = 24 * 60 * 60_000;
+
+type BatchStage = "running" | "finished";
+
+async function writeBatch(
+  conversationId: string,
+  batchId: string,
+  stage: BatchStage,
+): Promise<string> {
+  const now = Date.now();
+  const batchFile = path.join(
+    new JobQueueServiceImpl().baseJobBatchDirectory,
+    FROM_AGENT_ID,
+    `${batchId}.json`,
+  );
+  await nodeFs.mkdir(path.dirname(batchFile), { recursive: true });
+  await nodeFs.writeFile(
+    batchFile,
+    JSON.stringify({
+      schemaVersion: 2,
+      id: batchId,
+      agentId: FROM_AGENT_ID,
+      conversationId,
+      workingDir: "/tmp",
+      concurrencyCap: 1,
+      backoff: { initialMs: 2000, maxMs: 300_000 },
+      reason: "Wait for the deploy to finish",
+      createdAt: now,
+      completedAt: stage === "finished" ? now : null,
+      deliveredAt: null,
+      jobs: [
+        {
+          id: "job-1",
+          command: "true",
+          status: stage === "finished" ? "succeeded" : "running",
+          attempt: 1,
+          maxAttempts: 1,
+          nextAttemptAt: now,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          result: stage === "finished" ? { stdout: "", stderr: "", exitCode: 0 } : null,
+          lastError: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    }),
+  );
+  return batchFile;
 }
 
 describe("moveConversationToAgent", () => {
@@ -191,5 +276,78 @@ describe("moveConversationToAgent", () => {
     );
     expect(refused).toBeInstanceOf(ConversationInUseError);
     expect(existsSync(conversationLogPath(FROM_AGENT_ID, conversationId))).toBe(true);
+  });
+  it("refuses while a run waits for an answer, naming the commands that clear it", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(FROM_AGENT_ID, conversationId);
+    const runId = await parkRun(conversationId, new Date(Date.now() + DAY_MS));
+
+    const refused = await run(
+      moveConversationToAgent(FROM_AGENT_ID, TO_AGENT_ID, conversationId).pipe(Effect.flip),
+    );
+    expect(refused).toBeInstanceOf(ConversationInUseError);
+    expect(refused.message).toContain(`jazz runs cancel ${runId}`);
+  });
+
+  it("moves past a parked run whose deadline already passed", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(FROM_AGENT_ID, conversationId);
+    await parkRun(conversationId, new Date(Date.now() - DAY_MS));
+
+    expect(await run(moveConversationToAgent(FROM_AGENT_ID, TO_AGENT_ID, conversationId))).toBe(
+      true,
+    );
+  });
+
+  it("carries a finished, unreported job batch to the new agent", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(FROM_AGENT_ID, conversationId);
+    const batchId = `carry${String(conversationCounter)}`;
+    const sourceFile = await writeBatch(conversationId, batchId, "finished");
+
+    expect(await run(moveConversationToAgent(FROM_AGENT_ID, TO_AGENT_ID, conversationId))).toBe(
+      true,
+    );
+    expect(existsSync(sourceFile)).toBe(false);
+    const carried = await Effect.runPromise(
+      Effect.provide(
+        new JobQueueServiceImpl().listActiveBatches(TO_AGENT_ID),
+        NodeFileSystem.layer,
+      ),
+    );
+    expect(carried.find((batch) => batch.id === batchId)?.agentId).toBe(TO_AGENT_ID);
+  });
+
+  it("refuses while a job batch is still running", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(FROM_AGENT_ID, conversationId);
+    const sourceFile = await writeBatch(
+      conversationId,
+      `running${String(conversationCounter)}`,
+      "running",
+    );
+
+    const refused = await run(
+      moveConversationToAgent(FROM_AGENT_ID, TO_AGENT_ID, conversationId).pipe(Effect.flip),
+    );
+    expect(refused).toBeInstanceOf(ConversationInUseError);
+    expect(existsSync(sourceFile)).toBe(true);
+    await nodeFs.rm(sourceFile, { force: true });
+  });
+
+  it("puts a carried job batch back when the log cannot move", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(FROM_AGENT_ID, conversationId);
+    const sourceFile = await writeBatch(
+      conversationId,
+      `back${String(conversationCounter)}`,
+      "finished",
+    );
+    await nodeFs.mkdir(conversationLogPath(TO_AGENT_ID, conversationId), { recursive: true });
+
+    await run(
+      moveConversationToAgent(FROM_AGENT_ID, TO_AGENT_ID, conversationId).pipe(Effect.flip),
+    );
+    expect(existsSync(sourceFile)).toBe(true);
   });
 });

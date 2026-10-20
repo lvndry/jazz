@@ -38,6 +38,20 @@ describe("retryBand", () => {
     expect(band.title).toBe("Can't reach the model provider");
     expect(band.cause).toBe("OpenAI: fetch failed.");
   });
+
+  it("does not add a second period to a message that already ends a sentence", () => {
+    const { statusCode: _statusCode, ...withoutStatus } = NOTICE;
+    const band = retryBand(
+      {
+        ...withoutStatus,
+        provider: "vllm",
+        reason: "network issue",
+        detail: "Cannot reach the vLLM server. Make sure it is running.",
+      },
+      0,
+    );
+    expect(band.cause).toBe("vLLM: Cannot reach the vLLM server. Make sure it is running.");
+  });
 });
 
 describe("the retry band in the live zone", () => {
