@@ -26,7 +26,20 @@ function flag(args: readonly string[], name: string): string | undefined {
   return index === -1 ? undefined : args[index + 1];
 }
 
-export function fakeMacosKeychain(entries: Map<string, string>): KeyringCommandRunner {
+/** The modification time the fake reports for an entry nobody has written through it. */
+export const SEEDED_MODIFIED_AT = "20260101000000Z";
+
+/**
+ * `modifiedAt` holds each entry's modification time as `YYYYMMDDhhmmssZ`; writes through the fake
+ * stamp the current second, and entries missing from it report {@link SEEDED_MODIFIED_AT}.
+ */
+export function fakeMacosKeychain(
+  entries: Map<string, string>,
+  modifiedAt: Map<string, string> = new Map(),
+): KeyringCommandRunner {
+  const attributes = (key: string, account: string): string =>
+    `attributes:\n    "acct"<blob>="${account}"\n` +
+    `    "mdat"<timedate>=0x00  "${modifiedAt.get(key) ?? SEEDED_MODIFIED_AT}\\000"\n`;
   const answer = (args: readonly string[]): CommandResult => {
     const service = flag(args, "-s") ?? "";
     const account = flag(args, "-a");
@@ -42,14 +55,17 @@ export function fakeMacosKeychain(entries: Map<string, string>): KeyringCommandR
             return result(false);
           }
           const matchedAccount = match.slice(service.length + 1);
-          return result(true, `attributes:\n    "acct"<blob>="${matchedAccount}"\n`);
+          return result(true, attributes(match, matchedAccount));
         }
         const value = entries.get(keychainKey(service, account));
         return value === undefined ? result(false) : result(true, `${value}\n`);
       }
-      case "add-generic-password":
-        entries.set(keychainKey(service, account ?? ""), flag(args, "-w") ?? "");
+      case "add-generic-password": {
+        const key = keychainKey(service, account ?? "");
+        entries.set(key, flag(args, "-w") ?? "");
+        modifiedAt.set(key, `${new Date().toISOString().slice(0, 19).replace(/\D/g, "")}Z`);
         return result(true);
+      }
       case "delete-generic-password":
         return result(entries.delete(keychainKey(service, account ?? "")));
       default:

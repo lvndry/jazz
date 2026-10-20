@@ -14,13 +14,25 @@ export interface MacosKeychainItem {
   readonly keychainPath?: string;
 }
 
+/**
+ * `refused` is a password dialog that was denied, cancelled, left unanswered, or could not be
+ * shown; `failed` is anything else, such as a missing `osascript` or a transient keychain error.
+ */
 export type MacosKeychainRead =
   | { readonly status: "ok"; readonly value: string }
   | { readonly status: "absent" }
+  | { readonly status: "refused" }
   | { readonly status: "failed" };
 
 /** Security.framework's errSecItemNotFound. */
 const ITEM_NOT_FOUND_STATUS = "-25300";
+
+/**
+ * Security.framework statuses for a dialog that did not grant access: errSecUserCanceled (-128),
+ * errSecAuthFailed (-25293, what Deny returns), and errSecInteractionNotAllowed (-25308, no dialog
+ * could be shown).
+ */
+const DIALOG_REFUSED_STATUSES = new Set(["-128", "-25293", "-25308"]);
 
 /**
  * Prints `0:<base64 of the item's data>`, or the nonzero Security.framework status. The JavaScript
@@ -47,20 +59,28 @@ function run() {
 }
 `;
 
-/** Reads an item's value as UTF-8; anything but a clean hit or errSecItemNotFound is a failure. */
+/** Reads an item's value as UTF-8, telling a refused dialog apart from other failures. */
 export function readMacosKeychainItem(
   run: KeyringCommandRunner,
   item: MacosKeychainItem,
+  timeoutMs?: number,
 ): Effect.Effect<MacosKeychainRead> {
   return run(
     "osascript",
     ["-l", "JavaScript", "-e", MACOS_KEYCHAIN_READ_SCRIPT],
     JSON.stringify(item),
+    timeoutMs,
   ).pipe(
     Effect.map((result): MacosKeychainRead => {
       const output = result.stdout.trim();
+      if (result.timedOut === true) {
+        return { status: "refused" };
+      }
       if (!result.ok) {
         return { status: "failed" };
+      }
+      if (DIALOG_REFUSED_STATUSES.has(output)) {
+        return { status: "refused" };
       }
       if (output === ITEM_NOT_FOUND_STATUS) {
         return { status: "absent" };

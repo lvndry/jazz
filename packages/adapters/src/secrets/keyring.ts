@@ -67,6 +67,13 @@ export function describeKeyringBackend(backend: KeyringBackend): string {
 const PROBE_ACCOUNT = "__jazz_probe__";
 const COMMAND_TIMEOUT_MS = 5_000;
 
+/**
+ * How long a keychain read that may show a password dialog waits when someone is at the terminal:
+ * time to read the dialog and type a password. Unattended runs keep {@link COMMAND_TIMEOUT_MS}, so
+ * they never hang on a dialog nobody will answer.
+ */
+const KEYCHAIN_DIALOG_TIMEOUT_MS = 60_000;
+
 /** Hex characters of the home-path SHA-256 kept in the service name: 64 bits, ample to tell homes apart. */
 const HOME_SCOPE_HASH_LENGTH = 16;
 
@@ -119,6 +126,8 @@ export interface CommandResult {
   readonly stderr: string;
   /** True when the binary itself is missing or the call never completed. */
   readonly unavailable: boolean;
+  /** True when the call was killed for outlasting its timeout, such as an unanswered dialog. */
+  readonly timedOut?: boolean;
 }
 
 /** Runs a keyring CLI. Injected into the legacy migration so tests can stand in for the keyring. */
@@ -126,12 +135,14 @@ export type KeyringCommandRunner = (
   command: string,
   args: readonly string[],
   stdin?: string,
+  timeoutMs?: number,
 ) => Effect.Effect<CommandResult, never>;
 
 function runCommand(
   command: string,
   args: readonly string[],
   stdin?: string,
+  timeoutMs: number = COMMAND_TIMEOUT_MS,
 ): Effect.Effect<CommandResult, never> {
   return Effect.callback<CommandResult, never>((resume) => {
     let settled = false;
@@ -151,8 +162,8 @@ function runCommand(
 
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      finish({ ok: false, code: null, stdout: "", stderr: "", unavailable: true });
-    }, COMMAND_TIMEOUT_MS);
+      finish({ ok: false, code: null, stdout: "", stderr: "", unavailable: true, timedOut: true });
+    }, timeoutMs);
 
     let stdout = "";
     let stderr = "";
@@ -541,6 +552,8 @@ function osKeyringAnyAccount(
 export interface VaultMigration {
   readonly moved: readonly string[];
   readonly complete: boolean;
+  /** The keychain refused to read the source: a denied or unanswered password dialog. */
+  readonly refused?: boolean;
 }
 
 /**
@@ -589,10 +602,45 @@ export function migrateKeyringEntriesIntoVault(
 }
 
 /**
+ * Whether someone can answer a keychain password dialog right now: a terminal on stdin that is not
+ * an SSH session. Over SSH the dialog lands on the Mac's own screen, or cannot be shown at all.
+ */
+export function keychainDialogAnswerable(
+  stdinIsTerminal: boolean = process.stdin.isTTY === true,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return stdinIsTerminal && env["SSH_CONNECTION"] === undefined && env["SSH_TTY"] === undefined;
+}
+
+/**
+ * An item's modification time from `security find-generic-password` attributes, as
+ * `YYYYMMDDhhmmssZ` in UTC. Reading attributes never decrypts the item, so it never shows a
+ * dialog.
+ */
+function keychainModifiedAt(attributes: string): string | undefined {
+  return /"mdat"<timedate>=\S*\s+"(\d{14}Z)/.exec(attributes)?.[1];
+}
+
+/** `at` in the keychain's `YYYYMMDDhhmmssZ` form, to the whole second. */
+function keychainTimestamp(at: Date): string {
+  return `${at.toISOString().slice(0, 19).replace(/\D/g, "")}Z`;
+}
+
+/**
  * Fold the single-item vault that 0.16.19 and 0.16.20 wrote through `osascript` into the chunked
- * vault, then delete it. Only `osascript` reads that item without the keychain asking for its
- * password, since it wrote it; `security` can still find and delete it silently, so the lookup that
- * runs on every start costs one `security` call and `osascript` runs only while the item exists.
+ * vault, then delete it. Only `osascript` reads that item, since it wrote it; `security` can still
+ * find and delete it silently, so the lookup that runs on every start costs one `security` call and
+ * `osascript` runs only while the item exists. A vault a pre-release build created through
+ * `security` and then rewrote through `osascript` makes even `osascript` show a password dialog, so
+ * when someone can answer it the read waits {@link KEYCHAIN_DIALOG_TIMEOUT_MS}.
+ *
+ * The read happens before taking the secrets lock, which other processes would otherwise wait on
+ * for the whole dialog. An older Jazz still running can rewrite the item in that gap, so under the
+ * lock the item must carry the modification time seen before the read, and that time must be
+ * earlier than the second the read began: the keychain keeps whole seconds, and a rewrite during
+ * the read's own second would otherwise look unchanged. Otherwise this pass leaves the item for a
+ * later one rather than store a stale copy and delete the newer one.
+ *
  * Values already in the chunked vault win. An item that does not decode is left alone and skipped:
  * no version of Jazz could read it.
  */
@@ -600,30 +648,53 @@ export function adoptMacosOsascriptVault(
   vaultService: string,
   run: KeyringCommandRunner = runCommand,
   withLock: VaultLock = withSecretsFileLock,
+  answerable: boolean = keychainDialogAnswerable(),
 ): Effect.Effect<VaultMigration, never> {
+  const discover = run("security", [
+    "find-generic-password",
+    "-s",
+    vaultService,
+    "-a",
+    VAULT_ACCOUNT,
+  ]);
+  const absentOrFailed = (result: CommandResult): VaultMigration => ({
+    moved: [],
+    complete: !result.unavailable && result.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE,
+  });
   return Effect.gen(function* () {
-    const discovered = yield* run("security", [
-      "find-generic-password",
-      "-s",
-      vaultService,
-      "-a",
-      VAULT_ACCOUNT,
-    ]);
+    const discovered = yield* discover;
     if (!discovered.ok) {
-      const absent = !discovered.unavailable && discovered.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE;
-      return { moved: [], complete: absent };
+      return absentOrFailed(discovered);
+    }
+    const modifiedAt = keychainModifiedAt(discovered.stdout);
+    const readStartedAt = keychainTimestamp(new Date());
+    const read = yield* readMacosKeychainItem(
+      run,
+      { service: vaultService, account: VAULT_ACCOUNT },
+      answerable ? KEYCHAIN_DIALOG_TIMEOUT_MS : COMMAND_TIMEOUT_MS,
+    );
+    if (read.status === "refused") {
+      return { moved: [], complete: false, refused: true };
+    }
+    if (read.status === "failed") {
+      return { moved: [], complete: false };
+    }
+    const legacy = read.status === "ok" ? decodeVault(read.value) : {};
+    if (legacy === undefined) {
+      return { moved: [], complete: true };
     }
     return yield* Effect.promise(() =>
       withLock(async (): Promise<VaultMigration> => {
-        const read = await Effect.runPromise(
-          readMacosKeychainItem(run, { service: vaultService, account: VAULT_ACCOUNT }),
-        );
-        if (read.status === "failed") {
-          return { moved: [], complete: false };
+        const current = await Effect.runPromise(discover);
+        if (!current.ok) {
+          return absentOrFailed(current);
         }
-        const legacy = read.status === "ok" ? decodeVault(read.value) : {};
-        if (legacy === undefined) {
-          return { moved: [], complete: true };
+        const unchanged =
+          modifiedAt !== undefined &&
+          modifiedAt < readStartedAt &&
+          keychainModifiedAt(current.stdout) === modifiedAt;
+        if (!unchanged) {
+          return { moved: [], complete: false };
         }
         const moved: string[] = [];
         const stored = await Effect.runPromise(
@@ -657,6 +728,14 @@ interface VaultAdoptionResult {
 const vaultAdoptions = new Map<string, Promise<VaultAdoptionResult>>();
 
 /**
+ * Vault services whose `osascript`-written vault the keychain refused to read in this process. A
+ * refused read means a password dialog was denied or left unanswered; asking again on every lookup
+ * puts a dialog in front of every message, so the process stops asking and the next process asks
+ * once more.
+ */
+const refusedOsascriptVaults = new Set<string>();
+
+/**
  * Fold legacy credentials into the active vault with one in-flight attempt per home.
  * Complete adoptions stay cached for the process; incomplete attempts are evicted for retry.
  *
@@ -664,6 +743,10 @@ const vaultAdoptions = new Map<string, Promise<VaultAdoptionResult>>();
  * `~/.jazz` adopts the bare service: it is the home those keys were almost always written from,
  * and a throwaway `JAZZ_HOME` must never claim, and then lose with its directory, the user's real
  * keys. An incomplete scoped pass stops before the bare service, preserving that precedence.
+ *
+ * On macOS the `osascript`-written vault goes first, its values being the newest. When the keychain
+ * refuses to read it, the per-secret items still move, so their keys stay reachable, and the
+ * adoption stays incomplete until a later process reads that vault.
  */
 function adoptPerEntrySecrets(
   backend: OsKeyringBackend,
@@ -675,10 +758,21 @@ function adoptPerEntrySecrets(
     const sources = [keyringServiceName(), ...(isDefaultJazzHome() ? [KEYRING_SERVICE_NAME] : [])];
     pending = (async () => {
       let movedCount = 0;
+      let osascriptVaultAdopted = true;
       if (backend === "macos") {
-        const result = await Effect.runPromise(adoptMacosOsascriptVault(vaultService));
-        movedCount += result.moved.length;
-        if (!result.complete) return { movedCount, complete: false };
+        if (refusedOsascriptVaults.has(vaultService)) {
+          osascriptVaultAdopted = false;
+        } else {
+          const result = await Effect.runPromise(adoptMacosOsascriptVault(vaultService));
+          movedCount += result.moved.length;
+          osascriptVaultAdopted = result.complete;
+          if (result.refused === true) {
+            refusedOsascriptVaults.add(vaultService);
+          }
+          if (!result.complete && result.refused !== true) {
+            return { movedCount, complete: false };
+          }
+        }
       }
       for (const source of sources) {
         const result = await Effect.runPromise(
@@ -687,7 +781,7 @@ function adoptPerEntrySecrets(
         movedCount += result.moved.length;
         if (!result.complete) return { movedCount, complete: false };
       }
-      return { movedCount, complete: true };
+      return { movedCount, complete: osascriptVaultAdopted };
     })();
     vaultAdoptions.set(key, pending);
   }
