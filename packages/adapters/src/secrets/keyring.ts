@@ -21,7 +21,8 @@ import {
 } from "@jazz/core/utils/paths";
 import { quarantineCorruptFile } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
-import { readMacosKeychainItem } from "./macos-keychain";
+import { logDebug, logInfo, logWarning } from "../logger";
+import { type MacosKeychainRead, readMacosKeychainItem } from "./macos-keychain";
 import { type MacosVaultLayout, readMacosVault, writeMacosVault } from "./macos-vault";
 
 /**
@@ -382,8 +383,16 @@ function osKeyringReadVault(
   service: string,
 ): Effect.Effect<VaultRead, never> {
   return Effect.gen(function* () {
+    const startedAt = Date.now();
     if (backend === "macos") {
       const read = yield* readMacosVault(run, service);
+      logDebug("keyring: read vault", {
+        backend,
+        service,
+        status: read.status,
+        chunks: read.status === "failed" ? undefined : read.layout.accounts.length,
+        durationMs: Date.now() - startedAt,
+      });
       if (read.status === "failed") {
         return read;
       }
@@ -391,9 +400,11 @@ function osKeyringReadVault(
         return { status: "absent", macosLayout: read.layout };
       }
       const secrets = decodeVault(read.encoded);
-      return secrets === undefined
-        ? { status: "corrupt" }
-        : { status: "ok", secrets, macosLayout: read.layout };
+      if (secrets === undefined) {
+        logWarning("keyring: vault does not decode; leaving it untouched", { backend, service });
+        return { status: "corrupt" };
+      }
+      return { status: "ok", secrets, macosLayout: read.layout };
     }
     const result = yield* run("secret-tool", [
       "lookup",
@@ -402,12 +413,31 @@ function osKeyringReadVault(
       "account",
       VAULT_ACCOUNT,
     ]);
+    logDebug("keyring: read vault", {
+      backend,
+      service,
+      exitCode: result.code,
+      durationMs: Date.now() - startedAt,
+    });
     if (!result.ok) {
       const absent = !result.unavailable && result.stderr.trim() === "";
+      if (!absent) {
+        logWarning("keyring: vault read failed", {
+          backend,
+          service,
+          exitCode: result.code,
+          unavailable: result.unavailable,
+          stderr: result.stderr.trim().split("\n")[0],
+        });
+      }
       return absent ? { status: "absent" } : { status: "failed" };
     }
     const secrets = decodeVault(result.stdout);
-    return secrets === undefined ? { status: "corrupt" } : { status: "ok", secrets };
+    if (secrets === undefined) {
+      logWarning("keyring: vault does not decode; leaving it untouched", { backend, service });
+      return { status: "corrupt" };
+    }
+    return { status: "ok", secrets };
   });
 }
 
@@ -463,11 +493,22 @@ function updateVaultWhileLocked(
 ): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
     const read = yield* osKeyringReadVault(run, backend, service);
-    if (read.status === "failed" || read.status === "corrupt") return false;
+    if (read.status === "failed" || read.status === "corrupt") {
+      logWarning("keyring: vault update skipped; the current vault could not be read", {
+        backend,
+        service,
+        status: read.status,
+      });
+      return false;
+    }
     const next = change(read.status === "ok" ? read.secrets : {});
     if (next === undefined) return true;
     const stored = yield* osKeyringWriteVault(run, backend, service, next, read.macosLayout);
-    if (stored) rememberVault(backend, service, next);
+    if (stored) {
+      rememberVault(backend, service, next);
+    } else {
+      logWarning("keyring: vault write failed", { backend, service });
+    }
     return stored;
   });
 }
@@ -575,13 +616,34 @@ export function migrateKeyringEntriesIntoVault(
     for (let attempt = 0; attempt < MAX_LEGACY_ENTRIES_MIGRATED; attempt++) {
       const discovered = yield* osKeyringAnyAccount(run, backend, sourceService);
       if (discovered.status !== "found") {
+        if (discovered.status === "failed") {
+          logWarning("keyring: legacy entry lookup failed; migration will retry", {
+            backend,
+            sourceService,
+            moved: moved.length,
+          });
+        } else if (moved.length > 0) {
+          logInfo("keyring: legacy entries moved into the vault", {
+            backend,
+            sourceService,
+            vaultService,
+            moved: moved.length,
+          });
+        }
         return { moved, complete: discovered.status === "absent" };
       }
       const { account } = discovered;
       const result = yield* Effect.promise(() =>
         withLock(async () => {
           const value = await Effect.runPromise(osKeyringGet(run, backend, sourceService, account));
-          if (value === undefined) return { copied: false, retired: false };
+          if (value === undefined) {
+            logWarning("keyring: legacy entry could not be read; migration will retry", {
+              backend,
+              sourceService,
+              account,
+            });
+            return { copied: false, retired: false };
+          }
           const stored = await Effect.runPromise(
             updateVaultWhileLocked(run, backend, vaultService, (secrets) =>
               account in secrets ? undefined : { ...secrets, [account]: value },
@@ -591,6 +653,13 @@ export function migrateKeyringEntriesIntoVault(
           const retired = await Effect.runPromise(
             osKeyringDelete(run, backend, sourceService, account),
           );
+          if (!retired) {
+            logWarning("keyring: legacy entry copied but not deleted; migration will retry", {
+              backend,
+              sourceService,
+              account,
+            });
+          }
           return { copied: true, retired };
         }),
       ).pipe(Effect.catchDefect(() => Effect.succeed({ copied: false, retired: false })));
@@ -627,15 +696,59 @@ function keychainTimestamp(at: Date): string {
 }
 
 /**
- * Fold the single-item vault that 0.16.19 and 0.16.20 wrote through `osascript` into the chunked
- * vault, then delete it. Only `osascript` reads that item, since it wrote it; `security` can still
- * find and delete it silently, so the lookup that runs on every start costs one `security` call and
- * `osascript` runs only while the item exists. A vault a pre-release build created through
- * `security` and then rewrote through `osascript` makes even `osascript` show a password dialog, so
- * when someone can answer it the read waits {@link KEYCHAIN_DIALOG_TIMEOUT_MS}.
+ * Read the single-item vault an earlier version left, without a dialog whenever the program that
+ * wrote it can: `osascript` for the vaults 0.16.19 and 0.16.20 wrote, `security` for those a
+ * pre-release build wrote. The login keychain lets only an item's writer read it silently. Only an
+ * item both programs wrote needs a dialog; `security` shows it, and when someone can answer it the
+ * read waits {@link KEYCHAIN_DIALOG_TIMEOUT_MS}.
+ */
+function readOldMacosVault(
+  run: KeyringCommandRunner,
+  service: string,
+  answerable: boolean,
+): Effect.Effect<MacosKeychainRead, never> {
+  return Effect.gen(function* () {
+    const viaOsascript = yield* readMacosKeychainItem(run, { service, account: VAULT_ACCOUNT });
+    logInfo("keyring: read old vault through osascript", { service, status: viaOsascript.status });
+    if (viaOsascript.status !== "refused") {
+      return viaOsascript;
+    }
+    const timeoutMs = answerable ? KEYCHAIN_DIALOG_TIMEOUT_MS : COMMAND_TIMEOUT_MS;
+    const startedAt = Date.now();
+    const result = yield* run(
+      "security",
+      ["find-generic-password", "-w", "-s", service, "-a", VAULT_ACCOUNT],
+      undefined,
+      timeoutMs,
+    );
+    const status: MacosKeychainRead["status"] = result.ok
+      ? "ok"
+      : result.timedOut === true
+        ? "refused"
+        : result.unavailable
+          ? "failed"
+          : result.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE
+            ? "absent"
+            : "refused";
+    logInfo("keyring: read old vault through security", {
+      service,
+      status,
+      exitCode: result.code,
+      timedOut: result.timedOut === true,
+      dialogTimeoutMs: timeoutMs,
+      durationMs: Date.now() - startedAt,
+    });
+    return status === "ok" ? { status, value: result.stdout.replace(/\n$/, "") } : { status };
+  });
+}
+
+/**
+ * Fold the single-item vault an earlier version left into the chunked vault, then delete it.
+ * `security` finds and deletes that item without a dialog, so the lookup that runs on every start
+ * costs one `security` call, and reading it ({@link readOldMacosVault}) happens only while it exists.
  *
  * The read happens before taking the secrets lock, which other processes would otherwise wait on
- * for the whole dialog. An older Jazz still running can rewrite the item in that gap, so under the
+ * for a whole dialog. An older Jazz still running can rewrite the item in that gap, so under the
  * lock the item must carry the modification time seen before the read, and that time must be
  * earlier than the second the read began: the keychain keeps whole seconds, and a rewrite during
  * the read's own second would otherwise look unchanged. Otherwise this pass leaves the item for a
@@ -657,23 +770,34 @@ export function adoptMacosOsascriptVault(
     "-a",
     VAULT_ACCOUNT,
   ]);
-  const absentOrFailed = (result: CommandResult): VaultMigration => ({
-    moved: [],
-    complete: !result.unavailable && result.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE,
-  });
+  const absentOrFailed = (result: CommandResult): VaultMigration => {
+    const absent = !result.unavailable && result.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE;
+    if (!absent) {
+      logWarning("keyring: old vault lookup failed; adoption will retry", {
+        vaultService,
+        exitCode: result.code,
+        unavailable: result.unavailable,
+      });
+    }
+    return { moved: [], complete: absent };
+  };
   return Effect.gen(function* () {
     const discovered = yield* discover;
     if (!discovered.ok) {
       return absentOrFailed(discovered);
     }
     const modifiedAt = keychainModifiedAt(discovered.stdout);
+    logInfo("keyring: found an old single-item vault to adopt", {
+      vaultService,
+      modifiedAt,
+      dialogAnswerable: answerable,
+    });
     const readStartedAt = keychainTimestamp(new Date());
-    const read = yield* readMacosKeychainItem(
-      run,
-      { service: vaultService, account: VAULT_ACCOUNT },
-      answerable ? KEYCHAIN_DIALOG_TIMEOUT_MS : COMMAND_TIMEOUT_MS,
-    );
+    const read = yield* readOldMacosVault(run, vaultService, answerable);
     if (read.status === "refused") {
+      logWarning("keyring: the keychain refused to read the old vault; asking again next start", {
+        vaultService,
+      });
       return { moved: [], complete: false, refused: true };
     }
     if (read.status === "failed") {
@@ -681,6 +805,7 @@ export function adoptMacosOsascriptVault(
     }
     const legacy = read.status === "ok" ? decodeVault(read.value) : {};
     if (legacy === undefined) {
+      logWarning("keyring: old vault does not decode; leaving it in place", { vaultService });
       return { moved: [], complete: true };
     }
     return yield* Effect.promise(() =>
@@ -689,11 +814,18 @@ export function adoptMacosOsascriptVault(
         if (!current.ok) {
           return absentOrFailed(current);
         }
+        const currentModifiedAt = keychainModifiedAt(current.stdout);
         const unchanged =
           modifiedAt !== undefined &&
           modifiedAt < readStartedAt &&
-          keychainModifiedAt(current.stdout) === modifiedAt;
+          currentModifiedAt === modifiedAt;
         if (!unchanged) {
+          logInfo("keyring: old vault changed while it was read; adoption will retry", {
+            vaultService,
+            modifiedAt,
+            currentModifiedAt,
+            readStartedAt,
+          });
           return { moved: [], complete: false };
         }
         const moved: string[] = [];
@@ -714,6 +846,12 @@ export function adoptMacosOsascriptVault(
         const retired = await Effect.runPromise(
           osKeyringDelete(run, "macos", vaultService, VAULT_ACCOUNT),
         );
+        logInfo("keyring: adopted the old vault", {
+          vaultService,
+          moved: moved.length,
+          alreadyPresent: Object.keys(legacy).length - moved.length,
+          deleted: retired,
+        });
         return { moved, complete: retired };
       }),
     ).pipe(Effect.catchDefect(() => Effect.succeed({ moved: [], complete: false })));
@@ -757,10 +895,14 @@ function adoptPerEntrySecrets(
   if (pending === undefined) {
     const sources = [keyringServiceName(), ...(isDefaultJazzHome() ? [KEYRING_SERVICE_NAME] : [])];
     pending = (async () => {
+      const startedAt = Date.now();
       let movedCount = 0;
       let osascriptVaultAdopted = true;
       if (backend === "macos") {
         if (refusedOsascriptVaults.has(vaultService)) {
+          logDebug("keyring: skipping the old vault the keychain refused earlier in this process", {
+            vaultService,
+          });
           osascriptVaultAdopted = false;
         } else {
           const result = await Effect.runPromise(adoptMacosOsascriptVault(vaultService));
@@ -781,6 +923,13 @@ function adoptPerEntrySecrets(
         movedCount += result.moved.length;
         if (!result.complete) return { movedCount, complete: false };
       }
+      logDebug("keyring: legacy adoption pass finished", {
+        backend,
+        vaultService,
+        movedCount,
+        complete: osascriptVaultAdopted,
+        durationMs: Date.now() - startedAt,
+      });
       return { movedCount, complete: osascriptVaultAdopted };
     })();
     vaultAdoptions.set(key, pending);

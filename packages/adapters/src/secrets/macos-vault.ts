@@ -12,6 +12,7 @@
  * so a write interrupted partway, or a read racing a write, still sees the previous vault whole.
  */
 import { Effect } from "effect";
+import { logDebug, logWarning } from "../logger";
 import type { CommandResult, KeyringCommandRunner } from "./keyring";
 
 /**
@@ -49,6 +50,13 @@ export type MacosVaultRead =
 
 export function macosVaultChunkAccount(slot: Slot, index: number): string {
   return `vault.${slot}.${index}`;
+}
+
+/** The statuses a `security -i` session's failed commands reported, for diagnostics. */
+function failedStatuses(stderr: string): number[] {
+  return [...stderr.matchAll(FAILED_COMMAND_PATTERN)]
+    .map((match) => Number(match[1]))
+    .filter((status) => status !== ITEM_NOT_FOUND_STATUS);
 }
 
 /**
@@ -149,6 +157,13 @@ export function readMacosVault(
   return run("security", ["-i"], macosVaultReadScript(service)).pipe(
     Effect.map((result): MacosVaultRead => {
       if (sessionFailed(result)) {
+        logWarning("keyring: macOS vault read failed", {
+          service,
+          statuses: failedStatuses(result.stderr),
+          exitCode: result.code,
+          unavailable: result.unavailable,
+          timedOut: result.timedOut === true,
+        });
         return { status: "failed" };
       }
       const { encoded, ...layout } = assembleMacosVault(result.stdout.split("\n"));
@@ -203,21 +218,46 @@ export function writeMacosVault(
   return Effect.gen(function* () {
     const write = macosVaultWriteScript(service, encoded, previous);
     if (write === undefined) {
+      logWarning("keyring: macOS vault too large to store", {
+        service,
+        encodedLength: encoded.length,
+        maxLength: MACOS_VAULT_CHUNK_LENGTH * MACOS_VAULT_MAX_CHUNKS,
+      });
       return false;
     }
     const stored = yield* run("security", ["-i"], write.script);
     if (sessionFailed(stored)) {
+      logWarning("keyring: macOS vault write failed; the previous vault stays in force", {
+        service,
+        chunks: write.accounts.length,
+        statuses: failedStatuses(stored.stderr),
+        exitCode: stored.code,
+        unavailable: stored.unavailable,
+        timedOut: stored.timedOut === true,
+      });
       return false;
     }
     const kept = new Set(write.accounts);
     const retired = [...new Set(previous.accounts)].filter((account) => !kept.has(account));
     if (retired.length > 0) {
-      yield* run(
+      const cleanup = yield* run(
         "security",
         ["-i"],
         retired.map((account) => `delete-generic-password -s ${service} -a ${account}\n`).join(""),
       );
+      if (sessionFailed(cleanup)) {
+        logWarning("keyring: replaced macOS vault chunks not all deleted; the next write retries", {
+          service,
+          retired: retired.length,
+          statuses: failedStatuses(cleanup.stderr),
+        });
+      }
     }
+    logDebug("keyring: wrote macOS vault", {
+      service,
+      chunks: write.accounts.length,
+      retired: retired.length,
+    });
     return true;
   });
 }

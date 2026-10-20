@@ -520,6 +520,22 @@ export function logWarning(message: string, meta?: Record<string, unknown>): voi
   void writeFormattedLogToFile("warn", message, meta);
 }
 
+/** {@link logWarning} for a notable decision that is not a problem, such as a migration step. */
+export function logInfo(message: string, meta?: Record<string, unknown>): void {
+  if (!shouldLog("info")) {
+    return;
+  }
+  void writeFormattedLogToFile("info", message, meta);
+}
+
+/** {@link logWarning} for routine detail, such as how long a call took; kept at `logging.level: debug`. */
+export function logDebug(message: string, meta?: Record<string, unknown>): void {
+  if (!shouldLog("debug")) {
+    return;
+  }
+  void writeFormattedLogToFile("debug", message, meta);
+}
+
 /**
  * Shared helper to write a formatted log line to file
  * Writes to the general jazz.log file (used when no conversationId is set)

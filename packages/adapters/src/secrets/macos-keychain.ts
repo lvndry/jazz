@@ -2,8 +2,10 @@
  * Reads a generic-password item through macOS Security.framework using the system JavaScript bridge,
  * the way 0.16.19 and 0.16.20 wrote each home's vault. The login keychain asks for its password
  * whenever an item is read by a program other than the one that wrote it, so only `osascript` reads
- * those items silently. The fixed script receives JSON on stdin, keeping item names out of argv. An
- * explicit keychain path supports isolated integration tests.
+ * those items silently. The read turns keychain dialogs off: an item another program wrote comes
+ * back `refused` at once instead of putting a dialog in front of the person. The fixed script
+ * receives JSON on stdin, keeping item names out of argv. An explicit keychain path supports
+ * isolated integration tests.
  */
 import { Effect } from "effect";
 import type { KeyringCommandRunner } from "./keyring";
@@ -42,6 +44,7 @@ export const MACOS_KEYCHAIN_READ_SCRIPT = `
 ObjC.import('Security');
 ObjC.import('Foundation');
 function run() {
+  $.SecKeychainSetUserInteractionAllowed(false);
   var input = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
   var payload = JSON.parse(ObjC.unwrap($.NSString.alloc.initWithDataEncoding(input, 4)));
   var query = {class: 'genp', svce: payload.service, acct: payload.account,
@@ -63,13 +66,11 @@ function run() {
 export function readMacosKeychainItem(
   run: KeyringCommandRunner,
   item: MacosKeychainItem,
-  timeoutMs?: number,
 ): Effect.Effect<MacosKeychainRead> {
   return run(
     "osascript",
     ["-l", "JavaScript", "-e", MACOS_KEYCHAIN_READ_SCRIPT],
     JSON.stringify(item),
-    timeoutMs,
   ).pipe(
     Effect.map((result): MacosKeychainRead => {
       const output = result.stdout.trim();

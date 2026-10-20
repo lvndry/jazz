@@ -70,7 +70,7 @@ describe("macOS osascript keychain reader", () => {
   });
 
   it.skipIf(process.platform !== "darwin")(
-    "reads back a large Unicode value osascript wrote, only from the keychain named",
+    "reads what osascript wrote and refuses, without a dialog, what security wrote",
     async () => {
       const directory = mkdtempSync(path.join(tmpdir(), "jazz-native-vault-"));
       const keychainPath = path.join(directory, "test.keychain-db");
@@ -118,6 +118,29 @@ describe("macOS osascript keychain reader", () => {
             readMacosKeychainItem(runner, { service, account, keychainPath: otherKeychainPath }),
           ),
         ).toEqual({ status: "absent" });
+        expect(
+          security([
+            "add-generic-password",
+            "-s",
+            `${service}.by-security`,
+            "-a",
+            account,
+            "-w",
+            "dummy",
+            keychainPath,
+          ]).status,
+        ).toBe(0);
+        const startedAt = Date.now();
+        expect(
+          await Effect.runPromise(
+            readMacosKeychainItem(runner, {
+              service: `${service}.by-security`,
+              account,
+              keychainPath,
+            }),
+          ),
+        ).toEqual({ status: "refused" });
+        expect(Date.now() - startedAt).toBeLessThan(4_000);
       } finally {
         security(["delete-keychain", keychainPath]);
         security(["delete-keychain", otherKeychainPath]);
