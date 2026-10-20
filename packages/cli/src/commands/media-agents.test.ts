@@ -1,6 +1,7 @@
 import type { Agent } from "@jazz/core/types/agent";
+import * as actualModelsDev from "@jazz/core/utils/models-dev";
 import type { ModelsDevMetadata } from "@jazz/core/utils/models-dev";
-import { describe, expect, it, mock } from "bun:test";
+import { afterAll, describe, expect, it, mock } from "bun:test";
 
 const metadataByModel = new Map<string, ModelsDevMetadata>();
 const providerEntries = new Map<string, unknown[]>();
@@ -10,6 +11,10 @@ mock.module("@jazz/core/utils/models-dev", () => ({
   getModelsDevProviderModels: (provider: string) =>
     Promise.resolve(providerEntries.get(provider) ?? []),
 }));
+
+afterAll(() => {
+  mock.module("@jazz/core/utils/models-dev", () => actualModelsDev);
+});
 
 const { findAgentsThatGenerate, suggestModelsForModality } = await import("./media-agents");
 

@@ -54,7 +54,7 @@ import {
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import { describe, test, expect, afterAll, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { Effect, type FileSystem, Layer } from "effect";
 import * as chatSession from "@/cli/chat/session";
 import { ChatServiceImpl } from "@/cli/chat-service";
@@ -71,7 +71,14 @@ import type { CommandContext, CommandResult } from "./types";
 
 let tmpDir = "";
 
+// Bun module mocks are process-global: snapshot the real exports so afterAll can
+// restore them for test files that run later in the same process.
+const actualPathsModule = {
+  ...(await import("@jazz/core/utils/paths")),
+};
+
 mock.module("@jazz/core/utils/paths", () => ({
+  ...actualPathsModule,
   getHistoryDirectory: () => tmpDir,
   getUserDataDirectory: () => tmpDir,
   getGlobalUserDataDirectory: () => tmpDir,
@@ -82,6 +89,10 @@ mock.module("@jazz/core/utils/paths", () => ({
   getBuiltinPersonasDirectory: () => null,
   getGlobalWorkflowsDirectory: () => tmpDir,
 }));
+
+afterAll(() => {
+  mock.module("@jazz/core/utils/paths", () => actualPathsModule);
+});
 
 const TEST_AGENT_ID = "test-agent-resume";
 

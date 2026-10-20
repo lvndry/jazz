@@ -219,7 +219,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          bun test --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee test-output.txt
+          bun test --isolate --coverage --coverage-reporter=text --coverage-reporter=lcov 2>&1 | tee test-output.txt
           {
             echo "### Test coverage"
             echo
