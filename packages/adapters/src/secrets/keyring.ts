@@ -600,14 +600,44 @@ export function migrateKeyringEntriesIntoVault(
 }
 
 /**
+ * Whether someone can answer a keychain password dialog right now: a terminal on stdin that is not
+ * an SSH session. Over SSH the dialog lands on the Mac's own screen, or cannot be shown at all.
+ */
+export function keychainDialogAnswerable(
+  stdinIsTerminal: boolean = process.stdin.isTTY === true,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return stdinIsTerminal && env["SSH_CONNECTION"] === undefined && env["SSH_TTY"] === undefined;
+}
+
+/**
+ * An item's modification time from `security find-generic-password` attributes, as
+ * `YYYYMMDDhhmmssZ` in UTC. Reading attributes never decrypts the item, so it never shows a
+ * dialog.
+ */
+function keychainModifiedAt(attributes: string): string | undefined {
+  return /"mdat"<timedate>=\S*\s+"(\d{14}Z)/.exec(attributes)?.[1];
+}
+
+/** `at` in the keychain's `YYYYMMDDhhmmssZ` form, to the whole second. */
+function keychainTimestamp(at: Date): string {
+  return `${at.toISOString().slice(0, 19).replace(/\D/g, "")}Z`;
+}
+
+/**
  * Fold the single-item vault that 0.16.19 and 0.16.20 wrote through `osascript` into the chunked
  * vault, then delete it. Only `osascript` reads that item, since it wrote it; `security` can still
  * find and delete it silently, so the lookup that runs on every start costs one `security` call and
  * `osascript` runs only while the item exists. A vault a pre-release build created through
  * `security` and then rewrote through `osascript` makes even `osascript` show a password dialog, so
- * at a terminal the read waits {@link KEYCHAIN_DIALOG_TIMEOUT_MS} for an answer. It happens before
- * taking the secrets lock, which other processes would otherwise wait on; under the lock the item
- * is looked up again, and a pass that finds it already adopted stops there.
+ * when someone can answer it the read waits {@link KEYCHAIN_DIALOG_TIMEOUT_MS}.
+ *
+ * The read happens before taking the secrets lock, which other processes would otherwise wait on
+ * for the whole dialog. An older Jazz still running can rewrite the item in that gap, so under the
+ * lock the item must carry the modification time seen before the read, and that time must be
+ * earlier than the second the read began: the keychain keeps whole seconds, and a rewrite during
+ * the read's own second would otherwise look unchanged. Otherwise this pass leaves the item for a
+ * later one rather than store a stale copy and delete the newer one.
  *
  * Values already in the chunked vault win. An item that does not decode is left alone and skipped:
  * no version of Jazz could read it.
@@ -616,7 +646,7 @@ export function adoptMacosOsascriptVault(
   vaultService: string,
   run: KeyringCommandRunner = runCommand,
   withLock: VaultLock = withSecretsFileLock,
-  interactive: boolean = process.stdin.isTTY === true,
+  answerable: boolean = keychainDialogAnswerable(),
 ): Effect.Effect<VaultMigration, never> {
   const discover = run("security", [
     "find-generic-password",
@@ -625,16 +655,21 @@ export function adoptMacosOsascriptVault(
     "-a",
     VAULT_ACCOUNT,
   ]);
+  const absentOrFailed = (result: CommandResult): VaultMigration => ({
+    moved: [],
+    complete: !result.unavailable && result.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE,
+  });
   return Effect.gen(function* () {
     const discovered = yield* discover;
     if (!discovered.ok) {
-      const absent = !discovered.unavailable && discovered.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE;
-      return { moved: [], complete: absent };
+      return absentOrFailed(discovered);
     }
+    const modifiedAt = keychainModifiedAt(discovered.stdout);
+    const readStartedAt = keychainTimestamp(new Date());
     const read = yield* readMacosKeychainItem(
       run,
       { service: vaultService, account: VAULT_ACCOUNT },
-      interactive ? KEYCHAIN_DIALOG_TIMEOUT_MS : COMMAND_TIMEOUT_MS,
+      answerable ? KEYCHAIN_DIALOG_TIMEOUT_MS : COMMAND_TIMEOUT_MS,
     );
     if (read.status === "failed") {
       return { moved: [], complete: false, refused: true };
@@ -645,11 +680,16 @@ export function adoptMacosOsascriptVault(
     }
     return yield* Effect.promise(() =>
       withLock(async (): Promise<VaultMigration> => {
-        const stillThere = await Effect.runPromise(discover);
-        if (!stillThere.ok) {
-          const absent =
-            !stillThere.unavailable && stillThere.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE;
-          return { moved: [], complete: absent };
+        const current = await Effect.runPromise(discover);
+        if (!current.ok) {
+          return absentOrFailed(current);
+        }
+        const unchanged =
+          modifiedAt !== undefined &&
+          modifiedAt < readStartedAt &&
+          keychainModifiedAt(current.stdout) === modifiedAt;
+        if (!unchanged) {
+          return { moved: [], complete: false };
         }
         const moved: string[] = [];
         const stored = await Effect.runPromise(

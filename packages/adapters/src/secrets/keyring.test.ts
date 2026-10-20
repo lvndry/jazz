@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, setSystemTime } from "bun:
 import { Effect } from "effect";
 import {
   adoptMacosOsascriptVault,
+  keychainDialogAnswerable,
   type CommandResult,
   type KeyringCommandRunner,
   detectKeyringBackend,
@@ -493,6 +494,55 @@ describe("adoptMacosOsascriptVault", () => {
     }
   });
 
+  it("leaves the old vault for a later pass when an older Jazz rewrites it before the lock", async () => {
+    const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ stale: "old" })]]);
+    const modifiedAt = new Map<string, string>();
+    const rewrittenMeanwhile: VaultLock = (operation) => {
+      entries.set(SINGLE_ITEM_VAULT_KEY, encodeVault({ stale: "old", fresh: "new" }));
+      modifiedAt.set(SINGLE_ITEM_VAULT_KEY, "20991231235959Z");
+      return operation();
+    };
+
+    expect(
+      await Effect.runPromise(
+        adoptMacosOsascriptVault(
+          VAULT_SERVICE,
+          fakeMacosKeychain(entries, modifiedAt),
+          rewrittenMeanwhile,
+          false,
+        ),
+      ),
+    ).toEqual({ moved: [], complete: false });
+    expect(vaultIn(entries)).toBeUndefined();
+    expect(entries.get(SINGLE_ITEM_VAULT_KEY)).toBe(encodeVault({ stale: "old", fresh: "new" }));
+  });
+
+  it("leaves an old vault modified during the read's own second for a later pass", async () => {
+    const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
+    const modifiedAt = new Map([[SINGLE_ITEM_VAULT_KEY, "20991231235959Z"]]);
+
+    expect(
+      await Effect.runPromise(
+        adoptMacosOsascriptVault(
+          VAULT_SERVICE,
+          fakeMacosKeychain(entries, modifiedAt),
+          withoutLock,
+          false,
+        ),
+      ),
+    ).toEqual({ moved: [], complete: false });
+    expect(entries.has(SINGLE_ITEM_VAULT_KEY)).toBe(true);
+  });
+
+  it("waits for a keychain dialog only at a local terminal", () => {
+    expect(keychainDialogAnswerable(true, {})).toBe(true);
+    expect(keychainDialogAnswerable(false, {})).toBe(false);
+    expect(keychainDialogAnswerable(true, { SSH_CONNECTION: "10.0.0.2 52000 10.0.0.1 22" })).toBe(
+      false,
+    );
+    expect(keychainDialogAnswerable(true, { SSH_TTY: "/dev/ttys004" })).toBe(false);
+  });
+
   it("stops when another process adopts the old vault while this one reads it", async () => {
     const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
     const keychain = fakeMacosKeychain(entries);
@@ -595,7 +645,7 @@ const answer = (args) => {
       return match === undefined ? { code: 44 } : { code: 0, stdout: '    "acct"<blob>="' + match.slice(service.length + 1) + '"\n' };
     }
     if (!(key in entries)) return { code: 44 };
-    return { code: 0, stdout: args.includes("-w") ? entries[key] + "\n" : '    "acct"<blob>="' + account + '"\n' };
+    return { code: 0, stdout: args.includes("-w") ? entries[key] + "\n" : '    "acct"<blob>="' + account + '"\n    "mdat"<timedate>=0x00  "20260101000000Z\\000"\n' };
   }
   if (args[0] === "add-generic-password") {
     entries[key] = flag(args, "-w");
