@@ -1,7 +1,8 @@
 /**
- * When Ctrl+B is worth advertising: a tool call has been running long enough that sending it to
- * the background beats waiting on it. Both renderers read this one rule, so the hint appears
- * and disappears at the same moment whichever interface is drawing the run.
+ * When the keys for a slow tool call are worth advertising: a call has been running long enough
+ * that sending it to the background or interrupting it beats waiting on it. Both renderers read
+ * this one rule, so the hints appear and disappear at the same moment whichever interface is
+ * drawing the run.
  */
 
 import type { ActivityState } from "../activity-state";
@@ -13,12 +14,11 @@ import type { ActivityState } from "../activity-state";
 export const DETACH_HINT_DELAY_MS = 3_000;
 
 /**
- * Whether Ctrl+B would detach something right now and the call has run past
- * {@link DETACH_HINT_DELAY_MS}. `canDetach` is whether the run installed a background handler.
- * A call still being risk-classified has not started its real work yet, so it does not count.
+ * Whether a call has run past {@link DETACH_HINT_DELAY_MS}. A call still being risk-classified
+ * has not started its real work yet, so it does not count.
  */
-export function offersDetach(activity: ActivityState, canDetach: boolean, now: number): boolean {
-  if (!canDetach || activity.phase !== "tool-execution") {
+export function holdsTurnUp(activity: ActivityState, now: number): boolean {
+  if (activity.phase !== "tool-execution") {
     return false;
   }
   return activity.tools.some(
@@ -27,16 +27,9 @@ export function offersDetach(activity: ActivityState, canDetach: boolean, now: n
 }
 
 /**
- * The periodic warning for a tool call that is still running. It names Ctrl+B only when
- * `canDetach`, so the warning never advertises a key that would do nothing.
+ * Whether Ctrl+B would detach something right now and a call is holding the turn up.
+ * `canDetach` is whether the run installed a background handler.
  */
-export function stillRunningWarning(
-  toolName: string,
-  elapsedSeconds: number,
-  canDetach: boolean,
-): string {
-  const keys = canDetach
-    ? "press Ctrl+B to background or Esc twice to interrupt"
-    : "press Esc twice to interrupt";
-  return `Tool ${toolName} still running after ${elapsedSeconds}s (${keys})`;
+export function offersDetach(activity: ActivityState, canDetach: boolean, now: number): boolean {
+  return canDetach && holdsTurnUp(activity, now);
 }

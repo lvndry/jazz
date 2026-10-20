@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ActiveTool, ActivityState } from "../activity-state";
-import { DETACH_HINT_DELAY_MS, offersDetach, stillRunningWarning } from "./tool-detach";
+import { DETACH_HINT_DELAY_MS, holdsTurnUp, offersDetach } from "./tool-detach";
 
 const NOW = 100_000;
 
@@ -44,16 +44,16 @@ describe("offersDetach", () => {
   });
 });
 
-describe("stillRunningWarning", () => {
-  test("offers Ctrl+B when the run can detach the call", () => {
-    expect(stillRunningWarning("execute_command", 30, true)).toBe(
-      "Tool execute_command still running after 30s (press Ctrl+B to background or Esc twice to interrupt)",
-    );
+describe("holdsTurnUp", () => {
+  test("holds once a running call passes the delay, with or without a background handler", () => {
+    expect(holdsTurnUp(running(tool(DETACH_HINT_DELAY_MS)), NOW)).toBe(true);
   });
 
-  test("names only Esc when nothing would detach", () => {
-    expect(stillRunningWarning("execute_command", 30, false)).toBe(
-      "Tool execute_command still running after 30s (press Esc twice to interrupt)",
-    );
+  test("does not hold for a call that has only just started", () => {
+    expect(holdsTurnUp(running(tool(DETACH_HINT_DELAY_MS - 1)), NOW)).toBe(false);
+  });
+
+  test("ignores a call still being risk-classified", () => {
+    expect(holdsTurnUp(running(tool(60_000, { classifying: true })), NOW)).toBe(false);
   });
 });

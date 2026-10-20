@@ -1093,30 +1093,7 @@ describe("InkStreamingRenderer", () => {
     });
   });
 
-  describe("still-running warning", () => {
-    const TOOL_WARNING_MS = 30_000;
-    const DETACH_KEYS = "(press Ctrl+B to background or Esc twice to interrupt)";
-    const INTERRUPT_ONLY_KEYS = "(press Esc twice to interrupt)";
-
-    function startLongTool(renderer: InkStreamingRenderer): void {
-      emitStreamStart(renderer);
-      Effect.runSync(
-        renderer.handleEvent({
-          type: "tool_execution_start",
-          toolName: "execute_command",
-          toolCallId: "tc-long",
-          arguments: { command: "sleep 45" },
-        }),
-      );
-      jest.advanceTimersByTime(TOOL_WARNING_MS);
-    }
-
-    function warnings(): string[] {
-      return printOutputCalls
-        .filter((entry) => entry.type === "warn")
-        .map((entry) => String(entry.message));
-    }
-
+  describe("long-running tool", () => {
     beforeEach(() => {
       jest.useFakeTimers();
     });
@@ -1125,48 +1102,25 @@ describe("InkStreamingRenderer", () => {
       jest.useRealTimers();
     });
 
-    test("offers Ctrl+B when the run installed a background handler", () => {
+    test("prints nothing to scrollback while the call runs; the live line carries the elapsed time", () => {
       store.setBackgroundHandler(() => undefined);
+      const renderer = createRenderer();
       try {
-        startLongTool(createRenderer());
-        expect(warnings()).toHaveLength(1);
-        expect(warnings()[0]).toContain(DETACH_KEYS);
+        emitStreamStart(renderer);
+        const scrollbackBaseline = printOutputCalls.length;
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "tool_execution_start",
+            toolName: "execute_command",
+            toolCallId: "tc-long",
+            arguments: { command: "sleep 120" },
+          }),
+        );
+        jest.advanceTimersByTime(120_000);
+        expect(
+          printOutputCalls.slice(scrollbackBaseline).filter((entry) => entry.type === "warn"),
+        ).toHaveLength(0);
       } finally {
-        store.setBackgroundHandler(null);
-      }
-    });
-
-    test("names only Esc when no background handler is installed", () => {
-      startLongTool(createRenderer());
-      expect(warnings()).toHaveLength(1);
-      expect(warnings()[0]).toContain(INTERRUPT_ONLY_KEYS);
-      expect(warnings()[0]).not.toContain("Ctrl+B");
-    });
-
-    test("names only Esc in a sub-agent panel even while the parent can detach", () => {
-      const ephemeralNotes: string[] = [];
-      const originalAppend = store.appendEphemeral;
-      store.appendEphemeral = (id, text, channel) => {
-        if (id === "eph-long") ephemeralNotes.push(text);
-        return originalAppend(id, text, channel);
-      };
-      store.setBackgroundHandler(() => undefined);
-      const renderer = new InkStreamingRenderer(
-        "SubAgent",
-        false,
-        { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
-        { textBufferMs: 0 },
-        0,
-        { kind: "ephemeral", regionId: "eph-long" },
-      );
-      try {
-        startLongTool(renderer);
-        const warning = ephemeralNotes.find((text) => text.includes("still running"));
-        expect(warning).toContain(INTERRUPT_ONLY_KEYS);
-        expect(warning).not.toContain("Ctrl+B");
-        expect(warnings()).toHaveLength(0);
-      } finally {
-        store.appendEphemeral = originalAppend;
         store.setBackgroundHandler(null);
         Effect.runSync(renderer.reset());
       }

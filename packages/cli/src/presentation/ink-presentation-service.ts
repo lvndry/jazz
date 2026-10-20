@@ -54,7 +54,6 @@ import {
   type ReceiptFacts,
 } from "@/cli/ui/models/interrupt";
 import { retryLine } from "@/cli/ui/models/retry";
-import { stillRunningWarning } from "@/cli/ui/models/tool-detach";
 import { terminalCellWidth } from "@/cli/ui/text/terminal-cells";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
@@ -203,8 +202,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
   /** Wall-clock start of the current reasoning region. */
   private reasoningStartedAt = 0;
 
-  private toolTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
-  private static readonly TOOL_WARNING_MS = 30_000;
   private static readonly MIN_REASONING_PANEL_LINES = 8;
   private static readonly MAX_REASONING_PANEL_LINES = 24;
 
@@ -287,7 +284,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
     this.streamBuffer = [];
     this.cumulativeResponseText = "";
     this.reasoningFullText = "";
-    this.clearAllToolTimeouts();
   }
 
   /**
@@ -497,7 +493,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
         clearTimeout(this.updateTimeoutId);
         this.updateTimeoutId = null;
       }
-      this.clearAllToolTimeouts();
       // Flush buffered deltas BEFORE collapsing the reasoning region so any
       // in-flight reasoning text lands in the panel before it collapses.
       this.flushStreamBuffer();
@@ -520,7 +515,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.updateTimeoutId = null;
       }
       this.pendingActivity = null;
-      this.clearAllToolTimeouts();
       this.acc.activeTools.clear();
       // Flush buffered deltas BEFORE collapsing the reasoning region so any
       // in-flight reasoning text lands in the panel before it collapses.
@@ -712,22 +706,16 @@ export class InkStreamingRenderer implements StreamingRenderer {
         return;
       }
 
-      if (event.type === "tool_execution_start" && !event.longRunning) {
-        this.setupToolTimeout(event.toolCallId, event.toolName);
-      }
       // Read before reduceEvent clears the entry on completion; the panel
       // line needs the tool name to format its result summary.
       const completedToolName =
         event.type === "tool_execution_complete"
           ? this.acc.activeTools.get(event.toolCallId)?.toolName
           : undefined;
-      if (event.type === "tool_execution_complete") {
-        this.clearToolTimeout(event.toolCallId);
-        if (this.streamTarget.kind === "scrollback")
-          this.storeExpandableDiff(completedToolName, event.result);
+      if (event.type === "tool_execution_complete" && this.streamTarget.kind === "scrollback") {
+        this.storeExpandableDiff(completedToolName, event.result);
       }
       if (event.type === "error") {
-        this.clearAllToolTimeouts();
         this.acc.activeTools.clear();
         // The turn ends here, so what it thought settles above the error.
         if (this.streamTarget.kind === "scrollback") store.settleTurnThought();
@@ -1034,51 +1022,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
         /* pricing unavailable */
       });
     return undefined;
-  }
-
-  private setupToolTimeout(toolCallId: string, toolName: string): void {
-    const startedAt = Date.now();
-    const warn = (): void => {
-      if (!this.documentLease()) return;
-      if (!this.acc.activeTools.has(toolCallId)) return;
-      const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
-      if (this.streamTarget.kind === "ephemeral") {
-        // Ctrl+B detaches the parent run's batch, not this sub-agent's call.
-        store.appendEphemeral(
-          this.streamTarget.regionId,
-          stillRunningWarning(toolName, elapsedSeconds, false),
-          "note",
-        );
-      } else {
-        const canDetach = store.getSessionSnapshot().backgroundHandler !== null;
-        store.printOutput({
-          type: "warn",
-          message: stillRunningWarning(toolName, elapsedSeconds, canDetach),
-          timestamp: new Date(),
-        });
-      }
-      // Re-arm so multi-minute tools keep reassuring the user instead of
-      // going silent after a single warning.
-      const timeoutId = setTimeout(warn, InkStreamingRenderer.TOOL_WARNING_MS);
-      this.toolTimeouts.set(toolCallId, timeoutId);
-    };
-    const timeoutId = setTimeout(warn, InkStreamingRenderer.TOOL_WARNING_MS);
-    this.toolTimeouts.set(toolCallId, timeoutId);
-  }
-
-  private clearToolTimeout(toolCallId: string): void {
-    const timeoutId = this.toolTimeouts.get(toolCallId);
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      this.toolTimeouts.delete(toolCallId);
-    }
-  }
-
-  private clearAllToolTimeouts(): void {
-    for (const timeoutId of this.toolTimeouts.values()) {
-      clearTimeout(timeoutId);
-    }
-    this.toolTimeouts.clear();
   }
 
   private storeExpandableDiff(toolName: string | undefined, result: string): void {

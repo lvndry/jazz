@@ -9,7 +9,7 @@ import type { ActivityState, TodoSnapshotItem } from "./activity-state";
 import { ActivityIndicator } from "./components/ActivityIndicator";
 import { getGlyphs } from "./glyphs";
 import { planProgress, todoLine } from "./models/todo";
-import { offersDetach } from "./models/tool-detach";
+import { holdsTurnUp, offersDetach } from "./models/tool-detach";
 import { formatElapsed } from "./text/format";
 import { roleStyle } from "./text/roles";
 import { PADDING, THEME } from "./theme";
@@ -215,6 +215,11 @@ export const ActivityView = React.memo(function ActivityView({
             : uniqueNames.length === 1
               ? `Running ${uniqueNames[0]}…`
               : `Running ${uniqueNames.length} tools… (${uniqueNames.join(", ")})`;
+      const now = Date.now();
+      const keyHints = [
+        ...(offersDetach(activity, canDetach, now) ? ["ctrl+b to background"] : []),
+        ...(holdsTurnUp(activity, now) ? ["esc esc to interrupt"] : []),
+      ];
       return (
         <Box
           flexDirection="column"
@@ -225,10 +230,12 @@ export const ActivityView = React.memo(function ActivityView({
             <ActivityIndicator color={THEME.agent} />
             <Text color={THEME.agent}> {label}</Text>
             <ElapsedText seconds={elapsedSeconds} />
-            {offersDetach(activity, canDetach, Date.now()) ? (
-              <Text dimColor> · ctrl+b to background</Text>
-            ) : null}
           </Box>
+          {keyHints.length > 0 ? (
+            <Box paddingLeft={PADDING.nested}>
+              <Text dimColor>{keyHints.join(" · ")}</Text>
+            </Box>
+          ) : null}
           {activity.todoSnapshot && activity.todoSnapshot.length > 0 ? (
             <PlanList todos={activity.todoSnapshot} />
           ) : null}

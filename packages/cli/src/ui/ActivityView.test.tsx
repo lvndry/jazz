@@ -13,14 +13,20 @@ function runningFor(ageMs: number): ActivityState {
 }
 
 describe("ActivityView", () => {
-  test("offers Ctrl+B on a tool call that has run past the delay", () => {
+  test("offers ctrl+b and esc esc on a line below a call that has run past the delay", () => {
     const output = renderToString(
       <ActivityView
         activity={runningFor(DETACH_HINT_DELAY_MS + 1_000)}
         canDetach
       />,
     );
-    expect(output).toContain("ctrl+b to background");
+    const lines = output.split("\n");
+    const statusIndex = lines.findIndex((line) => line.includes("Running execute_command"));
+    const hintIndex = lines.findIndex((line) =>
+      line.includes("ctrl+b to background · esc esc to interrupt"),
+    );
+    expect(statusIndex).toBeGreaterThanOrEqual(0);
+    expect(hintIndex).toBeGreaterThan(statusIndex);
   });
 
   test("leaves the hint off a call that has only just started", () => {
@@ -33,8 +39,9 @@ describe("ActivityView", () => {
     expect(output).not.toContain("ctrl+b");
   });
 
-  test("leaves the hint off when the run cannot detach", () => {
+  test("offers only esc esc when the run cannot detach", () => {
     const output = renderToString(<ActivityView activity={runningFor(60_000)} />);
     expect(output).not.toContain("ctrl+b");
+    expect(output).toContain("esc esc to interrupt");
   });
 });
