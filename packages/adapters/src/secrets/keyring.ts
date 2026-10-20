@@ -126,6 +126,8 @@ export interface CommandResult {
   readonly stderr: string;
   /** True when the binary itself is missing or the call never completed. */
   readonly unavailable: boolean;
+  /** True when the call was killed for outlasting its timeout, such as an unanswered dialog. */
+  readonly timedOut?: boolean;
 }
 
 /** Runs a keyring CLI. Injected into the legacy migration so tests can stand in for the keyring. */
@@ -160,7 +162,7 @@ function runCommand(
 
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      finish({ ok: false, code: null, stdout: "", stderr: "", unavailable: true });
+      finish({ ok: false, code: null, stdout: "", stderr: "", unavailable: true, timedOut: true });
     }, timeoutMs);
 
     let stdout = "";
@@ -671,8 +673,11 @@ export function adoptMacosOsascriptVault(
       { service: vaultService, account: VAULT_ACCOUNT },
       answerable ? KEYCHAIN_DIALOG_TIMEOUT_MS : COMMAND_TIMEOUT_MS,
     );
-    if (read.status === "failed") {
+    if (read.status === "refused") {
       return { moved: [], complete: false, refused: true };
+    }
+    if (read.status === "failed") {
+      return { moved: [], complete: false };
     }
     const legacy = read.status === "ok" ? decodeVault(read.value) : {};
     if (legacy === undefined) {

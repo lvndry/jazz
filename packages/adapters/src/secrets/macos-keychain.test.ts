@@ -36,7 +36,10 @@ describe("macOS osascript keychain reader", () => {
     for (const [ok, stdout, expected] of [
       [true, `0:${Buffer.from(value).toString("base64")}\n`, { status: "ok", value }],
       [true, "-25300\n", { status: "absent" }],
-      [true, "-25293\n", { status: "failed" }],
+      [true, "-25293\n", { status: "refused" }],
+      [true, "-128\n", { status: "refused" }],
+      [true, "-25308\n", { status: "refused" }],
+      [true, "-50\n", { status: "failed" }],
       [true, "", { status: "failed" }],
       [false, "-25300\n", { status: "failed" }],
     ] as const) {
@@ -47,6 +50,23 @@ describe("macOS osascript keychain reader", () => {
       };
       expect(await Effect.runPromise(readMacosKeychainItem(runner, item))).toEqual(expected);
     }
+  });
+
+  it("treats a read killed by its timeout as an unanswered dialog", async () => {
+    const unanswered: KeyringCommandRunner = () =>
+      Effect.succeed({
+        ok: false,
+        code: null,
+        stdout: "",
+        stderr: "",
+        unavailable: true,
+        timedOut: true,
+      });
+    expect(
+      await Effect.runPromise(
+        readMacosKeychainItem(unanswered, { service: "jazz.test.vault", account: "secrets" }),
+      ),
+    ).toEqual({ status: "refused" });
   });
 
   it.skipIf(process.platform !== "darwin")(
