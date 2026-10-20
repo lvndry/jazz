@@ -550,6 +550,8 @@ function osKeyringAnyAccount(
 export interface VaultMigration {
   readonly moved: readonly string[];
   readonly complete: boolean;
+  /** The keychain refused to read the source: a denied or unanswered password dialog. */
+  readonly refused?: boolean;
 }
 
 /**
@@ -635,7 +637,7 @@ export function adoptMacosOsascriptVault(
       interactive ? KEYCHAIN_DIALOG_TIMEOUT_MS : COMMAND_TIMEOUT_MS,
     );
     if (read.status === "failed") {
-      return { moved: [], complete: false };
+      return { moved: [], complete: false, refused: true };
     }
     const legacy = read.status === "ok" ? decodeVault(read.value) : {};
     if (legacy === undefined) {
@@ -681,6 +683,14 @@ interface VaultAdoptionResult {
 const vaultAdoptions = new Map<string, Promise<VaultAdoptionResult>>();
 
 /**
+ * Vault services whose `osascript`-written vault the keychain refused to read in this process. A
+ * refused read means a password dialog was denied or left unanswered; asking again on every lookup
+ * puts a dialog in front of every message, so the process stops asking and the next process asks
+ * once more.
+ */
+const refusedOsascriptVaults = new Set<string>();
+
+/**
  * Fold legacy credentials into the active vault with one in-flight attempt per home.
  * Complete adoptions stay cached for the process; incomplete attempts are evicted for retry.
  *
@@ -688,6 +698,10 @@ const vaultAdoptions = new Map<string, Promise<VaultAdoptionResult>>();
  * `~/.jazz` adopts the bare service: it is the home those keys were almost always written from,
  * and a throwaway `JAZZ_HOME` must never claim, and then lose with its directory, the user's real
  * keys. An incomplete scoped pass stops before the bare service, preserving that precedence.
+ *
+ * On macOS the `osascript`-written vault goes first, its values being the newest. When the keychain
+ * refuses to read it, the per-secret items still move, so their keys stay reachable, and the
+ * adoption stays incomplete until a later process reads that vault.
  */
 function adoptPerEntrySecrets(
   backend: OsKeyringBackend,
@@ -699,10 +713,21 @@ function adoptPerEntrySecrets(
     const sources = [keyringServiceName(), ...(isDefaultJazzHome() ? [KEYRING_SERVICE_NAME] : [])];
     pending = (async () => {
       let movedCount = 0;
+      let osascriptVaultAdopted = true;
       if (backend === "macos") {
-        const result = await Effect.runPromise(adoptMacosOsascriptVault(vaultService));
-        movedCount += result.moved.length;
-        if (!result.complete) return { movedCount, complete: false };
+        if (refusedOsascriptVaults.has(vaultService)) {
+          osascriptVaultAdopted = false;
+        } else {
+          const result = await Effect.runPromise(adoptMacosOsascriptVault(vaultService));
+          movedCount += result.moved.length;
+          osascriptVaultAdopted = result.complete;
+          if (result.refused === true) {
+            refusedOsascriptVaults.add(vaultService);
+          }
+          if (!result.complete && result.refused !== true) {
+            return { movedCount, complete: false };
+          }
+        }
       }
       for (const source of sources) {
         const result = await Effect.runPromise(
@@ -711,7 +736,7 @@ function adoptPerEntrySecrets(
         movedCount += result.moved.length;
         if (!result.complete) return { movedCount, complete: false };
       }
-      return { movedCount, complete: true };
+      return { movedCount, complete: osascriptVaultAdopted };
     })();
     vaultAdoptions.set(key, pending);
   }

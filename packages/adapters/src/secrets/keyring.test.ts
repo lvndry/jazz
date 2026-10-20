@@ -510,7 +510,10 @@ describe("adoptMacosOsascriptVault", () => {
   });
 
   it("keeps the old vault when it cannot be read or its contents cannot be stored", async () => {
-    for (const refuse of ["osascript", "add-generic-password"]) {
+    for (const [refuse, expected] of [
+      ["osascript", { moved: [], complete: false, refused: true }],
+      ["add-generic-password", { moved: [], complete: false }],
+    ] as const) {
       const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
       const keychain = fakeMacosKeychain(entries);
       const refusing: KeyringCommandRunner = (command, args, stdin) =>
@@ -520,7 +523,7 @@ describe("adoptMacosOsascriptVault", () => {
 
       expect(
         await Effect.runPromise(adoptMacosOsascriptVault(VAULT_SERVICE, refusing, withoutLock)),
-      ).toEqual({ moved: [], complete: false });
+      ).toEqual(expected);
       expect(entries.has(SINGLE_ITEM_VAULT_KEY)).toBe(true);
     }
   });
@@ -680,6 +683,34 @@ process.exit(process.argv[2] === "-i" ? lastCode : code);
       expect(discoveryCount()).toBe(afterAdoption);
     });
   }
+
+  it("asks for a refused osascript vault once per process and still moves per-secret items", async () => {
+    const sourceKey = `${keyringServiceName()}\0llm.openai.api_key`;
+    fs.writeFileSync(
+      entriesFile,
+      JSON.stringify({
+        [`${keyringVaultServiceName()}\0secrets`]: Buffer.from(
+          JSON.stringify({ "peers.sam.token": "peer-token" }),
+        ).toString("base64"),
+        [sourceKey]: "legacy-value",
+      }),
+    );
+    fs.writeFileSync(failureFile, JSON.stringify({ operation: "osascript-read", skip: 0 }));
+    const osascriptReads = (): number =>
+      fs
+        .readFileSync(callsFile, "utf8")
+        .split("\n")
+        .filter((line) => line.includes('"operation":"osascript-read"')).length;
+
+    expect(await Effect.runPromise(keyringGet("macos", "llm.openai.api_key"))).toBe("legacy-value");
+    for (let lookup = 0; lookup < 3; lookup++) {
+      expireSnapshot();
+      expect(await Effect.runPromise(keyringGet("macos", "peers.sam.token"))).toBeUndefined();
+    }
+    expect(osascriptReads()).toBe(1);
+    expect(entries()[sourceKey]).toBeUndefined();
+    expect(entries()[`${keyringVaultServiceName()}\0secrets`]).toBeDefined();
+  });
 
   it("keeps partial progress and existing vault values when the next write fails", async () => {
     const source = keyringServiceName();
