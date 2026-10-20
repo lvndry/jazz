@@ -21,7 +21,7 @@ import {
 } from "@jazz/core/utils/paths";
 import { quarantineCorruptFile } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
-import { writeMacosKeychainItem } from "./macos-keychain-write";
+import { readMacosKeychainItem, writeMacosKeychainItem } from "./macos-keychain";
 
 /**
  * Base Keychain/libsecret service name. Each Jazz home keeps all its secrets in one vault entry
@@ -34,7 +34,8 @@ export const KEYRING_SERVICE_NAME = "jazz";
 /**
  * Which secret store `keyringGet`/`keyringSet`/`keyringDelete` use.
  *
- * - `"macos"` — Keychain, via the `security` CLI.
+ * - `"macos"` — Keychain. The vault goes through Security.framework via `osascript` (see
+ *   `macos-keychain.ts`); per-secret items from earlier versions via the `security` CLI.
  * - `"libsecret"` — the Linux Secret Service, via the `secret-tool` CLI (gnome-keyring or
  *   similar).
  * - `"file"` — a `chmod 600` JSON file under `$JAZZ_HOME`, used when neither OS keyring is
@@ -360,22 +361,23 @@ function osKeyringReadVault(
   service: string,
 ): Effect.Effect<VaultRead, never> {
   return Effect.gen(function* () {
-    const result =
-      backend === "macos"
-        ? yield* run("security", [
-            "find-generic-password",
-            "-w",
-            "-s",
-            service,
-            "-a",
-            VAULT_ACCOUNT,
-          ])
-        : yield* run("secret-tool", ["lookup", "service", service, "account", VAULT_ACCOUNT]);
+    if (backend === "macos") {
+      const read = yield* readMacosKeychainItem(run, { service, account: VAULT_ACCOUNT });
+      if (read.status !== "ok") {
+        return read;
+      }
+      const secrets = decodeVault(read.value);
+      return secrets === undefined ? { status: "corrupt" } : { status: "ok", secrets };
+    }
+    const result = yield* run("secret-tool", [
+      "lookup",
+      "service",
+      service,
+      "account",
+      VAULT_ACCOUNT,
+    ]);
     if (!result.ok) {
-      const absent =
-        backend === "macos"
-          ? result.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE
-          : !result.unavailable && result.stderr.trim() === "";
+      const absent = !result.unavailable && result.stderr.trim() === "";
       return absent ? { status: "absent" } : { status: "failed" };
     }
     const secrets = decodeVault(result.stdout);

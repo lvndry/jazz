@@ -1,5 +1,5 @@
 /**
- * Checks the stdin-only macOS writer and its native large-value round trip. Native operations
+ * Checks the stdin-only macOS reader and writer and their native large-value round trip. Native operations
  * name a disposable keychain explicitly; cleanup deletes it even when an assertion fails.
  */
 import { spawnSync } from "node:child_process";
@@ -9,9 +9,9 @@ import path from "node:path";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import type { KeyringCommandRunner } from "./keyring";
-import { writeMacosKeychainItem } from "./macos-keychain-write";
+import { readMacosKeychainItem, writeMacosKeychainItem } from "./macos-keychain";
 
-describe("macOS keychain writer", () => {
+describe("macOS keychain items", () => {
   it("carries values only on stdin and requires a successful native status", async () => {
     const item = { service: "jazz.test.vault", account: "secrets", value: "private-value" };
     for (const [ok, stdout, expected] of [
@@ -30,8 +30,27 @@ describe("macOS keychain writer", () => {
     }
   });
 
+  it("reads a value only from a clean native hit", async () => {
+    const item = { service: "jazz.test.vault", account: "secrets" };
+    const value = "café 🎷";
+    for (const [ok, stdout, expected] of [
+      [true, `0:${Buffer.from(value).toString("base64")}\n`, { status: "ok", value }],
+      [true, "-25300\n", { status: "absent" }],
+      [true, "-25293\n", { status: "failed" }],
+      [true, "", { status: "failed" }],
+      [false, "-25300\n", { status: "failed" }],
+    ] as const) {
+      const runner: KeyringCommandRunner = (command, _args, stdin) => {
+        expect(command).toBe("osascript");
+        expect(JSON.parse(stdin ?? "")).toEqual(item);
+        return Effect.succeed({ ok, code: ok ? 0 : 1, stdout, stderr: "", unavailable: false });
+      };
+      expect(await Effect.runPromise(readMacosKeychainItem(runner, item))).toEqual(expected);
+    }
+  });
+
   it.skipIf(process.platform !== "darwin")(
-    "creates and updates a large Unicode value that security can read without a prompt",
+    "creates, updates and reads back a large Unicode value",
     async () => {
       const directory = mkdtempSync(path.join(tmpdir(), "jazz-native-vault-"));
       const keychainPath = path.join(directory, "test.keychain-db");
@@ -76,21 +95,11 @@ describe("macOS keychain writer", () => {
               writeMacosKeychainItem(runner, { service, account, value, keychainPath }),
             ),
           ).toBe(true);
-          const read = security([
-            "find-generic-password",
-            "-w",
-            "-s",
-            service,
-            "-a",
-            account,
-            keychainPath,
-          ]);
-          expect(read.status).toBe(0);
-          const text = read.stdout.replace(/\n$/, "");
-          const decoded = /^[0-9a-f]+$/i.test(text)
-            ? Buffer.from(text, "hex").toString("utf8")
-            : text;
-          expect(decoded).toBe(value);
+          expect(
+            await Effect.runPromise(
+              readMacosKeychainItem(runner, { service, account, keychainPath }),
+            ),
+          ).toEqual({ status: "ok", value });
           const other = security([
             "find-generic-password",
             "-w",
@@ -103,44 +112,11 @@ describe("macOS keychain writer", () => {
           expect(other.status).toBe(0);
           expect(other.stdout).toBe("untouched\n");
         }
-        const access = security(["dump-keychain", "-a", keychainPath]);
-        expect(access.status).toBe(0);
-        expect(access.stdout).toContain("/usr/bin/security");
-        expect(access.stdout).toContain("/usr/bin/osascript");
-        const legacyService = `${service}.legacy`;
-        expect(
-          security([
-            "add-generic-password",
-            "-s",
-            legacyService,
-            "-a",
-            account,
-            "-w",
-            "old",
-            keychainPath,
-          ]).status,
-        ).toBe(0);
         expect(
           await Effect.runPromise(
-            writeMacosKeychainItem(runner, {
-              service: legacyService,
-              account,
-              value: "new".repeat(8_000),
-              keychainPath,
-            }),
+            readMacosKeychainItem(runner, { service: `${service}.missing`, account, keychainPath }),
           ),
-        ).toBe(true);
-        const updated = security([
-          "find-generic-password",
-          "-w",
-          "-s",
-          legacyService,
-          "-a",
-          account,
-          keychainPath,
-        ]);
-        expect(updated.status).toBe(0);
-        expect(updated.stdout).toBe(`${"new".repeat(8_000)}\n`);
+        ).toEqual({ status: "absent" });
       } finally {
         security(["delete-keychain", keychainPath]);
         security(["delete-keychain", otherKeychainPath]);

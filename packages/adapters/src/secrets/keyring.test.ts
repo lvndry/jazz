@@ -206,7 +206,17 @@ function fakeMacosKeychain(entries: Map<string, string>): KeyringCommandRunner {
   return (command, args, stdin) =>
     Effect.sync(() => {
       if (command === "osascript") {
-        const item = JSON.parse(stdin ?? "") as { service: string; account: string; value: string };
+        const item = JSON.parse(stdin ?? "") as {
+          service: string;
+          account: string;
+          value?: string;
+        };
+        if (item.value === undefined) {
+          const value = entries.get(key(item.service, item.account));
+          return value === undefined
+            ? result(true, "-25300\n")
+            : result(true, `0:${Buffer.from(value).toString("base64")}\n`);
+        }
         entries.set(key(item.service, item.account), item.value);
         return result(true, "0\n");
       }
@@ -298,7 +308,7 @@ describe("migrateKeyringEntriesIntoVault", () => {
     const entries = new Map([["jazz\u0000llm.openai.api_key", "sk-legacy"]]);
     const keychain = fakeMacosKeychain(entries);
     const lockedVault: KeyringCommandRunner = (command, args, stdin) =>
-      args.includes(VAULT_SERVICE)
+      command === "osascript" && stdin?.includes(VAULT_SERVICE)
         ? Effect.succeed({ ok: false, code: 51, stdout: "", stderr: "", unavailable: false })
         : keychain(command, args, stdin);
 
@@ -480,9 +490,12 @@ const entriesFile = ${JSON.stringify(entriesFile)};
 const failureFile = ${JSON.stringify(failureFile)};
 const callsFile = ${JSON.stringify(callsFile)};
 let args = process.argv.slice(2);
-if (process.argv[1].endsWith("osascript")) {
+const viaOsascript = process.argv[1].endsWith("osascript");
+if (viaOsascript) {
   const item = JSON.parse(fs.readFileSync(0, "utf8"));
-  args = ["add-generic-password", "-s", item.service, "-a", item.account, "-w", item.value];
+  args = item.value === undefined
+    ? ["find-generic-password", "-s", item.service, "-a", item.account]
+    : ["add-generic-password", "-s", item.service, "-a", item.account, "-w", item.value];
 }
 const flag = (name) => args[args.indexOf(name) + 1];
 const service = flag("-s");
@@ -505,7 +518,11 @@ if (fs.existsSync(failureFile)) {
 }
 const entries = JSON.parse(fs.readFileSync(entriesFile, "utf8"));
 if (args[0] === "find-generic-password") {
-  if (account !== undefined) {
+  if (viaOsascript) {
+    process.stdout.write(key in entries
+      ? "0:" + Buffer.from(entries[key]).toString("base64") + "\n"
+      : "-25300\n");
+  } else if (account !== undefined) {
     if (!(key in entries)) process.exit(44);
     process.stdout.write(entries[key] + "\n");
   } else {
