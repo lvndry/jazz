@@ -39,9 +39,11 @@ lines over 4,095 bytes, so the vault is split into chunks of up to 3,800 charact
 the first. An interrupted write leaves the previous vault readable.
 
 Jazz 0.16.19 and 0.16.20 wrote each home's vault through `osascript` instead, which made the
-keychain ask for its password on every start. The first start after updating reads that vault
-once through `osascript`, which can read it without a prompt, moves its secrets into the new
-vault, and deletes it.
+keychain ask for its password on every start. The first start after updating moves that vault's
+secrets into the new vault and deletes it. It reads the old vault through whichever program
+wrote it, with keychain dialogs turned off, so there is no prompt. Only a vault both programs
+wrote needs one dialog, and at a local terminal Jazz waits 60 seconds for an answer. Every step
+is recorded in `~/.jazz/logs/jazz.log` under `keyring:`.
 
 Read-back is one-way. `jazz config show` and `jazz config get` redact every secret, including MCP
 env and header values and values merged in from the keyring or the environment; `--reveal` is the

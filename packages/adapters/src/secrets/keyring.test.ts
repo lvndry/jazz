@@ -587,6 +587,39 @@ describe("adoptMacosOsascriptVault", () => {
     expect(vaultIn(entries)).toBeUndefined();
   });
 
+  it("decodes every way an earlier build stored the old vault", async () => {
+    const secrets = { "llm.openai.api_key": "sk-one", "peers.sam.token": "peer-token" };
+    const json = JSON.stringify(secrets);
+    const truncated = encodeVault({ ...secrets, "chatgpt.oauth.credential": "x".repeat(300) });
+    for (const [stored, expected] of [
+      [Buffer.from(encodeVault(secrets)).toString("hex"), secrets],
+      [Buffer.from(json).toString("hex"), secrets],
+      [json, secrets],
+      [truncated.slice(0, truncated.length - 201), secrets],
+    ] as const) {
+      const entries = new Map([[SINGLE_ITEM_VAULT_KEY, stored]]);
+
+      expect(
+        await Effect.runPromise(
+          adoptMacosOsascriptVault(VAULT_SERVICE, fakeMacosKeychain(entries), withoutLock, false),
+        ),
+      ).toEqual({ moved: Object.keys(expected), complete: true });
+      expect(vaultIn(entries)).toEqual(expected);
+      expect(entries.has(SINGLE_ITEM_VAULT_KEY)).toBe(false);
+    }
+  });
+
+  it("leaves an old vault with nothing recoverable in place", async () => {
+    const entries = new Map([[SINGLE_ITEM_VAULT_KEY, "not a vault at all"]]);
+
+    expect(
+      await Effect.runPromise(
+        adoptMacosOsascriptVault(VAULT_SERVICE, fakeMacosKeychain(entries), withoutLock, false),
+      ),
+    ).toEqual({ moved: [], complete: true });
+    expect(entries.get(SINGLE_ITEM_VAULT_KEY)).toBe("not a vault at all");
+  });
+
   it("keeps the old vault when it cannot be read or its contents cannot be stored", async () => {
     const refusedRead = (command: string, args: readonly string[]): CommandResult | undefined =>
       command === "osascript"

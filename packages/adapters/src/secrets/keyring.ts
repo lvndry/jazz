@@ -362,8 +362,13 @@ function encodeVault(secrets: VaultSecrets): string {
  * of text, and base64 keeps every secret's characters out of that path.
  */
 function decodeVault(raw: string): VaultSecrets | undefined {
+  return parseVaultJson(Buffer.from(raw.trim(), "base64").toString("utf8"));
+}
+
+/** The string-valued entries of a JSON object, or undefined for anything else. */
+function parseVaultJson(json: string): VaultSecrets | undefined {
   try {
-    const parsed: unknown = JSON.parse(Buffer.from(raw.trim(), "base64").toString("utf8"));
+    const parsed: unknown = JSON.parse(json);
     if (!isRecord(parsed)) {
       return undefined;
     }
@@ -695,6 +700,83 @@ function keychainTimestamp(at: Date): string {
   return `${at.toISOString().slice(0, 19).replace(/\D/g, "")}Z`;
 }
 
+/** How an old single-item vault was stored, for diagnostics. */
+type OldVaultEncoding =
+  "base64-json" | "hex-base64-json" | "hex-json" | "json" | "truncated-base64-json";
+
+const HEX_PATTERN = /^(?:[0-9a-f]{2})+$/i;
+
+/**
+ * Decode an old single-item vault. Builds have stored base64 JSON, and `security -w` prints any
+ * value it does not consider text as hex, so the hex forms and plain JSON are tried as well.
+ */
+function decodeOldVault(
+  raw: string,
+): { readonly secrets: VaultSecrets; readonly encoding: OldVaultEncoding } | undefined {
+  const text = raw.trim();
+  const asBase64 = decodeVault(text);
+  if (asBase64 !== undefined) {
+    return { secrets: asBase64, encoding: "base64-json" };
+  }
+  if (HEX_PATTERN.test(text)) {
+    const unhexed = Buffer.from(text, "hex").toString("utf8");
+    const asHexBase64 = decodeVault(unhexed);
+    if (asHexBase64 !== undefined) {
+      return { secrets: asHexBase64, encoding: "hex-base64-json" };
+    }
+    const asHexJson = parseVaultJson(unhexed);
+    if (asHexJson !== undefined) {
+      return { secrets: asHexJson, encoding: "hex-json" };
+    }
+  }
+  const asJson = parseVaultJson(text);
+  if (asJson !== undefined) {
+    return { secrets: asJson, encoding: "json" };
+  }
+  const salvaged = salvageTruncatedVault(text);
+  return salvaged === undefined
+    ? undefined
+    : { secrets: salvaged, encoding: "truncated-base64-json" };
+}
+
+/**
+ * The complete entries of a base64 JSON vault whose end was cut off. A pre-release build wrote the
+ * vault through `security -i`, whose 4,095-byte line limit cut long values short; every entry
+ * before the cut is intact, and only the one it falls in is lost.
+ */
+function salvageTruncatedVault(text: string): VaultSecrets | undefined {
+  if (!/^[A-Za-z0-9+/]+=*$/.test(text)) {
+    return undefined;
+  }
+  const whole = text.slice(0, text.length - (text.length % 4));
+  const prefix = Buffer.from(whole, "base64").toString("utf8");
+  if (!prefix.startsWith("{")) {
+    return undefined;
+  }
+  for (let end = prefix.lastIndexOf(',"'); end > 0; end = prefix.lastIndexOf(',"', end - 1)) {
+    const entries = parseVaultJson(`${prefix.slice(0, end)}}`);
+    if (entries !== undefined) {
+      return entries;
+    }
+  }
+  return undefined;
+}
+
+/** The shape of an undecodable value, safe to log: never any of its characters. */
+function describeValueShape(raw: string): Record<string, unknown> {
+  const text = raw.trim();
+  return {
+    length: text.length,
+    characters: HEX_PATTERN.test(text)
+      ? "hex"
+      : /^[A-Za-z0-9+/]+=*$/.test(text)
+        ? "base64"
+        : text.startsWith("{")
+          ? "json-like"
+          : "other",
+  };
+}
+
 /**
  * Read the single-item vault an earlier version left, without a dialog whenever the program that
  * wrote it can: `osascript` for the vaults 0.16.19 and 0.16.20 wrote, `security` for those a
@@ -803,10 +885,21 @@ export function adoptMacosOsascriptVault(
     if (read.status === "failed") {
       return { moved: [], complete: false };
     }
-    const legacy = read.status === "ok" ? decodeVault(read.value) : {};
-    if (legacy === undefined) {
-      logWarning("keyring: old vault does not decode; leaving it in place", { vaultService });
+    const decoded = read.status === "ok" ? decodeOldVault(read.value) : undefined;
+    if (read.status === "ok" && decoded === undefined) {
+      logWarning("keyring: old vault does not decode; leaving it in place", {
+        vaultService,
+        ...describeValueShape(read.value),
+      });
       return { moved: [], complete: true };
+    }
+    const legacy: VaultSecrets = decoded?.secrets ?? {};
+    if (decoded !== undefined) {
+      logInfo("keyring: decoded the old vault", {
+        vaultService,
+        encoding: decoded.encoding,
+        entries: Object.keys(legacy).length,
+      });
     }
     return yield* Effect.promise(() =>
       withLock(async (): Promise<VaultMigration> => {
