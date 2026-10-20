@@ -47,6 +47,11 @@ export function retryLine(notice: RetryNotice, now: number): string {
   return `${band.title} (${band.attempt}). ${band.cause} Retrying in ${String(band.secondsLeft)}s. Nothing is lost.`;
 }
 
+/** The provider's detail as one sentence, ended with a period only when it has no ending yet. */
+function asSentence(detail: string): string {
+  return /[.!?]$/.test(detail) ? detail : `${detail}.`;
+}
+
 export function retryBand(notice: RetryNotice, now: number): RetryBand {
   const provider =
     notice.provider === undefined ? "The provider" : formatProviderDisplayName(notice.provider);
@@ -54,7 +59,7 @@ export function retryBand(notice: RetryNotice, now: number): RetryBand {
     notice.statusCode !== undefined
       ? `${provider} returned ${String(notice.statusCode)}.`
       : notice.detail.length > 0
-        ? `${provider}: ${notice.detail}.`
+        ? `${provider}: ${asSentence(notice.detail)}`
         : `${provider} did not answer.`;
   return {
     title: titleFor(notice.reason),

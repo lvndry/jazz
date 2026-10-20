@@ -16,6 +16,8 @@ import { clearWorkState } from "@jazz/core/agent/context/work-journal";
 import { assertConversationWritable } from "@jazz/core/agent/detach/ownership";
 import { isTerminalGoal } from "@jazz/core/agent/goal/goal-state";
 import { isTerminalLoop } from "@jazz/core/agent/loop/loop-record";
+import type { RunRecord } from "@jazz/core/agent/run/run-record";
+import { isParked } from "@jazz/core/agent/run/run-state";
 import { browserScreenshotDirectory } from "@jazz/core/agent/tools/browser/browser-tools";
 import { computerCapturesDirectory } from "@jazz/core/agent/tools/computer/grants";
 import { getTodoFilePath } from "@jazz/core/agent/tools/todo";
@@ -30,7 +32,11 @@ import {
   archivedConversationLogPath,
   deleteConversationLog,
 } from "./conversation-log";
-import { JobQueueServiceImpl, listUndeliveredConversationBatches } from "../job-queue-service";
+import {
+  isCarriableBatch,
+  JobQueueServiceImpl,
+  listUndeliveredConversationBatches,
+} from "../job-queue-service";
 import { getLogsDirectory } from "../logger";
 import { FileGoalStore } from "../storage/goal-store";
 import { FileLoopStore } from "../storage/loop-store";
@@ -45,10 +51,25 @@ export class ConversationInUseError extends Error {
   }
 }
 
-/** Why something still needs the conversation, or undefined when nothing does. */
+/** What a run still holding the conversation is doing, and how the person clears it. */
+function runUseMessage(run: RunRecord): string {
+  if (isParked(run.state)) {
+    return `A run in it is waiting for your answer. See it with \`jazz runs show ${run.runId}\`, or drop it with \`jazz runs cancel ${run.runId}\`.`;
+  }
+  return "A run is still working in it. Try again when it ends.";
+}
+
+/**
+ * Why something still needs the conversation, or undefined when nothing does.
+ *
+ * `carriesUndeliveredBatches` is for a caller that takes finished-but-unreported job batches
+ * along (a move to another agent): those no longer hold the conversation, only batches whose
+ * jobs are still running or whose report is being delivered right now do.
+ */
 export function conversationUse(
   agentId: string,
   conversationId: string,
+  options: { readonly carriesUndeliveredBatches?: boolean } = {},
 ): Effect.Effect<string | undefined, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const handedOff = yield* Effect.tryPromise({
@@ -75,9 +96,10 @@ export function conversationUse(
     if (loops.some((loop) => names(loop) && !isTerminalLoop(loop.state))) {
       return "A loop is still running in it. Stop the loop first.";
     }
-    const runs = yield* new FileRunStore().list({ agentId });
-    if (runs.some((run) => run.conversationId === conversationId)) {
-      return "A run in it is still waiting to finish. Cancel or finish it first.";
+    const runs = yield* new FileRunStore().list({ agentId, conversationId });
+    const holdingRun = runs[0];
+    if (holdingRun !== undefined) {
+      return runUseMessage(holdingRun);
     }
 
     const triggers = yield* new WakeTriggerServiceImpl().list(agentId);
@@ -86,15 +108,20 @@ export function conversationUse(
     }
     const jobQueue = new JobQueueServiceImpl();
     const activeBatches = yield* jobQueue.listActiveBatches(agentId);
-    const undelivered = yield* listUndeliveredConversationBatches(
-      jobQueue.baseJobBatchDirectory,
-      agentId,
-      conversationId,
+    const holdingBatches = activeBatches.filter(
+      (batch) =>
+        batch.conversationId === conversationId &&
+        !(options.carriesUndeliveredBatches === true && isCarriableBatch(batch)),
     );
-    if (
-      undelivered.length > 0 ||
-      activeBatches.some((batch) => batch.conversationId === conversationId)
-    ) {
+    const undelivered =
+      options.carriesUndeliveredBatches === true
+        ? []
+        : yield* listUndeliveredConversationBatches(
+            jobQueue.baseJobBatchDirectory,
+            agentId,
+            conversationId,
+          );
+    if (undelivered.length > 0 || holdingBatches.length > 0) {
       return "Background work is still reporting back to it. Cancel it with `jazz jobs` first.";
     }
     return undefined;

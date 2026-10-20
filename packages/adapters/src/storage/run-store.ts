@@ -88,11 +88,23 @@ interface RunListFilter {
   readonly includeTerminal?: boolean;
 }
 
+/**
+ * A park whose deadline passed is abandoned whether or not `prune` has written that down yet:
+ * nobody can answer it any more, so a listing must not report it as waiting. Left as
+ * `input-required` it would hold its conversation (no move, no unattended turn) until the next
+ * daemon start or `jazz runs` call happened to prune it.
+ */
+function settleExpired(record: RunRecord, now: Date): RunRecord {
+  return isExpired(record, now) ? withState(record, ABANDONED, now) : record;
+}
+
 function selectRecords(
   records: readonly RunRecord[],
   filter: RunListFilter | undefined,
+  now: Date,
 ): readonly RunRecord[] {
   return records
+    .map((record) => settleExpired(record, now))
     .filter((record) => filter?.includeTerminal === true || !isTerminal(record.state))
     .filter((record) => filter?.agentId === undefined || record.agentId === filter.agentId)
     .filter(
@@ -142,7 +154,7 @@ export class InMemoryRunStore implements RunStore {
   }
 
   list(filter?: RunListFilter): Effect.Effect<readonly RunRecord[], never> {
-    return Effect.sync(() => selectRecords([...this.records.values()], filter));
+    return Effect.sync(() => selectRecords([...this.records.values()], filter, this.clock()));
   }
 
   prune(options: {
@@ -281,7 +293,9 @@ export class FileRunStore implements RunStore {
   }
 
   list(filter?: RunListFilter): Effect.Effect<readonly RunRecord[], never> {
-    return this.readAll().pipe(Effect.map((records) => selectRecords(records, filter)));
+    return this.readAll().pipe(
+      Effect.map((records) => selectRecords(records, filter, this.clock())),
+    );
   }
 
   /**

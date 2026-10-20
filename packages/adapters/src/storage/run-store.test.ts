@@ -179,6 +179,16 @@ function suite(name: string, makeStore: () => Promise<RunStore>, cleanup?: () =>
       expect(alive?.state.kind).toBe("input-required");
     });
 
+    it("lists a parked run past its deadline as abandoned before any prune writes it down", async () => {
+      await Effect.runPromise(store.save(record(RUN_ID)));
+      await Effect.runPromise(store.transition(RUN_ID, { kind: "working", iteration: 1 }));
+      await Effect.runPromise(store.transition(RUN_ID, parkedState("2026-08-23T09:00:00.000Z")));
+
+      expect(await Effect.runPromise(store.list({ conversationId: "conv-1" }))).toEqual([]);
+      const listed = await Effect.runPromise(store.list({ includeTerminal: true }));
+      expect(listed[0]?.state).toMatchObject({ kind: "failed", cause: "abandoned" });
+    });
+
     it("re-parks a run whose resuming process is gone", async () => {
       await Effect.runPromise(store.save(record(RUN_ID)));
       await Effect.runPromise(

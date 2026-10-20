@@ -665,6 +665,12 @@ export class ChatServiceImpl implements ChatService {
       /** That look saw an item the claim after it could not take; wait before looking again. */
       let claimCameBackEmpty = false;
       /**
+       * Set when a delivery turn failed: whatever broke it (a provider that is down, most often)
+       * would break the next one the same way, each after its full retry ladder, so the chat
+       * stops taking deliveries until a turn the user starts succeeds.
+       */
+      let deliveriesHeld = false;
+      /**
        * Set when the idle prompt gave way to work finishing (sub-agents, a Ctrl+B background
        * call); the next turn's message comes from the host, not the user.
        */
@@ -684,7 +690,8 @@ export class ChatServiceImpl implements ChatService {
         // What the user typed meanwhile goes first; the goal picks up again after it.
         let goalTurn: Effect.Success<ReturnType<typeof claimChatGoalTurn>> = undefined;
         let deliveryTurn: ConversationDelivery | undefined;
-        if (firstMessage === undefined && queued.length === 0 && takesDeliveries) {
+        const deliveriesOpen = takesDeliveries && !deliveriesHeld;
+        if (firstMessage === undefined && queued.length === 0 && deliveriesOpen) {
           deliveryTurn = yield* claimOwedDelivery(agent.id, conversationId);
           claimCameBackEmpty = deliveryTurn === undefined && deliveryOwedAtLastLook;
           deliveryOwedAtLastLook = false;
@@ -784,7 +791,7 @@ export class ChatServiceImpl implements ChatService {
                   typed,
                   Effect.raceFirst(
                     detachedFinished,
-                    takesDeliveries
+                    deliveriesOpen
                       ? Effect.raceFirst(subagentsFinished, deliveryOwed)
                       : subagentsFinished,
                   ),
@@ -997,6 +1004,12 @@ export class ChatServiceImpl implements ChatService {
                 conversationId,
               ).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem), Effect.result);
               if (handOver._tag === "Failure") {
+                yield* logger.warn("Agent switch refused", {
+                  fromAgentId: agent.id,
+                  toAgentId: nextAgent.id,
+                  conversationId,
+                  reason: handOver.failure.message,
+                });
                 yield* terminal.warn(
                   `Still on ${agent.name}: this conversation can't move to ${nextAgent.name}. ${handOver.failure.message}`,
                 );
@@ -1015,6 +1028,11 @@ export class ChatServiceImpl implements ChatService {
                 yield* attachTo(conversationId);
                 store.setCurrentConversation({ agentId: agent.id, conversationId });
                 yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
+                yield* logger.info("Agent switched", {
+                  toAgentId: agent.id,
+                  conversationId,
+                  conversationMoved: handOver.success,
+                });
                 yield* announceAgentSwitch(terminal, agent);
               }
             }
@@ -1388,6 +1406,15 @@ export class ChatServiceImpl implements ChatService {
           }
           inFlightTranscript = undefined;
 
+          if (deliveryTurn !== undefined && lastTurnErrored) {
+            deliveriesHeld = true;
+            yield* logger.warn("Delivery turn failed; holding further deliveries", {
+              conversationId,
+            });
+          } else if (deliveryTurn === undefined && !lastTurnErrored && deliveriesHeld) {
+            deliveriesHeld = false;
+            yield* logger.info("Turn succeeded; taking deliveries again", { conversationId });
+          }
           if (deliveryTurn !== undefined) {
             yield* deliveryTurn
               .settle(
