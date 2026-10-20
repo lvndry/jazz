@@ -1424,7 +1424,7 @@ export class ToolExecutor {
 
           if (resultsOrSignal.type === "interrupt") {
             // Settle the UI before waiting on fiber interrupt, so a slow finalizer
-            // cannot leave the 30s "still running" timer armed across the next turn.
+            // cannot leave the call showing as running into the next turn.
             if (renderer && displayConfig.showToolExecution) {
               for (let index = 0; index < toolFibers.length; index++) {
                 const fiber = toolFibers[index];
