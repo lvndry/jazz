@@ -150,6 +150,7 @@ import {
   type StreamTextResult,
 } from "./stream-processor";
 import { SDK_STOP_CONDITIONS, toJazzToolCall } from "./tool-call-parts";
+import rootPackageJson from "../../../../package.json";
 
 /** Diagnostic fields from provider errors that cannot contain request or response content. */
 export function safeLLMErrorMetadata(
@@ -1096,7 +1097,12 @@ function selectModel(
     }
     case "ollama": {
       const apiKey = resolveApiKey("ollama")?.trim();
-      const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+      // X-Client is what our usage proxy (lysk-komodo) tags requests with, so a
+      // log line can name jazz without reading the source IP.
+      const headers = {
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        "X-Client": `jazz/${rootPackageJson.version}`,
+      };
       const baseURL = resolveOllamaRequestBaseUrl(modelId, llmConfig);
       const keepAlive = llmConfig?.ollama?.keep_alive;
       const fetchImpl = apiKey
@@ -1113,13 +1119,16 @@ function selectModel(
     case "sglang": {
       const apiKey = resolveApiKey(providerName);
       const baseURL = resolveLocalProviderBaseUrl(providerName, llmConfig);
-      const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
+      const headers = {
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        "X-Client": `jazz/${rootPackageJson.version}`,
+      };
       const localServer = createOpenAICompatible({
         name: providerName,
         baseURL,
         includeUsage: true,
         ...(providerName === "vllm" ? { supportsStructuredOutputs: true } : {}),
-        ...(headers ? { headers } : {}),
+        headers,
         fetch: llmFetch,
       });
       model = localServer(modelId);
