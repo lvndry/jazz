@@ -461,18 +461,45 @@ describe("adoptMacosOsascriptVault", () => {
     expect(commands).toEqual(["security"]);
   });
 
-  it("reads the old vault outside the lock, waiting for a dialog only at a terminal", async () => {
-    for (const [interactive, expectedTimeout] of [
+  it("reads the old vault silently through osascript when osascript wrote it", async () => {
+    const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
+    const keychain = fakeMacosKeychain(entries);
+    const commands: string[] = [];
+    const recording: KeyringCommandRunner = (command, args, stdin, timeoutMs) => {
+      commands.push(`${command} ${args[0] ?? ""}`);
+      return keychain(command, args, stdin, timeoutMs);
+    };
+
+    expect(
+      await Effect.runPromise(
+        adoptMacosOsascriptVault(VAULT_SERVICE, recording, withoutLock, true),
+      ),
+    ).toEqual({ moved: ["kept"], complete: true });
+    expect(commands.filter((command) => command.includes("find-generic-password -w"))).toEqual([]);
+  });
+
+  it("falls back to security outside the lock, waiting for a dialog only when one can be answered", async () => {
+    for (const [answerable, expectedTimeout] of [
       [true, 60_000],
       [false, 5_000],
     ] as const) {
       const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
       const keychain = fakeMacosKeychain(entries);
       let locked = false;
-      const reads: { readonly timeoutMs: number | undefined; readonly locked: boolean }[] = [];
-      const recording: KeyringCommandRunner = (command, args, stdin, timeoutMs) => {
+      const securityReads: { readonly timeoutMs: number | undefined; readonly locked: boolean }[] =
+        [];
+      const securityWrote: KeyringCommandRunner = (command, args, stdin, timeoutMs) => {
         if (command === "osascript") {
-          reads.push({ timeoutMs, locked });
+          return Effect.succeed({
+            ok: true,
+            code: 0,
+            stdout: "-25293\n",
+            stderr: "",
+            unavailable: false,
+          });
+        }
+        if (args[0] === "find-generic-password" && args.includes("-w")) {
+          securityReads.push({ timeoutMs, locked });
         }
         return keychain(command, args, stdin);
       };
@@ -487,10 +514,11 @@ describe("adoptMacosOsascriptVault", () => {
 
       expect(
         await Effect.runPromise(
-          adoptMacosOsascriptVault(VAULT_SERVICE, recording, trackingLock, interactive),
+          adoptMacosOsascriptVault(VAULT_SERVICE, securityWrote, trackingLock, answerable),
         ),
       ).toEqual({ moved: ["kept"], complete: true });
-      expect(reads).toEqual([{ timeoutMs: expectedTimeout, locked: false }]);
+      expect(securityReads).toEqual([{ timeoutMs: expectedTimeout, locked: false }]);
+      expect(entries.has(SINGLE_ITEM_VAULT_KEY)).toBe(false);
     }
   });
 
@@ -559,39 +587,110 @@ describe("adoptMacosOsascriptVault", () => {
     expect(vaultIn(entries)).toBeUndefined();
   });
 
-  it("keeps the old vault when it cannot be read or its contents cannot be stored", async () => {
-    const deniedDialog: CommandResult = {
-      ok: true,
-      code: 0,
-      stdout: "-25293\n",
-      stderr: "",
-      unavailable: false,
-    };
-    const missingOsascript: CommandResult = {
-      ok: false,
-      code: null,
-      stdout: "",
-      stderr: "",
-      unavailable: true,
-    };
-    for (const [failing, failure, expected] of [
-      ["osascript", deniedDialog, { moved: [], complete: false, refused: true }],
-      ["osascript", missingOsascript, { moved: [], complete: false }],
-      [
-        "add-generic-password",
-        interactionRefused("add-generic-password"),
-        { moved: [], complete: false },
-      ],
+  it("counts only dialog statuses from security as a refusal", async () => {
+    for (const [exitCode, expected] of [
+      [51, { moved: [], complete: false, refused: true }],
+      [128, { moved: [], complete: false, refused: true }],
+      [36, { moved: [], complete: false, refused: true }],
+      [1, { moved: [], complete: false }],
+      [50, { moved: [], complete: false }],
     ] as const) {
       const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
       const keychain = fakeMacosKeychain(entries);
-      const refusing: KeyringCommandRunner = (command, args, stdin) =>
-        command === failing || stdin?.startsWith(failing)
-          ? Effect.succeed(failure)
-          : keychain(command, args, stdin);
+      const failingSecurityRead: KeyringCommandRunner = (command, args, stdin) =>
+        command === "osascript"
+          ? Effect.succeed({
+              ok: true,
+              code: 0,
+              stdout: "-25293\n",
+              stderr: "",
+              unavailable: false,
+            })
+          : args[0] === "find-generic-password" && args.includes("-w")
+            ? Effect.succeed({
+                ok: false,
+                code: exitCode,
+                stdout: "",
+                stderr: "security: SecKeychainSearchCopyNext: failed\n",
+                unavailable: false,
+              })
+            : keychain(command, args, stdin);
 
       expect(
-        await Effect.runPromise(adoptMacosOsascriptVault(VAULT_SERVICE, refusing, withoutLock)),
+        await Effect.runPromise(
+          adoptMacosOsascriptVault(VAULT_SERVICE, failingSecurityRead, withoutLock, false),
+        ),
+      ).toEqual(expected);
+      expect(entries.has(SINGLE_ITEM_VAULT_KEY)).toBe(true);
+    }
+  });
+
+  it("decodes every way an earlier build stored the old vault", async () => {
+    const secrets = { "llm.openai.api_key": "sk-one", "peers.sam.token": "peer-token" };
+    const json = JSON.stringify(secrets);
+    const truncated = encodeVault({ ...secrets, "chatgpt.oauth.credential": "x".repeat(300) });
+    for (const [stored, expected] of [
+      [Buffer.from(encodeVault(secrets)).toString("hex"), secrets],
+      [Buffer.from(json).toString("hex"), secrets],
+      [json, secrets],
+      [truncated.slice(0, truncated.length - 201), secrets],
+    ] as const) {
+      const entries = new Map([[SINGLE_ITEM_VAULT_KEY, stored]]);
+
+      expect(
+        await Effect.runPromise(
+          adoptMacosOsascriptVault(VAULT_SERVICE, fakeMacosKeychain(entries), withoutLock, false),
+        ),
+      ).toEqual({ moved: Object.keys(expected), complete: true });
+      expect(vaultIn(entries)).toEqual(expected);
+      expect(entries.has(SINGLE_ITEM_VAULT_KEY)).toBe(false);
+    }
+  });
+
+  it("leaves an old vault with nothing recoverable in place", async () => {
+    const entries = new Map([[SINGLE_ITEM_VAULT_KEY, "not a vault at all"]]);
+
+    expect(
+      await Effect.runPromise(
+        adoptMacosOsascriptVault(VAULT_SERVICE, fakeMacosKeychain(entries), withoutLock, false),
+      ),
+    ).toEqual({ moved: [], complete: true });
+    expect(entries.get(SINGLE_ITEM_VAULT_KEY)).toBe("not a vault at all");
+  });
+
+  it("keeps the old vault when it cannot be read or its contents cannot be stored", async () => {
+    const refusedRead = (command: string, args: readonly string[]): CommandResult | undefined =>
+      command === "osascript"
+        ? { ok: true, code: 0, stdout: "-25293\n", stderr: "", unavailable: false }
+        : args[0] === "find-generic-password" && args.includes("-w")
+          ? { ok: false, code: 51, stdout: "", stderr: "", unavailable: false }
+          : undefined;
+    const missingOsascript = (command: string): CommandResult | undefined =>
+      command === "osascript"
+        ? { ok: false, code: null, stdout: "", stderr: "", unavailable: true }
+        : undefined;
+    const refusedWrite = (
+      _command: string,
+      _args: readonly string[],
+      stdin?: string,
+    ): CommandResult | undefined =>
+      stdin?.startsWith("add-generic-password")
+        ? interactionRefused("add-generic-password")
+        : undefined;
+    for (const [failure, expected] of [
+      [refusedRead, { moved: [], complete: false, refused: true }],
+      [missingOsascript, { moved: [], complete: false }],
+      [refusedWrite, { moved: [], complete: false }],
+    ] as const) {
+      const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
+      const keychain = fakeMacosKeychain(entries);
+      const failing: KeyringCommandRunner = (command, args, stdin) => {
+        const failed = failure(command, args, stdin);
+        return failed === undefined ? keychain(command, args, stdin) : Effect.succeed(failed);
+      };
+
+      expect(
+        await Effect.runPromise(adoptMacosOsascriptVault(VAULT_SERVICE, failing, withoutLock)),
       ).toEqual(expected);
       expect(entries.has(SINGLE_ITEM_VAULT_KEY)).toBe(true);
     }
@@ -605,6 +704,7 @@ describe("retrying legacy vault adoption", () => {
   let directory: string;
   let entriesFile: string;
   let failureFile: string;
+  let refusedOldVaultFile: string;
   let callsFile: string;
 
   beforeEach(() => {
@@ -613,6 +713,7 @@ describe("retrying legacy vault adoption", () => {
     process.env["PATH"] = `${directory}${path.delimiter}${originalPath ?? ""}`;
     entriesFile = path.join(directory, "entries.json");
     failureFile = path.join(directory, "failure.json");
+    refusedOldVaultFile = path.join(directory, "refused-old-vault");
     callsFile = path.join(directory, "calls.jsonl");
     fs.writeFileSync(entriesFile, "{}");
     fs.writeFileSync(callsFile, "");
@@ -620,6 +721,7 @@ describe("retrying legacy vault adoption", () => {
 const fs = require("node:fs");
 const entriesFile = ${JSON.stringify(entriesFile)};
 const failureFile = ${JSON.stringify(failureFile)};
+const refusedOldVaultFile = ${JSON.stringify(refusedOldVaultFile)};
 const callsFile = ${JSON.stringify(callsFile)};
 const viaOsascript = process.argv[1].endsWith("osascript");
 const input = viaOsascript || process.argv[2] === "-i" ? fs.readFileSync(0, "utf8") : "";
@@ -636,8 +738,19 @@ const operation = viaOsascript ? "osascript-read"
   : first[0] === "delete-generic-password" ? (commands.length > 1 || flag(first, "-a").startsWith("vault.") ? "chunk-delete" : "delete")
   : !first.includes("-a") ? "discover"
   : !first.includes("-w") ? "osascript-vault-discover"
+  : flag(first, "-a") === "secrets" ? "old-vault-read"
   : flag(first, "-s").endsWith(".vault") ? "vault-read" : "legacy-read";
 fs.appendFileSync(callsFile, JSON.stringify({ operation, service: viaOsascript ? first.service : flag(first, "-s") }) + "\n");
+if (fs.existsSync(refusedOldVaultFile)) {
+  if (operation === "osascript-read") {
+    process.stdout.write("-25293\n");
+    process.exit(0);
+  }
+  if (operation === "old-vault-read") {
+    process.stderr.write("security: SecKeychainSearchCopyNext: User interaction is not allowed.\n");
+    process.exit(51);
+  }
+}
 if (fs.existsSync(failureFile)) {
   const failure = JSON.parse(fs.readFileSync(failureFile, "utf8"));
   if (failure.operation === operation) {
@@ -716,6 +829,13 @@ process.exit(process.argv[2] === "-i" ? lastCode : code);
     return JSON.parse(fs.readFileSync(entriesFile, "utf8")) as Record<string, string>;
   }
 
+  function operationCount(operation: string): number {
+    return fs
+      .readFileSync(callsFile, "utf8")
+      .split("\n")
+      .filter((line) => line.includes(`"operation":"${operation}"`)).length;
+  }
+
   function discoveryCount(): number {
     return fs
       .readFileSync(callsFile, "utf8")
@@ -768,24 +888,37 @@ process.exit(process.argv[2] === "-i" ? lastCode : code);
         [sourceKey]: "legacy-value",
       }),
     );
-    fs.writeFileSync(
-      failureFile,
-      JSON.stringify({ operation: "osascript-read", skip: 0, stdout: "-25293\n" }),
-    );
-    const osascriptReads = (): number =>
-      fs
-        .readFileSync(callsFile, "utf8")
-        .split("\n")
-        .filter((line) => line.includes('"operation":"osascript-read"')).length;
+    fs.writeFileSync(refusedOldVaultFile, "");
 
     expect(await Effect.runPromise(keyringGet("macos", "llm.openai.api_key"))).toBe("legacy-value");
     for (let lookup = 0; lookup < 3; lookup++) {
       expireSnapshot();
       expect(await Effect.runPromise(keyringGet("macos", "peers.sam.token"))).toBeUndefined();
     }
-    expect(osascriptReads()).toBe(1);
+    expect(operationCount("osascript-read")).toBe(1);
+    expect(operationCount("old-vault-read")).toBe(1);
     expect(entries()[sourceKey]).toBeUndefined();
     expect(entries()[`${keyringVaultServiceName()}\0secrets`]).toBeDefined();
+  });
+
+  it("adopts an old vault security wrote through security, without a dialog", async () => {
+    const vaultKey = `${keyringVaultServiceName()}\0secrets`;
+    fs.writeFileSync(
+      entriesFile,
+      JSON.stringify({
+        [vaultKey]: Buffer.from(JSON.stringify({ "peers.sam.token": "peer-token" })).toString(
+          "base64",
+        ),
+      }),
+    );
+    fs.writeFileSync(
+      failureFile,
+      JSON.stringify({ operation: "osascript-read", skip: 0, stdout: "-25293\n" }),
+    );
+
+    expect(await Effect.runPromise(keyringGet("macos", "peers.sam.token"))).toBe("peer-token");
+    expect(entries()[vaultKey]).toBeUndefined();
+    expect(operationCount("old-vault-read")).toBe(1);
   });
 
   it("retries an osascript vault read that failed for a reason other than a dialog", async () => {
