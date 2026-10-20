@@ -21,7 +21,8 @@ import {
 } from "@jazz/core/utils/paths";
 import { quarantineCorruptFile } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
-import { readMacosKeychainItem, writeMacosKeychainItem } from "./macos-keychain";
+import { readMacosKeychainItem } from "./macos-keychain";
+import { type MacosVaultLayout, readMacosVault, writeMacosVault } from "./macos-vault";
 
 /**
  * Base Keychain/libsecret service name. Each Jazz home keeps all its secrets in one vault entry
@@ -308,7 +309,11 @@ async function writeSecretsFile(secrets: Record<string, string>): Promise<boolea
 
 type OsKeyringBackend = "macos" | "libsecret";
 
-/** The account of a home's vault entry under {@link keyringVaultServiceName}. */
+/**
+ * The account of a home's vault entry under {@link keyringVaultServiceName} on Linux. On macOS it
+ * names the single-item vault 0.16.19 and 0.16.20 wrote through `osascript`, which
+ * `adoptMacosOsascriptVault` folds into the chunked vault of `macos-vault.ts`.
+ */
 const VAULT_ACCOUNT = "secrets";
 
 /** `security` exit status for "no such item" (errSecItemNotFound). */
@@ -325,9 +330,14 @@ const VAULT_SNAPSHOT_REUSE_MS = 2_000;
 
 type VaultSecrets = Readonly<Record<string, string>>;
 
+/** `macosLayout` is where the macOS vault's chunks sit, which the next write builds on. */
 type VaultRead =
-  | { readonly status: "ok"; readonly secrets: VaultSecrets }
-  | { readonly status: "absent" }
+  | {
+      readonly status: "ok";
+      readonly secrets: VaultSecrets;
+      readonly macosLayout?: MacosVaultLayout;
+    }
+  | { readonly status: "absent"; readonly macosLayout?: MacosVaultLayout }
   | { readonly status: "corrupt" }
   | { readonly status: "failed" };
 
@@ -362,12 +372,17 @@ function osKeyringReadVault(
 ): Effect.Effect<VaultRead, never> {
   return Effect.gen(function* () {
     if (backend === "macos") {
-      const read = yield* readMacosKeychainItem(run, { service, account: VAULT_ACCOUNT });
-      if (read.status !== "ok") {
+      const read = yield* readMacosVault(run, service);
+      if (read.status === "failed") {
         return read;
       }
-      const secrets = decodeVault(read.value);
-      return secrets === undefined ? { status: "corrupt" } : { status: "ok", secrets };
+      if (read.status === "absent") {
+        return { status: "absent", macosLayout: read.layout };
+      }
+      const secrets = decodeVault(read.encoded);
+      return secrets === undefined
+        ? { status: "corrupt" }
+        : { status: "ok", secrets, macosLayout: read.layout };
     }
     const result = yield* run("secret-tool", [
       "lookup",
@@ -390,15 +405,12 @@ function osKeyringWriteVault(
   backend: OsKeyringBackend,
   service: string,
   secrets: VaultSecrets,
+  macosLayout: MacosVaultLayout = { accounts: [] },
 ): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
     const encoded = encodeVault(secrets);
     if (backend === "macos") {
-      return yield* writeMacosKeychainItem(run, {
-        service,
-        account: VAULT_ACCOUNT,
-        value: encoded,
-      });
+      return yield* writeMacosVault(run, service, encoded, macosLayout);
     }
     const result = yield* run(
       "secret-tool",
@@ -443,7 +455,7 @@ function updateVaultWhileLocked(
     if (read.status === "failed" || read.status === "corrupt") return false;
     const next = change(read.status === "ok" ? read.secrets : {});
     if (next === undefined) return true;
-    const stored = yield* osKeyringWriteVault(run, backend, service, next);
+    const stored = yield* osKeyringWriteVault(run, backend, service, next, read.macosLayout);
     if (stored) rememberVault(backend, service, next);
     return stored;
   });
@@ -576,6 +588,67 @@ export function migrateKeyringEntriesIntoVault(
   });
 }
 
+/**
+ * Fold the single-item vault that 0.16.19 and 0.16.20 wrote through `osascript` into the chunked
+ * vault, then delete it. Only `osascript` reads that item without the keychain asking for its
+ * password, since it wrote it; `security` can still find and delete it silently, so the lookup that
+ * runs on every start costs one `security` call and `osascript` runs only while the item exists.
+ * Values already in the chunked vault win. An item that does not decode is left alone and skipped:
+ * no version of Jazz could read it.
+ */
+export function adoptMacosOsascriptVault(
+  vaultService: string,
+  run: KeyringCommandRunner = runCommand,
+  withLock: VaultLock = withSecretsFileLock,
+): Effect.Effect<VaultMigration, never> {
+  return Effect.gen(function* () {
+    const discovered = yield* run("security", [
+      "find-generic-password",
+      "-s",
+      vaultService,
+      "-a",
+      VAULT_ACCOUNT,
+    ]);
+    if (!discovered.ok) {
+      const absent = !discovered.unavailable && discovered.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE;
+      return { moved: [], complete: absent };
+    }
+    return yield* Effect.promise(() =>
+      withLock(async (): Promise<VaultMigration> => {
+        const read = await Effect.runPromise(
+          readMacosKeychainItem(run, { service: vaultService, account: VAULT_ACCOUNT }),
+        );
+        if (read.status === "failed") {
+          return { moved: [], complete: false };
+        }
+        const legacy = read.status === "ok" ? decodeVault(read.value) : {};
+        if (legacy === undefined) {
+          return { moved: [], complete: true };
+        }
+        const moved: string[] = [];
+        const stored = await Effect.runPromise(
+          updateVaultWhileLocked(run, "macos", vaultService, (secrets) => {
+            moved.push(...Object.keys(legacy).filter((account) => !(account in secrets)));
+            return moved.length === 0
+              ? undefined
+              : {
+                  ...secrets,
+                  ...Object.fromEntries(moved.map((account) => [account, legacy[account] ?? ""])),
+                };
+          }),
+        );
+        if (!stored) {
+          return { moved: [], complete: false };
+        }
+        const retired = await Effect.runPromise(
+          osKeyringDelete(run, "macos", vaultService, VAULT_ACCOUNT),
+        );
+        return { moved, complete: retired };
+      }),
+    ).pipe(Effect.catchDefect(() => Effect.succeed({ moved: [], complete: false })));
+  });
+}
+
 interface VaultAdoptionResult {
   readonly movedCount: number;
   readonly complete: boolean;
@@ -602,6 +675,11 @@ function adoptPerEntrySecrets(
     const sources = [keyringServiceName(), ...(isDefaultJazzHome() ? [KEYRING_SERVICE_NAME] : [])];
     pending = (async () => {
       let movedCount = 0;
+      if (backend === "macos") {
+        const result = await Effect.runPromise(adoptMacosOsascriptVault(vaultService));
+        movedCount += result.moved.length;
+        if (!result.complete) return { movedCount, complete: false };
+      }
       for (const source of sources) {
         const result = await Effect.runPromise(
           migrateKeyringEntriesIntoVault(backend, source, vaultService),
