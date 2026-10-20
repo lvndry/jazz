@@ -18,7 +18,12 @@ import {
 } from "./conversation-log";
 import { ConversationInUseError } from "./delete-conversation";
 import { archivedWorkStateDirectory, moveConversationToAgent } from "./move-conversation";
-import { JobQueueServiceImpl } from "../job-queue-service";
+import {
+  carryConversationBatches,
+  claimBatchFanIn,
+  JobQueueServiceImpl,
+  releaseCarriedBatches,
+} from "../job-queue-service";
 import { FileGoalStore } from "../storage/goal-store";
 import { FileRunStore } from "../storage/run-store";
 
@@ -349,5 +354,50 @@ describe("moveConversationToAgent", () => {
       moveConversationToAgent(FROM_AGENT_ID, TO_AGENT_ID, conversationId).pipe(Effect.flip),
     );
     expect(existsSync(sourceFile)).toBe(true);
+    const returned = JSON.parse(await nodeFs.readFile(sourceFile, "utf-8")) as {
+      agentId: string;
+      fanIn?: unknown;
+    };
+    expect(returned.agentId).toBe(FROM_AGENT_ID);
+    expect(returned.fanIn).toBeUndefined();
+  });
+
+  it("keeps a carried batch from being delivered until the move releases it", async () => {
+    const conversationId = nextConversationId();
+    const batchId = `held${String(conversationCounter)}`;
+    await writeBatch(conversationId, batchId, "finished");
+    const batchDirectory = new JobQueueServiceImpl().baseJobBatchDirectory;
+
+    const carried = await run(
+      carryConversationBatches(batchDirectory, FROM_AGENT_ID, TO_AGENT_ID, conversationId),
+    );
+    expect(carried.map((batch) => batch.batchId)).toEqual([batchId]);
+    expect(await Effect.runPromise(claimBatchFanIn(batchDirectory, TO_AGENT_ID, batchId))).toBe(
+      null,
+    );
+
+    await Effect.runPromise(releaseCarriedBatches(batchDirectory, TO_AGENT_ID, carried));
+    const claimed = await Effect.runPromise(claimBatchFanIn(batchDirectory, TO_AGENT_ID, batchId));
+    expect(claimed?.agentId).toBe(TO_AGENT_ID);
+  });
+
+  it("refuses rather than leave reports behind when the batch directory cannot be read", async () => {
+    const conversationId = nextConversationId();
+    await saveTranscript(FROM_AGENT_ID, conversationId);
+    const unreadableAgentId = `unreadable-${String(conversationCounter)}`;
+    await saveTranscript(unreadableAgentId, conversationId);
+    // A file where the agent's batch directory belongs makes listing it fail with ENOTDIR.
+    const batchDirectory = path.join(
+      new JobQueueServiceImpl().baseJobBatchDirectory,
+      unreadableAgentId,
+    );
+    await nodeFs.mkdir(path.dirname(batchDirectory), { recursive: true });
+    await nodeFs.writeFile(batchDirectory, "not a directory");
+
+    await run(
+      moveConversationToAgent(unreadableAgentId, TO_AGENT_ID, conversationId).pipe(Effect.flip),
+    );
+    expect(existsSync(conversationLogPath(unreadableAgentId, conversationId))).toBe(true);
+    await nodeFs.rm(batchDirectory, { force: true });
   });
 });

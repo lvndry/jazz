@@ -25,7 +25,12 @@ import {
   moveConversationLog,
 } from "./conversation-log";
 import { ConversationInUseError, conversationUse } from "./delete-conversation";
-import { JobQueueServiceImpl, moveCarriableConversationBatches } from "../job-queue-service";
+import {
+  carryConversationBatches,
+  JobQueueServiceImpl,
+  releaseCarriedBatches,
+  returnCarriedBatches,
+} from "../job-queue-service";
 
 /** Where a conversation's work state is kept once a newer copy replaces it, beside its archived log. */
 export function archivedWorkStateDirectory(agentId: string, conversationId: string): string {
@@ -129,23 +134,27 @@ export function moveConversationToAgent(
       withLock(
         secondLock,
         Effect.gen(function* () {
-          const carriedBatchIds = yield* moveCarriableConversationBatches(
+          const carried = yield* carryConversationBatches(
             jobBatchDirectory,
             fromAgentId,
             toAgentId,
             conversationId,
           );
-          return yield* moveConversationFiles(fromAgentId, toAgentId, conversationId).pipe(
-            Effect.tapError(() =>
-              moveCarriableConversationBatches(
-                jobBatchDirectory,
-                toAgentId,
-                fromAgentId,
-                conversationId,
-                carriedBatchIds,
-              ).pipe(Effect.ignore),
+          const moved = yield* moveConversationFiles(fromAgentId, toAgentId, conversationId).pipe(
+            Effect.catch((error) =>
+              returnCarriedBatches(jobBatchDirectory, toAgentId, fromAgentId, carried).pipe(
+                Effect.mapError(
+                  (rollbackError) =>
+                    new Error(
+                      `${error.message} Its finished background jobs could not all go back to the original agent: ${rollbackError.message}`,
+                    ),
+                ),
+                Effect.andThen(Effect.fail(error)),
+              ),
             ),
           );
+          yield* releaseCarriedBatches(jobBatchDirectory, toAgentId, carried).pipe(Effect.ignore);
+          return moved;
         }),
       ),
     );

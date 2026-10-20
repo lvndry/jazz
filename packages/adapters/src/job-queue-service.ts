@@ -52,6 +52,7 @@ import { JobBatchRecordSchema, JobQueueServiceTag } from "@jazz/core/interfaces/
 import {
   claimDelivery,
   type DeliveryOutcome,
+  type DeliveryState,
   isClaimable,
   settleDelivery,
 } from "@jazz/core/utils/delivery";
@@ -977,66 +978,192 @@ export function isCarriableBatch(batch: JobBatchRecord, now: number = Date.now()
   );
 }
 
+/** A batch carried to another agent, with the delivery state to give back once the move commits. */
+export interface CarriedBatch {
+  readonly batchId: string;
+  readonly fanIn: DeliveryState | undefined;
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+}
+
+function batchIdsIn(directory: string): Effect.Effect<readonly string[], Error> {
+  return Effect.tryPromise({
+    try: async () => {
+      try {
+        return await nodeFs.readdir(directory);
+      } catch (error) {
+        if (isMissingFile(error)) {
+          return [];
+        }
+        throw error;
+      }
+    },
+    catch: toError,
+  }).pipe(
+    Effect.map((names) =>
+      names.filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -".json".length)),
+    ),
+  );
+}
+
 /**
- * Re-home a conversation's finished, unreported batches from one agent to another, so their
- * reports reach the conversation under the agent it moved to. Each batch is re-checked under
- * both agents' locks; one a process started delivering in between stays put. Returns the ids
- * moved, so a move that fails afterwards can carry them back.
+ * Move one batch file between agents under both batch locks, rewriting its owner and delivery
+ * state. The destination is written before the source is removed; when the removal fails the
+ * destination copy is removed again, so the batch is never left under both agents.
  */
-export function moveCarriableConversationBatches(
+function transferBatch(
+  baseJobBatchDirectory: string,
+  fromAgentId: string,
+  toAgentId: string,
+  batchId: string,
+  accept: (batch: JobBatchRecord) => boolean,
+  fanIn: (batch: JobBatchRecord) => DeliveryState | undefined,
+): Effect.Effect<JobBatchRecord | null, Error, FileSystem.FileSystem> {
+  return withLock(
+    batchLockPath(baseJobBatchDirectory, fromAgentId, batchId),
+    withLock(
+      batchLockPath(baseJobBatchDirectory, toAgentId, batchId),
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const sourcePath = batchFilePath(baseJobBatchDirectory, fromAgentId, batchId);
+        const destinationPath = batchFilePath(baseJobBatchDirectory, toAgentId, batchId);
+        const batch = yield* readBatchFile(sourcePath);
+        if (batch === null || !accept(batch)) {
+          return null;
+        }
+        const { fanIn: _previous, ...rest } = batch;
+        const nextFanIn = fanIn(batch);
+        yield* fs
+          .makeDirectory(agentDirectory(baseJobBatchDirectory, toAgentId), {
+            recursive: true,
+            mode: stateDirectoryMode(),
+          })
+          .pipe(Effect.mapError(toError));
+        yield* writeBatchFile(destinationPath, {
+          ...rest,
+          agentId: toAgentId,
+          ...(nextFanIn !== undefined ? { fanIn: nextFanIn } : {}),
+        });
+        yield* fs.remove(sourcePath).pipe(
+          Effect.mapError(toError),
+          Effect.tapError(() => fs.remove(destinationPath).pipe(Effect.ignore)),
+        );
+        return batch;
+      }),
+    ),
+  );
+}
+
+/**
+ * The first half of carrying a conversation's finished, unreported batches to another agent:
+ * each moves under the new agent marked as being delivered by this process, so no other process
+ * (and no chat in this one) delivers it into a conversation that has not moved yet. Finish with
+ * {@link releaseCarriedBatches} once the conversation moved, or {@link returnCarriedBatches} when
+ * it did not. Fails without leaving anything carried: a batch that cannot move undoes the ones
+ * before it.
+ */
+export function carryConversationBatches(
   baseJobBatchDirectory: string,
   fromAgentId: string,
   toAgentId: string,
   conversationId: string,
-  batchIds?: readonly string[],
-): Effect.Effect<readonly string[], Error, FileSystem.FileSystem> {
+): Effect.Effect<readonly CarriedBatch[], Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const names = yield* Effect.tryPromise({
-      try: () => nodeFs.readdir(agentDirectory(baseJobBatchDirectory, fromAgentId)),
-      catch: toError,
-    }).pipe(Effect.catch(() => Effect.succeed<string[]>([])));
-    const candidates = names
-      .filter((name) => name.endsWith(".json"))
-      .map((name) => name.slice(0, -".json".length))
-      .filter((batchId) => batchIds === undefined || batchIds.includes(batchId));
-    const moved: string[] = [];
-    for (const batchId of candidates) {
-      const movedThis = yield* withLock(
-        batchLockPath(baseJobBatchDirectory, fromAgentId, batchId),
-        withLock(
-          batchLockPath(baseJobBatchDirectory, toAgentId, batchId),
-          Effect.gen(function* () {
-            const sourcePath = batchFilePath(baseJobBatchDirectory, fromAgentId, batchId);
-            const batch = yield* readBatchFile(sourcePath);
-            if (
-              batch === null ||
-              batch.conversationId !== conversationId ||
-              !isCarriableBatch(batch)
-            ) {
-              return false;
+    const batchIds = yield* batchIdsIn(agentDirectory(baseJobBatchDirectory, fromAgentId));
+    const carried: CarriedBatch[] = [];
+    const holder = currentProcessOwner();
+    for (const batchId of batchIds) {
+      const moved = yield* transferBatch(
+        baseJobBatchDirectory,
+        fromAgentId,
+        toAgentId,
+        batchId,
+        (batch) => batch.conversationId === conversationId && isCarriableBatch(batch),
+        (batch) => ({
+          status: "firing",
+          attempts: Math.max(1, batch.fanIn?.attempts ?? 0),
+          owner: holder,
+          claimedAt: Date.now(),
+        }),
+      ).pipe(
+        Effect.tap((batch) =>
+          Effect.sync(() => {
+            if (batch !== null) {
+              markInFlight(fanInClaimKey(batchId));
             }
-            yield* fs
-              .makeDirectory(agentDirectory(baseJobBatchDirectory, toAgentId), {
-                recursive: true,
-                mode: stateDirectoryMode(),
-              })
-              .pipe(Effect.mapError(toError));
-            yield* writeBatchFile(batchFilePath(baseJobBatchDirectory, toAgentId, batchId), {
-              ...batch,
-              agentId: toAgentId,
-            });
-            yield* fs.remove(sourcePath).pipe(Effect.mapError(toError));
-            return true;
           }),
         ),
+        Effect.catch((error) =>
+          returnCarriedBatches(baseJobBatchDirectory, toAgentId, fromAgentId, carried).pipe(
+            Effect.mapError(
+              (rollbackError) =>
+                new Error(
+                  `${error.message} Batches already carried could not all go back: ${rollbackError.message}`,
+                ),
+            ),
+            Effect.andThen(Effect.fail(error)),
+          ),
+        ),
       );
-      if (movedThis) {
-        moved.push(batchId);
+      if (moved !== null) {
+        carried.push({ batchId, fanIn: moved.fanIn });
       }
     }
-    return moved;
+    return carried;
   });
+}
+
+/**
+ * Make carried batches deliverable under their new agent, with the delivery state they had
+ * before the move. A batch this cannot rewrite stays marked as this process's; once this process
+ * stops tracking it that mark reads as abandoned, so it is delivered later rather than lost.
+ */
+export function releaseCarriedBatches(
+  baseJobBatchDirectory: string,
+  agentId: string,
+  carried: readonly CarriedBatch[],
+): Effect.Effect<void, Error> {
+  return Effect.forEach(
+    carried,
+    ({ batchId, fanIn }) =>
+      withLock(
+        batchLockPath(baseJobBatchDirectory, agentId, batchId),
+        Effect.gen(function* () {
+          const filePath = batchFilePath(baseJobBatchDirectory, agentId, batchId);
+          const batch = yield* readBatchFile(filePath);
+          if (batch === null) {
+            return;
+          }
+          const { fanIn: _held, ...rest } = batch;
+          yield* writeBatchFile(filePath, fanIn !== undefined ? { ...rest, fanIn } : rest);
+        }),
+      ).pipe(Effect.ensuring(Effect.sync(() => clearInFlight(fanInClaimKey(batchId))))),
+    { discard: true },
+  );
+}
+
+/** Undo {@link carryConversationBatches}: each carried batch goes back as it was. */
+export function returnCarriedBatches(
+  baseJobBatchDirectory: string,
+  carriedToAgentId: string,
+  originalAgentId: string,
+  carried: readonly CarriedBatch[],
+): Effect.Effect<void, Error, FileSystem.FileSystem> {
+  return Effect.forEach(
+    carried,
+    ({ batchId, fanIn }) =>
+      transferBatch(
+        baseJobBatchDirectory,
+        carriedToAgentId,
+        originalAgentId,
+        batchId,
+        () => true,
+        () => fanIn,
+      ).pipe(Effect.ensuring(Effect.sync(() => clearInFlight(fanInClaimKey(batchId))))),
+    { discard: true },
+  );
 }
 
 export interface ReclaimedBatchCompletion {
