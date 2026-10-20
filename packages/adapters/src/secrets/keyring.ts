@@ -67,6 +67,13 @@ export function describeKeyringBackend(backend: KeyringBackend): string {
 const PROBE_ACCOUNT = "__jazz_probe__";
 const COMMAND_TIMEOUT_MS = 5_000;
 
+/**
+ * How long a keychain read that may show a password dialog waits when someone is at the terminal:
+ * time to read the dialog and type a password. Unattended runs keep {@link COMMAND_TIMEOUT_MS}, so
+ * they never hang on a dialog nobody will answer.
+ */
+const KEYCHAIN_DIALOG_TIMEOUT_MS = 60_000;
+
 /** Hex characters of the home-path SHA-256 kept in the service name: 64 bits, ample to tell homes apart. */
 const HOME_SCOPE_HASH_LENGTH = 16;
 
@@ -126,12 +133,14 @@ export type KeyringCommandRunner = (
   command: string,
   args: readonly string[],
   stdin?: string,
+  timeoutMs?: number,
 ) => Effect.Effect<CommandResult, never>;
 
 function runCommand(
   command: string,
   args: readonly string[],
   stdin?: string,
+  timeoutMs: number = COMMAND_TIMEOUT_MS,
 ): Effect.Effect<CommandResult, never> {
   return Effect.callback<CommandResult, never>((resume) => {
     let settled = false;
@@ -152,7 +161,7 @@ function runCommand(
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       finish({ ok: false, code: null, stdout: "", stderr: "", unavailable: true });
-    }, COMMAND_TIMEOUT_MS);
+    }, timeoutMs);
 
     let stdout = "";
     let stderr = "";
@@ -590,9 +599,14 @@ export function migrateKeyringEntriesIntoVault(
 
 /**
  * Fold the single-item vault that 0.16.19 and 0.16.20 wrote through `osascript` into the chunked
- * vault, then delete it. Only `osascript` reads that item without the keychain asking for its
- * password, since it wrote it; `security` can still find and delete it silently, so the lookup that
- * runs on every start costs one `security` call and `osascript` runs only while the item exists.
+ * vault, then delete it. Only `osascript` reads that item, since it wrote it; `security` can still
+ * find and delete it silently, so the lookup that runs on every start costs one `security` call and
+ * `osascript` runs only while the item exists. A vault a pre-release build created through
+ * `security` and then rewrote through `osascript` makes even `osascript` show a password dialog, so
+ * at a terminal the read waits {@link KEYCHAIN_DIALOG_TIMEOUT_MS} for an answer. It happens before
+ * taking the secrets lock, which other processes would otherwise wait on; under the lock the item
+ * is looked up again, and a pass that finds it already adopted stops there.
+ *
  * Values already in the chunked vault win. An item that does not decode is left alone and skipped:
  * no version of Jazz could read it.
  */
@@ -600,30 +614,40 @@ export function adoptMacosOsascriptVault(
   vaultService: string,
   run: KeyringCommandRunner = runCommand,
   withLock: VaultLock = withSecretsFileLock,
+  interactive: boolean = process.stdin.isTTY === true,
 ): Effect.Effect<VaultMigration, never> {
+  const discover = run("security", [
+    "find-generic-password",
+    "-s",
+    vaultService,
+    "-a",
+    VAULT_ACCOUNT,
+  ]);
   return Effect.gen(function* () {
-    const discovered = yield* run("security", [
-      "find-generic-password",
-      "-s",
-      vaultService,
-      "-a",
-      VAULT_ACCOUNT,
-    ]);
+    const discovered = yield* discover;
     if (!discovered.ok) {
       const absent = !discovered.unavailable && discovered.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE;
       return { moved: [], complete: absent };
     }
+    const read = yield* readMacosKeychainItem(
+      run,
+      { service: vaultService, account: VAULT_ACCOUNT },
+      interactive ? KEYCHAIN_DIALOG_TIMEOUT_MS : COMMAND_TIMEOUT_MS,
+    );
+    if (read.status === "failed") {
+      return { moved: [], complete: false };
+    }
+    const legacy = read.status === "ok" ? decodeVault(read.value) : {};
+    if (legacy === undefined) {
+      return { moved: [], complete: true };
+    }
     return yield* Effect.promise(() =>
       withLock(async (): Promise<VaultMigration> => {
-        const read = await Effect.runPromise(
-          readMacosKeychainItem(run, { service: vaultService, account: VAULT_ACCOUNT }),
-        );
-        if (read.status === "failed") {
-          return { moved: [], complete: false };
-        }
-        const legacy = read.status === "ok" ? decodeVault(read.value) : {};
-        if (legacy === undefined) {
-          return { moved: [], complete: true };
+        const stillThere = await Effect.runPromise(discover);
+        if (!stillThere.ok) {
+          const absent =
+            !stillThere.unavailable && stillThere.code === MACOS_ITEM_NOT_FOUND_EXIT_CODE;
+          return { moved: [], complete: absent };
         }
         const moved: string[] = [];
         const stored = await Effect.runPromise(

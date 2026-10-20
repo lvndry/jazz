@@ -51,11 +51,13 @@ function run() {
 export function readMacosKeychainItem(
   run: KeyringCommandRunner,
   item: MacosKeychainItem,
+  timeoutMs?: number,
 ): Effect.Effect<MacosKeychainRead> {
   return run(
     "osascript",
     ["-l", "JavaScript", "-e", MACOS_KEYCHAIN_READ_SCRIPT],
     JSON.stringify(item),
+    timeoutMs,
   ).pipe(
     Effect.map((result): MacosKeychainRead => {
       const output = result.stdout.trim();

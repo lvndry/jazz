@@ -460,6 +460,55 @@ describe("adoptMacosOsascriptVault", () => {
     expect(commands).toEqual(["security"]);
   });
 
+  it("reads the old vault outside the lock, waiting for a dialog only at a terminal", async () => {
+    for (const [interactive, expectedTimeout] of [
+      [true, 60_000],
+      [false, 5_000],
+    ] as const) {
+      const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
+      const keychain = fakeMacosKeychain(entries);
+      let locked = false;
+      const reads: { readonly timeoutMs: number | undefined; readonly locked: boolean }[] = [];
+      const recording: KeyringCommandRunner = (command, args, stdin, timeoutMs) => {
+        if (command === "osascript") {
+          reads.push({ timeoutMs, locked });
+        }
+        return keychain(command, args, stdin);
+      };
+      const trackingLock: VaultLock = async (operation) => {
+        locked = true;
+        try {
+          return await operation();
+        } finally {
+          locked = false;
+        }
+      };
+
+      expect(
+        await Effect.runPromise(
+          adoptMacosOsascriptVault(VAULT_SERVICE, recording, trackingLock, interactive),
+        ),
+      ).toEqual({ moved: ["kept"], complete: true });
+      expect(reads).toEqual([{ timeoutMs: expectedTimeout, locked: false }]);
+    }
+  });
+
+  it("stops when another process adopts the old vault while this one reads it", async () => {
+    const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
+    const keychain = fakeMacosKeychain(entries);
+    const adoptedMeanwhile: VaultLock = (operation) => {
+      entries.delete(SINGLE_ITEM_VAULT_KEY);
+      return operation();
+    };
+
+    expect(
+      await Effect.runPromise(
+        adoptMacosOsascriptVault(VAULT_SERVICE, keychain, adoptedMeanwhile, false),
+      ),
+    ).toEqual({ moved: [], complete: true });
+    expect(vaultIn(entries)).toBeUndefined();
+  });
+
   it("keeps the old vault when it cannot be read or its contents cannot be stored", async () => {
     for (const refuse of ["osascript", "add-generic-password"]) {
       const entries = new Map([[SINGLE_ITEM_VAULT_KEY, encodeVault({ kept: "value" })]]);
