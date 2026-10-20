@@ -54,7 +54,7 @@ import {
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { WorkflowServiceTag } from "@jazz/core/workflows/workflow-service";
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import { describe, test, expect, afterAll, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { Effect, type FileSystem, Layer } from "effect";
 import * as chatSession from "@/cli/chat/session";
 import { ChatServiceImpl } from "@/cli/chat-service";
@@ -70,11 +70,29 @@ import * as chatLoop from "./loop";
 import type { CommandContext, CommandResult } from "./types";
 
 let tmpDir = "";
-const originalJazzHome = process.env["JAZZ_HOME"];
 
-function historyDir(): string {
-  return path.join(tmpDir, "history");
-}
+// Bun module mocks are process-global: snapshot the real exports so afterAll can
+// restore them for test files that run later in the same process.
+const actualPathsModule = {
+  ...(await import("@jazz/core/utils/paths")),
+};
+
+mock.module("@jazz/core/utils/paths", () => ({
+  ...actualPathsModule,
+  getHistoryDirectory: () => tmpDir,
+  getUserDataDirectory: () => tmpDir,
+  getGlobalUserDataDirectory: () => tmpDir,
+  getPackageRootDirectory: () => null,
+  getBuiltinSkillsDirectory: () => null,
+  getGlobalSkillsDirectory: () => tmpDir,
+  getAgentsSkillsDirectory: () => tmpDir,
+  getBuiltinPersonasDirectory: () => null,
+  getGlobalWorkflowsDirectory: () => tmpDir,
+}));
+
+afterAll(() => {
+  mock.module("@jazz/core/utils/paths", () => actualPathsModule);
+});
 
 const TEST_AGENT_ID = "test-agent-resume";
 
@@ -120,12 +138,9 @@ function mockPresentationLayer(): Layer.Layer<PresentationService> {
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-resume-handler-test-"));
-  process.env["JAZZ_HOME"] = tmpDir;
 });
 
 afterEach(() => {
-  if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
-  else process.env["JAZZ_HOME"] = originalJazzHome;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -377,26 +392,24 @@ describe("conversation titles through the chat loop", () => {
         (await session(testAgent, [`/rename ${title}`, "/switch another-agent", "/exit"]))
           .messagesReceived,
       ).toBe(2);
-      expect(
-        await runEffect(loadConversation(testAgent.id, "rename-loop", historyDir())),
-      ).toBeNull();
-      expect(
-        (await runEffect(loadConversation(otherAgent.id, "rename-loop", historyDir())))?.title,
-      ).toBe(title);
+      expect(await runEffect(loadConversation(testAgent.id, "rename-loop", tmpDir))).toBeNull();
+      expect((await runEffect(loadConversation(otherAgent.id, "rename-loop", tmpDir)))?.title).toBe(
+        title,
+      );
       expect(cwdUpdates).toEqual([{ agentId: otherAgent.id, path: tmpDir }]);
       expect((await session(otherAgent, ["/rename", "/exit"])).messagesReceived).toBe(1);
-      expect(
-        (await runEffect(loadConversation(otherAgent.id, "rename-loop", historyDir())))?.title,
-      ).toBe(title);
+      expect((await runEffect(loadConversation(otherAgent.id, "rename-loop", tmpDir)))?.title).toBe(
+        title,
+      );
       await session(otherAgent, ["/new", "/rename Fresh branch", "/exit"]);
       const freshId = store.getCurrentConversationSnapshot()?.conversationId;
       expect(freshId).not.toBe("rename-loop");
-      expect(
-        (await runEffect(loadConversation(otherAgent.id, freshId ?? "", historyDir())))?.title,
-      ).toBe("Fresh branch");
-      expect(
-        (await runEffect(loadConversation(otherAgent.id, "rename-loop", historyDir())))?.title,
-      ).toBe(title);
+      expect((await runEffect(loadConversation(otherAgent.id, freshId ?? "", tmpDir)))?.title).toBe(
+        "Fresh branch",
+      );
+      expect((await runEffect(loadConversation(otherAgent.id, "rename-loop", tmpDir)))?.title).toBe(
+        title,
+      );
     } finally {
       handle.mockRestore();
       setup.mockRestore();
@@ -451,9 +464,7 @@ describe("handleSpecialCommand /rename", () => {
     const title = `Unicode 🪷  ${"complete title ".repeat(1000).trim()}`;
     const result = await run([title]).outcome;
     expect(result.newConversationTitle).toBe(title);
-    const saved = await runEffect(
-      loadConversation(testAgent.id, context.conversationId, historyDir()),
-    );
+    const saved = await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir));
     expect(saved?.title).toBe(title);
     expect(saved?.messages).toEqual([]);
     expect(saved?.startedAt).toBe(context.sessionStartedAt.toISOString());
@@ -473,7 +484,7 @@ describe("handleSpecialCommand /rename", () => {
             },
           ],
         },
-        historyDir(),
+        tmpDir,
       ),
     );
     const rename = run(
@@ -488,9 +499,7 @@ describe("handleSpecialCommand /rename", () => {
     expect(renamed.conversationRevision).toEqual(conversationRevision(testRecord.messages));
     expect(rename.options()?.defaultValue).toBe(testRecord.title);
     expect(rename.options()?.cancellable).toBe(true);
-    const saved = await runEffect(
-      loadConversation(testAgent.id, context.conversationId, historyDir()),
-    );
+    const saved = await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir));
     expect(saved?.title).toBe("New  title 🪷");
     expect(saved?.messages).toEqual(testRecord.messages);
     expect(saved?.uiTranscript).toEqual([
@@ -505,18 +514,18 @@ describe("handleSpecialCommand /rename", () => {
   test("cancelling leaves the title untouched and ephemeral rename writes no conversation", async () => {
     expect((await run([]).outcome).newConversationTitle).toBeUndefined();
     expect(
-      await runEffect(loadConversation(testAgent.id, context.conversationId, historyDir())),
+      await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir)),
     ).toBeNull();
     expect((await run(["memory only"], { ephemeral: true }).outcome).newConversationTitle).toBe(
       "memory only",
     );
     expect(
-      await runEffect(loadConversation(testAgent.id, context.conversationId, historyDir())),
+      await runEffect(loadConversation(testAgent.id, context.conversationId, tmpDir)),
     ).toBeNull();
   });
 
   test("reports storage errors without claiming that the rename succeeded", async () => {
-    const blocked = agentConversationsDirectory(testAgent.id, historyDir());
+    const blocked = agentConversationsDirectory(testAgent.id, tmpDir);
     fs.mkdirSync(path.dirname(blocked), { recursive: true });
     fs.writeFileSync(blocked, "do not overwrite");
     const rename = run(["cannot save"]);
@@ -529,7 +538,7 @@ describe("handleSpecialCommand /rename", () => {
 
 describe("handleSpecialCommand resume", () => {
   test("switches the chat to the resumed conversation instead of copying it into the current one", async () => {
-    await runEffect(saveConversation(testRecord, historyDir()));
+    await runEffect(saveConversation(testRecord, tmpDir));
 
     const mockTerminal: Partial<TerminalService> = {
       search: mock(() => Effect.succeed("conv-to-resume")) as TerminalService["search"],
