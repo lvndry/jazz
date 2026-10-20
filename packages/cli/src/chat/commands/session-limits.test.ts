@@ -1,6 +1,7 @@
 import type { Agent } from "@jazz/core/types/agent";
+import * as actualModelsDev from "@jazz/core/utils/models-dev";
 import type { ModelsDevMetadata } from "@jazz/core/utils/models-dev";
-import { describe, expect, it, mock } from "bun:test";
+import { afterAll, describe, expect, it, mock } from "bun:test";
 import { Effect } from "effect";
 
 let metadata: ModelsDevMetadata | undefined;
@@ -9,6 +10,10 @@ mock.module("@jazz/core/utils/models-dev", () => ({
   getModelsDevMetadata: () => Promise.resolve(metadata),
   getModelsDevProviderModels: () => Promise.resolve([]),
 }));
+
+afterAll(() => {
+  mock.module("@jazz/core/utils/models-dev", () => actualModelsDev);
+});
 
 const { estimateSessionCostUSD, findExceededSessionLimits, formatSessionLimitMetric } =
   await import("./session-limits");

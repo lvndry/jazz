@@ -6,8 +6,9 @@ import {
   type TerminalService,
 } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/agent";
+import * as actualModelsDev from "@jazz/core/utils/models-dev";
 import type { ModelsDevMetadata } from "@jazz/core/utils/models-dev";
-import { describe, expect, it, mock } from "bun:test";
+import { afterAll, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import type { CommandContext, CommandResult } from "./types";
 
@@ -16,6 +17,10 @@ mock.module("@jazz/core/utils/models-dev", () => ({
     Promise.resolve({ inputPricePerMillion: 3, outputPricePerMillion: 15 } as ModelsDevMetadata),
   getModelsDevProviderModels: () => Promise.resolve([]),
 }));
+
+afterAll(() => {
+  mock.module("@jazz/core/utils/models-dev", () => actualModelsDev);
+});
 
 const { handleSpecialCommand } = await import("./handler");
 
