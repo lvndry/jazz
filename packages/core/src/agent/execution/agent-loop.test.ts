@@ -3407,10 +3407,10 @@ describe("executeAgentLoop cost and token caps", () => {
       const { strategy: answering } = finalAnswerStrategy("never sent");
       const strategy: CompletionStrategy = {
         ...answering,
-        getCompletion: (messages, iteration, toolsAllowed) =>
+        getCompletion: (messages, iteration, toolsAllowed, contextWindow) =>
           toolsAllowed === false
             ? Effect.fail(new Error("provider unavailable"))
-            : answering.getCompletion(messages, iteration, toolsAllowed),
+            : answering.getCompletion(messages, iteration, toolsAllowed, contextWindow),
       };
 
       try {

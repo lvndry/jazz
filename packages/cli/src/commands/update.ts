@@ -1,4 +1,3 @@
-import { type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { UpdateCheckError, UpdateInstallError } from "@jazz/core/types/errors";
@@ -415,7 +414,7 @@ function installUpdate(
  */
 export function updateCommand(options?: {
   check?: boolean;
-}): Effect.Effect<void, never, LoggerService | AgentConfigService | TerminalService> {
+}): Effect.Effect<void, never, LoggerService | TerminalService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const terminal = yield* TerminalServiceTag;

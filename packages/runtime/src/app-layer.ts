@@ -242,6 +242,53 @@ export interface AppLayerConfig {
   configPath?: string | undefined;
 }
 
+/** The terminal and presentation services, chosen from the environment and the attached terminal. */
+function createConsoleLayers(session: boolean) {
+  const presentationConfig = getPresentationConfig(
+    process.env as EnvShape,
+    process.stdout,
+    process.stdin,
+    session,
+  );
+
+  const terminalLayer = presentationConfig.usePlainTerminal
+    ? createPlainTerminalServiceLayer()
+    : Layer.unwrap(
+        Effect.promise(() => import("@jazz/cli/terminal")).pipe(
+          Effect.map((terminal) =>
+            terminal.createTerminalServiceLayer({ fullscreen: presentationConfig.useFullscreen }),
+          ),
+        ),
+      );
+
+  // isQuiet: no output. useCLIPresentation: CLI (plain stdout). else: Ink UI, loaded only then.
+  const presentationLayer = presentationConfig.isQuiet
+    ? QuietPresentationServiceLayer
+    : presentationConfig.useCLIPresentation
+      ? CLIPresentationServiceLayer
+      : Layer.unwrap(
+          Effect.promise(() => import("@jazz/cli/presentation/ink-presentation-service")).pipe(
+            Effect.map((presentation) => presentation.InkPresentationServiceLayer),
+          ),
+        ).pipe(Layer.provide(NotificationServiceLayer));
+
+  return { terminalLayer, presentationLayer };
+}
+
+/**
+ * Only the services a command needs to talk to the person: logger, terminal and presentation.
+ * Building it never loads config, so the keyring holding config secrets is never read.
+ */
+function createConsoleLayer(options: { readonly session?: boolean } = {}) {
+  const { terminalLayer, presentationLayer } = createConsoleLayers(options.session === true);
+  return Layer.mergeAll(
+    createLoggerLayer(),
+    terminalLayer,
+    presentationLayer,
+    NotificationServiceLayer,
+  );
+}
+
 /**
  * Create the application layer with all required services
  *
@@ -286,22 +333,7 @@ export function createAppLayer(
     }),
   ).pipe(Layer.provide(configLayer));
 
-  const presentationConfig = getPresentationConfig(
-    process.env as EnvShape,
-    process.stdout,
-    process.stdin,
-    options.session === true,
-  );
-
-  const terminalLayer = presentationConfig.usePlainTerminal
-    ? createPlainTerminalServiceLayer()
-    : Layer.unwrap(
-        Effect.promise(() => import("@jazz/cli/terminal")).pipe(
-          Effect.map((terminal) =>
-            terminal.createTerminalServiceLayer({ fullscreen: presentationConfig.useFullscreen }),
-          ),
-        ),
-      );
+  const { terminalLayer, presentationLayer } = createConsoleLayers(options.session === true);
 
   const storageLayer = Layer.effect(
     StorageServiceTag,
@@ -367,17 +399,6 @@ export function createAppLayer(
   const savedSecretsLayer = Layer.sync(SavedSecretsServiceTag, () => createSavedSecretsService());
 
   const chatLayer = createChatServiceLayer(configPath);
-
-  // isQuiet: no output. useCLIPresentation: CLI (plain stdout). else: Ink UI, loaded only then.
-  const presentationLayer = presentationConfig.isQuiet
-    ? QuietPresentationServiceLayer
-    : presentationConfig.useCLIPresentation
-      ? CLIPresentationServiceLayer
-      : Layer.unwrap(
-          Effect.promise(() => import("@jazz/cli/presentation/ink-presentation-service")).pipe(
-            Effect.map((presentation) => presentation.InkPresentationServiceLayer),
-          ),
-        ).pipe(Layer.provide(NotificationServiceLayer));
 
   // Create a complete layer by providing all dependencies
   return Layer.mergeAll(
@@ -485,8 +506,15 @@ export function runCliEffect<R, E extends JazzError | Error>(
     readonly onStoppedBySignal?: ((signal: ShutdownSignal) => void) | undefined;
     /** Report failure before the application layer exists using the command's envelope. */
     readonly onStartupFailure?: ((message: string) => void) | undefined;
+    /**
+     * `"console"` provides only the logger, terminal and presentation services, and skips the
+     * workflow catch-up and update notice that need config. For commands that use nothing else,
+     * so they never load config or read the keyring.
+     */
+    readonly services?: "app" | "console" | undefined;
   } = {},
 ): void {
+  const consoleOnly = options.services === "console";
   const cliOptionsLayer = Layer.succeed(CLIOptionsTag, {
     verbose: config.verbose,
     debug: config.debug,
@@ -507,7 +535,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
   const program = Effect.gen(function* () {
     const commandStartedAt = Date.now();
     const shouldSkipCatchUp =
-      process.env["JAZZ_DISABLE_CATCH_UP"] === "1" || options.skipCatchUp === true;
+      process.env["JAZZ_DISABLE_CATCH_UP"] === "1" || options.skipCatchUp === true || consoleOnly;
 
     if (!shouldSkipCatchUp) {
       // Interactive prompt for catch-up - asks user if they want to run missed workflows
@@ -529,7 +557,8 @@ export function runCliEffect<R, E extends JazzError | Error>(
     const shouldSkipUpdateCheck =
       process.env["JAZZ_DISABLE_UPDATE_CHECK"] === "1" ||
       isOfflineMode() ||
-      options.skipUpdateCheck === true;
+      options.skipUpdateCheck === true ||
+      consoleOnly;
     const startupCheck = shouldSkipUpdateCheck
       ? Effect.void
       : Effect.promise(() => import("@jazz/cli/auto-update")).pipe(
@@ -650,7 +679,9 @@ export function runCliEffect<R, E extends JazzError | Error>(
   const managedEffect = program.pipe(
     Effect.provide(
       Layer.mergeAll(
-        createAppLayer(config, { session: options.session === true }),
+        consoleOnly
+          ? createConsoleLayer({ session: options.session === true })
+          : createAppLayer(config, { session: options.session === true }),
         cliOptionsLayer,
       ),
     ),

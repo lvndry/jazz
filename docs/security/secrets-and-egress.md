@@ -30,11 +30,18 @@ already migrated vault values remain intact. Copying and retiring each legacy en
 same lock as vault updates, preventing another process from migrating a value after its deletion.
 Deletion leaves the vault unchanged while migration is incomplete, so a later retry cannot restore a secret that appeared to have been removed.
 
-On macOS, vault writes call the system Security framework through `osascript`, with the
-credential payload on stdin. This avoids the `security -i` parser's 4,095-byte command limit;
-large OAuth bundles and multiple provider keys can share the same vault. Newly created vaults
-explicitly trust both the `security` CLI reader and the `osascript` writer, so subsequent reads
-and updates do not need an additional application-access prompt.
+On macOS, the `security` CLI alone creates, reads and deletes the vault's keychain items. The
+login keychain asks for your password whenever an item is read by a program other than the one
+that wrote it, so keeping one program on both sides means no prompts. Values go to `security -i`
+on stdin, never as command arguments, which other local users can see. `security -i` refuses
+lines over 4,095 bytes, so the vault is split into chunks of up to 3,800 characters, and one
+`security` process reads them all. A write fills a second set of chunks and only then deletes
+the first. An interrupted write leaves the previous vault readable.
+
+Jazz 0.16.19 and 0.16.20 wrote each home's vault through `osascript` instead, which made the
+keychain ask for its password on every start. The first start after updating reads that vault
+once through `osascript`, which can read it without a prompt, moves its secrets into the new
+vault, and deletes it.
 
 Read-back is one-way. `jazz config show` and `jazz config get` redact every secret, including MCP
 env and header values and values merged in from the keyring or the environment; `--reveal` is the
