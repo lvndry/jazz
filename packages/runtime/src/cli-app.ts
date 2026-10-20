@@ -75,6 +75,8 @@ interface CliRunOptions {
   readonly onStoppedBySignal?: (signal: ShutdownSignal) => void;
   /** Report a failure building the application layer, before the command can print a result. */
   readonly onStartupFailure?: (message: string) => void;
+  /** `"console"` for commands that need no config or keyring: only logger and terminal. */
+  readonly services?: "app" | "console";
 }
 
 type AppLayerModule = typeof import("./app-layer");
@@ -1746,6 +1748,7 @@ function registerUpdateCommand(program: Command): void {
       runCliAction(
         () => import("@jazz/cli/commands/update").then((mod) => mod.updateCommand(options)),
         cliRuntimeOptions(program),
+        { services: "console" },
       ),
     );
 }
