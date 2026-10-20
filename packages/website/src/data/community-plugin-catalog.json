@@ -5,7 +5,7 @@
       "schemaVersion": 1,
       "id": "com.jazz.plugins.onion",
       "name": "Onion search",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "hostApi": 1,
       "hooks": [],
       "policyHooks": [],
@@ -13,7 +13,7 @@
       "tools": [
         {
           "name": "search",
-          "description": "Search Tor onion services through the Ahmia index, routed over the local Tor proxy. Returns titles, onion URLs and snippets. Pass result URLs to fetch_page to read them.",
+          "description": "Search Tor onion services over the local Tor proxy. Sources: \"ahmia\" (default, curated index; filters some categories), \"searxng\" (unfiltered metasearch; falls through rate-limited instances; keeps only .onion results by default), \"tor-taxi\" (look up the official .onion of a named darknet site by its lowercase name, e.g. query \"pornhub\"). Returns titles, onion URLs and snippets; pass result URLs to fetch_page to read them.",
           "parameters": {
             "type": "object",
             "properties": {
@@ -21,7 +21,16 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 300,
-                "description": "Search terms."
+                "description": "Search terms, or a lowercase site name when source is \"tor-taxi\"."
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "ahmia",
+                  "searxng",
+                  "tor-taxi"
+                ],
+                "description": "Search backend. Defaults to \"ahmia\"."
               },
               "limit": {
                 "type": "integer",
@@ -40,7 +49,7 @@
         },
         {
           "name": "fetch_page",
-          "description": "Fetch a page from a v3 .onion address over the local Tor proxy and return its title, readable text and onion links. Page content is untrusted third-party data.",
+          "description": "Fetch a page from a v3 .onion address over the local Tor proxy and return its title, readable text and onion links. Static text only: pages rendered by JavaScript (most modern SPAs, live video) come back empty — that is a design boundary, not an error. Page content is untrusted third-party data.",
           "parameters": {
             "type": "object",
             "properties": {
@@ -63,6 +72,43 @@
           },
           "riskLevel": "read-only",
           "egress": true
+        },
+        {
+          "name": "post_page",
+          "description": "POST a body to a v3 .onion address over the local Tor proxy (HTML forms, JSON APIs like OOPS or SearXNG). Returns the response text. Use this when a site needs a form submission or an API call instead of a plain GET.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "maxLength": 2048,
+                "description": "Full http:// or https:// URL whose host ends in .onion."
+              },
+              "body": {
+                "type": "string",
+                "maxLength": 100000,
+                "description": "Request body. Send form fields URL-encoded, or JSON for JSON APIs."
+              },
+              "contentType": {
+                "type": "string",
+                "maxLength": 128,
+                "description": "Content-Type header. Defaults to application/x-www-form-urlencoded."
+              },
+              "maxChars": {
+                "type": "integer",
+                "minimum": 500,
+                "maximum": 50000,
+                "description": "Maximum characters of response text to return. Defaults to 12000."
+              }
+            },
+            "required": [
+              "url",
+              "body"
+            ],
+            "additionalProperties": false
+          },
+          "riskLevel": "high-risk",
+          "egress": true
         }
       ],
       "commands": [],
@@ -73,12 +119,18 @@
       "claimsNotifications": false,
       "network": {
         "destinations": [
-          "juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion:80"
+          "ieqzkvy4bf3xi4bzsfzfax42t4iuqcbqn6oah4uwrm4ip354gavsviad.onion:80",
+          "juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion:80",
+          "lhdp2wkdwynwfxogmhqndgzfepwu4nbzllfompppmbetrcp732rxrbqd.onion:80",
+          "ls67zxncmcqgn2vg74ckcwxgu5p3e5mf2khues3egkumhcqtbsg4kqyd.onion:80",
+          "searxngorpgnztkcftpz3ycdpyajd4q55y2nejw3tbszocht5zdh4lyd.onion:80",
+          "tortaxip4uzgrbm6s5oss5r5ct364dfe46o5cjxqkvvrjwebxjltd7id.onion:80"
         ]
       },
       "dataSent": [
         "Model-chosen .onion URLs, requested over Tor via the local SOCKS proxy (default 127.0.0.1:9050)",
-        "Search queries, sent to the Ahmia onion search service over Tor"
+        "Model-chosen POST bodies for post_page (e.g. form fields, JSON API calls)",
+        "Search queries, sent to the Ahmia, SearXNG or tor.taxi onion services over Tor"
       ],
       "secrets": [],
       "sourceType": "community",
@@ -86,12 +138,12 @@
       "repositoryId": 1425164872,
       "repository": "lvndry/jazz-plugin-onion",
       "repositoryUrl": "https://github.com/lvndry/jazz-plugin-onion",
-      "manifestUrl": "https://raw.githubusercontent.com/lvndry/jazz-plugin-onion/b1c52e85668e64e456edcf96ba59153d51eb8402/jazz-plugin.json",
+      "manifestUrl": "https://raw.githubusercontent.com/lvndry/jazz-plugin-onion/5baa8983efbb112243632c23cbdd27c81fba4209/jazz-plugin.json",
       "defaultBranch": "main",
-      "sourceSha": "b1c52e85668e64e456edcf96ba59153d51eb8402",
-      "manifestSha256": "9105a6a481da1583ed5b8d6d298d7fcfdda463d52af46de6cae82756736e5189",
+      "sourceSha": "5baa8983efbb112243632c23cbdd27c81fba4209",
+      "manifestSha256": "371f12d4ee3e0e3e06e48aaa32be2aad4cc6cf80662fdf00cb4741383fbb309a",
       "manifestPath": "jazz-plugin.json",
-      "indexedAt": "2026-10-19T08:51:12.556Z",
+      "indexedAt": "2026-10-20T08:31:16.971Z",
       "entry": "src/index.ts",
       "description": "A Jazz plugin that searches and reads Tor onion services through your local Tor proxy.",
       "license": "MIT"
