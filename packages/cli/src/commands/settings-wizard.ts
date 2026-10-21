@@ -62,7 +62,7 @@ import {
   SPEND_LIMIT_SETTINGS,
 } from "./spend-limits";
 import { commitTheme } from "../chat/commands/handler";
-import { signInToChatGPT, signOutOfChatGPT } from "../setup/chatgpt-sign-in";
+import { refreshChatGPTSignIn, signInToChatGPT, signOutOfChatGPT } from "../setup/chatgpt-sign-in";
 import { isValidServerAddress } from "../setup/local-provider-url";
 import { writeClipboard } from "../ui/fullscreen/clipboard";
 import { activeKeymapMode } from "../ui/keymaps";
@@ -467,9 +467,14 @@ function configureLLMProviders() {
       if (provider === "chatgpt") {
         if (isChatGPTSignedIn(config.llm)) {
           const credentialAction = yield* terminal.ask(
-            "OAuth credential: ••••••••  [e]dit account · [c]opy credential",
-            { hidden: true, keys: ["e", "c"] },
+            "OAuth credential: ••••••••  [r]efresh token · [e]dit account · [c]opy credential",
+            { hidden: true, keys: ["r", "e", "c"] },
           );
+          if (credentialAction === "r") {
+            yield* refreshChatGPTSignIn(terminal, configService);
+            yield* terminal.log("");
+            continue;
+          }
           if (credentialAction === "c") {
             const result = yield* Effect.result(
               Effect.tryPromise({
@@ -496,7 +501,7 @@ function configureLLMProviders() {
             {
               choices: [
                 { name: "Keep this account", value: "keep" },
-                { name: "Sign in with a different account", value: "switch" },
+                { name: "Sign in again", value: "switch" },
                 { name: "Sign out", value: "sign-out" },
               ],
             },

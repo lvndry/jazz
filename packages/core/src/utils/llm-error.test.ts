@@ -499,7 +499,9 @@ describe("context overflow", () => {
 describe("convertToLLMError - credential failures never retry", () => {
   class ChatGPTSignInRequiredError extends Error {
     constructor() {
-      super("Not signed in to ChatGPT. Run `jazz config`, choose LLM providers, then ChatGPT.");
+      super(
+        "Not signed in to ChatGPT. To sign in, run `jazz config set chatgpt`, or type /settings in a chat and choose Model providers, then ChatGPT.",
+      );
       this.name = "ChatGPTSignInRequiredError";
     }
   }
@@ -507,7 +509,7 @@ describe("convertToLLMError - credential failures never retry", () => {
   it("reads a sign-in error with no status as an authentication failure, keeping its remedy", () => {
     const converted = convertToLLMError(new ChatGPTSignInRequiredError(), "chatgpt");
     expect(converted).toBeInstanceOf(LLMAuthenticationError);
-    expect(converted.message).toContain("Run `jazz config`");
+    expect(converted.message).toContain("run `jazz config set chatgpt`");
     expect(isRetryableLLMError(converted)).toBe(false);
   });
 

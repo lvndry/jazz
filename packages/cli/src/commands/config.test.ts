@@ -35,6 +35,7 @@ const mockConfigService = {
 
 const askAnswer = { value: "" };
 const ask = mock(() => Effect.succeed(askAnswer.value));
+const select = mock(() => Effect.succeed<string | undefined>("back"));
 
 const mockTerminal = {
   isInteractive: true,
@@ -44,6 +45,7 @@ const mockTerminal = {
   error: mock(() => Effect.void),
   warn: mock(() => Effect.void),
   ask,
+  select,
   confirm: mock(() => Effect.succeed(true)),
 } as unknown as TerminalService;
 
@@ -72,6 +74,7 @@ beforeEach(() => {
   currentAppConfig = {};
   askAnswer.value = "";
   ask.mockClear();
+  select.mockClear();
   storageUnavailable.mockImplementation(() => false);
   (mockTerminal.success as ReturnType<typeof mock>).mockClear();
   (mockTerminal.error as ReturnType<typeof mock>).mockClear();
@@ -181,11 +184,34 @@ describe("jazz config set", () => {
   });
 
   it("refuses an API key for a provider that does not exist", async () => {
-    for (const key of ["llm.opneai.api_key", "llm.opneai", "chatgpt"]) {
+    for (const key of ["llm.opneai.api_key", "llm.opneai"]) {
       const exit = await set(key, "sk-x");
       expect(failure(exit)).toBeInstanceOf(ConfigurationValidationError);
     }
     expect(failure(await set("llm.opneai.api_key", "sk-x"))?.suggestion).toContain("llm.openai");
+    expect(writes).toEqual([]);
+  });
+
+  it("starts the ChatGPT sign-in instead of asking for a key", async () => {
+    for (const key of ["chatgpt", "llm.chatgpt"]) {
+      select.mockClear();
+      const exit = await set(key);
+
+      expect(Exit.isSuccess(exit)).toBe(true);
+      expect(select).toHaveBeenCalledWith(
+        "How do you want to sign in to ChatGPT?",
+        expect.anything(),
+      );
+    }
+    expect(ask).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+  });
+
+  it("points a ChatGPT key at the sign-in", async () => {
+    const error = failure(await set("chatgpt", "sk-x"));
+
+    expect(error?.field).toBe("llm.chatgpt");
+    expect(error?.suggestion).toContain("jazz config set chatgpt");
     expect(writes).toEqual([]);
   });
 

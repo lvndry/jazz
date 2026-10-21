@@ -350,6 +350,18 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
     }
 
     case "LLMAuthenticationError": {
+      if (error.provider === "chatgpt") {
+        return {
+          title: "ChatGPT Sign-In Required",
+          message: error.message,
+          suggestion: apiKeyHint(error.provider),
+          recovery: [
+            "Run `jazz config set chatgpt` to sign in again",
+            "Check provider service status",
+          ],
+          relatedCommands: ["jazz config set chatgpt"],
+        };
+      }
       return {
         title: "LLM Authentication Error",
         message: `Authentication failed for LLM provider "${error.provider}": ${error.message}`,

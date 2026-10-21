@@ -61,11 +61,22 @@ export function llmProviderEnvVars(provider: string): readonly string[] {
 }
 
 /**
+ * How to sign in to the `chatgpt` provider, which authenticates with an OAuth sign-in
+ * instead of an API key.
+ */
+export const CHATGPT_SIGN_IN_HINT =
+  "To sign in, run `jazz config set chatgpt`, or type /settings in a chat and choose Model providers, then ChatGPT.";
+
+/**
  * How to give Jazz a provider's API key, for error messages and hints:
  * `jazz config set <provider>` prompts for the key, so it never lands in shell
- * history, and the environment variable works without saving anything.
+ * history, and the environment variable works without saving anything. The
+ * `chatgpt` provider has no key, so it gets the sign-in steps instead.
  */
 export function apiKeyHint(provider: string): string {
+  if (provider === "chatgpt") {
+    return CHATGPT_SIGN_IN_HINT;
+  }
   const envVar = llmProviderEnvVars(provider)[0];
   const prompt = `run \`jazz config set ${provider}\` and paste the key when asked`;
   return envVar === undefined
