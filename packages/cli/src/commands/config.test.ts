@@ -207,6 +207,20 @@ describe("jazz config set", () => {
     expect(writes).toEqual([]);
   });
 
+  it("refuses the ChatGPT sign-in without a terminal, pointing at the CI credential", async () => {
+    const terminalState = mockTerminal as { isInteractive: boolean };
+    terminalState.isInteractive = false;
+    try {
+      const error = failure(await set("chatgpt"));
+
+      expect(error?.field).toBe("llm.chatgpt");
+      expect(error?.suggestion).toContain("JAZZ_CHATGPT_CREDENTIAL");
+      expect(select).not.toHaveBeenCalled();
+    } finally {
+      terminalState.isInteractive = true;
+    }
+  });
+
   it("points a ChatGPT key at the sign-in", async () => {
     const error = failure(await set("chatgpt", "sk-x"));
 

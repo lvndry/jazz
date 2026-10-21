@@ -107,8 +107,10 @@ function logDebug(message: string, meta?: Record<string, unknown>): Effect.Effec
 
 /**
  * Force a token refresh, even when the access token still looks fresh. A refresh token OpenAI
- * rejects can only be replaced by signing in, so that case moves straight to the sign-in prompt.
- * Resolves to whether a working credential is stored afterwards.
+ * rejects can only be replaced by signing in, so that case removes the dead sign-in and moves
+ * straight to the sign-in prompt; cancelling it leaves Jazz signed out rather than holding a
+ * credential every request would fail with. Resolves to whether a working credential is stored
+ * afterwards.
  */
 export function refreshChatGPTSignIn(
   terminal: TerminalService,
@@ -142,10 +144,14 @@ export function refreshChatGPTSignIn(
 
     const failure = outcome.failure;
     if (failure instanceof ChatGPTSignInRequiredError) {
-      yield* logDebug("ChatGPT refresh token rejected; starting sign-in", {
+      yield* logDebug("ChatGPT refresh token rejected; clearing it and starting sign-in", {
         elapsedMs: Date.now() - startedAt,
       });
-      yield* terminal.warn("Your ChatGPT sign-in has expired. Sign in again to keep using it.");
+      yield* Effect.promise(() => clearChatGPTCredential());
+      yield* configService.set("llm.chatgpt", undefined);
+      yield* terminal.warn(
+        "Your ChatGPT sign-in has expired and was removed. Sign in again to keep using it.",
+      );
       return yield* signInToChatGPT(terminal, configService);
     }
 

@@ -132,6 +132,16 @@ function chatGPTTakesNoKeyError(): ConfigurationValidationError {
   });
 }
 
+function chatGPTSignInNeedsTerminalError(): ConfigurationValidationError {
+  return new ConfigurationValidationError({
+    field: "llm.chatgpt",
+    expected: "an interactive terminal to sign in",
+    actual: "a non-interactive session",
+    suggestion:
+      "Run `jazz config set chatgpt` in a terminal, or set JAZZ_CHATGPT_CREDENTIAL to the bundle copied from /settings → Model providers → ChatGPT (c).",
+  });
+}
+
 /**
  * Whether a path is a provider's API key (`llm.<provider>.api_key` or
  * `web_search.<provider>.api_key`). The secret registry treats any such shape as
@@ -267,6 +277,9 @@ export function setConfigCommand(
     if (targetKey === "llm.chatgpt.api_key") {
       if (value !== undefined) {
         return yield* Effect.fail(chatGPTTakesNoKeyError());
+      }
+      if (!terminal.isInteractive) {
+        return yield* Effect.fail(chatGPTSignInNeedsTerminalError());
       }
       yield* signInToChatGPT(terminal, configService);
       return;
