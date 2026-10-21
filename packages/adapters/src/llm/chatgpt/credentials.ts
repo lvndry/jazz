@@ -2,6 +2,7 @@
  * Keyring storage for the ChatGPT sign-in, and the refresh path every model request goes through.
  */
 
+import { CHATGPT_SIGN_IN_HINT } from "@jazz/core/constants/provider-env-vars";
 import { CHATGPT_CREDENTIAL_PATH } from "@jazz/core/secrets/registry";
 import { clearRuntimeSecret, registerRuntimeSecret } from "@jazz/core/secrets/runtime-secrets";
 import { writeFileDurably } from "@jazz/core/utils/durable-file";
@@ -51,8 +52,7 @@ const REFRESH_REQUEST_TIMEOUT_MS = 15_000;
  */
 const LOCK_WAIT_DEADLINE_MS = FILE_LOCK_MAX_WAIT_MS + REFRESH_REQUEST_TIMEOUT_MS;
 
-export const CHATGPT_SIGN_IN_REQUIRED_MESSAGE =
-  "Not signed in to ChatGPT. Run `jazz config`, choose LLM providers, then ChatGPT.";
+export const CHATGPT_SIGN_IN_REQUIRED_MESSAGE = `Not signed in to ChatGPT. ${CHATGPT_SIGN_IN_HINT}`;
 
 export class ChatGPTSignInRequiredError extends Error {
   constructor(detail?: string) {

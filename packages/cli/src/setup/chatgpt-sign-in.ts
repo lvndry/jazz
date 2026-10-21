@@ -3,21 +3,27 @@
  * wizards when an agent picks the ChatGPT provider. Pass the terminal and config
  * services to signInToChatGPT to choose browser/device authentication, save tokens
  * through the credential adapter and persist the account summary; it returns false
- * on cancellation or sign-in failure. signOutOfChatGPT clears both credentials and
- * that summary and reports completion through the same terminal.
+ * on cancellation or sign-in failure. refreshChatGPTSignIn trades the stored refresh token
+ * for a new access token and falls back to signing in when OpenAI has revoked it.
+ * signOutOfChatGPT clears both credentials and that summary and reports completion
+ * through the same terminal.
  */
 
 import {
   type ChatGPTCredential,
+  ChatGPTSignInRequiredError,
   clearChatGPTCredential,
+  getChatGPTCredential,
+  loadChatGPTCredential,
   saveChatGPTCredential,
   signInWithBrowser,
   signInWithDeviceCode,
 } from "@jazz/adapters/llm/chatgpt";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
+import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { toError } from "@jazz/core/utils/errors";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 
 type SignInMethod = "browser" | "device" | "back";
 
@@ -87,6 +93,75 @@ export function signInToChatGPT(
     });
     yield* terminal.success(`Signed in to ChatGPT${describePlan(credential.plan)}.`);
     return true;
+  });
+}
+
+function logDebug(message: string, meta?: Record<string, unknown>): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const logger = yield* Effect.serviceOption(LoggerServiceTag);
+    if (Option.isSome(logger)) {
+      yield* logger.value.debug(message, meta);
+    }
+  });
+}
+
+/**
+ * Force a token refresh, even when the access token still looks fresh. A refresh token OpenAI
+ * rejects can only be replaced by signing in, so that case removes the dead sign-in and moves
+ * straight to the sign-in prompt; cancelling it leaves Jazz signed out rather than holding a
+ * credential every request would fail with. Resolves to whether a working credential is stored
+ * afterwards.
+ */
+export function refreshChatGPTSignIn(
+  terminal: TerminalService,
+  configService: AgentConfigService,
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const startedAt = Date.now();
+    const outcome = yield* Effect.result(
+      Effect.tryPromise({
+        try: async () => {
+          const stored = await loadChatGPTCredential();
+          if (stored === undefined) {
+            throw new ChatGPTSignInRequiredError();
+          }
+          return getChatGPTCredential({ rejectedAccess: stored.access });
+        },
+        catch: (error) => error,
+      }),
+    );
+
+    if (outcome._tag === "Success") {
+      const credential = outcome.success;
+      yield* logDebug("ChatGPT token refreshed", { elapsedMs: Date.now() - startedAt });
+      yield* configService.set("llm.chatgpt", {
+        account_id: credential.accountId,
+        ...(credential.plan !== undefined ? { plan: credential.plan } : {}),
+      });
+      yield* terminal.success(`ChatGPT token refreshed${describePlan(credential.plan)}.`);
+      return true;
+    }
+
+    const failure = outcome.failure;
+    if (failure instanceof ChatGPTSignInRequiredError) {
+      yield* logDebug("ChatGPT refresh token rejected; clearing it and starting sign-in", {
+        elapsedMs: Date.now() - startedAt,
+      });
+      yield* Effect.promise(() => clearChatGPTCredential());
+      yield* configService.set("llm.chatgpt", undefined);
+      yield* terminal.warn(
+        "Your ChatGPT sign-in has expired and was removed. Sign in again to keep using it.",
+      );
+      return yield* signInToChatGPT(terminal, configService);
+    }
+
+    const message = toError(failure).message;
+    yield* logDebug("ChatGPT token refresh failed", {
+      elapsedMs: Date.now() - startedAt,
+      error: message,
+    });
+    yield* terminal.error(`Could not refresh the ChatGPT token: ${message}`);
+    return false;
   });
 }
 

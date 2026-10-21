@@ -63,7 +63,7 @@ For CI and containers, inject the environment variable from the platform's secre
 
 The `chatgpt` provider runs OpenAI models on a ChatGPT Plus or Pro plan instead of API credits, through the same sign-in the Codex CLI uses. Usage counts against the plan's limits, so Jazz shows no per-token cost for these models.
 
-Run `jazz`, type `/settings`, then choose **Model providers**, then **ChatGPT**, and pick how to sign in:
+Run `jazz config set chatgpt`, or run `jazz`, type `/settings`, then choose **Model providers**, then **ChatGPT**, and pick how to sign in:
 
 - **Open a browser on this machine** opens OpenAI's sign-in page and receives the result on `localhost:1455`. Finish or cancel any Codex CLI sign-in first, because it uses the same port.
 - **Enter a code on another device** shows a code to enter at `auth.openai.com/codex/device` from any phone or laptop. Use this over SSH and on servers without a browser.
@@ -74,7 +74,7 @@ The tokens are stored in the keyring (or the Jazz secrets file on hosts without 
 
 For hosted CI, set `JAZZ_CHATGPT_CREDENTIAL` to the JSON bundle copied from `/settings` → **Model providers** → **ChatGPT** (`c`). Jazz reads it only when no stored ChatGPT credential exists and removes the variable before launching child processes. Refresh tokens rotate, so ephemeral workflows must persist a newly refreshed bundle before the next run; serialize all workflows that use the same credential. See [CI runs](../surfaces/ci.md) for unattended setup and the [pull-request reviewer](../guides/pr-review.md) for a working workflow.
 
-To switch accounts or sign out, choose **ChatGPT** under `/settings` → **Model providers** again.
+If a request fails with `Not signed in to ChatGPT`, OpenAI has rejected the stored refresh token. Choose **ChatGPT** under `/settings` → **Model providers** and press `r`. Jazz tries to refresh the token, and when OpenAI rejects it, Jazz starts a new sign-in. Press `e` there to sign in again or sign out.
 
 ## OpenRouter for model portability
 

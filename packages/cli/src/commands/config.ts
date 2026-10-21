@@ -16,6 +16,7 @@ import {
 } from "@jazz/core/utils/config-schema";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
+import { signInToChatGPT } from "../setup/chatgpt-sign-in";
 
 /**
  * CLI commands for configuration management
@@ -118,6 +119,26 @@ function unknownSettingError(path: string, suggestion?: string): ConfigurationVa
       suggestion === undefined
         ? "Check the key against the configuration docs; Jazz refuses keys it would never read."
         : `Did you mean ${suggestion}?`,
+  });
+}
+
+function chatGPTTakesNoKeyError(): ConfigurationValidationError {
+  return new ConfigurationValidationError({
+    field: "llm.chatgpt",
+    expected: "a ChatGPT sign-in",
+    actual: "an API key",
+    suggestion:
+      "ChatGPT signs in through OpenAI instead of taking a key. Run `jazz config set chatgpt` with no value to sign in.",
+  });
+}
+
+function chatGPTSignInNeedsTerminalError(): ConfigurationValidationError {
+  return new ConfigurationValidationError({
+    field: "llm.chatgpt",
+    expected: "an interactive terminal to sign in",
+    actual: "a non-interactive session",
+    suggestion:
+      "Run `jazz config set chatgpt` in a terminal, or set JAZZ_CHATGPT_CREDENTIAL to the bundle copied from /settings → Model providers → ChatGPT (c).",
   });
 }
 
@@ -253,6 +274,17 @@ export function setConfigCommand(
     const promptsForApiKey = (root: "llm" | "web_search"): boolean =>
       key === root || (isProviderApiKey && targetSegments[0] === root);
 
+    if (targetKey === "llm.chatgpt.api_key") {
+      if (value !== undefined) {
+        return yield* Effect.fail(chatGPTTakesNoKeyError());
+      }
+      if (!terminal.isInteractive) {
+        return yield* Effect.fail(chatGPTSignInNeedsTerminalError());
+      }
+      yield* signInToChatGPT(terminal, configService);
+      return;
+    }
+
     const clearing = value !== undefined && value.trim() === "";
     if (isSecretPath(targetKey) && !clearing) {
       const missingEntry = missingNamedListEntry(yield* configService.appConfig, targetKey);
@@ -278,6 +310,10 @@ export function setConfigCommand(
           }));
         if (provider === undefined) {
           yield* terminal.info("Cancelled. Configuration unchanged.");
+          return;
+        }
+        if (provider === "chatgpt") {
+          yield* signInToChatGPT(terminal, configService);
           return;
         }
 

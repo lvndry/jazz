@@ -7,6 +7,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
+import { sanitizeTerminalNotificationText } from "@jazz/core/notify/terminal-notification";
 import { openBrowser, startLoopbackListener } from "@/adapters/oauth/loopback";
 
 /** Codex CLI's public OAuth client. Sign-in only works with this id and its registered redirects. */
@@ -91,11 +92,42 @@ export function readAccessTokenClaims(accessToken: string): AccessTokenClaims {
 }
 
 /** The token endpoint refused the grant: the code or refresh token is no longer valid. */
+/** Cap on the token endpoint's error text, which is shown in the terminal and logged. */
+const MAX_TOKEN_ERROR_DETAIL_CODE_POINTS = 200;
+
+/**
+ * The token endpoint's error as one bounded line: `code: message` from either OpenAI's
+ * `{ error: { code, message } }` or OAuth's `{ error, error_description }`, else the raw body.
+ * Control characters are replaced, so a response cannot drive the terminal.
+ */
+function summarizeTokenErrorBody(body: string): string {
+  let summary = body;
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: string | { code?: unknown; message?: unknown };
+      error_description?: unknown;
+    } | null;
+    const error = parsed?.error;
+    const parts =
+      typeof error === "object" && error !== null
+        ? [error.code, error.message]
+        : [error, parsed?.error_description];
+    const fields = parts.filter((part): part is string => typeof part === "string" && part !== "");
+    if (fields.length > 0) {
+      summary = fields.join(": ");
+    }
+  } catch {
+    // Not JSON: keep the raw body.
+  }
+  return sanitizeTerminalNotificationText(summary, MAX_TOKEN_ERROR_DETAIL_CODE_POINTS);
+}
+
 export class ChatGPTTokenRejectedError extends Error {
   readonly status: number;
 
   constructor(operation: string, status: number, body: string) {
-    super(`ChatGPT token ${operation} failed (${status})${body ? `: ${body}` : ""}`);
+    const detail = summarizeTokenErrorBody(body);
+    super(`ChatGPT token ${operation} failed (${status})${detail ? `: ${detail}` : ""}`);
     this.name = "ChatGPTTokenRejectedError";
     this.status = status;
   }

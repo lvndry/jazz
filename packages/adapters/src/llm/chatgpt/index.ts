@@ -2,6 +2,7 @@ export {
   CHATGPT_SIGN_IN_REQUIRED_MESSAGE,
   ChatGPTSignInRequiredError,
   clearChatGPTCredential,
+  getChatGPTCredential,
   loadChatGPTCredential,
   saveChatGPTCredential,
 } from "./credentials";
