@@ -1,3 +1,4 @@
+/** Local NDJSON telemetry storage, date-partitioned for bounded retention and readback. */
 import { appendFile, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { TelemetryEvent } from "@jazz/core/interfaces/telemetry";
@@ -18,6 +19,7 @@ export function datePartition(date: Date): string {
  */
 export class FileTelemetrySink implements TelemetrySink, TelemetryEventReader {
   readonly name = "file";
+  private nextPruneAtMs = 0;
   private directoryCreated = false;
 
   constructor(
@@ -35,6 +37,10 @@ export class FileTelemetrySink implements TelemetrySink, TelemetryEventReader {
     if (!this.directoryCreated) {
       await mkdir(this.eventsDirectory, { recursive: true, mode: stateDirectoryMode() });
       this.directoryCreated = true;
+    }
+    if (Date.now() >= this.nextPruneAtMs) {
+      await this.prune();
+      this.nextPruneAtMs = Date.now() + 24 * 60 * 60 * 1000;
     }
 
     const byPartition = new Map<string, TelemetryEvent[]>();

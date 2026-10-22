@@ -2,8 +2,9 @@
  * Bounded, private disk queue for OTLP requests.
  *
  * Entries contain already-mapped payloads, not raw Jazz events or HTTP headers.
- * A hash of the signal and destination keeps pending data tied to the endpoint
- * it was created for. Atomic rename makes each entry recoverable after a crash.
+ * A hash of the signal, endpoint, and authentication headers ties pending data
+ * to its original destination without persisting credentials. Atomic rename
+ * makes each entry recoverable after a crash.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -58,12 +59,26 @@ export class OtlpOutbox {
       count: number,
       reason: "capacity_or_age" | "permanent",
     ) => void = () => {},
+    headers: Readonly<Record<OtlpSignal, Readonly<Record<string, string>>>> = {
+      traces: {},
+      logs: {},
+      metrics: {},
+    },
   ) {
     this.directory = path.join(storagePath, "otlp-outbox");
     this.destinationKeys = Object.fromEntries(
       (Object.entries(endpoints) as [OtlpSignal, string][]).map(([signal, endpoint]) => [
         signal,
-        createHash("sha256").update(`${signal}\0${endpoint}`).digest("hex").slice(0, 24),
+        createHash("sha256")
+          .update(
+            JSON.stringify([
+              signal,
+              endpoint,
+              Object.entries(headers[signal]).sort(([a], [b]) => a.localeCompare(b)),
+            ]),
+          )
+          .digest("hex")
+          .slice(0, 24),
       ]),
     ) as Record<OtlpSignal, string>;
   }

@@ -123,7 +123,7 @@ function redactLogValue(value: unknown, seen: WeakMap<object, unknown>): unknown
   if (value === null || typeof value !== "object") return value;
 
   const existing = seen.get(value);
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) return "<circular>";
 
   if (Array.isArray(value)) {
     const redacted: unknown[] = [];

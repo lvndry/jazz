@@ -73,6 +73,7 @@ export class OtlpTelemetrySink implements TelemetrySink {
         config.maxQueuedBytes,
         config.maxQueueAgeMs,
         dependencies.onQueueDropped,
+        config.signalHeaders,
       );
     }
   }

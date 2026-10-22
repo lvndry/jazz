@@ -111,6 +111,32 @@ describe("OtlpOutbox", () => {
     }
   });
 
+  it("does not replay pending data under rotated credentials at the same endpoint", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "jazz-outbox-"));
+    try {
+      const oldHeaders = { traces: { authorization: "old-secret" }, logs: {}, metrics: {} };
+      const newHeaders = { traces: { authorization: "new-secret" }, logs: {}, metrics: {} };
+      const oldQueue = new OtlpOutbox(directory, ENDPOINTS, 1024, 60_000, undefined, oldHeaders);
+      await oldQueue.enqueue("traces", '{"old":true}');
+      const files = await readdir(path.join(directory, "otlp-outbox"));
+      expect(files[0]).not.toContain("old-secret");
+      const newQueue = new OtlpOutbox(directory, ENDPOINTS, 1024, 60_000, undefined, newHeaders);
+      let sent = 0;
+      await newQueue.drain("traces", async () => {
+        sent += 1;
+        return "accepted";
+      });
+      expect(sent).toBe(0);
+      expect(await readdir(path.join(directory, "otlp-outbox"))).toHaveLength(1);
+      await oldQueue.drain("traces", async () => {
+        sent += 1;
+        return "accepted";
+      });
+      expect(sent).toBe(1);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it("lets only one of two drainers send a claimed request", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "jazz-outbox-"));
     try {

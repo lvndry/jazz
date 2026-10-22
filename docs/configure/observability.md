@@ -10,7 +10,7 @@ default; exporting requires an OTLP/HTTP endpoint. The default export is traces 
 
 ## Local records and signals
 
-Local telemetry events are NDJSON under `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson`, retained for 90 days by default. Operational logs live under `~/.jazz/logs/`. The local event stream includes run start and terminal state, LLM usage and retries, tool outcomes, periodic process samples, and CLI command completion. It is recorded even when no OTLP endpoint is configured.
+Local telemetry events are NDJSON under `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson`, retained for 90 days by default (expired date partitions are removed during normal writes). Operational logs live under `~/.jazz/logs/`. The local event stream includes run start and terminal state, LLM usage and retries, tool outcomes, periodic process samples, and CLI command completion. It is recorded even when no OTLP endpoint is configured.
 
 | OTLP signal | What Jazz sends                                                                                                                                             | Typical use                                             |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
@@ -39,7 +39,7 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 }
 ```
 
-The base endpoint gains `/v1/traces`, `/v1/logs`, and `/v1/metrics`. A signal-specific endpoint must include its full path. Config values take precedence over environment variables. `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` supply resource identity; set `deployment.environment.name` and `service.version` through resource attributes when useful for filtering. Jazz uses OTLP/HTTP, so point it at an HTTP receiver, normally port 4318.
+The base endpoint gains `/v1/traces`, `/v1/logs`, and `/v1/metrics`. A signal-specific endpoint must include its full path. Config values take precedence over environment variables. `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` supply resource identity; set `deployment.environment.name` through resource attributes when useful for filtering. Jazz sets `service.version` from its own package version; a resource override is ignored. Jazz uses OTLP/HTTP, so point it at an HTTP receiver, normally port 4318.
 
 An invalid endpoint or a selected signal without an endpoint produces a startup error log naming the config field or environment variable. Jazz disables OTLP export for that process while continuing the agent run. Endpoint values are omitted from the diagnostic because they may contain credentials. An invalid explicit config value does not silently fall back to an environment value.
 
@@ -127,7 +127,7 @@ Short-lived CLI runs export a zero `jazz.agent.runs` sample at run start and a t
 
 Jazz's shared telemetry event stream does not contain prompt, completion, tool argument, or tool result text. String attributes are bounded and known credential-bearing fields are redacted. No setting adds that text to events or OTLP exports. Never assume an OTLP collector is a private boundary; configure only approved endpoints.
 
-Traces and logs have independent disk-backed queues under `<telemetry.storagePath>/otlp-outbox`. They contain payloads but no authentication headers, use private file permissions, and retry independently of local event files. Queue limits default to 32 MiB and seven days; oldest pending payloads are dropped with a warning when those limits are reached. Retryable HTTP responses (`429`, `502`, `503`, `504`) and network failures get bounded retries, honoring `Retry-After`. Other HTTP failures are dropped with a warning. An OTLP partial-success response is acknowledged and reported, not retried. An ambiguous connection failure may produce a duplicate after retry or restart; consumers should use stable trace/span IDs where possible.
+Traces and logs have independent disk-backed queues under `<telemetry.storagePath>/otlp-outbox`. They contain payloads but no authentication headers, use private file permissions, and retry independently of local event files. Pending payloads are bound to both endpoint and configured headers: changing credentials at the same URL leaves old entries undelivered until they expire, rather than sending them to a different account. Queue limits default to 32 MiB and seven days; oldest pending payloads are dropped with a warning when those limits are reached. Retryable HTTP responses (`429`, `502`, `503`, `504`) and network failures get bounded retries, honoring `Retry-After`. Other HTTP failures are dropped with a warning. An OTLP partial-success response is acknowledged and reported, not retried. An ambiguous connection failure may produce a duplicate after retry or restart; consumers should use stable trace/span IDs where possible.
 
 Metrics use the OpenTelemetry SDK's cumulative aggregation and periodic exporter. They are flushed on clean shutdown but are not stored in the disk outbox, so a crash or prolonged outage can lose a metric interval. Logs and telemetry also flush on normal CLI shutdown. Observability failures are best-effort and do not block agent actions.
 
