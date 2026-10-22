@@ -1713,6 +1713,10 @@ export class UIStore {
     patchSlice(this.session, { retryNotice: notice });
   };
 
+  getRetryNoticeSnapshot(): RetryNotice | null {
+    return this.session.getSnapshot().retryNotice;
+  }
+
   getApprovalRequestSnapshot(): PendingApproval | null {
     return this.session.getSnapshot().approvalRequest;
   }

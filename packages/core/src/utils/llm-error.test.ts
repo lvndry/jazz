@@ -290,6 +290,21 @@ describe("a 2xx response the SDK could not parse", () => {
     expect(converted.message).not.toContain("\u001b");
   });
 
+  it("names the runtime code of a body read that failed mid-stream", () => {
+    const readFailure = Object.assign(new TypeError("socket closed"), { code: "ECONNRESET" });
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "Failed to process successful response",
+        url: "http://localhost:8000/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 200,
+        cause: readFailure,
+      }),
+      "vllm",
+    );
+    expect(converted.message).toBe("Failed to process successful response (TypeError(ECONNRESET))");
+  });
+
   it("stays retryable so the non-streaming fallback gets its turn", () => {
     expect(isRetryableLLMError(convertToLLMError(unparsedSuccess(), "vllm"))).toBe(true);
   });

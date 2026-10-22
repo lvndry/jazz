@@ -502,8 +502,9 @@ const SAFE_IDENTIFIER = /^[A-Za-z_$][\w$]{0,63}$/;
 /**
  * Names of the errors along a `cause` chain, outermost first. Class names carry no request or
  * response content, so they are safe to log; messages are not, because parse and validation
- * errors quote the chunk they rejected. A name that is not a plain identifier is reported as
- * `Error`.
+ * errors quote the chunk they rejected. A runtime error's `code` (Bun's `ECONNRESET`, a
+ * decompression failure) is appended as `TypeError(CODE)` because the name alone does not say
+ * which failure it was. A name or code that is not a plain identifier is dropped.
  */
 export function errorCauseChainNames(error: unknown): string[] {
   const names: string[] = [];
@@ -511,7 +512,9 @@ export function errorCauseChainNames(error: unknown): string[] {
   let current: unknown = error;
   while (current instanceof Error && !seen.has(current)) {
     seen.add(current);
-    names.push(SAFE_IDENTIFIER.test(current.name) ? current.name : "Error");
+    const name = SAFE_IDENTIFIER.test(current.name) ? current.name : "Error";
+    const code = (current as { code?: unknown }).code;
+    names.push(typeof code === "string" && SAFE_IDENTIFIER.test(code) ? `${name}(${code})` : name);
     current = current.cause;
   }
   return names;

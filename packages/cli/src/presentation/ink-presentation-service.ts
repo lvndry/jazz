@@ -53,7 +53,7 @@ import {
   type InterruptSummary,
   type ReceiptFacts,
 } from "@/cli/ui/models/interrupt";
-import { retryLine } from "@/cli/ui/models/retry";
+import { retryLine, retryRecoveredLine } from "@/cli/ui/models/retry";
 import { terminalCellWidth } from "@/cli/ui/text/terminal-cells";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
@@ -640,7 +640,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
       // Anything the model sends after a retry means the retry went through. A new
       // attempt opening (stream_start) does not: it may fail and be retried again.
       if (this.streamTarget.kind === "scrollback" && event.type !== "stream_start") {
-        store.setRetryNotice(null);
+        const recovered = store.getRetryNoticeSnapshot();
+        if (recovered !== null) {
+          store.setRetryNotice(null);
+          store.printOutput({
+            type: "info",
+            message: { kind: "notice", tone: "info", text: retryRecoveredLine(recovered) },
+            timestamp: new Date(),
+          });
+        }
       }
 
       if (event.type === "stream_start") {
