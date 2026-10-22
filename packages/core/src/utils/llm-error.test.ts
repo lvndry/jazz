@@ -224,6 +224,47 @@ describe("describeRetryableLLMError", () => {
   });
 });
 
+describe("a 2xx response the SDK could not parse", () => {
+  const chunkContent = "the-model-output-in-the-rejected-chunk";
+
+  function unparsedSuccess(): APICallError {
+    const issues = [
+      { path: ["choices", 0, "delta", "tool_calls"], message: "Invalid input: expected array" },
+    ];
+    const validation = Object.assign(new Error(`Type validation failed: ${chunkContent}`), {
+      name: "AI_TypeValidationError",
+      cause: Object.assign(new Error(JSON.stringify(issues)), { name: "ZodError", issues }),
+    });
+    return new APICallError({
+      message: "Failed to process successful response",
+      url: "http://100.85.157.126:8090/v1/chat/completions",
+      requestBodyValues: {},
+      statusCode: 200,
+      cause: validation,
+    });
+  }
+
+  it("is marked unreadable, not a connection failure", () => {
+    const converted = convertToLLMError(unparsedSuccess(), "vllm") as LLMRequestError;
+    expect(converted).toBeInstanceOf(LLMRequestError);
+    expect(converted.unreadableResponse).toBe(true);
+    expect(describeRetryableLLMError(converted)).toBe("unreadable response");
+    expect(converted.message).not.toContain("Cannot reach");
+  });
+
+  it("names the cause chain and schema issues without quoting the chunk", () => {
+    const converted = convertToLLMError(unparsedSuccess(), "vllm");
+    expect(converted.message).toBe(
+      "Failed to process successful response (AI_TypeValidationError ← ZodError: choices.0.delta.tool_calls: Invalid input: expected array)",
+    );
+    expect(converted.message).not.toContain(chunkContent);
+  });
+
+  it("stays retryable so the non-streaming fallback gets its turn", () => {
+    expect(isRetryableLLMError(convertToLLMError(unparsedSuccess(), "vllm"))).toBe(true);
+  });
+});
+
 describe("locally-rejected requests are not retried", () => {
   /**
    * The real shape: an audio attachment sent to Ollama, whose provider transports only images.

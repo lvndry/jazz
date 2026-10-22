@@ -486,6 +486,77 @@ function authFailureMessage(providerName: ProviderName, cleanMessage: string): s
   return `${providerDisplayName} API key is missing or invalid. ${apiKeyHint(providerName)}`;
 }
 
+/** Caps how many schema issues an unreadable-response message lists. */
+const UNREADABLE_RESPONSE_MAX_ISSUES = 3;
+
+function isSuccessStatus(statusCode: number | undefined): boolean {
+  return statusCode !== undefined && statusCode >= 200 && statusCode < 300;
+}
+
+/**
+ * Names of the errors along a `cause` chain, outermost first. Names carry no request or
+ * response content, so they are safe to log; messages are not, because parse and validation
+ * errors quote the chunk they rejected.
+ */
+export function errorCauseChainNames(error: unknown): string[] {
+  const names: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    names.push(current.name);
+    current = current.cause;
+  }
+  return names;
+}
+
+/** Zod paths hold keys directly; Standard Schema paths may hold `{ key }` objects. */
+function pathSegmentKey(segment: unknown): unknown {
+  return segment !== null && typeof segment === "object" && "key" in segment
+    ? segment.key
+    : segment;
+}
+
+/**
+ * Schema issues from the first validation error in the chain, as `path: message`. Zod issue
+ * messages name the expected and received types, not the values.
+ */
+function schemaIssueSummaries(error: unknown): string[] {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const issues = (current as { issues?: unknown }).issues;
+    if (Array.isArray(issues)) {
+      return issues.slice(0, UNREADABLE_RESPONSE_MAX_ISSUES).map((issue) => {
+        const record = (issue ?? {}) as { path?: unknown; message?: unknown };
+        const path = Array.isArray(record.path)
+          ? record.path.map((segment) => String(pathSegmentKey(segment))).join(".")
+          : "";
+        const message = typeof record.message === "string" ? record.message : "invalid";
+        return path ? `${path}: ${message}` : message;
+      });
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return [];
+}
+
+/**
+ * What failed to process, without quoting the response: the cause chain's error names, then
+ * any schema issues.
+ */
+function describeUnreadableCause(error: unknown): string | undefined {
+  const causeNames = errorCauseChainNames(error).slice(1);
+  if (causeNames.length === 0) {
+    return undefined;
+  }
+  const issues = schemaIssueSummaries(error);
+  return issues.length > 0
+    ? `${causeNames.join(" ← ")}: ${issues.join("; ")}`
+    : causeNames.join(" ← ");
+}
+
 /**
  * Convert unknown error to appropriate LLMError type.
  * Handles API call errors, HTTP status codes, and error message parsing
@@ -505,8 +576,19 @@ export function convertToLLMError(
   // Use clean message for user-facing error (keeps terminal output readable)
   const cleanMessage = extractCleanErrorMessage(error);
 
-  // Checked before anything else: these carry no status code, so every branch below would
-  // classify them as a transient connection failure.
+  // The server answered, so this is neither a connection failure nor a request rejected before
+  // sending, even when the cause chain holds a validation error the permanent check matches.
+  if (APICallError.isInstance(error) && isSuccessStatus(error.statusCode)) {
+    const causeSummary = describeUnreadableCause(error);
+    return new LLMRequestError({
+      provider: providerName,
+      message: causeSummary ? `${cleanMessage} (${causeSummary})` : cleanMessage,
+      unreadableResponse: true,
+    });
+  }
+
+  // These carry no status code, so every branch below would classify them as a transient
+  // connection failure.
   if (isPermanentRequestError(error)) {
     return new LLMRequestError({
       provider: providerName,
@@ -645,6 +727,9 @@ export function describeRetryableLLMError(error: unknown): string {
     // A locally-rejected request is not a network issue, and calling it one sent users looking
     // for a connectivity problem that did not exist.
     if (error.permanent === true) return "rejected request";
+    if (error.unreadableResponse === true) {
+      return "unreadable response";
+    }
     if (error.statusCode === undefined) return "network issue";
     return `server error (${error.statusCode})`;
   }

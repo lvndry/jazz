@@ -37,6 +37,9 @@ export function retryBandHeight(band: RetryBand, width: number): number {
 function titleFor(reason: string): string {
   if (reason === "rate limit") return "The model provider is rate limiting";
   if (reason === "network issue") return "Can't reach the model provider";
+  if (reason === "unreadable response") {
+    return "The model provider sent a response Jazz couldn't read";
+  }
   if (reason.startsWith("server error")) return "The model provider is having trouble";
   return "The model call failed";
 }

@@ -294,7 +294,9 @@ export function executeWithStreaming(
            * never counts toward that: a rate limit applies to both modes alike. An idle
            * stall goes straight to the fallback: streaming again would repeat the same
            * silence, and the server may be midway through a tool call it will not send until
-           * it is whole.
+           * it is whole. So does a stream the SDK could not parse: the server answered, and
+           * streaming again would hit the same chunk, while a non-streaming body is parsed
+           * by a different schema.
            */
           const attempt = Effect.gen(function* () {
             const streamingFailures = yield* Ref.get(streamingFailuresRef);
@@ -305,7 +307,8 @@ export function executeWithStreaming(
               Effect.tapError((error) =>
                 isRetryableLLMError(error) && !(error instanceof LLMRateLimitError)
                   ? Ref.updateAndGet(streamingFailuresRef, (count) =>
-                      error instanceof LLMRequestError && error.streamStalled === true
+                      error instanceof LLMRequestError &&
+                      (error.streamStalled === true || error.unreadableResponse === true)
                         ? Math.max(count + 1, STREAMING_FAILURES_BEFORE_FALLBACK)
                         : count + 1,
                     ).pipe(

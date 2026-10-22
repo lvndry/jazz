@@ -39,6 +39,23 @@ describe("retryBand", () => {
     expect(band.cause).toBe("OpenAI: fetch failed.");
   });
 
+  it("says the provider answered when its response could not be read", () => {
+    const { statusCode: _statusCode, ...withoutStatus } = NOTICE;
+    const band = retryBand(
+      {
+        ...withoutStatus,
+        provider: "vllm",
+        reason: "unreadable response",
+        detail: "Failed to process successful response (AI_TypeValidationError)",
+      },
+      0,
+    );
+    expect(band.title).toBe("The model provider sent a response Jazz couldn't read");
+    expect(band.cause).toBe(
+      "vLLM: Failed to process successful response (AI_TypeValidationError).",
+    );
+  });
+
   it("does not add a second period to a message that already ends a sentence", () => {
     const { statusCode: _statusCode, ...withoutStatus } = NOTICE;
     const band = retryBand(

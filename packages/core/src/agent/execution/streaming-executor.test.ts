@@ -1035,6 +1035,35 @@ describe("executeWithStreaming retries", () => {
     expect(fallbackAttempts).toBe(1);
   });
 
+  it("falls back after a single unreadable stream instead of streaming the same request again", async () => {
+    let streamingAttempts = 0;
+    let fallbackAttempts = 0;
+    const unreadable = new LLMRequestError({
+      provider: "vllm",
+      message: "Failed to process successful response (AI_TypeValidationError)",
+      unreadableResponse: true,
+    });
+    const harness = makeStreamingHarness({
+      maxRetries: 5,
+      llmService: scriptedLLMService(
+        () => {
+          streamingAttempts += 1;
+          return failingStream(unreadable);
+        },
+        () => {
+          fallbackAttempts += 1;
+          return Effect.succeed(completeResponse("from the fallback"));
+        },
+      ),
+    });
+
+    const result = await harness.run();
+
+    expect(result.content).toBe("from the fallback");
+    expect(streamingAttempts).toBe(1);
+    expect(fallbackAttempts).toBe(1);
+  });
+
   it("never falls back to non-streaming for a rate limit", async () => {
     let streamingAttempts = 0;
     let fallbackAttempts = 0;

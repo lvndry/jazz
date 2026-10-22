@@ -254,6 +254,13 @@ export class LLMRequestError extends Data.TaggedError("LLMRequestError")<{
    * a non-streaming request has no idle watchdog and can wait it out.
    */
   readonly streamStalled?: boolean;
+  /**
+   * Set when the provider answered with a 2xx status but the SDK could not parse the body,
+   * such as a stream chunk the SDK's schema rejects. The server is reachable, so this is not a
+   * connection failure. A streamed body the SDK cannot read will usually fail the same way
+   * again, while a non-streaming request takes a different parse path.
+   */
+  readonly unreadableResponse?: boolean;
 }> {}
 
 export class LLMRateLimitError extends Data.TaggedError("LLMRateLimitError")<{
