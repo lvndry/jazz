@@ -111,6 +111,7 @@ describe("AI SDK Service - Unit Tests", () => {
       provider: "openai",
       errorType: "LLMRequestError",
       statusCode: 429,
+      errorChain: ["Error"],
     });
     expect(JSON.stringify(safeLLMErrorMetadata(error, "openai", "LLMRequestError"))).not.toContain(
       secret,
@@ -126,6 +127,22 @@ describe("AI SDK Service - Unit Tests", () => {
         "LLMRequestError",
       ),
     ).toEqual({ provider: "openai", errorType: "LLMRequestError" });
+  });
+
+  it("logs the error names along the cause chain, not their messages", () => {
+    const secret = "chunk-content-the-model-wrote";
+    const validation = Object.assign(new Error(secret), { name: "AI_TypeValidationError" });
+    const error = Object.assign(
+      new Error("Failed to process successful response", {
+        cause: validation,
+      }),
+      { name: "AI_APICallError", statusCode: 200 },
+    );
+
+    const metadata = safeLLMErrorMetadata(error, "vllm", "LLMRequestError");
+
+    expect(metadata["errorChain"]).toEqual(["AI_APICallError", "AI_TypeValidationError"]);
+    expect(JSON.stringify(metadata)).not.toContain(secret);
   });
 
   /**

@@ -224,6 +224,92 @@ describe("describeRetryableLLMError", () => {
   });
 });
 
+describe("a 2xx response the SDK could not parse", () => {
+  const chunkContent = "the-model-output-in-the-rejected-chunk";
+
+  function unparsedSuccess(): APICallError {
+    const issues = [
+      {
+        path: ["choices", 0, "delta", "tool_calls"],
+        code: "invalid_type",
+        expected: "array",
+        message: `Invalid input: expected array, received ${chunkContent}`,
+      },
+    ];
+    const validation = Object.assign(new Error(`Type validation failed: ${chunkContent}`), {
+      name: "AI_TypeValidationError",
+      cause: Object.assign(new Error(JSON.stringify(issues)), { name: "ZodError", issues }),
+    });
+    return new APICallError({
+      message: "Failed to process successful response",
+      url: "http://100.85.157.126:8090/v1/chat/completions",
+      requestBodyValues: {},
+      statusCode: 200,
+      cause: validation,
+    });
+  }
+
+  it("is marked unreadable, not a connection failure", () => {
+    const converted = convertToLLMError(unparsedSuccess(), "vllm") as LLMRequestError;
+    expect(converted).toBeInstanceOf(LLMRequestError);
+    expect(converted.unreadableResponse).toBe(true);
+    expect(describeRetryableLLMError(converted)).toBe("unreadable response");
+    expect(converted.message).not.toContain("Cannot reach");
+  });
+
+  it("names the cause chain and schema issues without quoting the chunk", () => {
+    const converted = convertToLLMError(unparsedSuccess(), "vllm");
+    expect(converted.message).toBe(
+      "Failed to process successful response (AI_TypeValidationError ← ZodError: choices.0.delta.tool_calls: invalid_type (expected array))",
+    );
+    expect(converted.message).not.toContain(chunkContent);
+  });
+
+  it("drops response-derived keys, codes and names that are not plain identifiers", () => {
+    const hostile = `${chunkContent}\u001b[2J`;
+    const issues = [{ path: [hostile, { key: "args" }], code: hostile, expected: hostile }];
+    const validation = Object.assign(new Error(hostile), {
+      name: hostile,
+      cause: Object.assign(new Error(hostile), { name: "ZodError", issues }),
+    });
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "Failed to process successful response",
+        url: "http://localhost:8000/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 200,
+        cause: validation,
+      }),
+      "vllm",
+    );
+
+    expect(converted.message).toBe(
+      "Failed to process successful response (Error ← ZodError: *.args: invalid)",
+    );
+    expect(converted.message).not.toContain(chunkContent);
+    expect(converted.message).not.toContain("\u001b");
+  });
+
+  it("names the runtime code of a body read that failed mid-stream", () => {
+    const readFailure = Object.assign(new TypeError("socket closed"), { code: "ECONNRESET" });
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "Failed to process successful response",
+        url: "http://localhost:8000/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 200,
+        cause: readFailure,
+      }),
+      "vllm",
+    );
+    expect(converted.message).toBe("Failed to process successful response (TypeError(ECONNRESET))");
+  });
+
+  it("stays retryable so the non-streaming fallback gets its turn", () => {
+    expect(isRetryableLLMError(convertToLLMError(unparsedSuccess(), "vllm"))).toBe(true);
+  });
+});
+
 describe("locally-rejected requests are not retried", () => {
   /**
    * The real shape: an audio attachment sent to Ollama, whose provider transports only images.

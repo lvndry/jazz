@@ -37,6 +37,9 @@ export function retryBandHeight(band: RetryBand, width: number): number {
 function titleFor(reason: string): string {
   if (reason === "rate limit") return "The model provider is rate limiting";
   if (reason === "network issue") return "Can't reach the model provider";
+  if (reason === "unreadable response") {
+    return "The model provider sent a response Jazz couldn't read";
+  }
   if (reason.startsWith("server error")) return "The model provider is having trouble";
   return "The model call failed";
 }
@@ -45,6 +48,15 @@ function titleFor(reason: string): string {
 export function retryLine(notice: RetryNotice, now: number): string {
   const band = retryBand(notice, now);
   return `${band.title} (${band.attempt}). ${band.cause} Retrying in ${String(band.secondsLeft)}s. Nothing is lost.`;
+}
+
+/**
+ * What the transcript keeps once a retry went through. The live band disappears when output
+ * resumes, so without this line the failure leaves no trace in the conversation.
+ */
+export function retryRecoveredLine(notice: RetryNotice): string {
+  const band = retryBand(notice, notice.retryAt);
+  return `Recovered after a retry: ${band.title} (${band.attempt}). ${band.cause}`;
 }
 
 /** The provider's detail as one sentence, ended with a period only when it has no ending yet. */

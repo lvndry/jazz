@@ -486,6 +486,100 @@ function authFailureMessage(providerName: ProviderName, cleanMessage: string): s
   return `${providerDisplayName} API key is missing or invalid. ${apiKeyHint(providerName)}`;
 }
 
+/** Caps how many schema issues an unreadable-response message lists. */
+const UNREADABLE_RESPONSE_MAX_ISSUES = 3;
+
+function isSuccessStatus(statusCode: number | undefined): boolean {
+  return statusCode !== undefined && statusCode >= 200 && statusCode < 300;
+}
+
+/**
+ * Error class names, Zod issue codes, type names and object keys. Anything else in a
+ * diagnostic may carry response content or terminal control characters.
+ */
+const SAFE_IDENTIFIER = /^[A-Za-z_$][\w$]{0,63}$/;
+
+/**
+ * Names of the errors along a `cause` chain, outermost first. Class names carry no request or
+ * response content, so they are safe to log; messages are not, because parse and validation
+ * errors quote the chunk they rejected. A runtime error's `code` (Bun's `ECONNRESET`, a
+ * decompression failure) is appended as `TypeError(CODE)` because the name alone does not say
+ * which failure it was. A name or code that is not a plain identifier is dropped.
+ */
+export function errorCauseChainNames(error: unknown): string[] {
+  const names: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    const name = SAFE_IDENTIFIER.test(current.name) ? current.name : "Error";
+    const code = (current as { code?: unknown }).code;
+    names.push(typeof code === "string" && SAFE_IDENTIFIER.test(code) ? `${name}(${code})` : name);
+    current = current.cause;
+  }
+  return names;
+}
+
+/**
+ * One path segment, shown only when it is an array index or a plain identifier key. Zod paths
+ * hold keys directly; Standard Schema paths may hold `{ key }` objects. Keys come from the
+ * response, so anything else becomes `*`.
+ */
+function safePathSegment(segment: unknown): string {
+  const key =
+    segment !== null && typeof segment === "object" && "key" in segment ? segment.key : segment;
+  if (typeof key === "number" && Number.isInteger(key) && key >= 0) {
+    return String(key);
+  }
+  return typeof key === "string" && SAFE_IDENTIFIER.test(key) ? key : "*";
+}
+
+/**
+ * Schema issues from the first validation error in the chain, as `path: code (expected type)`.
+ * Issue messages are not forwarded: a validator may interpolate the rejected value into them.
+ */
+function schemaIssueSummaries(error: unknown): string[] {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const issues = (current as { issues?: unknown }).issues;
+    if (Array.isArray(issues)) {
+      return issues.slice(0, UNREADABLE_RESPONSE_MAX_ISSUES).map((issue) => {
+        const record = (issue ?? {}) as { path?: unknown; code?: unknown; expected?: unknown };
+        const path = Array.isArray(record.path) ? record.path.map(safePathSegment).join(".") : "";
+        const code =
+          typeof record.code === "string" && SAFE_IDENTIFIER.test(record.code)
+            ? record.code
+            : "invalid";
+        const expected =
+          typeof record.expected === "string" && SAFE_IDENTIFIER.test(record.expected)
+            ? ` (expected ${record.expected})`
+            : "";
+        const summary = `${code}${expected}`;
+        return path ? `${path}: ${summary}` : summary;
+      });
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return [];
+}
+
+/**
+ * What failed to process, without quoting the response: the cause chain's error names, then
+ * any schema issues.
+ */
+function describeUnreadableCause(error: unknown): string | undefined {
+  const causeNames = errorCauseChainNames(error).slice(1);
+  if (causeNames.length === 0) {
+    return undefined;
+  }
+  const issues = schemaIssueSummaries(error);
+  return issues.length > 0
+    ? `${causeNames.join(" ← ")}: ${issues.join("; ")}`
+    : causeNames.join(" ← ");
+}
+
 /**
  * Convert unknown error to appropriate LLMError type.
  * Handles API call errors, HTTP status codes, and error message parsing
@@ -505,8 +599,19 @@ export function convertToLLMError(
   // Use clean message for user-facing error (keeps terminal output readable)
   const cleanMessage = extractCleanErrorMessage(error);
 
-  // Checked before anything else: these carry no status code, so every branch below would
-  // classify them as a transient connection failure.
+  // The server answered, so this is neither a connection failure nor a request rejected before
+  // sending, even when the cause chain holds a validation error the permanent check matches.
+  if (APICallError.isInstance(error) && isSuccessStatus(error.statusCode)) {
+    const causeSummary = describeUnreadableCause(error);
+    return new LLMRequestError({
+      provider: providerName,
+      message: causeSummary ? `${cleanMessage} (${causeSummary})` : cleanMessage,
+      unreadableResponse: true,
+    });
+  }
+
+  // These carry no status code, so every branch below would classify them as a transient
+  // connection failure.
   if (isPermanentRequestError(error)) {
     return new LLMRequestError({
       provider: providerName,
@@ -645,6 +750,9 @@ export function describeRetryableLLMError(error: unknown): string {
     // A locally-rejected request is not a network issue, and calling it one sent users looking
     // for a connectivity problem that did not exist.
     if (error.permanent === true) return "rejected request";
+    if (error.unreadableResponse === true) {
+      return "unreadable response";
+    }
     if (error.statusCode === undefined) return "network issue";
     return `server error (${error.statusCode})`;
   }

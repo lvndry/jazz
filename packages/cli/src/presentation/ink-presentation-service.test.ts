@@ -2295,6 +2295,38 @@ describe("model retries", () => {
     Effect.runSync(renderer.handleEvent({ type: "text_start" }));
     expect(store.getSessionSnapshot().retryNotice).toBeNull();
   });
+
+  test("leaves a line in both transcripts once the retry goes through", () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    Effect.runSync(
+      service.presentRetry({
+        agentName: "sol",
+        provider: "vllm",
+        reason: "unreadable response",
+        detail: "Failed to process successful response (TypeError)",
+        attempt: 1,
+        maxAttempts: 10,
+        retryInMs: 0,
+      }),
+    );
+    const renderer = new InkStreamingRenderer(
+      "sol",
+      false,
+      { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+      { textBufferMs: 0 },
+      0,
+    );
+    Effect.runSync(renderer.handleEvent({ type: "text_start" }));
+
+    const notices = store
+      .getDocumentSnapshot()
+      .entries.map((entry) => entry.content)
+      .filter((content) => content.kind === "notice" && content.audience === undefined);
+    expect(notices.at(-1)).toMatchObject({
+      kind: "notice",
+      text: "Recovered after a retry: The model provider sent a response Jazz couldn't read (attempt 1 of 10). vLLM: Failed to process successful response (TypeError).",
+    });
+  });
 });
 
 describe("the run's interrupt handler", () => {

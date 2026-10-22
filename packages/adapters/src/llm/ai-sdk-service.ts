@@ -73,7 +73,7 @@ import {
 import { toError } from "@jazz/core/utils/errors";
 import { isRecord } from "@jazz/core/utils/is-record";
 import { safeParseJson } from "@jazz/core/utils/json";
-import { convertToLLMError } from "@jazz/core/utils/llm-error";
+import { convertToLLMError, errorCauseChainNames } from "@jazz/core/utils/llm-error";
 import { ensureObjectSchemaType } from "@jazz/core/utils/mcp-schema-converter";
 import { createDeferred } from "@jazz/core/utils/promise";
 import {
@@ -170,6 +170,10 @@ export function safeLLMErrorMetadata(
         status <= 599
       ) {
         metadata["statusCode"] = status;
+      }
+      const causeChain = errorCauseChainNames(error);
+      if (causeChain.length > 0) {
+        metadata["errorChain"] = causeChain;
       }
     } catch {
       return metadata;
