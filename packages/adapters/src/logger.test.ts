@@ -111,6 +111,16 @@ describe("LoggerService", () => {
     });
   });
 
+  it("serializes cyclic metadata in either format without losing the log entry", () => {
+    const attributes: Record<string, unknown> = { label: "safe" };
+    attributes["self"] = attributes;
+    for (const format of [formatLogLineAsJson, formatLogLineAsPlain]) {
+      const line = format("warn", "cyclic", attributes);
+      expect(line).toContain("<circular>");
+      expect(line).toContain("cyclic");
+    }
+  });
+
   it("redacts tool arguments in plain and JSON session logs", () => {
     const args = {
       headers: { authorization: "Bearer tool-secret" },
