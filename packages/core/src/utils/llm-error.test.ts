@@ -229,7 +229,12 @@ describe("a 2xx response the SDK could not parse", () => {
 
   function unparsedSuccess(): APICallError {
     const issues = [
-      { path: ["choices", 0, "delta", "tool_calls"], message: "Invalid input: expected array" },
+      {
+        path: ["choices", 0, "delta", "tool_calls"],
+        code: "invalid_type",
+        expected: "array",
+        message: `Invalid input: expected array, received ${chunkContent}`,
+      },
     ];
     const validation = Object.assign(new Error(`Type validation failed: ${chunkContent}`), {
       name: "AI_TypeValidationError",
@@ -255,9 +260,34 @@ describe("a 2xx response the SDK could not parse", () => {
   it("names the cause chain and schema issues without quoting the chunk", () => {
     const converted = convertToLLMError(unparsedSuccess(), "vllm");
     expect(converted.message).toBe(
-      "Failed to process successful response (AI_TypeValidationError ← ZodError: choices.0.delta.tool_calls: Invalid input: expected array)",
+      "Failed to process successful response (AI_TypeValidationError ← ZodError: choices.0.delta.tool_calls: invalid_type (expected array))",
     );
     expect(converted.message).not.toContain(chunkContent);
+  });
+
+  it("drops response-derived keys, codes and names that are not plain identifiers", () => {
+    const hostile = `${chunkContent}\u001b[2J`;
+    const issues = [{ path: [hostile, { key: "args" }], code: hostile, expected: hostile }];
+    const validation = Object.assign(new Error(hostile), {
+      name: hostile,
+      cause: Object.assign(new Error(hostile), { name: "ZodError", issues }),
+    });
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "Failed to process successful response",
+        url: "http://localhost:8000/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 200,
+        cause: validation,
+      }),
+      "vllm",
+    );
+
+    expect(converted.message).toBe(
+      "Failed to process successful response (Error ← ZodError: *.args: invalid)",
+    );
+    expect(converted.message).not.toContain(chunkContent);
+    expect(converted.message).not.toContain("\u001b");
   });
 
   it("stays retryable so the non-streaming fallback gets its turn", () => {

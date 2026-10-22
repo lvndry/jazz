@@ -167,6 +167,38 @@ export function capChatHistory(
   return carryEgressTaint(history.slice(0, -limit), history.slice(-limit));
 }
 
+/**
+ * What to tell the user once a transient LLM error has used up its retries. Only a failure with
+ * no response at all is a connectivity problem; a provider that answered 2xx or 5xx was reached.
+ */
+export function exhaustedRetryLines(
+  error: LLMRequestError,
+  cleanMessage: string,
+): ReadonlyArray<{ readonly level: "warn" | "log"; readonly text: string }> {
+  if (error.unreadableResponse === true) {
+    return [
+      {
+        level: "warn",
+        text: `The provider answered, but Jazz couldn't read its response (retries exhausted): ${cleanMessage}`,
+      },
+      {
+        level: "log",
+        text: "   The server is reachable. Its response format may not match what Jazz expects; check the server's version and model settings.",
+      },
+    ];
+  }
+  if (error.statusCode !== undefined && error.statusCode >= 500) {
+    return [
+      { level: "warn", text: `The LLM API kept failing (retries exhausted): ${cleanMessage}` },
+      { level: "log", text: "   The provider is having trouble. Try again in a moment." },
+    ];
+  }
+  return [
+    { level: "warn", text: `Could not reach the LLM API (retries exhausted): ${cleanMessage}` },
+    { level: "log", text: "   Check your network connection and try again." },
+  ];
+}
+
 export class ChatServiceImpl implements ChatService {
   constructor(private readonly configPath?: string) {}
 
@@ -1282,10 +1314,11 @@ export class ChatServiceImpl implements ChatService {
                   // Extract clean error message without verbose details
                   const cleanMessage = error.message.split(" | ")[0] || error.message;
                   if (isRetryableLLMError(error)) {
-                    yield* terminal.warn(
-                      `Could not reach the LLM API (retries exhausted): ${cleanMessage}`,
-                    );
-                    yield* terminal.log("   Check your network connection and try again.");
+                    for (const line of exhaustedRetryLines(error, cleanMessage)) {
+                      yield* line.level === "warn"
+                        ? terminal.warn(line.text)
+                        : terminal.log(line.text);
+                    }
                   } else {
                     yield* terminal.error(`LLM request failed: ${cleanMessage}`);
                     if (error.permanent !== true) {
