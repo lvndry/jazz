@@ -191,6 +191,11 @@ export interface LiveTool {
   readonly phase: number;
   /** When set, the operation is source and takes the three syntax roles. */
   readonly language?: string;
+  /**
+   * The Ctrl+B hint, set on the first row only: the key backgrounds the whole running batch,
+   * so one hint covers every row.
+   */
+  readonly detachHint?: string;
 }
 
 export interface StepLine {
@@ -448,8 +453,6 @@ export interface ViewModel {
   readonly live: LiveModel;
   /** True while a turn can still be interrupted, including streaming-only work. */
   readonly runActive?: boolean;
-  /** A tool call has run long enough that the footer offers Ctrl+B to background it. */
-  readonly detachOffered?: boolean;
   readonly input: InputModel;
   readonly footer: FooterModel;
   readonly subagents?: SubagentListModel;

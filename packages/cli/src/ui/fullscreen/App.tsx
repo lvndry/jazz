@@ -654,12 +654,10 @@ function AppView({
         overlayKind,
         view.input.commands !== undefined,
         view.input.queued.length > 0,
-        view.detachOffered === true,
       ),
     [
       focus,
       view.runActive,
-      view.detachOffered,
       view.input.queueing,
       overlayKind,
       view.input.commands,

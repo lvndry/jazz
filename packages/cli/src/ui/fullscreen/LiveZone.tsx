@@ -129,7 +129,12 @@ function toolRow(tool: LiveTool, tick: number, glyphs: GlyphSet, width: number):
       separator(glyphs),
       ...operationSpans,
     ],
-    [{ text: formatElapsed(tool.elapsedMs), fg: THEME.muted }],
+    [
+      ...(tool.detachHint === undefined
+        ? []
+        : [{ text: tool.detachHint, fg: THEME.muted }, separator(glyphs)]),
+      { text: formatElapsed(tool.elapsedMs), fg: THEME.muted },
+    ],
     width,
   );
 }

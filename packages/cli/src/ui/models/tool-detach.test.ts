@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ActiveTool, ActivityState } from "../activity-state";
-import { DETACH_HINT_DELAY_MS, holdsTurnUp, offersDetach } from "./tool-detach";
+import { DETACH_HINT_DELAY_MS, detachHint, holdsTurnUp, offersDetach } from "./tool-detach";
 
 const NOW = 100_000;
 
@@ -55,5 +55,17 @@ describe("holdsTurnUp", () => {
 
   test("ignores a call still being risk-classified", () => {
     expect(holdsTurnUp(running(tool(60_000, { classifying: true })), NOW)).toBe(false);
+  });
+});
+
+describe("detachHint", () => {
+  test("names the action for a single running call", () => {
+    expect(detachHint(running(tool(60_000)))).toBe("ctrl+b to background");
+  });
+
+  test("says the whole batch goes when several calls are running", () => {
+    expect(detachHint(running(tool(60_000), tool(1_000, { toolCallId: "call-2" })))).toBe(
+      "ctrl+b to background all",
+    );
   });
 });
