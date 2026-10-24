@@ -75,8 +75,7 @@ export function createContextInfoTool(): Tool<never> {
   return {
     name: "context_info",
     disclosure: "internal",
-    description:
-      "Report how much of the context window is in use and the usage at which older history is summarized automatically.",
+    description: "Report how much of the context window is in use.",
     parameters: z.object({}),
     riskLevel: "read-only",
     egress: false,
