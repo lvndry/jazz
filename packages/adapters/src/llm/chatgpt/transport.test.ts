@@ -8,6 +8,7 @@ import {
   CHATGPT_CODEX_BASE_URL,
   collapseEventStream,
   createChatGPTFetch,
+  chatGPTReasoningControl,
   fetchChatGPTModels,
   rewriteCodexRequestBody,
 } from "./transport";
@@ -368,9 +369,40 @@ describe("fetchChatGPTModels", () => {
         displayName: "GPT-5.5",
         contextWindow: 258_400,
         isReasoningModel: true,
+        reasoningControl: {
+          kind: "effort",
+          efforts: ["low", "high"],
+          canDisableReasoning: false,
+          transport: "openai.responses.reasoning-effort",
+        },
         ingestImage: true,
       },
     ]);
+  });
+});
+
+describe("chatGPTReasoningControl", () => {
+  it("keeps the listed efforts in ladder order, max included", () => {
+    expect(
+      chatGPTReasoningControl([
+        { effort: "max" },
+        { effort: "low" },
+        { effort: "xhigh" },
+        { effort: "none" },
+      ]),
+    ).toEqual({
+      kind: "effort",
+      efforts: ["low", "xhigh", "max"],
+      canDisableReasoning: true,
+      transport: "openai.responses.reasoning-effort",
+    });
+  });
+
+  it("describes nothing when no listed level is one Jazz can send", () => {
+    expect(chatGPTReasoningControl([{ effort: "turbo" }, { description: "no effort" }])).toBe(
+      undefined,
+    );
+    expect(chatGPTReasoningControl(undefined)).toBe(undefined);
   });
 });
 

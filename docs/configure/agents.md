@@ -110,7 +110,10 @@ provider configuration, the system keyring, or narrowly allowlisted environment 
   classification. If it is missing or invalid, Jazz uses the primary model.
 - `llm.reasoning` selects an effort: `disable`, `minimal`, `low`, `medium`, `high`,
   `xhigh`, or `max`. Jazz maps that one user-facing value to the selected
-  provider/model control surface before serializing a request.
+  provider/model control surface before serializing a request. A model runs at `xhigh` or `max`
+  only when Jazz knows it accepts them: ChatGPT models report their own levels, OpenAI's GPT-6
+  models have built-in profiles, and OpenRouter takes `xhigh` (`max` is sent as `xhigh`). Any
+  other model runs at `high`, with a warning. Add an [`llm.capabilityOverrides`](providers.md#model-capability-overrides) entry to raise it.
 - `llm.temperature` accepts `0` through `2`. Jazz omits it when unset; models that reject custom
   temperature ignore it.
 - `llm.numCtx` sets Ollama's `num_ctx` to a positive token count.

@@ -2060,6 +2060,70 @@ describe("buildProviderOptions - openai reasoning round-trip", () => {
   });
 });
 
+describe("buildProviderOptions - efforts above high", () => {
+  const request = (model: string, reasoning: ReasoningSelection): ChatCompletionOptions =>
+    ({ model, messages: [{ role: "user", content: "hi" }], reasoning }) as ChatCompletionOptions;
+  const ladder = {
+    kind: "effort",
+    transport: "openai.responses.reasoning-effort",
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    canDisableReasoning: true,
+  } as const;
+
+  it("sends max and xhigh to a model whose profile lists them", () => {
+    for (const provider of ["openai", "chatgpt"] as const) {
+      for (const effort of ["xhigh", "max"] as const) {
+        expect(
+          buildProviderOptions(provider, request("gpt-6-luna", effort), ladder)?.["openai"],
+        ).toMatchObject({ reasoningEffort: effort });
+      }
+    }
+  });
+
+  it("sends the strongest listed effort when max is not listed", () => {
+    const withoutMax = { ...ladder, efforts: ["low", "medium", "high", "xhigh"] } as const;
+    expect(
+      buildProviderOptions("openai", request("gpt-6-luna", "max"), withoutMax)?.["openai"],
+    ).toMatchObject({ reasoningEffort: "xhigh" });
+  });
+
+  it("turns reasoning off with none when the profile allows it", () => {
+    expect(buildProviderOptions("openai", request("gpt-6-luna", "disable"), ladder)).toEqual({
+      openai: { promptCacheKey: "conversation", reasoningEffort: "none" },
+    });
+  });
+
+  it("keeps ChatGPT's options free of systemMessageMode", () => {
+    expect(
+      buildProviderOptions("chatgpt", request("gpt-6-luna", "max"), ladder)?.["openai"],
+    ).toEqual({
+      promptCacheKey: "conversation",
+      store: false,
+      reasoningEffort: "max",
+      reasoningSummary: "auto",
+      include: ["reasoning.encrypted_content"],
+    });
+  });
+
+  it("caps a model with no profile at high", () => {
+    expect(buildProviderOptions("openai", request("gpt-unknown", "max"))?.["openai"]).toMatchObject(
+      { reasoningEffort: "high" },
+    );
+  });
+
+  it("passes OpenRouter the ladder it accepts, with max sent as xhigh", () => {
+    const effortFor = (reasoning: ReasoningSelection) =>
+      (
+        buildProviderOptions("openrouter", request("openai/gpt-6-luna", reasoning))?.[
+          "openrouter"
+        ] as { reasoning?: { effort?: string } } | undefined
+      )?.reasoning?.effort;
+    expect(
+      ["minimal", "low", "xhigh", "max"].map((effort) => effortFor(effort as ReasoningSelection)),
+    ).toEqual(["minimal", "low", "xhigh", "xhigh"]);
+  });
+});
+
 describe("toCoreMessages - reasoning replay", () => {
   const reasoningPart = {
     text: "thinking hard",

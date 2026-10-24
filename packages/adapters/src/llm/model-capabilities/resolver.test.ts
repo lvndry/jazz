@@ -25,6 +25,31 @@ function resolve(
 }
 
 describe("resolveModelCapabilities", () => {
+  test("the built-in GPT-6 profiles list max, and only Sol and Luna turn reasoning off", () => {
+    const control = (modelId: string) =>
+      resolveModelCapabilities({ provider: "openai", modelId }).reasoning;
+    for (const modelId of ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"]) {
+      expect(control(modelId)).toMatchObject({
+        kind: "effort",
+        efforts: ["low", "medium", "high", "xhigh", "max"],
+      });
+    }
+    expect(control("gpt-6-luna")).toMatchObject({ canDisableReasoning: true });
+    expect(control("gpt-6-astra")).toMatchObject({ canDisableReasoning: false });
+  });
+
+  test("a model's own listed efforts outrank the built-in profile", () => {
+    const listed: ReasoningControlSurface = { ...effort, efforts: ["low", "xhigh"] };
+    const result = resolveModelCapabilities({
+      provider: "openai",
+      modelId: "gpt-6-luna",
+      live: { reasoning: listed },
+    });
+
+    expect(result.reasoning).toEqual(listed);
+    expect(result.source.reasoning).toBe("live");
+  });
+
   test("applies sources independently and preserves their provenance", () => {
     const result = resolve({
       modelId: "model-a",

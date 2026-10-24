@@ -33,6 +33,24 @@ export type ModelCapabilityRegistry = Readonly<
   Partial<Record<ProviderName, ProviderCapabilityRegistry>>
 >;
 
+/** The GPT-6 family's ladder, per OpenAI's API deployment checklist; `minimal` is not accepted. */
+const GPT_6_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+
+/** GPT-6 Astra and GPT-6.1 Sol: reasoning cannot be turned off. */
+const GPT_6_REASONING_WITHOUT_NONE = {
+  reasoning: {
+    kind: "effort",
+    efforts: GPT_6_EFFORTS,
+    canDisableReasoning: false,
+    transport: "openai.responses.reasoning-effort",
+  },
+} as const satisfies CapabilityProfile;
+
+/** GPT-6 Sol and GPT-6 Luna also accept `none`. */
+const GPT_6_REASONING_WITH_NONE = {
+  reasoning: { ...GPT_6_REASONING_WITHOUT_NONE.reasoning, canDisableReasoning: true },
+} as const satisfies CapabilityProfile;
+
 /**
  * Built-in request-control knowledge. Keep this intentionally sparse: entries
  * exist only where a provider/model's control surface is verified. A missing
@@ -49,6 +67,10 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
           transport: "openai.responses.reasoning-effort",
         },
       },
+      "gpt-6-astra": GPT_6_REASONING_WITHOUT_NONE,
+      "gpt-6.1-sol": GPT_6_REASONING_WITHOUT_NONE,
+      "gpt-6-sol": GPT_6_REASONING_WITH_NONE,
+      "gpt-6-luna": GPT_6_REASONING_WITH_NONE,
     },
   },
   anthropic: {
