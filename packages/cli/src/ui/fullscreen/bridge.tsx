@@ -124,6 +124,7 @@ import {
 } from "../store";
 import type { SubagentRun } from "../subagent-runs";
 import { mergeSuggestions } from "../suggestion-menu";
+import { lineDeleteStart } from "../text/line-delete";
 import { wrapIndex } from "../text/picker-window";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "../text/syntax-spans";
 import { compactWorkingDirectory } from "../text/working-directory";
@@ -1317,13 +1318,13 @@ export function FullscreenBridge(): React.ReactNode {
   /**
    * Deletes from the caret to the start of the current logical line, the way
    * Cmd+Backspace does in every macOS text field and Ctrl+U does at a
-   * readline prompt.
+   * readline prompt. At a line start it deletes the line break instead.
    */
   const deleteLineBeforeCaret = useCallback(() => {
     commitComposer((current) => {
       const characters = [...current.text];
       const at = Math.max(0, Math.min(current.caret, characters.length));
-      return deleteRange(current, lineStartBefore(characters, at), at);
+      return deleteRange(current, lineDeleteStart(characters, at), at);
     });
   }, [commitComposer]);
 
