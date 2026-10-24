@@ -7,7 +7,7 @@
     "llm": {
       "provider": "chatgpt",
       "model": "gpt-6-luna",
-      "reasoning": "medium"
+      "reasoning": "max"
     },
     "tools": [
       "context_info",
