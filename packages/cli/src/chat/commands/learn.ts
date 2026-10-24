@@ -1,7 +1,7 @@
 /**
  * @fileoverview The chat `/learn` command (alias `/reflect`): pause, learn from the conversation
  * so far, tidy memory with what this session added and removed in hand, and decide every
- * resulting change from one checklist. A pass that fails or is interrupted releases its claim on
+ * resulting change from the review checklists. A pass that fails or is interrupted releases its claim on
  * the conversation, so the next pass reads those messages again.
  */
 

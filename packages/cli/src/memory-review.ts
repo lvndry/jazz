@@ -1,9 +1,10 @@
 /**
  * Reviewing what background passes want to change in memory: fact suggestions, lessons and
- * revisions, kept or ignored together from one multi-select list. Shared by `jazz memory review` and `/memory review`
+ * revisions, kept or ignored a checklist at a time. Shared by `jazz memory review` and `/memory review`
  * so both read the same and decide the same way.
  */
 
+import { logDebug } from "@jazz/adapters/logger";
 import type { MemoryService } from "@jazz/core/interfaces/memory-service";
 import type { MemorySuggestion } from "@jazz/core/interfaces/memory-suggestion";
 import {
@@ -16,6 +17,7 @@ import {
 import { storedClaimText } from "@jazz/core/memory/source-trust";
 import { suggestionDestinationPath } from "@jazz/core/memory/suggestion-destination";
 import { Effect, type FileSystem } from "effect";
+import { PICKER_WINDOW_SIZE } from "./ui/text/picker-window";
 
 function firstLine(text: string): string {
   return (
@@ -175,9 +177,24 @@ export function applyReviewDecision(
 }
 
 /**
- * One multi-select over every waiting suggestion: checked ones are saved, the rest are dropped.
- * Escape decides nothing and leaves them all waiting. On a terminal that cannot prompt, the list
- * is printed instead, with the commands that decide one by one.
+ * Suggestions decided per checklist: exactly one picker window, so every unchecked row that
+ * gets dropped was on screen when Enter was pressed.
+ */
+export const REVIEW_PAGE_SIZE = PICKER_WINDOW_SIZE;
+
+export function reviewPageTitle(pageStart: number, pageLength: number, total: number): string {
+  if (total <= REVIEW_PAGE_SIZE) {
+    return `${String(total)} waiting. Check what to keep; the rest is dropped. Esc decides later.`;
+  }
+  const range = `${String(pageStart + 1)}–${String(pageStart + pageLength)} of ${String(total)}`;
+  return `${range} waiting. Check what to keep; the rest of these is dropped. Esc leaves these and the rest waiting.`;
+}
+
+/**
+ * Checklists of at most {@link REVIEW_PAGE_SIZE} waiting suggestions, one after another: checked
+ * ones are saved, unchecked ones on that checklist are dropped. Escape stops the review and leaves
+ * the current checklist and every later one waiting. On a terminal that cannot prompt, the list is
+ * printed instead, with the commands that decide one by one.
  */
 export function reviewMemorySuggestions(
   terminal: TerminalService,
@@ -199,17 +216,43 @@ export function reviewMemorySuggestions(
       );
       return;
     }
-    const kept = yield* terminal.checkbox<string>(
-      "Check what to keep; the rest is dropped. Esc decides later.",
-      { choices: suggestionChoices(suggestions) },
-    );
-    if (kept === undefined) {
+    const saved: string[] = [];
+    const removed: string[] = [];
+    const failed: string[] = [];
+    let dropped = 0;
+    let stillWaiting = 0;
+    for (let pageStart = 0; pageStart < suggestions.length; pageStart += REVIEW_PAGE_SIZE) {
+      const page = suggestions.slice(pageStart, pageStart + REVIEW_PAGE_SIZE);
+      const kept = yield* terminal.checkbox<string>(
+        reviewPageTitle(pageStart, page.length, suggestions.length),
+        { choices: suggestionChoices(page) },
+      );
+      if (kept === undefined) {
+        stillWaiting = suggestions.length - pageStart;
+        logDebug("memory review stopped", { pageStart, stillWaiting, total: suggestions.length });
+        break;
+      }
+      const pageDecision = yield* applyReviewDecision(memoryService, page, new Set(kept));
+      logDebug("memory review page decided", {
+        pageStart,
+        pageLength: page.length,
+        saved: pageDecision.saved.length,
+        removed: pageDecision.removed.length,
+        dropped: pageDecision.dropped,
+        failed: pageDecision.failed.length,
+      });
+      saved.push(...pageDecision.saved);
+      removed.push(...pageDecision.removed);
+      failed.push(...pageDecision.failed);
+      dropped += pageDecision.dropped;
+    }
+    if (stillWaiting === suggestions.length) {
       yield* terminal.log(
         report("memory", [{ kind: "text", text: "Nothing decided; all still waiting." }]),
       );
       return;
     }
-    const decision = yield* applyReviewDecision(memoryService, suggestions, new Set(kept));
+    const decision: ReviewDecision = { saved, removed, dropped, failed };
     const rows: ReportRow[] = [
       ...decision.saved.map((savedPath): ReportRow => ({
         kind: "field",
@@ -223,6 +266,9 @@ export function reviewMemorySuggestions(
       })),
       ...(decision.dropped > 0
         ? [{ kind: "field", key: "dropped", value: String(decision.dropped) } satisfies ReportRow]
+        : []),
+      ...(stillWaiting > 0
+        ? [{ kind: "field", key: "waiting", value: String(stillWaiting) } satisfies ReportRow]
         : []),
     ];
     if (rows.length > 0) {

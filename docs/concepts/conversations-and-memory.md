@@ -204,8 +204,9 @@ A lesson is written in the agent's words, not yours, so it is not saved on the a
 It waits for review, together with the facts the compaction pass picked:
 
 - `/memory review` in a chat, or `jazz memory review` from the shell, lists everything waiting
-  and opens one checklist. Check what to keep and press Enter: checked items are saved and the
-  rest are dropped. Escape decides nothing and leaves them all waiting.
+  and opens checklists of up to 10 items, one after another. Check what to keep and press Enter:
+  checked items are saved and the rest of that checklist is dropped. Escape stops the review and
+  leaves the current checklist and every later one waiting.
 - `/memory accept <id>` and `/memory reject <id>` (or `jazz memory accept|reject <id>`) decide
   one item at a time, which also works where Jazz cannot show a checklist.
 - A chat opens with a line saying how many suggestions are waiting.
@@ -236,8 +237,8 @@ background process, retaining its agent store and provider settings.
    that another entry already covers, that you later contradicted, or that no longer hold, and
    rewriting lessons that are too narrow or that cover the same situation. Your own facts are
    never reworded; only lessons are.
-4. It opens the `/memory review` checklist with every suggestion at once, including any that
-   were already waiting.
+4. It opens the `/memory review` checklists with every suggestion, including any that were
+   already waiting.
 
 A kept removal is refused if the entry changed since it was suggested, and stays waiting. Like
 the other passes, `/learn` changes nothing until you keep a suggestion, and does nothing in an

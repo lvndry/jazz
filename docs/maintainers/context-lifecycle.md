@@ -338,8 +338,9 @@ are waiting at the end of the turn, and at the next chat opening.
 
 Nothing reaches memory from the queue except `MemoryService.acceptSuggestion`, reached from
 `/memory review`, `/memory accept`, `jazz memory review` and `jazz memory accept`. The review
-commands show every waiting item and one multi-select: checked items are accepted, the rest
-rejected, Escape decides nothing. Accept looks up, writes and dequeues under one hold of the
+commands show every waiting item in multi-selects of one picker window (`REVIEW_PAGE_SIZE`)
+each, so nothing is rejected without having been on screen: checked items are accepted, the rest
+of that multi-select rejected, and Escape leaves it and every later one waiting. Accept looks up, writes and dequeues under one hold of the
 memory write lock so a concurrent reject cannot be overridden. A fact is written with origin
 `auto` and its quoted sentence keys, so a correction or forget made since it was suggested still
 revokes it; an amendment replaces the exact content it was suggested against, and fails (staying

@@ -342,6 +342,24 @@ describe("question overlay", () => {
     renderer.destroy();
   });
 
+  it("tells a checklist longer than its window how many rows it holds", async () => {
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      label: `Option ${String(index + 1).padStart(2, "0")}`,
+      value: `option-${String(index)}`,
+    }));
+    const { renderer, captureCharFrame } = await draw(
+      <Question
+        model={{ ...CHECKBOX, choices: many, selected: 0, checked: ["option-0"] }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+
+    expect(captureCharFrame()).toContain("1 selected · 1 of 40");
+
+    renderer.destroy();
+  });
+
   it("numbers every visible row including the tenth", async () => {
     const labels = [
       "Anthropic",

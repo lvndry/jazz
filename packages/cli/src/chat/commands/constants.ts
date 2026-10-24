@@ -186,7 +186,7 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
       { form: "/memory forget <path>", meaning: "Delete one file" },
       {
         form: "/memory review",
-        meaning: "Keep or drop waiting suggestions and lessons from one checklist",
+        meaning: "Keep or drop waiting suggestions and lessons, 10 at a time",
       },
       { form: "/memory accept <id>", meaning: "Save one waiting suggestion or lesson" },
       { form: "/memory reject <id>", meaning: "Drop one waiting suggestion or lesson" },
@@ -196,7 +196,7 @@ export const CHAT_COMMANDS: readonly BuiltinChatCommand[] = [
     name: "learn",
     type: "learn",
     description:
-      "Learn from the conversation so far and tidy memory, then keep or drop every change from one checklist",
+      "Learn from the conversation so far and tidy memory, then keep or drop every change",
     aliases: ["reflect"],
   },
   {

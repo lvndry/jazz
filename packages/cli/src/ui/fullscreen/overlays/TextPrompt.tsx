@@ -357,8 +357,13 @@ export interface HintRowProps {
   readonly hints: readonly Hint[];
   /** The overlay's full width; the row insets itself inside it. */
   readonly width: number;
-  /** A count or a position, flush right. Dropped before any key is. */
+  /** A count or a position, flush right. Dropped before any key is, unless `keepTally`. */
   readonly tally?: string;
+  /**
+   * The tally says something is off screen, so expendable keys make room for it rather than
+   * it giving way to them.
+   */
+  readonly keepTally?: boolean;
 }
 
 /**
@@ -367,9 +372,10 @@ export interface HintRowProps {
  * Shared by all three prompts, because they are the same object: the frame is
  * the question, and this row is what you can do about it.
  */
-export function HintRow({ hints, width, tally }: HintRowProps): ReactNode {
+export function HintRow({ hints, width, tally, keepTally }: HintRowProps): ReactNode {
   const budget = Math.max(1, width - HINT_PAD * 2);
-  const kept = fitHints(hints, budget);
+  const tallyRoom = tally === undefined || tally.length === 0 ? 0 : HINT_GAP + displayWidth(tally);
+  const kept = fitHints(hints, keepTally === true ? budget - tallyRoom : budget);
   const showTally =
     tally !== undefined &&
     tally.length > 0 &&
