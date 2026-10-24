@@ -10,6 +10,7 @@ import type { InputHandler, InputResult, InputService } from "@/cli/services/inp
 import { InputPriority, InputResults } from "@/cli/services/input-service";
 import type { ParsedInput } from "../../input/escape-state-machine";
 import { InputServiceContext } from "../contexts/InputContext";
+import { lineDeleteStart } from "../text/line-delete";
 
 // ============================================================================
 // Service Access Hook
@@ -386,9 +387,7 @@ export function useTextInput(options: UseTextInputOptions): UseTextInputResult {
         }
 
         case "kill-line-back": {
-          // Kill from cursor to start of current line
-          const killBackLineStart = currentValue.lastIndexOf("\n", currentCursor - 1);
-          const killBackTo = killBackLineStart === -1 ? 0 : killBackLineStart + 1;
+          const killBackTo = lineDeleteStart(currentValue, currentCursor);
           nextValue = currentValue.slice(0, killBackTo) + currentValue.slice(currentCursor);
           nextCursor = killBackTo;
           break;
