@@ -9,7 +9,7 @@ import type { ActivityState, TodoSnapshotItem } from "./activity-state";
 import { ActivityIndicator } from "./components/ActivityIndicator";
 import { getGlyphs } from "./glyphs";
 import { planProgress, todoLine } from "./models/todo";
-import { holdsTurnUp, offersDetach } from "./models/tool-detach";
+import { detachHint, holdsTurnUp, offersDetach } from "./models/tool-detach";
 import { formatElapsed } from "./text/format";
 import { roleStyle } from "./text/roles";
 import { PADDING, THEME } from "./theme";
@@ -217,7 +217,7 @@ export const ActivityView = React.memo(function ActivityView({
               : `Running ${uniqueNames.length} tools… (${uniqueNames.join(", ")})`;
       const now = Date.now();
       const keyHints = [
-        ...(offersDetach(activity, canDetach, now) ? ["ctrl+b to background"] : []),
+        ...(offersDetach(activity, canDetach, now) ? [detachHint(activity)] : []),
         ...(holdsTurnUp(activity, now) ? ["esc esc to interrupt"] : []),
       ];
       return (

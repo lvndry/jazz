@@ -297,6 +297,62 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("web");
   });
 
+  describe("ctrl+b hint on the running tool row", () => {
+    const runningFrame = (
+      tools: ReadonlyArray<{ toolName: string; ageMs: number; classifying?: boolean }>,
+      withHandler: boolean,
+    ): Promise<string> =>
+      frame(() => {
+        if (withHandler) store.setBackgroundHandler(() => {});
+        store.setActivity({
+          phase: "tool-execution",
+          agentName: "jazz",
+          tools: tools.map((entry, index) => ({
+            toolCallId: String(index),
+            toolName: entry.toolName,
+            startedAt: Date.now() - entry.ageMs,
+            ...(entry.classifying === true ? { classifying: true } : {}),
+          })),
+        });
+      }).finally(() => {
+        if (withHandler) store.setBackgroundHandler(null);
+      });
+
+    it("offers ctrl+b once a call has run past the delay", async () => {
+      const text = await runningFrame([{ toolName: "execute_command", ageMs: 4_000 }], true);
+      expect(text).toContain("ctrl+b to background");
+    });
+
+    it("waits out the delay before offering it", async () => {
+      const text = await runningFrame([{ toolName: "execute_command", ageMs: 1_000 }], true);
+      expect(text).not.toContain("ctrl+b");
+    });
+
+    it("offers nothing when the run cannot background calls", async () => {
+      const text = await runningFrame([{ toolName: "execute_command", ageMs: 4_000 }], false);
+      expect(text).not.toContain("ctrl+b");
+    });
+
+    it("offers nothing while the call is still being risk-classified", async () => {
+      const text = await runningFrame(
+        [{ toolName: "execute_command", ageMs: 4_000, classifying: true }],
+        true,
+      );
+      expect(text).not.toContain("ctrl+b");
+    });
+
+    it("shows one hint for the whole batch when several calls run", async () => {
+      const text = await runningFrame(
+        [
+          { toolName: "execute_command", ageMs: 4_000 },
+          { toolName: "web_search", ageMs: 4_000 },
+        ],
+        true,
+      );
+      expect(text.match(/ctrl\+b to background all/g)?.length).toBe(1);
+    });
+  });
+
   it("shows a running subagent once, in the list below the input", async () => {
     const text = await frame(() => {
       store.openEphemeral("subagent", "grouping explorer", 12, {

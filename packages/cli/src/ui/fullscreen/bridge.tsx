@@ -98,7 +98,7 @@ import { interruptSummary, type InterruptSnapshot, type ReceiptFacts } from "../
 import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
 import { retryBand, retryBandHeight } from "../models/retry";
 import { settledPlan } from "../models/todo";
-import { toolHoldsTurnUp } from "../models/tool-detach";
+import { detachHint, offersDetach } from "../models/tool-detach";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
 import {
   INITIAL_CHOICE_REMOVAL,
@@ -733,6 +733,7 @@ function liveToolsFrom(activity: ActivityState, now: number, canDetach: boolean)
   const visibleTools = activity.tools.filter(
     (tool) => !LIVE_ZONE_EXCLUDED_TOOLS.has(tool.toolName),
   );
+  const hint = offersDetach(activity, canDetach, now) ? detachHint(activity) : undefined;
   return visibleTools.map((tool, index) => {
     const parts = tool.toolName.split(/[_.-]+/).filter((part) => part.length > 0);
     const nameRest = parts.length > 1 ? parts.slice(1).join(" ") : "";
@@ -755,7 +756,7 @@ function liveToolsFrom(activity: ActivityState, now: number, canDetach: boolean)
       elapsedMs: Math.max(0, now - tool.startedAt),
       phase: index,
       ...(language === undefined ? {} : { language }),
-      ...(canDetach && toolHoldsTurnUp(tool, now) ? { detachable: true } : {}),
+      ...(hint !== undefined && index === 0 ? { detachHint: hint } : {}),
     };
   });
 }

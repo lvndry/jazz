@@ -130,9 +130,9 @@ function toolRow(tool: LiveTool, tick: number, glyphs: GlyphSet, width: number):
       ...operationSpans,
     ],
     [
-      ...(tool.detachable === true
-        ? [{ text: "ctrl+b to background", fg: THEME.muted }, separator(glyphs)]
-        : []),
+      ...(tool.detachHint === undefined
+        ? []
+        : [{ text: tool.detachHint, fg: THEME.muted }, separator(glyphs)]),
       { text: formatElapsed(tool.elapsedMs), fg: THEME.muted },
     ],
     width,

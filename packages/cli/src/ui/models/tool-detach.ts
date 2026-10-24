@@ -39,3 +39,12 @@ export function holdsTurnUp(activity: ActivityState, now: number): boolean {
 export function offersDetach(activity: ActivityState, canDetach: boolean, now: number): boolean {
   return canDetach && holdsTurnUp(activity, now);
 }
+
+/**
+ * The words for the Ctrl+B hint. Ctrl+B backgrounds the whole running batch, so with more than
+ * one call in flight the hint says so rather than reading as an action on a single call.
+ */
+export function detachHint(activity: ActivityState): string {
+  const running = activity.phase === "tool-execution" ? activity.tools.length : 0;
+  return running > 1 ? "ctrl+b to background all" : "ctrl+b to background";
+}
