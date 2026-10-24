@@ -297,6 +297,28 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("web");
   });
 
+  it("leaves subagent spawns out of the live zone, since the subagent list shows them", async () => {
+    const text = await frame(() => {
+      store.setActivity({
+        phase: "tool-execution",
+        agentName: "jazz",
+        tools: [
+          {
+            toolCallId: "1",
+            toolName: "spawn_subagent",
+            argsPreview: "grouping explorer",
+            startedAt: Date.now(),
+          },
+          { toolCallId: "2", toolName: "map_subagents", startedAt: Date.now() },
+          { toolCallId: "3", toolName: "gmail_search", startedAt: Date.now() },
+        ],
+      });
+    });
+    expect(text).not.toContain("grouping explorer");
+    expect(text).not.toContain("subagents");
+    expect(text).toContain("gmail");
+  });
+
   it("derives a meaningful tool operation and current plan step", async () => {
     const text = await frame(() => {
       store.setActivity({

@@ -143,6 +143,9 @@ import { SkillBrowser } from "./screens/SkillBrowser";
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
 const SUBAGENT_NOTICE_MS = 2500;
 
+/** Tools whose children the subagent list below the input already shows, so the live zone leaves them out. */
+const SUBAGENT_LIST_TOOLS: ReadonlySet<string> = new Set(["spawn_subagent", "map_subagents"]);
+
 /** Waiting copy, house voice: idiomatic, never jokey. */
 const WAITING = ["comping behind you", "turning it over", "two horns out", "digging the crates"];
 
@@ -727,7 +730,8 @@ function liveReasoningElapsedMs(
 
 function liveToolsFrom(activity: ActivityState, now: number): LiveTool[] {
   if (activity.phase !== "tool-execution") return [];
-  return activity.tools.map((tool, index) => {
+  const visibleTools = activity.tools.filter((tool) => !SUBAGENT_LIST_TOOLS.has(tool.toolName));
+  return visibleTools.map((tool, index) => {
     const parts = tool.toolName.split(/[_.-]+/).filter((part) => part.length > 0);
     const nameRest = parts.length > 1 ? parts.slice(1).join(" ") : "";
     const args = tool.argsPreview?.trim();
