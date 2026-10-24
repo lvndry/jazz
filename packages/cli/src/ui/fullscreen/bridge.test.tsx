@@ -297,6 +297,38 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("web");
   });
 
+  it("shows a running subagent once, in the list below the input", async () => {
+    const text = await frame(() => {
+      store.openEphemeral("subagent", "grouping explorer", 12, {
+        task: "Group the open threads",
+        acceptsMessages: true,
+      });
+      store.setActivity({
+        phase: "tool-execution",
+        agentName: "jazz",
+        tools: [
+          {
+            toolCallId: "1",
+            toolName: "spawn_subagent",
+            argsPreview: "grouping explorer",
+            startedAt: Date.now(),
+          },
+          { toolCallId: "2", toolName: "map_subagents", startedAt: Date.now() },
+          { toolCallId: "3", toolName: "gmail_search", startedAt: Date.now() },
+        ],
+      });
+    });
+    const rows = text.split("\n");
+    const listHeaderRow = rows.findIndex((row) => row.includes("1 subagent running"));
+    const labelRows = rows.flatMap((row, index) =>
+      row.includes("grouping explorer") ? [index] : [],
+    );
+    expect(listHeaderRow).toBeGreaterThanOrEqual(0);
+    expect(labelRows).toEqual([listHeaderRow + 1]);
+    expect(text).not.toContain("map subagents");
+    expect(text).toContain("gmail");
+  });
+
   it("derives a meaningful tool operation and current plan step", async () => {
     const text = await frame(() => {
       store.setActivity({
@@ -3593,6 +3625,7 @@ describe("fullscreen bridge", () => {
           timestamp: new Date(),
         });
       });
+      console.log(text);
       const rows = text.split("\n");
       const first = rows.findIndex((row) => row.includes("first line here"));
       const second = rows.findIndex((row) => row.includes("second line here"));

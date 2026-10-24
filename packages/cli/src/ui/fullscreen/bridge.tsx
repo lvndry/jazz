@@ -143,6 +143,9 @@ import { SkillBrowser } from "./screens/SkillBrowser";
 /** How long "message not sent" stays in the footer after Enter on a finished sub-agent. */
 const SUBAGENT_NOTICE_MS = 2500;
 
+/** Tools the live zone leaves out because another surface already shows them: subagent runs appear in the list below the input. */
+const LIVE_ZONE_EXCLUDED_TOOLS: ReadonlySet<string> = new Set(["spawn_subagent", "map_subagents"]);
+
 /** Waiting copy, house voice: idiomatic, never jokey. */
 const WAITING = ["comping behind you", "turning it over", "two horns out", "digging the crates"];
 
@@ -727,7 +730,10 @@ function liveReasoningElapsedMs(
 
 function liveToolsFrom(activity: ActivityState, now: number): LiveTool[] {
   if (activity.phase !== "tool-execution") return [];
-  return activity.tools.map((tool, index) => {
+  const visibleTools = activity.tools.filter(
+    (tool) => !LIVE_ZONE_EXCLUDED_TOOLS.has(tool.toolName),
+  );
+  return visibleTools.map((tool, index) => {
     const parts = tool.toolName.split(/[_.-]+/).filter((part) => part.length > 0);
     const nameRest = parts.length > 1 ? parts.slice(1).join(" ") : "";
     const args = tool.argsPreview?.trim();
@@ -853,6 +859,11 @@ export function FullscreenBridge(): React.ReactNode {
   const subagentRuns = presentation.subagents.runs;
   const subagentRunsRef = useRef(subagentRuns);
   subagentRunsRef.current = subagentRuns;
+  /** Regions drawn as transcript lanes: an agent run already has its row in the subagent list. */
+  const transcriptRegions = useMemo(() => {
+    const listedIds = new Set(subagentRuns.map((run) => run.id));
+    return regions.filter((region) => !listedIds.has(region.id));
+  }, [regions, subagentRuns]);
   const backgroundItemsNow = session.backgroundItems;
   const backgroundItemsRef = useRef(backgroundItemsNow);
   backgroundItemsRef.current = backgroundItemsNow;
@@ -2783,7 +2794,7 @@ export function FullscreenBridge(): React.ReactNode {
       inspectedWait !== undefined
         ? shareUnchangedBlocks(previousBlocks.current, waitBlocks(inspectedWait, Date.now()))
         : inspectedRun === undefined
-          ? projectTranscript(presentation, regions)
+          ? projectTranscript(presentation, transcriptRegions)
           : shareUnchangedBlocks(previousBlocks.current, subagentBlocks(inspectedRun, Date.now()));
     previousBlocks.current = next;
     return next;
@@ -2792,7 +2803,7 @@ export function FullscreenBridge(): React.ReactNode {
     projectTranscript,
     presentation.document,
     presentation.streamReveal,
-    regions,
+    transcriptRegions,
     inspectedRun,
     inspectedWait,
     elapsedMs,
