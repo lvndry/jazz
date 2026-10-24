@@ -1,6 +1,7 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import type { LLMAuthenticationError } from "./errors";
+import type { ReasoningControlSurface } from "./model-capabilities";
 
 /**
  * @fileoverview LLM provider and model types
@@ -49,6 +50,8 @@ export interface ModelInfo {
   readonly chatTemplate?: string;
   /** Provider-reported capability tags (e.g. ["completion", "tools", "thinking"] from ollama). */
   readonly capabilities?: readonly string[];
+  /** How the provider's own model listing says reasoning is controlled, such as the efforts it accepts. */
+  readonly reasoningControl?: ReasoningControlSurface;
 }
 
 /**

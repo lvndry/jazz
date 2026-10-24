@@ -956,6 +956,9 @@ export function createModelFetcher(): ModelFetcherService {
               contextWindow: model.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
               supportsTools: true,
               isReasoningModel: model.isReasoningModel,
+              ...(model.reasoningControl !== undefined
+                ? { reasoningControl: model.reasoningControl }
+                : {}),
               ingestImage: model.ingestImage,
               ingestPdf: false,
               ingestAudio: false,

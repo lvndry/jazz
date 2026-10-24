@@ -1354,14 +1354,21 @@ function buildResolvedReasoningOptions(
 
   switch (control.transport) {
     case "openai.responses.reasoning-effort": {
-      if (selection === "disable") return undefined;
+      // ChatGPT's Codex backend takes the system prompt as `instructions` and stores nothing,
+      // so it gets neither `systemMessageMode` nor a choice about `store`.
+      const base: OpenAIResponsesProviderOptions =
+        providerName === "chatgpt"
+          ? { promptCacheKey: "conversation", store: false }
+          : { promptCacheKey: "conversation" };
+      if (selection === "disable") {
+        return { openai: { ...base, reasoningEffort: "none" } };
+      }
       return {
         openai: {
-          promptCacheKey: "conversation",
-          reasoningEffort: selection === "max" ? "xhigh" : selection,
+          ...base,
+          reasoningEffort: selection,
           reasoningSummary: "auto",
-          systemMessageMode: "system",
-          store: false,
+          ...(providerName === "chatgpt" ? {} : { systemMessageMode: "system", store: false }),
           include: ["reasoning.encrypted_content"],
         } satisfies OpenAIResponsesProviderOptions,
       };
@@ -1529,15 +1536,14 @@ export function buildProviderOptions(
     }
     case "openrouter": {
       if (reasoningEffort && reasoningEffort !== "disable") {
-        // Map Jazz's reasoning_effort to OpenRouter's effort levels
-        // Jazz uses: "low" | "medium" | "high" | "disable"
-        // OpenRouter uses: "minimal" | "low" | "medium" | "high" | "xhigh" | "none"
-        const effortMap: Record<string, "low" | "medium" | "high"> = {
-          low: "low",
-          medium: "medium",
-          high: "high",
-        };
-        const effort = effortMap[reasoningEffort] ?? "medium";
+        // OpenRouter fits each effort to what the routed model accepts, so the full ladder is
+        // sent; its provider options have no `max`.
+        const effort =
+          options.reasoning === "minimal" || options.reasoning === "xhigh"
+            ? options.reasoning
+            : options.reasoning === "max"
+              ? "xhigh"
+              : reasoningEffort;
         return {
           openrouter: {
             reasoning: {
@@ -1814,6 +1820,9 @@ class AISDKService implements LLMService {
           supportsTools: modelInfo.supportsTools,
         }),
       },
+      ...(modelInfo?.reasoningControl !== undefined && {
+        live: { reasoning: modelInfo.reasoningControl },
+      }),
       ...(operator !== undefined && { operator }),
     });
   }
@@ -1857,7 +1866,11 @@ class AISDKService implements LLMService {
     requested: ReasoningSelection | undefined,
     control: ReasoningControlSurface | { readonly kind: "unknown" },
   ): void {
-    const effective = clampReasoningSelection(requested, control);
+    const cappedWithoutProfile =
+      control.kind === "unknown" &&
+      providerName !== "openrouter" &&
+      (requested === "xhigh" || requested === "max");
+    const effective = cappedWithoutProfile ? "high" : clampReasoningSelection(requested, control);
     if (effective === requested) {
       return;
     }
@@ -1868,7 +1881,9 @@ class AISDKService implements LLMService {
     this.reportedReasoningClamps.add(key);
     Effect.runFork(
       this.logger.warn(
-        `Reasoning "${requested}" is not supported by ${providerName}/${modelId}; using "${effective}"`,
+        cappedWithoutProfile
+          ? `Reasoning "${requested}" is not known to be accepted by ${providerName}/${modelId}; using "${effective}"`
+          : `Reasoning "${requested}" is not supported by ${providerName}/${modelId}; using "${effective}"`,
         { provider: providerName, requested, effective },
       ),
     );
