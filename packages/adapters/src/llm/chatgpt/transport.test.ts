@@ -398,6 +398,10 @@ describe("chatGPTReasoningControl", () => {
     });
   });
 
+  it("marks a model that lists only none as not reasoning", () => {
+    expect(chatGPTReasoningControl([{ effort: "none" }])).toEqual({ kind: "unsupported" });
+  });
+
   it("describes nothing when no listed level is one Jazz can send", () => {
     expect(chatGPTReasoningControl([{ effort: "turbo" }, { description: "no effort" }])).toBe(
       undefined,

@@ -34,8 +34,11 @@ describe("resolveModelCapabilities", () => {
         efforts: ["low", "medium", "high", "xhigh", "max"],
       });
     }
-    expect(control("gpt-6-luna")).toMatchObject({ canDisableReasoning: true });
-    expect(control("gpt-6-astra")).toMatchObject({ canDisableReasoning: false });
+    expect(
+      ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"].map(
+        (modelId) => (control(modelId) as { canDisableReasoning?: boolean }).canDisableReasoning,
+      ),
+    ).toEqual([false, false, true, true]);
   });
 
   test("a model's own listed efforts outrank the built-in profile", () => {

@@ -2105,6 +2105,12 @@ describe("buildProviderOptions - efforts above high", () => {
     });
   });
 
+  it("sends no effort to a model whose listing says it does not reason", () => {
+    expect(
+      buildProviderOptions("chatgpt", request("gpt-none-only", "max"), { kind: "unsupported" }),
+    ).toEqual({ openai: { promptCacheKey: "conversation", store: false } });
+  });
+
   it("caps a model with no profile at high", () => {
     expect(buildProviderOptions("openai", request("gpt-unknown", "max"))?.["openai"]).toMatchObject(
       { reasoningEffort: "high" },

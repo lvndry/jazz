@@ -298,7 +298,8 @@ export interface ChatGPTModelEntry {
 
 /**
  * The effort ladder the backend lists in `supported_reasoning_levels`, as a control Jazz sends
- * verbatim. `none` means reasoning can be turned off; levels Jazz has no name for are skipped.
+ * verbatim. `none` means reasoning can be turned off, and a model listing only `none` does not
+ * reason, so no effort is ever sent to it. Levels Jazz has no name for are skipped.
  */
 export function chatGPTReasoningControl(levels: unknown): ReasoningControlSurface | undefined {
   if (!Array.isArray(levels)) {
@@ -316,7 +317,7 @@ export function chatGPTReasoningControl(levels: unknown): ReasoningControlSurfac
     logDebug("chatgpt reasoning levels skipped", { skipped });
   }
   if (efforts.length === 0) {
-    return undefined;
+    return listed.includes("none") ? { kind: "unsupported" } : undefined;
   }
   return {
     kind: "effort",
@@ -358,7 +359,10 @@ export async function fetchChatGPTModels(
             ? model["display_name"]
             : (model["slug"] as string),
         ...(contextWindow !== undefined ? { contextWindow } : {}),
-        isReasoningModel: Array.isArray(reasoningLevels) && reasoningLevels.length > 0,
+        isReasoningModel:
+          Array.isArray(reasoningLevels) &&
+          reasoningLevels.length > 0 &&
+          reasoningControl?.kind !== "unsupported",
         ...(reasoningControl !== undefined ? { reasoningControl } : {}),
         // An omitted list means text and images, matching the Codex CLI's own default.
         ingestImage: Array.isArray(modalities) ? modalities.includes("image") : true,
