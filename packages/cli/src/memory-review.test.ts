@@ -34,9 +34,13 @@ function makeService(): MemoryServiceImpl {
 const fruitPath = "personal/when/food/favorite-fruit.md";
 const lessonPath = "personal/always/check-prior-art.md";
 
-async function queueLessons(service: MemoryServiceImpl, count: number): Promise<string[]> {
+async function queueLessons(
+  service: MemoryServiceImpl,
+  count: number,
+  firstNumber = 1,
+): Promise<string[]> {
   const ids: string[] = [];
-  for (let lessonNumber = 1; lessonNumber <= count; lessonNumber += 1) {
+  for (let lessonNumber = firstNumber; lessonNumber < firstNumber + count; lessonNumber += 1) {
     const lesson = await run(
       service.proposeLesson({
         scope: "personal",
@@ -181,6 +185,44 @@ describe("memory review", () => {
     expect(
       logged.some(
         (line) => line.includes("waiting") && line.includes(String(total - REVIEW_PAGE_SIZE)),
+      ),
+    ).toBe(true);
+  });
+
+  test("a failed keep on a later checklist leaves earlier decisions and later checklists intact", async () => {
+    const service = makeService();
+    const firstPage = await queueLessons(service, REVIEW_PAGE_SIZE);
+    const quote = "My favorite fruit is mango.";
+    const stale = await run(
+      service.suggestFact({
+        change: { command: "create", path: fruitPath, content: `The user said: "${quote}"\n` },
+        quote,
+        quotedSentenceKeys: quotedSentenceKeys({ id: "user:1", text: quote }, quote),
+        proposedBy: "memory-extractor",
+      }),
+    );
+    if (!stale.success) {
+      throw new Error(stale.message);
+    }
+    await queueLessons(service, REVIEW_PAGE_SIZE, REVIEW_PAGE_SIZE + 1);
+    await run(service.create(fruitPath, 'The user said: "Banana."\n', { agentId: "agent-1" }));
+    const firstLessonId = firstPage[0] ?? "";
+    const { terminal, logged, asked } = fakeTerminal({
+      interactive: true,
+      answer: (_choices, checklistIndex) =>
+        checklistIndex === 0 ? [firstLessonId] : checklistIndex === 1 ? [stale.suggestion.id] : [],
+    });
+
+    await run(reviewMemorySuggestions(terminal, service, "/memory"));
+
+    expect(asked).toHaveLength(3);
+    expect((await run(service.view("personal/always/lesson-1.md"))).kind).toBe("file");
+    const pending = await run(service.pendingSuggestions());
+    expect(pending.map((suggestion) => suggestion.id)).toEqual([stale.suggestion.id]);
+    expect(
+      logged.some(
+        (line) =>
+          line.startsWith("Not applied, still waiting") && line.includes(stale.suggestion.id),
       ),
     ).toBe(true);
   });
