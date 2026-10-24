@@ -463,7 +463,7 @@ export function isPrintableSequence(sequence: string, ctrl = false, superKey = f
 /**
  * Hints for the footer, resolved from focus so the footer only ever advertises
  * what is actually pressable right now. `detachOffered` (see `offersDetach`) puts
- * Ctrl+B in place of the reasoning hint while a long tool call holds the turn.
+ * Ctrl+B first while a long tool call holds the turn, whether or not messages are queued.
  *
  * Key names stay ASCII. `⏎` and `↑` live in Miscellaneous Technical and Arrows
  * — 7/256 and 11/112 in SF Mono — and would shift the cost column.
@@ -494,7 +494,13 @@ export function hintsFor(
   if (runActive) {
     if (queueing) {
       if (hasQueued) {
-        return ["esc esc to send all", "enter to queue", "up to recall", "ctrl+x to clear"];
+        const queuedHints = [
+          "esc esc to send all",
+          "enter to queue",
+          "up to recall",
+          "ctrl+x to clear",
+        ];
+        return detachOffered ? ["ctrl+b to background", ...queuedHints] : queuedHints;
       }
       return detachOffered
         ? ["enter to queue", "ctrl+b to background", "esc esc to interrupt", "ctrl+c to stop"]

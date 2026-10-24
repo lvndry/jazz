@@ -411,6 +411,16 @@ describe("footer hints", () => {
     expect(hintsFor("input", true, true, undefined, false, false, true)).toContain(
       "ctrl+b to background",
     );
+    expect(hintsFor("input", true, true, undefined, false, true)).not.toContain(
+      "ctrl+b to background",
+    );
+    expect(hintsFor("input", true, true, undefined, false, true, true)).toEqual([
+      "ctrl+b to background",
+      "esc esc to send all",
+      "enter to queue",
+      "up to recall",
+      "ctrl+x to clear",
+    ]);
     expect(hintsFor("input", false, false, "approval", false, false, true)).toEqual([
       "waiting for you",
     ]);
