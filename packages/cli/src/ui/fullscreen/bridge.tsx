@@ -98,7 +98,7 @@ import { interruptSummary, type InterruptSnapshot, type ReceiptFacts } from "../
 import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
 import { retryBand, retryBandHeight } from "../models/retry";
 import { settledPlan } from "../models/todo";
-import { offersDetach } from "../models/tool-detach";
+import { toolHoldsTurnUp } from "../models/tool-detach";
 import { filterAndRank, TYPED_ANSWER_DESCRIPTION, type PickerChoice } from "../prompt-core";
 import {
   INITIAL_CHOICE_REMOVAL,
@@ -728,7 +728,7 @@ function liveReasoningElapsedMs(
   return startedAt === undefined ? undefined : Math.max(0, now - startedAt);
 }
 
-function liveToolsFrom(activity: ActivityState, now: number): LiveTool[] {
+function liveToolsFrom(activity: ActivityState, now: number, canDetach: boolean): LiveTool[] {
   if (activity.phase !== "tool-execution") return [];
   const visibleTools = activity.tools.filter(
     (tool) => !LIVE_ZONE_EXCLUDED_TOOLS.has(tool.toolName),
@@ -755,6 +755,7 @@ function liveToolsFrom(activity: ActivityState, now: number): LiveTool[] {
       elapsedMs: Math.max(0, now - tool.startedAt),
       phase: index,
       ...(language === undefined ? {} : { language }),
+      ...(canDetach && toolHoldsTurnUp(tool, now) ? { detachable: true } : {}),
     };
   });
 }
@@ -1190,10 +1191,9 @@ export function FullscreenBridge(): React.ReactNode {
     return () => clearInterval(timer);
   }, [runActive]);
 
-  const tools = useMemo(() => liveToolsFrom(activity, Date.now()), [activity, elapsedMs]);
   const canDetach = session.backgroundHandler !== null;
-  const detachOffered = useMemo(
-    () => offersDetach(activity, canDetach, Date.now()),
+  const tools = useMemo(
+    () => liveToolsFrom(activity, Date.now(), canDetach),
     [activity, canDetach, elapsedMs],
   );
   const step = useMemo(() => stepFrom(activity), [activity]);
@@ -3050,7 +3050,6 @@ export function FullscreenBridge(): React.ReactNode {
             : `child:${inspectedRun.id}`
       }`,
       runActive,
-      ...(detachOffered ? { detachOffered } : {}),
       live,
       input,
       footer,
@@ -3062,7 +3061,6 @@ export function FullscreenBridge(): React.ReactNode {
       header,
       blocks,
       runActive,
-      detachOffered,
       live,
       input,
       footer,

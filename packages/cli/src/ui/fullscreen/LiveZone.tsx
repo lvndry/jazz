@@ -129,7 +129,12 @@ function toolRow(tool: LiveTool, tick: number, glyphs: GlyphSet, width: number):
       separator(glyphs),
       ...operationSpans,
     ],
-    [{ text: formatElapsed(tool.elapsedMs), fg: THEME.muted }],
+    [
+      ...(tool.detachable === true
+        ? [{ text: "ctrl+b to background", fg: THEME.muted }, separator(glyphs)]
+        : []),
+      { text: formatElapsed(tool.elapsedMs), fg: THEME.muted },
+    ],
     width,
   );
 }

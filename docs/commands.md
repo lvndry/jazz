@@ -1125,7 +1125,7 @@ keys. In both, interrupting work takes a double Esc or one Ctrl+C.
 
 ### Sending a tool call to the background
 
-Once a tool call has been running for a few seconds, the interface shows `ctrl+b to background`.
+Once a tool call has been running for 3 seconds, its row shows `ctrl+b to background` beside the elapsed time.
 Ctrl+B leaves the call running and lets the agent carry on: it is told the call is still going
 and that it will hear back. When the call finishes, the chat shows one line naming it, and the
 agent gets its result at its next step. If the chat is idle by then, the result starts a turn

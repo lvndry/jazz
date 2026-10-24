@@ -191,6 +191,8 @@ export interface LiveTool {
   readonly phase: number;
   /** When set, the operation is source and takes the three syntax roles. */
   readonly language?: string;
+  /** The call has run long enough that its row offers Ctrl+B to background it. */
+  readonly detachable?: boolean;
 }
 
 export interface StepLine {
@@ -448,8 +450,6 @@ export interface ViewModel {
   readonly live: LiveModel;
   /** True while a turn can still be interrupted, including streaming-only work. */
   readonly runActive?: boolean;
-  /** A tool call has run long enough that the footer offers Ctrl+B to background it. */
-  readonly detachOffered?: boolean;
   readonly input: InputModel;
   readonly footer: FooterModel;
   readonly subagents?: SubagentListModel;

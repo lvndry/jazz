@@ -62,6 +62,27 @@ describe("wide and composed text", () => {
   });
 });
 
+describe("detach hint on a tool row", () => {
+  const rowText = (detachable: boolean, width = 100): string => {
+    const [row] = liveRows(
+      live({ tools: [{ ...tool("execute", "command sleep 60", 0, 130_000), detachable }] }),
+      { width, height: HEIGHT },
+    );
+    return row?.segments.map((segment) => segment.text).join("") ?? "";
+  };
+
+  it("offers ctrl+b beside the elapsed time once the call is detachable", () => {
+    expect(rowText(true)).toMatch(/ctrl\+b to background . 2m 10s$/);
+    expect(rowText(false)).not.toContain("ctrl+b");
+  });
+
+  it("keeps the hint whole on a narrow row by truncating the operation", () => {
+    const text = rowText(true, MIN_WIDTH);
+    expect(terminalCellWidth(text)).toBe(MIN_WIDTH);
+    expect(text).toContain("ctrl+b to background");
+  });
+});
+
 function tool(app: string, operation: string, phase: number, elapsedMs = 1000): LiveTool {
   return { app, operation, elapsedMs, phase };
 }
