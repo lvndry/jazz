@@ -297,8 +297,12 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("web");
   });
 
-  it("leaves subagent spawns out of the live zone, since the subagent list shows them", async () => {
+  it("shows a running subagent once, in the list below the input", async () => {
     const text = await frame(() => {
+      store.openEphemeral("subagent", "grouping explorer", 12, {
+        task: "Group the open threads",
+        acceptsMessages: true,
+      });
       store.setActivity({
         phase: "tool-execution",
         agentName: "jazz",
@@ -314,8 +318,14 @@ describe("fullscreen bridge", () => {
         ],
       });
     });
-    expect(text).not.toContain("grouping explorer");
-    expect(text).not.toContain("subagents");
+    const rows = text.split("\n");
+    const listHeaderRow = rows.findIndex((row) => row.includes("1 subagent running"));
+    const labelRows = rows.flatMap((row, index) =>
+      row.includes("grouping explorer") ? [index] : [],
+    );
+    expect(listHeaderRow).toBeGreaterThanOrEqual(0);
+    expect(labelRows).toEqual([listHeaderRow + 1]);
+    expect(text).not.toContain("map subagents");
     expect(text).toContain("gmail");
   });
 
@@ -3615,6 +3625,7 @@ describe("fullscreen bridge", () => {
           timestamp: new Date(),
         });
       });
+      console.log(text);
       const rows = text.split("\n");
       const first = rows.findIndex((row) => row.includes("first line here"));
       const second = rows.findIndex((row) => row.includes("second line here"));

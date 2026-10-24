@@ -859,6 +859,11 @@ export function FullscreenBridge(): React.ReactNode {
   const subagentRuns = presentation.subagents.runs;
   const subagentRunsRef = useRef(subagentRuns);
   subagentRunsRef.current = subagentRuns;
+  /** Regions drawn as transcript lanes: an agent run already has its row in the subagent list. */
+  const transcriptRegions = useMemo(() => {
+    const listedIds = new Set(subagentRuns.map((run) => run.id));
+    return regions.filter((region) => !listedIds.has(region.id));
+  }, [regions, subagentRuns]);
   const backgroundItemsNow = session.backgroundItems;
   const backgroundItemsRef = useRef(backgroundItemsNow);
   backgroundItemsRef.current = backgroundItemsNow;
@@ -2789,7 +2794,7 @@ export function FullscreenBridge(): React.ReactNode {
       inspectedWait !== undefined
         ? shareUnchangedBlocks(previousBlocks.current, waitBlocks(inspectedWait, Date.now()))
         : inspectedRun === undefined
-          ? projectTranscript(presentation, regions)
+          ? projectTranscript(presentation, transcriptRegions)
           : shareUnchangedBlocks(previousBlocks.current, subagentBlocks(inspectedRun, Date.now()));
     previousBlocks.current = next;
     return next;
@@ -2798,7 +2803,7 @@ export function FullscreenBridge(): React.ReactNode {
     projectTranscript,
     presentation.document,
     presentation.streamReveal,
-    regions,
+    transcriptRegions,
     inspectedRun,
     inspectedWait,
     elapsedMs,
