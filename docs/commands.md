@@ -746,16 +746,16 @@ See [Configuration](./configure/jazz.md).
 
 Memory is shared by every agent, so these commands address scopes and paths directly.
 
-| Command                      | Purpose                                                                |
-| ---------------------------- | ---------------------------------------------------------------------- |
-| `jazz memory list [scope]`   | List every scope on disk, or every file in one scope                   |
-| `jazz memory show <path>`    | Print one memory file as the agents read it                            |
-| `jazz memory forget <path>`  | Permanently delete one memory file                                     |
-| `jazz memory explain <path>` | Show provenance and recent opportunity receipts for one entry          |
-| `jazz memory recall`         | Report memory consultation; `--surface <name>` filters it              |
-| `jazz memory review`         | Keep or drop waiting memory suggestions and lessons from one checklist |
-| `jazz memory accept <id>`    | Save one waiting suggestion or lesson to memory                        |
-| `jazz memory reject <id>`    | Drop one waiting suggestion or lesson without saving it                |
+| Command                      | Purpose                                                           |
+| ---------------------------- | ----------------------------------------------------------------- |
+| `jazz memory list [scope]`   | List every scope on disk, or every file in one scope              |
+| `jazz memory show <path>`    | Print one memory file as the agents read it                       |
+| `jazz memory forget <path>`  | Permanently delete one memory file                                |
+| `jazz memory explain <path>` | Show provenance and recent opportunity receipts for one entry     |
+| `jazz memory recall`         | Report memory consultation; `--surface <name>` filters it         |
+| `jazz memory review`         | Keep or drop waiting memory suggestions and lessons, 10 at a time |
+| `jazz memory accept <id>`    | Save one waiting suggestion or lesson to memory                   |
+| `jazz memory reject <id>`    | Drop one waiting suggestion or lesson without saving it           |
 
 Conversation history and current working state are separate. See [Conversations, working state, and memory](./concepts/conversations-and-memory.md).
 
@@ -978,46 +978,46 @@ with `/switch <agent>` to use the updated tool selection.
 
 <!-- chat-commands:start -->
 
-| Command                                                                              | Purpose                                                                                                                 |
-| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `/agents`                                                                            | List all available agents.                                                                                              |
-| `/peers`                                                                             | List configured peers and what each may learn or do.                                                                    |
-| `/clear`                                                                             | Clear the screen.                                                                                                       |
-| `/compact`                                                                           | Summarize older history now, keeping recent messages.                                                                   |
-| `/config [tools]`                                                                    | Show the agent's configuration ('/config tools' toggles its tools).                                                     |
-| `/context`                                                                           | Show context window usage and token breakdown.                                                                          |
-| `/work [clear]`                                                                      | Show saved task state and compaction records ('/work clear' discards them).                                             |
-| `/copy`                                                                              | Copy the last agent response to clipboard.                                                                              |
-| `/cost`                                                                              | Show conversation token usage and estimated cost, including sub-agents.                                                 |
-| `/exit`                                                                              | Exit the chat. Also `/quit`.                                                                                            |
-| `/export [path]`                                                                     | Export the conversation to a markdown file.                                                                             |
-| `/fork`                                                                              | Fork conversation into a new branch (keeps full history).                                                               |
-| `/detach <host>`                                                                     | Continue this conversation on a registered SSH host after this turn.                                                    |
-| `/goal [objective\|pause\|resume\|clear\|list\|accept\|decline]`                     | Keep working toward an objective, turn after turn, in this conversation. See [Goals in chat](#goals-in-chat).           |
-| `/help [command]`                                                                    | Show available commands and shortcuts.                                                                                  |
-| `/loop <every> <prompt>\|cron\|list\|approve\|reject\|answer\|pause\|resume\|cancel` | Rerun a prompt on a schedule in the background. See [Loops in chat](#loops-in-chat).                                    |
-| `/waits [list\|show <number>\|cancel <number>]`                                      | List what is waiting in the background, show a wait's checks, or cancel one.                                            |
-| `/memory [forget <path> \| review \| accept <id> \| reject <id>]`                    | Show what this agent has remembered about you, forget one file, or review waiting suggestions and lessons.              |
-| `/learn`                                                                             | Learn from the conversation so far and tidy memory, then keep or drop every change from one checklist. Also `/reflect`. |
-| `/limit [turns\|usd\|tokens <value>\|clear]`                                         | Set a session turn, cost, or token limit (applied immediately).                                                         |
-| `/mcp [reconnect <server>]`                                                          | Show MCP servers, or reconnect one.                                                                                     |
-| `/mode [allow\|disallow <cmd>]`                                                      | Switch between safe mode and yolo mode for tool approvals (also Shift+Tab).                                             |
-| `/model [model]`                                                                     | Change the agent's model for this session only. Also `/models`.                                                         |
-| `/reasoning [minimal\|low\|medium\|high\|xhigh\|max\|disable]`                       | Change reasoning for this session only.                                                                                 |
-| `/rename [title]`                                                                    | Rename the current conversation.                                                                                        |
-| `/resume`                                                                            | Browse, resume, or delete a past conversation.                                                                          |
-| `/tree`                                                                              | Switch to another branch of this conversation, or edit an earlier message.                                              |
-| `/retry`                                                                             | Re-send your last message.                                                                                              |
-| `/new`                                                                               | Start a fresh conversation with the current agent.                                                                      |
-| `/create`                                                                            | Create a new agent.                                                                                                     |
-| `/plugins`                                                                           | Turn installed plugins on or off, for this conversation or always.                                                      |
-| `/skills`                                                                            | Search installed skills by name, source, or description.                                                                |
-| `/info`                                                                              | Show conversation id, title, usage, and log file paths for this session. Also `/stats`.                                 |
-| `/switch [agent]`                                                                    | Switch to a different agent in the same conversation.                                                                   |
-| `/theme [name] [dark\|light]`                                                        | List themes, or switch to one and save it.                                                                              |
-| `/tools`                                                                             | List agent tools by category, including configured peer tools.                                                          |
-| `/workflows [action]`                                                                | List workflows, or send an action (e.g. create) to the agent.                                                           |
-| `! <command>`                                                                        | Run a shell command and give its output to the agent. See [Shell escapes](#shell-escapes).                              |
+| Command                                                                              | Purpose                                                                                                       |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `/agents`                                                                            | List all available agents.                                                                                    |
+| `/peers`                                                                             | List configured peers and what each may learn or do.                                                          |
+| `/clear`                                                                             | Clear the screen.                                                                                             |
+| `/compact`                                                                           | Summarize older history now, keeping recent messages.                                                         |
+| `/config [tools]`                                                                    | Show the agent's configuration ('/config tools' toggles its tools).                                           |
+| `/context`                                                                           | Show context window usage and token breakdown.                                                                |
+| `/work [clear]`                                                                      | Show saved task state and compaction records ('/work clear' discards them).                                   |
+| `/copy`                                                                              | Copy the last agent response to clipboard.                                                                    |
+| `/cost`                                                                              | Show conversation token usage and estimated cost, including sub-agents.                                       |
+| `/exit`                                                                              | Exit the chat. Also `/quit`.                                                                                  |
+| `/export [path]`                                                                     | Export the conversation to a markdown file.                                                                   |
+| `/fork`                                                                              | Fork conversation into a new branch (keeps full history).                                                     |
+| `/detach <host>`                                                                     | Continue this conversation on a registered SSH host after this turn.                                          |
+| `/goal [objective\|pause\|resume\|clear\|list\|accept\|decline]`                     | Keep working toward an objective, turn after turn, in this conversation. See [Goals in chat](#goals-in-chat). |
+| `/help [command]`                                                                    | Show available commands and shortcuts.                                                                        |
+| `/loop <every> <prompt>\|cron\|list\|approve\|reject\|answer\|pause\|resume\|cancel` | Rerun a prompt on a schedule in the background. See [Loops in chat](#loops-in-chat).                          |
+| `/waits [list\|show <number>\|cancel <number>]`                                      | List what is waiting in the background, show a wait's checks, or cancel one.                                  |
+| `/memory [forget <path> \| review \| accept <id> \| reject <id>]`                    | Show what this agent has remembered about you, forget one file, or review waiting suggestions and lessons.    |
+| `/learn`                                                                             | Learn from the conversation so far and tidy memory, then keep or drop every change. Also `/reflect`.          |
+| `/limit [turns\|usd\|tokens <value>\|clear]`                                         | Set a session turn, cost, or token limit (applied immediately).                                               |
+| `/mcp [reconnect <server>]`                                                          | Show MCP servers, or reconnect one.                                                                           |
+| `/mode [allow\|disallow <cmd>]`                                                      | Switch between safe mode and yolo mode for tool approvals (also Shift+Tab).                                   |
+| `/model [model]`                                                                     | Change the agent's model for this session only. Also `/models`.                                               |
+| `/reasoning [minimal\|low\|medium\|high\|xhigh\|max\|disable]`                       | Change reasoning for this session only.                                                                       |
+| `/rename [title]`                                                                    | Rename the current conversation.                                                                              |
+| `/resume`                                                                            | Browse, resume, or delete a past conversation.                                                                |
+| `/tree`                                                                              | Switch to another branch of this conversation, or edit an earlier message.                                    |
+| `/retry`                                                                             | Re-send your last message.                                                                                    |
+| `/new`                                                                               | Start a fresh conversation with the current agent.                                                            |
+| `/create`                                                                            | Create a new agent.                                                                                           |
+| `/plugins`                                                                           | Turn installed plugins on or off, for this conversation or always.                                            |
+| `/skills`                                                                            | Search installed skills by name, source, or description.                                                      |
+| `/info`                                                                              | Show conversation id, title, usage, and log file paths for this session. Also `/stats`.                       |
+| `/switch [agent]`                                                                    | Switch to a different agent in the same conversation.                                                         |
+| `/theme [name] [dark\|light]`                                                        | List themes, or switch to one and save it.                                                                    |
+| `/tools`                                                                             | List agent tools by category, including configured peer tools.                                                |
+| `/workflows [action]`                                                                | List workflows, or send an action (e.g. create) to the agent.                                                 |
+| `! <command>`                                                                        | Run a shell command and give its output to the agent. See [Shell escapes](#shell-escapes).                    |
 
 <!-- chat-commands:end -->
 

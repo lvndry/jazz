@@ -653,7 +653,9 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     model.notice !== undefined
       ? model.notice
       : checkbox
-        ? `${String(checked.size)} selected`
+        ? total > visible.length
+          ? `${String(checked.size)} selected · ${String(selected + 1)} of ${String(total)}`
+          : `${String(checked.size)} selected`
         : total === 0
           ? filterable
             ? "no matches"
@@ -998,6 +1000,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
         hints={hints}
         width={width}
         {...(tally === undefined ? {} : { tally })}
+        keepTally={checkbox && total > visible.length}
       />
     </box>
   );

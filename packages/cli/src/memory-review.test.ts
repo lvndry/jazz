@@ -1,4 +1,4 @@
-/** One checklist decides every waiting suggestion: checked are saved, the rest dropped. */
+/** Checklists of waiting suggestions: checked are saved, unchecked on that checklist dropped. */
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -8,7 +8,7 @@ import type { PromptChoice, TerminalService } from "@jazz/core/interfaces/termin
 import { quotedSentenceKeys } from "@jazz/core/memory/source-trust";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect, type FileSystem } from "effect";
-import { reviewMemorySuggestions, suggestionChoices } from "./memory-review";
+import { REVIEW_PAGE_SIZE, reviewMemorySuggestions, suggestionChoices } from "./memory-review";
 
 let directory: string;
 
@@ -33,6 +33,27 @@ function makeService(): MemoryServiceImpl {
 
 const fruitPath = "personal/when/food/favorite-fruit.md";
 const lessonPath = "personal/always/check-prior-art.md";
+
+async function queueLessons(service: MemoryServiceImpl, count: number): Promise<string[]> {
+  const ids: string[] = [];
+  for (let lessonNumber = 1; lessonNumber <= count; lessonNumber += 1) {
+    const lesson = await run(
+      service.proposeLesson({
+        scope: "personal",
+        subject: `lesson ${String(lessonNumber)}`,
+        topic: "always",
+        rule: `Rule number ${String(lessonNumber)}.`,
+        mistake: `Mistake number ${String(lessonNumber)}.`,
+        proposedBy: "agent-1",
+      }),
+    );
+    if (!lesson.success) {
+      throw new Error(lesson.message);
+    }
+    ids.push(lesson.suggestion.id);
+  }
+  return ids;
+}
 
 async function queueBoth(service: MemoryServiceImpl): Promise<{ fact: string; lesson: string }> {
   const quote = "My favorite fruit is mango.";
@@ -62,9 +83,17 @@ async function queueBoth(service: MemoryServiceImpl): Promise<{ fact: string; le
 
 function fakeTerminal(options: {
   readonly interactive: boolean;
-  readonly answer?: (choices: readonly PromptChoice<string>[]) => readonly string[] | undefined;
-}): { terminal: TerminalService; logged: string[] } {
+  readonly answer?: (
+    choices: readonly PromptChoice<string>[],
+    checklistIndex: number,
+  ) => readonly string[] | undefined;
+}): {
+  terminal: TerminalService;
+  logged: string[];
+  asked: { message: string; values: readonly string[] }[];
+} {
   const logged: string[] = [];
+  const asked: { message: string; values: readonly string[] }[] = [];
   const terminal = {
     isInteractive: options.interactive,
     log: (message: unknown) =>
@@ -76,20 +105,20 @@ function fakeTerminal(options: {
       Effect.sync(() => {
         logged.push(message);
       }),
-    checkbox: (_message: string, prompt: { choices: readonly (string | PromptChoice<string>)[] }) =>
-      Effect.sync(() =>
-        options.answer?.(
-          prompt.choices.filter(
-            (choice): choice is PromptChoice<string> => typeof choice !== "string",
-          ),
-        ),
-      ),
+    checkbox: (message: string, prompt: { choices: readonly (string | PromptChoice<string>)[] }) =>
+      Effect.sync(() => {
+        const choices = prompt.choices.filter(
+          (choice): choice is PromptChoice<string> => typeof choice !== "string",
+        );
+        asked.push({ message, values: choices.map((choice) => choice.value) });
+        return options.answer?.(choices, asked.length - 1);
+      }),
   } as unknown as TerminalService;
-  return { terminal, logged };
+  return { terminal, logged, asked };
 }
 
 describe("memory review", () => {
-  test("saves the checked suggestions and drops the rest in one decision", async () => {
+  test("saves the checked suggestions and drops the rest", async () => {
     const service = makeService();
     const ids = await queueBoth(service);
     const { terminal } = fakeTerminal({ interactive: true, answer: () => [ids.fact] });
@@ -110,6 +139,50 @@ describe("memory review", () => {
 
     expect(await run(service.pendingSuggestions())).toHaveLength(2);
     expect((await run(service.view(fruitPath))).kind).toBe("not_found");
+  });
+
+  test("more than one window of suggestions is decided a window at a time", async () => {
+    const service = makeService();
+    const total = REVIEW_PAGE_SIZE + 2;
+    const ids = await queueLessons(service, total);
+    const lastId = ids[total - 1] ?? "";
+    const { terminal, asked } = fakeTerminal({
+      interactive: true,
+      answer: (_choices, checklistIndex) => (checklistIndex === 1 ? [lastId] : []),
+    });
+
+    await run(reviewMemorySuggestions(terminal, service, "/memory"));
+
+    expect(asked.map((checklist) => checklist.values)).toEqual([
+      ids.slice(0, REVIEW_PAGE_SIZE),
+      ids.slice(REVIEW_PAGE_SIZE),
+    ]);
+    expect(asked[0]?.message).toContain(`1–${String(REVIEW_PAGE_SIZE)} of ${String(total)}`);
+    expect(await run(service.pendingSuggestions())).toEqual([]);
+    expect((await run(service.view(`personal/always/lesson-${String(total)}.md`))).kind).toBe(
+      "file",
+    );
+  });
+
+  test("escape on a later window keeps it and every window after it waiting", async () => {
+    const service = makeService();
+    const total = REVIEW_PAGE_SIZE * 2 + 1;
+    const ids = await queueLessons(service, total);
+    const { terminal, logged, asked } = fakeTerminal({
+      interactive: true,
+      answer: (_choices, checklistIndex) => (checklistIndex === 0 ? [] : undefined),
+    });
+
+    await run(reviewMemorySuggestions(terminal, service, "/memory"));
+
+    expect(asked).toHaveLength(2);
+    const pending = await run(service.pendingSuggestions());
+    expect(pending.map((suggestion) => suggestion.id)).toEqual(ids.slice(REVIEW_PAGE_SIZE));
+    expect(
+      logged.some(
+        (line) => line.includes("waiting") && line.includes(String(total - REVIEW_PAGE_SIZE)),
+      ),
+    ).toBe(true);
   });
 
   test("a terminal that cannot prompt only lists them", async () => {

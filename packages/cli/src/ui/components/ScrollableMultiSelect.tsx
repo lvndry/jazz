@@ -88,7 +88,8 @@ export function ScrollableMultiSelect<T = unknown>({
     <Box flexDirection="column">
       {(hasMoreAbove || hasMoreBelow) && (
         <Text dimColor>
-          List scrolls {hasMoreAbove ? "↑" : ""} {hasMoreBelow ? "↓" : ""} (use ↑/↓)
+          List scrolls {hasMoreAbove ? "↑" : ""} {hasMoreBelow ? "↓" : ""} (use ↑/↓) ·{" "}
+          {view.cursor + 1} of {view.rows.length}
         </Text>
       )}
 
