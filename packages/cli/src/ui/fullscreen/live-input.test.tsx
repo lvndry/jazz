@@ -75,8 +75,8 @@ describe("detach hint on a tool row", () => {
     return row?.segments.map((segment) => segment.text).join("") ?? "";
   };
 
-  it("shows the hint beside the elapsed time", () => {
-    expect(rowText("ctrl+b to background")).toMatch(/ctrl\+b to background . 2m 10s$/);
+  it("shows the hint right after the command, the elapsed time flush right", () => {
+    expect(rowText("ctrl+b to background")).toMatch(/sleep 60 . ctrl\+b to background +2m 10s$/);
     expect(rowText(undefined)).not.toContain("ctrl+b");
   });
 
@@ -88,6 +88,32 @@ describe("detach hint on a tool row", () => {
 });
 
 describe("fold hint on a tool row", () => {
+  it("follows the command's first line, before the detach hint", () => {
+    const folded = {
+      ...tool("execute", "command python3 <<'EOF'", 0, 4000),
+      foldHint: "ctrl+o for 28 more lines",
+      detachHint: "ctrl+b to background",
+    };
+    const [row] = liveRows(live({ tools: [folded] }), { width: 100, height: HEIGHT });
+    const text = row?.segments.map((segment) => segment.text).join("") ?? "";
+    expect(terminalCellWidth(text)).toBe(100);
+    expect(text).toMatch(
+      /command python3 <<'EOF' . ctrl\+o for 28 more lines . ctrl\+b to background +4s$/,
+    );
+  });
+
+  it("cuts the command, not the hints, when the row is tight", () => {
+    const folded = {
+      ...tool("execute", `command ${"x".repeat(200)}`, 0, 4000),
+      foldHint: "ctrl+o for 28 more lines",
+      detachHint: "ctrl+b to background",
+    };
+    const [row] = liveRows(live({ tools: [folded] }), { width: 80, height: HEIGHT });
+    const text = row?.segments.map((segment) => segment.text).join("") ?? "";
+    expect(terminalCellWidth(text)).toBe(80);
+    expect(text).toMatch(/x . ctrl\+o for 28 more lines . ctrl\+b to background 4s$/);
+  });
+
   it("keeps the hint whole beside the elapsed time on a narrow row", () => {
     const folded = {
       ...tool("execute", `command date "+%H:%M" ${"x".repeat(80)}`, 0),

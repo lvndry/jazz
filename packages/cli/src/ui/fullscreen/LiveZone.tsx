@@ -119,27 +119,37 @@ function toolRow(tool: LiveTool, tick: number, glyphs: GlyphSet, width: number):
     tool.language === undefined
       ? [{ text: tool.operation, fg: THEME.selected }]
       : highlightCodeLine(tool.operation);
-  return alignRow(
-    `tool:${tool.app}:${tool.operation}`,
-    [
-      ...gutter(glyphs),
-      { text: cell, fg: THEME.primary },
-      { text: " ", fg: THEME.muted },
-      { text: tool.app, fg: THEME.secondary },
-      separator(glyphs),
-      ...operationSpans,
-    ],
-    [
-      ...(tool.foldHint === undefined
-        ? []
-        : [{ text: tool.foldHint, fg: THEME.muted }, separator(glyphs)]),
-      ...(tool.detachHint === undefined
-        ? []
-        : [{ text: tool.detachHint, fg: THEME.muted }, separator(glyphs)]),
-      { text: formatElapsed(tool.elapsedMs), fg: THEME.muted },
-    ],
-    width,
+  const lead: LiveSegment[] = [
+    ...gutter(glyphs),
+    { text: cell, fg: THEME.primary },
+    { text: " ", fg: THEME.muted },
+    { text: tool.app, fg: THEME.secondary },
+    separator(glyphs),
+  ];
+  const hints = [tool.foldHint, tool.detachHint].flatMap((hint): LiveSegment[] =>
+    hint === undefined ? [] : [separator(glyphs), { text: hint, fg: THEME.muted }],
   );
+  const elapsed: LiveSegment[] = [{ text: formatElapsed(tool.elapsedMs), fg: THEME.muted }];
+  // The hints follow the command, so the command is what gets cut when the row is narrow.
+  const operationBudget =
+    width -
+    terminalSegmentsWidth(lead) -
+    terminalSegmentsWidth(hints) -
+    terminalSegmentsWidth(elapsed) -
+    1;
+  const key = `tool:${tool.app}:${tool.operation}`;
+  if (operationBudget > 0) {
+    const operation = fitTerminalSegments(operationSpans, operationBudget);
+    return alignRow(key, [...lead, ...operation, ...hints], elapsed, width);
+  }
+  // Too narrow for the command and its hints: the hints join the metadata column, which
+  // keeps them whole at the command's expense.
+  const metadata = [
+    ...hints.slice(1),
+    ...(hints.length > 0 ? [separator(glyphs)] : []),
+    ...elapsed,
+  ];
+  return alignRow(key, [...lead, ...operationSpans], metadata, width);
 }
 
 /**
