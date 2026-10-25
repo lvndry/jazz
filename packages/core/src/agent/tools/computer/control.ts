@@ -96,9 +96,19 @@ export async function requestStop(): Promise<ComputerSessionInfo | undefined> {
   return session;
 }
 
-/** Whether a stop was requested at or after `since`, in epoch milliseconds. */
+/**
+ * Whether a stop was requested at or after `since`, in epoch milliseconds.
+ *
+ * Reads the `Date.now()` the request wrote rather than the file's mtime: the kernel stamps mtime
+ * from a coarse clock that can trail `Date.now()` by a few milliseconds, so a stop sent just
+ * after a session started would look older than the session and be ignored.
+ */
 export async function stopRequestedSince(since: number): Promise<boolean> {
   try {
+    const requestedAt = Number((await readFile(stopFlagPath(), "utf8")).trim());
+    if (Number.isFinite(requestedAt) && requestedAt > 0) {
+      return requestedAt >= since;
+    }
     return (await stat(stopFlagPath())).mtimeMs >= since;
   } catch {
     return false;

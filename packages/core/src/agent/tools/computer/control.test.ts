@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -70,6 +70,14 @@ describe("stopping a run", () => {
     const startedAt = Date.now() - 1_000;
     expect(await stopRequestedSince(startedAt)).toBe(false);
     await requestStop();
+    expect(await stopRequestedSince(startedAt)).toBe(true);
+  });
+
+  test("a stop sent as a session starts is seen even when the file's mtime trails the clock", async () => {
+    const startedAt = Date.now();
+    await requestStop();
+    const laggingMtime = new Date(startedAt - 5);
+    utimesSync(path.join(computerDirectory(), "stop"), laggingMtime, laggingMtime);
     expect(await stopRequestedSince(startedAt)).toBe(true);
   });
 
