@@ -91,7 +91,7 @@ describe("fold hint on a tool row", () => {
   it("follows the command's first line, before the detach hint", () => {
     const folded = {
       ...tool("execute", "command python3 <<'EOF'", 0, 4000),
-      foldHint: "ctrl+o for 28 more lines",
+      fold: { hint: "ctrl+o for 28 more lines", toolCallId: "call", text: "" },
       detachHint: "ctrl+b to background",
     };
     const [row] = liveRows(live({ tools: [folded] }), { width: 100, height: HEIGHT });
@@ -105,7 +105,7 @@ describe("fold hint on a tool row", () => {
   it("cuts the command, not the hints, when the row is tight", () => {
     const folded = {
       ...tool("execute", `command ${"x".repeat(200)}`, 0, 4000),
-      foldHint: "ctrl+o for 28 more lines",
+      fold: { hint: "ctrl+o for 28 more lines", toolCallId: "call", text: "" },
       detachHint: "ctrl+b to background",
     };
     const [row] = liveRows(live({ tools: [folded] }), { width: 80, height: HEIGHT });
@@ -117,7 +117,7 @@ describe("fold hint on a tool row", () => {
   it("keeps the hint whole beside the elapsed time on a narrow row", () => {
     const folded = {
       ...tool("execute", `command date "+%H:%M" ${"x".repeat(80)}`, 0),
-      foldHint: "ctrl+o for 24 more lines",
+      fold: { hint: "ctrl+o for 24 more lines", toolCallId: "call", text: "" },
     };
     const [row] = liveRows(live({ tools: [folded] }), { width: MIN_WIDTH, height: HEIGHT });
     const text = row?.segments.map((segment) => segment.text).join("") ?? "";

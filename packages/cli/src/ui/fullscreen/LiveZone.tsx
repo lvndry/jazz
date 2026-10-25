@@ -126,7 +126,7 @@ function toolRow(tool: LiveTool, tick: number, glyphs: GlyphSet, width: number):
     { text: tool.app, fg: THEME.secondary },
     separator(glyphs),
   ];
-  const hints = [tool.foldHint, tool.detachHint].flatMap((hint): LiveSegment[] =>
+  const hints = [tool.fold?.hint, tool.detachHint].flatMap((hint): LiveSegment[] =>
     hint === undefined ? [] : [separator(glyphs), { text: hint, fg: THEME.muted }],
   );
   const elapsed: LiveSegment[] = [{ text: formatElapsed(tool.elapsedMs), fg: THEME.muted }];

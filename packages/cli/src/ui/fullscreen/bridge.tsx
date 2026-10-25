@@ -95,7 +95,7 @@ import {
 } from "../models/background-work";
 import { homeIntent } from "../models/home-view";
 import { interruptSummary, type InterruptSnapshot, type ReceiptFacts } from "../models/interrupt";
-import { foldHint, foldOperation, nextFoldedTool } from "../models/operation-fold";
+import { foldHint, foldOperation } from "../models/operation-fold";
 import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
 import { retryBand, retryBandHeight } from "../models/retry";
 import { settledPlan } from "../models/todo";
@@ -766,7 +766,15 @@ function liveToolsFrom(
       elapsedMs: Math.max(0, now - tool.startedAt),
       phase: index,
       ...(language === undefined ? {} : { language }),
-      ...(hiddenLines > 0 ? { foldHint: foldHint(hiddenLines) } : {}),
+      ...(hiddenLines > 0 && tool.argsPreview !== undefined
+        ? {
+            fold: {
+              hint: foldHint(hiddenLines),
+              toolCallId: tool.toolCallId,
+              text: tool.argsPreview.trim(),
+            },
+          }
+        : {}),
       ...(hint !== undefined && index === 0 ? { detachHint: hint } : {}),
     };
   });
@@ -861,8 +869,6 @@ export function FullscreenBridge(): React.ReactNode {
     [presentation.document.id, presentation.documentGeneration],
   );
   const activity = session.activity;
-  const activityRef = useRef(activity);
-  activityRef.current = activity;
   const expandedLiveToolsRef = useRef<Set<string>>(new Set());
   const [expandedLiveToolsRevision, setExpandedLiveToolsRevision] = useState(0);
   const stats = session.runStats;
@@ -1212,6 +1218,8 @@ export function FullscreenBridge(): React.ReactNode {
     () => liveToolsFrom(activity, Date.now(), canDetach, expandedLiveToolsRef.current),
     [activity, canDetach, elapsedMs, expandedLiveToolsRevision],
   );
+  const liveToolsRef = useRef(tools);
+  liveToolsRef.current = tools;
   const step = useMemo(() => stepFrom(activity), [activity]);
 
   // The checklist is worth reading once the turn has finished, not just while
@@ -1926,7 +1934,8 @@ export function FullscreenBridge(): React.ReactNode {
       }
 
       if (isCtrlLetter({ name, ctrl }, "o")) {
-        const folded = nextFoldedTool(activityRef.current, expandedLiveToolsRef.current);
+        // Picked from the rows the live zone draws, so the key acts on the hint that is on screen.
+        const folded = liveToolsRef.current.find((tool) => tool.fold !== undefined)?.fold;
         if (folded !== undefined) {
           expandedLiveToolsRef.current.add(folded.toolCallId);
           setExpandedLiveToolsRevision((revision) => revision + 1);
