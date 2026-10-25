@@ -95,6 +95,7 @@ import {
 } from "../models/background-work";
 import { homeIntent } from "../models/home-view";
 import { interruptSummary, type InterruptSnapshot, type ReceiptFacts } from "../models/interrupt";
+import { foldHint, foldOperation, nextFoldedTool } from "../models/operation-fold";
 import { binaryAnswerIndices, MAX_QUICK_PICK } from "../models/question";
 import { retryBand, retryBandHeight } from "../models/retry";
 import { settledPlan } from "../models/todo";
@@ -729,7 +730,12 @@ function liveReasoningElapsedMs(
   return startedAt === undefined ? undefined : Math.max(0, now - startedAt);
 }
 
-function liveToolsFrom(activity: ActivityState, now: number, canDetach: boolean): LiveTool[] {
+function liveToolsFrom(
+  activity: ActivityState,
+  now: number,
+  canDetach: boolean,
+  expandedToolCallIds: ReadonlySet<string>,
+): LiveTool[] {
   if (activity.phase !== "tool-execution") return [];
   const visibleTools = activity.tools.filter(
     (tool) => !LIVE_ZONE_EXCLUDED_TOOLS.has(tool.toolName),
@@ -738,7 +744,10 @@ function liveToolsFrom(activity: ActivityState, now: number, canDetach: boolean)
   return visibleTools.map((tool, index) => {
     const parts = tool.toolName.split(/[_.-]+/).filter((part) => part.length > 0);
     const nameRest = parts.length > 1 ? parts.slice(1).join(" ") : "";
-    const args = tool.argsPreview?.trim();
+    const folded = tool.argsPreview === undefined ? undefined : foldOperation(tool.argsPreview);
+    const args = folded?.head;
+    const hiddenLines =
+      folded === undefined || expandedToolCallIds.has(tool.toolCallId) ? 0 : folded.hiddenLines;
     let operation = nameRest.length > 0 ? nameRest : tool.toolName;
     if (tool.classifying === true) {
       operation =
@@ -757,6 +766,7 @@ function liveToolsFrom(activity: ActivityState, now: number, canDetach: boolean)
       elapsedMs: Math.max(0, now - tool.startedAt),
       phase: index,
       ...(language === undefined ? {} : { language }),
+      ...(hiddenLines > 0 ? { foldHint: foldHint(hiddenLines) } : {}),
       ...(hint !== undefined && index === 0 ? { detachHint: hint } : {}),
     };
   });
@@ -851,6 +861,10 @@ export function FullscreenBridge(): React.ReactNode {
     [presentation.document.id, presentation.documentGeneration],
   );
   const activity = session.activity;
+  const activityRef = useRef(activity);
+  activityRef.current = activity;
+  const expandedLiveToolsRef = useRef<Set<string>>(new Set());
+  const [expandedLiveToolsRevision, setExpandedLiveToolsRevision] = useState(0);
   const stats = session.runStats;
   const queue = promptSlice.messageQueue;
   const busy = session.chatBusy;
@@ -1195,8 +1209,8 @@ export function FullscreenBridge(): React.ReactNode {
 
   const canDetach = session.backgroundHandler !== null;
   const tools = useMemo(
-    () => liveToolsFrom(activity, Date.now(), canDetach),
-    [activity, canDetach, elapsedMs],
+    () => liveToolsFrom(activity, Date.now(), canDetach, expandedLiveToolsRef.current),
+    [activity, canDetach, elapsedMs, expandedLiveToolsRevision],
   );
   const step = useMemo(() => stepFrom(activity), [activity]);
 
@@ -1207,6 +1221,7 @@ export function FullscreenBridge(): React.ReactNode {
   // `todoList`, so a stale checklist never flashes ahead of the new run's own.
   if (runActive && !previousRunActiveRef.current) {
     lastTodoListRef.current = [];
+    expandedLiveToolsRef.current = new Set();
   }
   previousRunActiveRef.current = runActive;
 
@@ -1911,6 +1926,17 @@ export function FullscreenBridge(): React.ReactNode {
       }
 
       if (isCtrlLetter({ name, ctrl }, "o")) {
+        const folded = nextFoldedTool(activityRef.current, expandedLiveToolsRef.current);
+        if (folded !== undefined) {
+          expandedLiveToolsRef.current.add(folded.toolCallId);
+          setExpandedLiveToolsRevision((revision) => revision + 1);
+          store.printOutput({
+            type: "log",
+            message: { kind: "expanded", text: folded.text },
+            timestamp: new Date(),
+          });
+          return true;
+        }
         if (store.toggleLastReceiptOutput()) {
           return true;
         }

@@ -87,6 +87,19 @@ describe("detach hint on a tool row", () => {
   });
 });
 
+describe("fold hint on a tool row", () => {
+  it("keeps the hint whole beside the elapsed time on a narrow row", () => {
+    const folded = {
+      ...tool("execute", `command date "+%H:%M" ${"x".repeat(80)}`, 0),
+      foldHint: "ctrl+o for 24 more lines",
+    };
+    const [row] = liveRows(live({ tools: [folded] }), { width: MIN_WIDTH, height: HEIGHT });
+    const text = row?.segments.map((segment) => segment.text).join("") ?? "";
+    expect(terminalCellWidth(text)).toBe(MIN_WIDTH);
+    expect(text).toMatch(/ctrl\+o for 24 more lines . 1s$/);
+  });
+});
+
 function tool(app: string, operation: string, phase: number, elapsedMs = 1000): LiveTool {
   return { app, operation, elapsedMs, phase };
 }

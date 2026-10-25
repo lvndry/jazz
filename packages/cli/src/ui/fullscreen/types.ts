@@ -196,6 +196,8 @@ export interface LiveTool {
    * so one hint covers every row.
    */
   readonly detachHint?: string;
+  /** Set when the operation is the first line of several: the Ctrl+O hint naming how many follow. */
+  readonly foldHint?: string;
 }
 
 export interface StepLine {

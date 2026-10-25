@@ -130,6 +130,9 @@ function toolRow(tool: LiveTool, tick: number, glyphs: GlyphSet, width: number):
       ...operationSpans,
     ],
     [
+      ...(tool.foldHint === undefined
+        ? []
+        : [{ text: tool.foldHint, fg: THEME.muted }, separator(glyphs)]),
       ...(tool.detachHint === undefined
         ? []
         : [{ text: tool.detachHint, fg: THEME.muted }, separator(glyphs)]),
