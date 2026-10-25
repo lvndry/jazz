@@ -12,6 +12,7 @@
 
 import type { TodoSnapshotItem } from "../activity-state";
 import { actionClass } from "./approval";
+import { foldedLine } from "./operation-fold";
 import { formatPreciseDuration } from "../text/format";
 
 /** Rows each list shows before the rest collapse into `+N more`. */
@@ -44,6 +45,7 @@ export interface InterruptSnapshot {
 function receiptLine(receipt: ReceiptFacts): string {
   return [receipt.app, receipt.args, receipt.summary]
     .filter((part): part is string => part !== undefined && part.trim().length > 0)
+    .map(foldedLine)
     .join("  ");
 }
 
@@ -58,7 +60,9 @@ export function interruptSummary(snapshot: InterruptSnapshot): InterruptSummary 
     .filter((receipt) => receipt.status === "ok" && actionClass(receipt.app) !== "act")
     .map(receiptLine);
   const notDone = [
-    ...snapshot.runningTools.map((tool) => `${tool.app}  ${tool.operation} was stopped`),
+    ...snapshot.runningTools.map(
+      (tool) => `${tool.app}  ${foldedLine(tool.operation)} was stopped`,
+    ),
     ...(snapshot.pendingApproval === undefined
       ? []
       : [`${snapshot.pendingApproval} was not approved`]),

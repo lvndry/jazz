@@ -70,6 +70,8 @@ export interface LiveRow {
   readonly segments: readonly LiveSegment[];
   /** A row painted as part of a band, such as the retry notice. */
   readonly background?: string;
+  /** The tool a tool row draws, so key handlers act only on work that is on screen. */
+  readonly tool?: LiveTool;
 }
 
 /**
@@ -470,7 +472,7 @@ export function liveRows(
     );
   }
   rows.push(...todoPanel);
-  for (const tool of shown) rows.push(toolRow(tool, tick, glyphs, width));
+  for (const tool of shown) rows.push({ ...toolRow(tool, tick, glyphs, width), tool });
   if (hiddenNames.length > 0) rows.push(overflowRow(hiddenNames, glyphs, width));
 
   return rows;
@@ -551,3 +553,14 @@ function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): R
 }
 
 export const LiveZone = memo(LiveZoneView);
+
+/** The first folded call among the rows the band draws: the one Ctrl+O prints. */
+export function drawnLiveFold(
+  model: LiveModel,
+  viewport: Viewport,
+  maxRows?: number,
+): LiveTool["fold"] | undefined {
+  return liveRows(model, viewport, false, undefined, maxRows).find(
+    (row) => row.tool?.fold !== undefined,
+  )?.tool?.fold;
+}

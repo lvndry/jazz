@@ -29,6 +29,16 @@ describe("interruptSummary", () => {
     ]);
   });
 
+  it("names a stopped multi-line command by its first line", () => {
+    const summary = interruptSummary({
+      elapsedMs: 1_000,
+      receipts: [],
+      runningTools: [{ app: "execute_command", operation: "python3 <<'EOF'\nprint(1)\nEOF" }],
+      todos: [],
+    });
+    expect(summary.notDone).toEqual(["execute_command  python3 <<'EOF' (+2 lines) was stopped"]);
+  });
+
   it("says nothing changed rather than leaving the list empty", () => {
     const summary = interruptSummary({
       elapsedMs: 1_000,

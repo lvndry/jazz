@@ -1218,8 +1218,10 @@ export function FullscreenBridge(): React.ReactNode {
     () => liveToolsFrom(activity, Date.now(), canDetach, expandedLiveToolsRef.current),
     [activity, canDetach, elapsedMs, expandedLiveToolsRevision],
   );
-  const liveToolsRef = useRef(tools);
-  liveToolsRef.current = tools;
+  const liveFoldRef = useRef<LiveTool["fold"] | undefined>(undefined);
+  const reportLiveFold = useCallback((fold: LiveTool["fold"] | undefined) => {
+    liveFoldRef.current = fold;
+  }, []);
   const step = useMemo(() => stepFrom(activity), [activity]);
 
   // The checklist is worth reading once the turn has finished, not just while
@@ -1934,8 +1936,8 @@ export function FullscreenBridge(): React.ReactNode {
       }
 
       if (isCtrlLetter({ name, ctrl }, "o")) {
-        // Picked from the rows the live zone draws, so the key acts on the hint that is on screen.
-        const folded = liveToolsRef.current.find((tool) => tool.fold !== undefined)?.fold;
+        // Reported by the live zone from the rows it draws, so the key acts on a hint on screen.
+        const folded = liveFoldRef.current;
         if (folded !== undefined) {
           expandedLiveToolsRef.current.add(folded.toolCallId);
           setExpandedLiveToolsRevision((revision) => revision + 1);
@@ -3173,6 +3175,7 @@ export function FullscreenBridge(): React.ReactNode {
       onKey={onKey}
       onPaste={applyPaste}
       onWatchingLiveEdgeChange={store.setReaderFollowing}
+      onLiveFoldChange={reportLiveFold}
       {...(overrideContent === undefined ? {} : { overrideContent })}
     />
   );

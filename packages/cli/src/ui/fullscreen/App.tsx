@@ -54,7 +54,7 @@ import {
   resolveScrollKey,
   type KeyAction,
 } from "./keymap";
-import { LiveZone } from "./LiveZone";
+import { drawnLiveFold, LiveZone } from "./LiveZone";
 import { Approval, approvalLayout } from "./overlays/Approval";
 import { CommandPanel } from "./overlays/CommandPanel";
 import { FilePicker, filePickerLayout } from "./overlays/FilePicker";
@@ -73,6 +73,7 @@ import {
   MIN_HEIGHT,
   MIN_WIDTH,
   type Focus,
+  type LiveTool,
   type Overlay,
   type ViewModel,
   type Viewport,
@@ -153,6 +154,8 @@ export interface AppProps {
    * to someone watching (pacing a streaming answer) can stop while they can't.
    */
   readonly onWatchingLiveEdgeChange?: (watching: boolean) => void;
+  /** Called with the first folded call the live zone draws, the one Ctrl+O prints. */
+  readonly onLiveFoldChange?: (fold: LiveTool["fold"] | undefined) => void;
   /**
    * Replaces the five-region layout with arbitrary content — the wizard menu,
    * the screen-unavailable notice — while this component's own `useKeyboard`
@@ -290,6 +293,7 @@ function AppView({
   onKey,
   onPaste,
   onWatchingLiveEdgeChange,
+  onLiveFoldChange,
   overrideContent,
 }: AppProps): React.ReactNode {
   const themeRevision = useThemeRevision();
@@ -355,6 +359,14 @@ function AppView({
           subagentRows,
           overlayRows: overlayRows(view.overlay, viewport),
         }).transcript;
+
+  const liveFold = useMemo(
+    () => drawnLiveFold(view.live, viewport, regions.live),
+    [view.live, viewport, regions.live],
+  );
+  useEffect(() => {
+    onLiveFoldChange?.(liveFold);
+  }, [liveFold, onLiveFoldChange]);
 
   const layout = useMemo(() => createTranscriptLayout(), [view.documentId]);
   const glyphs = getGlyphs();

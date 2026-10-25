@@ -14,6 +14,12 @@ export function foldOperation(text: string): FoldedOperation {
   return { head: (lines[0] ?? "").trimEnd(), hiddenLines: lines.length - 1 };
 }
 
+/** The operation as one line of prose: the first line, then how many lines it leaves out. */
+export function foldedLine(text: string): string {
+  const { head, hiddenLines } = foldOperation(text);
+  return hiddenLines > 0 ? `${head} (+${String(hiddenLines)} lines)` : head;
+}
+
 /** The hint beside a folded row, naming the key that prints the rest. */
 export function foldHint(hiddenLines: number): string {
   return `ctrl+o for ${String(hiddenLines)} more line${hiddenLines === 1 ? "" : "s"}`;
