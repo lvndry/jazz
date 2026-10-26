@@ -17,7 +17,7 @@ import plugin, {
   COMPACT_BIG_RESULT_CHARS,
   COMPACT_KEEP_CONFIDENCE,
   COMPACT_STRONG_DROP,
-  JEV_API_URL,
+  JEV_BASE_URL,
   JEV_MODEL,
 } from "../src/index";
 
@@ -372,7 +372,7 @@ describe("Jev decision provider", () => {
   it("uses the pinned model and returns a complete routing distribution", async () => {
     let requestBody: unknown;
     globalThis.fetch = (async (input, init) => {
-      expect(String(input)).toBe(JEV_API_URL);
+      expect(String(input)).toBe(`${JEV_BASE_URL}/systemone`);
       requestBody = JSON.parse(String(init?.body));
       return Response.json({
         model: JEV_MODEL,
@@ -415,7 +415,7 @@ describe("Jev decision provider", () => {
   it("returns the complete command-risk distribution for host policy", async () => {
     let requestBody: unknown;
     globalThis.fetch = (async (input, init) => {
-      expect(String(input)).toBe(JEV_API_URL);
+      expect(String(input)).toBe(`${JEV_BASE_URL}/systemone`);
       requestBody = JSON.parse(String(init?.body));
       return Response.json({
         model: JEV_MODEL,
@@ -460,7 +460,7 @@ describe("Jev decision provider", () => {
     });
   });
 
-  it("abstains command risk when Jev omits a probability", async () => {
+  it("fails open when Jev omits a command-risk probability", async () => {
     globalThis.fetch = (async () =>
       Response.json({
         model: JEV_MODEL,
@@ -480,7 +480,7 @@ describe("Jev decision provider", () => {
       { signal: new AbortController().signal },
     );
 
-    expect(result).toEqual({ status: "abstained", reason: "invalid provider answer" });
+    expect(result).toEqual({ status: "abstained", reason: "provider failed" });
   });
 
   it("fails open on a model-version mismatch", async () => {
@@ -498,36 +498,18 @@ describe("Jev decision provider", () => {
     expect(result).toEqual({ status: "abstained", reason: "provider failed" });
   });
 
-  it("retries overloaded responses", async () => {
+  it("makes one attempt inside a hook deadline instead of retrying", async () => {
     let calls = 0;
     globalThis.fetch = (async () => {
       calls += 1;
-      if (calls === 1) return new Response("overloaded", { status: 529 });
-      return Response.json({
-        model: JEV_MODEL,
-        answers: {
-          best_skill: {
-            type: "choice",
-            choice: "no_skill",
-            probabilities: { no_skill: 0.8, skill_0: 0.2 },
-            confidence: 0.7,
-          },
-        },
-        usage: { input_tokens: 10, output_tokens: 1 },
-      });
+      return new Response("overloaded", { status: 529 });
     }) as unknown as typeof fetch;
     const host = register();
     const result = await host.handlers.get("route.skills")?.(
       { requestText: "hello", skills: [{ name: "pdf", description: "Read PDFs" }] },
       { signal: new AbortController().signal },
     );
-    expect(result).toEqual({
-      status: "answered",
-      distribution: {
-        noSkillProbability: 0.8,
-        skills: [{ name: "pdf", probability: 0.2 }],
-      },
-    });
-    expect(calls).toBe(2);
+    expect(result).toEqual({ status: "abstained", reason: "provider failed" });
+    expect(calls).toBe(1);
   });
 });

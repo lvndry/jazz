@@ -9,5 +9,9 @@
   },
   "devDependencies": {
     "@jazz/plugin-sdk": "workspace:*"
+  },
+  "dependencies": {
+    "@ai-sdk/typesafe-ai": "^3.0.27",
+    "ai": "^7.0.153"
   }
 }

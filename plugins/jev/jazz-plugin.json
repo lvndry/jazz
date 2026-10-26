@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "com.jazz.plugins.jev",
   "name": "Jev decision provider",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "hostApi": 1,
   "entry": "src/index.ts",
   "hooks": ["route.skills", "compact.tools", "classify.page", "route.snapshot"],
@@ -16,7 +16,8 @@
     "installed skill names and one-line descriptions",
     "proposed shell command text",
     "tool call names and result previews during compaction",
-    "current page origin, title, and interactive element roles and labels (never the page body, path, or query)"
+    "current page origin, title, and interactive element roles and labels (never the page body, path, or query)",
+    "items, labels, criteria, and context the agent passes to the classify and rank tools, including images it names"
   ],
   "secrets": [
     {
@@ -24,6 +25,113 @@
       "env": "TYPESAFE_API_KEY",
       "required": true,
       "description": "TypeSafe API key used only for POST requests to api.typesafe.ai"
+    }
+  ],
+  "tools": [
+    {
+      "name": "classify",
+      "description": "Sort many items into labels in one call with Jev, a fast decision model. Returns each item's label, the probability of every label, and Jev's confidence. Use it for triage and checks: emails into urgent/reply/newsletter/junk, receipts into business/personal, a message into scam/legit, photos into contains-passport/other.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "The items to classify, in order. Results refer to them by 1-based position.",
+            "items": {
+              "type": ["string", "object"],
+              "description": "An item as text, or an object with text and/or image (a PNG or JPEG path).",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "description": "The item's text."
+                },
+                "image": {
+                  "type": "string",
+                  "description": "Path to a PNG or JPEG image of the item."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "labels": {
+            "type": "array",
+            "description": "The labels to choose from. Give each a short description of what belongs in it.",
+            "items": {
+              "type": ["string", "object"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The label."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "What an item needs to get this label."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "instructions": {
+            "type": "string",
+            "description": "What to judge about each item, such as \"by what the user needs to do with it\"."
+          },
+          "context": {
+            "type": "string",
+            "description": "Background every item is judged against, such as the user's preferences or situation."
+          }
+        },
+        "required": ["items", "labels"],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": true
+    },
+    {
+      "name": "rank",
+      "description": "Order many items by how well each meets a criterion, in one call with Jev, a fast decision model. Returns the items best first, each with a 0-1 score, the nearest level on the scale, and Jev's confidence. Use it for shortlists: apartments, job offers, restaurants, tasks by importance, photos by quality.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "The items to rank. Results refer to them by 1-based position.",
+            "items": {
+              "type": ["string", "object"],
+              "description": "An item as text, or an object with text and/or image (a PNG or JPEG path).",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "description": "The item's text."
+                },
+                "image": {
+                  "type": "string",
+                  "description": "Path to a PNG or JPEG image of the item."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "criterion": {
+            "type": "string",
+            "description": "What makes an item better, stated concretely, such as \"fits a family of 4, under 2000 EUR a month, near a metro\"."
+          },
+          "levels": {
+            "type": "array",
+            "description": "Optional scale from worst to best, 2 to 10 level names. Defaults to poor fit, weak fit, partial fit, good fit, excellent fit.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "context": {
+            "type": "string",
+            "description": "Background every item is judged against, such as the user's preferences or situation."
+          }
+        },
+        "required": ["items", "criterion"],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": true
     }
   ]
 }

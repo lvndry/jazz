@@ -1,10 +1,26 @@
 # Jev decision provider
 
-Jev is an optional Jazz plugin that uses TypeSafe's System One API for small,
-structured decisions inside the agent harness. It complements your agent's main
-model and currently pins `jev-1.13.0`.
+Jev is an optional Jazz plugin that uses TypeSafe's System One API, through the
+AI SDK's `@ai-sdk/typesafe-ai` provider, for small structured decisions. It gives
+your agent 2 tools for judging many items at once, and answers decisions inside
+the agent harness. It complements your agent's main model and pins `jev-1.14.0`.
 
-## What it does
+## Tools for your agent
+
+Once the plugin is enabled for an agent, the agent calls these tools whenever a
+task fits. Each tool sends every item in one request, so judging 50 items costs
+one call.
+
+| Tool       | What the agent passes                                                          | What it gets back                                                       | Examples                                                                    |
+| ---------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `classify` | Items (text, a PNG or JPEG path, or both) and labels with short descriptions   | Each item's label, the probability of every label, and Jev's confidence | Triage an inbox, sort receipts into business and personal, check for a scam |
+| `rank`     | Items, a criterion, and optionally a scale from worst to best (2 to 10 levels) | Items best first, each with a 0-1 score and the nearest level           | Shortlist apartments, job offers, or restaurants; order tasks by importance |
+
+A tool error explains what to fix, such as a missing key, an unreadable image, or
+a label list that is too short. If Jev declines to judge an item, the agent is told
+to judge it itself.
+
+## Harness decisions
 
 | Capability                                            | How Jazz uses it                                                                                                                                                                                                |
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -14,8 +30,9 @@ model and currently pins `jev-1.13.0`.
 | Snapshot routing (`route.snapshot`)                   | Ranks a page's interactive elements against your request so the browser snapshot lists the likely ones first. Every element stays in the snapshot.                                                              |
 | Command-risk classification (`classify.command-risk`) | Classifies proposed `execute_command` calls as read-only, low-risk, or high-risk before Jazz applies your approval policy.                                                                                      |
 
-The plugin adds no model-callable tools. Errors, timeouts, invalid answers, and
-abstentions fall back to Jazz's built-in behavior. For command risk, Jazz falls
+Errors, timeouts, invalid answers, and abstentions fall back to Jazz's built-in
+behavior. Each decision gets one attempt, since a retry could not finish within
+Jazz's 2-second hook deadline. For command risk, Jazz falls
 back to its built-in classifier and treats unresolved classification as high-risk.
 
 ## Enable it
@@ -66,7 +83,9 @@ inputs, and result previews for compaction. For browser pages it sends the page'
 origin (never the path or query), its title, each interactive element's role and
 label, and whether the page has a password or payment card field; snapshot routing
 also sends your latest request. It never sends the page body, link targets, or
-field contents. These are external API calls using your TypeSafe account.
+field contents. The `classify` and `rank` tools send the items, labels, criterion,
+and context the agent passes them, including the image files it names. These are
+external API calls using your TypeSafe account.
 
 TypeSafe documents that text written to steer a verdict can move it, and page
 titles and labels are written by the page. Treat a Jev page flag as an extra alarm,

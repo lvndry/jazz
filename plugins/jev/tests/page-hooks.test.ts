@@ -11,7 +11,7 @@ import type {
   RouteSnapshotOutcome,
 } from "@jazz/plugin-sdk";
 import { afterEach, describe, expect, it } from "bun:test";
-import plugin, { JEV_API_URL, JEV_MODEL } from "../src/index";
+import plugin, { JEV_BASE_URL, JEV_MODEL } from "../src/index";
 
 const originalFetch = globalThis.fetch;
 
@@ -88,7 +88,7 @@ const routeInput: RouteSnapshotInput = {
 function recordRequests(answers: unknown): unknown[] {
   const bodies: unknown[] = [];
   globalThis.fetch = (async (input, init) => {
-    expect(String(input)).toBe(JEV_API_URL);
+    expect(String(input)).toBe(`${JEV_BASE_URL}/systemone`);
     bodies.push(JSON.parse(String(init?.body)));
     return Response.json({
       model: JEV_MODEL,

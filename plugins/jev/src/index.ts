@@ -1,6 +1,7 @@
 /**
  * Optional trusted Jazz plugin that answers bounded skill-routing, command-risk, compaction, and
- * browser-page decisions through TypeSafe's System One API. It uses only the public plugin ABI,
+ * browser-page decisions through TypeSafe's System One API, and gives chat agents `classify` and
+ * `rank` tools that judge many items in one call. It uses only the public plugin ABI,
  * pins the evaluated model version, and fails through explicit abstention so Jazz
  * can preserve its host-owned fallback policy.
  */
@@ -29,18 +30,29 @@ import type {
   SkillRouteInput,
   SkillRouteOutcome,
 } from "@jazz/plugin-sdk";
+import type { Experimental_DecisionState, JSONValue } from "ai";
+import { registerChatTools } from "./chat-tools";
+import {
+  decideWithJev,
+  JEV_INPUT_USD_PER_MILLION_TOKENS,
+  JEV_MAX_CHOICE_OPTIONS,
+  JEV_MAX_INPUT_TOKENS,
+  type JevAnswer,
+  type JevQuestion,
+} from "./jev-client";
 
-export const JEV_API_URL = "https://api.typesafe.ai/v1/systemone";
-export const JEV_MODEL = "jev-1.13.0";
+export { JEV_BASE_URL, JEV_MODEL } from "./jev-client";
 export const JEV_PROVIDER_ID = "typesafe-jev";
 
-const JEV_INPUT_USD_PER_MILLION_TOKENS = 0.042;
-const JEV_MAX_INPUT_TOKENS = 64_000;
 const MAX_COST_USD_PER_BATCH =
   (JEV_MAX_INPUT_TOKENS * JEV_INPUT_USD_PER_MILLION_TOKENS) / 1_000_000;
-const MAX_CHOICE_OPTIONS = 255;
+const MAX_CHOICE_OPTIONS = JEV_MAX_CHOICE_OPTIONS;
 const MAX_ROUTING_STATE_BYTES = 64 * 1024;
-const MAX_RETRIES = 2;
+/**
+ * Host hooks run under a 2s deadline and the AI SDK's first retry waits 2s, so a retry could never
+ * land in time; one attempt, then the host's built-in fallback.
+ */
+const HOOK_MAX_RETRIES = 0;
 
 const COMMAND_RISK_OPTIONS = ["read_only", "low_risk", "high_risk"] as const;
 
@@ -56,53 +68,10 @@ export const COMPACT_BIG_RESULT_CHARS = 1_500;
 // One request per compaction pass; the host sends bounded batches, larger ones abstain and fall back.
 const MAX_COMPACT_CANDIDATES = 128;
 
-type JevQuestion =
-  | { readonly type: "noul"; readonly instructions: string }
-  | {
-      readonly type: "choice";
-      readonly instructions: string;
-      readonly criteria: Readonly<Record<string, string | null>>;
-    }
-  | {
-      readonly type: "score";
-      readonly instructions: string;
-      readonly criteria: readonly string[];
-    };
-
-interface JevResponse {
-  readonly model: string;
-  readonly answers: Readonly<Record<string, unknown>>;
-  readonly usage: { readonly input_tokens: number; readonly output_tokens: number };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function finiteUnit(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
-}
-
-function parseDistribution(
-  value: unknown,
-  expectedKeys: readonly string[],
-): readonly { readonly value: string; readonly probability: number }[] | undefined {
-  if (!isRecord(value) || Object.keys(value).length !== expectedKeys.length) return undefined;
-  let sum = 0;
-  const parsed: { value: string; probability: number }[] = [];
-  for (const key of expectedKeys) {
-    const probability = value[key];
-    if (!finiteUnit(probability)) return undefined;
-    parsed.push({ value: key, probability });
-    sum += probability;
-  }
-  return Math.abs(sum - 1) <= 0.001 ? parsed : undefined;
-}
-
 function mapQuestion(question: DecisionQuestion): JevQuestion {
   switch (question.kind) {
     case "probability":
-      return { type: "noul", instructions: question.instructions };
+      return { type: "boolean", instructions: question.instructions };
     case "choice":
       return {
         type: "choice",
@@ -116,103 +85,46 @@ function mapQuestion(question: DecisionQuestion): JevQuestion {
   }
 }
 
-function parseAnswer(question: DecisionQuestion, value: unknown): DecisionAnswer | undefined {
-  if (!isRecord(value)) return undefined;
+/** The AI SDK has already checked each distribution; this maps it onto the host's answer shape. */
+function toDecisionAnswer(
+  question: DecisionQuestion,
+  answer: JevAnswer | undefined,
+): DecisionAnswer | undefined {
   switch (question.kind) {
     case "probability":
-      return value["type"] === "noul" && finiteUnit(value["noul"])
-        ? { kind: "probability", probability: value["noul"] }
+      return answer?.type === "boolean"
+        ? { kind: "probability", probability: answer.probability }
         : undefined;
     case "choice": {
-      if (
-        value["type"] !== "choice" ||
-        typeof value["choice"] !== "string" ||
-        !finiteUnit(value["confidence"])
-      ) {
+      if (answer?.type !== "choice" || answer.probabilities === undefined) {
         return undefined;
       }
-      const keys = question.options.map(({ value: option }) => option);
-      const probabilities = parseDistribution(value["probabilities"], keys);
-      if (probabilities === undefined) return undefined;
-      const choice = value["choice"];
-      const selected = probabilities.find(({ value: option }) => option === choice);
-      const maximum = Math.max(...probabilities.map(({ probability }) => probability));
-      return selected !== undefined && Math.abs(selected.probability - maximum) <= 0.001
-        ? { kind: "choice", choice, probabilities }
+      const distribution = answer.probabilities;
+      const probabilities = question.options.map(({ value }) => ({
+        value,
+        probability: distribution[value],
+      }));
+      return probabilities.every(({ probability }) => typeof probability === "number")
+        ? {
+            kind: "choice",
+            choice: answer.choice,
+            probabilities: probabilities as { value: string; probability: number }[],
+          }
         : undefined;
     }
-    case "score": {
-      if (
-        value["type"] !== "score" ||
-        typeof value["score"] !== "number" ||
-        !Number.isFinite(value["score"]) ||
-        !finiteUnit(value["confidence"]) ||
-        !isRecord(value["legend"])
-      ) {
-        return undefined;
-      }
-      const keys = question.levels.map((_level, index) => String(index));
-      const probabilities = parseDistribution(value["probabilities"], keys);
-      if (probabilities === undefined) return undefined;
-      for (const [index, level] of question.levels.entries()) {
-        if (value["legend"][String(index)] !== level) return undefined;
-      }
-      const computed = probabilities.reduce(
-        (sum, item, index) => sum + index * item.probability,
-        0,
-      );
-      return Math.abs(computed - value["score"]) <= 0.001
-        ? { kind: "score", score: value["score"] }
-        : undefined;
-    }
+    case "score":
+      return answer?.type === "score" ? { kind: "score", score: answer.score } : undefined;
   }
 }
 
-function parseRetryAfter(value: string | null): number {
-  if (value === null) return 0;
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1_000, 5_000);
-  const date = Date.parse(value);
-  return Number.isFinite(date) ? Math.max(0, Math.min(date - Date.now(), 5_000)) : 0;
-}
-
-function abortReason(signal: AbortSignal): Error {
-  return signal.reason instanceof Error ? signal.reason : new Error("Jev request aborted");
-}
-
-async function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) throw abortReason(signal);
-  await new Promise<void>((resolve, reject) => {
-    const onAbort = () => {
-      clearTimeout(timeout);
-      reject(abortReason(signal));
-    };
-    const timeout = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, milliseconds);
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-async function postJev(apiKey: string, body: JsonValue, signal: AbortSignal): Promise<JevResponse> {
-  for (let attempt = 0; ; attempt += 1) {
-    const response = await fetch(JEV_API_URL, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
-    if (response.ok) return (await response.json()) as JevResponse;
-    if ((response.status !== 429 && response.status !== 529) || attempt >= MAX_RETRIES) {
-      throw new Error(`TypeSafe request failed with HTTP ${response.status}`);
-    }
-    const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
-    await abortableDelay(retryAfter || 100 * 2 ** attempt, signal);
+function toDecisionState(state: JsonValue): Experimental_DecisionState {
+  if (typeof state === "string") {
+    return state;
   }
+  if (typeof state === "object" && state !== null && !Array.isArray(state)) {
+    return state as Experimental_DecisionState;
+  }
+  return [{ type: "json", value: state as JSONValue }];
 }
 
 /** Create a TypeSafe provider bound to Jazz's scoped secret broker. */
@@ -223,35 +135,25 @@ export function createJevDecisionProvider(api: PluginHostApi): DecisionProvider 
     maxCostUSDPerBatch: MAX_COST_USD_PER_BATCH,
     async decide(request, context): Promise<DecisionBatchResult> {
       const apiKey = await api.secrets.get("apiKey");
-      if (apiKey === undefined || apiKey.length === 0)
+      if (apiKey === undefined || apiKey.length === 0) {
         throw new Error("TypeSafe API key is missing");
-      const mappedQuestions = Object.fromEntries(
-        request.questions.map(({ id, question }) => [id, mapQuestion(question)]),
-      );
+      }
       const startedAt = performance.now();
-      const response = await postJev(
+      const decision = await decideWithJev({
         apiKey,
-        { state: request.state, model: JEV_MODEL, questions: mappedQuestions },
-        context.signal,
-      );
-      if (response.model !== JEV_MODEL) {
-        throw new Error(`TypeSafe returned unevaluated model version ${response.model}`);
-      }
-      if (!isRecord(response.answers) || !isRecord(response.usage)) {
-        throw new Error("TypeSafe returned a malformed response");
-      }
-      const inputTokens = response.usage.input_tokens;
-      const outputTokens = response.usage.output_tokens;
-      if (!Number.isSafeInteger(inputTokens) || inputTokens < 0)
-        throw new Error("Invalid token usage");
-      if (!Number.isSafeInteger(outputTokens) || outputTokens < 0)
-        throw new Error("Invalid token usage");
+        state: toDecisionState(request.state),
+        questions: Object.fromEntries(
+          request.questions.map(({ id, question }) => [id, mapQuestion(question)]),
+        ),
+        signal: context.signal,
+        maxRetries: HOOK_MAX_RETRIES,
+      });
       return {
         providerId: JEV_PROVIDER_ID,
-        model: response.model,
+        model: decision.model,
         latencyMs: performance.now() - startedAt,
         answers: request.questions.map(({ id, question }) => {
-          const answer = parseAnswer(question, response.answers[id]);
+          const answer = toDecisionAnswer(question, decision.answers[id]);
           return {
             id,
             outcome:
@@ -260,8 +162,8 @@ export function createJevDecisionProvider(api: PluginHostApi): DecisionProvider 
                 : { status: "answered" as const, answer },
           };
         }),
-        usage: { inputTokens, outputTokens },
-        costUSD: (inputTokens * JEV_INPUT_USD_PER_MILLION_TOKENS) / 1_000_000,
+        usage: { inputTokens: decision.inputTokens, outputTokens: decision.outputTokens },
+        costUSD: decision.costUSD,
       };
     },
   };
@@ -660,6 +562,7 @@ const plugin: JazzPluginModule = {
     api.policy.register("classify.command-risk", (input, context) =>
       classifyCommandRisk(client, input, context.signal),
     );
+    registerChatTools(api);
   },
 };
 
