@@ -100,6 +100,18 @@ describe("writeFileAtomically", () => {
     expect(readFileSync(target, "utf8")).toBe("echo new\n");
     expect(statSync(target).mode & 0o777).toBe(0o750);
   });
+
+  it("creates a new file with the umask's permissions, not owner-only", async () => {
+    const target = join(scratchDirectory(), "findings.md");
+    const previousUmask = process.umask(0o022);
+    try {
+      await Effect.runPromise(withFs((fs) => writeFileAtomically(fs, target, "notes\n")));
+    } finally {
+      process.umask(previousUmask);
+    }
+
+    expect(statSync(target).mode & 0o777).toBe(0o644);
+  });
 });
 
 describe("replacePathAtomically", () => {
