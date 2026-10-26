@@ -44,6 +44,11 @@ export interface ClearToolResultsOptions {
   readonly minClearableTokens?: number;
   /** Tool-call ids whose original body is on disk and can be retrieved. */
   readonly retrievableIds?: ReadonlySet<string>;
+  /**
+   * Stop once this many tokens are reclaimed, clearing the oldest results first. Absent
+   * clears every eligible result.
+   */
+  readonly tokensToReclaim?: number;
 }
 
 export interface ClearToolResultsOutcome {
@@ -111,25 +116,16 @@ export function clearToolResults(
     }
   }
 
-  const toClear = new Map<number, number>();
+  const replacements = new Map<number, ChatMessage>();
+  let tokensReclaimed = 0;
   for (let index = 0; index < messages.length; index++) {
     if (index >= options.protectedFromIndex) break;
+    if (options.tokensToReclaim !== undefined && tokensReclaimed >= options.tokensToReclaim) break;
     const message = messages[index];
     if (!message || message.role !== "tool") continue;
     if (message.cleared) continue;
-    const tokens = counter.countMessage(message, options.modelHint);
-    if (tokens < minTokens) continue;
-    toClear.set(index, tokens);
-  }
-
-  if (toClear.size === 0) {
-    return { messages: messages as ChatMessage[], clearedCount: 0, tokensReclaimed: 0 };
-  }
-
-  let tokensReclaimed = 0;
-  const next = messages.map((message, index) => {
-    const originalTokens = toClear.get(index);
-    if (originalTokens === undefined) return message;
+    const originalTokens = counter.countMessage(message, options.modelHint);
+    if (originalTokens < minTokens) continue;
 
     const toolCallId = message.tool_call_id;
     const toolName = toolCallId ? toolNameByCallId.get(toolCallId) : undefined;
@@ -141,8 +137,13 @@ export function clearToolResults(
       ...(messageCarriesEgressTaint(message) ? { egressTainted: true as const } : {}),
     };
     tokensReclaimed += originalTokens - counter.countMessage(replacement, options.modelHint);
-    return replacement;
-  });
+    replacements.set(index, replacement);
+  }
 
-  return { messages: next, clearedCount: toClear.size, tokensReclaimed };
+  if (replacements.size === 0) {
+    return { messages: messages as ChatMessage[], clearedCount: 0, tokensReclaimed: 0 };
+  }
+
+  const next = messages.map((message, index) => replacements.get(index) ?? message);
+  return { messages: next, clearedCount: replacements.size, tokensReclaimed };
 }

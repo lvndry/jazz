@@ -177,6 +177,22 @@ describe("clearToolResults", () => {
     expect(second.clearedCount).toBe(0);
   });
 
+  it("clears the oldest results first and stops once enough is reclaimed", () => {
+    const messages = conversation(12);
+    const outcome = clearToolResults(messages, {
+      protectedFromIndex: messages.length,
+      modelHint,
+      tokenCounter: fixedCounter,
+      tokensToReclaim: 12_000,
+    });
+
+    const cleared = outcome.messages
+      .filter((message) => message.role === "tool" && message.cleared)
+      .map((message) => message.tool_call_id);
+    expect(cleared).toEqual(["call_0", "call_1", "call_2"]);
+    expect(outcome.tokensReclaimed).toBeGreaterThanOrEqual(12_000);
+  });
+
   it("returns the same array reference when nothing qualifies", () => {
     const tiny: ChatMessage[] = [
       { role: "system", content: "system" },

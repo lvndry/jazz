@@ -17,9 +17,20 @@ import { carryEgressTaint } from "../execution/egress-taint";
  *
  * Clearing is only worth its cost under pressure. Below this line the model keeps
  * every result it has read, so evidence gathered three turns ago is still there when
- * it decides; above it, results older than `PROTECTED_TOOL_CYCLES` are stubbed.
+ * it decides; above it, the oldest results are stubbed, never the last
+ * `PROTECTED_TOOL_CYCLES`.
  */
 export const CONTEXT_CLEAR_THRESHOLD_RATIO = 0.5;
+
+/**
+ * Fraction of the context budget a clear brings the conversation back down to.
+ *
+ * Clearing stubs the oldest results first and stops here, so a long run keeps the
+ * evidence it read recently instead of being cut back to its last few tool cycles. The
+ * gap to `CONTEXT_CLEAR_THRESHOLD_RATIO` is how far the run grows before the next clear
+ * rewrites its prompt-cache prefix.
+ */
+export const CONTEXT_CLEAR_TARGET_RATIO = 0.4;
 
 /**
  * Fraction of the context budget at which the user is told the window is filling up,

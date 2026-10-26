@@ -73,6 +73,7 @@ import {
   formatContextUsageReport,
 } from "../context/context-usage";
 import {
+  CONTEXT_CLEAR_TARGET_RATIO,
   CONTEXT_CLEAR_THRESHOLD_RATIO,
   CONTEXT_COMPACT_THRESHOLD_RATIO,
   CONTEXT_TRIM_THRESHOLD_RATIO,
@@ -1699,7 +1700,8 @@ function runIteration(
     }
 
     // Cheapest rung first, and only under pressure: persist large tool bodies,
-    // then stub every cycle older than the protected window. Below the clear
+    // then stub the oldest results outside the protected window until usage is
+    // back at the clear target. Below the clear
     // threshold nothing is touched, so the model keeps the evidence it gathered
     // and the prompt-cache prefix never moves. A failed write (read-only CI,
     // container) still stubs; the placeholder then says to re-run the tool.
@@ -1726,6 +1728,9 @@ function runIteration(
             protectedFromIndex,
             modelHint,
             retrievableIds,
+            tokensToReclaim:
+              before -
+              Math.floor(runContextWindowManager.contextBudgetTokens * CONTEXT_CLEAR_TARGET_RATIO),
           });
       if (cleared.clearedCount > 0) {
         toolResultsCleared = true;
