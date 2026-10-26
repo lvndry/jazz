@@ -39,7 +39,8 @@ export function writeFileAtomically(
   content: string,
 ): Effect.Effect<void, Error> {
   return Effect.gen(function* () {
-    const exists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(false)));
+    // `undefined` when the check itself failed: only a confirmed absence gets new-file permissions.
+    const exists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(undefined)));
     const realTarget = exists
       ? yield* fs.realPath(target).pipe(Effect.catch(() => Effect.succeed(target)))
       : target;
@@ -52,7 +53,11 @@ export function writeFileAtomically(
 
     yield* Effect.uninterruptible(
       Effect.gen(function* () {
-        yield* writeFileStringAtomic(realTarget, content, { mode: mode ?? NEW_FILE_MODE });
+        yield* writeFileStringAtomic(
+          realTarget,
+          content,
+          exists === false ? { mode: NEW_FILE_MODE } : mode !== undefined ? { mode } : undefined,
+        );
         // The temp file's mode went through the umask; set the original bits exactly.
         if (mode !== undefined) {
           yield* fs.chmod(realTarget, mode).pipe(Effect.mapError(toError));
