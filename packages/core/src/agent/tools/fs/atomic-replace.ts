@@ -17,6 +17,9 @@ import { Effect, FileSystem } from "effect";
 import { toError } from "@/core/utils/errors";
 import { writeFileStringAtomic } from "@/core/utils/storage";
 
+/** Requested for a new file; the umask narrows it, as it does for `touch` or an editor. */
+const NEW_FILE_MODE = 0o666;
+
 /** Permission bits of a file mode: what a replacement must keep. */
 const PERMISSION_BITS = 0o7777;
 
@@ -36,7 +39,8 @@ export function writeFileAtomically(
   content: string,
 ): Effect.Effect<void, Error> {
   return Effect.gen(function* () {
-    const exists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(false)));
+    // `undefined` when the check itself failed: only a confirmed absence gets new-file permissions.
+    const exists = yield* fs.exists(target).pipe(Effect.catch(() => Effect.succeed(undefined)));
     const realTarget = exists
       ? yield* fs.realPath(target).pipe(Effect.catch(() => Effect.succeed(target)))
       : target;
@@ -52,7 +56,7 @@ export function writeFileAtomically(
         yield* writeFileStringAtomic(
           realTarget,
           content,
-          mode !== undefined ? { mode } : undefined,
+          exists === false ? { mode: NEW_FILE_MODE } : mode !== undefined ? { mode } : undefined,
         );
         // The temp file's mode went through the umask; set the original bits exactly.
         if (mode !== undefined) {
