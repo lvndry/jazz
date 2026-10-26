@@ -152,7 +152,7 @@
       "schemaVersion": 1,
       "id": "io.github.lvndry.view-concept",
       "name": "view-concept",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "hostApi": 1,
       "hooks": [],
       "policyHooks": [],
@@ -164,12 +164,24 @@
           "description": "Explain a concept in a local web page where you comment on passages"
         },
         {
-          "name": "view-branch",
-          "description": "Review a branch in the page: concepts first, then the code against them"
+          "name": "build-feature",
+          "description": "Build a feature in the page, concepts first: model, code, check, docs, PR"
         },
         {
-          "name": "view-refactor",
+          "name": "triage-code",
           "description": "Triage existing code in the page, then restructure it"
+        },
+        {
+          "name": "review-docs",
+          "description": "Review a repo's docs on a scope in the page, then open a PR"
+        },
+        {
+          "name": "write-readme",
+          "description": "Write or fix a folder's README from its code, in the terminal"
+        },
+        {
+          "name": "explain-concept",
+          "description": "Explain a concept in the terminal, with no page"
         }
       ],
       "personas": [],
@@ -190,12 +202,12 @@
       "repositoryId": 1401908690,
       "repository": "lvndry/jazz-plugin-view-concept",
       "repositoryUrl": "https://github.com/lvndry/jazz-plugin-view-concept",
-      "manifestUrl": "https://raw.githubusercontent.com/lvndry/jazz-plugin-view-concept/53fb4be0f5dfe0644b4f772fbd35060a3d200f5c/jazz-plugin.json",
+      "manifestUrl": "https://raw.githubusercontent.com/lvndry/jazz-plugin-view-concept/99710dac0183c15edc27dfd8bbaa3bc8818bb41b/jazz-plugin.json",
       "defaultBranch": "main",
-      "sourceSha": "53fb4be0f5dfe0644b4f772fbd35060a3d200f5c",
-      "manifestSha256": "99ee98f2a278e8d4d9b0aeb69f77b735ba9ba9d02ea188137c935af49f1610ab",
+      "sourceSha": "99710dac0183c15edc27dfd8bbaa3bc8818bb41b",
+      "manifestSha256": "5ba1e2379b07019ff8f4e7703bcab9a002f9e968c49e441778d6a944e786d8d7",
       "manifestPath": "jazz-plugin.json",
-      "indexedAt": "2026-10-19T08:51:12.712Z",
+      "indexedAt": "2026-10-26T08:53:41.147Z",
       "entry": "src/index.ts",
       "description": "A Jazz plugin that adds /view-concept, /view-branch and /view-refactor: explanations and code reviews in a local web page.",
       "license": "MIT"
