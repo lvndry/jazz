@@ -25,6 +25,7 @@ import { applyTheme, THEME } from "../theme";
 import { pickThemeInteractively } from "../theme-picker-prompt";
 import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
 import { frameWhen, renderForTest, updateForTest } from "./test-helpers";
+import { LIVE_ZONE_MAX_ROWS } from "./types";
 
 /**
  * Paints the frame after a simulated key.
@@ -295,6 +296,95 @@ describe("fullscreen bridge", () => {
     });
     expect(text).toContain("gmail");
     expect(text).toContain("web");
+  });
+
+  it("expands the folded command on screen, not a subagent call the live zone leaves out", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    updateForTest(() => {
+      store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+      store.setActivity({
+        phase: "tool-execution",
+        agentName: "jazz",
+        tools: [
+          {
+            toolCallId: "subagent",
+            toolName: "spawn_subagent",
+            startedAt: Date.now(),
+            argsPreview: "research\nHIDDEN_SUBAGENT_BRIEF",
+          },
+          {
+            toolCallId: "command",
+            toolName: "execute_command",
+            startedAt: Date.now(),
+            argsPreview: "python3 <<'EOF'\nprint('VISIBLE_SCRIPT_BODY')\nEOF",
+          },
+        ],
+      });
+    });
+    await flush();
+    const before = captureCharFrame();
+
+    mockInput.pressKey("o", { ctrl: true });
+    await settleKeypress(flush);
+    updateForTest(() => store.flushOutputBatchNow());
+    await flush();
+    const after = captureCharFrame();
+    renderer.destroy();
+    store.setActivity({ phase: "idle" });
+    store.setPrompt(null);
+
+    expect(before).toContain("ctrl+o for 2 more lines");
+    expect(after).toContain("VISIBLE_SCRIPT_BODY");
+    expect(after).not.toContain("HIDDEN_SUBAGENT_BRIEF");
+    expect(after).not.toContain("ctrl+o for 2 more lines");
+  });
+
+  it("leaves a folded command collapsed into the overflow row alone", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await renderForTest(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    updateForTest(() => {
+      store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+      store.setActivity({
+        phase: "tool-execution",
+        agentName: "jazz",
+        tools: [
+          ...Array.from({ length: LIVE_ZONE_MAX_ROWS }, (_, index) => ({
+            toolCallId: `read-${String(index)}`,
+            toolName: "read_file",
+            startedAt: Date.now(),
+            argsPreview: `notes-${String(index)}.md`,
+          })),
+          {
+            toolCallId: "command",
+            toolName: "execute_command",
+            startedAt: Date.now(),
+            argsPreview: "python3 <<'EOF'\nprint('OVERFLOWED_SCRIPT_BODY')\nEOF",
+          },
+        ],
+      });
+    });
+    await flush();
+    const before = captureCharFrame();
+
+    mockInput.pressKey("o", { ctrl: true });
+    await settleKeypress(flush);
+    updateForTest(() => store.flushOutputBatchNow());
+    await flush();
+    const after = captureCharFrame();
+    renderer.destroy();
+    store.setActivity({ phase: "idle" });
+    store.setPrompt(null);
+
+    expect(before).toContain("more");
+    expect(before).not.toContain("ctrl+o for");
+    expect(after).not.toContain("OVERFLOWED_SCRIPT_BODY");
   });
 
   describe("ctrl+b hint on the running tool row", () => {

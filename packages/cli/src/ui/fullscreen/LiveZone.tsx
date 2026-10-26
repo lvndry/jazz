@@ -70,6 +70,8 @@ export interface LiveRow {
   readonly segments: readonly LiveSegment[];
   /** A row painted as part of a band, such as the retry notice. */
   readonly background?: string;
+  /** The tool a tool row draws, so key handlers act only on work that is on screen. */
+  readonly tool?: LiveTool;
 }
 
 /**
@@ -119,24 +121,37 @@ function toolRow(tool: LiveTool, tick: number, glyphs: GlyphSet, width: number):
     tool.language === undefined
       ? [{ text: tool.operation, fg: THEME.selected }]
       : highlightCodeLine(tool.operation);
-  return alignRow(
-    `tool:${tool.app}:${tool.operation}`,
-    [
-      ...gutter(glyphs),
-      { text: cell, fg: THEME.primary },
-      { text: " ", fg: THEME.muted },
-      { text: tool.app, fg: THEME.secondary },
-      separator(glyphs),
-      ...operationSpans,
-    ],
-    [
-      ...(tool.detachHint === undefined
-        ? []
-        : [{ text: tool.detachHint, fg: THEME.muted }, separator(glyphs)]),
-      { text: formatElapsed(tool.elapsedMs), fg: THEME.muted },
-    ],
-    width,
+  const lead: LiveSegment[] = [
+    ...gutter(glyphs),
+    { text: cell, fg: THEME.primary },
+    { text: " ", fg: THEME.muted },
+    { text: tool.app, fg: THEME.secondary },
+    separator(glyphs),
+  ];
+  const hints = [tool.fold?.hint, tool.detachHint].flatMap((hint): LiveSegment[] =>
+    hint === undefined ? [] : [separator(glyphs), { text: hint, fg: THEME.muted }],
   );
+  const elapsed: LiveSegment[] = [{ text: formatElapsed(tool.elapsedMs), fg: THEME.muted }];
+  // The hints follow the command, so the command is what gets cut when the row is narrow.
+  const operationBudget =
+    width -
+    terminalSegmentsWidth(lead) -
+    terminalSegmentsWidth(hints) -
+    terminalSegmentsWidth(elapsed) -
+    1;
+  const key = `tool:${tool.app}:${tool.operation}`;
+  if (operationBudget > 0) {
+    const operation = fitTerminalSegments(operationSpans, operationBudget);
+    return alignRow(key, [...lead, ...operation, ...hints], elapsed, width);
+  }
+  // Too narrow for the command and its hints: the hints join the metadata column, which
+  // keeps them whole at the command's expense.
+  const metadata = [
+    ...hints.slice(1),
+    ...(hints.length > 0 ? [separator(glyphs)] : []),
+    ...elapsed,
+  ];
+  return alignRow(key, [...lead, ...operationSpans], metadata, width);
 }
 
 /**
@@ -457,7 +472,7 @@ export function liveRows(
     );
   }
   rows.push(...todoPanel);
-  for (const tool of shown) rows.push(toolRow(tool, tick, glyphs, width));
+  for (const tool of shown) rows.push({ ...toolRow(tool, tick, glyphs, width), tool });
   if (hiddenNames.length > 0) rows.push(overflowRow(hiddenNames, glyphs, width));
 
   return rows;
@@ -538,3 +553,14 @@ function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): R
 }
 
 export const LiveZone = memo(LiveZoneView);
+
+/** The first folded call among the rows the band draws: the one Ctrl+O prints. */
+export function drawnLiveFold(
+  model: LiveModel,
+  viewport: Viewport,
+  maxRows?: number,
+): LiveTool["fold"] | undefined {
+  return liveRows(model, viewport, false, undefined, maxRows).find(
+    (row) => row.tool?.fold !== undefined,
+  )?.tool?.fold;
+}
