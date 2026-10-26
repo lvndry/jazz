@@ -956,6 +956,8 @@ describe("compact", () => {
         const cleared = clearToolResults(messages, {
           protectedFromIndex: messages.length,
           modelHint: { provider: "openai", modelId: "gpt-4" },
+          currentTokens: Number.MAX_SAFE_INTEGER,
+          budgetTokens: 0,
         });
         expect(cleared.clearedCount).toBe(1);
         expect(cleared.messages[2]?.content).not.toContain("untrusted-content");
