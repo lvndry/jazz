@@ -73,7 +73,6 @@ import {
   formatContextUsageReport,
 } from "../context/context-usage";
 import {
-  CONTEXT_CLEAR_TARGET_RATIO,
   CONTEXT_CLEAR_THRESHOLD_RATIO,
   CONTEXT_COMPACT_THRESHOLD_RATIO,
   CONTEXT_TRIM_THRESHOLD_RATIO,
@@ -1728,9 +1727,8 @@ function runIteration(
             protectedFromIndex,
             modelHint,
             retrievableIds,
-            tokensToReclaim:
-              before -
-              Math.floor(runContextWindowManager.contextBudgetTokens * CONTEXT_CLEAR_TARGET_RATIO),
+            currentTokens: before,
+            budgetTokens: runContextWindowManager.contextBudgetTokens,
           });
       if (cleared.clearedCount > 0) {
         toolResultsCleared = true;

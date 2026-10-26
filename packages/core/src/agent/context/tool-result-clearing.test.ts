@@ -8,6 +8,8 @@ import {
 
 const modelHint = { provider: "openai", modelId: "gpt-4o" };
 
+const overBudget = { currentTokens: 1_000_000, budgetTokens: 0 };
+
 const fixedCounter = {
   countMessage: (message: ChatMessage) => Math.ceil((message.content?.length ?? 0) / 4),
   countMessages: (messages: readonly ChatMessage[]) =>
@@ -73,6 +75,7 @@ describe("clearToolResults", () => {
   it("replaces old large results with a placeholder while keeping the message", () => {
     const messages = conversation(10);
     const outcome = clearToolResults(messages, {
+      ...overBudget,
       protectedFromIndex: messages.length,
       modelHint,
       tokenCounter: fixedCounter,
@@ -93,6 +96,7 @@ describe("clearToolResults", () => {
   it("points at retrieve_tool_result when the body was persisted", () => {
     const messages = conversation(4);
     const outcome = clearToolResults(messages, {
+      ...overBudget,
       protectedFromIndex: messages.length,
       modelHint,
       tokenCounter: fixedCounter,
@@ -109,6 +113,7 @@ describe("clearToolResults", () => {
   it("never orphans a tool result from its assistant call", () => {
     const messages = conversation(10);
     const outcome = clearToolResults(messages, {
+      ...overBudget,
       protectedFromIndex: messages.length,
       modelHint,
       tokenCounter: fixedCounter,
@@ -129,6 +134,7 @@ describe("clearToolResults", () => {
     const messages = conversation(10);
     const protectedFromIndex = toolResultsProtectFromIndex(messages);
     const outcome = clearToolResults(messages, {
+      ...overBudget,
       protectedFromIndex,
       modelHint,
       tokenCounter: fixedCounter,
@@ -151,6 +157,7 @@ describe("clearToolResults", () => {
     ];
 
     const outcome = clearToolResults(messages, {
+      ...overBudget,
       protectedFromIndex: messages.length,
       modelHint,
       tokenCounter: fixedCounter,
@@ -163,11 +170,13 @@ describe("clearToolResults", () => {
   it("is idempotent — a second pass clears nothing new", () => {
     const messages = conversation(12);
     const first = clearToolResults(messages, {
+      ...overBudget,
       protectedFromIndex: messages.length,
       modelHint,
       tokenCounter: fixedCounter,
     });
     const second = clearToolResults(first.messages, {
+      ...overBudget,
       protectedFromIndex: first.messages.length,
       modelHint,
       tokenCounter: fixedCounter,
@@ -177,13 +186,14 @@ describe("clearToolResults", () => {
     expect(second.clearedCount).toBe(0);
   });
 
-  it("clears the oldest results first and stops once enough is reclaimed", () => {
+  it("clears the oldest results first and stops at the clear target", () => {
     const messages = conversation(12);
     const outcome = clearToolResults(messages, {
       protectedFromIndex: messages.length,
       modelHint,
       tokenCounter: fixedCounter,
-      tokensToReclaim: 12_000,
+      currentTokens: 52_000,
+      budgetTokens: 100_000,
     });
 
     const cleared = outcome.messages
@@ -200,6 +210,7 @@ describe("clearToolResults", () => {
       { role: "tool", tool_call_id: "call_tiny", content: "tiny" } as ChatMessage,
     ];
     const outcome = clearToolResults(tiny, {
+      ...overBudget,
       protectedFromIndex: tiny.length,
       modelHint,
       tokenCounter: fixedCounter,

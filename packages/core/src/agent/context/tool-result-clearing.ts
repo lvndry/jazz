@@ -1,4 +1,5 @@
 import type { ChatMessage } from "@/core/types/message";
+import { CONTEXT_CLEAR_TARGET_RATIO } from "./context-window-manager";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
 import { messageCarriesEgressTaint } from "../execution/egress-taint";
 
@@ -44,11 +45,10 @@ export interface ClearToolResultsOptions {
   readonly minClearableTokens?: number;
   /** Tool-call ids whose original body is on disk and can be retrieved. */
   readonly retrievableIds?: ReadonlySet<string>;
-  /**
-   * Stop once this many tokens are reclaimed, clearing the oldest results first. Absent
-   * clears every eligible result.
-   */
-  readonly tokensToReclaim?: number;
+  /** Tokens the whole request occupies now, overhead included. */
+  readonly currentTokens: number;
+  /** The run's context budget; clearing stops at `CONTEXT_CLEAR_TARGET_RATIO` of it. */
+  readonly budgetTokens: number;
 }
 
 export interface ClearToolResultsOutcome {
@@ -117,10 +117,12 @@ export function clearToolResults(
   }
 
   const replacements = new Map<number, ChatMessage>();
+  const tokensToReclaim =
+    options.currentTokens - Math.floor(options.budgetTokens * CONTEXT_CLEAR_TARGET_RATIO);
   let tokensReclaimed = 0;
   for (let index = 0; index < messages.length; index++) {
     if (index >= options.protectedFromIndex) break;
-    if (options.tokensToReclaim !== undefined && tokensReclaimed >= options.tokensToReclaim) break;
+    if (tokensReclaimed >= tokensToReclaim) break;
     const message = messages[index];
     if (!message || message.role !== "tool") continue;
     if (message.cleared) continue;

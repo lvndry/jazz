@@ -55,6 +55,7 @@ const retrievable = new Set(
   Array.from({ length: 200 }, (_unused, index) => `call-${String(index)}`),
 );
 const history200 = toolHistory(200);
+const WHOLE_HISTORY_OVER_BUDGET = { currentTokens: Number.MAX_SAFE_INTEGER, budgetTokens: 0 };
 
 const results = [
   bench("toolResultsProtectFromIndex, 200 cycles", () => {
@@ -66,6 +67,7 @@ const results = [
       const messages = toolHistory(60);
       clearToolResults(messages, {
         protectedFromIndex: toolResultsProtectFromIndex(messages),
+        ...WHOLE_HISTORY_OVER_BUDGET,
         modelHint: OPENAI_HINT,
       });
     },
@@ -77,6 +79,7 @@ const results = [
       const messages = toolHistory(200);
       clearToolResults(messages, {
         protectedFromIndex: toolResultsProtectFromIndex(messages),
+        ...WHOLE_HISTORY_OVER_BUDGET,
         modelHint: OPENAI_HINT,
       });
     },
@@ -88,6 +91,7 @@ const results = [
       const messages = toolHistory(200);
       clearToolResults(messages, {
         protectedFromIndex: toolResultsProtectFromIndex(messages),
+        ...WHOLE_HISTORY_OVER_BUDGET,
         modelHint: ANTHROPIC_HINT,
       });
     },
@@ -100,6 +104,7 @@ const results = [
       const messages = toolHistory(200);
       clearToolResults(messages, {
         protectedFromIndex: toolResultsProtectFromIndex(messages),
+        ...WHOLE_HISTORY_OVER_BUDGET,
         modelHint: ANTHROPIC_HINT,
         retrievableIds: retrievable,
       });
@@ -116,6 +121,7 @@ const results = [
       );
       clearToolResults(messages, {
         protectedFromIndex: toolResultsProtectFromIndex(messages),
+        ...WHOLE_HISTORY_OVER_BUDGET,
         modelHint: ANTHROPIC_HINT,
       });
     },
