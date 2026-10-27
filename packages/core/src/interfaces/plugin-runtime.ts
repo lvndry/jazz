@@ -9,6 +9,8 @@ import type {
   CompactToolsInput,
   CompactToolsOutcome,
   LifecycleEvent,
+  MemoryPassGateInput,
+  MemoryPassGateOutcome,
   PluginCommandInfo,
   PluginCommandResult,
   PluginPersonaInfo,
@@ -40,6 +42,8 @@ export interface PluginSession {
   readonly runClassifyPage: (input: ClassifyPageInput) => Effect.Effect<ClassifyPageOutcome>;
   /** Advisory snapshot routing; any failure resolves to an abstention and changes nothing. */
   readonly runRouteSnapshot: (input: RouteSnapshotInput) => Effect.Effect<RouteSnapshotOutcome>;
+  /** Advisory memory-pass gate; any failure resolves to an abstention, and the pass runs. */
+  readonly runMemoryPassGate: (input: MemoryPassGateInput) => Effect.Effect<MemoryPassGateOutcome>;
   /** Bounded ambient context from workspace plugins; empty when none can answer. */
   readonly runWorkspace: (input: WorkspaceContextInput) => Effect.Effect<string | undefined>;
   /** The plugin registered for a hook, so callers can credit it in the UI. Undefined if none. */

@@ -33,17 +33,23 @@
  * call site, not here.
  */
 
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { MEMORY_EXTRACTOR_AGENT_ID, MEMORY_LEARNER_AGENT_ID } from "@/core/constants/memory";
 import type { ProviderName } from "@/core/constants/models";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import { MAX_SOURCE_QUOTE_CHARS, formatMemorySourceTag } from "@/core/memory/source-trust";
 import type { Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
+import {
+  MAX_MEMORY_PASS_GATE_CHARS,
+  type MemoryPassGateInput,
+  type MemoryPassGateMessage,
+} from "@/core/types/plugin";
 import { toError } from "@/core/utils/errors";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import {
@@ -110,6 +116,13 @@ const EXTRACTION_MAX_ITERATIONS = 8;
  * chunks went unread.
  */
 export const MAX_CONVERSATION_END_CHUNKS = 2;
+
+/**
+ * A `gate.memory-pass` plugin answering below this skips the pass. Missing a fact the user stated
+ * costs more than one extractor call that finds nothing, so a pass is skipped only when the gate
+ * is at least 90% sure there is nothing to keep.
+ */
+export const SKIP_MEMORY_PASS_BELOW_PROBABILITY = 0.1;
 
 /** Quotes allowed per rewritten user message; the model can only copy words it was shown. */
 const QUOTES_SHOWN_PER_MESSAGE = 4;
@@ -353,6 +366,104 @@ function scanForMemories(
 }
 
 /**
+ * What a `gate.memory-pass` plugin reads: the user and assistant text the pass would scan, followed
+ * by the retained later messages the extractor reads as context, since a user correction there can
+ * be the only sign that a scanned assistant reply was a mistake. Tool output and compaction
+ * scaffolding are left out. Undefined when there is no such text, or when it is over the gate's
+ * bound, so the gate only skips a pass after reading everything the extractor would.
+ */
+export function buildMemoryPassGateInput(
+  messages: readonly ChatMessage[],
+  pass: MemoryPassGateInput["pass"],
+  laterMessages: readonly ChatMessage[] = [],
+): MemoryPassGateInput | undefined {
+  const gateMessages: MemoryPassGateMessage[] = [];
+  let totalChars = 0;
+  for (const message of [...messages, ...laterMessages]) {
+    if (
+      (message.role !== "user" && message.role !== "assistant") ||
+      message.kind !== undefined ||
+      message.content.trim().length === 0
+    ) {
+      continue;
+    }
+    totalChars += message.content.length;
+    if (totalChars > MAX_MEMORY_PASS_GATE_CHARS) {
+      return undefined;
+    }
+    gateMessages.push({ role: message.role, text: message.content });
+  }
+  return gateMessages.length === 0 ? undefined : { pass, messages: gateMessages };
+}
+
+/**
+ * Ask a `gate.memory-pass` plugin whether the pass is worth running. Every path other than a
+ * confident "nothing here" answer runs the pass: no plugin, a transcript over the bound, an
+ * abstention, or a session that failed to open.
+ */
+function memoryPassGateSaysSkip(
+  messages: readonly ChatMessage[],
+  laterMessages: readonly ChatMessage[],
+  parentAgent: Agent,
+  conversationId: string,
+  pass: MemoryPassGateInput["pass"],
+): Effect.Effect<boolean, never, LoggerService> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+    const pluginRuntime = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+    if (Option.isNone(pluginRuntime)) {
+      return false;
+    }
+    const input = buildMemoryPassGateInput(messages, pass, laterMessages);
+    if (input === undefined) {
+      yield* logger.debug("Memory pass gate not consulted", {
+        pass,
+        conversationId,
+        reason: "no user or assistant text, or over the gate bound",
+      });
+      return false;
+    }
+    const started = Date.now();
+    const outcome = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const session = yield* Effect.acquireRelease(
+          pluginRuntime.value.openSession({ agentId: parentAgent.id }),
+          (openedSession) => openedSession.close(),
+        );
+        return yield* session.runMemoryPassGate(input);
+      }),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.gen(function* () {
+          yield* logger.debug("Memory pass gate session failed to open", {
+            pass,
+            conversationId,
+            error: toError(error).message,
+          });
+          return { status: "abstained" as const, reason: "plugin session failed to open" };
+        }),
+      ),
+    );
+    const skip =
+      outcome.status === "answered" &&
+      outcome.worthScanningProbability < SKIP_MEMORY_PASS_BELOW_PROBABILITY;
+    yield* logger.debug("Memory pass gate answered", {
+      pass,
+      conversationId,
+      agentId: parentAgent.id,
+      messages: input.messages.length,
+      durationMs: Date.now() - started,
+      status: outcome.status,
+      ...(outcome.status === "answered"
+        ? { worthScanningProbability: outcome.worthScanningProbability }
+        : {}),
+      skip,
+    });
+    return skip;
+  });
+}
+
+/**
  * Queue durable facts and lessons from the about-to-be-compacted messages for review.
  *
  * Best-effort: any failure is logged and swallowed so it can never fail or block
@@ -369,6 +480,29 @@ export function extractMemories(
 ): Effect.Effect<void, never, MemoryPassRequirements> {
   return Effect.gen(function* () {
     if (messagesToSummarize.length === 0) {
+      return;
+    }
+    if (
+      pass === "compaction" &&
+      !messagesToSummarize.some((message) => message.memorySource !== undefined)
+    ) {
+      const logger = yield* LoggerServiceTag;
+      yield* logger.debug("Memory pass skipped: no message has a quotable user source", {
+        pass,
+        conversationId,
+        messageCount: messagesToSummarize.length,
+      });
+      return;
+    }
+    if (
+      yield* memoryPassGateSaysSkip(
+        messagesToSummarize,
+        surrounding.laterMessages ?? [],
+        parentAgent,
+        conversationId,
+        pass,
+      )
+    ) {
       return;
     }
     const prepared = yield* prepareMemoryPass(parentAgent, EXTRACTOR_ROLE);

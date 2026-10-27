@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "com.jazz.plugins.jev",
   "name": "Jev decision provider",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "hostApi": 1,
   "entry": "src/index.ts",
-  "hooks": ["route.skills", "compact.tools", "classify.page", "route.snapshot"],
+  "hooks": ["route.skills", "compact.tools", "classify.page", "route.snapshot", "gate.memory-pass"],
   "policyHooks": ["classify.command-risk"],
   "decisionProviders": ["typesafe-jev"],
   "network": {
@@ -17,6 +17,7 @@
     "proposed shell command text",
     "tool call names and result previews during compaction",
     "current page origin, title, and interactive element roles and labels (never the page body, path, or query)",
+    "your messages and the assistant's replies (never tool output) before a memory pass, to skip passes with nothing to remember",
     "items, labels, criteria, and context the agent passes to the classify and rank tools, including images it names"
   ],
   "secrets": [

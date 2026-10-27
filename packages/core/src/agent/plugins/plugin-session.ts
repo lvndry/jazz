@@ -18,6 +18,7 @@ import {
   type DecisionProvider,
   type DecisionRequest,
   type LoadedPlugin,
+  type MemoryPassGateOutcome,
   type PluginDecisionClient,
   type PluginHostApi,
   type PolicyHookHandler,
@@ -50,6 +51,8 @@ import {
   validateCommandRiskOutcome,
   validateCompactToolsInput,
   validateCompactToolsOutcome,
+  validateMemoryPassGateInput,
+  validateMemoryPassGateOutcome,
   validatePluginManifest,
   validateRouteSnapshotInput,
   validateRouteSnapshotOutcome,
@@ -116,6 +119,10 @@ const abstainedClassifyPage = (reason: string): ClassifyPageOutcome => ({
   reason,
 });
 const abstainedRouteSnapshot = (reason: string): RouteSnapshotOutcome => ({
+  status: "abstained",
+  reason,
+});
+const abstainedMemoryPassGate = (reason: string): MemoryPassGateOutcome => ({
   status: "abstained",
   reason,
 });
@@ -471,6 +478,27 @@ export function createPluginSession(
             } catch (error) {
               options.reportFailure?.(registration.pluginId, toError(error).message);
               return abstainedRouteSnapshot("plugin handler failed");
+            }
+          }),
+        runMemoryPassGate: (rawInput) =>
+          Effect.promise(async () => {
+            if (closed) return abstainedMemoryPassGate("plugin session closed");
+            const registration = hooks.get("gate.memory-pass");
+            if (!registration) return abstainedMemoryPassGate("no plugin handler");
+            try {
+              const input = validateMemoryPassGateInput(rawInput);
+              const outcome = await deadline(
+                (signal) =>
+                  (registration.handler as unknown as AdvisoryHookHandler<"gate.memory-pass">)(
+                    input,
+                    { signal },
+                  ),
+                timeoutMs,
+              );
+              return validateMemoryPassGateOutcome(outcome);
+            } catch (error) {
+              options.reportFailure?.(registration.pluginId, toError(error).message);
+              return abstainedMemoryPassGate("plugin handler failed");
             }
           }),
         runWorkspace: (rawInput) =>

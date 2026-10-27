@@ -1,6 +1,6 @@
 /**
- * Optional trusted Jazz plugin that answers bounded skill-routing, command-risk, compaction, and
- * browser-page decisions through TypeSafe's System One API, and gives chat agents `classify` and
+ * Optional trusted Jazz plugin that answers bounded skill-routing, command-risk, compaction,
+ * browser-page, and memory-pass decisions through TypeSafe's System One API, and gives chat agents `classify` and
  * `rank` tools that judge many items in one call. It uses only the public plugin ABI,
  * pins the evaluated model version, and fails through explicit abstention so Jazz
  * can preserve its host-owned fallback policy.
@@ -22,6 +22,8 @@ import type {
   DecisionRequest,
   JazzPluginModule,
   JsonValue,
+  MemoryPassGateInput,
+  MemoryPassGateOutcome,
   PluginDecisionClient,
   PageFlagId,
   PluginHostApi,
@@ -543,6 +545,68 @@ async function routeSnapshot(
   };
 }
 
+/**
+ * The two things a memory pass keeps, asked separately so each question names one concrete thing
+ * to look for; the pass is worth running if either is likely.
+ */
+const MEMORY_PASS_QUESTIONS = [
+  {
+    id: "durable_fact",
+    instructions:
+      "Does the user state a lasting fact about themselves that a personal assistant should remember in future conversations, such as a preference, a person in their life, a place, a routine, a plan, or a standing instruction? Details that only matter for the task at hand do not count.",
+  },
+  {
+    id: "assistant_mistake",
+    instructions:
+      "Does the assistant make a mistake that the user points out or corrects, or that the conversation clearly shows, which a lesson could prevent next time?",
+  },
+] as const;
+
+function memoryPassRequest(input: MemoryPassGateInput): DecisionRequest | undefined {
+  const state = {
+    moment:
+      input.pass === "compaction" ? "older messages about to be summarized" : "conversation ended",
+    messages: input.messages.map(({ role, text }) => ({ role, text })),
+  } satisfies JsonValue;
+  if (new TextEncoder().encode(JSON.stringify(state)).byteLength > MAX_ROUTING_STATE_BYTES) {
+    return undefined;
+  }
+  return {
+    state,
+    questions: MEMORY_PASS_QUESTIONS.map(({ id, instructions }) => ({
+      id,
+      question: { kind: "probability", instructions },
+    })),
+  };
+}
+
+async function gateMemoryPass(
+  client: PluginDecisionClient,
+  input: MemoryPassGateInput,
+  signal: AbortSignal,
+): Promise<MemoryPassGateOutcome> {
+  const request = memoryPassRequest(input);
+  if (request === undefined) {
+    return { status: "abstained", reason: "memory pass input exceeds limits" };
+  }
+  const result = await client.decide(request, { signal });
+  const probabilities: number[] = [];
+  for (const { outcome } of result.answers) {
+    if (outcome.status !== "answered" || outcome.answer.kind !== "probability") {
+      return {
+        status: "abstained",
+        reason:
+          outcome.status === "abstained" ? outcome.reason : "Jev did not answer the memory gate",
+      };
+    }
+    probabilities.push(outcome.answer.probability);
+  }
+  if (probabilities.length !== MEMORY_PASS_QUESTIONS.length) {
+    return { status: "abstained", reason: "Jev did not answer the memory gate" };
+  }
+  return { status: "answered", worthScanningProbability: Math.max(...probabilities) };
+}
+
 const plugin: JazzPluginModule = {
   apiVersion: 1,
   register(api) {
@@ -558,6 +622,9 @@ const plugin: JazzPluginModule = {
     );
     api.hooks.register("route.snapshot", (input, context) =>
       routeSnapshot(client, input, context.signal),
+    );
+    api.hooks.register("gate.memory-pass", (input, context) =>
+      gateMemoryPass(client, input, context.signal),
     );
     api.policy.register("classify.command-risk", (input, context) =>
       classifyCommandRisk(client, input, context.signal),

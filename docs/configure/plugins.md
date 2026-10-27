@@ -15,8 +15,9 @@ contribute any mix of capabilities:
 - **skills** — loadable instruction documents;
 - **advisory hooks** — `route.skills` (suggest a skill before the first model request),
   `compact.tools` (choose which stale tool results to prune during compaction), `classify.page`
-  (flag a browser page for extra scrutiny), and `route.snapshot` (put the relevant elements of a
-  browser snapshot first), which only shape context or add scrutiny;
+  (flag a browser page for extra scrutiny), `route.snapshot` (put the relevant elements of a
+  browser snapshot first), and `gate.memory-pass` (skip a memory pass with nothing to find), which
+  only shape context, add scrutiny, or save work;
 - a **policy hook** — `classify.command-risk`, which can affect whether the active approval policy
   requires a person to approve one shell command.
 
@@ -185,6 +186,24 @@ outline follows unchanged, so a wrong answer costs attention and hides nothing.
 Neither hook receives page text. Both time out after two seconds like the other advisory hooks,
 and any error, invalid answer, or abstention leaves the snapshot exactly as it would be without
 them. `jazz plugin dev` cannot run these two hooks yet.
+
+## Memory-pass gate
+
+Jazz looks for durable facts and lessons to suggest before it compacts older messages and after a
+chat conversation closes. Each pass is a model call. `gate.memory-pass` runs first. It receives
+which pass this is and the user and assistant text the pass would read, oldest first, without tool
+output, compaction summaries, or anything else. Before compaction, that text includes the recent
+messages that stay in the conversation, since your correction there can be what shows an older
+reply was a mistake. It returns one probability: how likely those messages hold a durable fact you
+stated about yourself or a mistake worth a lesson.
+
+Jazz skips the pass only when that probability is below 0.1. Missing a fact you stated costs more
+than one pass that finds nothing. Jazz offers the gate at most 32,000 characters, and a longer
+conversation runs the pass without asking. Any error, timeout after two seconds, invalid answer, or
+abstention runs the pass as if no plugin were installed. `/learn` is never gated, since you asked
+for it. A compaction pass with no message you wrote skips without asking the gate. Each answer is
+logged at debug level as `Memory pass gate answered`, with its probability or that it abstained;
+the plugin's abstention reason is not logged.
 
 ## Command-risk policy hook
 
