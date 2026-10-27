@@ -121,6 +121,15 @@ function isRedactableValue(value: string): boolean {
   );
 }
 
+/**
+ * Whether a value has a digit or both letter cases, as generated tokens do. "token" is also an
+ * English word, and the word after it in prose (`chain-of-thought`, `prompt_tokens_details`)
+ * has neither.
+ */
+function looksGenerated(value: string): boolean {
+  return /\d/.test(value) || (/[a-z]/.test(value) && /[A-Z]/.test(value));
+}
+
 function lastPathSegment(path: string): string {
   return path.slice(path.lastIndexOf(".") + 1);
 }
@@ -315,7 +324,7 @@ const SECRET_SHAPES: readonly SecretShape[] = [
   {
     pattern: /\b(Bearer|Basic|token)([ \t]+)([A-Za-z0-9._~+/-]{16,}=*)/g,
     replace: (match, scheme = "", space = "", value = "") =>
-      containsRedactionPlaceholder(value)
+      containsRedactionPlaceholder(value) || (scheme === "token" && !looksGenerated(value))
         ? match
         : `${scheme}${space}${redactionPlaceholder("credential")}`,
   },

@@ -2,7 +2,11 @@ import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import { redactLines } from "@/core/secrets/redacted-lines";
-import { redactedWriteProblem } from "@/core/secrets/redaction";
+import {
+  containsRedactionPlaceholder,
+  redactedWriteProblem,
+  type KnownSecret,
+} from "@/core/secrets/redaction";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { toError } from "@/core/utils/errors";
@@ -50,50 +54,96 @@ function pluralLines(count: number): string {
 const LISTED_SECRET_LINES = 10;
 
 /**
- * Why writing `content` to `target` must not happen, or undefined when it may: the content puts
- * a placeholder where one of the file's secrets is, or it leaves out or changes a line of the
- * existing file that holds a secret.
+ * `content` with each line that matches a secret line of the file as the model was shown it,
+ * placeholder and all, put back to the real line. A model rewriting a file it read can only copy
+ * the placeholder, so a line it kept unchanged is written back unchanged. A redacted view shared
+ * by two different secret lines is ambiguous and stays as written.
  */
-function writeProblem(
-  target: string,
+function restoreKeptSecretLines(
   content: string,
-): Effect.Effect<string | undefined, never, FileSystem.FileSystem> {
+  currentContent: string | undefined,
+  known: readonly KnownSecret[],
+): string {
+  if (currentContent === undefined || !containsRedactionPlaceholder(content)) {
+    return content;
+  }
+  const currentLines = currentContent.split("\n");
+  const { lines: shownLines, secretLineIndexes } = redactLines(currentLines, known);
+  const realLineByShown = new Map<string, string | null>();
+  for (const index of secretLineIndexes) {
+    const shown = shownLines[index] ?? "";
+    const real = currentLines[index] ?? "";
+    const earlier = realLineByShown.get(shown);
+    realLineByShown.set(shown, earlier === undefined || earlier === real ? real : null);
+  }
+  return content
+    .split("\n")
+    .map((line) => realLineByShown.get(line) ?? line)
+    .join("\n");
+}
+
+interface PlannedWrite {
+  /** What to write: the model's content with the secret lines it kept restored. */
+  readonly content: string;
+  /** Why the write must not happen, or undefined when it may. */
+  readonly problem: string | undefined;
+}
+
+/**
+ * The content to write to `target`, and whether it may be written: not when it puts a
+ * placeholder where one of the file's secrets is, or leaves out or changes a line of the existing
+ * file that holds a secret.
+ */
+function planWrite(
+  target: string,
+  requested: string,
+): Effect.Effect<PlannedWrite, never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const currentContent = yield* fs
       .readFileString(target)
       .pipe(Effect.catch(() => Effect.succeed(undefined)));
     const known = yield* toolKnownSecrets();
-    const placeholderProblem = redactedWriteProblem({
-      tool: "write_file",
-      field: "content",
-      text: content,
-      currentContent,
-      known,
-    });
-    if (placeholderProblem !== undefined || currentContent === undefined) {
-      return placeholderProblem;
-    }
-    const currentLines = currentContent.split("\n");
-    const { secretLineIndexes } = redactLines(currentLines, known);
-    if (secretLineIndexes.size === 0) {
-      return undefined;
-    }
-    const writtenLines = new Set(content.split("\n"));
-    const lostLineNumbers = [...secretLineIndexes]
-      .filter((index) => !writtenLines.has(currentLines[index] ?? ""))
-      .map((index) => index + 1);
-    if (lostLineNumbers.length === 0) {
-      return undefined;
-    }
-    const listed = lostLineNumbers.slice(0, LISTED_SECRET_LINES).join(", ");
-    const more =
-      lostLineNumbers.length > LISTED_SECRET_LINES
-        ? ` and ${String(lostLineNumbers.length - LISTED_SECRET_LINES)} more`
-        : "";
-    const label = lostLineNumbers.length === 1 ? "line" : "lines";
-    return `content leaves out or changes ${label} ${listed}${more} of ${target}, holding secret values you were shown redacted; writing it would lose them. Use edit_file to change the other lines, and leave the lines showing placeholders as they are.`;
+    const content = restoreKeptSecretLines(requested, currentContent, known);
+    return { content, problem: writeProblem(target, content, currentContent, known) };
   });
+}
+
+function writeProblem(
+  target: string,
+  content: string,
+  currentContent: string | undefined,
+  known: readonly KnownSecret[],
+): string | undefined {
+  const placeholderProblem = redactedWriteProblem({
+    tool: "write_file",
+    field: "content",
+    text: content,
+    currentContent,
+    known,
+  });
+  if (placeholderProblem !== undefined || currentContent === undefined) {
+    return placeholderProblem;
+  }
+  const currentLines = currentContent.split("\n");
+  const { secretLineIndexes } = redactLines(currentLines, known);
+  if (secretLineIndexes.size === 0) {
+    return undefined;
+  }
+  const writtenLines = new Set(content.split("\n"));
+  const lostLineNumbers = [...secretLineIndexes]
+    .filter((index) => !writtenLines.has(currentLines[index] ?? ""))
+    .map((index) => index + 1);
+  if (lostLineNumbers.length === 0) {
+    return undefined;
+  }
+  const listed = lostLineNumbers.slice(0, LISTED_SECRET_LINES).join(", ");
+  const more =
+    lostLineNumbers.length > LISTED_SECRET_LINES
+      ? ` and ${String(lostLineNumbers.length - LISTED_SECRET_LINES)} more`
+      : "";
+  const label = lostLineNumbers.length === 1 ? "line" : "lines";
+  return `content leaves out or changes ${label} ${listed}${more} of ${target}, holding secret values you were shown redacted; writing it would lose them. Keep those lines exactly as read_file shows them, placeholders included, or use edit_file to change the other lines.`;
 }
 
 /**
@@ -106,7 +156,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
     disclosure: "public",
     description:
       "Create a UTF-8 file or replace one entirely, creating missing parent directories. To change part of a file, use edit_file. " +
-      "Secret values in files you read appear as `[redacted:<name>]`; change files holding them with edit_file, editing the lines around those placeholders.",
+      "Secret values in files you read appear as `[redacted:<name>]`; a line you keep exactly as read_file showed it, placeholder included, is written back with its real value.",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
     validate: makeZodValidator(writeFileParameters),
@@ -118,7 +168,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const problem = yield* writeProblem(target, args.content);
+        const { content, problem } = yield* planWrite(target, args.content);
         if (problem !== undefined) {
           return yield* Effect.fail(new Error(problem));
         }
@@ -142,7 +192,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         // to chat bridges like Telegram. Keep it to what is about to happen. Do not append
         // keyboard hints such as "Press Ctrl+O to preview" — most approvers have no
         // keyboard, and the TUI already renders its own hint from `previewDiff` below.
-        let message = `About to write ${args.content.length} characters to file: ${target}`;
+        let message = `About to write ${content.length} characters to file: ${target}`;
 
         if (!isNewFile && originalContent.length > 0) {
           message += `\n\n⚠️  WARNING: This will overwrite the existing file (${originalContent.split("\n").length} lines).`;
@@ -154,12 +204,12 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         }
 
         // Generate full diff for Ctrl+O expansion
-        const { diff } = generateDiffWithMetadata(originalContent, args.content, target, {
+        const { diff } = generateDiffWithMetadata(originalContent, content, target, {
           isNewFile,
           maxLines: Number.POSITIVE_INFINITY,
         });
 
-        const newLines = lineCount(args.content);
+        const newLines = lineCount(content);
         const impact = isNewFile
           ? `new file, ${pluralLines(newLines)}`
           : `replaces ${pluralLines(lineCount(originalContent))} with ${pluralLines(newLines)}`;
@@ -178,7 +228,7 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
           skipExistenceCheck: true,
         });
-        const problem = yield* writeProblem(target, args.content);
+        const { content, problem } = yield* planWrite(target, args.content);
         if (problem !== undefined) {
           return yield* Effect.fail(new Error(problem));
         }
@@ -212,21 +262,21 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           }
 
           // Old content or new, never a truncated file, however the call is stopped.
-          yield* writeFileAtomically(fs, target, args.content);
+          yield* writeFileAtomically(fs, target, content);
 
           // Generate diff for terminal output
           const { diff, wasTruncated } = generateDiffWithMetadata(
             originalContent,
-            args.content,
+            content,
             target,
             { isNewFile },
           );
           const needsExpansion =
             wasTruncated ||
             diffExceedsPreview(diff) ||
-            args.content.split("\n").length > FILE_MUTATION_PREVIEW_LINES;
+            content.split("\n").length > FILE_MUTATION_PREVIEW_LINES;
           const fullDiff = needsExpansion
-            ? generateDiff(originalContent, args.content, target, {
+            ? generateDiff(originalContent, content, target, {
                 isNewFile,
                 maxLines: Number.POSITIVE_INFINITY,
                 fullPatch: true,

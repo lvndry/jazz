@@ -26,17 +26,56 @@ describe("write_file", () => {
     expect(readFileSync(path, "utf8")).toBe("<svg/>");
   });
 
-  it("refuses content carrying a redaction placeholder, so the real secret stays", async () => {
+  it("writes a kept secret line back with its real value", async () => {
     const directory = mkdtempSync(join(tmpdir(), "jazz-write-"));
     directories.push(directory);
     const path = join(directory, ".env");
     writeFileSync(path, "OPENAI_API_KEY=sk-real\n");
-    const content = "OPENAI_API_KEY=[redacted:OPENAI_API_KEY]\nDEBUG=1\n";
+    const content = "DEBUG=1\nOPENAI_API_KEY=[redacted:OPENAI_API_KEY]\n";
+
+    const approval = await runTool(write.approval, { path, content }, directory);
+    expect(approval.result).toMatchObject({ approvalRequired: true });
+    expect((await runTool(write.execute, { path, content }, directory)).success).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe("DEBUG=1\nOPENAI_API_KEY=sk-real\n");
+  });
+
+  it("rewrites notes whose prose was redacted when read back", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "jazz-write-"));
+    directories.push(directory);
+    const path = join(directory, "findings.md");
+    const quoted = "- header: Authorization: Bearer abcdefghijklmnop1234";
+    writeFileSync(path, `# Findings\n${quoted}\n`);
+    const content = "# Findings\n- header: Authorization: Bearer [redacted:credential]\n- second\n";
+
+    expect((await runTool(write.execute, { path, content }, directory)).success).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe(`# Findings\n${quoted}\n- second\n`);
+  });
+
+  it("refuses a placeholder it cannot place, so the real secret stays", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "jazz-write-"));
+    directories.push(directory);
+    const path = join(directory, ".env");
+    writeFileSync(path, "OPENAI_API_KEY=sk-real\n");
+    const content = "export OPENAI_API_KEY=[redacted:OPENAI_API_KEY]\nDEBUG=1\n";
 
     for (const half of [write.approval, write.execute]) {
       await expect(runTool(half, { path, content }, directory)).rejects.toThrow("placeholder");
     }
     expect(readFileSync(path, "utf8")).toBe("OPENAI_API_KEY=sk-real\n");
+  });
+
+  it("refuses a kept line whose redacted view two different secrets share", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "jazz-write-"));
+    directories.push(directory);
+    const path = join(directory, ".env");
+    const original = "API_KEY=first-value-1\nAPI_KEY=second-value-2\n";
+    writeFileSync(path, original);
+    const content = "API_KEY=[redacted:API_KEY]\n";
+
+    await expect(runTool(write.execute, { path, content }, directory)).rejects.toThrow(
+      "placeholder",
+    );
+    expect(readFileSync(path, "utf8")).toBe(original);
   });
 
   it("refuses a rewrite that drops or changes a line holding a secret", async () => {
@@ -49,7 +88,7 @@ describe("write_file", () => {
     for (const content of ["DEBUG=0\nPORT=3000\n", "DEBUG=0\nDB_PASSWORD=guess\nPORT=3000\n"]) {
       for (const half of [write.approval, write.execute]) {
         await expect(runTool(half, { path, content }, directory)).rejects.toThrow(
-          /line 2 .*Use edit_file/,
+          /line 2 .*use edit_file/,
         );
       }
     }

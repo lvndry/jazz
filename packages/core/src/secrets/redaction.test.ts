@@ -316,8 +316,15 @@ describe("redactSecretText on secret names", () => {
       "max_tokens: 4096",
       "Password: see the team vault for details",
       "Enter your password below",
+      "Quoting the closing think token chain-of-thought-delimiter ends the block",
+      "reads the token prompt_tokens_details.cached_tokens directly",
     ].join("\n");
     expect(redactSecretText(text, [])).toBe(text);
+  });
+
+  it("redacts a generated value after the word token", () => {
+    expect(redactSecretText("token ghx7Rk2pQ9mZw4Lt8Vn", [])).toBe("token [redacted:credential]");
+    expect(redactSecretText("token AbcdefghIjklmnopQr", [])).toBe("token [redacted:credential]");
   });
 });
 
