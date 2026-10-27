@@ -8,6 +8,7 @@ import {
   extractEmbeddedAssets,
   hasEmbeddedAssets,
   pruneStaleAssetDirectories,
+  UNCLAIMED_RETENTION_MS,
 } from "./asset-extraction";
 import { type EmbeddedAssetFile } from "./embedded-assets";
 
@@ -106,49 +107,93 @@ describe("embedded asset extraction", () => {
     expect(fs.existsSync(destination)).toBe(false);
   });
 
-  it("prunes asset directories from other versions", () => {
+  function deadProcessId(): number {
+    return Bun.spawnSync(["true"]).pid;
+  }
+
+  function claimAs(runtimeRoot: string, version: string, processId: number): void {
+    fs.mkdirSync(path.join(runtimeRoot, ".in-use", version), { recursive: true });
+    fs.writeFileSync(path.join(runtimeRoot, ".in-use", version, String(processId)), "");
+  }
+
+  const afterRetention = () => Date.now() + UNCLAIMED_RETENTION_MS + 1;
+
+  it("keeps an unclaimed directory on first sight and prunes it after retention", () => {
+    const runtimeRoot = makeTemporaryDirectory();
+    fs.mkdirSync(path.join(runtimeRoot, "0.1.0", "personas"), { recursive: true });
+    fs.mkdirSync(path.join(runtimeRoot, "0.2.0"));
+
+    pruneStaleAssetDirectories(runtimeRoot, "0.2.0");
+    expect(fs.existsSync(path.join(runtimeRoot, "0.1.0"))).toBe(true);
+
+    pruneStaleAssetDirectories(runtimeRoot, "0.2.0", afterRetention());
+    expect(fs.readdirSync(runtimeRoot).sort()).toEqual([".in-use", "0.2.0"]);
+    expect(fs.readdirSync(path.join(runtimeRoot, ".in-use"))).toEqual([]);
+  });
+
+  it("keeps a directory claimed by a live process past retention", () => {
     const runtimeRoot = makeTemporaryDirectory();
     fs.mkdirSync(path.join(runtimeRoot, "0.1.0"));
-    fs.mkdirSync(path.join(runtimeRoot, "0.2.0", "skills"), { recursive: true });
-
-    pruneStaleAssetDirectories(runtimeRoot, "0.2.0");
-
-    expect(fs.readdirSync(runtimeRoot)).toEqual(["0.2.0"]);
-  });
-
-  it("keeps another version's directory while a live process has claimed it", () => {
-    const runtimeRoot = makeTemporaryDirectory();
-    const previousVersion = path.join(runtimeRoot, "0.1.0");
-    fs.mkdirSync(path.join(previousVersion, "personas"), { recursive: true });
     fs.mkdirSync(path.join(runtimeRoot, "0.2.0"));
 
-    claimAssetDirectory(previousVersion);
-    pruneStaleAssetDirectories(runtimeRoot, "0.2.0");
+    claimAssetDirectory(runtimeRoot, "0.1.0");
+    pruneStaleAssetDirectories(runtimeRoot, "0.2.0", afterRetention());
 
-    expect(fs.readdirSync(runtimeRoot).sort()).toEqual(["0.1.0", "0.2.0"]);
+    expect(fs.existsSync(path.join(runtimeRoot, "0.1.0"))).toBe(true);
+    expect(fs.readdirSync(path.join(runtimeRoot, ".in-use", "0.1.0"))).toEqual([
+      String(process.pid),
+    ]);
   });
 
-  it("prunes a claimed directory once the claiming process is gone", () => {
+  it("prunes a directory whose only claim is from a dead process after retention", () => {
     const runtimeRoot = makeTemporaryDirectory();
-    const deadProcessId = Bun.spawnSync(["true"]).pid;
-    fs.mkdirSync(path.join(runtimeRoot, "0.1.0", ".in-use"), { recursive: true });
-    fs.writeFileSync(path.join(runtimeRoot, "0.1.0", ".in-use", String(deadProcessId)), "");
+    fs.mkdirSync(path.join(runtimeRoot, "0.1.0"));
     fs.mkdirSync(path.join(runtimeRoot, "0.2.0"));
+    claimAs(runtimeRoot, "0.1.0", deadProcessId());
 
     pruneStaleAssetDirectories(runtimeRoot, "0.2.0");
+    expect(fs.existsSync(path.join(runtimeRoot, "0.1.0"))).toBe(true);
 
-    expect(fs.readdirSync(runtimeRoot)).toEqual(["0.2.0"]);
+    pruneStaleAssetDirectories(runtimeRoot, "0.2.0", afterRetention());
+    expect(fs.existsSync(path.join(runtimeRoot, "0.1.0"))).toBe(false);
   });
 
-  it("keeps a staging directory a live process is extracting into", () => {
+  it("keeps a live process's staging directory and removes a dead one's", () => {
     const runtimeRoot = makeTemporaryDirectory();
-    const stagingDirectory = `0.2.0.partial-${process.pid}`;
-    fs.mkdirSync(path.join(runtimeRoot, stagingDirectory));
+    const liveStaging = `0.2.0.partial-${process.pid}`;
+    const deadPruning = `0.1.0.pruning-${deadProcessId()}`;
+    fs.mkdirSync(path.join(runtimeRoot, liveStaging));
+    fs.mkdirSync(path.join(runtimeRoot, deadPruning));
     fs.mkdirSync(path.join(runtimeRoot, "0.2.0"));
 
     pruneStaleAssetDirectories(runtimeRoot, "0.2.0");
 
-    expect(fs.readdirSync(runtimeRoot).sort()).toEqual(["0.2.0", stagingDirectory]);
+    expect(fs.readdirSync(runtimeRoot).sort()).toEqual(["0.2.0", liveStaging]);
+  });
+
+  it("removes claims for versions that no longer have a directory", () => {
+    const runtimeRoot = makeTemporaryDirectory();
+    fs.mkdirSync(path.join(runtimeRoot, "0.2.0"));
+    claimAs(runtimeRoot, "0.0.9", deadProcessId());
+
+    pruneStaleAssetDirectories(runtimeRoot, "0.2.0");
+
+    expect(fs.readdirSync(path.join(runtimeRoot, ".in-use"))).toEqual([]);
+  });
+
+  it("leaves entries that are not version directories alone", () => {
+    const runtimeRoot = makeTemporaryDirectory();
+    fs.mkdirSync(path.join(runtimeRoot, "0.2.0"));
+    fs.writeFileSync(path.join(runtimeRoot, "daemon-4747.status.json"), "{}");
+    fs.mkdirSync(path.join(runtimeRoot, "scratch"));
+
+    pruneStaleAssetDirectories(runtimeRoot, "0.2.0", afterRetention());
+
+    expect(fs.readdirSync(runtimeRoot).sort()).toEqual([
+      "0.2.0",
+      "daemon-4747.status.json",
+      "scratch",
+    ]);
   });
 
   it("ignores a missing runtime directory when pruning", () => {
