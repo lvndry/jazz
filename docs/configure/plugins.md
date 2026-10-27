@@ -192,14 +192,18 @@ them. `jazz plugin dev` cannot run these two hooks yet.
 Jazz looks for durable facts and lessons to suggest before it compacts older messages and after a
 chat conversation closes. Each pass is a model call. `gate.memory-pass` runs first. It receives
 which pass this is and the user and assistant text the pass would read, oldest first, without tool
-output, compaction summaries, or anything else. It returns one probability: how likely those
-messages hold a durable fact you stated about yourself or a mistake worth a lesson.
+output, compaction summaries, or anything else. Before compaction, that text includes the recent
+messages that stay in the conversation, since your correction there can be what shows an older
+reply was a mistake. It returns one probability: how likely those messages hold a durable fact you
+stated about yourself or a mistake worth a lesson.
 
 Jazz skips the pass only when that probability is below 0.1. Missing a fact you stated costs more
 than one pass that finds nothing. Jazz offers the gate at most 32,000 characters, and a longer
 conversation runs the pass without asking. Any error, timeout after two seconds, invalid answer, or
 abstention runs the pass as if no plugin were installed. `/learn` is never gated, since you asked
-for it. Each answer is logged at debug level as `Memory pass gate answered`.
+for it. A compaction pass with no message you wrote skips without asking the gate. Each answer is
+logged at debug level as `Memory pass gate answered`, with its probability or that it abstained;
+the plugin's abstention reason is not logged.
 
 ## Command-risk policy hook
 

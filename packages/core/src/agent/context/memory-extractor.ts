@@ -366,17 +366,20 @@ function scanForMemories(
 }
 
 /**
- * What a `gate.memory-pass` plugin reads: the user and assistant text the pass would scan, without
- * tool output or compaction scaffolding. Undefined when there is no such text, or when it is over
- * the gate's bound, so the gate only skips a pass after reading everything it judged.
+ * What a `gate.memory-pass` plugin reads: the user and assistant text the pass would scan, followed
+ * by the retained later messages the extractor reads as context, since a user correction there can
+ * be the only sign that a scanned assistant reply was a mistake. Tool output and compaction
+ * scaffolding are left out. Undefined when there is no such text, or when it is over the gate's
+ * bound, so the gate only skips a pass after reading everything the extractor would.
  */
 export function buildMemoryPassGateInput(
   messages: readonly ChatMessage[],
   pass: MemoryPassGateInput["pass"],
+  laterMessages: readonly ChatMessage[] = [],
 ): MemoryPassGateInput | undefined {
   const gateMessages: MemoryPassGateMessage[] = [];
   let totalChars = 0;
-  for (const message of messages) {
+  for (const message of [...messages, ...laterMessages]) {
     if (
       (message.role !== "user" && message.role !== "assistant") ||
       message.kind !== undefined ||
@@ -400,6 +403,7 @@ export function buildMemoryPassGateInput(
  */
 function memoryPassGateSaysSkip(
   messages: readonly ChatMessage[],
+  laterMessages: readonly ChatMessage[],
   parentAgent: Agent,
   conversationId: string,
   pass: MemoryPassGateInput["pass"],
@@ -410,7 +414,7 @@ function memoryPassGateSaysSkip(
     if (Option.isNone(pluginRuntime)) {
       return false;
     }
-    const input = buildMemoryPassGateInput(messages, pass);
+    const input = buildMemoryPassGateInput(messages, pass, laterMessages);
     if (input === undefined) {
       yield* logger.debug("Memory pass gate not consulted", {
         pass,
@@ -430,9 +434,13 @@ function memoryPassGateSaysSkip(
       }),
     ).pipe(
       Effect.catch((error) =>
-        Effect.succeed({
-          status: "abstained" as const,
-          reason: `plugin session failed to open: ${toError(error).message}`,
+        Effect.gen(function* () {
+          yield* logger.debug("Memory pass gate session failed to open", {
+            pass,
+            conversationId,
+            error: toError(error).message,
+          });
+          return { status: "abstained" as const, reason: "plugin session failed to open" };
         }),
       ),
     );
@@ -445,9 +453,10 @@ function memoryPassGateSaysSkip(
       agentId: parentAgent.id,
       messages: input.messages.length,
       durationMs: Date.now() - started,
+      status: outcome.status,
       ...(outcome.status === "answered"
         ? { worthScanningProbability: outcome.worthScanningProbability }
-        : { abstainedReason: outcome.reason }),
+        : {}),
       skip,
     });
     return skip;
@@ -473,7 +482,27 @@ export function extractMemories(
     if (messagesToSummarize.length === 0) {
       return;
     }
-    if (yield* memoryPassGateSaysSkip(messagesToSummarize, parentAgent, conversationId, pass)) {
+    if (
+      pass === "compaction" &&
+      !messagesToSummarize.some((message) => message.memorySource !== undefined)
+    ) {
+      const logger = yield* LoggerServiceTag;
+      yield* logger.debug("Memory pass skipped: no message has a quotable user source", {
+        pass,
+        conversationId,
+        messageCount: messagesToSummarize.length,
+      });
+      return;
+    }
+    if (
+      yield* memoryPassGateSaysSkip(
+        messagesToSummarize,
+        surrounding.laterMessages ?? [],
+        parentAgent,
+        conversationId,
+        pass,
+      )
+    ) {
       return;
     }
     const prepared = yield* prepareMemoryPass(parentAgent, EXTRACTOR_ROLE);

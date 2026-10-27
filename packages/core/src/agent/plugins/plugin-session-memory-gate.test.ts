@@ -40,7 +40,7 @@ const input: MemoryPassGateInput = {
   ],
 };
 
-function openSession(register: (api: PluginHostApi) => void) {
+function openSession(register: (api: PluginHostApi) => void, hookTimeoutMs?: number) {
   const failures: string[] = [];
   const plugin: LoadedPlugin = { manifest, module: { apiVersion: 1, register } };
   const session = Effect.runPromise(
@@ -49,6 +49,7 @@ function openSession(register: (api: PluginHostApi) => void) {
       plugins: [plugin],
       resolveSecret: async () => undefined,
       reportFailure: (_pluginId, message) => failures.push(message),
+      ...(hookTimeoutMs === undefined ? {} : { hookTimeoutMs }),
     }),
   );
   return { session, failures };
@@ -86,6 +87,19 @@ it("abstains when the plugin answers out of range or throws", async () => {
     expect(outcome).toEqual({ status: "abstained", reason: "plugin handler failed" });
     expect(failures).toHaveLength(1);
   }
+});
+
+it("abstains and aborts the handler when it outlives the hook deadline", async () => {
+  let handlerSignal: AbortSignal | undefined;
+  const { session } = openSession((api) => {
+    api.hooks.register("gate.memory-pass", (_hookInput, context) => {
+      handlerSignal = context.signal;
+      return new Promise(() => undefined);
+    });
+  }, 25);
+  const outcome = await Effect.runPromise((await session).runMemoryPassGate(input));
+  expect(outcome).toEqual({ status: "abstained", reason: "plugin handler failed" });
+  expect(handlerSignal?.aborted).toBe(true);
 });
 
 it("never calls the plugin with a transcript over the bound", async () => {

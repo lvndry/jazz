@@ -461,16 +461,25 @@ describe("memory pass gate", () => {
     return { openSession: () => Effect.succeed(session) } as unknown as PluginRuntimeService;
   }
 
-  async function passRuns(runtime: PluginRuntimeService): Promise<boolean> {
+  async function passRuns(
+    runtime: PluginRuntimeService,
+    messages: readonly ChatMessage[] = conversation,
+    pass: "compaction" | "conversation-end" = "conversation-end",
+    logger: LoggerService = mockLogger,
+  ): Promise<boolean> {
     let ran = false;
     const runner: RecursiveRunner = () => {
       ran = true;
       return Effect.succeed({ content: "", conversationId: "conv-1" } as AgentResponse);
     };
     await Effect.runPromise(
-      extractMemories(conversation, createMockAgent(), "conv-1", runner, "conversation-end").pipe(
+      extractMemories(messages, createMockAgent(), "conv-1", runner, pass).pipe(
         Effect.provide(
-          Layer.merge(createTestLayer(), Layer.succeed(PluginRuntimeServiceTag, runtime)),
+          Layer.mergeAll(
+            createTestLayer(),
+            Layer.succeed(PluginRuntimeServiceTag, runtime),
+            Layer.succeed(LoggerServiceTag, logger),
+          ),
         ),
       ) as Effect.Effect<void, never, never>,
     );
@@ -511,6 +520,45 @@ describe("memory pass gate", () => {
   it("runs the pass when the gate abstains", async () => {
     const runtime = runtimeAnswering(() => ({ status: "abstained", reason: "no plugin handler" }));
     expect(await passRuns(runtime)).toBe(true);
+  });
+
+  it("logs that the gate abstained without the plugin's reason, which may quote the transcript", async () => {
+    const logged: unknown[] = [];
+    const recordingLogger: LoggerService = {
+      ...mockLogger,
+      debug: (_message, meta) => {
+        logged.push(meta);
+        return Effect.void;
+      },
+    };
+    const runtime = runtimeAnswering(() => ({
+      status: "abstained",
+      reason: "user said their password is hunter2",
+    }));
+    expect(await passRuns(runtime, conversation, "conversation-end", recordingLogger)).toBe(true);
+    expect(JSON.stringify(logged)).not.toContain("hunter2");
+    expect(logged).toContainEqual(expect.objectContaining({ status: "abstained", skip: false }));
+  });
+
+  it("does not consult the gate at compaction when no message has a quotable user source", async () => {
+    const seen: MemoryPassGateInput[] = [];
+    const runtime = runtimeAnswering(
+      () => ({ status: "answered", worthScanningProbability: 1 }),
+      seen,
+    );
+    const untagged = conversation.map(({ memorySource: _memorySource, ...message }) => message);
+    expect(await passRuns(runtime, untagged, "compaction")).toBe(false);
+    expect(seen).toEqual([]);
+  });
+
+  it("shows the gate the retained later messages, where a user correction may be", () => {
+    const later: ChatMessage[] = [
+      { role: "user", content: "No, I asked about Lyon, France, not Lyon county." },
+    ];
+    expect(buildMemoryPassGateInput(conversation, "compaction", later)?.messages.at(-1)).toEqual({
+      role: "user",
+      text: "No, I asked about Lyon, France, not Lyon county.",
+    });
   });
 
   it("runs the pass when the plugin session cannot open", async () => {

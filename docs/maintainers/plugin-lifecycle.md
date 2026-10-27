@@ -106,9 +106,13 @@ refs, and the snapshot renderer only adds a lead section before the unchanged ou
 
 `gate.memory-pass` is dispatched from `extractMemories`, which serves both the compaction pass and
 the detached conversation-end pass. Neither has a run's plugin session in hand, so it opens a
-short-lived one, as `/compact` does. `buildMemoryPassGateInput` sends only user and assistant text
-with no `kind`, and returns nothing when that text is over `MAX_MEMORY_PASS_GATE_CHARS`, so the
-gate never judges a transcript it did not read in full. `validateMemoryPassGateOutcome` keeps only
+short-lived one, as `/compact` does. A compaction pass with no `memorySource` returns before the
+gate, since the extractor would scan nothing. `buildMemoryPassGateInput` sends only user and
+assistant text with no `kind`, from the scanned messages followed by the retained `laterMessages`
+the extractor reads as context, and returns nothing when that text is over
+`MAX_MEMORY_PASS_GATE_CHARS`, so the gate never judges a transcript it did not read in full. The
+debug log records the outcome's status, never the plugin's abstention reason, which may quote the
+transcript. `validateMemoryPassGateOutcome` keeps only
 `worthScanningProbability`; the threshold (`SKIP_MEMORY_PASS_BELOW_PROBABILITY`) belongs to the
 host.
 
