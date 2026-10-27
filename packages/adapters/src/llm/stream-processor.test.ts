@@ -601,7 +601,8 @@ describe("StreamProcessor", () => {
   describe("selectParser → StreamProcessor integration", () => {
     function runWithParser(
       parser: ReturnType<typeof selectParser>,
-      deltas: readonly string[],
+      deltas: readonly (string | Record<string, unknown>)[],
+      modelName = "no-metadata-local-model",
     ): Promise<{
       events: any[];
       finalContent: string;
@@ -614,7 +615,7 @@ describe("StreamProcessor", () => {
       const processor = new StreamProcessor(
         {
           providerName: "llamacpp",
-          modelName: "no-metadata-local-model",
+          modelName,
           hasReasoningEnabled: false,
           startTime: Date.now(),
           ...(parser ? { reasoningParser: parser } : {}),
@@ -625,7 +626,7 @@ describe("StreamProcessor", () => {
       const mockResult = {
         fullStream: (async function* () {
           for (const delta of deltas) {
-            yield { type: "text-delta", text: delta };
+            yield typeof delta === "string" ? { type: "text-delta", text: delta } : delta;
           }
           yield { type: "finish", finishReason: "stop" };
         })(),
@@ -720,6 +721,60 @@ describe("StreamProcessor", () => {
       const thinkingChunks = events.filter((e) => e.type === "thinking_chunk");
       expect(thinkingChunks.map((c) => c.content).join("")).toContain("partial thought");
       expect(finalContent).toBe("visible");
+    });
+
+    it("leaves tags in the answer alone when the server sent the reasoning separately", async () => {
+      const parser = selectParser({ provider: "llamacpp", modelId: "server-split-model" });
+
+      const { events, finalContent } = await runWithParser(parser, [
+        { type: "reasoning-start", id: "r" },
+        { type: "reasoning-delta", id: "r", text: "plan the answer" },
+        { type: "reasoning-end", id: "r" },
+        "<think> opens a block; ",
+        "</think> closes it.",
+      ]);
+
+      expect(finalContent).toBe("<think> opens a block; </think> closes it.");
+      const thinking = events.filter((e) => e.type === "thinking_chunk").map((c) => c.content);
+      expect(thinking.join("")).toBe("plan the answer");
+    });
+
+    it("splits a reply whose chat template opened the block in the prompt", async () => {
+      const parser = selectParser({
+        provider: "llamacpp",
+        modelId: "prompt-opens-block",
+        chatTemplate:
+          "{%- if add_generation_prompt %}{{- '<|im_start|>assistant\\n<think>\\n' }}{%- endif %}",
+      });
+
+      const { events, finalContent } = await runWithParser(parser, [
+        "weigh the ",
+        "options</thi",
+        "nk>\n\nthe answer",
+      ]);
+
+      expect(finalContent).toBe("\n\nthe answer");
+      const thinking = events.filter((e) => e.type === "thinking_chunk").map((c) => c.content);
+      expect(thinking.join("")).toBe("weigh the options");
+    });
+
+    it("warns once per model when the answer has a </think> with no block opened", async () => {
+      const warningsBefore = logged.filter((line) =>
+        line.includes("</think> with no <think>"),
+      ).length;
+      for (let run = 0; run < 2; run++) {
+        const parser = selectParser({ provider: "llamacpp", modelId: "leaks-reasoning" });
+        const { finalContent } = await runWithParser(
+          parser,
+          ["reasoning the server left in</think>", "answer"],
+          "leaks-reasoning",
+        );
+        expect(finalContent).toBe("reasoning the server left in</think>answer");
+      }
+      const warningsAfter = logged.filter((line) =>
+        line.includes("</think> with no <think>"),
+      ).length;
+      expect(warningsAfter - warningsBefore).toBe(1);
     });
   });
 });

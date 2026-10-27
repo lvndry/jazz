@@ -1,4 +1,4 @@
-import { TagPairParser, TagPairParserFactory } from "./tag-pair-parser";
+import { generationPromptOpensBlock, TagPairParser, TagPairParserFactory } from "./tag-pair-parser";
 import type { ParserSelectionContext, ReasoningParser, ReasoningParserFactory } from "./types";
 
 const PARSER_FACTORIES: readonly ReasoningParserFactory[] = [
@@ -20,10 +20,10 @@ const PARSER_FACTORIES: readonly ReasoningParserFactory[] = [
  */
 export function selectParser(ctx: ParserSelectionContext): ReasoningParser | null {
   for (const factory of PARSER_FACTORIES) {
-    if (factory.canHandle(ctx)) return factory.create();
+    if (factory.canHandle(ctx)) return factory.create(ctx);
   }
   if (ctx.chatTemplate && /<\|channel\|>analysis/.test(ctx.chatTemplate)) return null;
-  return new TagPairParser();
+  return new TagPairParser({ startsInsideBlock: generationPromptOpensBlock(ctx.chatTemplate) });
 }
 
 /**

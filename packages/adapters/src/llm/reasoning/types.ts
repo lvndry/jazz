@@ -13,6 +13,8 @@ export interface ParseChunk {
   readonly thinkingText: string;
   readonly thinkingStarted?: boolean;
   readonly thinkingEnded?: boolean;
+  /** A `</think>` appeared in the answer with no block opened: reasoning the parser could not place. */
+  readonly strayCloseTag?: boolean;
 }
 
 /**
@@ -42,5 +44,5 @@ export interface ParserSelectionContext {
 export interface ReasoningParserFactory {
   readonly id: string;
   canHandle(ctx: ParserSelectionContext): boolean;
-  create(): ReasoningParser;
+  create(ctx: ParserSelectionContext): ReasoningParser;
 }
