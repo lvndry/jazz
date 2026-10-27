@@ -11,13 +11,16 @@ Once the plugin is enabled for an agent, the agent calls these tools for 15 or
 more items, for items saved as files or images, or when it needs a probability
 per item. Items can be text, a text file, a PNG or JPEG, or text plus an image,
 each with an optional `id` that results use. `files` takes paths or glob
-patterns, such as `inbox/*.eml`, and makes one item per matched file, so the
-agent never copies a file's contents into the call. Up to 200 items per call;
-a text file is read up to its first 8,000 characters, and results mark a file
-cut short as `truncated`.
+patterns, such as `inbox/*.eml`, and makes one item per matched file (directories
+are skipped), so the agent never copies a file's contents into the call. Limits:
+200 items per call; each item's text is cut to its first 8,000 characters, read
+from the start of the file only, and marked `truncated`; images up to 16 MiB,
+TypeSafe's per-image limit.
 
-Each item goes to Jev in its own question, and items are split across parallel
-requests that fit Jev's 64,000-token input limit, so 50 emails cost a few calls.
+Each item goes to Jev in its own question, and items are split across requests
+that fit Jev's 64,000-token input limit, 4 in flight at a time, so 50 emails cost
+a few calls. Context or label descriptions too long for any request are refused
+before anything is sent.
 
 | Tool       | What the agent passes                                                                                | What it gets back                                                                                                                                            | Examples                                                                    |
 | ---------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |

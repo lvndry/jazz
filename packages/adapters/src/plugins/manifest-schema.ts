@@ -141,17 +141,9 @@ const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
 function parseToolDeclaration(value: unknown, index: number): PluginToolDeclaration {
   const item = record(value, `tools[${index}]`);
-  exactKeys(
-    item,
-    ["name", "summary", "description", "parameters", "riskLevel", "egress"],
-    `tools[${index}]`,
-  );
+  exactKeys(item, ["name", "description", "parameters", "riskLevel", "egress"], `tools[${index}]`);
   const name = boundedString(item["name"], `tools[${index}].name`, 64);
   if (!TOOL_NAME.test(name)) throw new Error(`tools[${index}].name has an invalid format`);
-  const summary =
-    item["summary"] === undefined
-      ? undefined
-      : boundedString(item["summary"], `tools[${index}].summary`, 200);
   const description = boundedString(item["description"], `tools[${index}].description`, 1024);
   const riskLevel = item["riskLevel"];
   if (riskLevel !== "read-only" && riskLevel !== "low-risk" && riskLevel !== "high-risk") {
@@ -160,14 +152,7 @@ function parseToolDeclaration(value: unknown, index: number): PluginToolDeclarat
   if (typeof item["egress"] !== "boolean")
     throw new Error(`tools[${index}].egress must be boolean`);
   const parameters = record(item["parameters"], `tools[${index}].parameters`) as JsonValue;
-  return {
-    name,
-    ...(summary === undefined ? {} : { summary }),
-    description,
-    parameters,
-    riskLevel,
-    egress: item["egress"],
-  };
+  return { name, description, parameters, riskLevel, egress: item["egress"] };
 }
 
 function parseTools(value: unknown): readonly PluginToolDeclaration[] {

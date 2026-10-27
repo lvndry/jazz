@@ -8,14 +8,14 @@
  *   question per item).
  *
  * An item is text, a text file, an image path (PNG or JPEG), or text plus an image; `files` adds
- * one item per matched path, so the agent never has to copy file contents into the call. Each
+ * one item per matched file, so the agent never has to copy file contents into the call. Each
  * item travels inside its own question, so Jev reads one item at a time against a small shared
  * state holding only the caller's context. Items are split across requests that fit Jev's input
- * limits, sent in parallel.
+ * limits, a few in flight at a time, and an image is read only when its request is sent.
  */
 
 import { randomUUID } from "node:crypto";
-import { glob, readFile } from "node:fs/promises";
+import { glob, open, readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { PluginHostApi, PluginToolResult } from "@jazz/plugin-sdk";
 import {
@@ -55,21 +55,30 @@ const NONE_LABEL_DESCRIPTION = "The item fits none of the other labels.";
 /** Below this, Jev rates the label it chose as more likely wrong than right. */
 export const UNCERTAIN_BELOW_PROBABILITY = 0.5;
 /**
- * The most items one call takes. At the per-file cap, 200 items split into about 10 parallel
- * requests, which still finish inside the host's 30s tool deadline; a broader glob is a mistake.
+ * The most items one call takes. At the per-item cap, 200 items split into about 10 requests,
+ * which finish inside the host's 30s tool deadline; a broader glob is a mistake.
  */
 export const MAX_ITEMS = 200;
 /**
- * Text read from one file, about 2,000 tokens: enough to judge an email or a listing from its
+ * Text kept from one item, about 2,000 tokens: enough to judge an email or a listing from its
  * opening, and small enough that about 20 items share one request.
  */
-export const MAX_ITEM_FILE_CHARS = 8_000;
+export const MAX_ITEM_CHARS = 8_000;
+/** UTF-8 takes at most 4 bytes per character, so this many bytes always holds `MAX_ITEM_CHARS`. */
+const MAX_ITEM_FILE_BYTES = MAX_ITEM_CHARS * 4;
 /** The usual English rate; TypeSafe does not publish Jev's tokenizer, so batches leave headroom. */
 const CHARS_PER_TOKEN_ESTIMATE = 4;
 /** Share of Jev's per-request input limit a batch may use, covering error in the estimate above. */
-const REQUEST_TOKEN_BUDGET = Math.floor(JEV_MAX_INPUT_TOKENS * 0.75);
+export const REQUEST_TOKEN_BUDGET = Math.floor(JEV_MAX_INPUT_TOKENS * 0.75);
+/** TypeSafe's limit on one image file. */
+export const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
 /** TypeSafe's limit on all images in one request. */
 const MAX_REQUEST_IMAGE_BYTES = 32 * 1024 * 1024;
+/**
+ * Requests in flight at once. TypeSafe publishes no rate limit; 4 keeps a full call's 10 or so
+ * requests to 3 rounds inside the tool deadline, and image memory to 4 requests' worth.
+ */
+export const MAX_CONCURRENT_REQUESTS = 4;
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
@@ -94,11 +103,18 @@ interface Item {
   readonly image?: ItemImage;
 }
 
+/** An image checked up front and read only when the request carrying it is sent. */
 interface ItemImage {
-  readonly part: Experimental_DecisionStatePart;
+  readonly path: string;
+  readonly mediaType: "image/png" | "image/jpeg";
   readonly bytes: number;
   /** The token a question names to have TypeSafe send this image with it. */
   readonly reference: string;
+}
+
+interface ItemFailure {
+  readonly id: string | number;
+  readonly error: string;
 }
 
 /** Thrown for caller mistakes, so the model gets an actionable message instead of a stack. */
@@ -110,6 +126,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function imageMediaType(bytes: Uint8Array): "image/png" | "image/jpeg" | undefined {
@@ -163,7 +183,15 @@ function parseItemEntries(raw: unknown): ItemSpec[] {
   });
 }
 
-/** One item per file matched by `files`, in sorted order, each named by its path. */
+async function isRegularFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** One item per regular file matched by `files`, in sorted order, each named by its path. */
 async function expandFiles(raw: unknown, cwd: string): Promise<ItemSpec[]> {
   if (raw === undefined) {
     return [];
@@ -175,6 +203,9 @@ async function expandFiles(raw: unknown, cwd: string): Promise<ItemSpec[]> {
   for (const pattern of raw) {
     let matchedPattern = false;
     for await (const path of glob(pattern, { cwd })) {
+      if (!(await isRegularFile(resolve(cwd, path)))) {
+        continue;
+      }
       matchedPattern = true;
       matched.add(path);
       if (matched.size > MAX_ITEMS) {
@@ -218,67 +249,121 @@ async function parseItems(args: Record<string, unknown>, cwd: string): Promise<I
   return specs;
 }
 
+function capText(text: string): { text: string; truncated: boolean } {
+  return text.length > MAX_ITEM_CHARS
+    ? { text: text.slice(0, MAX_ITEM_CHARS), truncated: true }
+    : { text, truncated: false };
+}
+
+/** Reads only the first `MAX_ITEM_FILE_BYTES` of a file, however large it is. */
 async function readTextFile(
   path: string,
   cwd: string,
 ): Promise<{ text: string; truncated: boolean }> {
-  let content: string;
+  const buffer = new Uint8Array(MAX_ITEM_FILE_BYTES);
+  let bytesRead: number;
+  let size: number;
   try {
-    content = await readFile(resolve(cwd, path), "utf8");
+    const handle = await open(resolve(cwd, path), "r");
+    try {
+      const info = await handle.stat();
+      if (!info.isFile()) {
+        throw new ToolInputError(`${path} is not a file`);
+      }
+      size = info.size;
+      ({ bytesRead } = await handle.read(buffer, 0, MAX_ITEM_FILE_BYTES, 0));
+    } finally {
+      await handle.close();
+    }
   } catch (error) {
-    throw new ToolInputError(
-      `could not read file ${path}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    if (error instanceof ToolInputError) {
+      throw error;
+    }
+    throw new ToolInputError(`could not read file ${path}: ${errorText(error)}`);
   }
-  if (content.includes("\u0000")) {
+  const prefix = buffer.subarray(0, bytesRead);
+  if (prefix.includes(0)) {
     throw new ToolInputError(`file ${path} is not a text file`);
   }
-  if (content.trim().length === 0) {
+  // A cut can split a multi-byte character, which decodes to a replacement character at the end.
+  const decoded = new TextDecoder().decode(prefix).replace(/�$/, "");
+  if (decoded.trim().length === 0) {
     throw new ToolInputError(`file ${path} is empty`);
   }
-  return content.length > MAX_ITEM_FILE_CHARS
-    ? { text: content.slice(0, MAX_ITEM_FILE_CHARS), truncated: true }
-    : { text: content, truncated: false };
+  const capped = capText(decoded);
+  return { text: capped.text, truncated: capped.truncated || size > bytesRead };
 }
 
-async function readImage(path: string, cwd: string): Promise<ItemImage> {
-  let bytes: Uint8Array;
+/** Checks an image's size and format by its first bytes, leaving the full read for later. */
+async function inspectImage(path: string, cwd: string): Promise<ItemImage> {
+  const signature = new Uint8Array(PNG_SIGNATURE.length);
+  let size: number;
   try {
-    bytes = new Uint8Array(await readFile(resolve(cwd, path)));
+    const handle = await open(resolve(cwd, path), "r");
+    try {
+      const info = await handle.stat();
+      if (!info.isFile()) {
+        throw new ToolInputError(`${path} is not a file`);
+      }
+      size = info.size;
+      await handle.read(signature, 0, signature.length, 0);
+    } finally {
+      await handle.close();
+    }
   } catch (error) {
-    throw new ToolInputError(
-      `could not read image ${path}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    if (error instanceof ToolInputError) {
+      throw error;
+    }
+    throw new ToolInputError(`could not read image ${path}: ${errorText(error)}`);
   }
-  const mediaType = imageMediaType(bytes);
+  const mediaType = imageMediaType(signature);
   if (mediaType === undefined) {
     throw new ToolInputError(`image ${path} is not a PNG or JPEG file`);
   }
+  if (size > MAX_IMAGE_BYTES) {
+    throw new ToolInputError(
+      `image ${path} is ${size} bytes; TypeSafe accepts images up to ${MAX_IMAGE_BYTES} bytes`,
+    );
+  }
   // A random reference never collides with item text; with insertReference off, TypeSafe sends
   // the image only with the question that names it.
-  const reference = `[image-${randomUUID()}]`;
   return {
-    part: {
-      type: "file",
-      data: bytes,
-      mediaType,
-      providerOptions: { typesafe: { reference, insertReference: false } },
-    } as Experimental_DecisionStatePart,
-    bytes: bytes.byteLength,
-    reference,
+    path: resolve(cwd, path),
+    mediaType,
+    bytes: size,
+    reference: `[image-${randomUUID()}]`,
+  };
+}
+
+async function imagePart(image: ItemImage): Promise<Experimental_DecisionStatePart> {
+  let data: Uint8Array;
+  try {
+    data = new Uint8Array(await readFile(image.path));
+  } catch (error) {
+    throw new ToolInputError(`could not read image ${image.path}: ${errorText(error)}`);
+  }
+  return {
+    type: "file",
+    data,
+    mediaType: image.mediaType,
+    providerOptions: { typesafe: { reference: image.reference, insertReference: false } },
   };
 }
 
 async function loadItems(specs: readonly ItemSpec[], cwd: string): Promise<Item[]> {
   return Promise.all(
     specs.map(async (spec) => {
-      const file = spec.textFile === undefined ? undefined : await readTextFile(spec.textFile, cwd);
-      const text = file?.text ?? spec.text;
+      const capped =
+        spec.textFile !== undefined
+          ? await readTextFile(spec.textFile, cwd)
+          : spec.text !== undefined
+            ? capText(spec.text)
+            : undefined;
       return {
         id: spec.id,
-        ...(text === undefined ? {} : { text }),
-        truncated: file?.truncated ?? false,
-        ...(spec.imagePath === undefined ? {} : { image: await readImage(spec.imagePath, cwd) }),
+        ...(capped === undefined ? {} : { text: capped.text }),
+        truncated: capped?.truncated ?? false,
+        ...(spec.imagePath === undefined ? {} : { image: await inspectImage(spec.imagePath, cwd) }),
       };
     }),
   );
@@ -298,7 +383,8 @@ function estimateTokens(value: unknown): number {
 
 /**
  * Split items into requests that fit Jev's limits. Every question is sent with the shared state,
- * so the state counts once per request and each question adds its own size.
+ * so the state counts once per request and each question adds its own size. An item that cannot
+ * fit even alone is the caller's to shorten, since sending it would only fail at TypeSafe.
  */
 function batchItems(
   items: readonly Item[],
@@ -311,6 +397,11 @@ function batchItems(
   let imageBytes = 0;
   for (const item of items) {
     const itemTokens = questionTokens(item);
+    if (stateTokens + itemTokens > REQUEST_TOKEN_BUDGET) {
+      throw new ToolInputError(
+        `item ${item.id} with the context, instructions, and labels is too long for one Jev request; shorten the context or the label descriptions`,
+      );
+    }
     const itemImageBytes = item.image?.bytes ?? 0;
     if (
       current.length > 0 &&
@@ -336,11 +427,13 @@ function sharedState(context: string | undefined, task: string): Record<string, 
   return { task, ...(context === undefined ? {} : { context }) };
 }
 
-function requestState(
+async function requestState(
   state: Record<string, string>,
   items: readonly Item[],
-): Experimental_DecisionState {
-  const images = items.flatMap((item) => (item.image === undefined ? [] : [item.image.part]));
+): Promise<Experimental_DecisionState> {
+  const images = await Promise.all(
+    items.flatMap((item) => (item.image === undefined ? [] : [imagePart(item.image)])),
+  );
   return images.length === 0 ? state : [{ type: "json", value: state }, ...images];
 }
 
@@ -348,7 +441,26 @@ function questionKey(index: number): string {
   return `item_${index + 1}`;
 }
 
-/** Ask Jev each batch's questions in parallel and merge the answers, keyed by item index. */
+/** Runs `task` over `inputs` with at most `limit` running at once, keeping input order. */
+async function mapWithLimit<Input, Output>(
+  inputs: readonly Input[],
+  limit: number,
+  task: (input: Input) => Promise<Output>,
+): Promise<Output[]> {
+  const outputs: Output[] = new Array<Output>(inputs.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < inputs.length) {
+      const index = next;
+      next += 1;
+      outputs[index] = await task(inputs[index] as Input);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, inputs.length) }, worker));
+  return outputs;
+}
+
+/** Ask Jev each batch's questions, a few requests at a time, and merge the answers per item. */
 async function askInBatches(
   api: PluginHostApi,
   items: readonly Item[],
@@ -367,21 +479,21 @@ async function askInBatches(
       "TypeSafe API key is missing. Ask the user to run: jazz plugin secret set com.jazz.plugins.jev apiKey",
     );
   }
-  const stateTokens = estimateTokens(state);
-  const batches = batchItems(items, stateTokens, (item) => estimateTokens(question(item)));
-  const decisions = await Promise.all(
-    batches.map((batch) =>
-      decideWithJev({
-        apiKey,
-        state: requestState(state, batch),
-        questions: Object.fromEntries(
-          batch.map((item, index) => [questionKey(index), question(item)]),
-        ),
-        signal,
-        maxRetries: TOOL_MAX_RETRIES,
-      }).then((decision) => ({ batch, decision })),
-    ),
+  const batches = batchItems(items, estimateTokens(state), (item) =>
+    estimateTokens(question(item)),
   );
+  const decisions = await mapWithLimit(batches, MAX_CONCURRENT_REQUESTS, async (batch) => ({
+    batch,
+    decision: await decideWithJev({
+      apiKey,
+      state: await requestState(state, batch),
+      questions: Object.fromEntries(
+        batch.map((item, index) => [questionKey(index), question(item)]),
+      ),
+      signal,
+      maxRetries: TOOL_MAX_RETRIES,
+    }),
+  }));
   const answers = new Map<Item, JevDecision["answers"][string]>();
   const confidence = new Map<Item, number>();
   for (const { batch, decision } of decisions) {
@@ -418,23 +530,27 @@ function optionalText(raw: unknown, name: string): string | undefined {
   return nonEmptyString(raw) ? raw : undefined;
 }
 
+/** Label names are caller text, so the map has no prototype for a name like "constructor" to hit. */
 function parseLabels(raw: unknown): Record<string, string | null> {
   if (!Array.isArray(raw) || raw.length < MIN_LABELS) {
     throw new ToolInputError(`labels must list at least ${MIN_LABELS} labels`);
   }
-  const criteria: Record<string, string | null> = {};
+  const criteria: Record<string, string | null> = Object.create(null) as Record<
+    string,
+    string | null
+  >;
   for (const [index, entry] of raw.entries()) {
     const name = typeof entry === "string" ? entry : isRecord(entry) ? entry["name"] : undefined;
     if (!nonEmptyString(name)) {
       throw new ToolInputError(`labels[${index}] needs a name`);
     }
-    if (name in criteria) {
+    if (Object.hasOwn(criteria, name)) {
       throw new ToolInputError(`labels repeats "${name}"`);
     }
     const description = isRecord(entry) ? entry["description"] : undefined;
     criteria[name] = nonEmptyString(description) ? description : null;
   }
-  if (!(NONE_LABEL in criteria)) {
+  if (!Object.hasOwn(criteria, NONE_LABEL)) {
     criteria[NONE_LABEL] = NONE_LABEL_DESCRIPTION;
   }
   if (Object.keys(criteria).length > JEV_MAX_CHOICE_OPTIONS) {
@@ -453,7 +569,7 @@ function parseKeep(raw: unknown, criteria: Record<string, string | null>): Set<s
     throw new ToolInputError("keep must list label names");
   }
   for (const label of raw) {
-    if (!(label in criteria)) {
+    if (!Object.hasOwn(criteria, label)) {
       throw new ToolInputError(`keep names "${label}", which is not one of the labels`);
     }
   }
@@ -489,6 +605,11 @@ function truncationNote(item: Item): Record<string, boolean> {
   return item.truncated ? { truncated: true } : {};
 }
 
+/** Items Jev gave no usable answer for, listed apart so no filter or cutoff can hide them. */
+function failedNote(failed: readonly ItemFailure[]): Record<string, readonly ItemFailure[]> {
+  return failed.length === 0 ? {} : { failed };
+}
+
 async function classify(
   api: PluginHostApi,
   args: Record<string, unknown>,
@@ -506,31 +627,32 @@ async function classify(
     (item) => ({ type: "choice", instructions: { item: itemForQuestion(item) }, criteria }),
     context.signal,
   );
-  const results = items.map((item) => {
+  const failed: ItemFailure[] = [];
+  const results = items.flatMap((item) => {
     const answer = decision.answers.get(item);
     if (answer?.type !== "choice") {
-      return { id: item.id, error: "Jev returned no label for this item" };
+      failed.push({ id: item.id, error: "Jev returned no label for this item" });
+      return [];
     }
     const chosenProbability = answer.probabilities?.[answer.choice];
     const confidence = decision.confidence.get(item);
-    return {
-      id: item.id,
-      label: answer.choice,
-      ...(answer.probabilities === undefined ? {} : { probabilities: answer.probabilities }),
-      ...(confidence === undefined ? {} : { confidence }),
-      ...(chosenProbability !== undefined && chosenProbability < UNCERTAIN_BELOW_PROBABILITY
-        ? { uncertain: true }
-        : {}),
-      ...truncationNote(item),
-    };
+    return [
+      {
+        id: item.id,
+        label: answer.choice,
+        ...(answer.probabilities === undefined ? {} : { probabilities: answer.probabilities }),
+        ...(confidence === undefined ? {} : { confidence }),
+        ...(chosenProbability !== undefined && chosenProbability < UNCERTAIN_BELOW_PROBABILITY
+          ? { uncertain: true }
+          : {}),
+        ...truncationNote(item),
+      },
+    ];
   });
-  const kept =
-    keep === undefined
-      ? results
-      : results.filter((result) => !("label" in result) || keep.has(result.label));
+  const kept = keep === undefined ? results : results.filter((result) => keep.has(result.label));
   const omitted: Record<string, number> = {};
   for (const result of results) {
-    if ("label" in result && !kept.includes(result)) {
+    if (!kept.includes(result)) {
       omitted[result.label] = (omitted[result.label] ?? 0) + 1;
     }
   }
@@ -539,6 +661,7 @@ async function classify(
       model: decision.model,
       results: kept,
       ...(keep === undefined ? {} : { omitted }),
+      ...failedNote(failed),
       usage: decision.usage,
     }),
   };
@@ -567,34 +690,28 @@ async function rank(
     context.signal,
   );
   const topLevel = levels.length - 1;
-  const scored = items.map((item) => {
+  const failed: ItemFailure[] = [];
+  const scored = items.flatMap((item) => {
     const answer = decision.answers.get(item);
-    const confidence = decision.confidence.get(item);
     if (answer?.type !== "score") {
-      return { id: item.id, error: "Jev returned no score for this item" };
+      failed.push({ id: item.id, error: "Jev returned no score for this item" });
+      return [];
     }
-    return {
-      id: item.id,
-      score: answer.score / topLevel,
-      level: levels[Math.min(topLevel, Math.max(0, Math.round(answer.score)))],
-      ...(confidence === undefined ? {} : { confidence }),
-      ...truncationNote(item),
-    };
+    return [
+      {
+        id: item.id,
+        score: answer.score / topLevel,
+        level: levels[Math.min(topLevel, Math.max(0, Math.round(answer.score)))],
+        confidence: decision.confidence.get(item),
+        ...truncationNote(item),
+      },
+    ];
   });
   // Jev's score is the probability-weighted mean of the levels, so equal scores are rare; among
   // them the item Jev is more confident about goes first, then the earlier one.
-  const ranking = [...scored].sort((left, right) => {
-    const byScore =
-      ("score" in right ? right.score : Number.NEGATIVE_INFINITY) -
-      ("score" in left ? left.score : Number.NEGATIVE_INFINITY);
-    if (byScore !== 0) {
-      return byScore;
-    }
-    return (
-      ("confidence" in right ? (right.confidence ?? 0) : 0) -
-      ("confidence" in left ? (left.confidence ?? 0) : 0)
-    );
-  });
+  const ranking = [...scored].sort(
+    (left, right) => right.score - left.score || (right.confidence ?? 0) - (left.confidence ?? 0),
+  );
   const shown = top === undefined ? ranking : ranking.slice(0, top);
   return {
     content: JSON.stringify({
@@ -602,6 +719,7 @@ async function rank(
       levels,
       ranking: shown,
       ...(shown.length < ranking.length ? { omitted: ranking.length - shown.length } : {}),
+      ...failedNote(failed),
       usage: decision.usage,
     }),
   };

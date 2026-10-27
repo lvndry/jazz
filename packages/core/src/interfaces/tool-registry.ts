@@ -102,7 +102,10 @@ export interface ToolSummary {
   readonly name: string;
   readonly categoryId: string;
   readonly categoryDisplayName: string;
+  /** The one line the deferred-tool list shows. */
   readonly summary: string;
+  /** The full description, which `search_tools` also matches but the list never shows. */
+  readonly description: string;
 }
 
 export interface Tool<R = never> {

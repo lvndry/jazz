@@ -31,8 +31,7 @@
   "tools": [
     {
       "name": "classify",
-      "summary": "Triage, sort, label, categorize or filter many emails, messages, receipts, documents, files or photos",
-      "description": "Sort many items into labels with Jev, a fast decision model. Use it for 15 or more items, for items saved as files or images, or when you need each label's probability. Pass saved items as paths, with `files` or an item's `file`. Returns each item's label, every label's probability, Jev's confidence, and `uncertain` when the label's probability is under 0.5. Every label set also offers \"none of these\". Example uses: emails into urgent/reply/newsletter/junk, receipts into business/personal, photos into contains-passport/other.",
+      "description": "Triage, sort, or label many emails, messages, receipts, files, or photos with Jev, a fast decision model. Use it for 15 or more items, for items saved as files or images, or when you need each label's probability. Pass saved items as paths, with `files` or an item's `file`. Returns each item's label, every label's probability, Jev's confidence, and `uncertain` when the label's probability is under 0.5. Every label set also offers \"none of these\". Example uses: emails into urgent/reply/newsletter/junk, receipts into business/personal, photos into contains-passport/other.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -112,8 +111,7 @@
     },
     {
       "name": "rank",
-      "summary": "Rank, shortlist, compare, score or prioritize many options, apartments, offers, candidates, tasks, files or photos",
-      "description": "Order many items by how well each meets a criterion, with Jev, a fast decision model. Use it for 15 or more items, for items saved as files or images, or when you need a score per item. Pass saved items as paths, with `files` or an item's `file`. Returns the items best first, each with a 0-1 score, the nearest level on the scale, and Jev's confidence. Example uses: apartments, job offers, restaurants, tasks by importance, photos by quality.",
+      "description": "Rank, shortlist, or prioritize many options, such as apartments, offers, tasks, or photos, by a criterion with Jev, a fast decision model. Use it for 15 or more items, for items saved as files or images, or when you need a score per item. Pass saved items as paths, with `files` or an item's `file`. Returns the items best first, each with a 0-1 score, the nearest level on the scale, and Jev's confidence. Example uses: apartments, job offers, restaurants, tasks by importance, photos by quality.",
       "parameters": {
         "type": "object",
         "properties": {

@@ -58,6 +58,30 @@ describe("rankToolsByQuery", () => {
     expect(rankToolsByQuery("completely unrelated xyz", candidates)).toEqual([]);
   });
 
+  it("finds a tool by words only its full description holds", () => {
+    const candidates = [
+      {
+        name: "plugin_jev_classify",
+        summary: "Sort many items into labels with Jev, a fast decision model. Use it for 15...",
+        description:
+          "Sort many items into labels with Jev. Example uses: triage an inbox, sort receipts.",
+      },
+    ];
+    expect(rankToolsByQuery("triage my inbox", candidates)).toEqual(["plugin_jev_classify"]);
+  });
+
+  it("ranks a tool whose name or summary fits above one that only mentions the words deeper in", () => {
+    const candidates = [
+      {
+        name: "long_tool",
+        summary: "Does many things.",
+        description: "Does many things, including when you want to send an email reply.",
+      },
+      { name: "send_email", summary: "Send an email reply.", description: "Send an email reply." },
+    ];
+    expect(rankToolsByQuery("send email reply", candidates)[0]).toBe("send_email");
+  });
+
   it("returns nothing for an empty query", () => {
     const candidates = [{ name: "linear_create_issue", summary: "Create a Linear issue." }];
     expect(rankToolsByQuery("   ", candidates)).toEqual([]);

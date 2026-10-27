@@ -268,11 +268,6 @@ export type PluginToolRiskLevel = "read-only" | "low-risk" | "high-risk";
  */
 export interface PluginToolDeclaration {
   readonly name: string;
-  /**
-   * One line `search_tools` matches while the tool is deferred, written in the words a request
-   * would use. Without it, the first line of `description` is used, cut short.
-   */
-  readonly summary?: string;
   readonly description: string;
   /** JSON Schema for the tool's arguments, advertised to the model. */
   readonly parameters: JsonValue;

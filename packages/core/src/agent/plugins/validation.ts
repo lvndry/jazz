@@ -111,12 +111,6 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
   for (const tool of manifest.tools) {
     if (tool.description.length === 0) fail(`tool ${tool.name} must have a description`);
     if (
-      tool.summary !== undefined &&
-      (typeof tool.summary !== "string" || tool.summary.length === 0)
-    ) {
-      fail(`tool ${tool.name} summary must be non-empty text`);
-    }
-    if (
       tool.riskLevel !== "read-only" &&
       tool.riskLevel !== "low-risk" &&
       tool.riskLevel !== "high-risk"

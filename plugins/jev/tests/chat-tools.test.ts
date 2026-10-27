@@ -1,11 +1,16 @@
 /** Exercises the classify and rank tools at the plugin boundary: what they send and what they return. */
 
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginHostApi, PluginToolRegistration, PluginToolResult } from "@jazz/plugin-sdk";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { MAX_ITEM_FILE_CHARS, NONE_LABEL } from "../src/chat-tools";
+import {
+  MAX_CONCURRENT_REQUESTS,
+  MAX_IMAGE_BYTES,
+  MAX_ITEM_CHARS,
+  NONE_LABEL,
+} from "../src/chat-tools";
 import plugin from "../src/index";
 import { JEV_BASE_URL, JEV_MODEL } from "../src/jev-client";
 
@@ -189,28 +194,64 @@ describe("classify", () => {
     expect(content.omitted).toEqual({ later: 2 });
   });
 
-  it("rejects a keep label that is not offered", async () => {
-    const result = await call("classify", { items: ["x"], labels: ["a", "b"], keep: ["c"] });
-    expect(result).toEqual({
-      isError: true,
-      content: 'keep names "c", which is not one of the labels',
+  it("rejects a keep label that is not offered, including an inherited property name", async () => {
+    for (const label of ["c", "constructor"]) {
+      expect(await call("classify", { items: ["x"], labels: ["a", "b"], keep: [label] })).toEqual({
+        isError: true,
+        content: `keep names "${label}", which is not one of the labels`,
+      });
+    }
+  });
+
+  it("fails the whole call when Jev refuses one item, rather than dropping it from the kept results", async () => {
+    respondPerQuestion((question) =>
+      itemText(question) === "lost"
+        ? { type: "refusal" }
+        : choice("a", { a: 1, b: 0, [NONE_LABEL]: 0 }),
+    );
+    const result = await call("classify", {
+      items: ["kept", "lost"],
+      labels: ["a", "b"],
+      keep: ["a"],
     });
+    expect(result.isError).toBe(true);
   });
 
   it("reads matched files as items named by their paths, cutting long ones short", async () => {
     await mkdir(join(workingDirectory, "inbox"));
     await writeFile(join(workingDirectory, "inbox", "a.eml"), "Server down");
-    await writeFile(join(workingDirectory, "inbox", "b.eml"), "x".repeat(MAX_ITEM_FILE_CHARS + 50));
+    await writeFile(join(workingDirectory, "inbox", "b.eml"), "x".repeat(MAX_ITEM_CHARS + 50));
     const requests = respondPerQuestion(() => choice("a", { a: 1, b: 0, [NONE_LABEL]: 0 }));
     const result = await call("classify", { files: ["inbox/*.eml"], labels: ["a", "b"] });
 
     const items = Object.values(requests[0]?.body.questions ?? {}).map(itemText);
     expect(items[0]).toBe("Server down");
-    expect(items[1]).toHaveLength(MAX_ITEM_FILE_CHARS);
+    expect(items[1]).toHaveLength(MAX_ITEM_CHARS);
     expect(JSON.parse(result.content).results).toEqual([
       expect.objectContaining({ id: "inbox/a.eml" }),
       expect.objectContaining({ id: "inbox/b.eml", truncated: true }),
     ]);
+  });
+
+  it("skips directories a pattern matches and reads only the start of a large file", async () => {
+    await mkdir(join(workingDirectory, "inbox", "archive"), { recursive: true });
+    await writeFile(join(workingDirectory, "inbox", "a.eml"), "Hello");
+    await writeFile(join(workingDirectory, "inbox", "big.eml"), "y".repeat(5_000_000));
+    const requests = respondPerQuestion(() => choice("a", { a: 1, b: 0, [NONE_LABEL]: 0 }));
+    const result = await call("classify", { files: ["inbox/*"], labels: ["a", "b"] });
+
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content).results.map((entry: { id: string }) => entry.id)).toEqual([
+      "inbox/a.eml",
+      "inbox/big.eml",
+    ]);
+    expect(itemText(Object.values(requests[0]?.body.questions ?? {})[1]!)).toHaveLength(
+      MAX_ITEM_CHARS,
+    );
+    expect(await call("classify", { files: ["inbox/arch*"], labels: ["a", "b"] })).toEqual({
+      isError: true,
+      content: "files pattern inbox/arch* matches no file",
+    });
   });
 
   it("rejects a files pattern that matches nothing, and a binary file", async () => {
@@ -239,6 +280,62 @@ describe("classify", () => {
       items.map((item) => item.id),
     );
     expect(content.usage.requests).toBe(requests.length);
+  });
+
+  it("rejects context too long for any request instead of sending it", async () => {
+    const requests = respondPerQuestion(() => ({}));
+    const result = await call("classify", {
+      items: ["x"],
+      labels: ["a", "b"],
+      context: "word ".repeat(60_000),
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("too long for one Jev request");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("rejects an image over TypeSafe's per-image limit before reading it", async () => {
+    const path = join(workingDirectory, "huge.png");
+    await writeFile(path, PNG_BYTES);
+    await truncate(path, MAX_IMAGE_BYTES + 1);
+    const requests = respondPerQuestion(() => ({}));
+    const result = await call("classify", { items: [{ image: "huge.png" }], labels: ["a", "b"] });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("TypeSafe accepts images up to");
+    expect(requests).toHaveLength(0);
+  });
+
+  it(`keeps at most ${MAX_CONCURRENT_REQUESTS} requests in flight`, async () => {
+    let inFlight = 0;
+    let peak = 0;
+    let requests = 0;
+    globalThis.fetch = (async (_input, init) => {
+      requests += 1;
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+      inFlight -= 1;
+      const body = JSON.parse(String(init?.body)) as { questions: Record<string, unknown> };
+      return Response.json({
+        model: JEV_MODEL,
+        answers: Object.fromEntries(
+          Object.keys(body.questions).map((key) => [
+            key,
+            choice("a", { a: 1, b: 0, [NONE_LABEL]: 0 }),
+          ]),
+        ),
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    }) as typeof fetch;
+    const items = Array.from(
+      { length: 150 },
+      (_, index) => `${index} ${"x".repeat(MAX_ITEM_CHARS)}`,
+    );
+    const result = await call("classify", { items, labels: ["a", "b"] });
+
+    expect(result.isError).toBeUndefined();
+    expect(requests).toBeGreaterThan(MAX_CONCURRENT_REQUESTS);
+    expect(peak).toBe(MAX_CONCURRENT_REQUESTS);
   });
 
   it("sends an image only with the question that names it", async () => {
@@ -354,6 +451,21 @@ describe("rank", () => {
     const content = JSON.parse(result.content);
     expect(content.ranking.map((entry: { id: number }) => entry.id)).toEqual([2]);
     expect(content.omitted).toBe(2);
+  });
+
+  it("fails the whole call on an invalid score, rather than letting top drop the item", async () => {
+    respondPerQuestion((question) =>
+      itemText(question) === "lost"
+        ? { type: "score", score: 9, legend: {}, probabilities: {}, confidence: 1 }
+        : score(1.5, 0.5),
+    );
+    const result = await call("rank", {
+      items: ["a", "b", "lost"],
+      criterion: "anything",
+      levels: ["bad", "ok", "great"],
+      top: 1,
+    });
+    expect(result.isError).toBe(true);
   });
 
   it("uses the default five-level scale when none is given", async () => {
