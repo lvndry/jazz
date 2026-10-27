@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  claimAssetDirectory,
   extractEmbeddedAssets,
   hasEmbeddedAssets,
   pruneStaleAssetDirectories,
@@ -203,6 +204,9 @@ function getEmbeddedAssetRoot(): string | null {
 
   const runtimeRoot = path.join(getJazzHomeDirectory(), "runtime");
   embeddedAssetRoot = extractEmbeddedAssets(path.join(runtimeRoot, packageJson.version));
+  if (embeddedAssetRoot) {
+    claimAssetDirectory(embeddedAssetRoot);
+  }
   pruneStaleAssetDirectories(runtimeRoot, packageJson.version);
   return embeddedAssetRoot;
 }

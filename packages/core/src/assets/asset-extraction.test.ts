@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
 import {
+  claimAssetDirectory,
   extractAssetsInto,
   extractEmbeddedAssets,
   hasEmbeddedAssets,
@@ -113,6 +114,41 @@ describe("embedded asset extraction", () => {
     pruneStaleAssetDirectories(runtimeRoot, "0.2.0");
 
     expect(fs.readdirSync(runtimeRoot)).toEqual(["0.2.0"]);
+  });
+
+  it("keeps another version's directory while a live process has claimed it", () => {
+    const runtimeRoot = makeTemporaryDirectory();
+    const previousVersion = path.join(runtimeRoot, "0.1.0");
+    fs.mkdirSync(path.join(previousVersion, "personas"), { recursive: true });
+    fs.mkdirSync(path.join(runtimeRoot, "0.2.0"));
+
+    claimAssetDirectory(previousVersion);
+    pruneStaleAssetDirectories(runtimeRoot, "0.2.0");
+
+    expect(fs.readdirSync(runtimeRoot).sort()).toEqual(["0.1.0", "0.2.0"]);
+  });
+
+  it("prunes a claimed directory once the claiming process is gone", () => {
+    const runtimeRoot = makeTemporaryDirectory();
+    const deadProcessId = Bun.spawnSync(["true"]).pid;
+    fs.mkdirSync(path.join(runtimeRoot, "0.1.0", ".in-use"), { recursive: true });
+    fs.writeFileSync(path.join(runtimeRoot, "0.1.0", ".in-use", String(deadProcessId)), "");
+    fs.mkdirSync(path.join(runtimeRoot, "0.2.0"));
+
+    pruneStaleAssetDirectories(runtimeRoot, "0.2.0");
+
+    expect(fs.readdirSync(runtimeRoot)).toEqual(["0.2.0"]);
+  });
+
+  it("keeps a staging directory a live process is extracting into", () => {
+    const runtimeRoot = makeTemporaryDirectory();
+    const stagingDirectory = `0.2.0.partial-${process.pid}`;
+    fs.mkdirSync(path.join(runtimeRoot, stagingDirectory));
+    fs.mkdirSync(path.join(runtimeRoot, "0.2.0"));
+
+    pruneStaleAssetDirectories(runtimeRoot, "0.2.0");
+
+    expect(fs.readdirSync(runtimeRoot).sort()).toEqual(["0.2.0", stagingDirectory]);
   });
 
   it("ignores a missing runtime directory when pruning", () => {

@@ -87,11 +87,61 @@ export function extractAssetsInto(
   }
 }
 
+const IN_USE_DIRECTORY_NAME = ".in-use";
+const STAGING_SUFFIX_PATTERN = /\.partial-(\d+)$/;
+
+function isProcessAlive(processId: number): boolean {
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function isInUseByLiveProcess(assetDirectory: string): boolean {
+  let markers: string[];
+  try {
+    markers = fs.readdirSync(path.join(assetDirectory, IN_USE_DIRECTORY_NAME));
+  } catch {
+    return false;
+  }
+  return markers.some((marker) => {
+    const processId = Number(marker);
+    return Number.isInteger(processId) && processId > 0 && isProcessAlive(processId);
+  });
+}
+
+/**
+ * Records that this process reads from `assetDirectory` until it exits.
+ *
+ * A Jazz session keeps loading personas and skills from its version's directory
+ * long after startup, so a newer version starting after `jazz update` must not
+ * prune it out from under the session. The marker is removed on exit; a marker
+ * left by a crashed process is ignored once its pid is no longer alive.
+ *
+ * @param assetDirectory - The unpacked asset directory this process uses.
+ */
+export function claimAssetDirectory(assetDirectory: string): void {
+  const markerPath = path.join(assetDirectory, IN_USE_DIRECTORY_NAME, String(process.pid));
+  try {
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+    fs.writeFileSync(markerPath, "");
+    process.once("exit", () => {
+      fs.rmSync(markerPath, { force: true });
+    });
+  } catch {
+    // Without the marker the directory may be pruned early; Jazz still starts.
+  }
+}
+
 /**
  * Deletes unpacked asset directories left behind by other versions.
  *
  * A self-updating binary replaces itself in place, so without this every
- * upgrade would leave its predecessor's assets on disk forever.
+ * upgrade would leave its predecessor's assets on disk forever. Directories a
+ * live process has claimed, and staging directories a live process is still
+ * extracting into, are kept.
  *
  * @param runtimeRoot - Directory holding the per-version asset directories.
  * @param currentVersionDirectory - Name of the directory to keep.
@@ -102,9 +152,18 @@ export function pruneStaleAssetDirectories(
 ): void {
   try {
     for (const entry of fs.readdirSync(runtimeRoot)) {
-      if (entry !== currentVersionDirectory) {
-        fs.rmSync(path.join(runtimeRoot, entry), { recursive: true, force: true });
+      if (entry === currentVersionDirectory) {
+        continue;
       }
+      const entryPath = path.join(runtimeRoot, entry);
+      const stagingProcessId = STAGING_SUFFIX_PATTERN.exec(entry)?.[1];
+      if (stagingProcessId !== undefined && isProcessAlive(Number(stagingProcessId))) {
+        continue;
+      }
+      if (isInUseByLiveProcess(entryPath)) {
+        continue;
+      }
+      fs.rmSync(entryPath, { recursive: true, force: true });
     }
   } catch {
     // Pruning is housekeeping; a failure here must not stop Jazz from starting.
