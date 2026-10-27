@@ -122,7 +122,7 @@ flowchart TB
 
     SELECT -->|"a factory claims it"| P1["That parser"]
     SELECT -->|"Harmony format detected<br/>&lt;|channel|&gt;analysis"| NONE["No parser,<br/>passthrough would mangle<br/>the delimiters"]
-    SELECT -->|"nothing claims it"| P2["<b>Defensive TagPairParser</b><br/>passthrough on plain text;<br/>acts only if a real<br/>&lt;think&gt; tag appears"]
+    SELECT -->|"nothing claims it"| P2["<b>Defensive TagPairParser</b><br/>passthrough on plain text;<br/>acts only if a<br/>&lt;think&gt; tag opens the reply"]
 
     P1 --> SPLIT
     P2 --> SPLIT
@@ -137,8 +137,10 @@ flowchart TB
 The default is **defensive rather than strict**, and that's a deliberate call. A strict
 factory gate (only parse when metadata says the model reasons) silently leaks
 `<think>` tags into the user-visible answer for the many local models that don't declare it.
-The fallback parser is a passthrough until it actually sees an opening tag, so the cost of
-being wrong is zero. The one format explicitly refused is Harmony, where naive tag-pair
+The fallback parser is a passthrough unless the reply opens with a reasoning tag, so the
+cost of being wrong is zero. A tag only opens a block before any visible text: once the answer
+has started, a `<think>` in it is the answer quoting the tag (a regex, docs, a code review),
+and parsing it would hide everything up to the next `</think>`. The one format explicitly refused is Harmony, where naive tag-pair
 parsing would visibly corrupt the channel delimiters.
 
 Parsers are stateful per request and buffer across chunk boundaries, so a `<think>` tag split

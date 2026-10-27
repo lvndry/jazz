@@ -2,6 +2,9 @@
  * `ReasoningParser` for models that emit reasoning in-band as `<think>`/`<thinking>` tags.
  * A character-by-character state machine so a tag split across two stream chunks is still
  * recognized correctly.
+ *
+ * A block opens only before the answer starts: models reason first, so once visible text has
+ * appeared, a `<think>` is the answer quoting the tag (a regex, docs, a code review) and stays.
  */
 
 import type {
@@ -35,6 +38,7 @@ export class TagPairParser implements ReasoningParser {
   private buffer = "";
   private sawThinkingContent = false;
   private pendingThinking = "";
+  private answerStarted = false;
 
   feed(input: string): ParseChunk {
     let visibleText = "";
@@ -97,11 +101,12 @@ export class TagPairParser implements ReasoningParser {
 
     switch (this.state) {
       case "OUTSIDE": {
-        if (ch === "<") {
+        if (ch === "<" && !this.answerStarted) {
           this.buffer = "<";
           this.state = "MAYBE_OPEN";
         } else {
           visibleText += ch;
+          if (/\S/.test(ch)) this.answerStarted = true;
         }
         break;
       }
@@ -117,6 +122,7 @@ export class TagPairParser implements ReasoningParser {
           visibleText += this.buffer;
           this.buffer = "";
           this.state = "OUTSIDE";
+          this.answerStarted = true;
         }
         break;
       }
