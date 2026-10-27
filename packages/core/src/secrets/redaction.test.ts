@@ -322,9 +322,15 @@ describe("redactSecretText on secret names", () => {
     expect(redactSecretText(text, [])).toBe(text);
   });
 
-  it("redacts a generated value after the word token", () => {
-    expect(redactSecretText("token ghx7Rk2pQ9mZw4Lt8Vn", [])).toBe("token [redacted:credential]");
-    expect(redactSecretText("token AbcdefghIjklmnopQr", [])).toBe("token [redacted:credential]");
+  it("redacts a generated value after the word token, lowercase-only included", () => {
+    for (const value of [
+      "ghx7Rk2pQ9mZw4Lt8Vn",
+      "AbcdefghIjklmnopQr",
+      "abcdefghijklmnop",
+      "kqzmwpexrtyvbnal",
+    ]) {
+      expect(redactSecretText(`token ${value}`, [])).toBe("token [redacted:credential]");
+    }
   });
 });
 

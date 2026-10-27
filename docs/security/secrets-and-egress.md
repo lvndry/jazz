@@ -274,10 +274,14 @@ Jazz replaces recognized secrets with `[redacted:<name>]`:
 `write_file` and `edit_file` refuse text carrying a placeholder that stands for a secret: one the
 target file holds, or one Jazz knows. An edit copied from redacted output cannot overwrite the real
 value, while placeholder-shaped text that names no such secret, such as documentation of this
-feature, is written as it is. `write_file` also refuses to replace an existing file when the new
-content leaves out or changes a line holding a secret, and tells the model to use `edit_file` on
-the other lines instead. The agent can still change a `.env` file: it edits the lines around a
-secret, or replaces a secret line with a new value you asked for.
+feature, is written as it is. One case is not refused: when `write_file` replaces a file and a
+line of the new content is exactly a secret line of that file as the model was shown it,
+placeholder included, Jazz writes the real line back. Copying the line as shown is all a model can
+do to keep it. A placeholder on an edited line, a placeholder for a secret the file does not hold,
+and a shown line that two different secret lines share are still refused. `write_file` also
+refuses to replace an existing file when the new content leaves out or changes a line holding a
+secret. The agent can still change a `.env` file: it rewrites the file keeping the secret lines as
+shown, edits the lines around a secret, or replaces a secret line with a new value you asked for.
 
 Jazz's own configuration is readable like any file, but a `write_file`, `edit_file`, `mv`, `cp` or
 `rm` that changes it always asks for approval, under every auto-approve policy and allowlist

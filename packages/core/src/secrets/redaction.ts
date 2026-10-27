@@ -122,12 +122,12 @@ function isRedactableValue(value: string): boolean {
 }
 
 /**
- * Whether a value has a digit or both letter cases, as generated tokens do. "token" is also an
- * English word, and the word after it in prose (`chain-of-thought`, `prompt_tokens_details`)
- * has neither.
+ * Whether a value is lowercase words joined by `-`, `_` or `.` (`chain-of-thought`,
+ * `prompt_tokens_details.cached_tokens`): what follows "token" when it is the English word. A
+ * generated value with no digit and no capital still has no separators, so it stays a credential.
  */
-function looksGenerated(value: string): boolean {
-  return /\d/.test(value) || (/[a-z]/.test(value) && /[A-Z]/.test(value));
+function isJoinedWords(value: string): boolean {
+  return /^[a-z]{2,}(?:[-_.][a-z]{2,})+$/.test(value);
 }
 
 function lastPathSegment(path: string): string {
@@ -324,7 +324,7 @@ const SECRET_SHAPES: readonly SecretShape[] = [
   {
     pattern: /\b(Bearer|Basic|token)([ \t]+)([A-Za-z0-9._~+/-]{16,}=*)/g,
     replace: (match, scheme = "", space = "", value = "") =>
-      containsRedactionPlaceholder(value) || (scheme === "token" && !looksGenerated(value))
+      containsRedactionPlaceholder(value) || (scheme === "token" && isJoinedWords(value))
         ? match
         : `${scheme}${space}${redactionPlaceholder("credential")}`,
   },

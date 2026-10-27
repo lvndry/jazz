@@ -1,7 +1,7 @@
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
-import { redactLines } from "@/core/secrets/redacted-lines";
+import { redactLines, type RedactedLines } from "@/core/secrets/redacted-lines";
 import {
   containsRedactionPlaceholder,
   redactedWriteProblem,
@@ -61,14 +61,12 @@ const LISTED_SECRET_LINES = 10;
  */
 function restoreKeptSecretLines(
   content: string,
-  currentContent: string | undefined,
-  known: readonly KnownSecret[],
+  currentLines: readonly string[],
+  { lines: shownLines, secretLineIndexes }: RedactedLines,
 ): string {
-  if (currentContent === undefined || !containsRedactionPlaceholder(content)) {
+  if (secretLineIndexes.size === 0 || !containsRedactionPlaceholder(content)) {
     return content;
   }
-  const currentLines = currentContent.split("\n");
-  const { lines: shownLines, secretLineIndexes } = redactLines(currentLines, known);
   const realLineByShown = new Map<string, string | null>();
   for (const index of secretLineIndexes) {
     const shown = shownLines[index] ?? "";
@@ -104,8 +102,15 @@ function planWrite(
       .readFileString(target)
       .pipe(Effect.catch(() => Effect.succeed(undefined)));
     const known = yield* toolKnownSecrets();
-    const content = restoreKeptSecretLines(requested, currentContent, known);
-    return { content, problem: writeProblem(target, content, currentContent, known) };
+    const currentLines = currentContent?.split("\n");
+    const shown = currentLines && redactLines(currentLines, known);
+    const content =
+      currentLines && shown ? restoreKeptSecretLines(requested, currentLines, shown) : requested;
+    const secretLineIndexes = shown?.secretLineIndexes ?? new Set<number>();
+    return {
+      content,
+      problem: writeProblem(target, content, currentContent, secretLineIndexes, known),
+    };
   });
 }
 
@@ -113,6 +118,7 @@ function writeProblem(
   target: string,
   content: string,
   currentContent: string | undefined,
+  secretLineIndexes: ReadonlySet<number>,
   known: readonly KnownSecret[],
 ): string | undefined {
   const placeholderProblem = redactedWriteProblem({
@@ -126,7 +132,6 @@ function writeProblem(
     return placeholderProblem;
   }
   const currentLines = currentContent.split("\n");
-  const { secretLineIndexes } = redactLines(currentLines, known);
   if (secretLineIndexes.size === 0) {
     return undefined;
   }
