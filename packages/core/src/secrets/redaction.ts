@@ -121,6 +121,15 @@ function isRedactableValue(value: string): boolean {
   );
 }
 
+/**
+ * Whether a value is lowercase words joined by `-`, `_` or `.` (`chain-of-thought`,
+ * `prompt_tokens_details.cached_tokens`): what follows "token" when it is the English word. A
+ * generated value with no digit and no capital still has no separators, so it stays a credential.
+ */
+function isJoinedWords(value: string): boolean {
+  return /^[a-z]{2,}(?:[-_.][a-z]{2,})+$/.test(value);
+}
+
 function lastPathSegment(path: string): string {
   return path.slice(path.lastIndexOf(".") + 1);
 }
@@ -315,7 +324,7 @@ const SECRET_SHAPES: readonly SecretShape[] = [
   {
     pattern: /\b(Bearer|Basic|token)([ \t]+)([A-Za-z0-9._~+/-]{16,}=*)/g,
     replace: (match, scheme = "", space = "", value = "") =>
-      containsRedactionPlaceholder(value)
+      containsRedactionPlaceholder(value) || (scheme === "token" && isJoinedWords(value))
         ? match
         : `${scheme}${space}${redactionPlaceholder("credential")}`,
   },
