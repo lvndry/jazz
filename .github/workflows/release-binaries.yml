@@ -319,9 +319,8 @@ jobs:
             exit 1
           fi
 
-      # npm publish returns before the registry serves the version: on the 0.16.24 release the
-      # linux-x64 binary package became installable six minutes after its publish succeeded.
-      # jazz-ai published in that window installs without a binary on that platform.
+      # npm publish returns minutes before the registry serves a large package, and jazz-ai
+      # installed in that window gets no binary for that platform.
       - name: Wait for the registry to serve every platform package
         run: |
           deadline=$(( $(date +%s) + 1800 ))
