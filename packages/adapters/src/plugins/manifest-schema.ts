@@ -343,7 +343,8 @@ export function parsePluginManifest(input: unknown): PluginManifest {
         hook !== "route.skills" &&
         hook !== "compact.tools" &&
         hook !== "classify.page" &&
-        hook !== "route.snapshot"
+        hook !== "route.snapshot" &&
+        hook !== "gate.memory-pass"
       ) {
         throw new Error(`Unknown advisory hook: ${hook}`);
       }

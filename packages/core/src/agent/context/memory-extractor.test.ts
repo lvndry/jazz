@@ -3,17 +3,33 @@ import { Effect, Layer } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
+import {
+  PluginRuntimeServiceTag,
+  type PluginRuntimeService,
+  type PluginSession,
+} from "../../interfaces/plugin-runtime";
 import { PresentationServiceTag, type PresentationService } from "../../interfaces/presentation";
 import type { Agent, AgentConfig, AppConfig } from "../../types";
 import { LLMRequestError } from "../../types/errors";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
+import {
+  MAX_MEMORY_PASS_GATE_CHARS,
+  PluginRuntimeError,
+  type MemoryPassGateInput,
+  type MemoryPassGateOutcome,
+} from "../../types/plugin";
 import {
   MANAGE_MEMORY_TOOL_NAME,
   PROPOSE_LESSON_TOOL_NAME,
   VIEW_MEMORY_TOOL_NAME,
 } from "../memory-recall-log";
 import type { AgentResponse } from "../types";
-import { extractMemories, MAX_CONVERSATION_END_CHUNKS } from "./memory-extractor";
+import {
+  buildMemoryPassGateInput,
+  extractMemories,
+  MAX_CONVERSATION_END_CHUNKS,
+  SKIP_MEMORY_PASS_BELOW_PROBABILITY,
+} from "./memory-extractor";
 import { Summarizer, type AutoCompaction, type RecursiveRunner } from "./summarizer";
 
 function createMockAgent(overrides: Partial<Agent> = {}): Agent {
@@ -412,5 +428,115 @@ describe("compactIfNeeded memory-extraction gate", () => {
 
     expect(seenAgentIds).not.toContain("memory-extractor");
     expect(seenAgentIds).toContain("summarizer");
+  });
+});
+
+describe("memory pass gate", () => {
+  const conversation: ChatMessage[] = [
+    {
+      role: "user",
+      content: "What's the weather in Lyon?",
+      memorySource: { id: "user:1", text: "What's the weather in Lyon?" },
+    },
+    {
+      role: "assistant",
+      content: "Checking.",
+      tool_calls: [{ id: "call-1", type: "function", function: { name: "web", arguments: "{}" } }],
+    },
+    { role: "tool", content: "Lyon: 14C, cloudy", tool_call_id: "call-1" },
+    { role: "assistant", content: "It's 14C and cloudy in Lyon." },
+  ];
+
+  function runtimeAnswering(
+    answer: (input: MemoryPassGateInput) => MemoryPassGateOutcome,
+    seen: MemoryPassGateInput[] = [],
+  ): PluginRuntimeService {
+    const session = {
+      runMemoryPassGate: (input: MemoryPassGateInput) => {
+        seen.push(input);
+        return Effect.succeed(answer(input));
+      },
+      close: () => Effect.void,
+    } as unknown as PluginSession;
+    return { openSession: () => Effect.succeed(session) } as unknown as PluginRuntimeService;
+  }
+
+  async function passRuns(runtime: PluginRuntimeService): Promise<boolean> {
+    let ran = false;
+    const runner: RecursiveRunner = () => {
+      ran = true;
+      return Effect.succeed({ content: "", conversationId: "conv-1" } as AgentResponse);
+    };
+    await Effect.runPromise(
+      extractMemories(conversation, createMockAgent(), "conv-1", runner, "conversation-end").pipe(
+        Effect.provide(
+          Layer.merge(createTestLayer(), Layer.succeed(PluginRuntimeServiceTag, runtime)),
+        ),
+      ) as Effect.Effect<void, never, never>,
+    );
+    return ran;
+  }
+
+  it("skips the pass when the gate is confident there is nothing to keep, showing it no tool output", async () => {
+    const seen: MemoryPassGateInput[] = [];
+    const runtime = runtimeAnswering(
+      () => ({
+        status: "answered",
+        worthScanningProbability: SKIP_MEMORY_PASS_BELOW_PROBABILITY / 2,
+      }),
+      seen,
+    );
+
+    expect(await passRuns(runtime)).toBe(false);
+    expect(seen).toEqual([
+      {
+        pass: "conversation-end",
+        messages: [
+          { role: "user", text: "What's the weather in Lyon?" },
+          { role: "assistant", text: "Checking." },
+          { role: "assistant", text: "It's 14C and cloudy in Lyon." },
+        ],
+      },
+    ]);
+  });
+
+  it("runs the pass when the gate answers at the threshold or above", async () => {
+    const runtime = runtimeAnswering(() => ({
+      status: "answered",
+      worthScanningProbability: SKIP_MEMORY_PASS_BELOW_PROBABILITY,
+    }));
+    expect(await passRuns(runtime)).toBe(true);
+  });
+
+  it("runs the pass when the gate abstains", async () => {
+    const runtime = runtimeAnswering(() => ({ status: "abstained", reason: "no plugin handler" }));
+    expect(await passRuns(runtime)).toBe(true);
+  });
+
+  it("runs the pass when the plugin session cannot open", async () => {
+    const runtime = {
+      openSession: () => Effect.fail(new PluginRuntimeError({ message: "plugin not trusted" })),
+    } as unknown as PluginRuntimeService;
+    expect(await passRuns(runtime)).toBe(true);
+  });
+
+  it("is not consulted for a transcript over its bound, so it never judges text it did not read", () => {
+    const long: ChatMessage[] = [
+      { role: "user", content: "a".repeat(MAX_MEMORY_PASS_GATE_CHARS) },
+      { role: "assistant", content: "ok" },
+    ];
+    expect(buildMemoryPassGateInput(long, "compaction")).toBeUndefined();
+  });
+
+  it("leaves out compaction summaries and empty messages", () => {
+    const messages: ChatMessage[] = [
+      { role: "assistant", content: "Earlier: the user planned a trip.", kind: "summary" },
+      { role: "assistant", content: "  " },
+      { role: "user", content: "My sister is called Ines." },
+    ];
+    expect(buildMemoryPassGateInput(messages, "compaction")).toEqual({
+      pass: "compaction",
+      messages: [{ role: "user", text: "My sister is called Ines." }],
+    });
   });
 });

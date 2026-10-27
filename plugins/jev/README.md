@@ -22,13 +22,14 @@ to judge it itself.
 
 ## Harness decisions
 
-| Capability                                            | How Jazz uses it                                                                                                                                                                                                |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Skill routing (`route.skills`)                        | Ranks installed skills against your current request. Jazz can suggest the most relevant skill to the main model; the plugin does not load it itself.                                                            |
-| Tool-result compaction (`compact.tools`)              | Recommends keeping, truncating, or dropping old tool-result content during context cleanup. Dropping requires a confident signal; uncertain large results are truncated. User and assistant text are untouched. |
-| Page classification (`classify.page`)                 | Flags a browser page that asks for a password, payment details, or a human check, or whose labels address an AI agent. A flag only adds scrutiny: `browser_act` then asks on every call there.                  |
-| Snapshot routing (`route.snapshot`)                   | Ranks a page's interactive elements against your request so the browser snapshot lists the likely ones first. Every element stays in the snapshot.                                                              |
-| Command-risk classification (`classify.command-risk`) | Classifies proposed `execute_command` calls as read-only, low-risk, or high-risk before Jazz applies your approval policy.                                                                                      |
+| Capability                                            | How Jazz uses it                                                                                                                                                                                                  |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skill routing (`route.skills`)                        | Ranks installed skills against your current request. Jazz can suggest the most relevant skill to the main model; the plugin does not load it itself.                                                              |
+| Tool-result compaction (`compact.tools`)              | Recommends keeping, truncating, or dropping old tool-result content during context cleanup. Dropping requires a confident signal; uncertain large results are truncated. User and assistant text are untouched.   |
+| Page classification (`classify.page`)                 | Flags a browser page that asks for a password, payment details, or a human check, or whose labels address an AI agent. A flag only adds scrutiny: `browser_act` then asks on every call there.                    |
+| Snapshot routing (`route.snapshot`)                   | Ranks a page's interactive elements against your request so the browser snapshot lists the likely ones first. Every element stays in the snapshot.                                                                |
+| Memory-pass gate (`gate.memory-pass`)                 | Before Jazz looks for facts and lessons to suggest (at compaction and when a chat closes), estimates whether the conversation holds any. Jazz skips the pass only when Jev is at least 90% sure there is nothing. |
+| Command-risk classification (`classify.command-risk`) | Classifies proposed `execute_command` calls as read-only, low-risk, or high-risk before Jazz applies your approval policy.                                                                                        |
 
 Errors, timeouts, invalid answers, and abstentions fall back to Jazz's built-in
 behavior. Each decision gets one attempt, since a retry could not finish within
@@ -84,7 +85,9 @@ origin (never the path or query), its title, each interactive element's role and
 label, and whether the page has a password or payment card field; snapshot routing
 also sends your latest request. It never sends the page body, link targets, or
 field contents. The `classify` and `rank` tools send the items, labels, criterion,
-and context the agent passes them, including the image files it names. These are
+and context the agent passes them, including the image files it names. The
+memory-pass gate sends your messages and the assistant's replies, never tool
+output, and only for conversations up to 32,000 characters. These are
 external API calls using your TypeSafe account.
 
 TypeSafe documents that text written to steer a verdict can move it, and page

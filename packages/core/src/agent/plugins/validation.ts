@@ -3,6 +3,7 @@
 import {
   MAX_DECISION_OPTIONS,
   MAX_DECISION_QUESTIONS,
+  MAX_MEMORY_PASS_GATE_CHARS,
   MAX_COMMAND_RISK_COMMAND_CHARS,
   MAX_PAGE_ELEMENTS,
   MAX_PAGE_LABEL_CHARS,
@@ -24,6 +25,8 @@ import {
   type ClassifyPageInput,
   type ClassifyPageOutcome,
   type JsonValue,
+  type MemoryPassGateInput,
+  type MemoryPassGateOutcome,
   type PageElementSummary,
   type PageFlagId,
   type RouteSnapshotInput,
@@ -42,6 +45,7 @@ const ADVISORY_HOOK_IDS: ReadonlySet<string> = new Set([
   "compact.tools",
   "classify.page",
   "route.snapshot",
+  "gate.memory-pass",
 ]);
 const PAGE_FLAG_IDS: ReadonlySet<string> = new Set<PageFlagId>([
   "credential-entry",
@@ -564,4 +568,50 @@ export function validateRouteSnapshotOutcome(
     fail("snapshot probabilities including no-element must sum to 1");
   }
   return { status: "answered", distribution: { elements, noElementProbability } };
+}
+
+export function validateMemoryPassGateInput(input: MemoryPassGateInput): MemoryPassGateInput {
+  const record = readRecord(input, "memory pass gate input");
+  if (record["pass"] !== "compaction" && record["pass"] !== "conversation-end") {
+    fail("memory pass gate pass must be compaction or conversation-end");
+  }
+  let totalChars = 0;
+  for (const item of readArray(record["messages"], "memory pass gate messages")) {
+    const message = readRecord(item, "memory pass gate message");
+    if (message["role"] !== "user" && message["role"] !== "assistant") {
+      fail("memory pass gate message role must be user or assistant");
+    }
+    totalChars += readBoundedString(
+      message["text"],
+      "memory pass gate message text",
+      MAX_MEMORY_PASS_GATE_CHARS,
+    ).length;
+  }
+  if (totalChars > MAX_MEMORY_PASS_GATE_CHARS) {
+    fail(`memory pass gate messages must total at most ${MAX_MEMORY_PASS_GATE_CHARS} characters`);
+  }
+  return input;
+}
+
+/**
+ * Rebuilt from the one known field, so nothing else a plugin attaches (a decision to skip, a fact
+ * to save) leaves this function: the host alone decides what a probability means.
+ */
+export function validateMemoryPassGateOutcome(
+  outcome: MemoryPassGateOutcome,
+): MemoryPassGateOutcome {
+  const record = readRecord(outcome, "memory pass gate outcome");
+  if (record["status"] === "abstained") {
+    return { status: "abstained", reason: readAbstentionReason(record, "memory pass gate") };
+  }
+  if (record["status"] !== "answered") {
+    fail("memory pass gate outcome must be answered with a probability, or abstained");
+  }
+  return {
+    status: "answered",
+    worthScanningProbability: readProbability(
+      record["worthScanningProbability"],
+      "worthScanningProbability",
+    ),
+  };
 }

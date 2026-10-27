@@ -18,6 +18,12 @@ export const MAX_PAGE_ELEMENTS = 200;
 export const MAX_PAGE_LABEL_CHARS = 120;
 export const MAX_PAGE_TITLE_CHARS = 200;
 export const MAX_ROUTE_REQUEST_CHARS = 2_000;
+/**
+ * Bound on the transcript a memory-pass gate reads, about 8K tokens: small enough for a decision
+ * model to answer inside the hook deadline. A longer transcript is not offered to the gate, and the
+ * pass runs as it would without one.
+ */
+export const MAX_MEMORY_PASS_GATE_CHARS = 32_000;
 export type JazzPluginApiVersion = typeof PLUGIN_API_VERSION;
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -128,6 +134,26 @@ export type RouteSnapshotOutcome =
   | { readonly status: "answered"; readonly distribution: SnapshotRouteDistribution }
   | { readonly status: "abstained"; readonly reason: string };
 
+export interface MemoryPassGateMessage {
+  readonly role: "user" | "assistant";
+  readonly text: string;
+}
+
+export interface MemoryPassGateInput {
+  /** When the pass would run: before compaction, or after a chat conversation ended. */
+  readonly pass: "compaction" | "conversation-end";
+  /** The user and assistant text the pass would read, oldest first. Tool output is never included. */
+  readonly messages: readonly MemoryPassGateMessage[];
+}
+
+/**
+ * How likely the messages hold something a memory pass would keep: a durable fact the user stated
+ * about themselves, or a mistake by the assistant worth a lesson. The host decides what to skip.
+ */
+export type MemoryPassGateOutcome =
+  | { readonly status: "answered"; readonly worthScanningProbability: number }
+  | { readonly status: "abstained"; readonly reason: string };
+
 export interface AdvisoryHookContracts {
   readonly "route.skills": { readonly input: SkillRouteInput; readonly output: SkillRouteOutcome };
   readonly "compact.tools": {
@@ -141,6 +167,10 @@ export interface AdvisoryHookContracts {
   readonly "route.snapshot": {
     readonly input: RouteSnapshotInput;
     readonly output: RouteSnapshotOutcome;
+  };
+  readonly "gate.memory-pass": {
+    readonly input: MemoryPassGateInput;
+    readonly output: MemoryPassGateOutcome;
   };
 }
 
