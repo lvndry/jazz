@@ -1,16 +1,21 @@
 /**
- * The chat-facing tools. Each takes a list of items and turns them into one Jev request with one
- * question per item, so judging 50 emails or 30 receipts costs a single call:
+ * The chat-facing tools. Each turns a list of items into Jev requests with one question per item,
+ * so judging 50 emails or 30 receipts costs a few calls at most:
  *
- * - `classify` puts every item into one of the given labels (a Jev choice question per item).
+ * - `classify` puts every item into one of the given labels, or "none of these" (a Jev choice
+ *   question per item).
  * - `rank` places every item on an ordered scale and returns them best first (a Jev score
  *   question per item).
  *
- * Items are text, an image path (PNG or JPEG), or both.
+ * An item is text, a text file, an image path (PNG or JPEG), or text plus an image; `files` adds
+ * one item per matched file, so the agent never has to copy file contents into the call. Each
+ * item travels inside its own question, so Jev reads one item at a time against a small shared
+ * state holding only the caller's context. Items are split across requests that fit Jev's input
+ * limits, a few in flight at a time, and an image is read only when its request is sent.
  */
 
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { glob, open, readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { PluginHostApi, PluginToolResult } from "@jazz/plugin-sdk";
 import {
@@ -21,6 +26,7 @@ import {
 import {
   decideWithJev,
   JEV_MAX_CHOICE_OPTIONS,
+  JEV_MAX_INPUT_TOKENS,
   JEV_MAX_SCORE_LEVELS,
   type JevDecision,
   type JevQuestion,
@@ -43,6 +49,36 @@ export const DEFAULT_RANK_LEVELS = [
   "good fit",
   "excellent fit",
 ] as const;
+/** Added to every label set, so an item that fits no label is not forced into the closest one. */
+export const NONE_LABEL = "none of these";
+const NONE_LABEL_DESCRIPTION = "The item fits none of the other labels.";
+/** Below this, Jev rates the label it chose as more likely wrong than right. */
+export const UNCERTAIN_BELOW_PROBABILITY = 0.5;
+/**
+ * The most items one call takes. At the per-item cap, 200 items split into about 10 requests,
+ * which finish inside the host's 30s tool deadline; a broader glob is a mistake.
+ */
+export const MAX_ITEMS = 200;
+/**
+ * Text kept from one item, about 2,000 tokens: enough to judge an email or a listing from its
+ * opening, and small enough that about 20 items share one request.
+ */
+export const MAX_ITEM_CHARS = 8_000;
+/** UTF-8 takes at most 4 bytes per character, so this many bytes always holds `MAX_ITEM_CHARS`. */
+const MAX_ITEM_FILE_BYTES = MAX_ITEM_CHARS * 4;
+/** The usual English rate; TypeSafe does not publish Jev's tokenizer, so batches leave headroom. */
+const CHARS_PER_TOKEN_ESTIMATE = 4;
+/** Share of Jev's per-request input limit a batch may use, covering error in the estimate above. */
+export const REQUEST_TOKEN_BUDGET = Math.floor(JEV_MAX_INPUT_TOKENS * 0.75);
+/** TypeSafe's limit on one image file. */
+export const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
+/** TypeSafe's limit on all images in one request. */
+const MAX_REQUEST_IMAGE_BYTES = 32 * 1024 * 1024;
+/**
+ * Requests in flight at once. TypeSafe publishes no rate limit; 4 keeps a full call's 10 or so
+ * requests to 3 rounds inside the tool deadline, and image memory to 4 requests' worth.
+ */
+export const MAX_CONCURRENT_REQUESTS = 4;
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
@@ -52,10 +88,33 @@ interface ToolContext {
   readonly cwd: string;
 }
 
-interface Item {
-  readonly id: string;
+interface ItemSpec {
+  /** What results call the item: the caller's id, the file path, or the 1-based position. */
+  readonly id: string | number;
   readonly text?: string;
+  readonly textFile?: string;
   readonly imagePath?: string;
+}
+
+interface Item {
+  readonly id: string | number;
+  readonly text?: string;
+  readonly truncated: boolean;
+  readonly image?: ItemImage;
+}
+
+/** An image checked up front and read only when the request carrying it is sent. */
+interface ItemImage {
+  readonly path: string;
+  readonly mediaType: "image/png" | "image/jpeg";
+  readonly bytes: number;
+  /** The token a question names to have TypeSafe send this image with it. */
+  readonly reference: string;
+}
+
+interface ItemFailure {
+  readonly id: string | number;
+  readonly error: string;
 }
 
 /** Thrown for caller mistakes, so the model gets an actionable message instead of a stack. */
@@ -67,6 +126,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function imageMediaType(bytes: Uint8Array): "image/png" | "image/jpeg" | undefined {
@@ -81,32 +144,380 @@ function imageMediaType(bytes: Uint8Array): "image/png" | "image/jpeg" | undefin
   return undefined;
 }
 
-function parseItems(raw: unknown): readonly Item[] {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    throw new ToolInputError("items must be a non-empty array");
+function parseItemEntries(raw: unknown): ItemSpec[] {
+  if (raw === undefined) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    throw new ToolInputError("items must be an array");
   }
   return raw.map((entry, index) => {
-    const id = `item_${index + 1}`;
+    const position = index + 1;
     if (typeof entry === "string") {
       if (!nonEmptyString(entry)) {
         throw new ToolInputError(`items[${index}] is empty`);
       }
-      return { id, text: entry };
+      return { id: position, text: entry };
     }
     if (!isRecord(entry)) {
-      throw new ToolInputError(`items[${index}] must be text or an object with text and/or image`);
+      throw new ToolInputError(`items[${index}] must be text or an object`);
     }
-    const text = entry["text"];
-    const image = entry["image"];
-    if (!nonEmptyString(text) && !nonEmptyString(image)) {
-      throw new ToolInputError(`items[${index}] needs text, an image path, or both`);
+    const { id, text, file, image } = entry;
+    if (id !== undefined && !nonEmptyString(id)) {
+      throw new ToolInputError(`items[${index}].id must be non-empty text`);
+    }
+    if (nonEmptyString(text) && nonEmptyString(file)) {
+      throw new ToolInputError(`items[${index}] has both text and file; give one`);
+    }
+    if (!nonEmptyString(text) && !nonEmptyString(file) && !nonEmptyString(image)) {
+      throw new ToolInputError(
+        `items[${index}] needs text, a file, an image, or text and an image`,
+      );
     }
     return {
-      id,
+      id: id ?? (nonEmptyString(file) ? file : position),
       ...(nonEmptyString(text) ? { text } : {}),
+      ...(nonEmptyString(file) ? { textFile: file } : {}),
       ...(nonEmptyString(image) ? { imagePath: image } : {}),
     };
   });
+}
+
+async function isRegularFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** One item per regular file matched by `files`, in sorted order, each named by its path. */
+async function expandFiles(raw: unknown, cwd: string): Promise<ItemSpec[]> {
+  if (raw === undefined) {
+    return [];
+  }
+  if (!Array.isArray(raw) || !raw.every(nonEmptyString)) {
+    throw new ToolInputError("files must be a list of paths or glob patterns");
+  }
+  const matched = new Set<string>();
+  for (const pattern of raw) {
+    let matchedPattern = false;
+    for await (const path of glob(pattern, { cwd })) {
+      if (!(await isRegularFile(resolve(cwd, path)))) {
+        continue;
+      }
+      matchedPattern = true;
+      matched.add(path);
+      if (matched.size > MAX_ITEMS) {
+        throw new ToolInputError(
+          `files matches more than ${MAX_ITEMS} files; narrow the patterns or split the call`,
+        );
+      }
+    }
+    if (!matchedPattern) {
+      throw new ToolInputError(`files pattern ${pattern} matches no file`);
+    }
+  }
+  return [...matched]
+    .sort()
+    .map((path) =>
+      imageExtension(path) ? { id: path, imagePath: path } : { id: path, textFile: path },
+    );
+}
+
+function imageExtension(path: string): boolean {
+  return /\.(png|jpe?g)$/i.test(path);
+}
+
+async function parseItems(args: Record<string, unknown>, cwd: string): Promise<ItemSpec[]> {
+  const specs = [...parseItemEntries(args["items"]), ...(await expandFiles(args["files"], cwd))];
+  if (specs.length === 0) {
+    throw new ToolInputError("give items, files, or both");
+  }
+  if (specs.length > MAX_ITEMS) {
+    throw new ToolInputError(
+      `${specs.length} items given; split the call into ${MAX_ITEMS} or fewer`,
+    );
+  }
+  const seen = new Set<string | number>();
+  for (const spec of specs) {
+    if (seen.has(spec.id)) {
+      throw new ToolInputError(`item id ${spec.id} appears twice`);
+    }
+    seen.add(spec.id);
+  }
+  return specs;
+}
+
+function capText(text: string): { text: string; truncated: boolean } {
+  return text.length > MAX_ITEM_CHARS
+    ? { text: text.slice(0, MAX_ITEM_CHARS), truncated: true }
+    : { text, truncated: false };
+}
+
+/** Reads only the first `MAX_ITEM_FILE_BYTES` of a file, however large it is. */
+async function readTextFile(
+  path: string,
+  cwd: string,
+): Promise<{ text: string; truncated: boolean }> {
+  const buffer = new Uint8Array(MAX_ITEM_FILE_BYTES);
+  let bytesRead: number;
+  let size: number;
+  try {
+    const handle = await open(resolve(cwd, path), "r");
+    try {
+      const info = await handle.stat();
+      if (!info.isFile()) {
+        throw new ToolInputError(`${path} is not a file`);
+      }
+      size = info.size;
+      ({ bytesRead } = await handle.read(buffer, 0, MAX_ITEM_FILE_BYTES, 0));
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (error instanceof ToolInputError) {
+      throw error;
+    }
+    throw new ToolInputError(`could not read file ${path}: ${errorText(error)}`);
+  }
+  const prefix = buffer.subarray(0, bytesRead);
+  if (prefix.includes(0)) {
+    throw new ToolInputError(`file ${path} is not a text file`);
+  }
+  // A cut can split a multi-byte character, which decodes to a replacement character at the end.
+  const decoded = new TextDecoder().decode(prefix).replace(/�$/, "");
+  if (decoded.trim().length === 0) {
+    throw new ToolInputError(`file ${path} is empty`);
+  }
+  const capped = capText(decoded);
+  return { text: capped.text, truncated: capped.truncated || size > bytesRead };
+}
+
+/** Checks an image's size and format by its first bytes, leaving the full read for later. */
+async function inspectImage(path: string, cwd: string): Promise<ItemImage> {
+  const signature = new Uint8Array(PNG_SIGNATURE.length);
+  let size: number;
+  try {
+    const handle = await open(resolve(cwd, path), "r");
+    try {
+      const info = await handle.stat();
+      if (!info.isFile()) {
+        throw new ToolInputError(`${path} is not a file`);
+      }
+      size = info.size;
+      await handle.read(signature, 0, signature.length, 0);
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    if (error instanceof ToolInputError) {
+      throw error;
+    }
+    throw new ToolInputError(`could not read image ${path}: ${errorText(error)}`);
+  }
+  const mediaType = imageMediaType(signature);
+  if (mediaType === undefined) {
+    throw new ToolInputError(`image ${path} is not a PNG or JPEG file`);
+  }
+  if (size > MAX_IMAGE_BYTES) {
+    throw new ToolInputError(
+      `image ${path} is ${size} bytes; TypeSafe accepts images up to ${MAX_IMAGE_BYTES} bytes`,
+    );
+  }
+  // A random reference never collides with item text; with insertReference off, TypeSafe sends
+  // the image only with the question that names it.
+  return {
+    path: resolve(cwd, path),
+    mediaType,
+    bytes: size,
+    reference: `[image-${randomUUID()}]`,
+  };
+}
+
+async function imagePart(image: ItemImage): Promise<Experimental_DecisionStatePart> {
+  let data: Uint8Array;
+  try {
+    data = new Uint8Array(await readFile(image.path));
+  } catch (error) {
+    throw new ToolInputError(`could not read image ${image.path}: ${errorText(error)}`);
+  }
+  return {
+    type: "file",
+    data,
+    mediaType: image.mediaType,
+    providerOptions: { typesafe: { reference: image.reference, insertReference: false } },
+  };
+}
+
+async function loadItems(specs: readonly ItemSpec[], cwd: string): Promise<Item[]> {
+  return Promise.all(
+    specs.map(async (spec) => {
+      const capped =
+        spec.textFile !== undefined
+          ? await readTextFile(spec.textFile, cwd)
+          : spec.text !== undefined
+            ? capText(spec.text)
+            : undefined;
+      return {
+        id: spec.id,
+        ...(capped === undefined ? {} : { text: capped.text }),
+        truncated: capped?.truncated ?? false,
+        ...(spec.imagePath === undefined ? {} : { image: await inspectImage(spec.imagePath, cwd) }),
+      };
+    }),
+  );
+}
+
+/** What one question shows Jev about its item: the text, the image reference, or both. */
+function itemForQuestion(item: Item): Record<string, string> {
+  return {
+    ...(item.text === undefined ? {} : { text: item.text }),
+    ...(item.image === undefined ? {} : { image: item.image.reference }),
+  };
+}
+
+function estimateTokens(value: unknown): number {
+  return Math.ceil(JSON.stringify(value).length / CHARS_PER_TOKEN_ESTIMATE);
+}
+
+/**
+ * Split items into requests that fit Jev's limits. Every question is sent with the shared state,
+ * so the state counts once per request and each question adds its own size. An item that cannot
+ * fit even alone is the caller's to shorten, since sending it would only fail at TypeSafe.
+ */
+function batchItems(
+  items: readonly Item[],
+  stateTokens: number,
+  questionTokens: (item: Item) => number,
+): Item[][] {
+  const batches: Item[][] = [];
+  let current: Item[] = [];
+  let tokens = stateTokens;
+  let imageBytes = 0;
+  for (const item of items) {
+    const itemTokens = questionTokens(item);
+    if (stateTokens + itemTokens > REQUEST_TOKEN_BUDGET) {
+      throw new ToolInputError(
+        `item ${item.id} with the context, instructions, and labels is too long for one Jev request; shorten the context or the label descriptions`,
+      );
+    }
+    const itemImageBytes = item.image?.bytes ?? 0;
+    if (
+      current.length > 0 &&
+      (tokens + itemTokens > REQUEST_TOKEN_BUDGET ||
+        imageBytes + itemImageBytes > MAX_REQUEST_IMAGE_BYTES)
+    ) {
+      batches.push(current);
+      current = [];
+      tokens = stateTokens;
+      imageBytes = 0;
+    }
+    current.push(item);
+    tokens += itemTokens;
+    imageBytes += itemImageBytes;
+  }
+  if (current.length > 0) {
+    batches.push(current);
+  }
+  return batches;
+}
+
+function sharedState(context: string | undefined, task: string): Record<string, string> {
+  return { task, ...(context === undefined ? {} : { context }) };
+}
+
+async function requestState(
+  state: Record<string, string>,
+  items: readonly Item[],
+): Promise<Experimental_DecisionState> {
+  const images = await Promise.all(
+    items.flatMap((item) => (item.image === undefined ? [] : [imagePart(item.image)])),
+  );
+  return images.length === 0 ? state : [{ type: "json", value: state }, ...images];
+}
+
+function questionKey(index: number): string {
+  return `item_${index + 1}`;
+}
+
+/** Runs `task` over `inputs` with at most `limit` running at once, keeping input order. */
+async function mapWithLimit<Input, Output>(
+  inputs: readonly Input[],
+  limit: number,
+  task: (input: Input) => Promise<Output>,
+): Promise<Output[]> {
+  const outputs: Output[] = new Array<Output>(inputs.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < inputs.length) {
+      const index = next;
+      next += 1;
+      outputs[index] = await task(inputs[index] as Input);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, inputs.length) }, worker));
+  return outputs;
+}
+
+/** Ask Jev each batch's questions, a few requests at a time, and merge the answers per item. */
+async function askInBatches(
+  api: PluginHostApi,
+  items: readonly Item[],
+  state: Record<string, string>,
+  question: (item: Item) => JevQuestion,
+  signal: AbortSignal,
+): Promise<{
+  model: string;
+  answers: Map<Item, JevDecision["answers"][string]>;
+  confidence: Map<Item, number>;
+  usage: { inputTokens: number; costUSD: number; requests: number };
+}> {
+  const apiKey = await api.secrets.get("apiKey");
+  if (apiKey === undefined || apiKey.length === 0) {
+    throw new ToolInputError(
+      "TypeSafe API key is missing. Ask the user to run: jazz plugin secret set com.jazz.plugins.jev apiKey",
+    );
+  }
+  const batches = batchItems(items, estimateTokens(state), (item) =>
+    estimateTokens(question(item)),
+  );
+  const decisions = await mapWithLimit(batches, MAX_CONCURRENT_REQUESTS, async (batch) => ({
+    batch,
+    decision: await decideWithJev({
+      apiKey,
+      state: await requestState(state, batch),
+      questions: Object.fromEntries(
+        batch.map((item, index) => [questionKey(index), question(item)]),
+      ),
+      signal,
+      maxRetries: TOOL_MAX_RETRIES,
+    }),
+  }));
+  const answers = new Map<Item, JevDecision["answers"][string]>();
+  const confidence = new Map<Item, number>();
+  for (const { batch, decision } of decisions) {
+    batch.forEach((item, index) => {
+      const answer = decision.answers[questionKey(index)];
+      if (answer !== undefined) {
+        answers.set(item, answer);
+      }
+      const itemConfidence = decision.confidence[questionKey(index)];
+      if (itemConfidence !== undefined) {
+        confidence.set(item, itemConfidence);
+      }
+    });
+  }
+  return {
+    model: decisions[0]?.decision.model ?? "",
+    answers,
+    confidence,
+    usage: {
+      inputTokens: decisions.reduce((total, { decision }) => total + decision.inputTokens, 0),
+      costUSD: decisions.reduce((total, { decision }) => total + decision.costUSD, 0),
+      requests: decisions.length,
+    },
+  };
 }
 
 function optionalText(raw: unknown, name: string): string | undefined {
@@ -119,77 +530,60 @@ function optionalText(raw: unknown, name: string): string | undefined {
   return nonEmptyString(raw) ? raw : undefined;
 }
 
-async function readImage(path: string, cwd: string): Promise<Experimental_DecisionStatePart> {
-  let bytes: Uint8Array;
-  try {
-    bytes = new Uint8Array(await readFile(resolve(cwd, path)));
-  } catch (error) {
-    throw new ToolInputError(
-      `could not read image ${path}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  const mediaType = imageMediaType(bytes);
-  if (mediaType === undefined) {
-    throw new ToolInputError(`image ${path} is not a PNG or JPEG file`);
-  }
-  return { type: "file", data: bytes, mediaType };
-}
-
-/**
- * The shared state Jev reads: the caller's context plus every item under its id. An item's image
- * is placed where its random reference token appears in the item list, so each image is sent once
- * and sits next to the item it belongs to.
- */
-async function buildState(
-  items: readonly Item[],
-  context: string | undefined,
-  cwd: string,
-): Promise<Experimental_DecisionState> {
-  const images: Experimental_DecisionStatePart[] = [];
-  const listedItems = await Promise.all(
-    items.map(async (item) => {
-      if (item.imagePath === undefined) {
-        return { id: item.id, text: item.text };
-      }
-      const reference = `image-${randomUUID()}`;
-      const image = await readImage(item.imagePath, cwd);
-      images.push({
-        ...image,
-        providerOptions: { typesafe: { reference, insertReference: false } },
-      } as Experimental_DecisionStatePart);
-      return {
-        id: item.id,
-        ...(item.text === undefined ? {} : { text: item.text }),
-        image: reference,
-      };
-    }),
-  );
-  const state = { ...(context === undefined ? {} : { context }), items: listedItems };
-  return images.length === 0 ? state : [{ type: "json", value: state }, ...images];
-}
-
+/** Label names are caller text, so the map has no prototype for a name like "constructor" to hit. */
 function parseLabels(raw: unknown): Record<string, string | null> {
   if (!Array.isArray(raw) || raw.length < MIN_LABELS) {
     throw new ToolInputError(`labels must list at least ${MIN_LABELS} labels`);
   }
-  if (raw.length > JEV_MAX_CHOICE_OPTIONS) {
-    throw new ToolInputError(
-      `labels has ${raw.length} entries; Jev accepts at most ${JEV_MAX_CHOICE_OPTIONS}`,
-    );
-  }
-  const criteria: Record<string, string | null> = {};
+  const criteria: Record<string, string | null> = Object.create(null) as Record<
+    string,
+    string | null
+  >;
   for (const [index, entry] of raw.entries()) {
     const name = typeof entry === "string" ? entry : isRecord(entry) ? entry["name"] : undefined;
     if (!nonEmptyString(name)) {
       throw new ToolInputError(`labels[${index}] needs a name`);
     }
-    if (name in criteria) {
+    if (Object.hasOwn(criteria, name)) {
       throw new ToolInputError(`labels repeats "${name}"`);
     }
     const description = isRecord(entry) ? entry["description"] : undefined;
     criteria[name] = nonEmptyString(description) ? description : null;
   }
+  if (!Object.hasOwn(criteria, NONE_LABEL)) {
+    criteria[NONE_LABEL] = NONE_LABEL_DESCRIPTION;
+  }
+  if (Object.keys(criteria).length > JEV_MAX_CHOICE_OPTIONS) {
+    throw new ToolInputError(
+      `labels has ${raw.length} entries; Jev accepts at most ${JEV_MAX_CHOICE_OPTIONS - 1} plus "${NONE_LABEL}"`,
+    );
+  }
   return criteria;
+}
+
+function parseKeep(raw: unknown, criteria: Record<string, string | null>): Set<string> | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(raw) || raw.length === 0 || !raw.every(nonEmptyString)) {
+    throw new ToolInputError("keep must list label names");
+  }
+  for (const label of raw) {
+    if (!Object.hasOwn(criteria, label)) {
+      throw new ToolInputError(`keep names "${label}", which is not one of the labels`);
+    }
+  }
+  return new Set(raw);
+}
+
+function parseTop(raw: unknown): number | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1) {
+    throw new ToolInputError("top must be a whole number of 1 or more");
+  }
+  return raw;
 }
 
 function parseLevels(raw: unknown): readonly string[] {
@@ -207,8 +601,13 @@ function parseLevels(raw: unknown): readonly string[] {
   return raw;
 }
 
-function usageOf(decision: JevDecision): Record<string, number> {
-  return { inputTokens: decision.inputTokens, costUSD: decision.costUSD };
+function truncationNote(item: Item): Record<string, boolean> {
+  return item.truncated ? { truncated: true } : {};
+}
+
+/** Items Jev gave no usable answer for, listed apart so no filter or cutoff can hide them. */
+function failedNote(failed: readonly ItemFailure[]): Record<string, readonly ItemFailure[]> {
+  return failed.length === 0 ? {} : { failed };
 }
 
 async function classify(
@@ -216,36 +615,56 @@ async function classify(
   args: Record<string, unknown>,
   context: ToolContext,
 ): Promise<PluginToolResult> {
-  const items = parseItems(args["items"]);
   const criteria = parseLabels(args["labels"]);
+  const keep = parseKeep(args["keep"], criteria);
   const instructions = optionalText(args["instructions"], "instructions");
-  const state = await buildState(items, optionalText(args["context"], "context"), context.cwd);
-  const questions: Record<string, JevQuestion> = Object.fromEntries(
-    items.map((item) => [
-      item.id,
-      {
-        type: "choice",
-        instructions: `Classify ${item.id}.${instructions === undefined ? "" : ` ${instructions}`}`,
-        criteria,
-      },
-    ]),
+  const items = await loadItems(await parseItems(args, context.cwd), context.cwd);
+  const task = `Classify the item in each question.${instructions === undefined ? "" : ` ${instructions}`}`;
+  const decision = await askInBatches(
+    api,
+    items,
+    sharedState(optionalText(args["context"], "context"), task),
+    (item) => ({ type: "choice", instructions: { item: itemForQuestion(item) }, criteria }),
+    context.signal,
   );
-  const decision = await askJev(api, state, questions, context.signal);
-  const results = items.map((item, index) => {
-    const answer = decision.answers[item.id];
+  const failed: ItemFailure[] = [];
+  const results = items.flatMap((item) => {
+    const answer = decision.answers.get(item);
     if (answer?.type !== "choice") {
-      return { item: index + 1, error: "Jev returned no label for this item" };
+      failed.push({ id: item.id, error: "Jev returned no label for this item" });
+      return [];
     }
-    return {
-      item: index + 1,
-      label: answer.choice,
-      ...(answer.probabilities === undefined ? {} : { probabilities: answer.probabilities }),
-      ...(decision.confidence[item.id] === undefined
-        ? {}
-        : { confidence: decision.confidence[item.id] }),
-    };
+    const chosenProbability = answer.probabilities?.[answer.choice];
+    const confidence = decision.confidence.get(item);
+    return [
+      {
+        id: item.id,
+        label: answer.choice,
+        ...(answer.probabilities === undefined ? {} : { probabilities: answer.probabilities }),
+        ...(confidence === undefined ? {} : { confidence }),
+        ...(chosenProbability !== undefined && chosenProbability < UNCERTAIN_BELOW_PROBABILITY
+          ? { uncertain: true }
+          : {}),
+        ...truncationNote(item),
+      },
+    ];
   });
-  return { content: JSON.stringify({ model: decision.model, results, usage: usageOf(decision) }) };
+  const kept = keep === undefined ? results : results.filter((result) => keep.has(result.label));
+  const omitted: Record<string, number> = {};
+  for (const result of results) {
+    if (!kept.includes(result)) {
+      omitted[result.label] = (omitted[result.label] ?? 0) + 1;
+    }
+  }
+  return {
+    content: JSON.stringify({
+      model: decision.model,
+      results: kept,
+      ...(keep === undefined ? {} : { omitted }),
+      ...failedNote(failed),
+      usage: decision.usage,
+    }),
+  };
 }
 
 async function rank(
@@ -253,61 +672,57 @@ async function rank(
   args: Record<string, unknown>,
   context: ToolContext,
 ): Promise<PluginToolResult> {
-  const items = parseItems(args["items"]);
   const criterion = args["criterion"];
   if (!nonEmptyString(criterion)) {
     throw new ToolInputError("criterion must describe what makes an item better");
   }
   const levels = parseLevels(args["levels"]);
-  const state = await buildState(items, optionalText(args["context"], "context"), context.cwd);
-  const questions: Record<string, JevQuestion> = Object.fromEntries(
-    items.map((item) => [
-      item.id,
-      {
-        type: "score",
-        instructions: `Rate ${item.id} against this criterion: ${criterion}`,
-        criteria: levels,
-      },
-    ]),
+  const top = parseTop(args["top"]);
+  const items = await loadItems(await parseItems(args, context.cwd), context.cwd);
+  const decision = await askInBatches(
+    api,
+    items,
+    sharedState(
+      optionalText(args["context"], "context"),
+      `Rate the item in each question against this criterion: ${criterion}`,
+    ),
+    (item) => ({ type: "score", instructions: { item: itemForQuestion(item) }, criteria: levels }),
+    context.signal,
   );
-  const decision = await askJev(api, state, questions, context.signal);
   const topLevel = levels.length - 1;
-  const scored = items.map((item, index) => {
-    const answer = decision.answers[item.id];
+  const failed: ItemFailure[] = [];
+  const scored = items.flatMap((item) => {
+    const answer = decision.answers.get(item);
     if (answer?.type !== "score") {
-      return { item: index + 1, score: undefined, error: "Jev returned no score for this item" };
+      failed.push({ id: item.id, error: "Jev returned no score for this item" });
+      return [];
     }
-    return {
-      item: index + 1,
-      score: answer.score / topLevel,
-      level: levels[Math.min(topLevel, Math.max(0, Math.round(answer.score)))],
-      ...(decision.confidence[item.id] === undefined
-        ? {}
-        : { confidence: decision.confidence[item.id] }),
-    };
+    return [
+      {
+        id: item.id,
+        score: answer.score / topLevel,
+        level: levels[Math.min(topLevel, Math.max(0, Math.round(answer.score)))],
+        confidence: decision.confidence.get(item),
+        ...truncationNote(item),
+      },
+    ];
   });
+  // Jev's score is the probability-weighted mean of the levels, so equal scores are rare; among
+  // them the item Jev is more confident about goes first, then the earlier one.
   const ranking = [...scored].sort(
-    (left, right) =>
-      (right.score ?? Number.NEGATIVE_INFINITY) - (left.score ?? Number.NEGATIVE_INFINITY),
+    (left, right) => right.score - left.score || (right.confidence ?? 0) - (left.confidence ?? 0),
   );
+  const shown = top === undefined ? ranking : ranking.slice(0, top);
   return {
-    content: JSON.stringify({ model: decision.model, levels, ranking, usage: usageOf(decision) }),
+    content: JSON.stringify({
+      model: decision.model,
+      levels,
+      ranking: shown,
+      ...(shown.length < ranking.length ? { omitted: ranking.length - shown.length } : {}),
+      ...failedNote(failed),
+      usage: decision.usage,
+    }),
   };
-}
-
-async function askJev(
-  api: PluginHostApi,
-  state: Experimental_DecisionState,
-  questions: Readonly<Record<string, JevQuestion>>,
-  signal: AbortSignal,
-): Promise<JevDecision> {
-  const apiKey = await api.secrets.get("apiKey");
-  if (apiKey === undefined || apiKey.length === 0) {
-    throw new ToolInputError(
-      "TypeSafe API key is missing. Ask the user to run: jazz plugin secret set com.jazz.plugins.jev apiKey",
-    );
-  }
-  return decideWithJev({ apiKey, state, questions, signal, maxRetries: TOOL_MAX_RETRIES });
 }
 
 /** Turns caller mistakes, refusals, and API failures into a tool error the model can act on. */

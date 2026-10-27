@@ -235,6 +235,11 @@ description, a JSON Schema for its arguments, a `riskLevel` (`read-only` / `low-
 the module supplies the matching handler. The manifest declaration is the reviewed, consented
 contract; the module can neither register an undeclared tool nor claim a lower risk than declared.
 
+Plugin tools are deferred: the agent sees each one as its name and the first line of its
+`description`, cut to 100 characters, and fetches the full schema with `search_tools`.
+`search_tools` matches the words of a request against the name and the whole description, so
+write the description in the words people use when they ask for the task.
+
 When a plugin is enabled for an agent, its tools join that agent's tool set automatically — no
 separate mention in the agent's config is needed. Jazz namespaces each tool (`plugin_<id>_<tool>`)
 so it never collides, advertises the declared JSON Schema to the model, and **validates the model's

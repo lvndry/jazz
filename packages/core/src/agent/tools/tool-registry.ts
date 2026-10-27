@@ -42,7 +42,8 @@ const SUMMARY_FALLBACK_MAX_LENGTH = 100;
 
 /** Fallback for `ToolSummary.summary`; cuts at a word boundary so it doesn't end mid-word. */
 function truncateForSummary(description: string): string {
-  const firstLine = description.split("\n")[0]?.trim() ?? "";
+  // Unicode line and paragraph separators break a line as surely as "\n" does in the prompt.
+  const firstLine = description.split(/\r\n|[\n\r\u2028\u2029]/)[0]?.trim() ?? "";
   if (firstLine.length <= SUMMARY_FALLBACK_MAX_LENGTH) return firstLine;
   const cut = firstLine.slice(0, SUMMARY_FALLBACK_MAX_LENGTH);
   const lastSpace = cut.lastIndexOf(" ");
@@ -291,6 +292,7 @@ class DefaultToolRegistry implements ToolRegistry {
           categoryId: category?.id ?? "other",
           categoryDisplayName: category?.displayName ?? "Other",
           summary: tool.summary ?? truncateForSummary(tool.description),
+          description: tool.description,
         });
       });
 

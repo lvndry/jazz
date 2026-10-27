@@ -1,10 +1,16 @@
 /** Exercises the classify and rank tools at the plugin boundary: what they send and what they return. */
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginHostApi, PluginToolRegistration, PluginToolResult } from "@jazz/plugin-sdk";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import {
+  MAX_CONCURRENT_REQUESTS,
+  MAX_IMAGE_BYTES,
+  MAX_ITEM_CHARS,
+  NONE_LABEL,
+} from "../src/chat-tools";
 import plugin from "../src/index";
 import { JEV_BASE_URL, JEV_MODEL } from "../src/jev-client";
 
@@ -59,138 +65,325 @@ async function call(
 
 interface RecordedRequest {
   readonly url: string;
-  readonly body: Record<string, unknown>;
+  readonly body: {
+    readonly state: unknown;
+    readonly questions: Record<
+      string,
+      { type: string; instructions: { item: unknown }; criteria?: unknown }
+    >;
+    readonly assets?: Record<string, { type: string; part: string }>;
+  } & Record<string, unknown>;
   readonly imageParts: number;
 }
 
-function respondWith(answers: unknown): RecordedRequest[] {
+/** Answers every request with `answerFor(question)` for each question it carries. */
+function respondPerQuestion(
+  answerFor: (question: { instructions: { item: unknown } }) => unknown,
+): RecordedRequest[] {
   const requests: RecordedRequest[] = [];
   globalThis.fetch = (async (input, init) => {
+    let body: RecordedRequest["body"];
+    let imageParts = 0;
     if (init?.body instanceof FormData) {
       const request = init.body.get("request") as Blob;
-      const imageParts = [...init.body.keys()].filter((key) => key.startsWith("image-")).length;
-      requests.push({
-        url: String(input),
-        body: JSON.parse(await request.text()) as Record<string, unknown>,
-        imageParts,
-      });
+      imageParts = [...init.body.keys()].filter((key) => key.startsWith("image-")).length;
+      body = JSON.parse(await request.text()) as RecordedRequest["body"];
     } else {
-      requests.push({
-        url: String(input),
-        body: JSON.parse(String(init?.body)) as Record<string, unknown>,
-        imageParts: 0,
-      });
+      body = JSON.parse(String(init?.body)) as RecordedRequest["body"];
     }
+    requests.push({ url: String(input), body, imageParts });
     return Response.json({
       model: JEV_MODEL,
-      answers,
+      answers: Object.fromEntries(
+        Object.entries(body.questions).map(([key, question]) => [key, answerFor(question)]),
+      ),
       usage: { input_tokens: 400, output_tokens: 6 },
     });
   }) as typeof fetch;
   return requests;
 }
 
+function itemText(question: { instructions: { item: unknown } }): string {
+  return (question.instructions.item as { text?: string }).text ?? "";
+}
+
+function choice(label: string, probabilities: Record<string, number>, confidence = 0.9): unknown {
+  return { type: "choice", choice: label, probabilities, confidence };
+}
+
 describe("classify", () => {
-  it("asks one choice question per item in a single request and returns every label's probability", async () => {
-    const requests = respondWith({
-      item_1: {
-        type: "choice",
-        choice: "urgent",
-        probabilities: { urgent: 0.9, newsletter: 0.1 },
-        confidence: 0.88,
-      },
-      item_2: {
-        type: "choice",
-        choice: "newsletter",
-        probabilities: { urgent: 0.05, newsletter: 0.95 },
-        confidence: 0.94,
-      },
-    });
+  it("sends each item inside its own question with a state holding only the task and context", async () => {
+    const requests = respondPerQuestion((question) =>
+      itemText(question).startsWith("Server")
+        ? choice("urgent", { urgent: 0.9, newsletter: 0.05, [NONE_LABEL]: 0.05 }, 0.88)
+        : choice("newsletter", { urgent: 0.05, newsletter: 0.9, [NONE_LABEL]: 0.05 }, 0.94),
+    );
     const result = await call("classify", {
-      items: ["Server down, customers affected", { text: "Weekly digest #42" }],
+      items: ["Server down, customers affected", { id: "digest", text: "Weekly digest #42" }],
       labels: [{ name: "urgent", description: "Needs action today" }, "newsletter"],
-      instructions: "by what the user needs to do with it",
+      instructions: "By what the user needs to do with it.",
       context: "The user runs a small SaaS.",
     });
 
     expect(result.isError).toBeUndefined();
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe(`${JEV_BASE_URL}/systemone`);
-    expect(requests[0]?.body).toMatchObject({
-      model: JEV_MODEL,
-      state: {
-        context: "The user runs a small SaaS.",
-        items: [
-          { id: "item_1", text: "Server down, customers affected" },
-          { id: "item_2", text: "Weekly digest #42" },
-        ],
-      },
-      questions: {
-        item_1: { type: "choice", criteria: { urgent: "Needs action today", newsletter: null } },
-        item_2: { type: "choice", criteria: { urgent: "Needs action today", newsletter: null } },
-      },
+    expect(requests[0]?.body.state).toEqual({
+      task: "Classify the item in each question. By what the user needs to do with it.",
+      context: "The user runs a small SaaS.",
     });
+    expect(Object.values(requests[0]?.body.questions ?? {})).toEqual([
+      {
+        type: "choice",
+        instructions: { item: { text: "Server down, customers affected" } },
+        criteria: {
+          urgent: "Needs action today",
+          newsletter: null,
+          [NONE_LABEL]: expect.any(String),
+        },
+      },
+      {
+        type: "choice",
+        instructions: { item: { text: "Weekly digest #42" } },
+        criteria: {
+          urgent: "Needs action today",
+          newsletter: null,
+          [NONE_LABEL]: expect.any(String),
+        },
+      },
+    ]);
     expect(JSON.parse(result.content)).toEqual({
       model: JEV_MODEL,
       results: [
         {
-          item: 1,
+          id: 1,
           label: "urgent",
-          probabilities: { urgent: 0.9, newsletter: 0.1 },
+          probabilities: { urgent: 0.9, newsletter: 0.05, [NONE_LABEL]: 0.05 },
           confidence: 0.88,
         },
         {
-          item: 2,
+          id: "digest",
           label: "newsletter",
-          probabilities: { urgent: 0.05, newsletter: 0.95 },
+          probabilities: { urgent: 0.05, newsletter: 0.9, [NONE_LABEL]: 0.05 },
           confidence: 0.94,
         },
       ],
-      usage: { inputTokens: 400, costUSD: (400 * 0.042) / 1_000_000 },
+      usage: { inputTokens: 400, costUSD: (400 * 0.042) / 1_000_000, requests: 1 },
     });
   });
 
-  it("sends an image item once, as an upload referenced from the item list", async () => {
-    await writeFile(join(workingDirectory, "receipt.png"), PNG_BYTES);
-    const requests = respondWith({
-      item_1: {
-        type: "choice",
-        choice: "business",
-        probabilities: { business: 0.7, personal: 0.3 },
-        confidence: 0.6,
-      },
-    });
+  it("flags a label Jev rates more likely wrong than right as uncertain", async () => {
+    respondPerQuestion(() => choice("a", { a: 0.45, b: 0.4, [NONE_LABEL]: 0.15 }));
+    const result = await call("classify", { items: ["x"], labels: ["a", "b"] });
+    expect(JSON.parse(result.content).results[0]).toMatchObject({ label: "a", uncertain: true });
+  });
+
+  it("returns only the kept labels and counts the rest", async () => {
+    respondPerQuestion((question) =>
+      itemText(question) === "fire"
+        ? choice("urgent", { urgent: 1, later: 0, [NONE_LABEL]: 0 })
+        : choice("later", { urgent: 0, later: 1, [NONE_LABEL]: 0 }),
+    );
     const result = await call("classify", {
-      items: [{ image: "receipt.png", text: "Dinner, 3 people" }],
+      items: ["fire", "lunch", "invoice"],
+      labels: ["urgent", "later"],
+      keep: ["urgent"],
+    });
+    const content = JSON.parse(result.content);
+    expect(content.results.map((entry: { id: number }) => entry.id)).toEqual([1]);
+    expect(content.omitted).toEqual({ later: 2 });
+  });
+
+  it("rejects a keep label that is not offered, including an inherited property name", async () => {
+    for (const label of ["c", "constructor"]) {
+      expect(await call("classify", { items: ["x"], labels: ["a", "b"], keep: [label] })).toEqual({
+        isError: true,
+        content: `keep names "${label}", which is not one of the labels`,
+      });
+    }
+  });
+
+  it("fails the whole call when Jev refuses one item, rather than dropping it from the kept results", async () => {
+    respondPerQuestion((question) =>
+      itemText(question) === "lost"
+        ? { type: "refusal" }
+        : choice("a", { a: 1, b: 0, [NONE_LABEL]: 0 }),
+    );
+    const result = await call("classify", {
+      items: ["kept", "lost"],
+      labels: ["a", "b"],
+      keep: ["a"],
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  it("reads matched files as items named by their paths, cutting long ones short", async () => {
+    await mkdir(join(workingDirectory, "inbox"));
+    await writeFile(join(workingDirectory, "inbox", "a.eml"), "Server down");
+    await writeFile(join(workingDirectory, "inbox", "b.eml"), "x".repeat(MAX_ITEM_CHARS + 50));
+    const requests = respondPerQuestion(() => choice("a", { a: 1, b: 0, [NONE_LABEL]: 0 }));
+    const result = await call("classify", { files: ["inbox/*.eml"], labels: ["a", "b"] });
+
+    const items = Object.values(requests[0]?.body.questions ?? {}).map(itemText);
+    expect(items[0]).toBe("Server down");
+    expect(items[1]).toHaveLength(MAX_ITEM_CHARS);
+    expect(JSON.parse(result.content).results).toEqual([
+      expect.objectContaining({ id: "inbox/a.eml" }),
+      expect.objectContaining({ id: "inbox/b.eml", truncated: true }),
+    ]);
+  });
+
+  it("skips directories a pattern matches and reads only the start of a large file", async () => {
+    await mkdir(join(workingDirectory, "inbox", "archive"), { recursive: true });
+    await writeFile(join(workingDirectory, "inbox", "a.eml"), "Hello");
+    await writeFile(join(workingDirectory, "inbox", "big.eml"), "y".repeat(5_000_000));
+    const requests = respondPerQuestion(() => choice("a", { a: 1, b: 0, [NONE_LABEL]: 0 }));
+    const result = await call("classify", { files: ["inbox/*"], labels: ["a", "b"] });
+
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content).results.map((entry: { id: string }) => entry.id)).toEqual([
+      "inbox/a.eml",
+      "inbox/big.eml",
+    ]);
+    expect(itemText(Object.values(requests[0]?.body.questions ?? {})[1]!)).toHaveLength(
+      MAX_ITEM_CHARS,
+    );
+    expect(await call("classify", { files: ["inbox/arch*"], labels: ["a", "b"] })).toEqual({
+      isError: true,
+      content: "files pattern inbox/arch* matches no file",
+    });
+  });
+
+  it("rejects a files pattern that matches nothing, and a binary file", async () => {
+    expect(await call("classify", { files: ["missing/*.txt"], labels: ["a", "b"] })).toEqual({
+      isError: true,
+      content: "files pattern missing/*.txt matches no file",
+    });
+    await writeFile(join(workingDirectory, "blob.bin"), new Uint8Array([0x41, 0, 0x42]));
+    expect(await call("classify", { items: [{ file: "blob.bin" }], labels: ["a", "b"] })).toEqual({
+      isError: true,
+      content: "file blob.bin is not a text file",
+    });
+  });
+
+  it("splits items across parallel requests that fit Jev's input limit, and keeps their order", async () => {
+    const requests = respondPerQuestion(() => choice("a", { a: 1, b: 0, [NONE_LABEL]: 0 }));
+    const items = Array.from({ length: 30 }, (_, index) => ({
+      id: `doc-${index}`,
+      text: `${index} ${"word ".repeat(1_500)}`,
+    }));
+    const result = await call("classify", { items, labels: ["a", "b"] });
+
+    expect(requests.length).toBeGreaterThan(1);
+    const content = JSON.parse(result.content);
+    expect(content.results.map((entry: { id: string }) => entry.id)).toEqual(
+      items.map((item) => item.id),
+    );
+    expect(content.usage.requests).toBe(requests.length);
+  });
+
+  it("rejects context too long for any request instead of sending it", async () => {
+    const requests = respondPerQuestion(() => ({}));
+    const result = await call("classify", {
+      items: ["x"],
+      labels: ["a", "b"],
+      context: "word ".repeat(60_000),
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("too long for one Jev request");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("rejects an image over TypeSafe's per-image limit before reading it", async () => {
+    const path = join(workingDirectory, "huge.png");
+    await writeFile(path, PNG_BYTES);
+    await truncate(path, MAX_IMAGE_BYTES + 1);
+    const requests = respondPerQuestion(() => ({}));
+    const result = await call("classify", { items: [{ image: "huge.png" }], labels: ["a", "b"] });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("TypeSafe accepts images up to");
+    expect(requests).toHaveLength(0);
+  });
+
+  it(`keeps at most ${MAX_CONCURRENT_REQUESTS} requests in flight`, async () => {
+    let inFlight = 0;
+    let peak = 0;
+    let requests = 0;
+    globalThis.fetch = (async (_input, init) => {
+      requests += 1;
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+      inFlight -= 1;
+      const body = JSON.parse(String(init?.body)) as { questions: Record<string, unknown> };
+      return Response.json({
+        model: JEV_MODEL,
+        answers: Object.fromEntries(
+          Object.keys(body.questions).map((key) => [
+            key,
+            choice("a", { a: 1, b: 0, [NONE_LABEL]: 0 }),
+          ]),
+        ),
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    }) as typeof fetch;
+    const items = Array.from(
+      { length: 150 },
+      (_, index) => `${index} ${"x".repeat(MAX_ITEM_CHARS)}`,
+    );
+    const result = await call("classify", { items, labels: ["a", "b"] });
+
+    expect(result.isError).toBeUndefined();
+    expect(requests).toBeGreaterThan(MAX_CONCURRENT_REQUESTS);
+    expect(peak).toBe(MAX_CONCURRENT_REQUESTS);
+  });
+
+  it("sends an image only with the question that names it", async () => {
+    await writeFile(join(workingDirectory, "receipt.png"), PNG_BYTES);
+    const requests = respondPerQuestion(() =>
+      choice("business", { business: 0.7, personal: 0.3, [NONE_LABEL]: 0 }),
+    );
+    const result = await call("classify", {
+      items: [{ image: "receipt.png", text: "Dinner, 3 people" }, "Taxi"],
       labels: ["business", "personal"],
     });
 
     expect(result.isError).toBeUndefined();
     expect(requests[0]?.imageParts).toBe(1);
-    const body = requests[0]?.body as {
-      state: unknown;
-      assets: Record<string, { type: string; part: string }>;
-    };
-    const [reference] = Object.keys(body.assets);
-    expect(reference).toMatch(/^image-/);
-    expect(body.assets[reference ?? ""]).toEqual({ type: "image", part: "image-1" });
-    expect(JSON.stringify(body.state).split(reference ?? "").length - 1).toBe(1);
+    const [reference] = Object.keys(requests[0]?.body.assets ?? {});
+    expect(reference).toMatch(/^\[image-/);
+    expect(JSON.stringify(requests[0]?.body.state)).not.toContain(reference ?? "");
+    const [withImage, withoutImage] = Object.values(requests[0]?.body.questions ?? {});
+    expect(withImage?.instructions.item).toEqual({ text: "Dinner, 3 people", image: reference });
+    expect(JSON.stringify(withoutImage)).not.toContain(reference ?? "");
   });
 
   it("rejects a file that is not a PNG or JPEG before calling Jev", async () => {
     await writeFile(join(workingDirectory, "notes.txt"), "plain text");
-    const requests = respondWith({});
-    const result = await call("classify", {
-      items: [{ image: "notes.txt" }],
-      labels: ["a", "b"],
-    });
+    const requests = respondPerQuestion(() => ({}));
+    const result = await call("classify", { items: [{ image: "notes.txt" }], labels: ["a", "b"] });
     expect(result).toEqual({ isError: true, content: "image notes.txt is not a PNG or JPEG file" });
     expect(requests).toHaveLength(0);
   });
 
-  it("rejects a single label because a choice needs at least two", async () => {
-    const result = await call("classify", { items: ["x"], labels: ["only"] });
-    expect(result).toEqual({ isError: true, content: "labels must list at least 2 labels" });
+  it("rejects repeated item ids, a single label, and a call with no items", async () => {
+    expect(
+      await call("classify", {
+        items: [
+          { id: "a", text: "x" },
+          { id: "a", text: "y" },
+        ],
+        labels: ["p", "q"],
+      }),
+    ).toEqual({ isError: true, content: "item id a appears twice" });
+    expect(await call("classify", { items: ["x"], labels: ["only"] })).toEqual({
+      isError: true,
+      content: "labels must list at least 2 labels",
+    });
+    expect(await call("classify", { labels: ["a", "b"] })).toEqual({
+      isError: true,
+      content: "give items, files, or both",
+    });
   });
 
   it("tells the agent how to set the key when it is missing", async () => {
@@ -200,69 +393,92 @@ describe("classify", () => {
   });
 
   it("returns a tool error when Jev refuses", async () => {
-    respondWith({ item_1: { type: "refusal" } });
+    respondPerQuestion(() => ({ type: "refusal" }));
     const result = await call("classify", { items: ["x"], labels: ["a", "b"] });
     expect(result.isError).toBe(true);
     expect(result.content).toStartWith("Jev ");
   });
 });
 
+function score(value: number, confidence: number): unknown {
+  return {
+    type: "score",
+    score: value,
+    legend: { "0": "bad", "1": "ok", "2": "great" },
+    probabilities: { "0": 0, "1": 2 - value, "2": value - 1 },
+    confidence,
+  };
+}
+
 describe("rank", () => {
   it("scores every item on the scale and returns them best first", async () => {
-    const requests = respondWith({
-      item_1: {
-        type: "score",
-        score: 1,
-        legend: { "0": "bad", "1": "ok", "2": "great" },
-        probabilities: { "0": 0.2, "1": 0.6, "2": 0.2 },
-        confidence: 0.5,
-      },
-      item_2: {
-        type: "score",
-        score: 1.8,
-        legend: { "0": "bad", "1": "ok", "2": "great" },
-        probabilities: { "0": 0, "1": 0.2, "2": 0.8 },
-        confidence: 0.8,
-      },
-    });
+    const requests = respondPerQuestion((question) =>
+      itemText(question).startsWith("Studio") ? score(1, 0.5) : score(1.8, 0.8),
+    );
     const result = await call("rank", {
       items: ["Studio, 40m², far from metro", "3 rooms, 70m², next to metro"],
       criterion: "fits a family of 3 near a metro",
       levels: ["bad", "ok", "great"],
     });
 
-    expect(requests[0]?.body).toMatchObject({
-      questions: {
-        item_1: { type: "score", criteria: ["bad", "ok", "great"] },
-        item_2: { type: "score", criteria: ["bad", "ok", "great"] },
-      },
+    expect(requests[0]?.body.state).toEqual({
+      task: "Rate the item in each question against this criterion: fits a family of 3 near a metro",
+    });
+    expect(Object.values(requests[0]?.body.questions ?? {})[0]).toEqual({
+      type: "score",
+      instructions: { item: { text: "Studio, 40m², far from metro" } },
+      criteria: ["bad", "ok", "great"],
     });
     expect(JSON.parse(result.content)).toMatchObject({
       levels: ["bad", "ok", "great"],
       ranking: [
-        { item: 2, score: 0.9, level: "great", confidence: 0.8 },
-        { item: 1, score: 0.5, level: "ok", confidence: 0.5 },
+        { id: 2, score: 0.9, level: "great", confidence: 0.8 },
+        { id: 1, score: 0.5, level: "ok", confidence: 0.5 },
       ],
     });
   });
 
-  it("uses the default five-level scale when none is given", async () => {
-    const requests = respondWith({
-      item_1: {
-        type: "score",
-        score: 4,
-        legend: {},
-        probabilities: { "0": 0, "1": 0, "2": 0, "3": 0, "4": 1 },
-        confidence: 1,
-      },
+  it("puts the more confident item first among equal scores, and returns only the top ones", async () => {
+    respondPerQuestion((question) =>
+      itemText(question) === "sure" ? score(1.5, 0.9) : score(1.5, 0.4),
+    );
+    const result = await call("rank", {
+      items: ["unsure", "sure", "also unsure"],
+      criterion: "anything",
+      levels: ["bad", "ok", "great"],
+      top: 1,
     });
+    const content = JSON.parse(result.content);
+    expect(content.ranking.map((entry: { id: number }) => entry.id)).toEqual([2]);
+    expect(content.omitted).toBe(2);
+  });
+
+  it("fails the whole call on an invalid score, rather than letting top drop the item", async () => {
+    respondPerQuestion((question) =>
+      itemText(question) === "lost"
+        ? { type: "score", score: 9, legend: {}, probabilities: {}, confidence: 1 }
+        : score(1.5, 0.5),
+    );
+    const result = await call("rank", {
+      items: ["a", "b", "lost"],
+      criterion: "anything",
+      levels: ["bad", "ok", "great"],
+      top: 1,
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  it("uses the default five-level scale when none is given", async () => {
+    const requests = respondPerQuestion(() => ({
+      type: "score",
+      score: 4,
+      legend: {},
+      probabilities: { "0": 0, "1": 0, "2": 0, "3": 0, "4": 1 },
+      confidence: 1,
+    }));
     await call("rank", { items: ["x"], criterion: "anything" });
-    expect(requests[0]?.body).toMatchObject({
-      questions: {
-        item_1: {
-          criteria: ["poor fit", "weak fit", "partial fit", "good fit", "excellent fit"],
-        },
-      },
+    expect(Object.values(requests[0]?.body.questions ?? {})[0]).toMatchObject({
+      criteria: ["poor fit", "weak fit", "partial fit", "good fit", "excellent fit"],
     });
   });
 

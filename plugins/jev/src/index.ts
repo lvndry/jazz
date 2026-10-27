@@ -1,7 +1,7 @@
 /**
  * Optional trusted Jazz plugin that answers bounded skill-routing, command-risk, compaction,
  * browser-page, and memory-pass decisions through TypeSafe's System One API, and gives chat agents `classify` and
- * `rank` tools that judge many items in one call. It uses only the public plugin ABI,
+ * `rank` tools that judge many items, text, files, or images, in a few parallel calls. It uses only the public plugin ABI,
  * pins the evaluated model version, and fails through explicit abstention so Jazz
  * can preserve its host-owned fallback policy.
  */

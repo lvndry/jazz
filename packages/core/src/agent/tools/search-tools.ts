@@ -73,10 +73,41 @@ const STOPWORDS = new Set([
   "own",
 ]);
 
-/** Ranks by case-insensitive token overlap against name + summary. No embeddings; revisit only past a few hundred deferred tools. */
+/**
+ * A query word found in the name or the one-line summary counts this much more than one found only
+ * deeper in the description, so a long description cannot outrank a tool whose headline fits.
+ */
+const HEADLINE_MATCH_WEIGHT = 2;
+
+function wordsOf(text: string): { readonly lower: string; readonly stems: ReadonlySet<string> } {
+  const lower = text.toLowerCase();
+  return {
+    lower,
+    stems: new Set(
+      lower
+        .split(/\W+/)
+        .filter((word) => word.length > 0)
+        .map(stemWord),
+    ),
+  };
+}
+
+function contains(words: ReturnType<typeof wordsOf>, token: string): boolean {
+  return words.lower.includes(token) || words.stems.has(stemWord(token));
+}
+
+/**
+ * Ranks by case-insensitive token overlap against name + summary, and then the full description,
+ * which a plugin or MCP tool's cut-short summary would otherwise hide. No embeddings; revisit only
+ * past a few hundred deferred tools.
+ */
 export function rankToolsByQuery(
   query: string,
-  candidates: readonly { readonly name: string; readonly summary: string }[],
+  candidates: readonly {
+    readonly name: string;
+    readonly summary: string;
+    readonly description?: string;
+  }[],
 ): readonly string[] {
   // Tokens under 3 chars ("a", "to", "in") match as a substring almost everywhere and would
   // turn any query containing one into a false-positive match against unrelated tools.
@@ -88,16 +119,13 @@ export function rankToolsByQuery(
 
   const scored = candidates
     .map((candidate) => {
-      const haystack = `${candidate.name} ${candidate.summary}`.toLowerCase();
-      const haystackStems = new Set(
-        haystack
-          .split(/\W+/)
-          .filter((word) => word.length > 0)
-          .map(stemWord),
-      );
+      const headline = wordsOf(`${candidate.name} ${candidate.summary}`);
+      const description = wordsOf(candidate.description ?? "");
       const score = queryTokens.reduce((total, token) => {
-        const matched = haystack.includes(token) || haystackStems.has(stemWord(token));
-        return total + (matched ? 1 : 0);
+        if (contains(headline, token)) {
+          return total + HEADLINE_MATCH_WEIGHT;
+        }
+        return total + (contains(description, token) ? 1 : 0);
       }, 0);
       return { name: candidate.name, score };
     })

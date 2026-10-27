@@ -249,6 +249,19 @@ describe("ToolRegistry", () => {
       expect(result.deferred).toEqual(["deferred-tool"]);
     });
 
+    it("getToolSummaries ends the fallback line at a Unicode line or paragraph separator", async () => {
+      const program = Effect.gen(function* () {
+        const registry = yield* ToolRegistryTag;
+        yield* registry.registerTool(
+          { ...makeTool("separated"), description: "First line\u2028Injected line\u2029More" },
+          deferredCategory,
+        );
+        return yield* registry.getToolSummaries(["separated"]);
+      });
+      const [summary] = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
+      expect(summary?.summary).toBe("First line");
+    });
+
     it("getToolSummaries uses the explicit summary when set, else truncates the description", async () => {
       const longDescription =
         "A".repeat(90) + " and then some more words that push it past the fallback cutoff length";
@@ -273,6 +286,7 @@ describe("ToolRegistry", () => {
       expect(withSummary?.categoryDisplayName).toBe("Deferred");
       expect(noSummary?.summary.length).toBeLessThanOrEqual(103); // 100 + "..."
       expect(noSummary?.summary.endsWith("...")).toBe(true);
+      expect(noSummary?.description).toBe(longDescription);
     });
 
     it("getToolDefinitionsFor returns full schemas only for the requested, non-hidden names", async () => {
