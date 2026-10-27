@@ -48,6 +48,20 @@ describe("adaptPluginToolToJazz", () => {
     expect(tool?.egress).toBe(false);
   });
 
+  it("carries the declared search summary onto both a read-only tool and an approval tool", () => {
+    const summary = "Flip, mirror or reverse words and sentences";
+    expect(adaptPluginToolToJazz(info({ summary }), succeeds({ content: "x" }))[0]?.summary).toBe(
+      summary,
+    );
+    expect(
+      adaptPluginToolToJazz(
+        info({ summary, riskLevel: "high-risk" }),
+        succeeds({ content: "x" }),
+      )[0]?.summary,
+    ).toBe(summary);
+    expect(adaptPluginToolToJazz(info(), succeeds({ content: "x" }))[0]?.summary).toBeUndefined();
+  });
+
   it("runs the plugin handler and maps a successful result", async () => {
     const tools = adaptPluginToolToJazz(info(), succeeds({ content: "tset" }));
     const result = await Effect.runPromise(

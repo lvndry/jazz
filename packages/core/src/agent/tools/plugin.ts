@@ -177,6 +177,7 @@ export function adaptPluginToolToJazz(
       defineTool<never, Record<string, unknown>>({
         name: jazzToolName,
         description: info.description,
+        ...(info.summary === undefined ? {} : { summary: info.summary }),
         disclosure: "private",
         egress: info.egress,
         parameters,
@@ -193,6 +194,7 @@ export function adaptPluginToolToJazz(
   const approval = defineTool<never, Record<string, unknown>>({
     name: jazzToolName,
     description: info.description,
+    ...(info.summary === undefined ? {} : { summary: info.summary }),
     disclosure: "private",
     egress: info.egress,
     parameters,

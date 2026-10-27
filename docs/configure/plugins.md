@@ -235,6 +235,12 @@ description, a JSON Schema for its arguments, a `riskLevel` (`read-only` / `low-
 the module supplies the matching handler. The manifest declaration is the reviewed, consented
 contract; the module can neither register an undeclared tool nor claim a lower risk than declared.
 
+Plugin tools are deferred: the agent sees each one as a name and a one-line summary, and fetches
+the full schema with `search_tools`, which matches the words of a request against that line. Give
+a tool an optional `summary` (up to 200 characters) written in the words people use when they ask
+for it, such as "Triage, sort, or label many emails, receipts, or photos". Without one, Jazz uses
+the first line of `description`, cut to 100 characters.
+
 When a plugin is enabled for an agent, its tools join that agent's tool set automatically — no
 separate mention in the agent's config is needed. Jazz namespaces each tool (`plugin_<id>_<tool>`)
 so it never collides, advertises the declared JSON Schema to the model, and **validates the model's
@@ -256,6 +262,7 @@ callbacks, Jazz shows a bounded argument preview and runs the ordinary handler a
   "tools": [
     {
       "name": "reverse_text",
+      "summary": "Reverse, flip, or mirror text",
       "description": "Reverse the characters of the given text.",
       "parameters": {
         "type": "object",

@@ -7,14 +7,22 @@ the agent harness. It complements your agent's main model and pins `jev-1.14.0`.
 
 ## Tools for your agent
 
-Once the plugin is enabled for an agent, the agent calls these tools whenever a
-task fits. Each tool sends every item in one request, so judging 50 items costs
-one call.
+Once the plugin is enabled for an agent, the agent calls these tools for 15 or
+more items, for items saved as files or images, or when it needs a probability
+per item. Items can be text, a text file, a PNG or JPEG, or text plus an image,
+each with an optional `id` that results use. `files` takes paths or glob
+patterns, such as `inbox/*.eml`, and makes one item per matched file, so the
+agent never copies a file's contents into the call. Up to 200 items per call;
+a text file is read up to its first 8,000 characters, and results mark a file
+cut short as `truncated`.
 
-| Tool       | What the agent passes                                                          | What it gets back                                                       | Examples                                                                    |
-| ---------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `classify` | Items (text, a PNG or JPEG path, or both) and labels with short descriptions   | Each item's label, the probability of every label, and Jev's confidence | Triage an inbox, sort receipts into business and personal, check for a scam |
-| `rank`     | Items, a criterion, and optionally a scale from worst to best (2 to 10 levels) | Items best first, each with a 0-1 score and the nearest level           | Shortlist apartments, job offers, or restaurants; order tasks by importance |
+Each item goes to Jev in its own question, and items are split across parallel
+requests that fit Jev's 64,000-token input limit, so 50 emails cost a few calls.
+
+| Tool       | What the agent passes                                                                                | What it gets back                                                                                                                                            | Examples                                                                    |
+| ---------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `classify` | Items and/or `files`, labels with short descriptions, and optionally `keep` (the labels to return)   | Each item's label, every label's probability, and Jev's confidence; `uncertain` when the label's probability is under 0.5; "none of these" is always offered | Triage an inbox, sort receipts into business and personal, check for a scam |
+| `rank`     | Items and/or `files`, a criterion, optionally a scale from worst to best (2 to 10 levels), and `top` | Items best first, each with a 0-1 score, the nearest level, and Jev's confidence; equal scores go to the more confident item first                           | Shortlist apartments, job offers, or restaurants; order tasks by importance |
 
 A tool error explains what to fix, such as a missing key, an unreadable image, or
 a label list that is too short. If Jev declines to judge an item, the agent is told
@@ -85,7 +93,7 @@ origin (never the path or query), its title, each interactive element's role and
 label, and whether the page has a password or payment card field; snapshot routing
 also sends your latest request. It never sends the page body, link targets, or
 field contents. The `classify` and `rank` tools send the items, labels, criterion,
-and context the agent passes them, including the image files it names. The
+and context the agent passes them, including the text and image files it names. The
 memory-pass gate sends your messages and the assistant's replies, never tool
 output, and only for conversations up to 32,000 characters. These are
 external API calls using your TypeSafe account.

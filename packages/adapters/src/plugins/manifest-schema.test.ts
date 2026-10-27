@@ -98,6 +98,24 @@ describe("parsePluginManifest", () => {
     );
   });
 
+  test("keeps a tool's optional search summary and bounds it", () => {
+    const tool = {
+      name: "triage",
+      description: "Sort items into labels.",
+      parameters: { type: "object" },
+      riskLevel: "read-only",
+      egress: false,
+    };
+    expect(parsePluginManifest(manifest({ tools: [tool] })).tools[0]?.summary).toBeUndefined();
+    expect(
+      parsePluginManifest(manifest({ tools: [{ ...tool, summary: "Triage an inbox" }] })).tools[0]
+        ?.summary,
+    ).toBe("Triage an inbox");
+    expect(() =>
+      parsePluginManifest(manifest({ tools: [{ ...tool, summary: "x".repeat(201) }] })),
+    ).toThrow("tools[0].summary must contain 1-200 characters");
+  });
+
   test("rejects unknown fields and malformed digests", () => {
     expect(() => parsePluginManifest(manifest({ surprise: true }))).toThrow("unknown field");
     expect(() => parsePluginManifest(manifest({ sha256: "ABC" }))).toThrow("64 lowercase hex");

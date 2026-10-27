@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "com.jazz.plugins.jev",
   "name": "Jev decision provider",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "hostApi": 1,
   "entry": "src/index.ts",
   "hooks": ["route.skills", "compact.tools", "classify.page", "route.snapshot", "gate.memory-pass"],
@@ -18,7 +18,7 @@
     "tool call names and result previews during compaction",
     "current page origin, title, and interactive element roles and labels (never the page body, path, or query)",
     "your messages and the assistant's replies (never tool output) before a memory pass, to skip passes with nothing to remember",
-    "items, labels, criteria, and context the agent passes to the classify and rank tools, including images it names"
+    "items, labels, criteria, and context the agent passes to the classify and rank tools, including the text and image files it names"
   ],
   "secrets": [
     {
@@ -31,20 +31,29 @@
   "tools": [
     {
       "name": "classify",
-      "description": "Sort many items into labels in one call with Jev, a fast decision model. Returns each item's label, the probability of every label, and Jev's confidence. Use it for triage and checks: emails into urgent/reply/newsletter/junk, receipts into business/personal, a message into scam/legit, photos into contains-passport/other.",
+      "summary": "Triage, sort, label, categorize or filter many emails, messages, receipts, documents, files or photos",
+      "description": "Sort many items into labels with Jev, a fast decision model. Use it for 15 or more items, for items saved as files or images, or when you need each label's probability. Pass saved items as paths, with `files` or an item's `file`. Returns each item's label, every label's probability, Jev's confidence, and `uncertain` when the label's probability is under 0.5. Every label set also offers \"none of these\". Example uses: emails into urgent/reply/newsletter/junk, receipts into business/personal, photos into contains-passport/other.",
       "parameters": {
         "type": "object",
         "properties": {
           "items": {
             "type": "array",
-            "description": "The items to classify, in order. Results refer to them by 1-based position.",
+            "description": "The items, in order. Results name each item by its id, its file path, or its 1-based position.",
             "items": {
               "type": ["string", "object"],
-              "description": "An item as text, or an object with text and/or image (a PNG or JPEG path).",
+              "description": "An item as text, or an object with text, a text file, or an image, plus an optional id.",
               "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "A name for the item that results use, such as an email subject or a listing URL."
+                },
                 "text": {
                   "type": "string",
                   "description": "The item's text."
+                },
+                "file": {
+                  "type": "string",
+                  "description": "Path to a text file holding the item, such as a saved email or a note."
                 },
                 "image": {
                   "type": "string",
@@ -52,6 +61,13 @@
                 }
               },
               "additionalProperties": false
+            }
+          },
+          "files": {
+            "type": "array",
+            "description": "Paths or glob patterns, such as \"inbox/*.eml\". Each matched file becomes one item named by its path; PNG and JPEG files are read as images, others as text.",
+            "items": {
+              "type": "string"
             }
           },
           "labels": {
@@ -79,9 +95,16 @@
           "context": {
             "type": "string",
             "description": "Background every item is judged against, such as the user's preferences or situation."
+          },
+          "keep": {
+            "type": "array",
+            "description": "Label names to return; other items are counted under `omitted`. Use it to keep only the urgent emails, for example.",
+            "items": {
+              "type": "string"
+            }
           }
         },
-        "required": ["items", "labels"],
+        "required": ["labels"],
         "additionalProperties": false
       },
       "riskLevel": "read-only",
@@ -89,20 +112,29 @@
     },
     {
       "name": "rank",
-      "description": "Order many items by how well each meets a criterion, in one call with Jev, a fast decision model. Returns the items best first, each with a 0-1 score, the nearest level on the scale, and Jev's confidence. Use it for shortlists: apartments, job offers, restaurants, tasks by importance, photos by quality.",
+      "summary": "Rank, shortlist, compare, score or prioritize many options, apartments, offers, candidates, tasks, files or photos",
+      "description": "Order many items by how well each meets a criterion, with Jev, a fast decision model. Use it for 15 or more items, for items saved as files or images, or when you need a score per item. Pass saved items as paths, with `files` or an item's `file`. Returns the items best first, each with a 0-1 score, the nearest level on the scale, and Jev's confidence. Example uses: apartments, job offers, restaurants, tasks by importance, photos by quality.",
       "parameters": {
         "type": "object",
         "properties": {
           "items": {
             "type": "array",
-            "description": "The items to rank. Results refer to them by 1-based position.",
+            "description": "The items, in order. Results name each item by its id, its file path, or its 1-based position.",
             "items": {
               "type": ["string", "object"],
-              "description": "An item as text, or an object with text and/or image (a PNG or JPEG path).",
+              "description": "An item as text, or an object with text, a text file, or an image, plus an optional id.",
               "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "A name for the item that results use, such as an email subject or a listing URL."
+                },
                 "text": {
                   "type": "string",
                   "description": "The item's text."
+                },
+                "file": {
+                  "type": "string",
+                  "description": "Path to a text file holding the item, such as a saved email or a note."
                 },
                 "image": {
                   "type": "string",
@@ -110,6 +142,13 @@
                 }
               },
               "additionalProperties": false
+            }
+          },
+          "files": {
+            "type": "array",
+            "description": "Paths or glob patterns, such as \"inbox/*.eml\". Each matched file becomes one item named by its path; PNG and JPEG files are read as images, others as text.",
+            "items": {
+              "type": "string"
             }
           },
           "criterion": {
@@ -126,9 +165,14 @@
           "context": {
             "type": "string",
             "description": "Background every item is judged against, such as the user's preferences or situation."
+          },
+          "top": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How many of the best items to return; the rest are counted under `omitted`."
           }
         },
-        "required": ["items", "criterion"],
+        "required": ["criterion"],
         "additionalProperties": false
       },
       "riskLevel": "read-only",
