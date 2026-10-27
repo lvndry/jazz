@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  claimAssetDirectory,
   extractEmbeddedAssets,
   hasEmbeddedAssets,
   pruneStaleAssetDirectories,
@@ -185,14 +186,20 @@ let embeddedAssetRoot: string | null | undefined;
 /**
  * Returns the directory a standalone binary unpacks its built-in assets into.
  *
- * Resolved once per process: the unpack itself is a no-op after the first run,
- * but `getPackageRootDirectory` is called often enough that the existence check
- * is worth skipping.
+ * Unpacked, claimed, and pruned on first use. Later calls only check the
+ * directory still exists: a newer version can still prune it while this
+ * process runs (its claim landed just after the newer version checked, or
+ * could not be written), and the running binary still carries its embedded
+ * assets, so it unpacks them again instead of failing every persona and skill
+ * read.
  *
  * @returns The unpacked directory, or `null` outside a standalone binary.
  */
 function getEmbeddedAssetRoot(): string | null {
-  if (embeddedAssetRoot !== undefined) {
+  if (embeddedAssetRoot === null) {
+    return null;
+  }
+  if (embeddedAssetRoot !== undefined && fs.existsSync(embeddedAssetRoot)) {
     return embeddedAssetRoot;
   }
 
@@ -201,9 +208,13 @@ function getEmbeddedAssetRoot(): string | null {
     return embeddedAssetRoot;
   }
 
+  const isFirstResolution = embeddedAssetRoot === undefined;
   const runtimeRoot = path.join(getJazzHomeDirectory(), "runtime");
+  claimAssetDirectory(runtimeRoot, packageJson.version);
   embeddedAssetRoot = extractEmbeddedAssets(path.join(runtimeRoot, packageJson.version));
-  pruneStaleAssetDirectories(runtimeRoot, packageJson.version);
+  if (isFirstResolution) {
+    pruneStaleAssetDirectories(runtimeRoot, packageJson.version);
+  }
   return embeddedAssetRoot;
 }
 
