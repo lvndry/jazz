@@ -251,7 +251,7 @@ jobs:
     name: Publish npm packages
     needs: [tag, build, smoke]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 50
     # npm trusted publishing authenticates with this workflow's OIDC token.
     permissions:
       contents: read
@@ -318,6 +318,29 @@ jobs:
             echo "::error::Failed to publish: ${failed[*]}"
             exit 1
           fi
+
+      # npm publish returns before the registry serves the version: on the 0.16.24 release the
+      # linux-x64 binary package became installable six minutes after its publish succeeded.
+      # jazz-ai published in that window installs without a binary on that platform.
+      - name: Wait for the registry to serve every platform package
+        run: |
+          deadline=$(( $(date +%s) + 1800 ))
+          for dir in deploy/npm/jazz-ai-*/; do
+            name="$(node -p "require('./${dir}package.json').name")"
+            version="$(node -p "require('./${dir}package.json').version")"
+            # The abbreviated document is what npm install reads, and the registry serves it
+            # separately from the full one npm view reads, so it can lag behind.
+            until curl -fsS -H "Accept: application/vnd.npm.install-v1+json" \
+              "https://registry.npmjs.org/${name}" 2>/dev/null \
+              | jq -e --arg version "$version" '.versions[$version]' >/dev/null; do
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "::error::$name@$version is still not served by the registry after 30 minutes; jazz-ai was not published"
+                exit 1
+              fi
+              sleep 15
+            done
+            echo "$name@$version is served"
+          done
 
       - name: Publish jazz-ai
         working-directory: deploy/npm/jazz-ai
