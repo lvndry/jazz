@@ -251,7 +251,7 @@ jobs:
     name: Publish npm packages
     needs: [tag, build, smoke]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 50
     # npm trusted publishing authenticates with this workflow's OIDC token.
     permissions:
       contents: read
@@ -318,6 +318,14 @@ jobs:
             echo "::error::Failed to publish: ${failed[*]}"
             exit 1
           fi
+
+      - name: Wait for the registry to serve every platform package
+        run: |
+          packages=()
+          for dir in deploy/npm/jazz-ai-*/; do
+            packages+=("$(node -p "const p = require('./${dir}package.json'); p.name + '@' + p.version")")
+          done
+          scripts/wait-for-npm-packages.sh "${packages[@]}"
 
       - name: Publish jazz-ai
         working-directory: deploy/npm/jazz-ai
