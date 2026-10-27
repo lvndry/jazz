@@ -204,6 +204,9 @@ interface StreamProcessorConfig {
  */
 const USAGE_SETTLE_TIMEOUT_MS = 2_000;
 
+/** Models already warned about a stray `</think>`; the fix is a server setting, so once is enough. */
+const STRAY_CLOSE_WARNED_FOR = new Set<string>();
+
 /**
  * Stream processor state
  */
@@ -212,6 +215,13 @@ interface StreamProcessorState {
   accumulatedText: string;
   textSequence: number;
   hasStartedText: boolean;
+  /** The parser has seen this response's text, so it keeps parsing to the end. */
+  inlineTextParsed: boolean;
+  /**
+   * Reasoning arrived on its own channel before any text: the server split it, so the text is
+   * all answer and tags in it are quoted, not parsed.
+   */
+  reasoningArrivedSeparately: boolean;
 
   // Reasoning tracking
   reasoningSequence: number;
@@ -254,6 +264,8 @@ function createInitialState(): StreamProcessorState {
     accumulatedText: "",
     textSequence: 0,
     hasStartedText: false,
+    inlineTextParsed: false,
+    reasoningArrivedSeparately: false,
     reasoningSequence: 0,
     reasoningTokens: undefined,
     reasoningStreamActive: false,
@@ -324,7 +336,7 @@ export class StreamProcessor {
     const streamProcessStart = Date.now();
     await this.processFullStream(result);
 
-    if (this.config.reasoningParser) {
+    if (this.config.reasoningParser && this.state.inlineTextParsed) {
       this.routeParsedChunk(this.config.reasoningParser.flush());
     }
     this.closeReasoningStream();
@@ -398,7 +410,8 @@ export class StreamProcessor {
 
             if (textChunk.length === 0) break;
 
-            if (this.config.reasoningParser) {
+            if (this.config.reasoningParser && !this.state.reasoningArrivedSeparately) {
+              this.state.inlineTextParsed = true;
               this.routeParsedChunk(this.config.reasoningParser.feed(textChunk));
             } else {
               this.emitVisibleText(textChunk);
@@ -407,6 +420,7 @@ export class StreamProcessor {
           }
 
           case "reasoning-start": {
+            if (!this.state.inlineTextParsed) this.state.reasoningArrivedSeparately = true;
             // Emit thinking start on reasoning-start event. Reasoning is always
             // surfaced when the provider sends it: providers that respect
             // disabled reasoning won't emit these parts, and providers that
@@ -427,6 +441,7 @@ export class StreamProcessor {
           }
 
           case "reasoning-delta": {
+            if (!this.state.inlineTextParsed) this.state.reasoningArrivedSeparately = true;
             const textDelta = part.text;
 
             if (textDelta && textDelta.length > 0) {
@@ -636,6 +651,17 @@ export class StreamProcessor {
       });
     }
     if (chunk.thinkingEnded) this.closeReasoningStream();
+    if (chunk.strayCloseTag && !STRAY_CLOSE_WARNED_FOR.has(this.config.modelName)) {
+      STRAY_CLOSE_WARNED_FOR.add(this.config.modelName);
+      Effect.runFork(
+        this.logger.warn(
+          "The answer has a </think> with no <think> before it: if it is this model's reasoning, " +
+            "start the server with a reasoning parser (vLLM/SGLang --reasoning-parser, " +
+            "llama-server --reasoning-format auto) so it arrives separately",
+          { provider: this.config.providerName, model: this.config.modelName },
+        ),
+      );
+    }
     if (chunk.visibleText.length > 0) {
       this.emitVisibleText(chunk.visibleText);
     }

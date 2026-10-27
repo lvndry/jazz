@@ -137,11 +137,25 @@ flowchart TB
 The default is **defensive rather than strict**, and that's a deliberate call. A strict
 factory gate (only parse when metadata says the model reasons) silently leaks
 `<think>` tags into the user-visible answer for the many local models that don't declare it.
-The fallback parser is a passthrough unless the reply opens with a reasoning tag, so the
-cost of being wrong is zero. A tag only opens a block before any visible text: once the answer
-has started, a `<think>` in it is the answer quoting the tag (a regex, docs, a code review),
-and parsing it would hide everything up to the next `</think>`. The one format explicitly refused is Harmony, where naive tag-pair
-parsing would visibly corrupt the channel delimiters.
+The one format explicitly refused is Harmony, where naive tag-pair parsing would visibly
+corrupt the channel delimiters.
+
+Parsing a tag is a guess, so the parser only guesses where reasoning can be, and never in a
+way that hides the answer:
+
+- **A server split wins.** When reasoning arrives as its own stream part before any text (vLLM
+  or SGLang with `--reasoning-parser`, llama-server's default `--reasoning-format`, Ollama's `think` field),
+  the text is all answer and is not parsed.
+- **Reasoning is a prefix.** A tag opens a block only before any visible text. Once the
+  answer has started, a `<think>` in it is the answer quoting the tag (a regex, docs, a code
+  review), and parsing it would hide everything up to the next `</think>`.
+- **A block the prompt opened.** Some templates (QwQ, Qwen3 thinking, DeepSeek-R1) end the
+  generation prompt with `<think>`, so the reply starts inside the block with no opening tag.
+  When the chat template shows this, the parser holds the reply until `</think>` and splits
+  there; a reply that never closes it was all answer and is given back whole.
+- **Otherwise, warn.** A `</think>` with no block opened is usually reasoning a server left in
+  the text. The parser can't place it without guessing, so it stays in the answer and jazz
+  warns once per model, naming the server's reasoning-parser setting.
 
 Parsers are stateful per request and buffer across chunk boundaries, so a `<think>` tag split
 across two network packets is stitched correctly rather than half-rendered.
