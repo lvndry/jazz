@@ -8,6 +8,7 @@ import {
   useInputService,
   useTextInput,
 } from "./hooks/use-input-service";
+import { forceSendQueue } from "./queue-force-send";
 import { composeRecalledBuffer, isCursorOnFirstLine } from "./queue-recall";
 import { store, useSessionSlice } from "./store";
 import { PADDING, THEME } from "./theme";
@@ -76,17 +77,8 @@ export function QueueInput({
     onInput: (action, key) => {
       if (action.type !== "submit" || !key.ctrl) return InputResults.ignored();
       const draft = inputService.getTextInputState("text-input").value;
-      if (draft.length > 0) {
-        store.appendToQueue(draft);
-        setValue("", 0);
-      }
-      if (store.getMessageQueueSnapshot().length === 0 || interruptHandler === null) {
-        return InputResults.consumed();
-      }
-      store.requestFlushQueue();
-      store.printOutput({ type: "warn", message: "Interrupting…", timestamp: new Date() });
-      store.collapseAllEphemeral();
-      interruptHandler();
+      if (forceSendQueue(draft, interruptHandler) === "no-run") return InputResults.ignored();
+      if (draft.length > 0) setValue("", 0);
       return InputResults.consumed();
     },
   });
