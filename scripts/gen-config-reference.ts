@@ -50,6 +50,7 @@ const RECORD_PLACEHOLDERS: Readonly<Record<string, string>> = {
   "telemetry.otlp.headers": "<header>",
   "telemetry.otlp.resourceAttributes": "<attribute>",
   "daemon.agents": "<agent>",
+  companions: "<name>",
 };
 
 /**
@@ -253,6 +254,17 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "`inherit` leaves your terminal's background showing; `painted` fills every cell with the theme's background. Defaults to `inherit`.",
   "chat.defaultCostLimitUSD":
     "Starting value of a new chat session's `/limit usd` cap, in dollars. `/limit` can still raise, lower or clear it for that session. Unset is unlimited.",
+  "companions.<name>.provider":
+    'Protocol the named companion speaks, e.g. `vllm` for any vLLM server. Agents bind it by name: `"analyze:image": "<name>"`. Global config only; a project config\'s `companions` is ignored. See [Model companions](../concepts/media.md#named-companions).',
+  "companions.<name>.model": "Model id the server serves, as its `/v1/models` lists it.",
+  "companions.<name>.base_url":
+    "Server for this companion only. Unset uses `llm.<provider>.base_url`.",
+  "companions.<name>.api_key":
+    "Key for this companion only, kept in the keyring (`JAZZ_COMPANION_API_KEY_<NAME>` on hosts without one). Unset uses the provider's key.",
+  "companions.<name>.accepts":
+    "Media the model reads (`image`, `pdf`, `audio`, `video`), overriding the model catalog. A role whose media is not listed is refused.",
+  "companions.<name>.prompt":
+    "Exact text sent with the media for analysis instead of Jazz's task brief, for models trained on one instruction such as `OCR:`.",
 };
 
 export interface ConfigReferenceRow {

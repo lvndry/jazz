@@ -25,6 +25,7 @@ import { z } from "zod";
 import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import { TERMINAL_NOTIFICATION_SETTINGS } from "@/core/notify/terminal-notification";
+import type { AttachmentKind } from "@/core/types/attachment";
 import type {
   AnthropicProviderConfig,
   ChatConfig,
@@ -35,6 +36,7 @@ import type {
   DaemonConfig,
   LLMConfig,
   LLMProviderConfig,
+  NamedCompanionConfig,
   LlamaCppProviderConfig,
   HistoryConfig,
   LoggingConfig,
@@ -86,6 +88,7 @@ import type {
 import { joinConfigPath, splitConfigPath } from "@/core/utils/config-path";
 import { describeHttpUrlPatternError, MAX_HTTP_URL_PATTERNS } from "@/core/utils/http-approval";
 import { isRecord } from "@/core/utils/is-record";
+import { isCompanionName } from "@/core/utils/named-companions";
 import {
   describePrivateHostEntryError,
   MAX_PRIVATE_HOST_ENTRIES,
@@ -634,6 +637,37 @@ const webhookShape = {
   ...doorLimitsShape,
 } satisfies SchemaShape<WebhookConfig>;
 
+const namedCompanionShape = {
+  provider: z.enum(AVAILABLE_PROVIDERS),
+  model: z.string().trim().min(1),
+  base_url: described(
+    z.string().refine(isPlainHttpUrl),
+    "an http(s) URL without credentials, such as http://host:8000/v1",
+  ).exactOptional(),
+  api_key: text.exactOptional(),
+  accepts: z
+    .array(exhaustiveEnum<AttachmentKind>()(["image", "pdf", "audio", "video"]))
+    .min(1)
+    .exactOptional(),
+  prompt: z.string().min(1).exactOptional(),
+} satisfies SchemaShape<NamedCompanionConfig>;
+
+/** An `http(s)` URL with no `user:password@`; a credential belongs in the keyring. */
+function isPlainHttpUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    url.username === "" &&
+    url.password === ""
+  );
+}
+
+const companionNameKey = described(
+  nonEmptySafeRecordKey.refine(isCompanionName),
+  "a name of letters, digits, - and _ (no / or .)",
+);
+
 const configFileShape = {
   storage: storageSchema.exactOptional(),
   logging: z.strictObject(loggingShape).exactOptional(),
@@ -669,6 +703,7 @@ const configFileShape = {
   notify: z.strictObject(notifyShape).exactOptional(),
   ui: z.strictObject(uiShape).exactOptional(),
   chat: z.strictObject(chatShape).exactOptional(),
+  companions: z.record(companionNameKey, z.strictObject(namedCompanionShape)).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;
 
 /** A whole config file, as it may appear on disk. */

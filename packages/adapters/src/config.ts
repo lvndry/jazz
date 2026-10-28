@@ -600,20 +600,29 @@ function mergeMcpServers(
 }
 
 /**
- * The project config without its `network` section. HTTP approvals, private-network grants and
- * the browser endpoint are the operator's call; a config file from a cloned repository cannot
- * widen or redirect any of them.
+ * The project config without the sections only the operator may set.
+ *
+ * - `network`: HTTP approvals, private-network grants and the browser endpoint; a config file
+ *   from a cloned repository cannot widen or redirect any of them.
+ * - `companions`: an agent's binding to a companion name is consent to send media to that
+ *   companion's server, so a cloned repository must not be able to redefine where a trusted
+ *   name points.
  */
-function withoutProjectNetwork(localPath: string, local: ConfigFile): ConfigFile {
-  if (local.network === undefined) {
-    return local;
+function withoutGlobalOnlySections(localPath: string, local: ConfigFile): ConfigFile {
+  const { network, companions, ...rest } = local;
+  if (network !== undefined) {
+    process.stderr.write(
+      `jazz: ignoring network in ${localPath}. Only your global config controls HTTP approvals, private hosts, and the browser endpoint; ` +
+        "edit network settings with jazz > Settings.\n",
+    );
   }
-  process.stderr.write(
-    `jazz: ignoring network in ${localPath}. Only your global config controls HTTP approvals, private hosts, and the browser endpoint; ` +
-      "edit network settings with jazz > Settings.\n",
-  );
-  const { network: _network, ...rest } = local;
-  return rest;
+  if (companions !== undefined) {
+    process.stderr.write(
+      `jazz: ignoring companions in ${localPath}. Only your global config defines named companions, ` +
+        "because binding one is consent to send media to its server.\n",
+    );
+  }
+  return network === undefined && companions === undefined ? local : rest;
 }
 
 /** Tell the user a project config tried to set MCP trust, which only the global config can. */
@@ -653,7 +662,7 @@ export function createConfigLayer(
       const checkedLocal =
         files.local === undefined
           ? EMPTY_CONFIG_FILE
-          : withoutProjectNetwork(
+          : withoutGlobalOnlySections(
               files.local.path,
               yield* requireValidConfigFile(files.local.path, files.local.document),
             );

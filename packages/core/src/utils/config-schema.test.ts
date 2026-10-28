@@ -342,6 +342,55 @@ describe("parseConfigFile", () => {
     });
   });
 
+  it("keeps a named companion as written", () => {
+    const companions = {
+      ocr: {
+        provider: "vllm",
+        model: "paddleocr-vl-1.6",
+        base_url: "http://ocr.internal:8150/v1",
+        accepts: ["image"],
+        prompt: "OCR:",
+      },
+    };
+    const { config, issues } = parseConfigFile({ companions });
+    expect(issues).toEqual([]);
+    expect(config).toEqual({ companions } as unknown as typeof config);
+  });
+
+  it("refuses companion definitions a binding could not use", () => {
+    const { config, issues } = parseConfigFile({
+      companions: {
+        "doc.ocr": { provider: "vllm", model: "paddleocr-vl-1.6" },
+        unknown: { provider: "not-a-provider", model: "m" },
+        relative: { provider: "vllm", model: "m", base_url: "ocr:8150" },
+        leaky: { provider: "vllm", model: "m", base_url: "http://user:key@ocr:8150/v1" },
+        deaf: { provider: "vllm", model: "m", accepts: ["smell"] },
+        typo: { provider: "vllm", model: "m", promt: "OCR:" },
+        good: { provider: "vllm", model: "m" },
+      },
+    });
+    expect(Object.keys(config.companions ?? {}).sort()).toEqual([
+      "deaf",
+      "good",
+      "leaky",
+      "relative",
+      "typo",
+    ]);
+    expect(config.companions?.["good"]).toEqual({ provider: "vllm", model: "m" });
+    expect(config.companions?.["relative"]?.base_url).toBeUndefined();
+    expect(config.companions?.["leaky"]?.base_url).toBeUndefined();
+    expect(config.companions?.["deaf"]?.accepts).toBeUndefined();
+    expect(issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining([
+        'companions."doc.ocr"',
+        "companions.unknown.provider",
+        "companions.relative.base_url",
+        "companions.leaky.base_url",
+        "companions.typo.promt",
+      ]),
+    );
+  });
+
   it("rejects the old canDisable field name", () => {
     const { config, issues } = parseConfigFile({
       llm: {

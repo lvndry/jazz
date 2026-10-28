@@ -136,6 +136,24 @@ export function peerTokenEnvVar(peerName: string): string {
   return `JAZZ_PEER_TOKEN_${secretEnvVarSuffix(peerName)}`;
 }
 
+/** A named companion's API key, e.g. `companions.ocr.api_key`. */
+const COMPANION_API_KEY_PATH = /^companions\.([^.]+)\.api_key$/;
+
+/** The config path holding one named companion's API key. */
+export function companionApiKeyPath(companionName: string): string {
+  return `companions.${companionName}.api_key`;
+}
+
+/**
+ * Environment variable supplying a named companion's API key, for hosts with no keyring.
+ *
+ * Companions exist for unattended runs (CI, schedules, bridges), which is exactly where a
+ * keyring is most often missing.
+ */
+export function companionApiKeyEnvVar(companionName: string): string {
+  return `JAZZ_COMPANION_API_KEY_${secretEnvVarSuffix(companionName)}`;
+}
+
 /** Every field name any notify target kind keeps in the keyring. */
 const NOTIFY_SECRET_FIELD_NAMES: readonly string[] = [
   ...new Set(Object.values(NOTIFY_TARGET_SECRET_FIELDS).flat()),
@@ -221,6 +239,9 @@ export function isSecretPath(path: string): boolean {
   // A notify target's bot token, token-bearing webhook URL or signing key authenticates Jazz
   // to your chat or endpoint; the config file names the target without holding them.
   if (NOTIFY_TARGET_SECRET_PATH.test(path)) return true;
+  // A named companion's key authenticates Jazz to the companion's server, exactly like a
+  // provider key; the config file names the companion without holding its credential.
+  if (COMPANION_API_KEY_PATH.test(path)) return true;
   if (WEBHOOK_SECRET_PATH.test(path)) {
     return true;
   }
@@ -262,6 +283,8 @@ export function envVarForSecretPath(path: string): string | undefined {
   if (target?.[1] !== undefined && target[2] !== undefined) {
     return notifyTargetSecretEnvVar(target[1], target[2]);
   }
+  const companion = COMPANION_API_KEY_PATH.exec(path);
+  if (companion?.[1] !== undefined) return companionApiKeyEnvVar(companion[1]);
   const webhookSecret = /^webhooks\.([^.]+)\.secret$/.exec(path);
   if (webhookSecret?.[1] !== undefined) {
     return webhookSecretEnvVar(webhookSecret[1]);
@@ -300,8 +323,12 @@ const REGISTERED_SECRET_ENV_VARS: ReadonlySet<string> = new Set([
   DAEMON_TOKEN_ENV_VAR,
 ]);
 
-/** `JAZZ_PEER_TOKEN_<NAME>`, `JAZZ_WEBHOOK_TOKEN_<NAME>`, `JAZZ_WEBHOOK_SECRET_<NAME>`. */
-const DOOR_SECRET_ENV_VAR = /^JAZZ_(?:PEER_TOKEN|WEBHOOK_TOKEN|WEBHOOK_SECRET)_[A-Z0-9_]+$/;
+/**
+ * `JAZZ_PEER_TOKEN_<NAME>`, `JAZZ_WEBHOOK_TOKEN_<NAME>`, `JAZZ_WEBHOOK_SECRET_<NAME>`,
+ * `JAZZ_COMPANION_API_KEY_<NAME>`.
+ */
+const DOOR_SECRET_ENV_VAR =
+  /^JAZZ_(?:PEER_TOKEN|WEBHOOK_TOKEN|WEBHOOK_SECRET|COMPANION_API_KEY)_[A-Z0-9_]+$/;
 
 /** `JAZZ_NOTIFY_<TARGET>_<FIELD>` for every notify secret field, e.g. `..._WEBHOOK_URL`. */
 const NOTIFY_SECRET_ENV_VAR = new RegExp(
@@ -360,7 +387,12 @@ function namedEntries(value: unknown): { name: string; entry: Record<string, unk
 
 /**
  * The secret paths whose values the runtime config holds: every `llm` and `web_search` provider
- * key the config names, and every OTLP export header, by whatever name the backend uses.
+ * key the config names, every OTLP export header, by whatever name the backend uses, and the key
+ * of every named companion.
+ *
+ * A companion's key path is listed for every defined companion, whether or not the file holds a
+ * value: once the key has moved to the keyring the file no longer names it, and a path missing
+ * here would never be read back.
  */
 export function runtimeSecretPaths(config: unknown): string[] {
   const paths: string[] = [];
@@ -370,6 +402,9 @@ export function runtimeSecretPaths(config: unknown): string[] {
         paths.push(`${section}.${provider}.api_key`);
       }
     }
+  }
+  for (const companionName of Object.keys(recordAt(config, "companions") ?? {})) {
+    paths.push(companionApiKeyPath(companionName));
   }
   const headers = recordAt(recordAt(recordAt(config, "telemetry"), "otlp"), "headers");
   for (const [name, value] of Object.entries(headers ?? {})) {
