@@ -3112,6 +3112,68 @@ describe("fullscreen bridge", () => {
     }
   });
 
+  it("queues the draft and sends the queue now on Ctrl+Enter during a run", async () => {
+    let interrupted = 0;
+    const rendered = await renderForTest(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+      kittyKeyboard: true,
+    });
+    await rendered.renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    store.setChatBusy(true);
+    store.setInterruptHandler(() => {
+      interrupted += 1;
+    });
+    await rendered.flush();
+
+    await typeInto(rendered.mockInput, rendered.flush, "first");
+    rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    await typeInto(rendered.mockInput, rendered.flush, "second");
+    rendered.mockInput.pressKey("RETURN", { ctrl: true });
+    await settleKeypress(rendered.flush);
+
+    const queue = store.getMessageQueueSnapshot();
+    const flushRequested = store.consumeFlushQueue();
+    store.setInterruptHandler(null);
+    store.setChatBusy(false);
+    store.setPrompt(null);
+    rendered.renderer.destroy();
+
+    expect(queue).toEqual(["first", "second"]);
+    expect(flushRequested).toBe(true);
+    expect(interrupted).toBe(1);
+  });
+
+  it("does nothing on Ctrl+Enter during a run with no draft and no queue", async () => {
+    let interrupted = 0;
+    const rendered = await renderForTest(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+      kittyKeyboard: true,
+    });
+    await rendered.renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    store.setChatBusy(true);
+    store.setInterruptHandler(() => {
+      interrupted += 1;
+    });
+    await rendered.flush();
+
+    rendered.mockInput.pressKey("RETURN", { ctrl: true });
+    await settleKeypress(rendered.flush);
+
+    const flushRequested = store.consumeFlushQueue();
+    store.setInterruptHandler(null);
+    store.setChatBusy(false);
+    store.setPrompt(null);
+    rendered.renderer.destroy();
+
+    expect(flushRequested).toBe(false);
+    expect(interrupted).toBe(0);
+  });
+
   it("does not quit the TUI at idle on Cmd+C or Ctrl+Shift+C", async () => {
     const chords = [
       "\x1b[99;9u",

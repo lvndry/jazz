@@ -8,8 +8,9 @@ import {
   useInputService,
   useTextInput,
 } from "./hooks/use-input-service";
+import { forceSendQueue } from "./queue-force-send";
 import { composeRecalledBuffer, isCursorOnFirstLine } from "./queue-recall";
-import { store } from "./store";
+import { store, useSessionSlice } from "./store";
 import { PADDING, THEME } from "./theme";
 
 /** Per-entry truncation width — keeps the preview block bounded vertically. */
@@ -18,10 +19,10 @@ const ENTRY_PREVIEW_MAX_CHARS = 80;
 /** Show at most this many entries; older ones become a `+N more` line. */
 const MAX_VISIBLE_ENTRIES = 5;
 
-// Between command-suggestions (50, Prompt.tsx) and TEXT_INPUT (100): recall
-// must win the ↑ key over single-line text editing but stay below
+// Between command-suggestions (50, Prompt.tsx) and TEXT_INPUT (100): recall and
+// force send must win ↑ and Ctrl+Enter over text editing but stay below
 // system/modal/prompt layers.
-const QUEUE_RECALL_PRIORITY = 60;
+const QUEUE_INPUT_PRIORITY = 60;
 
 function truncateEntry(entry: string): string {
   // Collapse newlines inside a single queued entry so each entry occupies one
@@ -40,7 +41,8 @@ function truncateEntry(entry: string): string {
  * combined turn; a queued slash command runs alone through the command path.
  * `↑` recalls the whole queue into the input for editing
  * (any typed draft is kept below the recalled text). `Ctrl-X` clears the
- * queue when the input buffer is empty.
+ * queue when the input buffer is empty. `Ctrl+Enter` queues the draft and
+ * interrupts the run so the queue is sent now, on terminals that report it.
  */
 export function QueueInput({
   queue,
@@ -67,10 +69,23 @@ export function QueueInput({
   });
 
   const inputService = useInputService();
+  const { interruptHandler } = useSessionSlice();
+
+  useInputHandler({
+    id: "queue-force-send",
+    priority: QUEUE_INPUT_PRIORITY,
+    onInput: (action, key) => {
+      if (action.type !== "submit" || !key.ctrl) return InputResults.ignored();
+      const draft = inputService.getTextInputState("text-input").value;
+      if (forceSendQueue(draft, interruptHandler) === "no-run") return InputResults.ignored();
+      if (draft.length > 0) setValue("", 0);
+      return InputResults.consumed();
+    },
+  });
 
   useInputHandler({
     id: "queue-recall",
-    priority: QUEUE_RECALL_PRIORITY,
+    priority: QUEUE_INPUT_PRIORITY,
     isActive: queue.length > 0,
     onInput: (action) => {
       if (action.type !== "up") return InputResults.ignored();

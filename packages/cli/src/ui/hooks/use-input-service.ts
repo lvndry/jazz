@@ -8,7 +8,7 @@ import { Effect } from "effect";
 import { useCallback, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 import type { InputHandler, InputResult, InputService } from "@/cli/services/input-service";
 import { InputPriority, InputResults } from "@/cli/services/input-service";
-import type { ParsedInput } from "../../input/escape-state-machine";
+import type { KeyInfo, ParsedInput } from "../../input/escape-state-machine";
 import { InputServiceContext } from "../contexts/InputContext";
 import { lineDeleteStart } from "../text/line-delete";
 
@@ -40,7 +40,7 @@ interface UseInputHandlerOptions {
   /** Whether the handler is currently active */
   isActive?: boolean;
   /** Handler function - return Consumed, Ignored, or Propagate */
-  onInput: (action: ParsedInput) => InputResult | void;
+  onInput: (action: ParsedInput, key: KeyInfo) => InputResult | void;
   /** Dependencies that should trigger handler re-registration */
   deps?: readonly unknown[];
 }
@@ -70,7 +70,7 @@ export function useInputHandler(options: UseInputHandlerOptions): void {
       priority,
       isActive: () => isActiveRef.current,
       handle: (event) => {
-        const result = handlerRef.current(event.action);
+        const result = handlerRef.current(event.action, event.key);
         return result ?? InputResults.ignored();
       },
     };

@@ -1058,6 +1058,11 @@ The fullscreen interface is the default on a capable terminal. The classic inlin
 with `JAZZ_FULLSCREEN=0`, and on terminals the fullscreen one cannot use. The two bind different
 keys. In both, interrupting work takes a double Esc or one Ctrl+C.
 
+Ctrl+Enter only reaches Jazz from a terminal that reports modified Enter. Fullscreen asks for the
+kitty keyboard protocol, so kitty, Ghostty, WezTerm and other terminals that support it work; the
+classic interface needs a terminal set to always send CSI u. Elsewhere Ctrl+Enter arrives as plain
+Enter and queues the message.
+
 **Fullscreen:**
 
 <!-- keys-fullscreen:start -->
@@ -1084,6 +1089,7 @@ keys. In both, interrupting work takes a double Esc or one Ctrl+C.
 | Ctrl+E (empty input)                   | Expand the last write/edit diff in place                                                          |
 | Ctrl+O                                 | Expand the last truncated tool output                                                             |
 | Up (agent busy)                        | Recall queued messages for editing                                                                |
+| Ctrl+Enter (agent busy)                | Interrupt and send the draft and queue now                                                        |
 | Ctrl+X (agent busy, empty input)       | Clear the message queue                                                                           |
 | Ctrl+B (tool running)                  | Move the running tool call to the background                                                      |
 | Down (sub-agents listed)               | Pick a sub-agent under the input; Enter opens its log                                             |
@@ -1118,6 +1124,7 @@ keys. In both, interrupting work takes a double Esc or one Ctrl+C.
 | Ctrl+E (empty input)             | Expand the last write/edit diff in place                           |
 | Ctrl+O                           | Expand the last truncated tool output                              |
 | Up (agent busy)                  | Recall queued messages for editing                                 |
+| Ctrl+Enter (agent busy)          | Interrupt and send the draft and queue now                         |
 | Ctrl+X (agent busy, empty input) | Clear the message queue                                            |
 | Ctrl+B (tool running)            | Move the running tool call to the background                       |
 

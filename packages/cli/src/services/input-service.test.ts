@@ -140,6 +140,30 @@ describe("InputService", () => {
       cleanup();
       expect(Effect.runSync(service.getHandlerIds)).toEqual([]);
     });
+
+    test("Ctrl+Enter reaches handlers as a submit with the ctrl flag kept", () => {
+      const seen: Array<{ type: string; ctrl: boolean }> = [];
+      const cleanup = Effect.runSync(
+        service.registerHandler({
+          id: "force-send",
+          priority: 60,
+          isActive: () => true,
+          handle: (event) => {
+            seen.push({ type: event.action.type, ctrl: event.key.ctrl });
+            return InputResults.consumed();
+          },
+        }),
+      );
+
+      processInput(service, "\r", { ...defaultKey, return: true, ctrl: true });
+      processInput(service, "\r", { ...defaultKey, return: true });
+      cleanup();
+
+      expect(seen).toEqual([
+        { type: "submit", ctrl: true },
+        { type: "submit", ctrl: false },
+      ]);
+    });
   });
 
   describe("ordered char application (text input ordering)", () => {

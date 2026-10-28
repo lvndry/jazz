@@ -3,6 +3,7 @@ import {
   hintsFor,
   INTERRUPT_WINDOW_MS,
   isBackgroundChord,
+  isForceSendChord,
   isComposerNewline,
   isCopyChord,
   isCtrlLetter,
@@ -257,6 +258,16 @@ describe("normalizeKey", () => {
     expect(isInterruptChord(normalizeKey("\x1b[27;6;99~"))).toBe(false);
     expect(isInterruptChord(normalizeKey("\x1b[99;5u"))).toBe(true);
     expect(isCopyChord(normalizeKey("\x1b[99;5u"))).toBe(false);
+  });
+
+  it("recognizes Ctrl+Enter as the force-send chord across encodings", () => {
+    expect(isForceSendChord(normalizeKey("\x1b[13;5u"))).toBe(true);
+    expect(isForceSendChord(normalizeKey("\x1b[27;5;13~"))).toBe(true);
+    expect(isForceSendChord(normalizeKey({ name: "return", ctrl: true }))).toBe(true);
+    expect(isForceSendChord(normalizeKey("\r"))).toBe(false);
+    expect(isForceSendChord(normalizeKey("\x1b[13;2u"))).toBe(false);
+    expect(isForceSendChord(normalizeKey("\x1b[13;6u"))).toBe(false);
+    expect(isForceSendChord(normalizeKey("\x1b[13;3u"))).toBe(false);
   });
 
   it("recognizes Ctrl+B as the background chord, and only plain Ctrl+B", () => {
