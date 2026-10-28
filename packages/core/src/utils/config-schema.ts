@@ -665,7 +665,7 @@ function isPlainHttpUrl(value: string): boolean {
 
 const companionNameKey = described(
   nonEmptySafeRecordKey.refine(isCompanionName),
-  "a name of letters, digits, - and _ (no / or .)",
+  "a name of lowercase letters, digits and - (e.g. my-ocr)",
 );
 
 const configFileShape = {

@@ -8,7 +8,10 @@
  *
  * The two never collide: a name may not contain `/`, so anything with one is a model id. A name
  * is also a config path segment (`companions.<name>.api_key` lives in the keyring) and an env var
- * suffix (`JAZZ_COMPANION_API_KEY_<NAME>`), so it is restricted to letters, digits, `-` and `_`.
+ * suffix (`JAZZ_COMPANION_API_KEY_<NAME>`, upper-cased with `-` as `_`). Names are restricted to
+ * lowercase letters, digits and `-` so that mapping is one-to-one: `foo-bar` and `foo_bar`, or
+ * `ocr` and `OCR`, would share one variable, and a key meant for one companion would be sent to
+ * the other's server.
  *
  * - `isCompanionName` / `isCompanionBinding` check syntax only, for validating agent files,
  *   which never see the global config.
@@ -21,7 +24,7 @@ import type { AttachmentKind } from "@/core/types/attachment";
 import type { AppConfig, NamedCompanionConfig } from "@/core/types/config";
 import { parseProviderModel } from "./provider-model";
 
-const COMPANION_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+const COMPANION_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /** Whether `value` is a well-formed companion name (not whether one is defined). */
 export function isCompanionName(value: string): boolean {

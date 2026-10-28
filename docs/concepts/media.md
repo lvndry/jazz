@@ -90,6 +90,8 @@ Then bind it by name in any agent:
 | `accepts`  | The media the model reads. Jazz otherwise asks the model catalog, which knows nothing about a model served under a local id and would drop the file.       |
 | `prompt`   | Exact text sent with the media instead of Jazz's task brief.                                                                                               |
 
+A name uses lowercase letters, digits and `-`, so each one maps to its own key variable.
+
 Set the key with `jazz config set companions.ocr.api_key`, which stores it in the OS keyring.
 A key typed into `config.json` moves to the keyring the next time Jazz starts. On a host with no
 keyring, such as a CI runner, set `JAZZ_COMPANION_API_KEY_OCR` instead.

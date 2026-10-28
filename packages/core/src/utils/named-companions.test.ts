@@ -14,7 +14,16 @@ describe("companion binding syntax", () => {
   it("accepts provider/model ids and plain names", () => {
     expect(isCompanionBinding("openai/gpt-5")).toBe(true);
     expect(isCompanionBinding("ocr")).toBe(true);
-    expect(isCompanionBinding("ocr_2")).toBe(true);
+    expect(isCompanionBinding("ocr-2")).toBe(true);
+  });
+
+  it("refuses names that would share an API key variable with another name", () => {
+    // foo_bar and FOO-BAR would both read JAZZ_COMPANION_API_KEY_FOO_BAR next to foo-bar,
+    // sending one companion's key to the other's server.
+    expect(isCompanionName("foo-bar")).toBe(true);
+    expect(isCompanionName("foo_bar")).toBe(false);
+    expect(isCompanionName("Foo-Bar")).toBe(false);
+    expect(isCompanionName("OCR")).toBe(false);
   });
 
   it("refuses names that could not be a config path segment or an env var suffix", () => {

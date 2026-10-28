@@ -357,6 +357,20 @@ describe("parseConfigFile", () => {
     expect(config).toEqual({ companions } as unknown as typeof config);
   });
 
+  it("never lets two companions share an API key variable", () => {
+    const { config, issues } = parseConfigFile({
+      companions: {
+        "foo-bar": { provider: "vllm", model: "a", base_url: "http://a.internal:8000/v1" },
+        foo_bar: { provider: "vllm", model: "b", base_url: "http://b.internal:8000/v1" },
+        "FOO-BAR": { provider: "vllm", model: "c", base_url: "http://c.internal:8000/v1" },
+      },
+    });
+    expect(Object.keys(config.companions ?? {})).toEqual(["foo-bar"]);
+    expect(issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining(["companions.foo_bar", "companions.FOO-BAR"]),
+    );
+  });
+
   it("refuses companion definitions a binding could not use", () => {
     const { config, issues } = parseConfigFile({
       companions: {
