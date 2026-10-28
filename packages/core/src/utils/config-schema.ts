@@ -642,7 +642,7 @@ const namedCompanionShape = {
   model: z.string().trim().min(1),
   base_url: described(
     z.string().refine(isPlainHttpUrl),
-    "an http(s) URL without credentials, such as http://host:8000/v1",
+    "an http(s) URL without credentials",
   ).exactOptional(),
   api_key: text.exactOptional(),
   accepts: z
