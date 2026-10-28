@@ -183,6 +183,8 @@ export interface AgentPromptOptions {
    * to preserve verbatim.
    */
   readonly pinInitialMessage?: boolean;
+  /** Used verbatim instead of the persona-built system prompt; empty sends none on the wire. */
+  readonly systemPromptOverride?: string;
 }
 
 /**
@@ -503,7 +505,9 @@ export class AgentPromptBuilder {
   ): Effect.Effect<ConversationMessages, Error> {
     return Effect.gen(
       function* (this: AgentPromptBuilder) {
-        const systemPrompt = yield* this.buildSystemPrompt(personaName, options, personaService);
+        const systemPrompt =
+          options.systemPromptOverride ??
+          (yield* this.buildSystemPrompt(personaName, options, personaService));
         const userPrompt = yield* this.buildUserPrompt(personaName, options, personaService);
 
         const messages: ConversationMessages = [{ role: "system", content: systemPrompt }];

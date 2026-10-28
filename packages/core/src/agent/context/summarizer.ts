@@ -24,7 +24,7 @@ import { describeAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { JsonValue } from "@/core/types/plugin";
 import type { EgressTaint } from "@/core/types/tools";
-import { withAgentBaseUrls } from "@/core/utils/agent-llm-config";
+import { withAgentProviderOverrides } from "@/core/utils/agent-llm-config";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { UNTRUSTED_DATA_INSTRUCTION } from "@/core/utils/untrusted-content";
@@ -287,7 +287,7 @@ function resolveLocalSummarizerModel(
     const configService = yield* AgentConfigServiceTag;
     const llmService = yield* LLMServiceTag;
     const appConfig = yield* configService.appConfig;
-    const llmConfig = withAgentBaseUrls(appConfig.llm, baseUrls);
+    const llmConfig = withAgentProviderOverrides(appConfig.llm, { baseUrls });
     const baseUrl = llmService.resolveLocalProviderBaseUrl(provider, llmConfig);
     if (provider === "llamacpp") {
       return yield* llmService

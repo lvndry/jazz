@@ -125,7 +125,8 @@ export interface AgentConfig {
   readonly customTools?: readonly CustomToolDefinition[];
   /**
    * Pre-bound model companions for delegated media work, keyed by
-   * `"<action>:<modality>"` role, each as `"provider/model"`.
+   * `"<action>:<modality>"` role, each as `"provider/model"` or the name of a companion
+   * defined under the global config's `companions`.
    *
    * Action and modality are both in the key because they select different models: a
    * model that reads images usually cannot draw one, so `analyze:image` and
@@ -136,7 +137,7 @@ export interface AgentConfig {
    * interactive sessions ask the human to pick from the capable models, and an
    * unattended session fails loudly instead of guessing.
    */
-  readonly companions?: Partial<Record<CompanionRole, `${string}/${string}`>>;
+  readonly companions?: Partial<Record<CompanionRole, string>>;
 }
 
 /**

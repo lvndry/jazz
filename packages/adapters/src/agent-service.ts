@@ -24,6 +24,7 @@ import {
 import { type Agent, type AgentConfig, type CustomToolDefinition } from "@jazz/core/types/index";
 import { COMPANION_ROLES, isCompanionRole } from "@jazz/core/types/llm";
 import { isReasoningSelection } from "@jazz/core/types/model-capabilities";
+import { isCompanionBinding } from "@jazz/core/utils/named-companions";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Effect, Layer } from "effect";
 import shortuuid from "short-uuid";
@@ -299,7 +300,7 @@ export class AgentServiceImpl implements AgentService {
               field: "config.companions",
               message: "companions must be an object keyed by companion role",
               suggestion:
-                'Use { "analyze:image": "provider/model", ... } with roles of the form <analyze|generate>:<image|audio|video>.',
+                'Use { "analyze:image": "provider/model" or "<companion name>", ... } with roles of the form <analyze|generate>:<image|audio|video>.',
             }),
           );
         }
@@ -314,14 +315,14 @@ export class AgentServiceImpl implements AgentService {
               }),
             );
           }
-          if (typeof companion !== "string" || parseProviderModel(companion) === null) {
+          if (typeof companion !== "string" || !isCompanionBinding(companion)) {
             return yield* Effect.fail(
               new AgentConfigurationError({
                 agentId: "unknown",
                 field: `config.companions.${key}`,
                 message: `Invalid ${key} companion ${JSON.stringify(companion)}`,
                 suggestion:
-                  'Use "provider/model", e.g. "anthropic/claude-sonnet-4-5", or remove the entry to let interactive sessions ask you to pick.',
+                  'Use "provider/model", e.g. "anthropic/claude-sonnet-4-5", the name of a companion defined under "companions" in ~/.jazz/config.json, or remove the entry to let interactive sessions ask you to pick.',
               }),
             );
           }

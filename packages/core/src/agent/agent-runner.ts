@@ -66,7 +66,7 @@ import {
 } from "@/core/types/plugin";
 import { runBudgetOptions } from "@/core/types/remote-door";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
-import { withAgentBaseUrls } from "@/core/utils/agent-llm-config";
+import { withAgentProviderOverrides } from "@/core/utils/agent-llm-config";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { resolveOllamaAttachmentSupport } from "@/core/utils/ollama-attachment-support";
@@ -524,7 +524,7 @@ function initializeAgentRun(
     const provider: ProviderName = agent.config.llm.provider;
     // Local servers can change models between runs. The live model and window flow into
     // metrics, the footer, and context accounting; the saved ID is a fallback.
-    const agentLLMConfig = withAgentBaseUrls(appConfig.llm, agent.config.llm.baseUrls);
+    const agentLLMConfig = withAgentProviderOverrides(appConfig.llm, agent.config.llm);
     const servedLlamaCppModel =
       provider === "llamacpp" ? yield* resolveLlamaCppServerModel(agentLLMConfig) : undefined;
     const servedVllmModel =
@@ -847,9 +847,9 @@ function initializeAgentRun(
     const attachmentWorkingDirectory = ingestsAttachments
       ? yield* resolveAgentWorkingDirectory(agent.id, options)
       : undefined;
-    const supportedAttachmentKinds = ingestsAttachments
-      ? yield* resolveSupportedAttachmentKinds(agent, agentLLMConfig)
-      : [];
+    const supportedAttachmentKinds =
+      options.declaredAttachmentKinds ??
+      (ingestsAttachments ? yield* resolveSupportedAttachmentKinds(agent, agentLLMConfig) : []);
     // Whether this model can produce media itself. Drives one line of prompt guidance so a
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
@@ -907,6 +907,9 @@ function initializeAgentRun(
         }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
         ...(options.pinInitialMessage === true ? { pinInitialMessage: true } : {}),
+        ...(options.systemPromptOverride !== undefined && {
+          systemPromptOverride: options.systemPromptOverride,
+        }),
       },
       resolvedPersonaService,
     );

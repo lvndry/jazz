@@ -37,10 +37,10 @@ import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
 import { isApprovalPolicyLevel } from "@jazz/core/types/tools";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { toError } from "@jazz/core/utils/errors";
+import { isCompanionBinding } from "@jazz/core/utils/named-companions";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { securePrivateHome } from "@jazz/core/utils/private-home";
 import type { ShutdownSignal } from "@jazz/core/utils/process";
-import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Command, Option } from "commander";
 import packageJson from "../../../package.json";
 
@@ -247,15 +247,15 @@ function registerRunCommand(program: Command): void {
       "When a gated tool needs approval nobody here can give, save the run and exit 2 instead of declining. Resume it later with `jazz runs approve <id>`. Only use this where somebody will actually answer.",
     )
     .option(
-      "--with-vision <provider/model>",
-      "Bind the vision companion for this run (overrides the agent's config), e.g. anthropic/claude-sonnet-4-5",
+      "--with-vision <provider/model|companion>",
+      "Bind the vision companion for this run (overrides the agent's config), e.g. anthropic/claude-sonnet-4-5 or a named companion such as ocr",
     )
     .option(
-      "--with-audio <provider/model>",
+      "--with-audio <provider/model|companion>",
       "Bind the audio companion for this run (overrides the agent's config)",
     )
     .option(
-      "--with-video <provider/model>",
+      "--with-video <provider/model|companion>",
       "Bind the video companion for this run (overrides the agent's config)",
     )
     .action(
@@ -379,8 +379,8 @@ function registerRunCommand(program: Command): void {
           },
         ];
         for (const { flag, value: companion } of companionFlags) {
-          if (companion !== undefined && parseProviderModel(companion) === null) {
-            const message = `Invalid ${flag} "${companion}". Expected provider/model, e.g. anthropic/claude-sonnet-4-5.`;
+          if (companion !== undefined && !isCompanionBinding(companion)) {
+            const message = `Invalid ${flag} "${companion}". Expected provider/model, e.g. anthropic/claude-sonnet-4-5, or a companion name.`;
             if (json) {
               process.stdout.write(
                 `${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`,
