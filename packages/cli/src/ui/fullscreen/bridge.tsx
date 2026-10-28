@@ -53,6 +53,7 @@ import {
   isBackgroundChord,
   isComposerNewline,
   isCtrlLetter,
+  isForceSendChord,
   isInterruptChord,
   isRedoChord,
   isSelectAllChord,
@@ -1065,6 +1066,18 @@ export function FullscreenBridge(): React.ReactNode {
       timestamp: new Date(),
     });
   }, []);
+  /** Queue the draft with anything already queued, then interrupt so the chat loop drains the lot now. */
+  const flushQueueNow = useCallback((): void => {
+    const draft = composerRef.current.text;
+    if (draft.length > 0) {
+      store.appendToQueue(draft);
+      commitComposer(EMPTY_COMPOSER);
+    }
+    store.requestFlushQueue();
+    announceStop();
+    store.collapseAllEphemeral();
+    interrupt.current?.();
+  }, [announceStop, commitComposer]);
   const background = useRef(session.backgroundHandler);
   background.current = session.backgroundHandler;
   const quitArmed = useRef(false);
@@ -2487,6 +2500,18 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
+      if (
+        busyRef.current &&
+        inspectedIdRef.current === null &&
+        inspectedWaitIdRef.current === null &&
+        isForceSendChord({ name, ctrl, shift, meta, option, super: superKey })
+      ) {
+        if (composerRef.current.text.length > 0 || store.getMessageQueueSnapshot().length > 0) {
+          flushQueueNow();
+        }
+        return true;
+      }
+
       const mentionSpan = mentionRef.current;
       const mentionItems = mentionEntriesRef.current;
       if (mentionSpan !== null && mentionItems.length > 0) {
@@ -2766,6 +2791,7 @@ export function FullscreenBridge(): React.ReactNode {
     },
     [
       submit,
+      flushQueueNow,
       applyPaste,
       insertAtCaret,
       setCommandIndex,
@@ -2801,23 +2827,13 @@ export function FullscreenBridge(): React.ReactNode {
         interrupt.current?.();
       }
       if (action.type === "flush-queue") {
-        // Enqueue the current draft alongside anything already queued, then ask
-        // the chat loop to drain the lot into the running conversation now.
-        const draft = composerRef.current.text;
-        if (draft.length > 0) {
-          store.appendToQueue(draft);
-          commitComposer(EMPTY_COMPOSER);
-        }
-        store.requestFlushQueue();
-        announceStop();
-        store.collapseAllEphemeral();
-        interrupt.current?.();
+        flushQueueNow();
         return;
       }
       if (action.type === "stash-draft") commitComposer(EMPTY_COMPOSER);
       if (action.type === "close-overlay" && approval !== null) prompt?.resolve("no");
     },
-    [approval, prompt, commitComposer],
+    [approval, prompt, commitComposer, flushQueueNow],
   );
 
   const inspectedRun: SubagentRun | undefined =

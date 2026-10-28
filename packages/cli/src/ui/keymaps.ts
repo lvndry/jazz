@@ -42,6 +42,7 @@ const RUN_BINDINGS: readonly KeyBinding[] = [
   { keys: "Ctrl+E", action: "Expand the last write/edit diff in place", when: "empty input" },
   { keys: "Ctrl+O", action: "Expand the last truncated tool output" },
   { keys: "Up", action: "Recall queued messages for editing", when: "agent busy" },
+  { keys: "Ctrl+Enter", action: "Interrupt and send the draft and queue now", when: "agent busy" },
   { keys: "Ctrl+X", action: "Clear the message queue", when: "agent busy, empty input" },
   { keys: "Ctrl+B", action: "Move the running tool call to the background", when: "tool running" },
 ];

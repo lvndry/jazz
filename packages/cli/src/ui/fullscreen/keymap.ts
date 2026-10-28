@@ -279,6 +279,20 @@ export function isBackgroundChord(
   return isCtrlLetter(key, "b");
 }
 
+/**
+ * Ctrl+Enter: interrupt the run and send the draft plus the queue now, the same
+ * flush a double Esc does with messages queued. Only reaches us from terminals
+ * that report modified Enter (kitty keyboard protocol or modifyOtherKeys);
+ * elsewhere it arrives as a plain Enter and queues.
+ */
+export function isForceSendChord(
+  key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "meta" | "option" | "super">,
+): boolean {
+  if (key.name !== "return" && key.name !== "enter") return false;
+  if (key.shift || key.meta || key.option || key.super) return false;
+  return key.ctrl;
+}
+
 export function isUndoChord(
   key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super">,
 ): boolean {
