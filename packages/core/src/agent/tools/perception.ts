@@ -21,10 +21,16 @@
  *   media is sent. The model that completes the job is then bound as the agent's companion
  *   for that role, so later delegations skip the pickers.
  * - **A pre-bound companion, unattended.** `config.companions["<action>:<modality>"]` names a
- *   `"provider/model"` chosen ahead of time; binding it *is* the consent, so bound runs
+ *   `"provider/model"` chosen ahead of time, or a companion defined by name in the global
+ *   config (see `named-companions.ts`); binding it *is* the consent, so bound runs
  *   skip the prompt entirely — which is what makes cron and bridge runs work where no
  *   one can answer a picker. During batch approval preflight, bound tools only resolve
  *   that consent; the companion runs after the entire batch is cleared to execute.
+ *
+ * A named companion carries its own server address and key, so it runs against its server
+ * rather than the provider's global one; its `accepts` replaces the model catalog's view of
+ * what media it reads; and its `prompt`, when set, is sent with the media instead of the
+ * delegation brief, for models trained on a single fixed instruction.
  *
  * When no capable provider is available, the failure says what would fix it — configure a
  * provider whose models support the requested role — rather than returning a bare refusal.
@@ -57,6 +63,7 @@ import {
   type MediaModality,
 } from "@/core/utils/model-capabilities";
 import { getModelsDevProviderModels } from "@/core/utils/models-dev";
+import { resolveCompanionBinding, type CompanionTarget } from "@/core/utils/named-companions";
 import { agentModelString, parseProviderModel } from "@/core/utils/provider-model";
 import { defineTool, makeZodValidator, type ToolValidatorResult } from "./base-tool";
 import { AgentRunner } from "../agent-runner";
@@ -183,26 +190,65 @@ async function catalogHasRole(providerId: string, role: CompanionRole): Promise<
   }
 }
 
+/** A companion ready to run: the ephemeral agent, and the target it was built from. */
+interface ResolvedCompanion {
+  readonly agent: Agent;
+  readonly target: CompanionTarget;
+}
+
+/** The target a picked `"provider/model"` id runs, or null when the id is malformed. */
+function targetFromModelId(modelId: string): CompanionTarget | null {
+  const parsed = parseProviderModel(modelId);
+  return parsed === null
+    ? null
+    : { binding: modelId, provider: parsed.provider, model: parsed.model };
+}
+
+/** How a companion is named in messages: its binding, plus the model when they differ. */
+function describeCompanion(target: CompanionTarget): string {
+  const modelId = `${target.provider}/${target.model}`;
+  return target.binding === modelId ? modelId : `${target.binding} (${modelId})`;
+}
+
 function buildCompanionAgent(
   parentAgent: Agent,
-  selectedId: `${string}/${string}`,
+  target: CompanionTarget,
   role: CompanionRole,
   counter: number,
-): Agent | null {
-  const parsed = parseProviderModel(selectedId);
-  if (parsed === null) return null;
+): ResolvedCompanion {
   const now = new Date();
   return {
-    id: `companion-${counter}-${Date.now()}`,
-    name: `Model Companion (${role})`,
-    description: `Ephemeral ${describeRole(role)} companion delegated by ${parentAgent.name}`,
-    config: {
-      persona: "default",
-      llm: { provider: parsed.provider, model: parsed.model },
+    target,
+    agent: {
+      id: `companion-${counter}-${Date.now()}`,
+      name: `Model Companion (${role})`,
+      description: `Ephemeral ${describeRole(role)} companion delegated by ${parentAgent.name}`,
+      config: {
+        persona: "default",
+        llm: {
+          provider: target.provider,
+          model: target.model,
+          ...(target.baseUrl !== undefined
+            ? { baseUrls: { [target.provider]: target.baseUrl } }
+            : {}),
+          ...(target.apiKey !== undefined ? { apiKeys: { [target.provider]: target.apiKey } } : {}),
+        },
+      },
+      createdAt: now,
+      updatedAt: now,
     },
-    createdAt: now,
-    updatedAt: now,
   };
+}
+
+/**
+ * Why a resolved companion cannot take this role, or undefined when it can. Only a declared
+ * `accepts` is checked: without one the model catalog decides, as it always has.
+ */
+function refusesRole(target: CompanionTarget, role: CompanionRole): string | undefined {
+  const [action, modality] = role.split(":") as [string, MediaModality];
+  if (action !== "analyze" || target.accepts === undefined) return undefined;
+  if (target.accepts.includes(modality)) return undefined;
+  return `Companion "${target.binding}" does not accept ${modality} (accepts: ${target.accepts.join(", ")}). Bind another companion under companions["${role}"].`;
 }
 
 function wrapAnalysisTask(task: string, role: CompanionRole): string {
@@ -246,7 +292,7 @@ ${COMPANION_BRIEF_MARKER}${prompt}`;
  * why there is neither.
  */
 type CompanionChoice =
-  | { readonly kind: "bound"; readonly companion: Agent }
+  | { readonly kind: "bound"; readonly companion: ResolvedCompanion }
   | { readonly kind: "pick"; readonly options: readonly ApprovalOption[] }
   | { readonly kind: "unavailable"; readonly error: string };
 
@@ -295,8 +341,10 @@ const CANCEL_RETRY_VALUE = "__cancel__";
 /** One delegated run: everything that differs between analysis and generation. */
 interface CompanionJob {
   readonly role: CompanionRole;
-  /** Exactly what the companion receives as its user message, already wrapped. */
+  /** Exactly what the companion receives as its user message: wrapped, or its fixed prompt. */
   readonly input: string;
+  /** True when `input` is the companion's fixed prompt rather than Jazz's wrapped brief. */
+  readonly fixedPrompt?: boolean;
   /** One line describing the ask, shown in the ephemeral region while it runs. */
   readonly summary: string;
   readonly attachments: readonly MessageAttachment[];
@@ -306,7 +354,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
   let companionCounter = 0;
   // The in-session agent object is a snapshot, so a model bound mid-session would not be
   // seen through parentAgent.config until the agent is reloaded.
-  const sessionCompanions = new Map<string, `${string}/${string}`>();
+  const sessionCompanions = new Map<string, string>();
   const sessionCompanionKey = (agentId: string, role: CompanionRole) => `${agentId}\u0000${role}`;
 
   /**
@@ -317,28 +365,28 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
   const bindCompanion = (
     parentAgent: Agent,
     role: CompanionRole,
-    modelId: `${string}/${string}`,
+    binding: string,
   ): Effect.Effect<void, never, ToolRequirements> =>
     Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
-      sessionCompanions.set(sessionCompanionKey(parentAgent.id, role), modelId);
+      sessionCompanions.set(sessionCompanionKey(parentAgent.id, role), binding);
 
       const agentServiceOption = yield* Effect.serviceOption(AgentServiceTag);
       if (Option.isNone(agentServiceOption)) return;
       const agentService = agentServiceOption.value;
       yield* agentService.getAgent(parentAgent.id).pipe(
         Effect.flatMap((stored) =>
-          stored.config.companions?.[role] === modelId
+          stored.config.companions?.[role] === binding
             ? Effect.void
             : agentService.updateAgent(stored.id, {
                 config: {
                   ...stored.config,
-                  companions: { ...stored.config.companions, [role]: modelId },
+                  companions: { ...stored.config.companions, [role]: binding },
                 },
               }),
         ),
         Effect.tap(() =>
-          logger.info("Bound model companion", { agentId: parentAgent.id, role, modelId }),
+          logger.info("Bound model companion", { agentId: parentAgent.id, role, binding }),
         ),
         Effect.catch((error) =>
           logger.debug("Companion binding not saved; it holds for this session only", {
@@ -353,10 +401,11 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
   const runCompanion = (
     parentAgent: Agent,
     job: CompanionJob,
-    companionAgent: Agent,
+    companion: ResolvedCompanion,
     context: ToolExecutionContext,
   ): Effect.Effect<AgentResponse, Error, ToolRequirements | ToolRegistry> =>
     Effect.gen(function* () {
+      const companionAgent = companion.agent;
       const logger = yield* LoggerServiceTag;
       const presentation = yield* PresentationServiceTag;
 
@@ -392,6 +441,12 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
         maxIterations: COMPANION_MAX_ITERATIONS,
         ephemeralRegionId: regionId,
         initialAttachments: [...job.attachments],
+        ...(companion.target.accepts !== undefined
+          ? { declaredAttachmentKinds: companion.target.accepts }
+          : {}),
+        // A fixed prompt is the model's whole contract; Jazz's persona prompt in front of it
+        // derails a single-task model, so the request carries no system message at all.
+        ...(job.fixedPrompt ? { systemPromptOverride: "" } : {}),
         ...childRunAuthority(context),
         // Eyes, ears and hands need no tools — and many media-capable models cannot
         // use them anyway. An empty allowlist strips every tool.
@@ -445,7 +500,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
   const runAnalysis = (
     parentAgent: Agent,
     args: AnalyzeMediaArgs,
-    companionAgent: Agent,
+    companion: ResolvedCompanion,
     attachments: readonly MessageAttachment[],
     context: ToolExecutionContext,
   ): Effect.Effect<string, Error, ToolRequirements | ToolRegistry> =>
@@ -453,11 +508,12 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       parentAgent,
       {
         role: roleFor(args.modality),
-        input: wrapAnalysisTask(args.task, roleFor(args.modality)),
+        input: companion.target.prompt ?? wrapAnalysisTask(args.task, roleFor(args.modality)),
+        fixedPrompt: companion.target.prompt !== undefined,
         summary: args.task,
         attachments,
       },
-      companionAgent,
+      companion,
       context,
     ).pipe(
       Effect.map((response) => response.content.trim() || "The companion returned no content."),
@@ -467,7 +523,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
   const runGeneration = (
     parentAgent: Agent,
     args: GenerateMediaArgs,
-    companionAgent: Agent,
+    companion: ResolvedCompanion,
     context: ToolExecutionContext,
   ): Effect.Effect<ToolExecutionResult, Error, ToolRequirements | ToolRegistry> =>
     runCompanion(
@@ -478,15 +534,11 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
         summary: args.prompt,
         attachments: [],
       },
-      companionAgent,
+      companion,
       context,
     ).pipe(
       Effect.map((response) =>
-        describeGeneratedMedia(
-          response,
-          args.modality,
-          agentModelString(companionAgent.config.llm),
-        ),
+        describeGeneratedMedia(response, args.modality, describeCompanion(companion.target)),
       ),
     );
 
@@ -499,8 +551,10 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
     parentAgent: Agent,
     role: CompanionRole,
     toolName: string,
-    firstCompanion: Agent,
-    run: (companion: Agent) => Effect.Effect<Value, Error, ToolRequirements | ToolRegistry>,
+    firstCompanion: ResolvedCompanion,
+    run: (
+      companion: ResolvedCompanion,
+    ) => Effect.Effect<Value, Error, ToolRequirements | ToolRegistry>,
   ): Effect.Effect<CompanionAttempt<Value>, never, ToolRequirements | ToolRegistry> =>
     Effect.gen(function* () {
       const presentation = yield* PresentationServiceTag;
@@ -511,13 +565,12 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       while (true) {
         const attempt = yield* run(companion).pipe(Effect.result);
         if (Result.isSuccess(attempt)) {
-          yield* bindCompanion(parentAgent, role, agentModelString(companion.config.llm));
+          yield* bindCompanion(parentAgent, role, companion.target.binding);
           return { kind: "done", value: attempt.success } as const;
         }
 
-        const failedModel = agentModelString(companion.config.llm);
-        triedModels.add(failedModel);
-        const reason = `${failedModel} failed: ${attempt.failure.message}`;
+        triedModels.add(agentModelString(companion.agent.config.llm));
+        const reason = `${describeCompanion(companion.target)} failed: ${attempt.failure.message}`;
 
         if (presentation.canPromptForApproval?.() !== true || Option.isNone(terminalOption)) {
           return {
@@ -557,19 +610,14 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           } as const;
         }
 
-        const next = buildCompanionAgent(
-          parentAgent,
-          pickedId as `${string}/${string}`,
-          role,
-          ++companionCounter,
-        );
-        if (next === null) {
+        const pickedTarget = targetFromModelId(pickedId);
+        if (pickedTarget === null) {
           return {
             kind: "failed",
             error: `${reason}. Picked companion "${pickedId}" is not a valid provider/model id.`,
           } as const;
         }
-        companion = next;
+        companion = buildCompanionAgent(parentAgent, pickedTarget, role, ++companionCounter);
       }
     });
 
@@ -589,20 +637,25 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
         sessionCompanions.get(sessionCompanionKey(parentAgent.id, role)) ??
         parentAgent.config.companions?.[role];
       if (boundCompanion) {
-        const companion = buildCompanionAgent(
-          parentAgent,
-          boundCompanion,
-          role,
-          ++companionCounter,
-        );
-        return (
-          companion === null
-            ? {
-                kind: "unavailable",
-                error: `Bound ${role} companion "${boundCompanion}" is not a valid provider/model id.`,
-              }
-            : { kind: "bound", companion }
-        ) satisfies CompanionChoice;
+        const configService = yield* Effect.serviceOption(AgentConfigServiceTag);
+        const namedCompanions = Option.isSome(configService)
+          ? (yield* configService.value.appConfig).companions
+          : undefined;
+        const resolution = resolveCompanionBinding(boundCompanion, namedCompanions);
+        if (!resolution.ok) {
+          return {
+            kind: "unavailable",
+            error: `Bound ${role} companion: ${resolution.error}`,
+          } satisfies CompanionChoice;
+        }
+        const refusal = refusesRole(resolution.target, role);
+        if (refusal !== undefined) {
+          return { kind: "unavailable", error: refusal } satisfies CompanionChoice;
+        }
+        return {
+          kind: "bound",
+          companion: buildCompanionAgent(parentAgent, resolution.target, role, ++companionCounter),
+        } satisfies CompanionChoice;
       }
 
       const canPrompt = presentation.canPromptForApproval?.() === true;
@@ -807,19 +860,20 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
             error: "execute_analyze_media reached without a picked companion. This is a bug.",
           };
         }
-        const companionAgent = buildCompanionAgent(
-          parentAgent,
-          selectedId as `${string}/${string}`,
-          roleFor(args.modality),
-          ++companionCounter,
-        );
-        if (companionAgent === null) {
+        const selectedTarget = targetFromModelId(selectedId);
+        if (selectedTarget === null) {
           return {
             success: false,
             result: null,
             error: `Picked companion "${selectedId}" is not a valid provider/model id.`,
           };
         }
+        const companion = buildCompanionAgent(
+          parentAgent,
+          selectedTarget,
+          roleFor(args.modality),
+          ++companionCounter,
+        );
         const resolution = yield* Effect.tryPromise({
           try: () => resolveMediaAttachments(args.mediaPaths, args.modality),
           catch: (error) => new Error(String(error)),
@@ -838,8 +892,8 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           parentAgent,
           roleFor(args.modality),
           "analyze_media",
-          companionAgent,
-          (companion) => runAnalysis(parentAgent, args, companion, resolution.attachments, context),
+          companion,
+          (candidate) => runAnalysis(parentAgent, args, candidate, resolution.attachments, context),
         );
         return attempt.kind === "done"
           ? { success: true, result: attempt.value }
@@ -934,13 +988,8 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
             error: "execute_generate_media reached without a picked companion. This is a bug.",
           };
         }
-        const companionAgent = buildCompanionAgent(
-          parentAgent,
-          selectedId as `${string}/${string}`,
-          companionRole("generate", args.modality),
-          ++companionCounter,
-        );
-        if (companionAgent === null) {
+        const selectedTarget = targetFromModelId(selectedId);
+        if (selectedTarget === null) {
           return {
             success: false,
             result: null,
@@ -951,7 +1000,12 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           parentAgent,
           companionRole("generate", args.modality),
           "generate_media",
-          companionAgent,
+          buildCompanionAgent(
+            parentAgent,
+            selectedTarget,
+            companionRole("generate", args.modality),
+            ++companionCounter,
+          ),
           (companion) => runGeneration(parentAgent, args, companion, context),
         );
         return attempt.kind === "done"

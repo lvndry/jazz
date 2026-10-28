@@ -4,6 +4,7 @@
 
 import type { ProviderName } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import type { AttachmentKind } from "./attachment";
 import type { HostProfile } from "./host";
 import type { ModelCapabilityOverride } from "./model-capabilities";
 import type { NotifyConfig } from "./notify";
@@ -122,6 +123,42 @@ export interface AppConfig {
   readonly ui?: UiConfig;
   /** Defaults for interactive chat sessions. */
   readonly chat?: ChatConfig;
+  /**
+   * Named model companions, keyed by name. An agent binds one to a role by name
+   * (`"analyze:image": "ocr"`) instead of a `"provider/model"` id. Read from the global
+   * config only: a project config could otherwise point a trusted name at its own server.
+   */
+  readonly companions?: Readonly<Record<string, NamedCompanionConfig>>;
+}
+
+/**
+ * One reusable companion: which server and model to call, and how to talk to it.
+ *
+ * Everything that describes the server or the model lives here, not on the agents that use it,
+ * so two agents share one definition and agent files never carry a credential.
+ */
+export interface NamedCompanionConfig {
+  /** Which provider protocol to speak, e.g. `vllm` for any vLLM OpenAI-compatible server. */
+  readonly provider: ProviderName;
+  /** The provider-facing model id, e.g. the id a vLLM server lists on `/v1/models`. */
+  readonly model: string;
+  /** Server address for this companion only. Falls back to `llm.<provider>.base_url`. */
+  readonly base_url?: string;
+  /**
+   * Credential for this companion only, held in the OS keyring like every API key (or read from
+   * `JAZZ_COMPANION_API_KEY_<NAME>`). Falls back to the provider's own key.
+   */
+  readonly api_key?: string;
+  /**
+   * Media the model reads. Overrides the model catalog, which knows nothing about a model
+   * served under a local id; a companion whose list omits a role's modality is refused for it.
+   */
+  readonly accepts?: readonly AttachmentKind[];
+  /**
+   * Exact text sent with the media for analysis, replacing Jazz's delegation brief. For models
+   * trained on one fixed instruction (PaddleOCR-VL reads `OCR:`), which answer garbage to prose.
+   */
+  readonly prompt?: string;
 }
 
 /** Defaults applied to every new chat session; `/limit` can still change them for that session. */

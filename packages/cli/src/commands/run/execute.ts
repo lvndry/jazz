@@ -142,7 +142,7 @@ export interface RunAgentOnceOptions {
    * A bound companion is what lets an unattended run delegate perception without
    * a human to pick the model.
    */
-  readonly companions?: Partial<Record<CompanionRole, `${string}/${string}`>> | undefined;
+  readonly companions?: Partial<Record<CompanionRole, string>> | undefined;
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
   readonly maxSubagentIterations?: number | undefined;

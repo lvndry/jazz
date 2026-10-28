@@ -2375,3 +2375,27 @@ describe("mergeProviderOverridesIntoLLMConfig", () => {
     );
   });
 });
+
+describe("toCoreMessages - empty system prompt", () => {
+  it("sends no system message when the system prompt is empty", () => {
+    const result = toCoreMessages(
+      [
+        { role: "system", content: "" },
+        { role: "user", content: "OCR:" },
+      ],
+      "vllm",
+    );
+    expect(result.map((message) => message.role)).toEqual(["user"]);
+  });
+
+  it("keeps a non-empty system prompt", () => {
+    const result = toCoreMessages(
+      [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hi" },
+      ],
+      "vllm",
+    );
+    expect(result.map((message) => message.role)).toEqual(["system", "user"]);
+  });
+});

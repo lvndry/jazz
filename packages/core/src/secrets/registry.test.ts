@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import {
   SECRET_ENV_VARS,
+  companionApiKeyPath,
+  runtimeSecretPaths,
   llmProviderApiKeyFromEnv,
   llmProviderEnvVars,
   secretValueFromEnv,
@@ -85,6 +87,35 @@ describe("secret registry", () => {
 
   it("normalizes a webhook name into its environment variable", () => {
     expect(webhookTokenEnvVar("deploy-bot")).toBe("JAZZ_WEBHOOK_TOKEN_DEPLOY_BOT");
+  });
+
+  it("keeps a named companion's API key in the keyring, never in the config file", () => {
+    expect(isSecretPath(companionApiKeyPath("ocr"))).toBe(true);
+    expect(isSecretPath("companions.ocr.base_url")).toBe(false);
+  });
+
+  it("maps a companion key to its environment variable for hosts with no keyring", () => {
+    expect(envVarForSecretPath("companions.ocr.api_key")).toBe("JAZZ_COMPANION_API_KEY_OCR");
+    expect(
+      secretValueFromEnv("companions.ocr.api_key", {
+        JAZZ_COMPANION_API_KEY_OCR: "from-env",
+      }),
+    ).toBe("from-env");
+  });
+
+  it("reads every defined companion's key back on load, even once the file no longer holds it", () => {
+    const paths = runtimeSecretPaths({
+      companions: { ocr: { provider: "vllm", model: "paddleocr-vl-1.6" } },
+    });
+    expect(paths).toContain("companions.ocr.api_key");
+  });
+
+  it("redacts a companion key wherever the config is shown", () => {
+    const redacted = redactSecretValues({
+      companions: { ocr: { model: "paddleocr-vl-1.6", api_key: "ocr-key" } },
+    }) as { companions: Record<string, { model: string; api_key: string }> };
+    expect(redacted.companions["ocr"]?.api_key).not.toBe("ocr-key");
+    expect(redacted.companions["ocr"]?.model).toBe("paddleocr-vl-1.6");
   });
 });
 
@@ -240,6 +271,7 @@ describe("secret environment variable names", () => {
     expect(isSecretEnvVarName("JAZZ_PEER_TOKEN_SAM")).toBe(true);
     expect(isSecretEnvVarName("JAZZ_WEBHOOK_TOKEN_DEPLOY")).toBe(true);
     expect(isSecretEnvVarName("JAZZ_WEBHOOK_SECRET_DEPLOY")).toBe(true);
+    expect(isSecretEnvVarName("JAZZ_COMPANION_API_KEY_OCR")).toBe(true);
     expect(isSecretEnvVarName("JAZZ_DAEMON_TOKEN")).toBe(true);
     expect(isSecretEnvVarName("GEMINI_API_KEY")).toBe(true);
   });

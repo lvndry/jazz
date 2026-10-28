@@ -12,7 +12,7 @@ import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/index";
-import { withAgentBaseUrls } from "@jazz/core/utils/agent-llm-config";
+import { withAgentProviderOverrides } from "@jazz/core/utils/agent-llm-config";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
@@ -193,7 +193,7 @@ export function localHostUrlFor(agent: Agent) {
       (agent.config.llm.provider !== "ollama" || !isOllamaCloudModel(agent.config.llm.model))
       ? llmService.resolveLocalProviderBaseUrl(
           agent.config.llm.provider,
-          withAgentBaseUrls(appConfig.llm, agent.config.llm.baseUrls),
+          withAgentProviderOverrides(appConfig.llm, agent.config.llm),
         )
       : undefined;
   });

@@ -710,11 +710,20 @@ describe("AgentService", () => {
       }
     });
 
-    it("rejects a companion that is not provider/model", async () => {
+    it("accepts a companion name, whose definition is only checked when it is used", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
-        // Deliberately malformed — this is what the test is asserting gets rejected.
-        companions: { "analyze:image": "just-a-model-name" as `${string}/${string}` },
+        companions: { "analyze:image": "ocr" },
+      });
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Success");
+    });
+
+    it("rejects a companion that is neither provider/model nor a name", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        // An unknown provider with a slash can be neither a model id nor a name.
+        companions: { "analyze:image": "nope/some-model" },
       });
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");

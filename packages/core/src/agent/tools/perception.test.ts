@@ -390,8 +390,8 @@ describe("generate_media", () => {
   });
 
   it("takes the bound companion instead of asking, so an unattended run can generate", async () => {
-    // Asserted through a deliberately broken binding: it proves the bound branch was taken
-    // without starting a real companion run.
+    // Asserted through a binding to an undefined companion name: it proves the bound branch
+    // was taken without starting a real companion run.
     const outcome = await runTool(
       "generate_media",
       { modality: "image", prompt: "a red circle" },
@@ -400,7 +400,7 @@ describe("generate_media", () => {
           ...parentAgent,
           config: {
             ...parentAgent.config,
-            companions: { "generate:image": "no-provider-here" as `${string}/${string}` },
+            companions: { "generate:image": "no-provider-here" },
           },
         },
       }),
@@ -408,7 +408,7 @@ describe("generate_media", () => {
 
     expect(outcome.success).toBe(false);
     expect(outcome.result).toBeNull();
-    expect(outcome.error).toContain("is not a valid provider/model id");
+    expect(outcome.error).toContain('No companion named "no-provider-here"');
   });
 
   it("keeps a bound companion under the dispatching tool span", async () => {
@@ -711,5 +711,168 @@ describe("binding the picked companion", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("named companions", () => {
+  const ocr = {
+    provider: "vllm" as const,
+    model: "paddleocr-vl-1.6",
+    base_url: "http://ocr.internal:8150/v1",
+    api_key: "ocr-key",
+    accepts: ["image" as const],
+    prompt: "OCR:",
+  };
+
+  function runNamed(
+    modality: "image" | "audio",
+    companions: Record<string, typeof ocr> = { ocr: ocr },
+    agentService?: Partial<AgentService>,
+  ) {
+    const childRuns: Parameters<typeof AgentRunner.runRecursive>[0][] = [];
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((runOptions) => {
+      childRuns.push(runOptions);
+      return Effect.succeed({
+        content: "TOTAL 4,050.00 EUR",
+        conversationId: runOptions.conversationId ?? "child",
+      });
+    });
+    const tools = createPerceptionTools();
+    const proposal = tools.find((candidate) => candidate.name === "analyze_media")!;
+    const configService = { appConfig: Effect.succeed({ companions }) };
+    const layer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, silentLogger),
+      Layer.succeed(PresentationServiceTag, makePresentation(false)),
+      Layer.succeed(LLMServiceTag, makeLlmService()),
+      Layer.succeed(AgentConfigServiceTag, configService as unknown as AgentConfigService),
+      ...(agentService
+        ? [Layer.succeed(AgentServiceTag, agentService as unknown as AgentService)]
+        : []),
+    );
+    const outcome = Effect.runPromise(
+      proposal
+        .execute(
+          {
+            modality,
+            task: "What is the invoice total?",
+            mediaPaths: [join(directory, "shot.png")],
+          },
+          makeContext({
+            parentAgent: {
+              ...parentAgent,
+              config: {
+                ...parentAgent.config,
+                companions: { [`analyze:${modality}`]: "ocr" },
+              },
+            },
+          }),
+        )
+        .pipe(Effect.provide(layer)) as Effect.Effect<ToolExecutionResult, Error, never>,
+    ).finally(() => spy.mockRestore()) as Promise<ProposalOutcome>;
+    return { outcome, childRuns };
+  }
+
+  it("runs on the companion's own server and key, not the provider's global ones", async () => {
+    const { outcome, childRuns } = runNamed("image");
+    expect((await outcome).success).toBe(true);
+    expect(childRuns[0]?.agent.config.llm).toEqual({
+      provider: "vllm",
+      model: "paddleocr-vl-1.6",
+      baseUrls: { vllm: "http://ocr.internal:8150/v1" },
+      apiKeys: { vllm: "ocr-key" },
+    });
+  });
+
+  it("sends the image even though the catalog does not know the model", async () => {
+    const { outcome, childRuns } = runNamed("image");
+    await outcome;
+    expect(childRuns[0]?.declaredAttachmentKinds).toEqual(["image"]);
+    expect(childRuns[0]?.initialAttachments?.map((attachment) => attachment.kind)).toEqual([
+      "image",
+    ]);
+  });
+
+  it("sends the fixed prompt instead of the delegation brief, with no system prompt", async () => {
+    const { outcome, childRuns } = runNamed("image");
+    expect((await outcome).result).toBe("TOTAL 4,050.00 EUR");
+    expect(childRuns[0]?.userInput).toBe("OCR:");
+    expect(childRuns[0]?.systemPromptOverride).toBe("");
+  });
+
+  it("wraps the task as usual when the companion sets no prompt", async () => {
+    const { prompt: _prompt, ...withoutPrompt } = ocr;
+    const { outcome, childRuns } = runNamed("image", {
+      ocr: withoutPrompt as typeof ocr,
+    });
+    await outcome;
+    expect(childRuns[0]?.userInput).toContain("[MODEL COMPANION TASK]");
+    expect(childRuns[0]?.userInput).toContain("What is the invoice total?");
+    expect(childRuns[0]?.systemPromptOverride).toBeUndefined();
+  });
+
+  it("refuses a role whose media the companion does not accept, without running it", async () => {
+    await writeFile(join(directory, "note.mp3"), Buffer.from("ID3"));
+    const childRuns: unknown[] = [];
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((runOptions) => {
+      childRuns.push(runOptions);
+      return Effect.succeed({ content: "", conversationId: "child" });
+    });
+    try {
+      const tools = createPerceptionTools();
+      const proposal = tools.find((candidate) => candidate.name === "analyze_media")!;
+      const layer = Layer.mergeAll(
+        Layer.succeed(LoggerServiceTag, silentLogger),
+        Layer.succeed(PresentationServiceTag, makePresentation(false)),
+        Layer.succeed(LLMServiceTag, makeLlmService()),
+        Layer.succeed(AgentConfigServiceTag, {
+          appConfig: Effect.succeed({ companions: { ocr: ocr } }),
+        } as unknown as AgentConfigService),
+      );
+      const outcome = (await Effect.runPromise(
+        proposal
+          .execute(
+            { modality: "audio", task: "transcribe", mediaPaths: [join(directory, "note.mp3")] },
+            makeContext({
+              parentAgent: {
+                ...parentAgent,
+                config: { ...parentAgent.config, companions: { "analyze:audio": "ocr" } },
+              },
+            }),
+          )
+          .pipe(Effect.provide(layer)) as Effect.Effect<ToolExecutionResult, Error, never>,
+      )) as ProposalOutcome;
+      expect(outcome.success).toBe(false);
+      expect(outcome.error).toContain('Companion "ocr" does not accept audio');
+      expect(childRuns).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("fails with where to define it when the name is not defined, and runs nothing", async () => {
+    const { outcome, childRuns } = runNamed("image", {});
+    const result = await outcome;
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('No companion named "ocr"');
+    expect(result.error).toContain("~/.jazz/config.json");
+    expect(childRuns).toHaveLength(0);
+  });
+
+  it("keeps the agent bound to the name, not the model it resolved to", async () => {
+    const updates: unknown[] = [];
+    const stored = {
+      ...parentAgent,
+      config: { ...parentAgent.config, companions: { "analyze:image": "ocr" } },
+    };
+    const { outcome } = runNamed("image", { ocr: ocr }, {
+      getAgent: () => Effect.succeed(stored),
+      updateAgent: (_id: string, update: unknown) =>
+        Effect.sync(() => {
+          updates.push(update);
+          return stored;
+        }),
+    } as unknown as Partial<AgentService>);
+    expect((await outcome).success).toBe(true);
+    expect(updates).toEqual([]);
   });
 });

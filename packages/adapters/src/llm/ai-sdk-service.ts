@@ -593,7 +593,17 @@ export function toCoreMessages(
     breakpointIndex--;
   }
 
-  return applyConversationCacheBreakpoint(result, normalizedProviderName, breakpointIndex);
+  const converted = applyConversationCacheBreakpoint(
+    result,
+    normalizedProviderName,
+    breakpointIndex,
+  );
+  // An empty system prompt means "send none", which is what a fixed-prompt companion asks for:
+  // some single-task models answer garbage once any long instruction precedes their input.
+  // The system prompt is only ever the first message, so ordinary requests skip this, and it is
+  // dropped last so the breakpoint index above still lines up with `messages`.
+  const first = converted[0];
+  return first?.role === "system" && first.content.trim() === "" ? converted.slice(1) : converted;
 }
 
 const PREFIX_CACHE_PROVIDERS = new Set(["anthropic", "ai_gateway", "openrouter"]);

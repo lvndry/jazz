@@ -11,7 +11,7 @@ import type { TelemetryTraceParent } from "@/core/interfaces/telemetry";
 import type { UserSecretStore } from "@/core/secrets/user-secrets";
 import type { RunOrigin } from "@/core/spend/sources";
 import type { GeneratedArtifact } from "@/core/types/artifact";
-import type { MessageAttachment } from "@/core/types/attachment";
+import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
 import type { FinishReason } from "@/core/types/chat";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
@@ -113,6 +113,20 @@ export interface AgentRunnerOptions {
    * same as scanned ones.
    */
   readonly initialAttachments?: readonly MessageAttachment[];
+  /**
+   * Media kinds the caller vouches this model reads, replacing what the model catalog says.
+   *
+   * Set by a named companion's `accepts`: a model served under a local id is absent from the
+   * catalog, which would otherwise read it as text-only and drop every attachment.
+   */
+  readonly declaredAttachmentKinds?: readonly AttachmentKind[];
+  /**
+   * Replaces the system prompt the persona would build, verbatim; an empty string sends none.
+   *
+   * Set for a named companion with a fixed `prompt`: a single-task model such as PaddleOCR-VL
+   * answers garbage once Jazz's full persona prompt precedes its input.
+   */
+  readonly systemPromptOverride?: string;
   /**
    * Scan `userInput` for local media paths and attach the files they name. On unless set to
    * `false`. A remote door sets `false`, because its caller's text naming a path on this machine
