@@ -56,15 +56,15 @@ Agents are one JSON file each under `~/.jazz/agents/<id>.json`:
 
 Useful optional fields:
 
-| Field                 | Effect                                                                                                                                                                              |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `llm.reasoning`       | `disable`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. The selected model validates the control surface.                                                                 |
-| `llm.temperature`     | Sampling temperature from `0` to `2`. Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it |
-| `llm.summarizerModel` | `provider/model` used for context compaction **and** `execute_command` risk classification: point it at something cheap                                                             |
-| `customTools`         | Declare extra tools (`record` or `command` handlers) without changing Jazz. See [Agent configuration](../configure/agents.md#custom-tools)                                          |
-| `companions`          | Bind specialist `provider/model` pairs for image, audio, or video analysis and generation without changing the primary model; see [Model companions](../concepts/media.md)          |
-| `envAllowlist`        | Exempt specific env vars from secret scrubbing for `execute_command`                                                                                                                |
-| `deniedTools`         | Remove named tools from this agent after every other capability source is applied                                                                                                   |
+| Field                 | Effect                                                                                                                                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `llm.reasoning`       | `disable`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. The selected model validates the control surface.                                                                                     |
+| `llm.temperature`     | Sampling temperature from `0` to `2`. Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it                     |
+| `llm.summarizerModel` | `provider/model` used for context compaction **and** `execute_command` risk classification: point it at something cheap                                                                                 |
+| `customTools`         | Declare extra tools (`record` or `command` handlers) without changing Jazz. See [Agent configuration](../configure/agents.md#custom-tools)                                                              |
+| `companions`          | Bind specialist models (a `provider/model` id or a named companion) for image, audio, or video analysis and generation without changing the primary model; see [Model companions](../concepts/media.md) |
+| `envAllowlist`        | Exempt specific env vars from secret scrubbing for `execute_command`                                                                                                                                    |
+| `deniedTools`         | Remove named tools from this agent after every other capability source is applied                                                                                                                       |
 
 `createdAt` and `updatedAt` are optional in a file you write by hand. Jazz stamps them when it creates or saves the agent, and falls back to the file's own created and modified times when they are absent.
 

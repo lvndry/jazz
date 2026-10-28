@@ -55,6 +55,55 @@ The six independent roles are `analyze:image`, `analyze:audio`, `analyze:video`,
 `generate:image`, `generate:audio`, and `generate:video`. Analysis and generation are separate
 because a model that understands a medium is not necessarily the model you want to create it.
 
+## Named companions
+
+A binding can also name a companion you define once in `~/.jazz/config.json`, so several agents
+share it and the server details live in one place. Use one for a model on your own server, such
+as a vLLM instance next to the one your agents already use, or a model the catalog does not list:
+
+```json
+{
+  "companions": {
+    "ocr": {
+      "provider": "vllm",
+      "model": "paddleocr-vl-1.6",
+      "base_url": "http://ocr.internal:8150/v1",
+      "accepts": ["image"],
+      "prompt": "OCR:"
+    }
+  }
+}
+```
+
+Then bind it by name in any agent:
+
+```json
+"companions": { "analyze:image": "ocr" }
+```
+
+| Field      | Meaning                                                                                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider` | The protocol the server speaks. Any provider works; `vllm`, `sglang`, `llamacpp` and `ollama` cover self-hosted servers.                                   |
+| `model`    | The id the server serves, as its `/v1/models` lists it.                                                                                                    |
+| `base_url` | This companion's server. Unset uses the provider's global `base_url`, so a companion and an agent's main model can use different servers of the same type. |
+| `api_key`  | This companion's key. Unset uses the provider's key.                                                                                                       |
+| `accepts`  | The media the model reads. Jazz otherwise asks the model catalog, which knows nothing about a model served under a local id and would drop the file.       |
+| `prompt`   | Exact text sent with the media instead of Jazz's task brief.                                                                                               |
+
+Set the key with `jazz config set companions.ocr.api_key`, which stores it in the OS keyring.
+A key typed into `config.json` moves to the keyring the next time Jazz starts. On a host with no
+keyring, such as a CI runner, set `JAZZ_COMPANION_API_KEY_OCR` instead.
+
+Use `prompt` for a model trained on one fixed instruction. PaddleOCR-VL transcribes a page when
+it receives `OCR:` and returns garbage for a longer instruction, so the companion sends exactly
+that. The parent agent then answers your question from the transcription. Without `prompt`, the
+companion gets Jazz's usual brief with the parent's task.
+
+A binding to an undefined name fails when it is used, naming the entry to add. A companion is
+refused for a role whose media its `accepts` does not list. Named companions come only from your
+global config: a project's `.jazz/config.json` cannot define or redefine one, because binding a
+name is consent to send media to that server.
+
 ## What a companion receives
 
 When the main agent delegates media work, Jazz starts a bounded, ephemeral companion run:
@@ -84,7 +133,8 @@ CI, schedules, webhooks, and chat bridges cannot stop at an interactive provider
 every role the job may use in the agent JSON before running unattended. That binding is standing
 consent to send the selected media and task to that provider.
 
-For one headless run, override analysis companions without changing the saved agent:
+For one headless run, override analysis companions without changing the saved agent. Each flag
+takes a `provider/model` id or a companion name:
 
 ```bash
 jazz run --agent analyst --with-vision openrouter/inclusionai/ling-3.0-flash-vl \
