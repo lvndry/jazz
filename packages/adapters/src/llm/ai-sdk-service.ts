@@ -1290,9 +1290,15 @@ export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.f
 }
 
 export function openRouterChatSettings(llmConfig?: LLMConfig): OpenRouterChatSettings {
+  const zdr = llmConfig?.openrouter?.zdr === true;
+  const sort = llmConfig?.openrouter?.sort;
+  const provider = {
+    ...(zdr ? { zdr: true } : {}),
+    ...(sort !== undefined ? { sort } : {}),
+  };
   return {
     usage: { include: true },
-    ...(llmConfig?.openrouter?.zdr === true ? { provider: { zdr: true } } : {}),
+    ...(Object.keys(provider).length > 0 ? { provider } : {}),
   };
 }
 
@@ -1322,7 +1328,7 @@ export function buildProviderCacheFingerprint(
     }
     case "openrouter": {
       const cfg = llmConfig.openrouter;
-      return `${cfg?.api_key ?? ""}|${cfg?.zdr === true ? "zdr" : ""}`;
+      return `${cfg?.api_key ?? ""}|${cfg?.zdr === true ? "zdr" : ""}|${cfg?.sort ?? ""}`;
     }
     default: {
       return configuredProviderApiKey(llmConfig, providerName) ?? "";
