@@ -328,15 +328,18 @@ function copyOrEditCredential(
   terminal: TerminalService,
   label: string,
   credential: string,
-): Effect.Effect<boolean> {
+): Effect.Effect<"edit" | "copy" | undefined> {
   return Effect.gen(function* () {
     const action = yield* terminal.ask(`${label}: ••••••••  [e]dit · [c]opy`, {
       hidden: true,
       keys: ["e", "c"],
     });
-    if (action === "e") return true;
-    if (action === "c") yield* copyCredential(terminal, credential, label);
-    return false;
+    if (action === "e") return "edit";
+    if (action === "c") {
+      yield* copyCredential(terminal, credential, label);
+      return "copy";
+    }
+    return undefined;
   });
 }
 
@@ -361,7 +364,7 @@ function copyCredential(
   );
 }
 
-function configureLLMProviders() {
+export function configureLLMProviders() {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const configService = yield* AgentConfigServiceTag;
@@ -427,7 +430,7 @@ function configureLLMProviders() {
           const existingKey = configuredProviderApiKey(config.llm, provider);
           if (
             existingKey &&
-            !(yield* copyOrEditCredential(terminal, providerDisplay, existingKey))
+            (yield* copyOrEditCredential(terminal, providerDisplay, existingKey)) !== "edit"
           ) {
             continue;
           }
@@ -445,7 +448,7 @@ function configureLLMProviders() {
           const existingKey = configuredProviderApiKey(config.llm, provider);
           if (
             existingKey &&
-            !(yield* copyOrEditCredential(terminal, "Ollama Cloud", existingKey))
+            (yield* copyOrEditCredential(terminal, "Ollama Cloud", existingKey)) !== "edit"
           ) {
             continue;
           }
@@ -519,21 +522,24 @@ function configureLLMProviders() {
       }
 
       const existingKey = configuredProviderApiKey(config.llm, provider);
-      if (existingKey && !(yield* copyOrEditCredential(terminal, providerDisplay, existingKey))) {
-        continue;
-      }
+      const keyAction = existingKey
+        ? yield* copyOrEditCredential(terminal, providerDisplay, existingKey)
+        : "edit";
+      if (keyAction === undefined) continue;
 
-      const apiKey = yield* terminal.ask(
-        `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
-        { simple: true, secret: true, cancellable: true },
-      );
-      if (apiKey === undefined) continue;
+      if (keyAction === "edit") {
+        const apiKey = yield* terminal.ask(
+          `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
+          { simple: true, secret: true, cancellable: true },
+        );
+        if (apiKey === undefined) continue;
 
-      if (apiKey?.trim()) {
-        yield* configService.set(`llm.${provider}.api_key`, apiKey);
-        yield* terminal.success(`Configuration for ${providerDisplay} updated.`);
-      } else {
-        yield* terminal.info("No changes made.");
+        if (apiKey?.trim()) {
+          yield* configService.set(`llm.${provider}.api_key`, apiKey);
+          yield* terminal.success(`Configuration for ${providerDisplay} updated.`);
+        } else {
+          yield* terminal.info("No changes made.");
+        }
       }
 
       if (provider === "anthropic") {
@@ -629,7 +635,7 @@ function configureWebSearchProviders() {
         const existingKey = config.web_search?.[provider]?.api_key;
         if (
           existingKey &&
-          !(yield* copyOrEditCredential(terminal, `${provider} API key`, existingKey))
+          (yield* copyOrEditCredential(terminal, `${provider} API key`, existingKey)) !== "edit"
         ) {
           continue;
         }
