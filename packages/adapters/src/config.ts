@@ -625,6 +625,26 @@ function withoutGlobalOnlySections(localPath: string, local: ConfigFile): Config
   return network === undefined && companions === undefined ? local : rest;
 }
 
+/**
+ * The project config without an `llm.openrouter.zdr` that could only weaken retention.
+ *
+ * A project may turn zero data retention on, but `false` is the default, so a cloned repository
+ * setting it can only override a user's global `true` and route prompts to endpoints that keep
+ * them.
+ */
+export function withoutWeakenedOpenRouterZdr(localPath: string, local: ConfigFile): ConfigFile {
+  const openrouter = local.llm?.openrouter;
+  if (openrouter?.zdr !== false) {
+    return local;
+  }
+  process.stderr.write(
+    `jazz: ignoring llm.openrouter.zdr: false in ${localPath}. A project config can turn zero data ` +
+      "retention on but not off; only your global config can disable it.\n",
+  );
+  const { zdr: _ignored, ...openrouterRest } = openrouter;
+  return { ...local, llm: { ...local.llm, openrouter: openrouterRest } };
+}
+
 /** Tell the user a project config tried to set MCP trust, which only the global config can. */
 function noticeIgnoredProjectTrust(
   localPath: string,
@@ -662,9 +682,12 @@ export function createConfigLayer(
       const checkedLocal =
         files.local === undefined
           ? EMPTY_CONFIG_FILE
-          : withoutGlobalOnlySections(
+          : withoutWeakenedOpenRouterZdr(
               files.local.path,
-              yield* requireValidConfigFile(files.local.path, files.local.document),
+              withoutGlobalOnlySections(
+                files.local.path,
+                yield* requireValidConfigFile(files.local.path, files.local.document),
+              ),
             );
       const { mcpServers: globalOverrides, ...globalSettings } = checkedGlobal;
       const { mcpServers: localOverrides, ...localSettings } = checkedLocal;

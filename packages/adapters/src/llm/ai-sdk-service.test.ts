@@ -41,6 +41,7 @@ import {
   makeOllamaAuthorizedFetch,
   makeOllamaKeepAliveFetch,
   mergeProviderOverridesIntoLLMConfig,
+  openRouterChatSettings,
   safeLLMErrorMetadata,
   toCoreMessages,
   applyConversationCacheBreakpoint,
@@ -350,6 +351,53 @@ describe("AI SDK Service - Unit Tests", () => {
         (provider) => bunTimeoutByProvider.get(provider) !== false,
       );
       expect(withBunTimeout).toEqual([]);
+    });
+
+    it("sends OpenRouter's zero data retention flag only when llm.openrouter.zdr is set", async () => {
+      const providerFieldByZdr = new Map<boolean, unknown>();
+      let currentZdr = false;
+      const original = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (init?.method === "POST" && url.includes("/chat/completions")) {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+          providerFieldByZdr.set(currentZdr, body["provider"]);
+        }
+        return new Response(JSON.stringify({ error: { message: "stubbed" } }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+      try {
+        for (const zdr of [true, false]) {
+          currentZdr = zdr;
+          await Effect.runPromiseExit(
+            (
+              Effect.gen(function* () {
+                const llmService = yield* LLMServiceTag;
+                return yield* llmService.createChatCompletion("openrouter", {
+                  model: "test/model",
+                  messages: [{ role: "user", content: "hello" }],
+                });
+              }) as Effect.Effect<unknown, unknown, LLMService>
+            ).pipe(
+              Effect.provide(createAISDKServiceLayer()),
+              Effect.provide(createTestConfigLayer({ openrouter: { api_key: "sk-or-test", zdr } })),
+              Effect.provide(createLoggerLayer()),
+              Effect.provide(
+                NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>,
+              ),
+            ) as Effect.Effect<unknown, unknown, never>,
+          );
+        }
+      } finally {
+        globalThis.fetch = original;
+      }
+
+      expect(providerFieldByZdr.get(true)).toEqual({ zdr: true });
+      expect(providerFieldByZdr.has(false)).toBe(true);
+      expect(providerFieldByZdr.get(false)).toBeUndefined();
     });
 
     it("aborts a non-streaming request when Jazz stops waiting on it", async () => {
@@ -1937,6 +1985,46 @@ describe("buildProviderCacheFingerprint - anthropic", () => {
     });
 
     expect(fromEnv).toBe(explicit);
+  });
+});
+
+describe("openRouterChatSettings", () => {
+  it("restricts routing to zero data retention endpoints when zdr is set", () => {
+    expect(openRouterChatSettings({ openrouter: { zdr: true } })).toEqual({
+      usage: { include: true },
+      provider: { zdr: true },
+    });
+  });
+
+  it("leaves routing open when zdr is unset or false", () => {
+    expect(openRouterChatSettings({ openrouter: { api_key: "sk-or-test" } })).toEqual({
+      usage: { include: true },
+    });
+    expect(openRouterChatSettings({ openrouter: { zdr: false } })).toEqual({
+      usage: { include: true },
+    });
+    expect(openRouterChatSettings(undefined)).toEqual({ usage: { include: true } });
+  });
+});
+
+describe("buildProviderCacheFingerprint - openrouter", () => {
+  it("changes when zdr is toggled so a cached model never keeps the old routing", () => {
+    const open = buildProviderCacheFingerprint("openrouter", {
+      openrouter: { api_key: "sk-or-test" },
+    });
+    const restricted = buildProviderCacheFingerprint("openrouter", {
+      openrouter: { api_key: "sk-or-test", zdr: true },
+    });
+
+    expect(open).not.toBe(restricted);
+  });
+
+  it("changes when the API key changes", () => {
+    expect(
+      buildProviderCacheFingerprint("openrouter", { openrouter: { api_key: "sk-or-one" } }),
+    ).not.toBe(
+      buildProviderCacheFingerprint("openrouter", { openrouter: { api_key: "sk-or-two" } }),
+    );
   });
 });
 

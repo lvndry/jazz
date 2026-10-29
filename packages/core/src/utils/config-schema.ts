@@ -44,6 +44,7 @@ import type {
   NotificationsConfig,
   TerminalNotificationSetting,
   OllamaProviderConfig,
+  OpenRouterProviderConfig,
   SglangProviderConfig,
   OtlpTelemetryConfig,
   SchedulerConfig,
@@ -317,7 +318,12 @@ const llmShape = {
     } satisfies SchemaShape<OllamaProviderConfig>)
     .exactOptional(),
   openai: apiKeyOnly,
-  openrouter: apiKeyOnly,
+  openrouter: z
+    .strictObject({
+      api_key: text.exactOptional(),
+      zdr: flag.exactOptional(),
+    } satisfies SchemaShape<OpenRouterProviderConfig>)
+    .exactOptional(),
   orcarouter: apiKeyOnly,
   sglang: z
     .strictObject({

@@ -1167,7 +1167,7 @@ function selectModel(
           config: OpenRouterProviderSettings,
         ) => (modelId: ModelName, settings: OpenRouterChatSettings) => LanguageModel
       )(config);
-      model = openrouter(modelId, { usage: { include: true } });
+      model = openrouter(modelId, openRouterChatSettings(llmConfig));
       break;
     }
     case "orcarouter": {
@@ -1289,6 +1289,13 @@ export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.f
   }) as typeof globalThis.fetch;
 }
 
+export function openRouterChatSettings(llmConfig?: LLMConfig): OpenRouterChatSettings {
+  return {
+    usage: { include: true },
+    ...(llmConfig?.openrouter?.zdr === true ? { provider: { zdr: true } } : {}),
+  };
+}
+
 export function buildProviderCacheFingerprint(
   providerName: ProviderName,
   llmConfig?: LLMConfig,
@@ -1312,6 +1319,10 @@ export function buildProviderCacheFingerprint(
       const cfg = llmConfig.anthropic;
       const workspaceId = cfg?.workspace_id ?? process.env["ANTHROPIC_WORKSPACE_ID"] ?? "";
       return `${cfg?.api_key ?? ""}|${workspaceId}`;
+    }
+    case "openrouter": {
+      const cfg = llmConfig.openrouter;
+      return `${cfg?.api_key ?? ""}|${cfg?.zdr === true ? "zdr" : ""}`;
     }
     default: {
       return configuredProviderApiKey(llmConfig, providerName) ?? "";

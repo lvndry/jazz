@@ -89,6 +89,16 @@ jazz agent create
 
 The [CI reviewer](../guides/pr-review.md) shows the same workflow running through OpenRouter or a self-hosted model.
 
+### Zero data retention
+
+Set `llm.openrouter.zdr` to `true` to route every OpenRouter request only to endpoints that keep no prompts or responses. Jazz sends OpenRouter's `provider.zdr` routing flag with each call, so a model with no zero-retention endpoint fails instead of falling back to one that retains data.
+
+```bash
+jazz config set llm.openrouter.zdr true
+```
+
+`/settings` → **Model providers** → **OpenRouter** asks the same question after the API key. A project's `.jazz/config.json` can turn it on but not off: Jazz ignores `false` there and says so, so a cloned repository cannot weaken your global setting. The setting covers only OpenRouter's model routing; a web search provider configured in Jazz keeps its own retention policy. OpenRouter lists the eligible endpoints at `https://openrouter.ai/api/v1/endpoints/zdr` and can also enforce the policy for a whole account under its [privacy settings](https://openrouter.ai/settings/privacy); see its [zero data retention guide](https://openrouter.ai/docs/features/zdr).
+
 ## Vercel AI Gateway
 
 Vercel AI Gateway can select among upstream providers and reports the per-call amount in `providerMetadata.gateway.cost`. Jazz uses that amount when available. See Vercel's [AI Gateway pricing guide](https://vercel.com/academy/ai-gateway/ai-gateway-pricing).
