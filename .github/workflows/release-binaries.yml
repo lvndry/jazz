@@ -312,7 +312,17 @@ jobs:
               continue
             fi
             echo "Publishing $name..."
-            (cd "$dir" && npm publish) || failed+=("$name")
+            if ! output="$(cd "$dir" && npm publish 2>&1)"; then
+              echo "$output"
+              failed+=("$name")
+              # npm accepted an earlier upload of this version but never served it, and now
+              # refuses every retry: re-running cannot succeed, only a new version can.
+              if grep -q "previously staged version" <<<"$output"; then
+                echo "::error::npm holds $name@$version as staged and will neither serve nor replace it. Run the Release workflow with patch and force to publish the next version."
+              fi
+              continue
+            fi
+            echo "$output"
           done
           if [ "${#failed[@]}" -gt 0 ]; then
             echo "::error::Failed to publish: ${failed[*]}"
