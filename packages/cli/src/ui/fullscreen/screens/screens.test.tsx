@@ -363,11 +363,12 @@ describe("home screen", () => {
     const words = Array.from({ length: 40 }, (_, index) => `word${String(index)}`);
     const draft = words.join(" ");
     const drawn = await drawHome(SETTLED, TALL, { draft });
-    const screen = drawn.rows.join("\n");
-    expect(screen).toContain(words[0]);
-    expect(screen).toContain(words[words.length - 1]);
     const composerRowCount = drawn.rows.filter((row) => /word\d/.test(row)).length;
     expect(composerRowCount).toBeGreaterThan(1);
+    const drawnWords = drawn.rows
+      .filter((row) => /word\d/.test(row))
+      .flatMap((row) => row.match(/word\d+/g) ?? []);
+    expect(drawnWords).toEqual(words);
     const rows = homeRows(SETTLED, TALL, homeState({ draft }));
     const composer = rows.find((row) => row.kind === "composer");
     expect(composer?.kind === "composer" ? composer.lines : 0).toBe(composerRowCount);

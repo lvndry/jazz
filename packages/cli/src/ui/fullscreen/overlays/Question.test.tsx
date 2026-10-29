@@ -197,7 +197,8 @@ describe("Question — long free-text answer", () => {
     );
     const frame = setup.captureCharFrame();
     expect(frame).toContain("this answer is long");
-    expect(frame).toContain("onto more");
+    expect(frame).toContain("wrap onto");
+    expect(frame).toContain("more rows");
   });
 });
 
