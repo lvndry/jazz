@@ -186,8 +186,13 @@ export function reviewPageTitle(pageStart: number, pageLength: number, total: nu
   if (total <= REVIEW_PAGE_SIZE) {
     return `${String(total)} waiting. Check what to keep; the rest is dropped. Esc decides later.`;
   }
-  const range = `${String(pageStart + 1)}–${String(pageStart + pageLength)} of ${String(total)}`;
-  return `${range} waiting. Check what to keep; the rest of these is dropped. Esc leaves these and the rest waiting.`;
+  const pageEnd = pageStart + pageLength;
+  const range = `${String(pageStart + 1)}–${String(pageEnd)} of ${String(total)}`;
+  if (pageEnd >= total) {
+    return `${range} waiting. Check what to keep; unchecked ones on this page are dropped. Esc leaves this page waiting.`;
+  }
+  const next = `${String(pageEnd + 1)}–${String(Math.min(pageEnd + REVIEW_PAGE_SIZE, total))}`;
+  return `${range} waiting. Check what to keep; unchecked ones on this page are dropped, then ${next} come next. Esc stops and leaves this page and later ones waiting.`;
 }
 
 /**

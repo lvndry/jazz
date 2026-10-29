@@ -8,7 +8,12 @@ import type { PromptChoice, TerminalService } from "@jazz/core/interfaces/termin
 import { quotedSentenceKeys } from "@jazz/core/memory/source-trust";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Effect, type FileSystem } from "effect";
-import { REVIEW_PAGE_SIZE, reviewMemorySuggestions, suggestionChoices } from "./memory-review";
+import {
+  REVIEW_PAGE_SIZE,
+  reviewMemorySuggestions,
+  reviewPageTitle,
+  suggestionChoices,
+} from "./memory-review";
 
 let directory: string;
 
@@ -162,6 +167,7 @@ describe("memory review", () => {
       ids.slice(REVIEW_PAGE_SIZE),
     ]);
     expect(asked[0]?.message).toContain(`1–${String(REVIEW_PAGE_SIZE)} of ${String(total)}`);
+    expect(asked[0]?.message).toContain(`${String(REVIEW_PAGE_SIZE + 1)}–${String(total)}`);
     expect(await run(service.pendingSuggestions())).toEqual([]);
     expect((await run(service.view(`personal/always/lesson-${String(total)}.md`))).kind).toBe(
       "file",
@@ -312,5 +318,28 @@ describe("memory review", () => {
 
     expect((await run(service.view(stalePath))).kind).toBe("not_found");
     expect(logged.some((line) => line.includes("removed") && line.includes(stalePath))).toBe(true);
+  });
+});
+
+describe("reviewPageTitle", () => {
+  test("names the next full page while more than a page remains", () => {
+    const total = REVIEW_PAGE_SIZE * 3;
+    expect(reviewPageTitle(0, REVIEW_PAGE_SIZE, total)).toContain(
+      `${String(REVIEW_PAGE_SIZE + 1)}–${String(REVIEW_PAGE_SIZE * 2)}`,
+    );
+  });
+
+  test("caps the next range at the total", () => {
+    const total = REVIEW_PAGE_SIZE + 3;
+    expect(reviewPageTitle(0, REVIEW_PAGE_SIZE, total)).toContain(
+      `${String(REVIEW_PAGE_SIZE + 1)}–${String(total)}`,
+    );
+  });
+
+  test("names no later page on the last page", () => {
+    const total = REVIEW_PAGE_SIZE * 2;
+    const title = reviewPageTitle(REVIEW_PAGE_SIZE, REVIEW_PAGE_SIZE, total);
+    expect(title).toContain(`${String(REVIEW_PAGE_SIZE + 1)}–${String(total)} of ${String(total)}`);
+    expect(title).not.toContain(`${String(total + 1)}–`);
   });
 });
