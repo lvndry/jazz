@@ -35,6 +35,7 @@ import {
   sliceTerminalCells,
   terminalCellWidth,
   terminalGraphemes,
+  wrapTerminalCells,
 } from "../../text/terminal-cells";
 import { THEME } from "../../theme";
 import type { Viewport } from "../types";
@@ -197,38 +198,29 @@ export function CaretValue({
 }
 
 /**
- * Split a value into rows of at most `width` cells, with the caret's grapheme
- * kept in the row that owns it. A trailing space is appended so a caret at the
- * end of the value has a cell to invert.
+ * Split a value into rows of at most `width` cells, breaking after whitespace
+ * so words stay whole; a word wider than a row is cut where it overflows. The
+ * caret's grapheme is kept in the row that owns it. A trailing space is
+ * appended so a caret at the end of the value has a cell to invert.
  */
 export function wrapCaretRows(
   display: string,
   caret: number,
   width: number,
 ): { readonly rows: readonly CaretCells[]; readonly caretRow: number } {
-  const budget = Math.max(1, width);
   const graphemes = [...terminalGraphemes(display), " "];
-  const rowGraphemes: string[][] = [[]];
-  const rowCells: number[] = [0];
   let caretGraphemeIndex = graphemes.length - 1;
   let codePoints = 0;
-  let caretFound = false;
-  graphemes.forEach((grapheme, index) => {
-    if (!caretFound && codePoints + [...grapheme].length > caret) {
+  for (const [index, grapheme] of graphemes.entries()) {
+    if (codePoints + [...grapheme].length > caret) {
       caretGraphemeIndex = index;
-      caretFound = true;
+      break;
     }
     codePoints += [...grapheme].length;
-    const cells = terminalCellWidth(grapheme);
-    const last = rowGraphemes.length - 1;
-    if ((rowCells[last] ?? 0) + cells > budget && (rowGraphemes[last]?.length ?? 0) > 0) {
-      rowGraphemes.push([]);
-      rowCells.push(0);
-    }
-    const target = rowGraphemes.length - 1;
-    (rowGraphemes[target] as string[]).push(grapheme);
-    rowCells[target] = (rowCells[target] ?? 0) + cells;
-  });
+  }
+  const rowGraphemes = wrapTerminalCells(graphemes.join(""), width).map((line) => [
+    ...terminalGraphemes(line),
+  ]);
 
   let seen = 0;
   let caretRow = rowGraphemes.length - 1;
