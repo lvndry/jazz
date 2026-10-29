@@ -28,8 +28,13 @@ function firstLine(text: string): string {
   );
 }
 
+/** An entry's headline: its fact line, or the quoted words of an entry saved as a quote alone. */
+function entryHeadline(content: string): string {
+  return storedClaimText(firstLine(content));
+}
+
 /**
- * The line a suggestion is known by: the user's quoted words, the lesson's rule, or for a
+ * The line a suggestion is known by: the fact to remember, the lesson's rule, or for a
  * revision the entry it removes or the rule it rewrites to.
  */
 export function suggestionHeadline(suggestion: MemorySuggestion): string {
@@ -38,10 +43,10 @@ export function suggestionHeadline(suggestion: MemorySuggestion): string {
   }
   if (suggestion.kind === "revision") {
     return suggestion.change.command === "delete"
-      ? firstLine(storedClaimText(suggestion.change.previousContent))
+      ? entryHeadline(suggestion.change.previousContent)
       : firstLine(suggestion.change.content);
   }
-  return storedClaimText(suggestion.change.content);
+  return entryHeadline(suggestion.change.content);
 }
 
 /** Which kind of change keeping it makes, as a short tag. */
@@ -73,7 +78,7 @@ export function suggestionDetails(suggestion: MemorySuggestion): SuggestionDetai
   } else if (suggestion.change.command === "amend") {
     details.push({
       label: "currently",
-      text: storedClaimText(suggestion.change.previousContent).trim(),
+      text: entryHeadline(suggestion.change.previousContent),
     });
   }
   const removes = suggestion.kind === "revision" && suggestion.change.command === "delete";

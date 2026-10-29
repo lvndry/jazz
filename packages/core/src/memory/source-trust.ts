@@ -17,6 +17,9 @@ export interface MemorySourceCitation {
 
 export const MAX_SOURCE_QUOTE_CHARS = 500;
 
+/** Quotes one entry may rest on: a few sentences of evidence, so an entry never grows into a transcript. */
+export const MAX_ENTRY_QUOTES = 5;
+
 export type MemorySourceQuoteCheck =
   | { readonly ok: true; readonly quote: string; readonly source: MemorySource }
   | { readonly ok: false; readonly reason: "quote_length" | "unknown_source" | "quote_not_found" };
@@ -90,27 +93,44 @@ export function describeQuoteRejection(
 const STORED_CLAIM_PREFIX = "The user said: ";
 
 /**
- * Save the user's words as a quoted assertion, never model-authored paraphrase.
+ * An entry is the fact to remember, then the user's words it rests on, one line per quote.
  *
- * A leading request to remember ("keep in memory to …", "remember that …") is
- * dropped, so the entry states the rule the user gave rather than the act of
- * asking for it to be saved. Every stored word is still the user's own.
+ * The fact comes first because a quote lifted out of its conversation loses the
+ * context that made it meaningful ("we are hiring all levels" — who is "we"?);
+ * it is also the first line, so it is what recall shows. The quote lines keep the
+ * evidence that the user said it. A leading request to remember ("remember that …")
+ * is dropped from the quote, so it states the rule rather than the act of asking.
  */
-export function formatStoredUserClaim(quote: string): string {
-  return `${STORED_CLAIM_PREFIX}${JSON.stringify(withoutMemoryRequestLeadIn(quote))}\n`;
+export function formatStoredUserClaim(fact: string, quotes: readonly string[]): string {
+  const factLine = fact.replace(/\s+/g, " ").trim();
+  const quoteLines = quotes.map(
+    (quote) => `${STORED_CLAIM_PREFIX}${JSON.stringify(withoutMemoryRequestLeadIn(quote))}\n`,
+  );
+  return `${factLine}\n${quoteLines.join("")}`;
 }
 
-/** The quoted words inside a stored claim, or the content itself for hand-written entries. */
+/** Whether a line has the form of a stored `The user said:` quote, in any letter case. */
+export function isStoredClaimLine(line: string): boolean {
+  return line.trim().toLowerCase().startsWith(STORED_CLAIM_PREFIX.toLowerCase());
+}
+
+/** The quoted words of every stored claim line, one per line, or the content itself when it has none. */
 export function storedClaimText(content: string): string {
-  const trimmed = content.trim();
-  if (!trimmed.startsWith(STORED_CLAIM_PREFIX)) {
-    return content;
-  }
+  const quotedWords = content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith(STORED_CLAIM_PREFIX))
+    .map(parseClaimLine)
+    .filter((words): words is string => words !== undefined);
+  return quotedWords.length > 0 ? quotedWords.join("\n") : content;
+}
+
+function parseClaimLine(line: string): string | undefined {
   try {
-    const parsed: unknown = JSON.parse(trimmed.slice(STORED_CLAIM_PREFIX.length));
-    return typeof parsed === "string" ? parsed : content;
+    const parsed: unknown = JSON.parse(line.slice(STORED_CLAIM_PREFIX.length));
+    return typeof parsed === "string" ? parsed : undefined;
   } catch {
-    return content;
+    return undefined;
   }
 }
 

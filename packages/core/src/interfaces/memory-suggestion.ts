@@ -44,7 +44,7 @@ export type SuggestedMemoryChange =
 
 export interface FactSuggestionInput {
   readonly change: SuggestedMemoryChange;
-  /** The user's words the change quotes, shown in review. */
+  /** The user's words the change quotes, one quote per line. */
   readonly quote: string;
   /** Keys of the quoted user sentences, so a later correction or forget still revokes them. */
   readonly quotedSentenceKeys: readonly string[];
