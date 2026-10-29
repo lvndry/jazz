@@ -41,6 +41,7 @@ import {
   makeOllamaAuthorizedFetch,
   makeOllamaKeepAliveFetch,
   mergeProviderOverridesIntoLLMConfig,
+  openRouterChatSettings,
   safeLLMErrorMetadata,
   toCoreMessages,
   applyConversationCacheBreakpoint,
@@ -1937,6 +1938,46 @@ describe("buildProviderCacheFingerprint - anthropic", () => {
     });
 
     expect(fromEnv).toBe(explicit);
+  });
+});
+
+describe("openRouterChatSettings", () => {
+  it("restricts routing to zero data retention endpoints when zdr is set", () => {
+    expect(openRouterChatSettings({ openrouter: { zdr: true } })).toEqual({
+      usage: { include: true },
+      provider: { zdr: true },
+    });
+  });
+
+  it("leaves routing open when zdr is unset or false", () => {
+    expect(openRouterChatSettings({ openrouter: { api_key: "sk-or-test" } })).toEqual({
+      usage: { include: true },
+    });
+    expect(openRouterChatSettings({ openrouter: { zdr: false } })).toEqual({
+      usage: { include: true },
+    });
+    expect(openRouterChatSettings(undefined)).toEqual({ usage: { include: true } });
+  });
+});
+
+describe("buildProviderCacheFingerprint - openrouter", () => {
+  it("changes when zdr is toggled so a cached model never keeps the old routing", () => {
+    const open = buildProviderCacheFingerprint("openrouter", {
+      openrouter: { api_key: "sk-or-test" },
+    });
+    const restricted = buildProviderCacheFingerprint("openrouter", {
+      openrouter: { api_key: "sk-or-test", zdr: true },
+    });
+
+    expect(open).not.toBe(restricted);
+  });
+
+  it("changes when the API key changes", () => {
+    expect(
+      buildProviderCacheFingerprint("openrouter", { openrouter: { api_key: "sk-or-one" } }),
+    ).not.toBe(
+      buildProviderCacheFingerprint("openrouter", { openrouter: { api_key: "sk-or-two" } }),
+    );
   });
 });
 

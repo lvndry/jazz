@@ -548,6 +548,20 @@ function configureLLMProviders() {
         }
       }
 
+      if (provider === "openrouter") {
+        const currentZdr = config.llm?.openrouter?.zdr === true;
+        const zdr = yield* terminal.confirm(
+          "Route OpenRouter requests only to zero data retention endpoints?",
+          currentZdr,
+        );
+        if (zdr !== undefined && zdr !== currentZdr) {
+          yield* configService.set("llm.openrouter.zdr", zdr);
+          yield* terminal.success(
+            `Zero data retention ${zdr ? "enabled" : "disabled"} for OpenRouter.`,
+          );
+        }
+      }
+
       yield* terminal.log(""); // Spacing
     }
   });

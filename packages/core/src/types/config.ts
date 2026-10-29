@@ -376,6 +376,12 @@ export interface SglangProviderConfig {
   readonly base_url?: string;
 }
 
+export interface OpenRouterProviderConfig {
+  readonly api_key?: string;
+  /** Route every request only to endpoints that retain no prompts or responses. */
+  readonly zdr?: boolean;
+}
+
 export interface AnthropicProviderConfig {
   readonly api_key?: string;
   /**
@@ -428,7 +434,7 @@ export interface LLMConfig {
   readonly nvidia?: LLMProviderConfig;
   readonly ollama?: OllamaProviderConfig;
   readonly openai?: LLMProviderConfig;
-  readonly openrouter?: LLMProviderConfig;
+  readonly openrouter?: OpenRouterProviderConfig;
   readonly orcarouter?: LLMProviderConfig;
   readonly togetherai?: LLMProviderConfig;
   readonly sglang?: SglangProviderConfig;
