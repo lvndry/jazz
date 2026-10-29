@@ -257,6 +257,7 @@ describe("home screen", () => {
     model: HomeModel,
     viewport: Viewport,
     patch: Partial<HomeState> = {},
+    caret?: number,
   ): Promise<Drawn> {
     const state = homeState(patch);
     return draw(
@@ -264,7 +265,7 @@ describe("home screen", () => {
         model={model}
         viewport={viewport}
         state={state}
-        caret={[...state.draft].length}
+        caret={caret ?? [...state.draft].length}
       />,
       viewport,
     );
@@ -384,6 +385,35 @@ describe("home screen", () => {
     );
     expect(height).toBeLessThanOrEqual(short.height - 1);
     expect(rows.some((row) => row.kind === "composer" && row.lines > 1)).toBe(true);
+  });
+
+  it("keeps the composer and the footer on the minimum terminal with a long draft", async () => {
+    const minimum: Viewport = { width: 32, height: 10 };
+    const draft = Array.from({ length: 30 }, (_, index) => `word${String(index)}`).join(" ");
+    const empty = await drawHome(SETTLED, minimum);
+    const drawn = await drawHome(SETTLED, minimum, { draft });
+    expect(drawn.rows.some((row) => row.includes("word29"))).toBe(true);
+    expect(drawn.rows.at(-1)).toBe(empty.rows.at(-1));
+    const rows = homeRows(SETTLED, minimum, homeState({ draft }));
+    expect(rows.some((row) => row.kind === "composer")).toBe(true);
+  });
+
+  it("follows the caret through a draft taller than the composer's cap", async () => {
+    const words = Array.from({ length: 120 }, (_, index) => `word${String(index)}`);
+    const draft = words.join(" ");
+    const shown = (drawn: Drawn): string[] =>
+      drawn.rows.flatMap((row) => row.match(/word\d+/g) ?? []);
+    const atStart = shown(await drawHome(SETTLED, TALL, { draft }, 0));
+    expect(atStart[0]).toBe("word0");
+    expect(atStart).not.toContain("word119");
+    const middle = draft.indexOf("word90");
+    const atMiddle = shown(await drawHome(SETTLED, TALL, { draft }, middle));
+    expect(atMiddle).toContain("word90");
+    expect(atMiddle).not.toContain("word0");
+    expect(atMiddle).not.toContain("word119");
+    const atEnd = shown(await drawHome(SETTLED, TALL, { draft }));
+    expect(atEnd.at(-1)).toBe("word119");
+    expect(atEnd).not.toContain("word0");
   });
 
   it("anchors the block near the top and keeps the chosen agent on a short terminal", () => {

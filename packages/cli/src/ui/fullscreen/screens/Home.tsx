@@ -11,8 +11,10 @@
  * only sets it in bands.
  *
  * The composer wraps a long draft onto more rows, up to the chat composer's cap. The block is
- * anchored near the top with room around each section, and the footer holds the last row. When the terminal is short, waiting details go first, then waiting entries from the
- * bottom, then agents other than the chosen one; the button, the composer and the footer stay.
+ * anchored near the top with room around each section, and the footer holds the last row. When
+ * the terminal is short, waiting details go first, then waiting entries from the bottom, then
+ * agents other than the chosen one, then wrapped draft rows down to the caret's own; the button,
+ * the composer and the footer stay.
  *
  * No keys are handled here: the screen renders its props and nothing else.
  */
@@ -103,7 +105,7 @@ export type HomeRow =
       readonly key: string;
       readonly kind: "composer";
       readonly hint: string;
-      /** Rows the wrapped draft takes, between 1 and `INPUT_MAX_ROWS`. */
+      /** Rows the draft shows, between 1 and `INPUT_MAX_ROWS`; past them the window follows the caret. */
       readonly lines: number;
     };
 
@@ -227,15 +229,9 @@ function composerLayout(
   return { valueWidth: showHint ? room : width - GUTTER - 1, showHint };
 }
 
-function composerRows(hint: string, width: number, draft: string, caret: number): HomeRow[] {
+function composerRows(hint: string, width: number, lines: number): HomeRow[] {
   const padRow = (key: string): HomeRow =>
     row(key, [], [], width, { bar: THEME.primary, fill: THEME.surfaceStrong });
-  const lines = wrappedCaretRowCount(
-    draft,
-    caret,
-    composerLayout(hint, width).valueWidth,
-    INPUT_MAX_ROWS,
-  );
   return [
     padRow("composer:top"),
     { key: "composer", kind: "composer", hint, lines },
@@ -443,6 +439,14 @@ export function homeRows(
   let shownWaiting = model.waiting.length;
   let details = true;
   let topMargin = Math.min(TOP_MARGIN, gapRows + 1);
+  const hint = enterHint(model, state) ?? "";
+  // Wrapped once: every retry below only lowers the cap, never the draft or its width.
+  let composerLines = wrappedCaretRowCount(
+    state.draft,
+    caret,
+    composerLayout(hint, width).valueWidth,
+    INPUT_MAX_ROWS,
+  );
 
   const build = (): HomeRow[] => {
     const rows: HomeRow[] = [
@@ -451,9 +455,7 @@ export function homeRows(
       ...gap("start"),
       ...startRows(target, onWaiting, width),
       blank("gap:composer"),
-      ...(target === undefined
-        ? []
-        : composerRows(enterHint(model, state) ?? "", width, state.draft, caret)),
+      ...(target === undefined ? [] : composerRows(hint, width, composerLines)),
       ...menu,
     ];
     // The chosen agent always stays in view, whatever else has to give way.
@@ -492,6 +494,8 @@ export function homeRows(
       shownWaiting -= 1;
     } else if (shownAgents > 1) {
       shownAgents -= 1;
+    } else if (composerLines > 1) {
+      composerLines -= 1;
     } else {
       const kept = [...rows];
       while (kept.length > 1 && totalHeight(kept) > budget) {
@@ -572,7 +576,7 @@ function Composer({
         caret={caret}
         width={valueWidth}
         placeholder={COMPOSER_PLACEHOLDER}
-        maxRows={INPUT_MAX_ROWS}
+        maxRows={lines}
       />
       <box style={{ flexGrow: 1 }} />
       {showHint ? <text style={{ fg: THEME.muted, flexShrink: 0 }}>{`${hint} `}</text> : null}
