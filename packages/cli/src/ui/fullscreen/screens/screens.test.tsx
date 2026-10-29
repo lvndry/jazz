@@ -359,6 +359,32 @@ describe("home screen", () => {
     expect(composer).toContain(" Type / to get started, or type your first message");
   });
 
+  it("wraps a long draft onto more rows instead of scrolling it sideways", async () => {
+    const words = Array.from({ length: 40 }, (_, index) => `word${String(index)}`);
+    const draft = words.join(" ");
+    const drawn = await drawHome(SETTLED, TALL, { draft });
+    const screen = drawn.rows.join("\n");
+    expect(screen).toContain(words[0]);
+    expect(screen).toContain(words[words.length - 1]);
+    const composerRowCount = drawn.rows.filter((row) => /word\d/.test(row)).length;
+    expect(composerRowCount).toBeGreaterThan(1);
+    const rows = homeRows(SETTLED, TALL, homeState({ draft }));
+    const composer = rows.find((row) => row.kind === "composer");
+    expect(composer?.kind === "composer" ? composer.lines : 0).toBe(composerRowCount);
+  });
+
+  it("keeps a wrapped composer and the footer inside a short terminal", () => {
+    const short: Viewport = { width: 60, height: 14 };
+    const draft = "a long first message ".repeat(30);
+    const rows = homeRows(SETTLED, short, homeState({ agentId: "long", draft }));
+    const height = rows.reduce(
+      (total, row) => total + (row.kind === "composer" ? row.lines : 1),
+      0,
+    );
+    expect(height).toBeLessThanOrEqual(short.height - 1);
+    expect(rows.some((row) => row.kind === "composer" && row.lines > 1)).toBe(true);
+  });
+
   it("anchors the block near the top and keeps the chosen agent on a short terminal", () => {
     const tall = homeRows(SETTLED, TALL, homeState());
     const firstInk = tall.findIndex((row) => row.kind === "composer" || row.segments.length > 0);

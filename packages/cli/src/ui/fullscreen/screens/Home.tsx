@@ -10,8 +10,8 @@
  * composer has. Every word and every key's meaning comes from the shared home model; this file
  * only sets it in bands.
  *
- * The block is anchored near the top with room around each section, and the footer holds the
- * last row. When the terminal is short, waiting details go first, then waiting entries from the
+ * The composer wraps a long draft onto more rows, up to the chat composer's cap. The block is
+ * anchored near the top with room around each section, and the footer holds the last row. When the terminal is short, waiting details go first, then waiting entries from the
  * bottom, then agents other than the chosen one; the button, the composer and the footer stay.
  *
  * No keys are handled here: the screen renders its props and nothing else.
@@ -41,8 +41,8 @@ import {
 } from "../../models/home-view";
 import { clipTerminalCells, terminalCellWidth } from "../../text/terminal-cells";
 import { groundPaint, THEME } from "../../theme";
-import { commandSuggestRows } from "../Input";
-import { CaretValue } from "../overlays/TextPrompt";
+import { commandSuggestRows, INPUT_MAX_ROWS } from "../Input";
+import { WrappedCaretValue, wrappedCaretRowCount } from "../overlays/TextPrompt";
 import { measureFor, type Viewport } from "../types";
 
 export type { HomeModel } from "../../models/home-view";
@@ -99,7 +99,13 @@ export type HomeRow =
       /** Background for the whole row width, when the row is part of a band. */
       readonly fill?: string;
     }
-  | { readonly key: string; readonly kind: "composer"; readonly hint: string };
+  | {
+      readonly key: string;
+      readonly kind: "composer";
+      readonly hint: string;
+      /** Rows the wrapped draft takes, between 1 and `INPUT_MAX_ROWS`. */
+      readonly lines: number;
+    };
 
 function cells(text: string): number {
   return terminalCellWidth(text);
@@ -208,14 +214,42 @@ function startRows(agent: HomeAgent | undefined, waiting: boolean, width: number
   ];
 }
 
-function composerRows(hint: string, width: number): HomeRow[] {
+/**
+ * Where the draft may run: the cells left of the enter hint, or the whole band once the hint no
+ * longer fits beside half the placeholder.
+ */
+function composerLayout(
+  hint: string,
+  width: number,
+): { readonly valueWidth: number; readonly showHint: boolean } {
+  const room = width - GUTTER - TAG_GAP - cells(hint) - 1;
+  const showHint = hint.length > 0 && room >= cells(COMPOSER_PLACEHOLDER) / 2;
+  return { valueWidth: showHint ? room : width - GUTTER - 1, showHint };
+}
+
+function composerRows(hint: string, width: number, draft: string, caret: number): HomeRow[] {
   const padRow = (key: string): HomeRow =>
     row(key, [], [], width, { bar: THEME.primary, fill: THEME.surfaceStrong });
+  const lines = wrappedCaretRowCount(
+    draft,
+    caret,
+    composerLayout(hint, width).valueWidth,
+    INPUT_MAX_ROWS,
+  );
   return [
     padRow("composer:top"),
-    { key: "composer", kind: "composer", hint },
+    { key: "composer", kind: "composer", hint, lines },
     padRow("composer:bottom"),
   ];
+}
+
+/** Terminal rows a home row takes; only the composer is ever taller than one. */
+function rowHeight(entry: HomeRow): number {
+  return entry.kind === "composer" ? entry.lines : 1;
+}
+
+function totalHeight(rows: readonly HomeRow[]): number {
+  return rows.reduce((total, entry) => total + rowHeight(entry), 0);
 }
 
 function agentRow(agent: HomeAgent, selected: boolean, width: number): HomeRow {
@@ -384,7 +418,12 @@ export function homeWidth(viewport: Viewport): number {
  * The screen above the footer, as rows. Pure: the props and nothing else, which is what lets a
  * test assert the design rather than the markup.
  */
-export function homeRows(model: HomeModel, viewport: Viewport, state: HomeState): HomeRow[] {
+export function homeRows(
+  model: HomeModel,
+  viewport: Viewport,
+  state: HomeState,
+  caret: number = [...state.draft].length,
+): HomeRow[] {
   const glyphs = getGlyphs();
   const width = homeWidth(viewport);
   const budget = Math.max(1, viewport.height - FOOTER_ROWS);
@@ -412,7 +451,9 @@ export function homeRows(model: HomeModel, viewport: Viewport, state: HomeState)
       ...gap("start"),
       ...startRows(target, onWaiting, width),
       blank("gap:composer"),
-      ...(target === undefined ? [] : composerRows(enterHint(model, state) ?? "", width)),
+      ...(target === undefined
+        ? []
+        : composerRows(enterHint(model, state) ?? "", width, state.draft, caret)),
       ...menu,
     ];
     // The chosen agent always stays in view, whatever else has to give way.
@@ -442,7 +483,7 @@ export function homeRows(model: HomeModel, viewport: Viewport, state: HomeState)
   };
 
   let rows = build();
-  while (rows.length > budget) {
+  while (totalHeight(rows) > budget) {
     if (topMargin > 0) {
       topMargin -= 1;
     } else if (details && shownWaiting > 0) {
@@ -452,7 +493,11 @@ export function homeRows(model: HomeModel, viewport: Viewport, state: HomeState)
     } else if (shownAgents > 1) {
       shownAgents -= 1;
     } else {
-      return rows.slice(0, budget);
+      const kept = [...rows];
+      while (kept.length > 1 && totalHeight(kept) > budget) {
+        kept.pop();
+      }
+      return kept;
     }
     rows = build();
   }
@@ -491,35 +536,43 @@ function SegmentsText({ segments }: { segments: readonly Segment[] }): ReactNode
 function Composer({
   width,
   hint,
+  lines,
   draft,
   caret,
 }: {
   width: number;
   hint: string;
+  lines: number;
   draft: string;
   caret: number;
 }): ReactNode {
   const glyphs = getGlyphs();
-  const room = width - GUTTER - TAG_GAP - cells(hint) - 1;
-  const showHint = hint.length > 0 && room >= cells(COMPOSER_PLACEHOLDER) / 2;
+  const { valueWidth, showHint } = composerLayout(hint, width);
   return (
     <box
       style={{
         width,
-        height: 1,
+        height: lines,
         flexShrink: 0,
         flexDirection: "row",
+        alignItems: "flex-start",
         backgroundColor: THEME.surfaceStrong,
       }}
     >
-      <text
-        style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}
-      >{`${glyphs.bandBar} `}</text>
-      <CaretValue
+      <box style={{ width: GUTTER, flexShrink: 0, flexDirection: "column" }}>
+        {Array.from({ length: lines }, (_, index) => (
+          <text
+            key={index}
+            style={{ fg: THEME.primary }}
+          >{`${glyphs.bandBar} `}</text>
+        ))}
+      </box>
+      <WrappedCaretValue
         value={draft}
         caret={caret}
-        width={showHint ? room : width - GUTTER - 1}
+        width={valueWidth}
         placeholder={COMPOSER_PLACEHOLDER}
+        maxRows={INPUT_MAX_ROWS}
       />
       <box style={{ flexGrow: 1 }} />
       {showHint ? <text style={{ fg: THEME.muted, flexShrink: 0 }}>{`${hint} `}</text> : null}
@@ -543,6 +596,7 @@ function Row({
       <Composer
         width={width}
         hint={entry.hint}
+        lines={entry.lines}
         draft={draft}
         caret={caret}
       />
@@ -597,7 +651,7 @@ export function homeFooterSegments(
 }
 
 export function Home({ model, viewport, state, caret }: HomeProps): ReactNode {
-  const rows = homeRows(model, viewport, state);
+  const rows = homeRows(model, viewport, state, caret);
   const width = homeWidth(viewport);
   const footer = homeFooterSegments(model, viewport.width);
   return (
