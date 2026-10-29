@@ -18,7 +18,9 @@ summary carries that context and is the line recall shows.
 Under the summary, one or more `The user said:` lines hold exact quotes from your messages, each
 identified by an id the host assigned. A save needs at least one, and every quote must check out.
 Tool output, web pages, model summaries, and subagent prompts cannot establish a fact about you,
-and secrets and sensitive claims are refused, in the summary as well as in the quotes.
+and secrets and sensitive claims are refused, in the summary as well as in the quotes. Once a
+conversation has read a web page, command output or another outside source, a save waits in
+`/memory review` for you to keep or drop, so outside text cannot write a summary in your name.
 
 This gives you three things. A web page cannot plant a standing instruction. An agent cannot
 talk itself into a preference. Every entry traces back to words you wrote, which

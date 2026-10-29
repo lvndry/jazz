@@ -109,6 +109,11 @@ export function formatStoredUserClaim(fact: string, quotes: readonly string[]): 
   return `${factLine}\n${quoteLines.join("")}`;
 }
 
+/** Whether a line has the form of a stored `The user said:` quote, in any letter case. */
+export function isStoredClaimLine(line: string): boolean {
+  return line.trim().toLowerCase().startsWith(STORED_CLAIM_PREFIX.toLowerCase());
+}
+
 /** The quoted words of every stored claim line, one per line, or the content itself when it has none. */
 export function storedClaimText(content: string): string {
   const quotedWords = content

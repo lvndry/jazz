@@ -134,7 +134,7 @@ bundle after refresh, so only a trusted workflow should read or persist that fil
 
 `manage_memory` accepts a new fact or correction only with one or more exact quotes, each with a
 source ID from a host-labeled user message; one unverified quote rejects the whole write. The
-entry stores the agent's one-sentence summary above those quotes. Tool output, fetched pages,
+entry stores the agent's one-sentence summary above those quotes. Because a page or command output could steer that summary, a create or amend made after the run read external content is queued for `/memory review` instead of written. Tool output, fetched pages,
 model summaries, and a synthetic compaction transcript cannot mint that source ID. Obvious secret
 and sensitive claims are rejected on create or amend, whether they sit in a quoted span, the
 sentence around it, the summary, or the subject and topic the entry would be filed under. Delete

@@ -33,6 +33,7 @@ import {
   describeQuoteRejection,
   formatMemorySourceTag,
   formatStoredUserClaim,
+  isStoredClaimLine,
   isForgetInstruction,
   isSensitiveUserClaim,
   quoteNamesEntry,
@@ -56,6 +57,14 @@ import {
 import { defineTool, makeZodValidator } from "./base-tool";
 
 type MemoryToolDeps = MemoryService | FileSystem.FileSystem | LoggerService;
+
+/**
+ * What a direct save reports once the run has read outside content. A page or command output
+ * can steer the agent into writing a summary the quotes do not support, so the change waits in
+ * `/memory review` for the user to keep or drop instead of being written.
+ */
+const OUTSIDE_CONTENT_REVIEW_NOTICE =
+  "Queued for the user to keep or drop in /memory review, because this conversation has read outside content.";
 
 function joinDisplayPath(base: string, name: string): string {
   return base === "/" ? `/${name}` : `${base}/${name}`;
@@ -195,8 +204,12 @@ const entryClaimParameters = {
     ),
   fact: z
     .string()
+    .trim()
     .min(1)
     .max(MEMORY_SUMMARY_MAX_CHARS)
+    .refine((fact) => !isStoredClaimLine(fact), {
+      message: "Write fact as your own summary; put the user's words in quotes.",
+    })
     .describe(
       'One sentence summarizing what the conversation established, readable on its own: name who it is about and the situation, e.g. "Runs a pre-seed startup hiring engineers from junior to principal; the bar is raw intelligence."',
     ),
@@ -376,6 +389,8 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
         };
         const addsClaim = args.command === "create" || args.command === "amend";
         const suggestsOnly = SUGGEST_ONLY_MEMORY_AGENT_IDS.includes(context.agentId);
+        const readOutsideContent = addsClaim && context.egressTaint?.isTainted() === true;
+        const queuesForReview = suggestsOnly || readOutsideContent;
         if (suggestsOnly && !addsClaim) {
           return {
             success: false,
@@ -420,6 +435,11 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
           } satisfies ToolExecutionResult;
         }
 
+        const withReviewNotice = (suggested: MemoryChangeOutcome): MemoryChangeOutcome =>
+          suggested.success && readOutsideContent && !suggestsOnly
+            ? { ...suggested, message: OUTSIDE_CONTENT_REVIEW_NOTICE }
+            : suggested;
+
         const outcome: MemoryChangeOutcome = yield* Effect.gen(function* () {
           switch (args.command) {
             case "create": {
@@ -440,7 +460,7 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
                 ...(args.topic !== ALWAYS_SEGMENT ? { topic: args.topic } : {}),
               });
               const claim = formatStoredUserClaim(args.fact, quotes);
-              if (suggestsOnly) {
+              if (queuesForReview) {
                 const existing = yield* memoryService.view(targetPath);
                 if (existing.kind === "file") {
                   return yield* rejected(
@@ -451,7 +471,7 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
                   change: { command: "create", path: targetPath, content: claim },
                   ...suggestionFields,
                 });
-                return withDiff(suggested, "", claim, targetPath);
+                return withDiff(withReviewNotice(suggested), "", claim, targetPath);
               }
               const created = yield* memoryService.create(targetPath, claim, {
                 ...writeContext,
@@ -470,7 +490,7 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
                 );
               }
               const claim = formatStoredUserClaim(args.fact, quotes);
-              if (suggestsOnly) {
+              if (queuesForReview) {
                 const suggested = yield* memoryService.suggestFact({
                   change: {
                     command: "amend",
@@ -480,7 +500,12 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
                   },
                   ...suggestionFields,
                 });
-                return withDiff(suggested, currentEntry.content, claim, args.path);
+                return withDiff(
+                  withReviewNotice(suggested),
+                  currentEntry.content,
+                  claim,
+                  args.path,
+                );
               }
               const amended = yield* memoryService.strReplace(
                 args.path,
@@ -526,9 +551,9 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
         yield* logger.debug("manage_memory finished", {
           command: args.command,
           success: outcome.success,
-          suggestedOnly: suggestsOnly,
+          queuedForReview: addsClaim && queuesForReview,
+          readOutsideContent,
           quoteCount: verified.length,
-          ...(outcome.success ? {} : { reason: outcome.message }),
         });
 
         return {
