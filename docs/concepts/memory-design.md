@@ -8,11 +8,17 @@ Memory is where Jazz learns how you like things done. These are the design choic
 and what each one gives you. For the mechanics, see
 [Conversations, state, and memory](./conversations-and-memory.md).
 
-## Memory learns what you said, not what the agent concluded
+## Memory is a summary backed by what you said
 
-Every save carries an exact quote from one of your messages, identified by an id the host
-assigned. Tool output, web pages, model summaries, and subagent prompts cannot establish a fact
-about you, and secrets and sensitive claims are refused.
+Each entry opens with one sentence that sums up what the conversation established, written so it
+reads on its own: "Runs a pre-seed startup hiring engineers from junior to principal; the bar is
+raw intelligence." A quote taken out of its conversation loses who and what it was about, so the
+summary carries that context and is the line recall shows.
+
+Under the summary, one or more `The user said:` lines hold exact quotes from your messages, each
+identified by an id the host assigned. A save needs at least one, and every quote must check out.
+Tool output, web pages, model summaries, and subagent prompts cannot establish a fact about you,
+and secrets and sensitive claims are refused, in the summary as well as in the quotes.
 
 This gives you three things. A web page cannot plant a standing instruction. An agent cannot
 talk itself into a preference. Every entry traces back to words you wrote, which
@@ -23,7 +29,7 @@ tell it, including corrections such as "too formal".
 
 ## The agent proposes lessons; you decide
 
-The one thing memory holds in the agent's words is a lesson from its own mistake, such as
+The one entry memory holds without a quote from you is a lesson from the agent's own mistake, such as
 "search for existing products before proposing to build one". You should not have to say
 "remember" for the agent to learn from a mistake it just corrected, so it proposes the rule
 without being asked, during the conversation and in a background pass after the conversation

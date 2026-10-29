@@ -3,7 +3,9 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
+import { silentLogger } from "@/core/agent/test-logger";
 import { MEMORY_EXTRACTOR_AGENT_ID, MEMORY_LEARNER_AGENT_ID } from "@/core/constants/memory";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { MemoryService } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import type {
@@ -29,11 +31,16 @@ const context: ToolExecutionContext = {
 
 function runWithMemory<A>(
   service: MemoryService,
-  effect: Effect.Effect<A, Error, MemoryService | import("effect").FileSystem.FileSystem>,
+  effect: Effect.Effect<
+    A,
+    Error,
+    MemoryService | import("effect").FileSystem.FileSystem | LoggerService
+  >,
 ) {
   return Effect.runPromise(
     effect.pipe(
       Effect.provideService(MemoryServiceTag, service),
+      Effect.provideService(LoggerServiceTag, silentLogger),
       Effect.provide(NodeFileSystem.layer),
     ),
   );
@@ -91,7 +98,10 @@ describe("view_memory exposure", () => {
 });
 
 describe("manage_memory", () => {
-  const citation = { source_ref: "user:1", source_quote: "My favorite fruit is banana." };
+  const fruitFact = "Their favorite fruit is banana.";
+  const mangoFact = "Their favorite fruit is mango.";
+  const fruitCitation = { source_ref: "user:1", source_quote: "My favorite fruit is banana." };
+  const citation = { fact: fruitFact, quotes: [fruitCitation] };
 
   test("requires an explicit relevance choice before creating a memory", async () => {
     let writes = 0;
@@ -129,7 +139,7 @@ describe("manage_memory", () => {
     );
     expect(result.success).toBe(true);
     expect(calls[0]?.[0]).toBe("personal/when/food/favorite-fruit.md");
-    expect(calls[0]?.[1]).toBe('The user said: "My favorite fruit is banana."\n');
+    expect(calls[0]?.[1]).toBe(`${fruitFact}\nThe user said: "My favorite fruit is banana."\n`);
     expect(calls[0]?.[2]).toMatchObject({
       quotedSentenceKeys: quotedSentenceKeys(
         { id: "user:1", text: "My favorite fruit is banana." },
@@ -137,6 +147,71 @@ describe("manage_memory", () => {
       ),
       entry: { origin: "user" },
     });
+  });
+
+  test("backs one fact with quotes from several user messages", async () => {
+    const calls: unknown[][] = [];
+    const service: Partial<MemoryService> = {
+      create: (...args) => {
+        calls.push(args);
+        return Effect.succeed({ success: true, message: "created" });
+      },
+    };
+    const stage = "I'm a pre seed company.";
+    const hiring = "We are hiring all levels from junior to principal but I need smart people.";
+    const result = await runWithMemory(
+      service as MemoryService,
+      createManageMemoryTool().execute(
+        {
+          command: "create",
+          subject: "Hiring",
+          topic: "company hiring",
+          fact: "Runs a pre-seed startup hiring junior to principal engineers; the bar is raw intelligence.",
+          quotes: [
+            { source_ref: "user:stage", source_quote: stage },
+            { source_ref: "user:hiring", source_quote: hiring },
+          ],
+        },
+        {
+          ...context,
+          memorySources: [
+            { id: "user:stage", text: stage },
+            { id: "user:hiring", text: hiring },
+          ],
+        },
+      ),
+    );
+    expect(result.success).toBe(true);
+    expect(calls[0]?.[1]).toBe(
+      "Runs a pre-seed startup hiring junior to principal engineers; the bar is raw intelligence.\n" +
+        `The user said: ${JSON.stringify(stage)}\n` +
+        `The user said: ${JSON.stringify(hiring)}\n`,
+    );
+  });
+
+  test("rejects the whole write when any quote is not the user's", async () => {
+    let writes = 0;
+    const service: Partial<MemoryService> = {
+      create: () => {
+        writes += 1;
+        return Effect.succeed({ success: true, message: "created" });
+      },
+    };
+    const result = await runWithMemory(
+      service as MemoryService,
+      createManageMemoryTool().execute(
+        {
+          command: "create",
+          subject: "Favorite fruit",
+          topic: "Food",
+          fact: fruitFact,
+          quotes: [fruitCitation, { source_ref: "tool:7", source_quote: "pineapple" }],
+        },
+        context,
+      ),
+    );
+    expect(result.success).toBe(false);
+    expect(writes).toBe(0);
   });
 
   test("allows an explicit global instruction to live in always", async () => {
@@ -153,10 +228,10 @@ describe("manage_memory", () => {
       createManageMemoryTool().execute(
         {
           command: "create",
+          fact: "A durable fact about them.",
           subject: "Reply length",
           topic: "always",
-          source_ref: "user:concise",
-          source_quote: quote,
+          quotes: [{ source_ref: "user:concise", source_quote: quote }],
         },
         { ...context, memorySources: [{ id: "user:concise", text: quote }] },
       ),
@@ -180,7 +255,13 @@ describe("manage_memory", () => {
       const result = await runWithMemory(
         service as MemoryService,
         createManageMemoryTool().execute(
-          { command: "create", subject: "Favorite fruit", topic: "Food", ...bad },
+          {
+            command: "create",
+            subject: "Favorite fruit",
+            topic: "Food",
+            fact: fruitFact,
+            quotes: [bad],
+          },
           context,
         ),
       );
@@ -203,10 +284,10 @@ describe("manage_memory", () => {
       createManageMemoryTool().execute(
         {
           command: "create",
+          fact: "A durable fact about them.",
           subject: "API key",
           topic: "security",
-          source_ref: "user:secret",
-          source_quote: claim,
+          quotes: [{ source_ref: "user:secret", source_quote: claim }],
         },
         { ...context, memorySources: [{ id: "user:secret", text: claim }] },
       ),
@@ -228,10 +309,10 @@ describe("manage_memory", () => {
       createManageMemoryTool().execute(
         {
           command: "create",
+          fact: "A durable fact about them.",
           subject: "favorite fruit",
           topic: "food",
-          source_ref: "user:forget",
-          source_quote: "Forget my favorite fruit.",
+          quotes: [{ source_ref: "user:forget", source_quote: "Forget my favorite fruit." }],
         },
         {
           ...context,
@@ -267,16 +348,18 @@ describe("manage_memory", () => {
       createManageMemoryTool().execute(
         {
           command: "amend",
+          fact: mangoFact,
           path: "personal/when/food/favorite-fruit.md",
-          source_ref: "user:2",
-          source_quote: correction,
+          quotes: [{ source_ref: "user:2", source_quote: correction }],
         },
         { ...context, memorySources: [{ id: "user:2", text: correction }] },
       ),
     );
     expect(result.success).toBe(true);
     expect(replacement?.[1]).toBe('The user said: "My favorite fruit is banana."\n');
-    expect(replacement?.[2]).toBe('The user said: "Actually, my favorite fruit is mango."\n');
+    expect(replacement?.[2]).toBe(
+      `${mangoFact}\nThe user said: "Actually, my favorite fruit is mango."\n`,
+    );
   });
 
   const fruitEntryView = {
@@ -318,7 +401,7 @@ describe("manage_memory", () => {
     const passive = await runWithMemory(
       service,
       createManageMemoryTool().execute(
-        { command: "delete", path: "personal/when/food/favorite-fruit.md", ...citation },
+        { command: "delete", path: "personal/when/food/favorite-fruit.md", ...fruitCitation },
         context,
       ),
     );
@@ -365,9 +448,9 @@ describe("manage_memory", () => {
       createManageMemoryTool().execute(
         {
           command: "amend",
+          fact: mangoFact,
           path: "personal/when/food/favorite-fruit.md",
-          source_ref: "user:4",
-          source_quote: "hello",
+          quotes: [{ source_ref: "user:4", source_quote: "hello" }],
         },
         { ...context, memorySources: [{ id: "user:4", text: "hello" }] },
       ),
@@ -461,7 +544,7 @@ describe("manage_memory", () => {
           change: {
             command: "create",
             path: "personal/when/food/favorite-fruit.md",
-            content: 'The user said: "My favorite fruit is banana."\n',
+            content: `${fruitFact}\nThe user said: "My favorite fruit is banana."\n`,
           },
           quote: "My favorite fruit is banana.",
           quotedSentenceKeys: quotedSentenceKeys(
@@ -504,9 +587,9 @@ describe("manage_memory", () => {
         createManageMemoryTool().execute(
           {
             command: "amend",
+            fact: mangoFact,
             path: "personal/when/food/favorite-fruit.md",
-            source_ref: "user:2",
-            source_quote: correction,
+            quotes: [{ source_ref: "user:2", source_quote: correction }],
           },
           { ...extractorContext, memorySources: [{ id: "user:2", text: correction }] },
         ),
@@ -518,7 +601,7 @@ describe("manage_memory", () => {
         command: "amend",
         path: "personal/when/food/favorite-fruit.md",
         previousContent: 'The user said: "My favorite fruit is banana."\n',
-        content: 'The user said: "Actually, my favorite fruit is mango."\n',
+        content: `${mangoFact}\nThe user said: "Actually, my favorite fruit is mango."\n`,
       });
     });
 
@@ -544,7 +627,7 @@ describe("manage_memory", () => {
       const result = await runWithMemory(
         service,
         createManageMemoryTool().execute(
-          { command: "delete", path: "personal/when/food/favorite-fruit.md", ...citation },
+          { command: "delete", path: "personal/when/food/favorite-fruit.md", ...fruitCitation },
           extractorContext,
         ),
       );
@@ -562,10 +645,10 @@ describe("manage_memory", () => {
       tool.execute(
         {
           command: "create",
+          fact: "A durable fact about them.",
           subject: "Fruit",
           topic: "Food",
-          source_ref: "tool:7",
-          source_quote: "banana",
+          quotes: [{ source_ref: "tool:7", source_quote: "banana" }],
         },
         context,
       ),
@@ -576,10 +659,10 @@ describe("manage_memory", () => {
       tool.execute(
         {
           command: "create",
+          fact: "A durable fact about them.",
           subject: "Fruit",
           topic: "Food",
-          source_ref: "user:1",
-          source_quote: "pineapple",
+          quotes: [{ source_ref: "user:1", source_quote: "pineapple" }],
         },
         context,
       ),

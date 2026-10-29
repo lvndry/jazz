@@ -9,6 +9,7 @@ import {
   isForgetInstruction,
   isSensitiveUserClaim,
   quoteNamesEntry,
+  storedClaimText,
   requestsMemoryChange,
   typedText,
   verifyMemorySourceQuote,
@@ -17,7 +18,7 @@ import {
 const fruitSource: MemorySource = { id: "user:current", text: "My favorite fruit is banana." };
 const fruitEntry = {
   path: "personal/when/food/favorite-fruit.md",
-  content: formatStoredUserClaim("My favorite fruit is mango."),
+  content: formatStoredUserClaim("Their favorite fruit is mango.", ["My favorite fruit is mango."]),
 };
 
 function source(text: string): MemorySource {
@@ -52,30 +53,52 @@ describe("verifyMemorySourceQuote", () => {
     ).toEqual({ ok: false, reason: "quote_length" });
   });
 
+  test("leads with the fact and keeps one quote line per cited sentence", () => {
+    const entry = formatStoredUserClaim("Runs a pre-seed startup\n hiring all levels.", [
+      "I'm a pre seed company.",
+      "We are hiring all levels from junior to principal.",
+    ]);
+    expect(entry).toBe(
+      'Runs a pre-seed startup hiring all levels.\nThe user said: "I\'m a pre seed company."\n' +
+        'The user said: "We are hiring all levels from junior to principal."\n',
+    );
+    expect(storedClaimText(entry)).toBe(
+      "I'm a pre seed company.\nWe are hiring all levels from junior to principal.",
+    );
+  });
+
+  test("reads the quote of an entry saved as a quote alone", () => {
+    expect(storedClaimText('The user said: "Banana."\n')).toBe("Banana.");
+  });
+
   test("stores exactly the cited words rather than a model claim", () => {
-    expect(formatStoredUserClaim("My favorite fruit is banana.")).toBe(
-      'The user said: "My favorite fruit is banana."\n',
+    expect(formatStoredUserClaim("Fact.", ["My favorite fruit is banana."])).toBe(
+      'Fact.\nThe user said: "My favorite fruit is banana."\n',
     );
   });
 
   test("stores the rule rather than the request to remember it", () => {
     expect(
-      formatStoredUserClaim(
+      formatStoredUserClaim("Fact.", [
         "keep in memory to check for existing products before suggesting building a new one",
-      ),
-    ).toBe('The user said: "Check for existing products before suggesting building a new one"\n');
-    expect(formatStoredUserClaim("Please remember that my sister is Ana.")).toBe(
-      'The user said: "My sister is Ana."\n',
+      ]),
+    ).toBe(
+      'Fact.\nThe user said: "Check for existing products before suggesting building a new one"\n',
+    );
+    expect(formatStoredUserClaim("Fact.", ["Please remember that my sister is Ana."])).toBe(
+      'Fact.\nThe user said: "My sister is Ana."\n',
     );
   });
 
   test("keeps a quote that is nothing but the request", () => {
-    expect(formatStoredUserClaim("Remember that.")).toBe('The user said: "Remember that."\n');
+    expect(formatStoredUserClaim("Fact.", ["Remember that."])).toBe(
+      'Fact.\nThe user said: "Remember that."\n',
+    );
   });
 
   test("keeps a quote whose verb is part of the fact", () => {
-    expect(formatStoredUserClaim("I remember names better than faces.")).toBe(
-      'The user said: "I remember names better than faces."\n',
+    expect(formatStoredUserClaim("Fact.", ["I remember names better than faces."])).toBe(
+      'Fact.\nThe user said: "I remember names better than faces."\n',
     );
   });
 });

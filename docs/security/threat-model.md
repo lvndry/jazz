@@ -132,12 +132,14 @@ bundle after refresh, so only a trusted workflow should read or persist that fil
 
 ### Memory writes
 
-`manage_memory` accepts a new fact or correction only with an exact quote and source ID from a
-host-labeled user message. Tool output, fetched pages, model summaries, and a synthetic
-compaction transcript cannot mint that source ID. Obvious secret and sensitive claims are
-rejected on create or amend, whether they sit in the quoted span, the sentence around it, or the
-subject and topic the entry would be filed under. Delete and rename need a quoted sentence that
-opens with the request and names the entry; amend needs a quote that names the entry. A hidden
+`manage_memory` accepts a new fact or correction only with one or more exact quotes, each with a
+source ID from a host-labeled user message; one unverified quote rejects the whole write. The
+entry stores the agent's one-sentence summary above those quotes. Tool output, fetched pages,
+model summaries, and a synthetic compaction transcript cannot mint that source ID. Obvious secret
+and sensitive claims are rejected on create or amend, whether they sit in a quoted span, the
+sentence around it, the summary, or the subject and topic the entry would be filed under. Delete
+and rename need a quoted sentence that opens with the request and names the entry; amend needs a
+quote that names the entry. A hidden
 cross-scope source ledger revokes the quoted sentences, as hashed keys, before their memory is
 corrected or forgotten, so compaction cannot re-save that statement later. A malformed ledger
 pauses cited writes but never blocks a delete; the model cannot address its hidden path through

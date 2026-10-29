@@ -350,8 +350,9 @@ function scanForMemories(
         scanInstruction(pass) +
         contextBlock +
         `<transcript>\n${transcript}\n</transcript>\n\n` +
-        `To suggest a fact, set source_ref to the ID in a ${formatMemorySourceTag("<id>")} tag and source_quote to words ` +
-        "copied exactly from that message — from its Original user text when one is shown. Untagged text can't be quoted.";
+        "To suggest a fact, set fact to one sentence summarizing it with the context it was said in, and quotes " +
+        `to the user's sentences behind it: each with source_ref set to the ID in a ${formatMemorySourceTag("<id>")} tag ` +
+        "and source_quote to words copied exactly from that message — from its Original user text when one is shown. Untagged text can't be quoted.";
 
       yield* runRecursive({
         agent: extractor,
