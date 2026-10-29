@@ -99,6 +99,16 @@ jazz config set llm.openrouter.zdr true
 
 `/settings` → **Model providers** → **OpenRouter** asks the same question after the API key. A project's `.jazz/config.json` can turn it on but not off: Jazz ignores `false` there and says so, so a cloned repository cannot weaken your global setting. The setting covers only OpenRouter's model routing; a web search provider configured in Jazz keeps its own retention policy. OpenRouter lists the eligible endpoints at `https://openrouter.ai/api/v1/endpoints/zdr` and can also enforce the policy for a whole account under its [privacy settings](https://openrouter.ai/settings/privacy); see its [zero data retention guide](https://openrouter.ai/docs/features/zdr).
 
+### Endpoint order
+
+By default OpenRouter spreads requests across a model's endpoints, weighted toward cheaper ones. Set `llm.openrouter.sort` to try endpoints in a fixed order instead: `price` (cheapest first), `throughput` (most tokens per second first) or `latency` (fastest first token first). Jazz sends it as OpenRouter's `provider.sort` routing option, and OpenRouter still falls back to the next endpoint when one fails.
+
+```bash
+jazz config set llm.openrouter.sort price
+```
+
+Prices for one model can differ several times over between endpoints, so `price` lowers the cost of long agent runs. It combines with `llm.openrouter.zdr`, which first narrows the endpoints to those that keep no data. See OpenRouter's [provider routing guide](https://openrouter.ai/docs/features/provider-routing).
+
 ## Vercel AI Gateway
 
 Vercel AI Gateway can select among upstream providers and reports the per-call amount in `providerMetadata.gateway.cost`. Jazz uses that amount when available. See Vercel's [AI Gateway pricing guide](https://vercel.com/academy/ai-gateway/ai-gateway-pricing).

@@ -58,7 +58,7 @@ import type {
   NetworkConfig,
   BrowserConfig,
 } from "@/core/types/config";
-import { WEB_SEARCH_PROVIDERS } from "@/core/types/config";
+import { OPENROUTER_PROVIDER_SORTS, WEB_SEARCH_PROVIDERS } from "@/core/types/config";
 import { DISCLOSURE_TIERS } from "@/core/types/disclosure-tier";
 import type { HostProfile } from "@/core/types/host";
 import {
@@ -322,6 +322,7 @@ const llmShape = {
     .strictObject({
       api_key: text.exactOptional(),
       zdr: flag.exactOptional(),
+      sort: z.enum(OPENROUTER_PROVIDER_SORTS).exactOptional(),
     } satisfies SchemaShape<OpenRouterProviderConfig>)
     .exactOptional(),
   orcarouter: apiKeyOnly,

@@ -118,6 +118,8 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "How long Ollama keeps the model loaded, such as `30m`, or `-1` to keep it resident.",
   "llm.openrouter.zdr":
     "Send OpenRouter requests only to endpoints that retain no prompts or responses. See [Model providers](./providers.md#zero-data-retention).",
+  "llm.openrouter.sort":
+    "Send OpenRouter requests to the cheapest (`price`), fastest (`throughput`) or quickest-to-answer (`latency`) endpoint first instead of load balancing across them. See [Model providers](./providers.md#endpoint-order).",
   "web_search.<provider>.api_key": "API key for the web search provider.",
   "web_search.provider": "Web search provider agents use when an agent does not name one.",
   "output.showReasoning": "Show the model's reasoning. Defaults to true.",

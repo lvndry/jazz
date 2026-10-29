@@ -400,6 +400,49 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(providerFieldByZdr.get(false)).toBeUndefined();
     });
 
+    it("sends OpenRouter's provider sort when llm.openrouter.sort is set", async () => {
+      let providerField: unknown;
+      const original = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (init?.method === "POST" && url.includes("/chat/completions")) {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+          providerField = body["provider"];
+        }
+        return new Response(JSON.stringify({ error: { message: "stubbed" } }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+      try {
+        await Effect.runPromiseExit(
+          (
+            Effect.gen(function* () {
+              const llmService = yield* LLMServiceTag;
+              return yield* llmService.createChatCompletion("openrouter", {
+                model: "test/model",
+                messages: [{ role: "user", content: "hello" }],
+              });
+            }) as Effect.Effect<unknown, unknown, LLMService>
+          ).pipe(
+            Effect.provide(createAISDKServiceLayer()),
+            Effect.provide(
+              createTestConfigLayer({ openrouter: { api_key: "sk-or-test", sort: "price" } }),
+            ),
+            Effect.provide(createLoggerLayer()),
+            Effect.provide(
+              NodeFileSystem.layer as Layer.Layer<FileSystem.FileSystem, never, never>,
+            ),
+          ) as Effect.Effect<unknown, unknown, never>,
+        );
+      } finally {
+        globalThis.fetch = original;
+      }
+
+      expect(providerField).toEqual({ sort: "price" });
+    });
+
     it("aborts a non-streaming request when Jazz stops waiting on it", async () => {
       let requestSignal: AbortSignal | undefined;
       const original = globalThis.fetch;
@@ -2005,6 +2048,20 @@ describe("openRouterChatSettings", () => {
     });
     expect(openRouterChatSettings(undefined)).toEqual({ usage: { include: true } });
   });
+
+  it("orders endpoints by the configured sort", () => {
+    expect(openRouterChatSettings({ openrouter: { sort: "price" } })).toEqual({
+      usage: { include: true },
+      provider: { sort: "price" },
+    });
+  });
+
+  it("sends zdr and sort together", () => {
+    expect(openRouterChatSettings({ openrouter: { zdr: true, sort: "throughput" } })).toEqual({
+      usage: { include: true },
+      provider: { zdr: true, sort: "throughput" },
+    });
+  });
 });
 
 describe("buildProviderCacheFingerprint - openrouter", () => {
@@ -2017,6 +2074,18 @@ describe("buildProviderCacheFingerprint - openrouter", () => {
     });
 
     expect(open).not.toBe(restricted);
+  });
+
+  it("changes when the sort changes so a cached model never keeps the old order", () => {
+    expect(
+      buildProviderCacheFingerprint("openrouter", {
+        openrouter: { api_key: "sk-or-test", sort: "price" },
+      }),
+    ).not.toBe(
+      buildProviderCacheFingerprint("openrouter", {
+        openrouter: { api_key: "sk-or-test", sort: "latency" },
+      }),
+    );
   });
 
   it("changes when the API key changes", () => {

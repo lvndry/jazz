@@ -376,10 +376,15 @@ export interface SglangProviderConfig {
   readonly base_url?: string;
 }
 
+export const OPENROUTER_PROVIDER_SORTS = ["price", "throughput", "latency"] as const;
+export type OpenRouterProviderSort = (typeof OPENROUTER_PROVIDER_SORTS)[number];
+
 export interface OpenRouterProviderConfig {
   readonly api_key?: string;
   /** Route every request only to endpoints that retain no prompts or responses. */
   readonly zdr?: boolean;
+  /** Prefer endpoints by this measure instead of OpenRouter's price-weighted load balancing. */
+  readonly sort?: OpenRouterProviderSort;
 }
 
 export interface AnthropicProviderConfig {
