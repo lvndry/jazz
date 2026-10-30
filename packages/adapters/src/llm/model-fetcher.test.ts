@@ -159,6 +159,39 @@ describe("ModelFetcher", () => {
     ]);
   });
 
+  it("reads Refuseless context and reasoning from the listing and prices from its table", async () => {
+    global.fetch = mock(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            data: [
+              {
+                id: "deepseek-v4.1-flash-fast",
+                context_length: 1_048_576,
+                reasoning_efforts: ["off", "low", "high", "max"],
+              },
+              { id: "unpriced-model", context_length: 32_768 },
+            ],
+          }),
+      }),
+    ) as unknown as typeof fetch;
+
+    const [priced, unpriced] = await Effect.runPromise(
+      fetcher.fetchModels("refuseless", "https://api.refuseless.com", "/v1/models", "key"),
+    );
+
+    expect(priced).toMatchObject({
+      contextWindow: 1_048_576,
+      supportsTools: true,
+      isReasoningModel: true,
+      inputPricePerMillion: 0.05,
+      outputPricePerMillion: 0.15,
+    });
+    expect(unpriced).toMatchObject({ contextWindow: 32_768, isReasoningModel: false });
+    expect(unpriced?.inputPricePerMillion).toBeUndefined();
+  });
+
   it("scopes catalog metadata to the listing provider before any other host's entry", async () => {
     const { getMetadataFromMap } = await import("@jazz/core/utils/models-dev");
     const lookup = getMetadataFromMap as unknown as ReturnType<typeof mock>;

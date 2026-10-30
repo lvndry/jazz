@@ -29,6 +29,7 @@ import { ChatGPTSignInRequiredError } from "./chatgpt/credentials";
 import { fetchChatGPTModels } from "./chatgpt/transport";
 import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { hasReasoningParser } from "./reasoning";
+import { REFUSELESS_PRICES } from "./refuseless-pricing";
 
 /**
  * How long a probe of a local model server (`/props`, `/models`, `/api/show`) may take. These
@@ -93,6 +94,10 @@ function resolveToModelInfo(
       : getMetadataFromMap(devMap, entry.id, catalogProvider, { anyProvider: false });
   const dev = own ?? getMetadataFromMap(devMap, entry.id);
   const priced = catalogProvider === undefined || own !== undefined;
+  const fb = entry.fallback;
+  const inputPrice = (priced ? dev?.inputPricePerMillion : undefined) ?? fb?.inputPricePerMillion;
+  const outputPrice =
+    (priced ? dev?.outputPricePerMillion : undefined) ?? fb?.outputPricePerMillion;
   if (dev) {
     return {
       id: entry.id,
@@ -107,18 +112,11 @@ function resolveToModelInfo(
       generatesImage: dev.generatesImage,
       generatesAudio: dev.generatesAudio,
       generatesVideo: dev.generatesVideo,
-      ...(priced &&
-        dev.inputPricePerMillion !== undefined && {
-          inputPricePerMillion: dev.inputPricePerMillion,
-        }),
-      ...(priced &&
-        dev.outputPricePerMillion !== undefined && {
-          outputPricePerMillion: dev.outputPricePerMillion,
-        }),
+      ...(inputPrice !== undefined && { inputPricePerMillion: inputPrice }),
+      ...(outputPrice !== undefined && { outputPricePerMillion: outputPrice }),
       supportsTemperature: dev.supportsTemperature,
     };
   }
-  const fb = entry.fallback;
   return {
     id: entry.id,
     displayName: entry.displayName,
@@ -129,6 +127,8 @@ function resolveToModelInfo(
     ingestPdf: fb?.ingestPdf ?? false,
     ingestAudio: fb?.ingestAudio ?? false,
     ingestVideo: fb?.ingestVideo ?? false,
+    ...(inputPrice !== undefined && { inputPricePerMillion: inputPrice }),
+    ...(outputPrice !== undefined && { outputPricePerMillion: outputPrice }),
     supportsTemperature: fb?.supportsTemperature ?? true,
   };
 }
@@ -762,8 +762,19 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
     }));
   },
   refuseless: (data: unknown) => {
-    const response = data as { data?: { id: string }[] };
-    return (response.data ?? []).map((model) => ({ id: model.id, displayName: model.id }));
+    const response = data as {
+      data?: { id: string; context_length?: number; reasoning_efforts?: string[] }[];
+    };
+    return (response.data ?? []).map((model) => ({
+      id: model.id,
+      displayName: model.id,
+      fallback: {
+        contextWindow: model.context_length ?? DEFAULT_CONTEXT_WINDOW,
+        supportsTools: true,
+        isReasoningModel: (model.reasoning_efforts ?? []).length > 0,
+        ...REFUSELESS_PRICES[model.id],
+      },
+    }));
   },
   togetherai: (data: unknown) => {
     const models = data as {

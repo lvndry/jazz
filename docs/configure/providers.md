@@ -125,7 +125,7 @@ jazz agent create
 
 ## Refuseless
 
-The `refuseless` provider talks to Refuseless at `https://api.refuseless.com/v1`, an OpenAI-compatible API that serves abliterated open-weight models alongside models with their original weights. Jazz lists the models your key can call from `/v1/models`. Context windows and pricing come from the models.dev catalog when it lists the model; otherwise a model gets a 128,000-token window and no price.
+The `refuseless` provider talks to Refuseless at `https://api.refuseless.com/v1`, an OpenAI-compatible API that serves abliterated open-weight models alongside models with their original weights. Jazz lists the models your key can call from `/v1/models` and reads each model's context window and whether it reasons from that listing. Refuseless reports no prices, so Jazz carries the published rates for its current models; a model Jazz has no rate for shows no price.
 
 ```bash
 export REFUSELESS_API_KEY="..."
