@@ -516,6 +516,17 @@ describe("UIStore", () => {
       expect(region.tail).toEqual(["third", "fourth", "fifth"]);
     });
 
+    test("replaceEphemeral swaps the whole tail instead of adding to it", () => {
+      const store = new UIStore();
+      const id = store.openEphemeral("subagent", "Compacting", 3);
+
+      store.appendEphemeral(id, "Reviewing tool results…");
+      store.replaceEphemeral(id, "frame one");
+      store.replaceEphemeral(id, "phase\nframe two");
+
+      expect(store.getEphemeralRegionsSnapshot()[0]!.tail).toEqual(["phase", "frame two"]);
+    });
+
     test("appendEphemeral targets only the specified region", () => {
       const s = new UIStore();
       const a = s.openEphemeral("reasoning", "Reasoning", 8);

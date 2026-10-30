@@ -1411,6 +1411,12 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
+  replaceEphemeralRegion(regionId: string, text: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.replaceEphemeral(regionId, text);
+    });
+  }
+
   collapseEphemeralRegion(
     regionId: string,
     label: string,

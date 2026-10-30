@@ -94,7 +94,7 @@ import { closestMatch, formatCompactCount } from "@jazz/core/utils/string";
 import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
 import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
-import { Effect, FileSystem, Option } from "effect";
+import { Effect, Fiber, FileSystem, Option } from "effect";
 import {
   chatModeForPolicy,
   policyForChatMode,
@@ -120,12 +120,14 @@ import {
 } from "@/cli/helpers/reasoning";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { activeKeymapMode, bindingLabel, KEYMAPS } from "@/cli/ui/keymaps";
+import { contextPercent } from "@/cli/ui/meter";
 import { store } from "@/cli/ui/store";
 import { applyTheme, listThemes, themeWarnings, type ThemeListing } from "@/cli/ui/theme";
 import { pickThemeInteractively } from "@/cli/ui/theme-picker-prompt";
 import { getUserThemesDirectory } from "@/cli/ui/themes/registry";
 import * as fmt from "@/cli/utils/list-format";
 import { truncate } from "@/cli/utils/string-utils";
+import { drainedPercent, planCompactionMeter, renderCompactionMeter } from "./compaction-meter";
 import {
   CHAT_COMMANDS,
   commandUsage,
@@ -1262,6 +1264,9 @@ function compactionPhaseLines(event: CompactionProgress): string[] {
   }
 }
 
+/** How often the compaction meter redraws; fast enough to read as a drain, slow enough to stay cheap. */
+const METER_FRAME_INTERVAL_MS = 200;
+
 /**
  * Handle /compact command - compact history now, exactly as automatic compaction would.
  *
@@ -1328,7 +1333,8 @@ function handleCompactCommand(
     }).tokens;
 
     // A live region shows the work as it happens: the plugin's keep/truncate/drop calls,
-    // then the summarizer. Its header ticks a running clock, so a slow summary reads as
+    // then the summarizer. A context meter starts at the window's current fill and drains as
+    // the work frees it; its header ticks a running clock, so a slow summary reads as
     // in-progress rather than frozen.
     const presentationService = yield* PresentationServiceTag;
     const startedAt = Date.now();
@@ -1336,15 +1342,52 @@ function handleCompactCommand(
       "subagent",
       `Compacting ${conversationHistory.length - 1} messages`,
     );
+    const replaceRegion = presentationService.replaceEphemeralRegion;
+    const modelHint = { provider, modelId: agent.config.llm.model };
+    const meterPlan = planCompactionMeter(
+      DEFAULT_TOKEN_COUNTER.countMessages(conversationHistory, modelHint) +
+        DEFAULT_TOKEN_COUNTER.overheadFor(modelHint),
+      contextWindow,
+    );
+    const glyphs = getGlyphs();
+    const phaseLines: string[] = [];
+    let reclaimedPercent = 0;
+    let drainStartedAt: number | undefined;
+    const renderRegion = (): Effect.Effect<void> => {
+      if (replaceRegion === undefined) return Effect.void;
+      const drainElapsedMs = drainStartedAt === undefined ? 0 : Date.now() - drainStartedAt;
+      const meter = renderCompactionMeter(
+        drainedPercent(meterPlan, drainElapsedMs, reclaimedPercent),
+        glyphs,
+      );
+      return replaceRegion(regionId, [...phaseLines, meter].join("\n"));
+    };
     let firstAppend = true;
     const onPhase: CompactionProgressObserver = (event) =>
       Effect.suspend(() => {
         const lines = compactionPhaseLines(event);
+        if (event.phase === "prune-done") {
+          reclaimedPercent = contextPercent(event.tokensReclaimed, contextWindow);
+        } else if (event.phase === "summarize-start") {
+          drainStartedAt = Date.now();
+        }
+        if (replaceRegion !== undefined) {
+          phaseLines.push(...lines);
+          return renderRegion();
+        }
         if (lines.length === 0) return Effect.void;
         const text = (firstAppend ? "" : "\n") + lines.join("\n");
         firstAppend = false;
         return presentationService.appendEphemeralRegion(regionId, text);
       });
+
+    // The composer takes messages for the next turn while compaction runs, as it does during
+    // a turn.
+    store.setChatBusy(true);
+    const meterFiber = yield* Effect.forkChild(
+      Effect.forever(Effect.andThen(Effect.sleep(METER_FRAME_INTERVAL_MS), renderRegion())),
+    );
+    yield* renderRegion();
 
     let compactionFailed = false;
     const outcome = yield* AgentRunner.compactHistory(
@@ -1362,12 +1405,16 @@ function handleCompactCommand(
         }),
       ),
       Effect.ensuring(
-        Effect.suspend(() =>
-          presentationService.collapseEphemeralRegion(regionId, "Compaction", {
-            status: compactionFailed ? "failed" : "completed",
-            durationMs: Date.now() - startedAt,
-          }),
-        ),
+        Effect.suspend(() => {
+          store.setChatBusy(false);
+          return Effect.andThen(
+            Fiber.interrupt(meterFiber),
+            presentationService.collapseEphemeralRegion(regionId, "Compaction", {
+              status: compactionFailed ? "failed" : "completed",
+              durationMs: Date.now() - startedAt,
+            }),
+          );
+        }),
       ),
     );
 

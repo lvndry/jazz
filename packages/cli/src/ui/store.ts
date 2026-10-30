@@ -1190,6 +1190,16 @@ export class UIStore {
     this.publishEphemeralRegions();
   };
 
+  replaceEphemeral = (id: EphemeralRegionId, text: string): void => {
+    const region = this.ephemeralRegions.get(id);
+    if (!region) return;
+    const lines = text.split("\n");
+    const tail =
+      lines.length > region.maxLines ? lines.slice(lines.length - region.maxLines) : lines;
+    this.ephemeralRegions.set(id, { ...region, tail });
+    this.publishEphemeralRegions();
+  };
+
   setCollapseReasoning = (enabled: boolean): void => {
     this.collapseReasoning = enabled;
   };
