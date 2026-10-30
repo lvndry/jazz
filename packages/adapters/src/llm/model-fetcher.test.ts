@@ -159,7 +159,7 @@ describe("ModelFetcher", () => {
     ]);
   });
 
-  it("reads Refuseless context and reasoning from the listing and prices from its table", async () => {
+  it("reads Refuseless context and reasoning from the listing and reports no price", async () => {
     global.fetch = mock(() =>
       Promise.resolve({
         ok: true,
@@ -185,9 +185,9 @@ describe("ModelFetcher", () => {
       contextWindow: 1_048_576,
       supportsTools: true,
       isReasoningModel: true,
-      inputPricePerMillion: 0.05,
-      outputPricePerMillion: 0.15,
     });
+    expect(priced?.inputPricePerMillion).toBeUndefined();
+    expect(priced?.outputPricePerMillion).toBeUndefined();
     expect(unpriced).toMatchObject({ contextWindow: 32_768, isReasoningModel: false });
     expect(unpriced?.inputPricePerMillion).toBeUndefined();
   });
