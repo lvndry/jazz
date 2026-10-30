@@ -1835,7 +1835,7 @@ class AISDKService implements LLMService {
     }
 
     return listModelsForProvider(providerName, {
-      apiKey: configuredProviderApiKey(llmConfig, providerName),
+      apiKey: resolveProviderApiKey(providerName, llmConfig),
       llmConfig,
     }).pipe(
       Effect.tap((models) =>
