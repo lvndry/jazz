@@ -17,13 +17,13 @@
     "src/"
   ],
   "dependencies": {
-    "@ai-sdk/provider": "^4.0.29",
+    "@ai-sdk/provider": "^4.0.35",
     "@effect/platform-node": "^4.0.5",
     "@modelcontextprotocol/client": "^2.3.1",
     "@noble/hashes": "^2.4.0",
     "@perplexity-ai/perplexity_ai": "^0.39.0",
     "@resvg/resvg-js": "^2.6.2",
-    "ai": "^7.0.143",
+    "ai": "^7.0.158",
     "chalk": "^6.0.1",
     "cron-parser": "^5.10.2",
     "cronstrue": "^3.32.0",

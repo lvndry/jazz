@@ -1,5 +1,5 @@
 ---
-description: "How Jazz stays provider-agnostic across 24 LLM providers, and what it does about the places providers genuinely differ."
+description: "How Jazz stays provider-agnostic across 25 LLM providers, and what it does about the places providers genuinely differ."
 ---
 
 # Providers & models
@@ -14,7 +14,7 @@ Source:
 
 ---
 
-## One port, 24 providers
+## One port, 25 providers
 
 `core/` defines an `LLMService` interface. `adapters/src/llm/ai-sdk-service.ts` is the only
 implementation, and it delegates to the Vercel AI SDK.
@@ -31,6 +31,7 @@ flowchart TB
         C2["Mistral · DeepSeek · Groq · Cerebras"]
         C3["Fireworks · TogetherAI · Alibaba"]
         C4["Moonshot · MiniMax · Zhipu · NVIDIA NIM"]
+        C5["Claude Code: your own signed-in claude, tools stay in Jazz"]
     end
 
     subgraph aggregators["Aggregators"]

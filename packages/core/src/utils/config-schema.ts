@@ -30,6 +30,7 @@ import type {
   AnthropicProviderConfig,
   ChatConfig,
   ChatGPTProviderConfig,
+  ClaudeCodeProviderConfig,
   AppConfig,
   ContextConfig,
   CostCaps,
@@ -295,6 +296,12 @@ const llmShape = {
       account_id: text.exactOptional(),
       plan: text.exactOptional(),
     } satisfies SchemaShape<ChatGPTProviderConfig>)
+    .exactOptional(),
+  claude_code: z
+    .strictObject({
+      enabled: z.boolean().exactOptional(),
+      cli_path: text.exactOptional(),
+    } satisfies SchemaShape<ClaudeCodeProviderConfig>)
     .exactOptional(),
   deepseek: apiKeyOnly,
   fireworks: apiKeyOnly,

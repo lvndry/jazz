@@ -26,6 +26,7 @@ export const DEFAULT_CONTEXT_WINDOW = 128_000;
 export const AVAILABLE_PROVIDERS = [
   "openai",
   "chatgpt",
+  "claude_code",
   "anthropic",
   "gemini",
   "openrouter",

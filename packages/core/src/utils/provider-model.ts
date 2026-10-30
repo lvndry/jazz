@@ -12,6 +12,7 @@ const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   anthropic: "Anthropic",
   cerebras: "Cerebras",
   chatgpt: "ChatGPT",
+  claude_code: "Claude Code",
   deepseek: "DeepSeek",
   fireworks: "Fireworks",
   gemini: "Gemini",
@@ -104,6 +105,11 @@ export function configuredProviderApiKey(
 /** Whether a ChatGPT subscription sign-in is recorded in config. */
 export function isChatGPTSignedIn(llmConfig: LLMConfig | undefined): boolean {
   return (llmConfig?.chatgpt?.account_id ?? "").length > 0;
+}
+
+/** Whether the user enabled the Claude Code subscription provider. */
+export function isClaudeCodeEnabled(llmConfig: LLMConfig | undefined): boolean {
+  return llmConfig?.claude_code?.enabled === true;
 }
 
 /**

@@ -444,6 +444,11 @@ function providerReadiness(
       ? { tag: "signed in", tagTone: "success" }
       : { tag: "sign in", tagTone: "muted" };
   }
+  if (provider === "claude_code") {
+    return configured.has(provider)
+      ? { tag: "enabled", tagTone: "success" }
+      : { tag: "set up", tagTone: "muted" };
+  }
   return configured.has(provider)
     ? { tag: "key saved", tagTone: "success" }
     : { tag: "needs a key", tagTone: "muted" };

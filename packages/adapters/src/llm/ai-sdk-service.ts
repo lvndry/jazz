@@ -80,6 +80,7 @@ import {
   configuredProviderApiKey,
   formatProviderDisplayName,
   isChatGPTSignedIn,
+  isClaudeCodeEnabled,
   unknownProviderMessage,
 } from "@jazz/core/utils/provider-model";
 import { sanitize } from "@jazz/core/utils/string";
@@ -110,6 +111,7 @@ import {
   type TypedToolCall,
   zodSchema,
 } from "ai";
+import { claudeCode } from "ai-sdk-provider-claude-code";
 import { Cause, Chunk, Duration, Effect, Exit, Layer, Option, Queue, Stream } from "effect";
 import { createOllama } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
@@ -122,6 +124,12 @@ import {
   CHATGPT_SIGN_IN_REQUIRED_MESSAGE,
   createChatGPTFetch,
 } from "./chatgpt";
+import {
+  CLAUDE_CODE_SETUP_REQUIRED_MESSAGE,
+  bridgeJazzTools,
+  isBridgedToolName,
+  resolveClaudeCodeBinary,
+} from "./claude-code";
 import { saveModelGeneratedFiles } from "./generated-files";
 import { generateImageCompletion, isImageEndpointModel } from "./image-generation";
 import { llmFetch } from "./llm-fetch";
@@ -844,6 +852,10 @@ function getConfiguredProviders(
       providers.push({ name: "chatgpt", apiKey: "" });
       addedProviders.add("chatgpt");
     }
+    if (isClaudeCodeEnabled(llmConfig)) {
+      providers.push({ name: "claude_code", apiKey: "" });
+      addedProviders.add("claude_code");
+    }
     if (llmConfig.cerebras?.api_key) {
       providers.push({ name: "cerebras", apiKey: llmConfig.cerebras.api_key });
       addedProviders.add("cerebras");
@@ -1022,11 +1034,46 @@ function resolveProviderApiKey(provider: ProviderName, llmConfig?: LLMConfig): s
   return configuredProviderApiKey(llmConfig, provider) ?? llmProviderApiKeyFromEnv(provider);
 }
 
+/**
+ * Keeps the run to Jazz's own tools: Claude Code would otherwise attach the account's claude.ai
+ * connectors and defer a large tool list behind a search tool that Jazz's runs do not have.
+ */
+const CLAUDE_CODE_ISOLATED_ENV = {
+  ENABLE_CLAUDEAI_MCP_SERVERS: "false",
+  ENABLE_TOOL_SEARCH: "false",
+} as const;
+
+interface ClaudeCodeBridge {
+  readonly tools: NonNullable<ChatCompletionOptions["tools"]>;
+  readonly toolHost: NonNullable<ChatCompletionOptions["toolHost"]>;
+}
+
+/**
+ * Claude Code runs its own tool loop, so Jazz's tools reach it through the host callback and
+ * the model, not through the AI SDK's `tools`.
+ */
+function claudeCodeBridgeFor(
+  providerName: ProviderName,
+  options: ChatCompletionOptions,
+): ClaudeCodeBridge | undefined {
+  if (
+    providerName !== "claude_code" ||
+    options.toolHost === undefined ||
+    options.tools === undefined ||
+    options.tools.length === 0 ||
+    options.toolChoice === "none"
+  ) {
+    return undefined;
+  }
+  return { tools: options.tools, toolHost: options.toolHost };
+}
+
 function selectModel(
   providerName: ProviderName,
   modelId: ModelName,
   llmConfig?: LLMConfig,
   cache?: Map<string, LanguageModel>,
+  claudeCodeBridge?: ClaudeCodeBridge,
 ): LanguageModel {
   // Check cache first
   const cacheKey = `${providerName}:${modelId}:${buildProviderCacheFingerprint(providerName, llmConfig)}`;
@@ -1051,6 +1098,24 @@ function selectModel(
         fetch: createChatGPTFetch({ baseFetch: llmFetch }),
       }).responses(modelId);
       break;
+    }
+    case "claude_code": {
+      const binaryPath = resolveClaudeCodeBinary(llmConfig?.claude_code?.cli_path);
+      const bridge =
+        claudeCodeBridge === undefined
+          ? undefined
+          : bridgeJazzTools(claudeCodeBridge.tools, claudeCodeBridge.toolHost);
+      model = claudeCode(modelId, {
+        ...(binaryPath !== undefined ? { pathToClaudeCodeExecutable: binaryPath } : {}),
+        tools: [],
+        settingSources: [],
+        permissionPrompts: "none",
+        persistSession: false,
+        strictMcpConfig: true,
+        env: CLAUDE_CODE_ISOLATED_ENV,
+        ...(bridge ?? {}),
+      });
+      return model;
     }
     case "anthropic": {
       const apiKey = resolveApiKey("anthropic");
@@ -1337,6 +1402,8 @@ export function buildProviderCacheFingerprint(
     }
     case "chatgpt":
       return llmConfig.chatgpt?.account_id ?? "";
+    case "claude_code":
+      return llmConfig.claude_code?.cli_path ?? "";
     case "anthropic": {
       const cfg = llmConfig.anthropic;
       const workspaceId = cfg?.workspace_id ?? process.env["ANTHROPIC_WORKSPACE_ID"] ?? "";
@@ -1983,6 +2050,16 @@ class AISDKService implements LLMService {
                     }),
                   );
             }
+            if (providerName === "claude_code") {
+              return isClaudeCodeEnabled(this.config.llmConfig)
+                ? Effect.succeed(void 0)
+                : Effect.fail(
+                    new LLMAuthenticationError({
+                      provider: providerName,
+                      message: CLAUDE_CODE_SETUP_REQUIRED_MESSAGE,
+                    }),
+                  );
+            }
             const apiKey = configuredProviderApiKey(this.config.llmConfig, providerName);
 
             if (!apiKey) {
@@ -2027,7 +2104,7 @@ class AISDKService implements LLMService {
   ):
     | { tools: ToolSet; providerNativeToolNames: Set<string>; toolDefinitionChars: number }
     | undefined {
-    if (!requestedTools || requestedTools.length === 0) {
+    if (!requestedTools || requestedTools.length === 0 || providerName === "claude_code") {
       return undefined;
     }
 
@@ -2153,7 +2230,13 @@ class AISDKService implements LLMService {
         }
 
         const modelSelectStart = Date.now();
-        const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
+        const model = selectModel(
+          providerName,
+          options.model,
+          effectiveLLMConfig,
+          this.modelCache,
+          claudeCodeBridgeFor(providerName, options),
+        );
         Effect.runFork(
           this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );
@@ -2307,7 +2390,8 @@ class AISDKService implements LLMService {
           }
 
           const filteredToolCalls = result.toolCalls.filter(
-            (tc: TypedToolCall<ToolSet>) => !providerNativeToolNames.has(tc.toolName),
+            (tc: TypedToolCall<ToolSet>) =>
+              !providerNativeToolNames.has(tc.toolName) && !isBridgedToolName(tc.toolName),
           );
 
           if (filteredToolCalls.length > 0) {
@@ -2490,7 +2574,13 @@ class AISDKService implements LLMService {
         );
 
         const modelSelectStart = Date.now();
-        const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
+        const model = selectModel(
+          providerName,
+          options.model,
+          effectiveLLMConfig,
+          this.modelCache,
+          claudeCodeBridgeFor(providerName, options),
+        );
         Effect.runFork(
           this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );

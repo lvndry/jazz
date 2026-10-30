@@ -114,6 +114,9 @@ export const SETTING_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Anthropic workspace, needed alongside a key tied to a Console user rather than a workspace.",
   "llm.chatgpt.account_id": "Account of the ChatGPT sign-in. Written by Jazz when you sign in.",
   "llm.chatgpt.plan": "Plan of the ChatGPT sign-in, such as `plus` or `pro`. Written by Jazz.",
+  "llm.claude_code.enabled":
+    "Turns on the `claude_code` provider. Written by `jazz config set claude_code` after it finds a signed-in `claude`.",
+  "llm.claude_code.cli_path": "Path to the `claude` binary when it is not on `PATH`.",
   "llm.ollama.keep_alive":
     "How long Ollama keeps the model loaded, such as `30m`, or `-1` to keep it resident.",
   "llm.openrouter.zdr":

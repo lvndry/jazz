@@ -100,7 +100,8 @@ A provider key in the environment overrides a stored global key. An agent-specif
 | `zhipuai`    | `ZHIPU_API_KEY`                                     |
 
 `chatgpt` has no key variable: sign in from `/settings` → **Model providers** in
-the `jazz` home screen.
+the `jazz` home screen. `claude_code` has none either: it uses your own signed-in
+`claude`; enable it with `jazz config set claude_code`.
 
 Self-hosted servers are found at these addresses. A saved `llm.<provider>.base_url` wins
 over the variable.

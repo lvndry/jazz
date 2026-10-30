@@ -68,6 +68,10 @@ export function llmProviderEnvVars(provider: string): readonly string[] {
 export const CHATGPT_SIGN_IN_HINT =
   "To sign in, run `jazz config set chatgpt`, or type /settings in a chat and choose Model providers, then ChatGPT.";
 
+/** How to enable the `claude_code` provider, which uses the user's own signed-in Claude Code. */
+export const CLAUDE_CODE_SETUP_HINT =
+  "Install Claude Code, run `claude` once to sign in, then run `jazz config set claude_code`.";
+
 /**
  * How to give Jazz a provider's API key, for error messages and hints:
  * `jazz config set <provider>` prompts for the key, so it never lands in shell
@@ -77,6 +81,9 @@ export const CHATGPT_SIGN_IN_HINT =
 export function apiKeyHint(provider: string): string {
   if (provider === "chatgpt") {
     return CHATGPT_SIGN_IN_HINT;
+  }
+  if (provider === "claude_code") {
+    return CLAUDE_CODE_SETUP_HINT;
   }
   const envVar = llmProviderEnvVars(provider)[0];
   const prompt = `run \`jazz config set ${provider}\` and paste the key when asked`;

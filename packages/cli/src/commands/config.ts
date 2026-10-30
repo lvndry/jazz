@@ -17,6 +17,7 @@ import {
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
 import { signInToChatGPT } from "../setup/chatgpt-sign-in";
+import { enableClaudeCode } from "../setup/claude-code-setup";
 
 /**
  * CLI commands for configuration management
@@ -129,6 +130,16 @@ function chatGPTTakesNoKeyError(): ConfigurationValidationError {
     actual: "an API key",
     suggestion:
       "ChatGPT signs in through OpenAI instead of taking a key. Run `jazz config set chatgpt` with no value to sign in.",
+  });
+}
+
+function claudeCodeTakesNoKeyError(): ConfigurationValidationError {
+  return new ConfigurationValidationError({
+    field: "llm.claude_code",
+    expected: "no value",
+    actual: "a key",
+    suggestion:
+      "Claude Code uses your own signed-in `claude`, so it takes no key. Run `jazz config set claude_code` with no value to enable it.",
   });
 }
 
@@ -285,6 +296,14 @@ export function setConfigCommand(
       return;
     }
 
+    if (targetKey === "llm.claude_code.api_key") {
+      if (value !== undefined) {
+        return yield* Effect.fail(claudeCodeTakesNoKeyError());
+      }
+      yield* enableClaudeCode(terminal, configService);
+      return;
+    }
+
     const clearing = value !== undefined && value.trim() === "";
     if (isSecretPath(targetKey) && !clearing) {
       const missingEntry = missingNamedListEntry(yield* configService.appConfig, targetKey);
@@ -314,6 +333,10 @@ export function setConfigCommand(
         }
         if (provider === "chatgpt") {
           yield* signInToChatGPT(terminal, configService);
+          return;
+        }
+        if (provider === "claude_code") {
+          yield* enableClaudeCode(terminal, configService);
           return;
         }
 

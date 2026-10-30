@@ -17,6 +17,7 @@ import type { PresentationService, StreamingRenderer } from "@/core/interfaces/p
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ConversationMessages } from "@/core/types";
+import type { ToolHost } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/model-capabilities";
 import type { DisplayConfig } from "@/core/types/output";
@@ -86,6 +87,8 @@ export function executeWithoutStreaming(
         currentMessages: ConversationMessages,
         _iteration: number,
         toolsAllowed: boolean,
+        _contextWindow: number,
+        toolHost?: ToolHost,
       ) {
         return Effect.gen(function* () {
           const llmOptions = {
@@ -94,6 +97,7 @@ export function executeWithoutStreaming(
             tools: runContext.tools,
             toolChoice: toolsAllowed ? ("auto" as const) : ("none" as const),
             ...(reasoning !== undefined ? { reasoning } : {}),
+            ...(toolHost !== undefined ? { toolHost } : {}),
             ...(typeof agent.config.llm.temperature === "number"
               ? { temperature: agent.config.llm.temperature }
               : {}),

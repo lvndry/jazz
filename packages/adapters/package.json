@@ -8,6 +8,7 @@
     "./notification": "./src/notification/index.ts",
     "./llm/reasoning": "./src/llm/reasoning/index.ts",
     "./llm/chatgpt": "./src/llm/chatgpt/index.ts",
+    "./llm/claude-code": "./src/llm/claude-code/index.ts",
     "./plugins": "./src/plugins/index.ts",
     "./*": [
       "./src/*.ts",

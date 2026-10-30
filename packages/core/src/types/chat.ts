@@ -74,6 +74,14 @@ export interface ChatCompletionResponse {
   toolDefinitionCount?: number;
 }
 
+/**
+ * Runs one tool call through Jazz's own executor, approval gate included. Supplied for providers
+ * that run the multi-step tool loop themselves (Claude Code) so each call still lands in Jazz.
+ */
+export type ToolHost = (
+  toolCall: ToolCall,
+) => Promise<{ readonly success: boolean; readonly result: unknown }>;
+
 export interface ChatCompletionOptions {
   model: string;
   messages: ChatMessage[];
@@ -84,6 +92,8 @@ export interface ChatCompletionOptions {
   /** Request schema-constrained object output where the selected provider supports it. */
   outputSchema?: import("zod").ZodTypeAny;
   stream?: boolean;
+  /** Executes tool calls the provider makes itself, for providers that own the tool loop. */
+  toolHost?: ToolHost;
   /** Provider-neutral reasoning request, validated against the resolved model profile by the adapter. */
   reasoning?: ReasoningSelection;
   /** Ollama runtime context window, sent as `num_ctx`. Ignored by other providers. */

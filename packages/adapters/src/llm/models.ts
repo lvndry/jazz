@@ -46,6 +46,7 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/models",
     defaultBaseUrl: CHATGPT_CODEX_BASE_URL,
   },
+  claude_code: { type: "models-dev", catalogId: "anthropic" },
   gemini: { type: "models-dev", catalogId: "google" },
   xai: { type: "models-dev" },
   openrouter: {
