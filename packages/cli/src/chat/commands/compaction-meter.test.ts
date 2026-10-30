@@ -8,14 +8,14 @@ import {
 } from "./compaction-meter";
 
 describe("planCompactionMeter", () => {
-  test("starts at the window's fill and floors at the kept tail", () => {
-    const plan = planCompactionMeter(160_000, 200_000);
+  test("starts at the window's fill and floors at what compaction retains", () => {
+    const plan = planCompactionMeter(160_000, 50_000, 200_000);
     expect(plan.startPercent).toBe(80);
-    expect(plan.floorPercent).toBe(20);
+    expect(plan.floorPercent).toBe(25);
   });
 
   test("never floors above where it starts", () => {
-    const plan = planCompactionMeter(10_000, 200_000);
+    const plan = planCompactionMeter(10_000, 50_000, 200_000);
     expect(plan.floorPercent).toBeLessThanOrEqual(plan.startPercent);
   });
 });

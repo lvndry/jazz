@@ -1,4 +1,3 @@
-import { recentTailTokenBudget } from "@jazz/core/agent/context/summarizer";
 import type { GlyphSet } from "@/cli/ui/glyphs";
 import { contextPercent, meterFilledCells } from "@/cli/ui/meter";
 
@@ -13,17 +12,23 @@ export const DRAIN_HALF_LIFE_MS = 4_000;
 
 export interface CompactionMeterPlan {
   readonly startPercent: number;
-  /** The least the window can hold afterwards: the verbatim tail compaction always keeps. */
+  /** The least the window can hold afterwards: everything compaction keeps without summarizing. */
   readonly floorPercent: number;
 }
 
-/** Where the bar starts and the lowest it can drain to, as percents of the window. */
+/**
+ * Where the bar starts and the lowest it can drain to, as percents of the window.
+ * `retainedTokens` counts what the rebuilt history holds apart from the new summary: the
+ * system prompt, pinned messages, any earlier summary, the verbatim tail and the per-request
+ * overhead.
+ */
 export function planCompactionMeter(
   tokensBefore: number,
+  retainedTokens: number,
   contextWindow: number,
 ): CompactionMeterPlan {
   const startPercent = contextPercent(tokensBefore, contextWindow);
-  const floorPercent = contextPercent(recentTailTokenBudget(contextWindow), contextWindow);
+  const floorPercent = contextPercent(retainedTokens, contextWindow);
   return { startPercent, floorPercent: Math.min(startPercent, floorPercent) };
 }
 

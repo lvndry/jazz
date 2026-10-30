@@ -24,9 +24,10 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { resolveContextThresholds } from "@jazz/core/agent/context/context-thresholds";
 import { resolveEffectiveContextWindow } from "@jazz/core/agent/context/effective-context-window";
-import type {
-  CompactionProgress,
-  CompactionProgressObserver,
+import {
+  Summarizer,
+  type CompactionProgress,
+  type CompactionProgressObserver,
 } from "@jazz/core/agent/context/summarizer";
 import { DEFAULT_TOKEN_COUNTER } from "@jazz/core/agent/context/token-counter";
 import {
@@ -1264,6 +1265,9 @@ function compactionPhaseLines(event: CompactionProgress): string[] {
   }
 }
 
+/** Phase lines kept above the meter: the region shows 12 lines, one of them the meter. */
+const COMPACTION_PANEL_DETAIL_LINES = 11;
+
 /** How often the compaction meter redraws; fast enough to read as a drain, slow enough to stay cheap. */
 const METER_FRAME_INTERVAL_MS = 200;
 
@@ -1344,9 +1348,21 @@ function handleCompactCommand(
     );
     const replaceRegion = presentationService.replaceEphemeralRegion;
     const modelHint = { provider, modelId: agent.config.llm.model };
+    const overheadTokens = DEFAULT_TOKEN_COUNTER.overheadFor(modelHint);
+    const split = Summarizer.splitMessages(
+      conversationHistory as unknown as ConversationMessages,
+      contextWindow,
+      modelHint,
+    );
+    const retainedMessages = [
+      split.systemMessage,
+      ...split.pinnedMessages,
+      ...(split.priorSummary === undefined ? [] : [split.priorSummary]),
+      ...split.sanitizedRecentMessages,
+    ];
     const meterPlan = planCompactionMeter(
-      DEFAULT_TOKEN_COUNTER.countMessages(conversationHistory, modelHint) +
-        DEFAULT_TOKEN_COUNTER.overheadFor(modelHint),
+      DEFAULT_TOKEN_COUNTER.countMessages(conversationHistory, modelHint) + overheadTokens,
+      DEFAULT_TOKEN_COUNTER.countMessages(retainedMessages, modelHint) + overheadTokens,
       contextWindow,
     );
     const glyphs = getGlyphs();
@@ -1373,6 +1389,7 @@ function handleCompactCommand(
         }
         if (replaceRegion !== undefined) {
           phaseLines.push(...lines);
+          phaseLines.splice(0, Math.max(0, phaseLines.length - COMPACTION_PANEL_DETAIL_LINES));
           return renderRegion();
         }
         if (lines.length === 0) return Effect.void;
@@ -1434,6 +1451,9 @@ function handleCompactCommand(
     const tokensSaved = outcome.tokensBefore - outcome.tokensAfter;
     yield* terminal.success(
       `Compacted ${conversationHistory.length} → ${outcome.messages.length} messages (saved ~${tokensSaved.toLocaleString()} tokens)`,
+    );
+    yield* terminal.log(
+      `   Context ${renderCompactionMeter(meterPlan.startPercent, glyphs)} → ${renderCompactionMeter(contextPercent(outcome.tokensAfter, contextWindow), glyphs)}`,
     );
     yield* terminal.log("   The agent's context is summarized; your on-screen history stays.");
     yield* terminal.log("");
