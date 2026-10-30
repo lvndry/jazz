@@ -43,6 +43,7 @@ export const AVAILABLE_PROVIDERS = [
   "nvidia",
   "ollama",
   "orcarouter",
+  "refuseless",
   "sglang",
   "togetherai",
   "vllm",

@@ -761,6 +761,20 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
       },
     }));
   },
+  refuseless: (data: unknown) => {
+    const response = data as {
+      data?: { id: string; context_length?: number; reasoning_efforts?: string[] }[];
+    };
+    return (response.data ?? []).map((model) => ({
+      id: model.id,
+      displayName: model.id,
+      fallback: {
+        contextWindow: model.context_length ?? DEFAULT_CONTEXT_WINDOW,
+        supportsTools: true,
+        isReasoningModel: (model.reasoning_efforts ?? []).length > 0,
+      },
+    }));
+  },
   togetherai: (data: unknown) => {
     const models = data as {
       id: string;

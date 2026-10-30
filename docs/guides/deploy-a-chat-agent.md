@@ -386,7 +386,7 @@ approve, reject or answer it, by button or by replying with the number.
 ## Adding more providers
 
 Every bridge starts on one provider (`OPENAI_API_KEY`/`gpt-5.4` by default), but `/model`
-can switch a conversation to any of the 23 providers Jazz supports. Anthropic, Gemini,
+can switch a conversation to any of the 24 providers Jazz supports. Anthropic, Gemini,
 xAI, OpenRouter, Groq, and more: without touching `JAZZ_TELEGRAM_PROVIDER`,
 `JAZZ_DISCORD_PROVIDER`, `JAZZ_IMESSAGE_PROVIDER` or `JAZZ_WHATSAPP_PROVIDER` (those only
 set what a brand-new conversation starts on).

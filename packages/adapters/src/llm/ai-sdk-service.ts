@@ -892,6 +892,10 @@ function getConfiguredProviders(
       providers.push({ name: "orcarouter", apiKey: llmConfig.orcarouter.api_key });
       addedProviders.add("orcarouter");
     }
+    if (llmConfig.refuseless?.api_key) {
+      providers.push({ name: "refuseless", apiKey: llmConfig.refuseless.api_key });
+      addedProviders.add("refuseless");
+    }
     if (llmConfig.togetherai?.api_key) {
       providers.push({ name: "togetherai", apiKey: llmConfig.togetherai.api_key });
       addedProviders.add("togetherai");
@@ -1214,6 +1218,18 @@ function selectModel(
         fetch: llmFetch,
       });
       model = nvidia(modelId);
+      break;
+    }
+    case "refuseless": {
+      const apiKey = resolveApiKey("refuseless");
+      const refuseless = createOpenAICompatible({
+        name: "refuseless",
+        baseURL: "https://api.refuseless.com/v1",
+        includeUsage: true,
+        ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+        fetch: llmFetch,
+      });
+      model = refuseless(modelId);
       break;
     }
     case "ai_gateway": {
@@ -1819,7 +1835,7 @@ class AISDKService implements LLMService {
     }
 
     return listModelsForProvider(providerName, {
-      apiKey: configuredProviderApiKey(llmConfig, providerName),
+      apiKey: resolveProviderApiKey(providerName, llmConfig),
       llmConfig,
     }).pipe(
       Effect.tap((models) =>

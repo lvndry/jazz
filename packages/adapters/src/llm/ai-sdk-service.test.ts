@@ -276,6 +276,91 @@ describe("AI SDK Service - Unit Tests", () => {
       expect(untouched).toMatchObject({ supportsTools: true, isReasoningModel: false });
     });
 
+    it("lists a provider's models with a key entered after the service started", async () => {
+      const authorizationHeaders: (string | null)[] = [];
+      const originalFetch = global.fetch;
+      global.fetch = mock((_input: unknown, init?: { headers?: HeadersInit }) => {
+        authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [{ id: "glm-5.3-abliterated", context_length: 1_048_576 }],
+            }),
+          ),
+        );
+      }) as unknown as typeof fetch;
+      try {
+        const fileSystem = await Effect.runPromise(
+          Effect.gen(function* () {
+            return yield* FileSystem.FileSystem;
+          }).pipe(Effect.provide(NodeFileSystem.layer)),
+        );
+        const configService = new AgentConfigServiceImpl(
+          {
+            storage: { type: "file", path: "/tmp/test" },
+            logging: { level: "info", format: "plain" },
+            llm: { openai: { api_key: "sk-test" } },
+          },
+          {},
+          undefined,
+          fileSystem,
+        );
+        const llmService = await Effect.runPromise(
+          Effect.gen(function* () {
+            return yield* LLMServiceTag;
+          }).pipe(
+            Effect.provide(createAISDKServiceLayer()),
+            Effect.provide(Layer.succeed(AgentConfigServiceTag, configService)),
+            Effect.provide(createLoggerLayer()),
+          ),
+        );
+
+        await Effect.runPromise(configService.set("llm.refuseless.api_key", "rk-entered-later"));
+        const provider = await Effect.runPromise(llmService.getProvider("refuseless"));
+
+        expect(authorizationHeaders).toEqual(["Bearer rk-entered-later"]);
+        expect(provider.supportedModels.map((model) => model.contextWindow)).toEqual([1_048_576]);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it("lists a provider's models with a key that only the environment holds", async () => {
+      const authorizationHeaders: (string | null)[] = [];
+      const originalFetch = global.fetch;
+      const savedKey = process.env["REFUSELESS_API_KEY"];
+      process.env["REFUSELESS_API_KEY"] = "rk-from-env";
+      global.fetch = mock((_input: unknown, init?: { headers?: HeadersInit }) => {
+        authorizationHeaders.push(new Headers(init?.headers).get("authorization"));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [{ id: "glm-5.3-abliterated", context_length: 1_048_576 }],
+            }),
+          ),
+        );
+      }) as unknown as typeof fetch;
+      try {
+        const provider = await runWithTestLayers(
+          Effect.gen(function* () {
+            const llmService = yield* LLMServiceTag;
+            return yield* llmService.getProvider("refuseless");
+          }),
+          createTestConfigLayer({ openai: { api_key: "sk-test" } }),
+        );
+
+        expect(authorizationHeaders).toEqual(["Bearer rk-from-env"]);
+        expect(provider.supportedModels.map((model) => model.contextWindow)).toEqual([1_048_576]);
+      } finally {
+        global.fetch = originalFetch;
+        if (savedKey === undefined) {
+          delete process.env["REFUSELESS_API_KEY"];
+        } else {
+          process.env["REFUSELESS_API_KEY"] = savedKey;
+        }
+      }
+    });
+
     it("detects an NVIDIA NIM key from the NIM_API_KEY alias", async () => {
       const savedNvidia = process.env["NVIDIA_API_KEY"];
       const savedNim = process.env["NIM_API_KEY"];

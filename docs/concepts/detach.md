@@ -29,7 +29,7 @@ You need:
 - A Linux or macOS server (x64 or arm64) with `curl` and `gzip`, and an empty directory for
   Jazz to work in.
 - An agent on a cloud provider: OpenAI, Anthropic, Gemini, OpenRouter, xAI, Cerebras,
-  DeepSeek, Fireworks, Groq, Mistral, OrcaRouter, or Together AI. Local model servers do not
+  DeepSeek, Fireworks, Groq, Mistral, OrcaRouter, Refuseless, or Together AI. Local model servers do not
   travel.
 
 Register the server and check it:

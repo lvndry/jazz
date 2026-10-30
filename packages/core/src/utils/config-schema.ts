@@ -326,6 +326,7 @@ const llmShape = {
     } satisfies SchemaShape<OpenRouterProviderConfig>)
     .exactOptional(),
   orcarouter: apiKeyOnly,
+  refuseless: apiKeyOnly,
   sglang: z
     .strictObject({
       api_key: text.exactOptional(),

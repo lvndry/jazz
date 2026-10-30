@@ -93,6 +93,11 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/v1/models",
     defaultBaseUrl: "https://api.orcarouter.ai",
   },
+  refuseless: {
+    type: "dynamic",
+    endpointPath: "/v1/models",
+    defaultBaseUrl: "https://api.refuseless.com",
+  },
   togetherai: {
     type: "dynamic",
     endpointPath: "/v1/models",

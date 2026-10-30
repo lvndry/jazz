@@ -441,6 +441,7 @@ export interface LLMConfig {
   readonly openai?: LLMProviderConfig;
   readonly openrouter?: OpenRouterProviderConfig;
   readonly orcarouter?: LLMProviderConfig;
+  readonly refuseless?: LLMProviderConfig;
   readonly togetherai?: LLMProviderConfig;
   readonly sglang?: SglangProviderConfig;
   readonly vllm?: VllmProviderConfig;

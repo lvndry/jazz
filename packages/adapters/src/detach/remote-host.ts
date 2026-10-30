@@ -39,6 +39,7 @@ const PROVIDER_ORIGINS: Partial<Record<ProviderName, string>> = {
   groq: "https://api.groq.com",
   mistral: "https://api.mistral.ai",
   orcarouter: "https://api.orcarouter.ai",
+  refuseless: "https://api.refuseless.com",
   togetherai: "https://api.together.xyz",
 };
 
