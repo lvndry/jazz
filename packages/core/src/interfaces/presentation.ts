@@ -283,6 +283,12 @@ export interface PresentationService {
   readonly appendEphemeralRegion: (regionId: string, text: string) => Effect.Effect<void, never>;
 
   /**
+   * Replace everything a live region shows with `text`, so a frame that changes in place
+   * (a meter draining) does not pile up as new lines. Absent on surfaces that only append.
+   */
+  readonly replaceEphemeralRegion?: (regionId: string, text: string) => Effect.Effect<void, never>;
+
+  /**
    * Close a live region and emit a one-line summary. Safe to call if the
    * region was never opened (headless no-ops).
    */

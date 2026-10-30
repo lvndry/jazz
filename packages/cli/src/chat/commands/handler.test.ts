@@ -1020,6 +1020,36 @@ describe("handleSpecialCommand /compact", () => {
     }
   });
 
+  test("keeps the chat busy and the queue open while compaction runs, then frees it", async () => {
+    let releaseCompaction: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseCompaction = resolve;
+    });
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
+      () =>
+        Effect.promise(() => gate).pipe(Effect.as(undefined)) as unknown as ReturnType<
+          typeof AgentRunner.compactHistory
+        >,
+    );
+    store.setChatBusy(false);
+    store.consumeFlushQueue();
+    try {
+      const running = runCompact();
+      await Bun.sleep(50);
+      expect(store.getChatBusySnapshot()).toBe(true);
+
+      store.appendToQueue("typed during compaction");
+      releaseCompaction();
+      await running;
+
+      expect(store.getChatBusySnapshot()).toBe(false);
+      expect(store.peekQueue()).toBe("typed during compaction");
+    } finally {
+      spy.mockRestore();
+      store.setChatBusy(false);
+    }
+  });
+
   test("leaves the history alone when nothing is old enough to compact", async () => {
     const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
       () => Effect.succeed(undefined) as unknown as ReturnType<typeof AgentRunner.compactHistory>,
