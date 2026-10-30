@@ -34,6 +34,7 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 | `openai`     | `OPENAI_API_KEY`                                                  |
 | `openrouter` | `OPENROUTER_API_KEY`                                              |
 | `orcarouter` | `ORCAROUTER_API_KEY`                                              |
+| `refuseless` | `REFUSELESS_API_KEY`                                              |
 | `sglang`     | `SGLANG_API_KEY` when the server requires bearer authentication   |
 | `togetherai` | `TOGETHER_AI_API_KEY`                                             |
 | `vllm`       | `VLLM_API_KEY` when the server requires bearer authentication     |
@@ -121,6 +122,17 @@ OrcaRouter exposes an OpenAI-compatible catalog of provider-prefixed model IDs, 
 export ORCAROUTER_API_KEY="..."
 jazz agent create
 ```
+
+## Refuseless
+
+The `refuseless` provider talks to Refuseless at `https://api.refuseless.com/v1`, an OpenAI-compatible API that serves abliterated open-weight models alongside models with their original weights. Jazz lists the models your key can call from `/v1/models`. Context windows and pricing come from the models.dev catalog when it lists the model; otherwise a model gets a 128,000-token window and no price.
+
+```bash
+export REFUSELESS_API_KEY="..."
+jazz agent create
+```
+
+Jazz sends no reasoning control to Refuseless by default, because the provider does not document which effort names it accepts. To control reasoning for a model you have tested, declare it under [`llm.capabilityOverrides`](#model-capability-overrides).
 
 ## NVIDIA NIM
 
@@ -253,7 +265,7 @@ Models.dev supplies broad metadata such as context length, tool support, and whe
 
 Keys are exact server-facing model IDs. To set one field from the command line, quote a model ID that contains dots: `jazz config set 'llm.capabilityOverrides.nvidia."deepseek-ai/deepseek-v4.1-flash".supportsTools' true`. An override also corrects the model lists `jazz agent create` and `jazz agent edit` show, so their tool and reasoning steps match what requests do. Resolution is operator override, live local-server metadata, Jazz's exact-model profile, provider default, then Models.dev. When none of them says whether a cloud model takes tools (a model released after the catalog, a custom id, or the catalog unreachable), Jazz assumes it does. A local server's model gets tools only once the server reports them. Whenever a run sends no tools to an agent that has some, every surface warns: stderr for `jazz run`, the chat transcript, `toolsDisabled: true` in the JSON envelope, and a notice under the bot's answer. A llama.cpp budget control is never assumed from a model family: declare it only when the active template accepts it.
 
-Transports name the request field Jazz sends, not a vendor. OpenAI-compatible providers (`llamacpp`, `vllm`, `sglang`, `nvidia`, `orcarouter`) accept all three `openai-compatible.chat.*` transports:
+Transports name the request field Jazz sends, not a vendor. OpenAI-compatible providers (`llamacpp`, `vllm`, `sglang`, `nvidia`, `orcarouter`, `refuseless`) accept all three `openai-compatible.chat.*` transports:
 
 | Transport                                         | Kind     | Request field                                                 |
 | ------------------------------------------------- | -------- | ------------------------------------------------------------- |

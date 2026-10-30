@@ -25,6 +25,7 @@ const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   openai: "OpenAI",
   openrouter: "OpenRouter",
   orcarouter: "OrcaRouter",
+  refuseless: "Refuseless",
   sglang: "SGLang",
   togetherai: "Together AI",
   vllm: "vLLM",

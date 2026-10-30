@@ -761,6 +761,10 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
       },
     }));
   },
+  refuseless: (data: unknown) => {
+    const response = data as { data?: { id: string }[] };
+    return (response.data ?? []).map((model) => ({ id: model.id, displayName: model.id }));
+  },
   togetherai: (data: unknown) => {
     const models = data as {
       id: string;

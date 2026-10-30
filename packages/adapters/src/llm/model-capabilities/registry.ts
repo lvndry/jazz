@@ -128,7 +128,7 @@ export const BUILTIN_MODEL_CAPABILITY_REGISTRY = {
 /**
  * Providers Jazz reaches through `createOpenAICompatible`. Each accepts every
  * `openai-compatible.*` transport, because those encode the chat-completions
- * wire rather than a vendor. NVIDIA NIM and OrcaRouter ship no built-in profile:
+ * wire rather than a vendor. NVIDIA NIM, OrcaRouter and Refuseless ship no built-in profile:
  * NIM rejects unknown top-level request fields, so a guessed control fails the
  * request instead of being ignored. Operators opt a model in through
  * `capabilityOverrides`.
@@ -139,6 +139,7 @@ const OPENAI_COMPATIBLE_CHAT_PROVIDERS: ReadonlySet<ProviderName> = new Set([
   "sglang",
   "nvidia",
   "orcarouter",
+  "refuseless",
 ]);
 
 /**
