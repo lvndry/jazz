@@ -406,6 +406,16 @@ export interface ChatGPTProviderConfig {
   readonly plan?: string;
 }
 
+/**
+ * Marks the Claude Code provider as enabled. Jazz holds no credential for it: requests go through
+ * the user's own signed-in `claude` binary, which bills their Claude subscription.
+ */
+export interface ClaudeCodeProviderConfig {
+  readonly enabled?: boolean;
+  /** Path to the `claude` binary, when it is not on PATH. */
+  readonly cli_path?: string;
+}
+
 export interface LLMConfig {
   /**
    * How long a provider stream may stay silent before jazz abandons it as dead,
@@ -428,6 +438,7 @@ export interface LLMConfig {
   readonly anthropic?: AnthropicProviderConfig;
   readonly cerebras?: LLMProviderConfig;
   readonly chatgpt?: ChatGPTProviderConfig;
+  readonly claude_code?: ClaudeCodeProviderConfig;
   readonly deepseek?: LLMProviderConfig;
   readonly fireworks?: LLMProviderConfig;
   readonly gemini?: LLMProviderConfig;

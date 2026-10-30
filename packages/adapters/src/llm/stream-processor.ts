@@ -21,6 +21,7 @@ import type {
   ToolSet,
 } from "ai";
 import { Chunk, Effect, Option } from "effect";
+import { isBridgedToolName } from "./claude-code/tool-bridge";
 import type { ParseChunk, ReasoningParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
 import { routerBilledCostUSD } from "./router-cost";
@@ -493,6 +494,9 @@ export class StreamProcessor {
           }
 
           case "tool-call": {
+            if (isBridgedToolName(part.toolName)) {
+              break;
+            }
             const isProviderNative =
               this.config.providerNativeToolNames?.has(part.toolName) ?? false;
 

@@ -404,8 +404,11 @@ describe("AI SDK Service - Unit Tests", () => {
       const llmConfig = Object.fromEntries(
         AVAILABLE_PROVIDERS.map((provider) => [provider, { api_key: "test-key" }]),
       ) as LLMConfig;
-      // ChatGPT resolves a signed-in OAuth credential before any request is made.
-      const providers = AVAILABLE_PROVIDERS.filter((provider) => provider !== "chatgpt");
+      // ChatGPT resolves a signed-in OAuth credential before any request is made, and Claude Code
+      // runs through the user's own `claude` binary rather than an HTTP request.
+      const providers = AVAILABLE_PROVIDERS.filter(
+        (provider) => provider !== "chatgpt" && provider !== "claude_code",
+      );
       try {
         for (const provider of providers) {
           currentProvider = provider;
@@ -782,6 +785,11 @@ describe("AI SDK Service - Unit Tests", () => {
         } else if (provider === "chatgpt") {
           // ChatGPT signs in with OAuth, so it has no api_key to check.
           if (!functionSection.includes("isChatGPTSignedIn(llmConfig)")) {
+            missingProviders.push(provider);
+          }
+        } else if (provider === "claude_code") {
+          // Claude Code has no api_key: it is enabled by a config flag.
+          if (!functionSection.includes("isClaudeCodeEnabled(llmConfig)")) {
             missingProviders.push(provider);
           }
         } else {

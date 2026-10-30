@@ -2,7 +2,7 @@
 
 import { LLM_PROVIDER_ENV_VARS, llmProviderApiKeyFromEnv } from "@jazz/core/secrets/registry";
 import type { AppConfig } from "@jazz/core/types/index";
-import { isChatGPTSignedIn } from "@jazz/core/utils/provider-model";
+import { isChatGPTSignedIn, isClaudeCodeEnabled } from "@jazz/core/utils/provider-model";
 
 export function configuredProviderNames(config: AppConfig): string[] {
   const names: string[] = [];
@@ -16,6 +16,9 @@ export function configuredProviderNames(config: AppConfig): string[] {
   }
   if (isChatGPTSignedIn(llm)) {
     names.push("chatgpt");
+  }
+  if (isClaudeCodeEnabled(llm)) {
+    names.push("claude_code");
   }
   for (const provider of Object.keys(LLM_PROVIDER_ENV_VARS)) {
     const fromEnv = llmProviderApiKeyFromEnv(provider);

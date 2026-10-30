@@ -40,7 +40,7 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   type MessageAttachment,
 } from "@/core/types/attachment";
-import type { ChatCompletionResponse } from "@/core/types/chat";
+import type { ChatCompletionResponse, ToolHost } from "@/core/types/chat";
 import {
   GenerationInterruptedError,
   LLMRateLimitError,
@@ -562,6 +562,7 @@ export interface CompletionStrategy {
     iteration: number,
     toolsAllowed: boolean,
     contextWindow: number,
+    toolHost?: ToolHost,
   ): Effect.Effect<
     { completion: ChatCompletionResponse; interrupted: boolean },
     LLMRateLimitError | Error,
@@ -1093,6 +1094,75 @@ function reportCheckpoint(
  */
 function mayExtractMemories(options: AgentRunnerOptions): boolean {
   return !options.internal && options.disablePersistence !== true;
+}
+
+/**
+ * Lets a provider that runs its own tool loop hand each call back to Jazz. A call goes through
+ * the same executor as any other, so approvals, risk gates, taint and the tool renderer apply
+ * unchanged; the provider only sees the finished result.
+ */
+function buildToolHost(
+  state: LoopState,
+  deps: LoopDeps,
+): Effect.Effect<
+  ToolHost,
+  never,
+  | ToolRegistry
+  | LoggerService
+  | AgentConfigService
+  | ToolRequirements
+  | PresentationService
+  | LLMService
+> {
+  const { agent, actualConversationId, context, strategy, runMetrics, displayConfig } = deps;
+  return Effect.gen(function* () {
+    const services = yield* Effect.context<
+      | ToolRegistry
+      | LoggerService
+      | AgentConfigService
+      | ToolRequirements
+      | PresentationService
+      | LLMService
+    >();
+    const toolRenderer = strategy.getRenderer();
+    return async (toolCall) => {
+      const hostContext = {
+        ...context,
+        conversationMessages: state.currentMessages,
+        parentAgent: agent,
+        allowMemoryExtraction: mayExtractMemories(deps.options),
+        subagents: deps.subagents,
+        ...(toolRenderer
+          ? { emitEvent: (event: StreamEvent) => toolRenderer.handleEvent(event) }
+          : {}),
+      };
+      await Effect.runPromise(
+        deps.logger.debug("Provider-owned tool call routed through the Jazz executor", {
+          agentId: agent.id,
+          conversationId: actualConversationId,
+          tool: toolCall.function.name,
+        }),
+      );
+      const outcomes = await Effect.runPromise(
+        ToolExecutor.executeToolCalls(
+          [toolCall],
+          hostContext,
+          displayConfig,
+          toolRenderer,
+          runMetrics,
+          agent.id,
+          actualConversationId,
+          agent.name,
+          strategy.getInterruptSignal?.(),
+          strategy.getBackgroundSignal?.(),
+        ).pipe(Effect.provideContext(services)),
+      );
+      const outcome = outcomes[0];
+      return outcome === undefined
+        ? { success: false, result: { error: "The tool produced no result." } }
+        : { success: outcome.success, result: outcome.result };
+    };
+  });
 }
 
 function handleToolPhase(
@@ -1976,8 +2046,15 @@ function runIteration(
             }),
           );
     const completionStartTime = Date.now();
+    const toolHost = provider === "claude_code" ? yield* buildToolHost(state, deps) : undefined;
     const attempt = yield* strategy
-      .getCompletion(messagesForLLM, iterationIndex, toolsOffered(state), contextWindowMaxTokens)
+      .getCompletion(
+        messagesForLLM,
+        iterationIndex,
+        toolsOffered(state),
+        contextWindowMaxTokens,
+        toolHost,
+      )
       .pipe(Effect.result);
     if (attempt._tag === "Failure") {
       const error = attempt.failure;

@@ -27,7 +27,7 @@ asks you right there when a job needs your permission; anywhere else it parks th
 you on your phone through a [notify target](docs/configure/notifications.md), where you can
 approve it from chat.
 
-24 providers are supported, including OpenAI (with an API key or a ChatGPT Plus/Pro plan), Anthropic, Google, Mistral, Groq, and
+25 providers are supported, including OpenAI (with an API key or a ChatGPT Plus/Pro plan), Anthropic (with an API key or your own Claude Code sign-in), Google, Mistral, Groq, and
 OpenRouter, plus `ollama`, `llama.cpp`, `vllm`, and `sglang` for self-hosted models with no API key unless the server requires one. Everything else
 connects through [MCP](https://modelcontextprotocol.io/).
 

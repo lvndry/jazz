@@ -15,6 +15,7 @@ import { isRecord } from "@jazz/core/utils/is-record";
 import { Effect } from "effect";
 import { configuredProviderNames } from "@/cli/ui/models/configured-providers";
 import { signInToChatGPT } from "./chatgpt-sign-in";
+import { enableClaudeCode } from "./claude-code-setup";
 
 /** Whether the provider is pointed at its own endpoint, where the stock key check does not apply. */
 function hasCustomBaseUrl(config: AppConfig, provider: string): boolean {
@@ -47,6 +48,16 @@ export async function ensureProviderApiKey(options: {
   const config = await Effect.runPromise(options.configService.appConfig);
   if (!options.force && configuredProviderNames(config).includes(options.provider)) {
     return "already-set";
+  }
+
+  if (options.provider === "claude_code") {
+    if (options.reason) {
+      await Effect.runPromise(options.terminal.warn(options.reason));
+    }
+    const enabled = await Effect.runPromise(
+      enableClaudeCode(options.terminal, options.configService),
+    );
+    return enabled ? "saved" : "cancelled";
   }
 
   if (options.provider === "chatgpt") {

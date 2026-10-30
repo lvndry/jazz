@@ -14,32 +14,33 @@ Where a provider is known by two names, Jazz accepts both. `GEMINI_API_KEY` is w
 
 The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/core/src/constants/models.ts`](../../packages/core/src/constants/models.ts). Model names are not maintained in this page: hosted catalogs change frequently, so Jazz resolves them at runtime.
 
-| Provider ID  | API-key environment variable                                      |
-| ------------ | ----------------------------------------------------------------- |
-| `ai_gateway` | `AI_GATEWAY_API_KEY`                                              |
-| `alibaba`    | `ALIBABA_API_KEY`                                                 |
-| `anthropic`  | `ANTHROPIC_API_KEY`                                               |
-| `cerebras`   | `CEREBRAS_API_KEY`                                                |
-| `chatgpt`    | None: sign in with a ChatGPT plan (see below)                     |
-| `deepseek`   | `DEEPSEEK_API_KEY`                                                |
-| `fireworks`  | `FIREWORKS_API_KEY`                                               |
-| `gemini`     | `GOOGLE_GENERATIVE_AI_API_KEY`, or `GEMINI_API_KEY`               |
-| `groq`       | `GROQ_API_KEY`                                                    |
-| `llamacpp`   | `LLAMACPP_API_KEY` when the server requires bearer authentication |
-| `minimax`    | `MINIMAX_API_KEY`                                                 |
-| `mistral`    | `MISTRAL_API_KEY`                                                 |
-| `moonshotai` | `MOONSHOT_API_KEY`                                                |
-| `nvidia`     | `NVIDIA_API_KEY`, or `NIM_API_KEY`                                |
-| `ollama`     | `OLLAMA_API_KEY` for Ollama Cloud or protected servers            |
-| `openai`     | `OPENAI_API_KEY`                                                  |
-| `openrouter` | `OPENROUTER_API_KEY`                                              |
-| `orcarouter` | `ORCAROUTER_API_KEY`                                              |
-| `refuseless` | `REFUSELESS_API_KEY`                                              |
-| `sglang`     | `SGLANG_API_KEY` when the server requires bearer authentication   |
-| `togetherai` | `TOGETHER_AI_API_KEY`                                             |
-| `vllm`       | `VLLM_API_KEY` when the server requires bearer authentication     |
-| `xai`        | `XAI_API_KEY`                                                     |
-| `zhipuai`    | `ZHIPU_API_KEY`                                                   |
+| Provider ID   | API-key environment variable                                      |
+| ------------- | ----------------------------------------------------------------- |
+| `ai_gateway`  | `AI_GATEWAY_API_KEY`                                              |
+| `alibaba`     | `ALIBABA_API_KEY`                                                 |
+| `anthropic`   | `ANTHROPIC_API_KEY`                                               |
+| `cerebras`    | `CEREBRAS_API_KEY`                                                |
+| `chatgpt`     | None: sign in with a ChatGPT plan (see below)                     |
+| `claude_code` | None: uses your own signed-in Claude Code (see below)             |
+| `deepseek`    | `DEEPSEEK_API_KEY`                                                |
+| `fireworks`   | `FIREWORKS_API_KEY`                                               |
+| `gemini`      | `GOOGLE_GENERATIVE_AI_API_KEY`, or `GEMINI_API_KEY`               |
+| `groq`        | `GROQ_API_KEY`                                                    |
+| `llamacpp`    | `LLAMACPP_API_KEY` when the server requires bearer authentication |
+| `minimax`     | `MINIMAX_API_KEY`                                                 |
+| `mistral`     | `MISTRAL_API_KEY`                                                 |
+| `moonshotai`  | `MOONSHOT_API_KEY`                                                |
+| `nvidia`      | `NVIDIA_API_KEY`, or `NIM_API_KEY`                                |
+| `ollama`      | `OLLAMA_API_KEY` for Ollama Cloud or protected servers            |
+| `openai`      | `OPENAI_API_KEY`                                                  |
+| `openrouter`  | `OPENROUTER_API_KEY`                                              |
+| `orcarouter`  | `ORCAROUTER_API_KEY`                                              |
+| `refuseless`  | `REFUSELESS_API_KEY`                                              |
+| `sglang`      | `SGLANG_API_KEY` when the server requires bearer authentication   |
+| `togetherai`  | `TOGETHER_AI_API_KEY`                                             |
+| `vllm`        | `VLLM_API_KEY` when the server requires bearer authentication     |
+| `xai`         | `XAI_API_KEY`                                                     |
+| `zhipuai`     | `ZHIPU_API_KEY`                                                   |
 
 ## Store credentials
 
@@ -76,6 +77,23 @@ The tokens are stored in the keyring (or the Jazz secrets file on hosts without 
 For hosted CI, set `JAZZ_CHATGPT_CREDENTIAL` to the JSON bundle copied from `/settings` → **Model providers** → **ChatGPT** (`c`). Jazz reads it only when no stored ChatGPT credential exists and removes the variable before launching child processes. Refresh tokens rotate, so ephemeral workflows must persist a newly refreshed bundle before the next run; serialize all workflows that use the same credential. See [CI runs](../surfaces/ci.md) for unattended setup and the [pull-request reviewer](../guides/pr-review.md) for a working workflow.
 
 If a request fails with `Not signed in to ChatGPT`, OpenAI has rejected the stored refresh token. Choose **ChatGPT** under `/settings` → **Model providers** and press `r`. Jazz tries to refresh the token, and when OpenAI rejects it, Jazz starts a new sign-in. Press `e` there to sign in again or sign out.
+
+## Claude Code subscription
+
+The `claude_code` provider runs Claude models through the `claude` binary you have installed and signed in to, so requests use your Claude Pro or Max quota instead of API credits. Jazz never reads or stores a Claude credential: it launches your own Claude Code, which holds the sign-in.
+
+1. Install Claude Code and run `claude` once to sign in.
+2. Run `jazz config set claude_code`. Jazz checks that `claude` is on your `PATH` and signed in, then records `llm.claude_code.enabled`. Set `llm.claude_code.cli_path` when the binary lives elsewhere.
+3. Choose **Claude Code** for an agent, with a model such as `sonnet`, `opus`, `haiku`, or a full Claude model id.
+
+Jazz keeps ownership of tools. Claude Code's own file, shell and web tools are turned off, and your Claude.ai connectors are not attached. Each tool the agent has is offered to the model through an in-process server, and every call runs through Jazz's executor, so approvals, risk levels, sub-agents and the transcript behave as with any other provider.
+
+Things to know:
+
+- Claude Code sends its own instructions with every request, which adds roughly 10,000 tokens of fixed input per call.
+- Tool calls and results do not appear in the saved transcript as separate messages, so a resumed conversation carries the assistant's answers and not the raw tool output.
+- Jazz shows no per-token cost, because usage counts against your plan's limits.
+- This relies on Anthropic permitting Claude Code to be driven through its Agent SDK on a subscription. Check Anthropic's current terms before using it in a product or on shared infrastructure.
 
 ## OpenRouter for model portability
 
