@@ -358,11 +358,7 @@ describe("composer newline", () => {
 
 describe("footer hints", () => {
   it("advertises exactly the implemented bindings for each state", () => {
-    expect(hintsFor("transcript", false)).toEqual([
-      "pgup to page",
-      "type to input",
-      "ctrl+f to search",
-    ]);
+    expect(hintsFor("transcript", false)).toEqual(["ctrl+f to search"]);
     expect(hintsFor("input", true, true)).toEqual([
       "enter to queue",
       "esc esc to interrupt",

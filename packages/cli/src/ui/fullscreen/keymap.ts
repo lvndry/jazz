@@ -502,7 +502,7 @@ export function hintsFor(
     return ["enter to keep", "esc to revert", "left right for dark or light"];
   if (commandsOpen) return ["up down to choose", "enter to run", "tab to complete"];
   if (focus === "transcript") {
-    return ["pgup to page", "type to input", "ctrl+f to search"];
+    return ["ctrl+f to search"];
   }
   if (runActive) {
     if (queueing) {
