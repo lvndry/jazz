@@ -495,12 +495,12 @@ export function hintsFor(
   if (overlay === "approval") return ["waiting for you"];
   if (overlay === "panel") return runActive ? ["working", "esc to close"] : ["esc to close"];
   if (overlay === "search") return ["enter to insert", "tab to scope", "esc to close"];
-  if (overlay === "text") return ["waiting for you", "pgup to read above"];
-  if (overlay === "question") return ["waiting for you", "pgup to read above"];
-  if (overlay === "filepicker") return ["enter to confirm", "esc to cancel"];
+  if (overlay === "text") return ["waiting for you"];
+  if (overlay === "question") return ["waiting for you"];
+  if (overlay === "filepicker") return [];
   if (overlay === "theme")
     return ["enter to keep", "esc to revert", "left right for dark or light"];
-  if (commandsOpen) return ["up down to choose", "enter to run", "tab to complete"];
+  if (commandsOpen) return ["tab to complete"];
   if (focus === "transcript") {
     return ["ctrl+f to search"];
   }
@@ -509,9 +509,9 @@ export function hintsFor(
       if (hasQueued) {
         return ["ctrl+enter to send all", "enter to queue", "up to recall", "ctrl+x to clear"];
       }
-      return ["enter to queue", "esc esc to interrupt", "ctrl+r for reasoning", "ctrl+c to stop"];
+      return ["enter to queue", "esc esc to interrupt", "ctrl+r for reasoning"];
     }
-    return ["esc esc to interrupt", "ctrl+r for reasoning", "ctrl+o to expand", "ctrl+c to stop"];
+    return ["esc esc to interrupt", "ctrl+r for reasoning", "ctrl+o to expand"];
   }
-  return ["enter to send", "up for history", "ctrl+f to search", "ctrl+r for reasoning"];
+  return ["up for history", "ctrl+f to search", "ctrl+r for reasoning"];
 }
