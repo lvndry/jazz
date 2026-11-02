@@ -358,26 +358,19 @@ describe("composer newline", () => {
 
 describe("footer hints", () => {
   it("advertises exactly the implemented bindings for each state", () => {
-    expect(hintsFor("transcript", false)).toEqual([
-      "up down to scroll",
-      "pgup to page",
-      "type to input",
-      "ctrl+f to search",
-    ]);
+    expect(hintsFor("transcript", false)).toEqual(["ctrl+f to search"]);
     expect(hintsFor("input", true, true)).toEqual([
       "enter to queue",
       "esc esc to interrupt",
       "ctrl+r for reasoning",
-      "ctrl+c to stop",
     ]);
     expect(hintsFor("input", true, true, undefined, false, true)).toEqual([
-      "esc esc to send all",
+      "ctrl+enter to send all",
       "enter to queue",
       "up to recall",
       "ctrl+x to clear",
     ]);
     expect(hintsFor("input", false)).toEqual([
-      "enter to send",
       "up for history",
       "ctrl+f to search",
       "ctrl+r for reasoning",
@@ -386,24 +379,14 @@ describe("footer hints", () => {
     expect(hintsFor("input", false, false, "approval")).toEqual(["waiting for you"]);
     expect(hintsFor("input", true, false, "panel")).toEqual(["working", "esc to close"]);
     expect(hintsFor("input", false, false, "panel")).toEqual(["esc to close"]);
-    expect(hintsFor("input", false, false, "text")).toEqual([
-      "waiting for you",
-      "pgup to read above",
-    ]);
-    expect(hintsFor("input", false, false, "question")).toEqual([
-      "waiting for you",
-      "pgup to read above",
-    ]);
+    expect(hintsFor("input", false, false, "text")).toEqual(["waiting for you"]);
+    expect(hintsFor("input", false, false, "question")).toEqual(["waiting for you"]);
     expect(hintsFor("input", true, false, "search")).toEqual([
       "enter to insert",
       "tab to scope",
       "esc to close",
     ]);
-    expect(hintsFor("input", false, false, undefined, true)).toEqual([
-      "up down to choose",
-      "enter to run",
-      "tab to complete",
-    ]);
+    expect(hintsFor("input", false, false, undefined, true)).toEqual(["tab to complete"]);
   });
 
   it("offers the interrupt only while a run is active", () => {
