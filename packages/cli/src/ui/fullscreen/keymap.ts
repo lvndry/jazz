@@ -497,7 +497,7 @@ export function hintsFor(
   if (overlay === "search") return ["enter to insert", "tab to scope", "esc to close"];
   if (overlay === "text") return ["waiting for you"];
   if (overlay === "question") return ["waiting for you"];
-  if (overlay === "filepicker") return [];
+  if (overlay === "filepicker") return ["enter to confirm", "esc to cancel"];
   if (overlay === "theme")
     return ["enter to keep", "esc to revert", "left right for dark or light"];
   if (commandsOpen) return ["tab to complete"];
