@@ -502,12 +502,12 @@ export function hintsFor(
     return ["enter to keep", "esc to revert", "left right for dark or light"];
   if (commandsOpen) return ["up down to choose", "enter to run", "tab to complete"];
   if (focus === "transcript") {
-    return ["up down to scroll", "pgup to page", "type to input", "ctrl+f to search"];
+    return ["pgup to page", "type to input", "ctrl+f to search"];
   }
   if (runActive) {
     if (queueing) {
       if (hasQueued) {
-        return ["esc esc to send all", "enter to queue", "up to recall", "ctrl+x to clear"];
+        return ["ctrl+enter to send all", "enter to queue", "up to recall", "ctrl+x to clear"];
       }
       return ["enter to queue", "esc esc to interrupt", "ctrl+r for reasoning", "ctrl+c to stop"];
     }
