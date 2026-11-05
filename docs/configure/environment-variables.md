@@ -113,8 +113,8 @@ over the variable.
 | `VLLM_BASE_URL`     | `http://127.0.0.1:8000/v1`   |
 | `SGLANG_BASE_URL`   | `http://127.0.0.1:30000/v1`  |
 
-Web search keys: `BRAVE_API_KEY`, `EXA_API_KEY`, `LINKUP_API_KEY`, `PARALLEL_API_KEY`,
-`PERPLEXITY_API_KEY`, `TAVILY_API_KEY`, and `TREG_TOKEN`. See [Web search](./web-search.md).
+Web search keys: `BRAVE_API_KEY`, `EXA_API_KEY`, `KEENABLE_API_KEY`, `LINKUP_API_KEY`,
+`PARALLEL_API_KEY`, `PERPLEXITY_API_KEY`, `TAVILY_API_KEY`, and `TREG_TOKEN`. See [Web search](./web-search.md).
 
 ## Daemon, peer and webhook tokens
 
