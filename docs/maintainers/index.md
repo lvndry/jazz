@@ -29,6 +29,8 @@ Use these pages to answer two questions: where does a change belong, and which i
 - [UI performance qualification](./ui-performance-qualification.md): matched fresh-process latency and memory reproduction, complete observations, and unchanged gates.
 - [Remote handoff snapshot](./detach-snapshots.md): what a detached conversation carries to another host, and the ownership fence around it.
 
+- [Post-mortems](./postmortems/index.md): incidents that escaped tests, the rule each produced, and the gate that enforces it.
+
 ## Extend Jazz
 
 - [Add a service](./add-a-service.md)
