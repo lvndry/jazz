@@ -8,6 +8,7 @@ import os from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, mock, spyOn, type Mock } from "bun:test";
 import { Effect, Fiber, FileSystem, Layer, Stream } from "effect";
+import { z } from "zod";
 import {
   DEFAULT_MAX_LIVE_SUBAGENTS,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
@@ -26,6 +27,7 @@ import {
 import { createEgressTaint } from "./execution/egress-taint";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 import { createSubagentSupervisor } from "./subagents/supervisor";
+import { createSearchToolsTool } from "./tools/search-tools";
 import { createSubagentTools } from "./tools/subagent";
 import { createToolRegistryLayer } from "./tools/tool-registry";
 import type { AgentRunnerOptions } from "./types";
@@ -50,7 +52,7 @@ import { PresentationServiceTag } from "../interfaces/presentation";
 import type { TerminalService } from "../interfaces/terminal";
 import { TerminalServiceTag } from "../interfaces/terminal";
 import type { ToolRegistry } from "../interfaces/tool-registry";
-import { ToolRegistryTag } from "../interfaces/tool-registry";
+import { ToolRegistryTag, type Tool, type ToolRequirements } from "../interfaces/tool-registry";
 import type { SkillService } from "../skills/skill-service";
 import { SkillServiceTag } from "../skills/skill-service";
 import type { Agent } from "../types/agent";
@@ -821,6 +823,122 @@ describe("AgentRunner", () => {
       expect(restored?.at(-1)).toBe("deferred_tool");
       expect(restored?.slice(0, -1)).toEqual(fresh);
       expect(fresh).not.toContain("deferred_tool");
+    });
+
+    it("carries a real search_tools unlock from one turn's returned history into the next run", async () => {
+      const deferredTool: Tool<ToolRequirements> = {
+        name: "linear_create_issue",
+        description: "Create a Linear issue in a project. Full schema hidden until fetched.",
+        summary: "Create a Linear issue in a project.",
+        parameters: z.object({ title: z.string() }),
+        hidden: false,
+        riskLevel: "read-only",
+        disclosure: "internal",
+        egress: false,
+        execute: () => Effect.succeed({ success: true, result: "" }),
+        createSummary: undefined,
+      };
+      const deferredCategory = {
+        id: "deferred-cat",
+        displayName: "Deferred",
+        loadTier: "deferred" as const,
+      };
+      const requests: { toolNames: string[]; systemPrompt: string }[] = [];
+      const llm = {
+        ...mockLlmService,
+        createChatCompletion: (
+          _provider: string,
+          options: {
+            tools?: { function: { name: string } }[];
+            messages: ChatMessage[];
+          },
+        ) => {
+          requests.push({
+            toolNames: (options.tools ?? []).map((tool) => tool.function.name),
+            systemPrompt: options.messages[0]?.content ?? "",
+          });
+          const isFirstRequest = requests.length === 1;
+          return Effect.succeed({
+            id: `request-${requests.length}`,
+            model: "gpt-4",
+            content: isFirstRequest ? "" : "done",
+            ...(isFirstRequest
+              ? {
+                  toolCalls: [
+                    {
+                      id: "search-1",
+                      type: "function" as const,
+                      function: {
+                        name: "search_tools",
+                        arguments: JSON.stringify({ query: "create linear issue" }),
+                      },
+                    },
+                  ],
+                }
+              : {}),
+          });
+        },
+      } as unknown as LLMService;
+      const agent: Agent = {
+        ...mockAgent,
+        config: { ...mockAgent.config, tools: ["search_tools", "linear_create_issue"] },
+      };
+
+      const firstTurn = await runWithTestLayers(
+        Effect.gen(function* () {
+          const registry = yield* ToolRegistryTag;
+          yield* registry.registerTool(createSearchToolsTool());
+          yield* registry.registerTool(deferredTool, deferredCategory);
+          return yield* AgentRunner.run({
+            ...defaultOptions,
+            agent,
+            stream: false,
+            maxIterations: 3,
+          });
+        }).pipe(
+          Effect.provide(createToolRegistryLayer()),
+          Effect.provideService(PresentationServiceTag, {
+            ...mockPresentationService,
+            signalToolExecutionStarted: () => Effect.void,
+          }),
+        ),
+        { llm },
+      );
+
+      const searchResult = firstTurn.messages?.find((message) => message.name === "search_tools");
+      expect(searchResult?.unlockedToolNames).toEqual(["linear_create_issue"]);
+      expect(requests[0]?.toolNames).not.toContain("linear_create_issue");
+      expect(requests[1]?.toolNames).toContain("linear_create_issue");
+
+      await runWithTestLayers(
+        Effect.gen(function* () {
+          const registry = yield* ToolRegistryTag;
+          yield* registry.registerTool(createSearchToolsTool());
+          yield* registry.registerTool(deferredTool, deferredCategory);
+          return yield* AgentRunner.run({
+            ...defaultOptions,
+            agent,
+            userInput: "and another one",
+            stream: false,
+            maxIterations: 1,
+            conversationHistory: (firstTurn.messages ?? []).filter(
+              (message) => message.role !== "system",
+            ),
+          });
+        }).pipe(
+          Effect.provide(createToolRegistryLayer()),
+          Effect.provideService(PresentationServiceTag, {
+            ...mockPresentationService,
+            signalToolExecutionStarted: () => Effect.void,
+          }),
+        ),
+        { llm },
+      );
+
+      const secondTurn = requests.at(-1);
+      expect(secondTurn?.toolNames).toContain("linear_create_issue");
+      expect(requests[0]?.systemPrompt).toContain("linear_create_issue");
+      expect(secondTurn?.systemPrompt).not.toContain("linear_create_issue");
     });
 
     it("records the run's live egress taint on the messages it returns", async () => {

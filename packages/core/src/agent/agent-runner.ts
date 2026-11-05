@@ -843,6 +843,11 @@ function initializeAgentRun(
       });
     }
 
+    const restoredToolNameSet = new Set(restoredToolNames);
+    const unlistedDeferredToolSummaries = deferredToolSummaries.filter(
+      (summary) => !restoredToolNameSet.has(summary.name),
+    );
+
     // Build tool descriptions map
     const availableTools: Record<string, string> = {};
     for (const tool of tools) {
@@ -909,7 +914,9 @@ function initializeAgentRun(
         toolNames: expandedToolNames,
         availableTools,
         knownSkills: relevantSkills,
-        ...(deferredToolSummaries.length > 0 && { deferredTools: deferredToolSummaries }),
+        ...(unlistedDeferredToolSummaries.length > 0 && {
+          deferredTools: unlistedDeferredToolSummaries,
+        }),
         ...(injectedPreferences.standing.length > 0 && {
           activePreferences: injectedPreferences.standing,
         }),
