@@ -32,7 +32,7 @@ const { PersonaServiceImpl } = await import("../packages/adapters/src/persona-se
 const { agentPromptBuilder } = await import("../packages/core/src/agent/agent-prompt");
 const { resolveAgentToolNames, runToolDenials } =
   await import("../packages/core/src/agent/tools/agent-tool-resolution");
-const { registerAllTools, registerSkillSystemTools } =
+const { registerAllTools, registerSkillSystemTools, registerBrowserAdoptionTools } =
   await import("../packages/core/src/agent/tools/register-tools");
 const { createToolRegistryLayer } = await import("../packages/core/src/agent/tools/tool-registry");
 const { ToolRegistryTag } = await import("../packages/core/src/interfaces/tool-registry");
@@ -66,6 +66,7 @@ const attendedChatSurface = { origin: { source: "chat" }, offersGoalProposals: t
 function measure(): Effect.Effect<FirstTurnMeasurement, Error, never> {
   return Effect.gen(function* () {
     yield* registerAllTools();
+    yield* registerBrowserAdoptionTools();
     yield* registerSkillSystemTools([]);
     const registry = yield* ToolRegistryTag;
 

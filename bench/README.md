@@ -89,8 +89,7 @@ ceiling.
 `bun run bench:first-turn` measures what every request carries before the user's
 first word: the system prompt of the default agent, plus the schemas of the tools
 it declares eagerly. It runs offline in about a second (no provider, no network,
-an empty `JAZZ_HOME`) and the `Performance (PR lane)` workflow runs it on every
-pull request.
+an empty `JAZZ_HOME`) and the `Performance (PR lane)` workflow runs it on pull requests that match its configured code and benchmark paths.
 
 - The default agent is persona `default` with every selectable tool category
   granted, no skills, no MCP servers, no AGENTS.md and no stored preferences, in

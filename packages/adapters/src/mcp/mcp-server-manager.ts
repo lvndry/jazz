@@ -972,7 +972,10 @@ export class MCPServerManagerImpl implements MCPServerManager {
   }
 
   getInstructions(serverName: string): Effect.Effect<string | undefined, never> {
-    return Effect.sync(() => this.connections.get(serverName)?.instructions);
+    return Effect.sync(() => {
+      const connection = this.connections.get(serverName);
+      return connection?.client.transport === undefined ? undefined : connection.instructions;
+    });
   }
 
   getCapabilities(serverName: string): Effect.Effect<MCPServerCapabilities | undefined, never> {

@@ -174,3 +174,7 @@ estimates from the o200k tokenizer) and runs on every pull request; see
 [the benchmark guide](../../bench/README.md#first-turn-token-budget).
 Reports are retained as CI artifacts for investigation. Review budget changes as
 product trade-offs; do not raise a ceiling merely to make a regression pass.
+
+MCP server instruction budgets include their truncation markers. Rendering scans a bounded
+prefix of each raw instruction string, caps server attribution, and keeps server-controlled
+names inside the untrusted frame. A closed transport contributes no instructions.

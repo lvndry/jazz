@@ -22,6 +22,7 @@ const STDIO_CONFIG: MCPServerConfigStdio = {
 };
 
 interface FakeClient {
+  transport: object | undefined;
   connect: ReturnType<typeof mock>;
   close: ReturnType<typeof mock>;
   getServerCapabilities: ReturnType<typeof mock>;
@@ -33,6 +34,7 @@ interface FakeClient {
 
 function fakeClient(connect: () => Promise<void>): FakeClient {
   return {
+    transport: {},
     connect: mock(connect),
     close: mock(() => Promise.resolve()),
     getServerCapabilities: mock(() => undefined),
@@ -104,6 +106,17 @@ describe("connectServer", () => {
     );
 
     await runEffect(manager.disconnectServer(STDIO_CONFIG.name), logger);
+    expect(await Effect.runPromise(manager.getInstructions(STDIO_CONFIG.name))).toBeUndefined();
+  });
+
+  it("does not expose instructions after a remote transport close", async () => {
+    const logger = fakeLogger();
+    const manager = new MCPServerManagerImpl(logger);
+    const client = fakeClient(() => Promise.resolve());
+    client.getInstructions = mock(() => "stale instructions");
+    wireFakeClients(manager, [client]);
+    await runEffect(manager.connectServer(STDIO_CONFIG), logger);
+    client.transport = undefined;
     expect(await Effect.runPromise(manager.getInstructions(STDIO_CONFIG.name))).toBeUndefined();
   });
 
