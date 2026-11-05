@@ -135,8 +135,8 @@ describe("instruction chain budgets", () => {
 
     const { files, omissions } = discoverProjectInstructions(leaf, ISOLATED_HOME);
 
-    expect(files.map((file) => file.path)).toEqual([paths[1], paths[2]]);
-    expect(omissions).toEqual([{ path: paths[0], bytes: quarter * 2 }]);
+    expect(files.map((file) => file.path)).toEqual([paths[1] as string, paths[2] as string]);
+    expect(omissions).toEqual([{ path: paths[0] as string, bytes: quarter * 2 }]);
   });
 
   test("truncates the first file that does not fit and keeps its beginning", () => {
