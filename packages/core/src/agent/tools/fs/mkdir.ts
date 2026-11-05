@@ -1,7 +1,7 @@
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
-import { denyWriteOutsideRoots } from "@/core/sandbox/runtime-policy";
+import { pinWriteTargets } from "@/core/sandbox/pinned-writes";
 import type { ToolExecutionContext } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import {
@@ -70,9 +70,9 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePathForMkdir(buildKeyFromContext(context), args.path);
-        const denied = yield* denyWriteOutsideRoots(context, [target]);
-        if (denied !== undefined) {
-          return denied;
+        const pin = yield* pinWriteTargets(context, [target], { follow: true });
+        if (pin.denied !== undefined) {
+          return pin.denied;
         }
 
         const statResult = yield* fs.stat(target).pipe(Effect.catch(() => Effect.succeed(null)));
@@ -89,8 +89,12 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
           }
         }
 
+        const swapped = yield* pin.recheck();
+        if (swapped !== undefined) {
+          return swapped;
+        }
         try {
-          yield* fs.makeDirectory(target, { recursive: args.recursive !== false });
+          yield* fs.makeDirectory(pin.paths[0] ?? target, { recursive: args.recursive !== false });
           return { success: true, result: `Directory created: ${target}` };
         } catch (error) {
           return {

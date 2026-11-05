@@ -1,7 +1,7 @@
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
-import { denyWriteOutsideRoots } from "@/core/sandbox/runtime-policy";
+import { pinWriteTargets } from "@/core/sandbox/pinned-writes";
 import type { ToolExecutionContext } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import {
@@ -83,9 +83,9 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
           args.destination,
           { skipExistenceCheck: true },
         );
-        const denied = yield* denyWriteOutsideRoots(context, [source, destination]);
-        if (denied !== undefined) {
-          return denied;
+        const pin = yield* pinWriteTargets(context, [source, destination]);
+        if (pin.denied !== undefined) {
+          return pin.denied;
         }
 
         // Guard: destination must not be inside source (prevents moving dir into itself)
@@ -121,7 +121,16 @@ export function createMvTools(): ApprovalToolPair<MvDeps> {
           };
         }
 
-        return yield* moveAtomically(fs, source, destination, destExists).pipe(
+        const swapped = yield* pin.recheck();
+        if (swapped !== undefined) {
+          return swapped;
+        }
+        return yield* moveAtomically(
+          fs,
+          pin.paths[0] ?? source,
+          pin.paths[1] ?? destination,
+          destExists,
+        ).pipe(
           Effect.map(() => ({ success: true, result: `Moved: ${source} → ${destination}` })),
           Effect.catch((error) =>
             Effect.succeed({

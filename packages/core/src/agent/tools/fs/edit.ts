@@ -1,6 +1,7 @@
 import { Data, Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
+import { pinWriteTargets } from "@/core/sandbox/pinned-writes";
 import { denyWriteOutsideRoots } from "@/core/sandbox/runtime-policy";
 import { redactLines } from "@/core/secrets/redacted-lines";
 import { redactedWriteProblem, type KnownSecret } from "@/core/secrets/redaction";
@@ -795,9 +796,9 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
         const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path);
-        const denied = yield* denyWriteOutsideRoots(context, [target]);
-        if (denied !== undefined) {
-          return denied;
+        const pin = yield* pinWriteTargets(context, [target], { follow: true });
+        if (pin.denied !== undefined) {
+          return pin.denied;
         }
         const canonicalTargetResult = yield* fs.realPath(target).pipe(Effect.result);
         if (canonicalTargetResult._tag === "Failure") {
@@ -865,6 +866,10 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
 
               const newContent = resultLines.join("\n");
 
+              const swapped = yield* pin.recheck();
+              if (swapped !== undefined) {
+                return swapped;
+              }
               // Old content or new, never a truncated file, however the call is stopped.
               const writeResult = yield* writeFileAtomically(
                 fs,

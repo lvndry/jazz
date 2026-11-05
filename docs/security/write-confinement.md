@@ -29,14 +29,15 @@ does not stop a command from sending data over the network.
 | Peers, webhooks, goals, loops, daemon work                                           | on      |
 
 The rule is whether a person is at the terminal who can type `continue`: when nobody is, the fence
-is on. Set `shell.confinement` in your global config to override either way:
+is on. Set `shell.confinement` in your global config to choose the mode yourself:
 
 ```json
 { "shell": { "confinement": "on" } }
 ```
 
-`off` is the only value that lets commands run unconfined. A project's `.jazz/config.json` can
-turn confinement on but not off; Jazz ignores a project `off` and says so.
+`off` is the only value that lets commands run unconfined. The project layer is applied after the
+global one: a project's `.jazz/config.json` can turn confinement on even when your global config
+says `off`, but a project `off` is ignored (Jazz says so), so a project can only add the fence.
 
 ## What Jazz needs from the machine
 
@@ -76,6 +77,14 @@ The file tools do not escalate: a path outside the roots is refused with the roo
 ## Limits
 
 - The fence covers writes, not reads or the network.
+- The file tools (`write_file`, `edit_file`, `create_pdf`, `rm`, `mv`, `cp`, `mkdir`) check their
+  paths in-process. Each resolves the target's real path, mutates that path rather than the
+  original string, and re-checks the directory it relies on (its identity and that it is not a
+  symlink) as the last step before the mutating call, refusing if it changed. Node and Bun have no
+  `openat` or no-follow primitives, so a window of a few microseconds remains between that check
+  and the syscall. Closing it needs a process that can swap a directory in that gap while a tool
+  call runs: the realistic one is a confined shell command racing a file-tool call in the same
+  batch. The confined shell itself cannot escape, because the operating system confines it.
 - `manage_scratchpad` writes only under Jazz's own scratch directory, which is a writable root, so it needs no separate check.
 - Commands the daemon runs from a `wait_for` job and the operator's `!` escape run unconfined.
 - `sandbox-exec` is deprecated by Apple but ships on every supported macOS.
