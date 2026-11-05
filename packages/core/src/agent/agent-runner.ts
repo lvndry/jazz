@@ -104,7 +104,10 @@ import {
   telemetryErrorCategory,
   type AgentRunMetrics,
 } from "./metrics/agent-run-metrics";
-import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
+import {
+  discoverProjectInstructions,
+  type ProjectInstructionDiscovery,
+} from "./project-instructions";
 import type { RunRecordBoundary } from "./run/run-record";
 import { withRunRecording } from "./run/run-recorder";
 import { ToolActivityTracker } from "./run/tool-activity";
@@ -430,10 +433,10 @@ function resolveProjectInstructions(
   boundary: RunContextBoundary,
   agentId: string,
   options: AgentRunnerOptions,
-): Effect.Effect<readonly ProjectInstructionFile[], never> {
+): Effect.Effect<ProjectInstructionDiscovery, never> {
   return Effect.gen(function* () {
     if (!boundary.injectsProjectInstructions) {
-      return [];
+      return { files: [], omissions: [], reports: [] };
     }
 
     const workingDirectory = yield* resolveAgentWorkingDirectory(agentId, options);
@@ -888,10 +891,21 @@ function initializeAgentRun(
     // otherwise the process cwd. The summarizer compresses transcripts and has
     // no project to honor, so it never gets them.
     const boundary = runContextBoundary(persona, options);
-    const projectInstructions = yield* resolveProjectInstructions(boundary, agent.id, options);
+    const instructionDiscovery = yield* resolveProjectInstructions(boundary, agent.id, options);
+    const projectInstructions = instructionDiscovery.files;
+    for (const report of instructionDiscovery.reports) {
+      yield* logger.debug(`AGENTS.md instruction file ${report.status}`, {
+        path: report.path,
+        chain: report.chain,
+        originalBytes: report.originalBytes,
+        includedBytes: report.includedBytes,
+        ...(report.reason !== undefined && { reason: report.reason }),
+      });
+    }
     if (projectInstructions.length > 0) {
       yield* logger.debug("AGENTS.md instruction files loaded", {
         count: projectInstructions.length,
+        omitted: instructionDiscovery.omissions.length,
       });
     }
 
@@ -962,6 +976,9 @@ function initializeAgentRun(
           initialAttachments: options.initialAttachments,
         }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
+        ...(instructionDiscovery.omissions.length > 0 && {
+          projectInstructionOmissions: instructionDiscovery.omissions,
+        }),
         ...(options.pinInitialMessage === true ? { pinInitialMessage: true } : {}),
         ...(options.systemPromptOverride !== undefined && {
           systemPromptOverride: options.systemPromptOverride,
