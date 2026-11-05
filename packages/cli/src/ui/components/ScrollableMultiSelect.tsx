@@ -42,7 +42,7 @@ export function ScrollableMultiSelect<T = unknown>({
     const values = new Set(normalizeDefaultSelected(defaultSelected).map(String));
     return choices
       .map((choice, index) => (values.has(choice.value) ? index : -1))
-      .filter((i) => i >= 0);
+      .filter((index) => index >= 0);
   }, [choices, defaultSelected]);
 
   const picker = usePicker({

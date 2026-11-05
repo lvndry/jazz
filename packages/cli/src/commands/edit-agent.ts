@@ -160,7 +160,7 @@ export function editAgentCommand(
       // Get available personas (built-in + custom)
       const personaService = yield* PersonaServiceTag;
       const personas = yield* personaService.listPersonas();
-      const personaNames = personas.map((p) => p.name);
+      const personaNames = personas.map((persona) => persona.name);
 
       // Get available tools by category
       const toolRegistry = yield* ToolRegistryTag;
@@ -361,7 +361,7 @@ export function editAgentCommand(
 
               yield* terminal.debug(
                 `Discovered ${mcpTools.length} tools from ${toPascalCase(serverConfig.name)}: ${mcpTools
-                  .map((t) => t.name)
+                  .map((tool) => tool.name)
                   .slice(0, 5)
                   .join(", ")}${mcpTools.length > 5 ? "..." : ""}`,
               );
@@ -663,7 +663,7 @@ async function promptForAgentUpdates(
 
       answers.llmProvider = llmProvider;
       const providerDisplayName =
-        providers.find((p) => p.name === llmProvider)?.displayName ?? llmProvider;
+        providers.find((provider) => provider.name === llmProvider)?.displayName ?? llmProvider;
 
       if (llmProvider === "vllm" || llmProvider === "sglang") {
         const urlResult = await ensureLocalProviderBaseUrl({
@@ -970,13 +970,17 @@ async function promptForAgentUpdates(
           );
 
           if (webSearchProvider === false) {
-            selectedCategories = selectedCategories.filter((c) => c !== searchCategoryName);
+            selectedCategories = selectedCategories.filter(
+              (category) => category !== searchCategoryName,
+            );
             await Effect.runPromise(terminal.log(""));
             continue;
           }
 
           if (webSearchProvider === "builtin") {
-            selectedCategories = selectedCategories.filter((c) => c !== searchCategoryName);
+            selectedCategories = selectedCategories.filter(
+              (category) => category !== searchCategoryName,
+            );
           } else {
             answers.webSearchProvider = webSearchProvider;
           }

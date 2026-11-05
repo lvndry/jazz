@@ -116,13 +116,13 @@ export function promptInteractiveCatchUp() {
     }
 
     // Let user select which workflows to run
-    const choices = candidates.map((c) => ({
-      name: `${scheduleId(c.entry)} (${formatMissedTime(c.decision.scheduledAt)})`,
-      value: scheduleId(c.entry),
+    const choices = candidates.map((candidate) => ({
+      name: `${scheduleId(candidate.entry)} (${formatMissedTime(candidate.decision.scheduledAt)})`,
+      value: scheduleId(candidate.entry),
     }));
 
     // Pre-select all by default
-    const defaultSelected = candidates.map((c) => scheduleId(c.entry));
+    const defaultSelected = candidates.map((candidate) => scheduleId(candidate.entry));
 
     yield* terminal.log("");
     const selected = yield* terminal.checkbox<string>(
@@ -137,8 +137,8 @@ export function promptInteractiveCatchUp() {
     }
 
     const entriesToRun = candidates
-      .filter((c) => selected.includes(scheduleId(c.entry)))
-      .map((c) => c.entry);
+      .filter((candidate) => selected.includes(scheduleId(candidate.entry)))
+      .map((candidate) => candidate.entry);
 
     yield* terminal.log("");
     yield* terminal.info(

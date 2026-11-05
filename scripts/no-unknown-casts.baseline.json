@@ -276,9 +276,6 @@
     "e5a1ffdb1a131504626f919398c4978800092bcd8eb8bc374292a4b936393aa4": 2,
     "f3a808347de334132ed5d55e5a901a155efbfee9a00771d971ba6e9dad44d5d4": 4
   },
-  "packages/cli/src/chat/commands/handler.ts": {
-    "bba0fe07d5f9b582f0d34f36df1a20fc835fdca2fedf1a514be36558404d1140": 2
-  },
   "packages/cli/src/chat/commands/help-and-model.test.ts": {
     "132365186df0ab4a2d7067869a328c38caed6441e58f65083a87fadbd0b6ab31": 1,
     "b691dc2bae4db2456de1f858abdd483994e93deb088081584ad53be3d2f3b1fe": 1,
@@ -326,21 +323,11 @@
     "d15214853f58f72c7c32ca096f9c076fcd573979202f57d1ed466dd5db8db1f2": 1,
     "faa73425e0f0e483bd189494adb7d48d3b6dd915174499f5bda18b4b27046f6a": 3
   },
-  "packages/cli/src/commands/detach-internal.ts": {
-    "a7972dc3883e3cc3795494ccd2e555d988b1040ecc82f98903d2843df2d4fa17": 1
-  },
   "packages/cli/src/commands/goal.test.ts": {
     "8a0352022323b2d05c444e30bce0c719e6e1da06c7389e973776c918d0135b0d": 1
   },
-  "packages/cli/src/commands/peer-invites.ts": {
-    "f2cef05a1b0471bffa2e540f0cf3287090ef5e8d706190336afe2ee21a0e144c": 2
-  },
   "packages/cli/src/commands/plugin.test.ts": {
     "5c95d78a49e899f25312ee20f1a555fc54c5fc40aa401dbbe3410447a772e25d": 1
-  },
-  "packages/cli/src/commands/plugin.ts": {
-    "24836b1e9a4b494a4acdca189cb6015da79e9c626fe925b13dc2da30e8d2df27": 3,
-    "6fe9024d30e0d4757a348b83d246925b3f5aeaf2e79a0eff4bf12f3c9fb5826b": 1
   },
   "packages/cli/src/commands/settings-wizard-providers.test.ts": {
     "44690de316479052cd65f708c24bd98e8d2a3724466e0d36eca493beb57afd8f": 1,
@@ -405,9 +392,6 @@
   "packages/cli/src/setup/web-search.test.ts": {
     "20981d656871efd5225be8f67e312290041d2770b9e73293c69ce94339e29c3e": 1
   },
-  "packages/cli/src/terminal.ts": {
-    "4716743d8cb8e6b3b5f0d6d81e6443381fce3147c2298eb49b43349b67e40bc2": 1
-  },
   "packages/cli/src/ui/fullscreen/attach.test.ts": {
     "94e6c4d15a19729cf60005d29c0985aa4e5bd984b92f40c2b5d8e996bb651997": 1
   },
@@ -429,9 +413,6 @@
   },
   "packages/cli/src/ui/fullscreen/renderer-adapter.test.tsx": {
     "94e6c4d15a19729cf60005d29c0985aa4e5bd984b92f40c2b5d8e996bb651997": 2
-  },
-  "packages/cli/src/ui/fullscreen/renderer-adapter.ts": {
-    "72e8b177e0690f2c7ed717e73172036aa56f97f6ad7f1c97364bfa14f54e6957": 2
   },
   "packages/cli/src/ui/fullscreen/test-helpers.tsx": {
     "72e8b177e0690f2c7ed717e73172036aa56f97f6ad7f1c97364bfa14f54e6957": 1

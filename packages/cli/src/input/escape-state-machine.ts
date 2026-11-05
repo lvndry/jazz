@@ -607,13 +607,13 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
           }
 
           // Parse character by character
-          for (let i = 0; i < input.length; i++) {
-            const char = input[i];
+          for (let index = 0; index < input.length; index++) {
+            const char = input[index];
             if (char === undefined) {
               continue;
             }
 
-            if (i === 0 && char === ESC) {
+            if (index === 0 && char === ESC) {
               state = { _tag: "EscapeReceived", timestamp: now };
               continue;
             }

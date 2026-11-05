@@ -64,7 +64,7 @@ function printJson(value: unknown): void {
 }
 
 async function readSkillRouteInput(filePath: string): Promise<SkillRouteInput> {
-  const value = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8")) as unknown;
+  const value: unknown = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8"));
   if (!isRecord(value)) {
     throw new Error("Hook input must be a JSON object.");
   }
@@ -86,7 +86,7 @@ async function readSkillRouteInput(filePath: string): Promise<SkillRouteInput> {
 }
 
 async function readCommandRiskInput(filePath: string): Promise<CommandRiskInput> {
-  const value = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8")) as unknown;
+  const value: unknown = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8"));
   if (!isRecord(value)) {
     throw new Error("Hook input must be a JSON object.");
   }
@@ -98,7 +98,7 @@ async function readCommandRiskInput(filePath: string): Promise<CommandRiskInput>
 }
 
 async function readCompactToolsInput(filePath: string): Promise<CompactToolsInput> {
-  const value = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8")) as unknown;
+  const value: unknown = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8"));
   if (!isRecord(value)) {
     throw new Error("Hook input must be a JSON object.");
   }
@@ -106,7 +106,33 @@ async function readCompactToolsInput(filePath: string): Promise<CompactToolsInpu
   if (typeof record["goal"] !== "string" || !Array.isArray(record["candidates"])) {
     throw new Error("compact.tools input requires a goal string and a candidates array.");
   }
-  return value as unknown as CompactToolsInput;
+  const candidates = record["candidates"].map((item, index) => {
+    if (!isRecord(item)) {
+      throw new Error(`candidates[${index}] must be an object.`);
+    }
+    const candidate = item;
+    if (
+      typeof candidate["id"] !== "string" ||
+      typeof candidate["tool"] !== "string" ||
+      typeof candidate["resultPreview"] !== "string" ||
+      typeof candidate["resultChars"] !== "number" ||
+      typeof candidate["isError"] !== "boolean" ||
+      (candidate["input"] !== undefined && typeof candidate["input"] !== "string")
+    ) {
+      throw new Error(
+        `candidates[${index}] requires id, tool, resultPreview, resultChars and isError fields.`,
+      );
+    }
+    return {
+      id: candidate["id"],
+      tool: candidate["tool"],
+      ...(candidate["input"] === undefined ? {} : { input: candidate["input"] }),
+      resultPreview: candidate["resultPreview"],
+      resultChars: candidate["resultChars"],
+      isError: candidate["isError"],
+    };
+  });
+  return { goal: record["goal"], candidates };
 }
 
 /** Scaffold a types-only SDK plugin project; dependency installation remains explicit. */
