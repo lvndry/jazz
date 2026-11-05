@@ -359,6 +359,7 @@ const webSearchShape = {
   perplexity: apiKeyOnly,
   linkup: apiKeyOnly,
   treg: apiKeyOnly,
+  keenable: apiKeyOnly,
   provider: z.enum(WEB_SEARCH_PROVIDERS).exactOptional(),
 } satisfies SchemaShape<WebSearchConfig>;
 
