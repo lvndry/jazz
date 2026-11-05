@@ -33,7 +33,6 @@ import {
 } from "@jazz/core/interfaces/tool-registry";
 import type { ToolCategory } from "@jazz/core/types/tools";
 import { Effect, Layer } from "effect";
-import * as prettier from "prettier";
 import { z } from "zod";
 
 export const TOOL_CATALOG_DOC = path.join(
@@ -208,12 +207,13 @@ function groupsTable(rows: readonly ToolCatalogRow[]): string {
   for (const [group, entry] of [...groups].sort(([left], [right]) => compareText(left, right))) {
     lines.push(`| ${escapeCell(group)} | ${entry.tier} | ${entry.tools} | ${entry.alwaysOn} |`);
   }
-  const totalAlwaysOn = rows.reduce((sum, row) => sum + row.alwaysOnTokens, 0);
-  lines.push(`| **All groups** | | **${rows.length}** | **${totalAlwaysOn}** |`);
   return lines.join("\n");
 }
 
-/** The whole page, formatted the way the repository's Prettier config formats Markdown. */
+/**
+ * The whole page. Tables are unpadded and the file is listed in `.prettierignore`, so changing one
+ * tool changes only its own row and concurrent pull requests do not conflict.
+ */
 export async function renderToolCatalog(): Promise<string> {
   const rows = await toolCatalogRows();
   const page = `---
@@ -244,8 +244,7 @@ ${groupsTable(rows)}
 
 ${toolsTable(rows)}
 `;
-  const options = (await prettier.resolveConfig(TOOL_CATALOG_DOC)) ?? {};
-  return prettier.format(page, { ...options, filepath: TOOL_CATALOG_DOC });
+  return page;
 }
 
 // eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun script entry point.
