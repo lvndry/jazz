@@ -70,7 +70,7 @@ export interface WhatsAppMedia {
  */
 type BaileysLogger = NonNullable<Parameters<typeof makeWASocket>[0]["logger"]>;
 
-const SILENT_LOGGER = {
+const silentLogger = {
   level: "silent",
   fatal: () => {},
   error: () => {},
@@ -78,8 +78,9 @@ const SILENT_LOGGER = {
   info: () => {},
   debug: () => {},
   trace: () => {},
-  child: () => SILENT_LOGGER,
-} as unknown as BaileysLogger;
+  child: (): BaileysLogger => SILENT_LOGGER,
+};
+const SILENT_LOGGER: BaileysLogger = silentLogger;
 
 function textOf(message: Record<string, unknown>): string {
   const conversation = message["conversation"];
@@ -101,8 +102,7 @@ function textOf(message: Record<string, unknown>): string {
   return "";
 }
 
-function mediaOf(message: Record<string, unknown>): WhatsAppMedia | undefined {
-  const whole = message as unknown as proto.IMessage;
+function mediaOf(message: proto.IMessage): WhatsAppMedia | undefined {
   const kinds = [
     ["imageMessage", "image"],
     ["audioMessage", "audio"],
@@ -115,12 +115,11 @@ function mediaOf(message: Record<string, unknown>): WhatsAppMedia | undefined {
     if (node === null || typeof node !== "object") {
       continue;
     }
-    const fields = node as Record<string, unknown>;
     return {
       kind,
-      mimeType: typeof fields["mimetype"] === "string" ? fields["mimetype"] : "",
-      fileName: typeof fields["fileName"] === "string" ? fields["fileName"] : undefined,
-      source: whole,
+      mimeType: typeof node.mimetype === "string" ? node.mimetype : "",
+      fileName: "fileName" in node && typeof node.fileName === "string" ? node.fileName : undefined,
+      source: message,
     };
   }
   return undefined;
@@ -176,7 +175,7 @@ export function flattenMessage(raw: unknown): WhatsAppMessage | undefined {
   const quotedParticipant = contextInfo?.["participant"];
 
   const text = textOf(messageFields);
-  const media = mediaOf(messageFields);
+  const media = mediaOf(message);
   if (text.trim().length === 0 && media === undefined) {
     return undefined;
   }

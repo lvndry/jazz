@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { JazzEnvelope, JazzEvent, JazzRun, SecretAnswer } from "./jazz-run";
+import type { JazzEnvelope, JazzEvent, JazzRun, JazzRunHandlers, SecretAnswer } from "./jazz-run";
 import {
   type ChatId,
   type MessageRef,
@@ -37,6 +37,8 @@ interface FakeRun {
   emit(event: JazzEvent): void;
   finish(envelope?: JazzEnvelope): void;
   cancelled(): boolean;
+  /** The handlers the runner registered when it started the run. */
+  setHandlers(registered: JazzRunHandlers): void;
 }
 
 const DONE: JazzEnvelope = { ok: true, answer: "done", costUSD: 0 };
@@ -78,12 +80,7 @@ describe("turn runner", () => {
     const result = new Promise<JazzEnvelope>((resolve) => {
       settle = resolve;
     });
-    let handlers: {
-      onEvent?: (e: JazzEvent) => void;
-      onApprovalRequired?: (e: JazzEvent) => void;
-      onUserInputRequired?: (e: JazzEvent) => void;
-      onUserSecretRequired?: (e: JazzEvent) => void;
-    } = {};
+    let handlers: JazzRunHandlers = {};
 
     const fake: FakeRun = {
       run: {
@@ -132,9 +129,9 @@ describe("turn runner", () => {
       },
       finish: (envelope = DONE) => settle(envelope),
       cancelled: () => killed,
-    };
-    (fake as { setHandlers?: unknown }).setHandlers = (registeredHandlers: typeof handlers) => {
-      handlers = registeredHandlers;
+      setHandlers: (registeredHandlers) => {
+        handlers = registeredHandlers;
+      },
     };
     return fake;
   };
@@ -203,7 +200,7 @@ describe("turn runner", () => {
       startRun: (options, handlers) => {
         runsStarted.push(options.prompt);
         const fake = makeFakeRun();
-        (fake as unknown as { setHandlers: (h: unknown) => void }).setHandlers(handlers);
+        fake.setHandlers(handlers ?? {});
         current = fake;
         return fake.run;
       },

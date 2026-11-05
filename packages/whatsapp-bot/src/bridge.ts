@@ -248,7 +248,7 @@ function addressesBot(message: WhatsAppMessage, selfJid: string | undefined): bo
 
 async function promptFrom(
   message: WhatsAppMessage,
-  connection: Connection,
+  connection: Pick<Connection, "saveMedia">,
   jazzHome: string,
 ): Promise<string> {
   const parts: string[] = [];
@@ -271,9 +271,9 @@ async function promptFrom(
 }
 
 export async function handleIncoming(
-  config: BridgeConfig,
-  runner: TurnRunner,
-  connection: Connection,
+  config: AccessConfig & Pick<BridgeConfig, "jazzHome">,
+  runner: Pick<TurnRunner, "awaitsReplyFrom" | "tryAnswerPending" | "handle">,
+  connection: Pick<Connection, "selfJid" | "saveMedia">,
   message: WhatsAppMessage,
 ): Promise<void> {
   // Our own replies echo back through the same event; answering them would be

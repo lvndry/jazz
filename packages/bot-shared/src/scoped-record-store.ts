@@ -21,7 +21,7 @@ export function readRecordStore<V>(path: string): Record<string, V> | null {
     if (!existsSync(path)) {
       return {};
     }
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as Record<string, V>;
     }

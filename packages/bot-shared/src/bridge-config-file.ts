@@ -17,7 +17,7 @@ function parseExistingConfig(raw: string | undefined, path: string): JsonObject 
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw) as unknown;
+    parsed = JSON.parse(raw);
   } catch {
     // Refuse rather than overwrite: an operator who hand-edited this into
     // invalid JSON would otherwise lose it with no trace.

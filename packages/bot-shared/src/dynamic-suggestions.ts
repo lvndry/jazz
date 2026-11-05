@@ -116,7 +116,7 @@ export function parseSuggestions(answer: string): Suggestion[] {
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(match[0]) as unknown;
+    parsed = JSON.parse(match[0]);
   } catch {
     return [];
   }
