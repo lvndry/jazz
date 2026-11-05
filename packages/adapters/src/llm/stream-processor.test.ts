@@ -1010,6 +1010,32 @@ describe("StreamProcessor tool call identity", () => {
     ]);
   });
 
+  it("matches out-of-order completions by their surviving id", async () => {
+    const response = await run([
+      { type: "tool-input-start", id: "a", toolName: "rm" },
+      { type: "tool-input-start", id: "b", toolName: "read_file" },
+      { type: "tool-call", toolCallId: "b", toolName: "", input: {} },
+      { type: "tool-call", toolCallId: "a", toolName: "", input: {} },
+      finish,
+    ]);
+    expect(response.toolCalls?.map((call) => [call.id, call.function.name])).toEqual([
+      ["b", "read_file"],
+      ["a", "rm"],
+    ]);
+  });
+
+  it("rejects an ambiguous completion instead of guessing the tool to execute", async () => {
+    for (const toolName of ["", "read_file"]) {
+      const error = await run([
+        { type: "tool-input-start", id: "a", toolName: "read_file" },
+        { type: "tool-input-start", id: "b", toolName: "read_file" },
+        { type: "tool-call", toolCallId: "", toolName, input: {} },
+        finish,
+      ]).catch((thrown: unknown) => thrown);
+      expect(error).toBeInstanceOf(LLMRequestError);
+    }
+  });
+
   it("fails the step with a retryable error when no identity was ever established", async () => {
     for (const blank of ["", null, undefined]) {
       for (const field of ["toolCallId", "toolName"]) {

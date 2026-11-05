@@ -500,3 +500,14 @@ Current tool list: [tool inventory](../tools/index.md).
 - [Headless](../surfaces/headless.md): setting the policy for unattended runs
 - [Security](../../SECURITY.md): the threat model and hardening guidance
 - [Architecture](./architecture.md): package boundaries and extension points
+
+### Tool identities in live streams and saved history
+
+A completed streamed call recovers a missing ID or name only from a unique matching input
+start. Completions may arrive out of order; ambiguous identities fail the step for retry
+before any tool executes.
+
+Loading old history repairs missing call IDs or names in memory, keeping the log untouched.
+Generated IDs avoid existing call and result IDs, and idless results are attached to repaired
+calls that have no identified answer. Malformed nested call structures are rejected at the
+log boundary.

@@ -376,6 +376,20 @@ function isLoggedChatMessage(value: unknown): value is ChatMessage {
   if (!isRecordObject(value) || typeof value["content"] !== "string") {
     return false;
   }
+  const calls = value["tool_calls"];
+  if (
+    calls !== undefined &&
+    (!Array.isArray(calls) ||
+      !calls.every(
+        (call: unknown) =>
+          isRecordObject(call) &&
+          call["type"] === "function" &&
+          isRecordObject(call["function"]) &&
+          typeof call["function"]["arguments"] === "string",
+      ))
+  ) {
+    return false;
+  }
   const role = value["role"];
   return role === "user" || role === "assistant" || role === "tool";
 }

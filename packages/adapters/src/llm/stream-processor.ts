@@ -248,8 +248,6 @@ interface StreamProcessorState {
   collectedToolCalls: ToolCall[];
   /** Identity each `tool-input-start` established, in stream order, for blanked completions. */
   startedToolInputs: { id: string; toolName: string }[];
-  /** `tool-call` parts seen so far, which indexes `startedToolInputs`. */
-  completedToolCallParts: number;
   /** Provider-native tool calls waiting for tool-result to arrive with enriched data (e.g. query) */
   pendingNativeToolCalls: Map<string, { toolCall: ToolCall; sequence: number }>;
 
@@ -284,7 +282,6 @@ function createInitialState(): StreamProcessorState {
     accumulatedReasoning: "",
     collectedToolCalls: [],
     startedToolInputs: [],
-    completedToolCallParts: 0,
     pendingNativeToolCalls: new Map(),
     firstTokenTime: null,
     firstTextTime: null,
@@ -518,8 +515,20 @@ export class StreamProcessor {
           }
 
           case "tool-call": {
-            const established = this.state.startedToolInputs[this.state.completedToolCallParts];
-            this.state.completedToolCallParts += 1;
+            const hasId = isUsableToolCallField(part.toolCallId);
+            const hasName = isUsableToolCallField(part.toolName);
+            const candidates = this.state.startedToolInputs.filter(
+              (start) =>
+                (!hasId || start.id === part.toolCallId) &&
+                (!hasName || start.toolName === part.toolName),
+            );
+            const established = candidates.length === 1 ? candidates[0] : undefined;
+            if (established !== undefined) {
+              this.state.startedToolInputs.splice(
+                this.state.startedToolInputs.indexOf(established),
+                1,
+              );
+            }
             const completed = {
               ...part,
               toolCallId: isUsableToolCallField(part.toolCallId)

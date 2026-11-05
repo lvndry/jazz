@@ -1,3 +1,7 @@
+/**
+ * Repairs lost call identities when loading historical transcripts, without changing stored
+ * events. Synthetic IDs avoid all existing call/result IDs; repaired calls retain their results.
+ */
 import type { ChatMessage } from "@/core/types/message";
 
 /** The name given to a stored call whose name was lost, so a provider still accepts the request. */
@@ -49,6 +53,17 @@ export function repairToolCallIdentities(
   }
 
   const repaired: ChatMessage[] = [...messages];
+  const reserved = new Set<string>();
+  for (const message of messages) {
+    if (isUsableToolCallField(message.tool_call_id)) {
+      reserved.add(message.tool_call_id);
+    }
+    for (const call of message.tool_calls ?? []) {
+      if (isUsableToolCallField(call.id)) {
+        reserved.add(call.id);
+      }
+    }
+  }
   let repairedCalls = 0;
   let pairedResults = 0;
 
@@ -66,15 +81,35 @@ export function repairToolCallIdentities(
         return toolCall;
       }
       repairedCalls += 1;
-      const id = hasId ? toolCall.id : repairedToolCallId(anchor, callIndex);
-      const name = hasName ? toolCall.function.name : REPAIRED_TOOL_NAME;
+      let id = hasId ? toolCall.id : repairedToolCallId(anchor, callIndex);
       if (!hasId) {
+        const base = id;
+        let suffix = 0;
+        while (reserved.has(id)) {
+          id = `${base}-${String(++suffix)}`;
+        }
+        reserved.add(id);
+      }
+      const name = hasName ? toolCall.function.name : REPAIRED_TOOL_NAME;
+      if (!hasId || !hasName) {
         idlessCalls.push({ id, name });
       }
       return { ...toolCall, id, function: { ...toolCall.function, name } };
     });
     repaired[index] = { ...message, tool_calls: toolCalls };
 
+    const answered = new Set<string>();
+    for (
+      let resultIndex = index + 1;
+      resultIndex < repaired.length && repaired[resultIndex]?.role === "tool";
+      resultIndex += 1
+    ) {
+      const id = repaired[resultIndex]?.tool_call_id;
+      if (isUsableToolCallField(id)) {
+        answered.add(id);
+      }
+    }
+    const unmatched = idlessCalls.filter((call) => !answered.has(call.id));
     let pending = 0;
     for (
       let resultIndex = index + 1;
@@ -85,7 +120,7 @@ export function repairToolCallIdentities(
       if (isUsableToolCallField(result.tool_call_id)) {
         continue;
       }
-      const call = idlessCalls[pending];
+      const call = unmatched[pending];
       if (call === undefined) {
         continue;
       }

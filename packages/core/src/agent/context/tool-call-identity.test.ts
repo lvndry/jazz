@@ -48,6 +48,30 @@ describe("repairToolCallIdentities", () => {
     });
   });
 
+  it("pairs an idless result when only the call's name was missing", () => {
+    const repaired = repairToolCallIdentities([
+      { role: "assistant", content: "", tool_calls: [call("kept-id", "")] },
+      { role: "tool", content: "ok", tool_call_id: "" },
+    ]);
+    expect(repaired.messages[1]?.tool_call_id).toBe("kept-id");
+    expect(repaired.pairedResults).toBe(1);
+  });
+
+  it("does not collide with another call's or result's existing id", () => {
+    const repaired = repairToolCallIdentities([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [call("", "grep"), call("repaired-0-0", "ls")],
+      },
+      { role: "tool", content: "existing", tool_call_id: "repaired-0-0" },
+      { role: "tool", content: "old orphan", tool_call_id: "repaired-0-0-1" },
+      { role: "tool", content: "repaired", tool_call_id: "" },
+    ]);
+    expect(repaired.messages[0]?.tool_calls?.[0]?.id).toBe("repaired-0-0-2");
+    expect(repaired.messages[3]?.tool_call_id).toBe("repaired-0-0-2");
+  });
+
   it("leaves an unanswered empty-id call for the closing logic to answer", () => {
     const repair = repairToolCallIdentities([
       { role: "assistant", content: "", tool_calls: [call("", "grep")] },
