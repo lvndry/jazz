@@ -161,8 +161,12 @@ may be negative after GC; reports preserve those improvements.
 
 The complete release binary includes the embedded native libraries. Its raw and
 release-equivalent gzip level-9 sizes each may grow by at most 5% or 1MiB, whichever permits more growth;
-`binaryMaxBytes` (229,000,000 bytes raw) and `binaryGzipMaxBytes` (101,000,000 bytes gzip level 9)
-are additional absolute ceilings for the Linux x64 CI artifact. Each is the size measured on a
+`binaryTargets` in `bench/budgets.json` holds additional absolute ceilings per release target,
+selected with `performance-check.ts --binary --target <target> <base> <head>`. Only `linux-x64`
+has them: `maxBytes` 229,000,000 (raw) and `gzipMaxBytes` 101,000,000 (gzip level 9). The other
+targets (`linux-x64-musl`, `linux-arm64`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`) have no
+absolute ceiling, so only relative growth applies, because no raw size was measured for them
+(the v0.16.28 release assets give gzip sizes only). An unlisted target is an error. Each `linux-x64` ceiling is the size measured on a
 GitHub runner under Bun 1.4.4 (217,843,888 raw, 95,421,456 gzip) multiplied by 1.05 and rounded up
 to the next 1,000,000 bytes. They are ceilings that should only be lowered, never raised to absorb
 growth; a Bun upgrade that moves the size is handled by re-deriving them from the runner-built binary.
