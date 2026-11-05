@@ -1,0 +1,3090 @@
+{
+  "packages/adapters/src/agent-service.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/command-approval-tracker.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/config-companions.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/config-mcp.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/config-openrouter-zdr.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/config.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/config.ts": {
+    "curly": {
+      "count": 38
+    },
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/adapters/src/detach/snapshot.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/fs.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/history/conversation-log.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/history/conversation-log.ts": {
+    "curly": {
+      "count": 42
+    }
+  },
+  "packages/adapters/src/history/conversation-search.ts": {
+    "curly": {
+      "count": 26
+    }
+  },
+  "packages/adapters/src/history/conversation-tree.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/jazz-state.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/job-queue-service.test.ts": {
+    "curly": {
+      "count": 25
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/job-queue-service.ts": {
+    "curly": {
+      "count": 17
+    }
+  },
+  "packages/adapters/src/library-catalog.ts": {
+    "curly": {
+      "count": 11
+    }
+  },
+  "packages/adapters/src/llm/ai-sdk-service.test.ts": {
+    "curly": {
+      "count": 7
+    },
+    "id-length": {
+      "count": 11
+    }
+  },
+  "packages/adapters/src/llm/ai-sdk-service.ts": {
+    "curly": {
+      "count": 21
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/llm/attachment-resolver.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/llm/base-url-resolver.test.ts": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/adapters/src/llm/chatgpt/credentials.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/llm/generated-files.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/adapters/src/llm/model-capabilities/resolver.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/llm/model-fetcher.test.ts": {
+    "curly": {
+      "count": 57
+    }
+  },
+  "packages/adapters/src/llm/model-fetcher.ts": {
+    "curly": {
+      "count": 17
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/llm/models.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/adapters/src/llm/reasoning-parts.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/llm/reasoning/registry.test.ts": {
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/llm/reasoning/registry.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/llm/reasoning/tag-pair-parser.test.ts": {
+    "id-length": {
+      "count": 14
+    }
+  },
+  "packages/adapters/src/llm/reasoning/tag-pair-parser.ts": {
+    "curly": {
+      "count": 15
+    },
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/adapters/src/llm/router-cost.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/llm/stream-processor.test.ts": {
+    "curly": {
+      "count": 3
+    },
+    "id-length": {
+      "count": 42
+    }
+  },
+  "packages/adapters/src/llm/stream-processor.ts": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "packages/adapters/src/logger.ts": {
+    "curly": {
+      "count": 13
+    }
+  },
+  "packages/adapters/src/mcp/elicitation-schema.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/mcp/mcp-server-manager.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/adapters/src/mcp/oauth.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/memory-service.test.ts": {
+    "curly": {
+      "count": 3
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/memory-service.ts": {
+    "curly": {
+      "count": 17
+    }
+  },
+  "packages/adapters/src/notification/terminal-bundle-id.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/adapters/src/occupancy.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/occupancy.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/peers/a2a.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/adapters/src/peers/config.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/peers/invites.test.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/adapters/src/peers/invites.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/adapters/src/peers/ledger.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/peers/ledger.ts": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "packages/adapters/src/peers/serve.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/peers/serve.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/peers/token.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/persona-registry-service.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/persona-service.test.ts": {
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/persona-service.ts": {
+    "curly": {
+      "count": 13
+    },
+    "id-length": {
+      "count": 11
+    }
+  },
+  "packages/adapters/src/plugins/artifact-installer.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/adapters/src/plugins/github-source.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/adapters/src/plugins/manifest-schema.ts": {
+    "curly": {
+      "count": 23
+    }
+  },
+  "packages/adapters/src/plugins/module-loader.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/plugins/plugin-author.ts": {
+    "curly": {
+      "count": 16
+    }
+  },
+  "packages/adapters/src/plugins/plugin-registry-layer.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/adapters/src/plugins/plugin-registry-service.ts": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "packages/adapters/src/plugins/plugin-runtime-service.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/plugins/secret-store.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/plugins/state-store.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/adapters/src/reminder-service.test.ts": {
+    "curly": {
+      "count": 8
+    },
+    "id-length": {
+      "count": 5
+    }
+  },
+  "packages/adapters/src/secrets/keyring.test.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/adapters/src/secrets/keyring.ts": {
+    "curly": {
+      "count": 19
+    }
+  },
+  "packages/adapters/src/secrets/saved-secrets.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/skill-registry-service.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/skill-registry-service.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/storage/run-store.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/storage/run-store.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/adapters/src/telemetry/file-sink.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/telemetry/metrics.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/telemetry/metrics.ts": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "packages/adapters/src/telemetry/otlp-config.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/adapters/src/telemetry/otlp-mapping.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/telemetry/otlp-mapping.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/adapters/src/telemetry/otlp-outbox.ts": {
+    "curly": {
+      "count": 12
+    },
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/adapters/src/telemetry/otlp-sink.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/telemetry/otlp-sink.ts": {
+    "curly": {
+      "count": 14
+    }
+  },
+  "packages/adapters/src/telemetry/otlp-trace-mapping.test.ts": {
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/adapters/src/telemetry/otlp-trace-mapping.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/telemetry/telemetry-service.ts": {
+    "curly": {
+      "count": 21
+    },
+    "id-length": {
+      "count": 7
+    }
+  },
+  "packages/adapters/src/wake-trigger-service.test.ts": {
+    "curly": {
+      "count": 6
+    },
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/adapters/src/webhooks/token.test.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/adapters/src/workflow-registry-service.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/adapters/src/workspace-service.test.ts": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/adapters/src/workspace-service.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/bot-shared/src/agent-file.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/bot-shared/src/answer.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/bot-shared/src/bridge-config-file.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/bot-shared/src/bridge-env.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/bot-shared/src/chat-sandbox.test.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/bot-shared/src/chat-sandbox.ts": {
+    "curly": {
+      "count": 22
+    }
+  },
+  "packages/bot-shared/src/choice-tokens.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/bot-shared/src/dynamic-suggestions.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/bot-shared/src/handles.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/bot-shared/src/health.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/bot-shared/src/jazz-run.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/bot-shared/src/migrate-isolation.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/bot-shared/src/progress.ts": {
+    "curly": {
+      "count": 16
+    }
+  },
+  "packages/bot-shared/src/reasoning.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/bot-shared/src/reminder-sweep.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/bot-shared/src/run-log.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/bot-shared/src/run-log.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/bot-shared/src/scoped-record-store.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/bot-shared/src/seed-agent.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/bot-shared/src/seed-import.test.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/bot-shared/src/seed-import.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/bot-shared/src/surface.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/bot-shared/src/timezone-store.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/bot-shared/src/turn-commands.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/bot-shared/src/turn.test.ts": {
+    "curly": {
+      "count": 14
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/bot-shared/src/turn.ts": {
+    "curly": {
+      "count": 25
+    }
+  },
+  "packages/bot-shared/src/usage-store.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/bot-shared/src/usage-store.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/catch-up-prompt.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/chat-service.ts": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/chat/commands/constants.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/chat/commands/conversation.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/chat/commands/handler.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/chat/commands/handler.ts": {
+    "curly": {
+      "count": 24
+    },
+    "id-length": {
+      "count": 12
+    }
+  },
+  "packages/cli/src/chat/commands/learn.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/chat/commands/mcp-prompt-args.test.ts": {
+    "id-length": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/chat/commands/parser.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/chat/conversation-deliveries.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/chat/persist-conversation.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/chat/session/agent-setup.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/chat/session/elicitation.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/chat/session/manager.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/commands/agent-details.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/agent-management.ts": {
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/commands/config.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/commands/create-agent.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/commands/create-agent.ts": {
+    "curly": {
+      "count": 3
+    },
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/commands/daemon.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/commands/detach-internal.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/commands/edit-agent.ts": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/commands/imessage.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/mcp.ts": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "packages/cli/src/commands/media-agents.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/commands/media-agents.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/commands/memory.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/commands/peer-invite-backfill.test.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/commands/peer-invite-create.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/commands/peer-invite-origin.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/commands/peer-invites.ts": {
+    "curly": {
+      "count": 15
+    }
+  },
+  "packages/cli/src/commands/peers.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/peers.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/commands/persona-library.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/commands/persona.ts": {
+    "curly": {
+      "count": 13
+    }
+  },
+  "packages/cli/src/commands/plugin.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/plugin.ts": {
+    "curly": {
+      "count": 14
+    }
+  },
+  "packages/cli/src/commands/run/envelope.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/commands/run/execute.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/run/flags.test.ts": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "packages/cli/src/commands/run/flags.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/run/stdin-input.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/settings-menu.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/commands/settings-wizard-providers.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/settings-wizard.ts": {
+    "curly": {
+      "count": 11
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/skill-library.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/skill-library.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/commands/skill-remove.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/commands/skill-remove.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/commands/update.ts": {
+    "curly": {
+      "count": 6
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/commands/whatsapp.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/commands/wizard.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/commands/workflow-library.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/commands/workflow.ts": {
+    "curly": {
+      "count": 5
+    },
+    "id-length": {
+      "count": 12
+    }
+  },
+  "packages/cli/src/failed-run-prompt.ts": {
+    "curly": {
+      "count": 6
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/helpers/daemon-process.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/helpers/daemon-process.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/input/escape-state-machine.ts": {
+    "curly": {
+      "count": 9
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/integrations/herdr.test.ts": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/integrations/herdr.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/integrations/pane-state-registry.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/integrations/pane-state.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/presentation/activity-reducer.test.ts": {
+    "curly": {
+      "count": 6
+    },
+    "id-length": {
+      "count": 44
+    }
+  },
+  "packages/cli/src/presentation/activity-reducer.ts": {
+    "curly": {
+      "count": 6
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/presentation/cli-presentation-service.ts": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/presentation/format-utils.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/presentation/ink-presentation-service.test.ts": {
+    "curly": {
+      "count": 13
+    },
+    "id-length": {
+      "count": 37
+    }
+  },
+  "packages/cli/src/presentation/ink-presentation-service.ts": {
+    "curly": {
+      "count": 34
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/presentation/markdown-formatter.test.ts": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/presentation/markdown-formatter.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/presentation/markdown-split.test.ts": {
+    "id-length": {
+      "count": 14
+    }
+  },
+  "packages/cli/src/presentation/markdown-split.ts": {
+    "curly": {
+      "count": 24
+    }
+  },
+  "packages/cli/src/presentation/turn-receipt.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/services/input-service.ts": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/services/terminal-service.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/cli/src/setup/local-provider-url.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/setup/provider-api-key.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/setup/web-search.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/terminal.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/terminal.ts": {
+    "curly": {
+      "count": 7
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/ActivityView.tsx": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/App.tsx": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/ui/EphemeralPanelIsland.tsx": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/OutputEntryView.test.tsx": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/OutputEntryView.tsx": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/Prompt.tsx": {
+    "curly": {
+      "count": 5
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/QueueInput.tsx": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "packages/cli/src/ui/StatusFooter.tsx": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/ui/activity-state.ts": {
+    "curly": {
+      "count": 6
+    },
+    "id-length": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/ui/adapters/terminal-output-adapter.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/cli/src/ui/at-mention.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/ui/components/ActivityIndicator.tsx": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/components/ChatInput.tsx": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/components/FilePicker.tsx": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/components/Questionnaire.tsx": {
+    "curly": {
+      "count": 3
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/components/ScrollableMultiSelect.tsx": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/components/ScrollableSelect.tsx": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/components/SearchSelect.tsx": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/contexts/InputContext.tsx": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/ui/contexts/TerminalDimensionsContext.tsx": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/document.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/document.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/cli/src/ui/file-picker-files.ts": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "packages/cli/src/ui/fullscreen/App.tsx": {
+    "curly": {
+      "count": 16
+    }
+  },
+  "packages/cli/src/ui/fullscreen/Footer.tsx": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "packages/cli/src/ui/fullscreen/Header.tsx": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/cli/src/ui/fullscreen/Input.tsx": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "packages/cli/src/ui/fullscreen/LiveZone.tsx": {
+    "curly": {
+      "count": 13
+    }
+  },
+  "packages/cli/src/ui/fullscreen/SubagentList.tsx": {
+    "curly": {
+      "count": 11
+    }
+  },
+  "packages/cli/src/ui/fullscreen/Transcript.tsx": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/ui/fullscreen/app.test.tsx": {
+    "curly": {
+      "count": 14
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/fullscreen/attach.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/fullscreen/attach.tsx": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/cli/src/ui/fullscreen/auto-scroll-selection.test.tsx": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/fullscreen/auto-scroll-selection.ts": {
+    "curly": {
+      "count": 3
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/fullscreen/bridge.test.tsx": {
+    "curly": {
+      "count": 17
+    }
+  },
+  "packages/cli/src/ui/fullscreen/bridge.tsx": {
+    "curly": {
+      "count": 68
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/fullscreen/clipboard.ts": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "packages/cli/src/ui/fullscreen/composer-edit.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/ui/fullscreen/header-footer.test.tsx": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/fullscreen/keymap.ts": {
+    "curly": {
+      "count": 59
+    }
+  },
+  "packages/cli/src/ui/fullscreen/live-input.test.tsx": {
+    "curly": {
+      "count": 3
+    },
+    "id-length": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/ui/fullscreen/live-plan.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/fullscreen/mount.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/ui/fullscreen/mount.ts": {
+    "curly": {
+      "count": 12
+    }
+  },
+  "packages/cli/src/ui/fullscreen/overlays/Approval.tsx": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/cli/src/ui/fullscreen/overlays/CommandPanel.tsx": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/fullscreen/overlays/FilePicker.tsx": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/cli/src/ui/fullscreen/overlays/Question.tsx": {
+    "curly": {
+      "count": 11
+    }
+  },
+  "packages/cli/src/ui/fullscreen/overlays/Search.tsx": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/ui/fullscreen/overlays/TextPrompt.tsx": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "packages/cli/src/ui/fullscreen/overlays/ThemePicker.tsx": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/fullscreen/overlays/centered.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/fullscreen/overlays/overlays.test.tsx": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/cli/src/ui/fullscreen/overlays/prompts.test.tsx": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/ui/fullscreen/peer-notice.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/fullscreen/screens/AgentPicker.tsx": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "packages/cli/src/ui/fullscreen/screens/screens.test.tsx": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/cli/src/ui/fullscreen/streaming-rows.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/fullscreen/subagent-view.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/fullscreen/terminal-scope.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/ui/fullscreen/testing/pty-session.fixture.tsx": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/cli/src/ui/fullscreen/testing/pty-session.test.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/ui/fullscreen/testing/terminal-oracle.ts": {
+    "curly": {
+      "count": 14
+    }
+  },
+  "packages/cli/src/ui/fullscreen/text-field-edit.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/cli/src/ui/fullscreen/transcript-layout-metadata.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/ui/fullscreen/transcript-layout.test.ts": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/fullscreen/transcript-layout.ts": {
+    "curly": {
+      "count": 63
+    }
+  },
+  "packages/cli/src/ui/fullscreen/transcript-projection.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/cli/src/ui/fullscreen/transcript-window.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/fullscreen/transcript.test.tsx": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/cli/src/ui/fullscreen/turn-fold.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/fullscreen/viewport-controller.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/fullscreen/viewport-controller.ts": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "packages/cli/src/ui/fullscreen/viewport-integration.test.tsx": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/glyphs.test.ts": {
+    "curly": {
+      "count": 10
+    },
+    "id-length": {
+      "count": 10
+    }
+  },
+  "packages/cli/src/ui/glyphs.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/ui/hooks/use-input-service.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/hydrate-transcript.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/ui/local-model-hosts.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/markdown/ansi.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/markdown/ansi.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/meter.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/models/agent-details.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/models/approval.ts": {
+    "curly": {
+      "count": 13
+    }
+  },
+  "packages/cli/src/ui/models/configured-providers.test.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/ui/models/configured-providers.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/models/interrupt.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/models/question.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/models/receipt.ts": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "packages/cli/src/ui/models/retry.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/ui/models/todo.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/prompt-core/picker-core.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/prompt-core/picker-core.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/cli/src/ui/queue-force-send.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/cli/src/ui/skill-browser.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/store.test.ts": {
+    "id-length": {
+      "count": 72
+    }
+  },
+  "packages/cli/src/ui/store.ts": {
+    "curly": {
+      "count": 65
+    }
+  },
+  "packages/cli/src/ui/subagent-runs.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/cli/src/ui/suggestion-menu.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/terminal-capabilities.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/text-utils.ts": {
+    "curly": {
+      "count": 8
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/text/picker-window.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/ui/text/stream-pacer.test.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/ui/text/stream-pacer.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/ui/text/stream-reveal.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/text/syntax-spans.ts": {
+    "curly": {
+      "count": 13
+    }
+  },
+  "packages/cli/src/ui/text/terminal-cells.ts": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "packages/cli/src/ui/text/wrap.test.ts": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/text/wrap.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/theme.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/ui/theme.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/ui/themes/format.test.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/cli/src/ui/themes/format.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/ui/use-file-mentions.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/cli/src/utils/string-utils.ts": {
+    "curly": {
+      "count": 21
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/agent-prompt.ts": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/agent-runner.test.ts": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/agent-runner.ts": {
+    "curly": {
+      "count": 14
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/agent-sort.ts": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/context/advised-tool-clearing.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/core/src/agent/context/attachment-tokens.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/core/src/agent/context/context-window-manager.test.ts": {
+    "id-length": {
+      "count": 5
+    }
+  },
+  "packages/core/src/agent/context/context-window-manager.ts": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 6
+    }
+  },
+  "packages/core/src/agent/context/effective-context-window.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/context/run-progress.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/context/run-progress.ts": {
+    "curly": {
+      "count": 10
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/context/summarizer.test.ts": {
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/context/summarizer.ts": {
+    "curly": {
+      "count": 9
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/context/token-calibration-state.test.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/core/src/agent/context/token-calibration-state.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/context/token-counter.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/context/token-counter.ts": {
+    "curly": {
+      "count": 21
+    }
+  },
+  "packages/core/src/agent/context/tool-result-clearing.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/core/src/agent/context/tool-result-offload.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/context/tool-result-offload.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/core/src/agent/context/work-journal.test.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/core/src/agent/context/work-journal.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/context/work-state-preamble.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/context/work-state-preamble.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/context/work-state.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/context/work-state.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/execution/agent-loop.test.ts": {
+    "curly": {
+      "count": 6
+    },
+    "id-length": {
+      "count": 9
+    }
+  },
+  "packages/core/src/agent/execution/agent-loop.ts": {
+    "curly": {
+      "count": 16
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/execution/batch-executor.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/execution/batch-executor.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/execution/streaming-executor.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/execution/tool-executor.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/execution/tool-executor.ts": {
+    "curly": {
+      "count": 17
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/memory-recall-log.ts": {
+    "curly": {
+      "count": 6
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/plugins/plugin-session.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/plugins/plugin-session.ts": {
+    "curly": {
+      "count": 55
+    }
+  },
+  "packages/core/src/agent/plugins/validation.ts": {
+    "curly": {
+      "count": 50
+    }
+  },
+  "packages/core/src/agent/project-instructions.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/project-instructions.ts": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "packages/core/src/agent/run/park-resume.integration.test.ts": {
+    "curly": {
+      "count": 15
+    }
+  },
+  "packages/core/src/agent/run/park-signal.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/run/run-recorder.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/run/run-recorder.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/run/run-spend.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/subagents/supervisor-gc.fixture.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/subagents/supervisor.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/agent-tool-resolution.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/capped-output.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/child-run-authority.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/chromium-default.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/cloudflare-publish.test.ts": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "packages/core/src/agent/tools/cloudflare-publish.ts": {
+    "curly": {
+      "count": 9
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/command-risk.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/core/src/agent/tools/composition-browser.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/core/src/agent/tools/composition-og.test.ts": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/composition-og.ts": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/composition.test.ts": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/composition.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/core/src/agent/tools/computer/session.ts": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/computer/wait.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/create-pdf.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/fs/attach-media.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/fs/edit.ts": {
+    "curly": {
+      "count": 12
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/fs/find.test.ts": {
+    "id-length": {
+      "count": 20
+    }
+  },
+  "packages/core/src/agent/tools/fs/find.ts": {
+    "curly": {
+      "count": 22
+    },
+    "id-length": {
+      "count": 11
+    }
+  },
+  "packages/core/src/agent/tools/fs/footprint.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/fs/grep.test.ts": {
+    "id-length": {
+      "count": 5
+    }
+  },
+  "packages/core/src/agent/tools/fs/grep.ts": {
+    "curly": {
+      "count": 30
+    },
+    "id-length": {
+      "count": 5
+    }
+  },
+  "packages/core/src/agent/tools/fs/ls.test.ts": {
+    "id-length": {
+      "count": 13
+    }
+  },
+  "packages/core/src/agent/tools/fs/ls.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/tools/fs/pdf-page-count.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/core/src/agent/tools/fs/read-common.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/fs/read-pdf.ts": {
+    "curly": {
+      "count": 9
+    },
+    "id-length": {
+      "count": 5
+    }
+  },
+  "packages/core/src/agent/tools/fs/read.ts": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "packages/core/src/agent/tools/fs/test-helpers.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/fs/utils.ts": {
+    "curly": {
+      "count": 9
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/http.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/job-queue.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/core/src/agent/tools/mcp-trust.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/mcp.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/mcp.ts": {
+    "curly": {
+      "count": 15
+    }
+  },
+  "packages/core/src/agent/tools/memory.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/core/src/agent/tools/misfire-log.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/misfire-log.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/tools/occupancy.test.ts": {
+    "curly": {
+      "count": 7
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/occupancy.ts": {
+    "curly": {
+      "count": 8
+    },
+    "id-length": {
+      "count": 12
+    }
+  },
+  "packages/core/src/agent/tools/peer.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/tools/peer.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/tools/perception.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/perception.ts": {
+    "curly": {
+      "count": 11
+    }
+  },
+  "packages/core/src/agent/tools/plugin.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/core/src/agent/tools/publish-composition.test.ts": {
+    "curly": {
+      "count": 25
+    },
+    "id-length": {
+      "count": 13
+    }
+  },
+  "packages/core/src/agent/tools/publish-composition.ts": {
+    "curly": {
+      "count": 15
+    }
+  },
+  "packages/core/src/agent/tools/register-mcp-tools.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/tools/register-plugin-tools.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/register-tools.docs.test.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/register-tools.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/reminder.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/reminder.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/tools/search-tools.test.ts": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/search-tools.ts": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/shell.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/core/src/agent/tools/skill.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/subagent.test.ts": {
+    "curly": {
+      "count": 3
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/tools/subagent.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/todo.ts": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/core/src/agent/tools/tool-registry.test.ts": {
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/core/src/agent/tools/tool-registry.ts": {
+    "curly": {
+      "count": 5
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/tool-schema.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/treg-search.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/treg-search.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/core/src/agent/tools/wait.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/wake-trigger.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/tools/web-fetch.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/agent/tools/web-search.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/agent/tools/web-search.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/work-state.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/agent/tools/workspace.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/core/src/agent/user-input-attachments.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/core/src/constants/local-providers.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/constants/ollama.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/daemon/attention.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/eval/web-cassette.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/interfaces/tool-registry.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/memory/entry-path.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/presentation/error-handler.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/presentation/oneshot-presentation-service.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/presentation/oneshot-presentation-service.ts": {
+    "curly": {
+      "count": 11
+    }
+  },
+  "packages/core/src/presentation/quiet-presentation-service.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/secrets/registry.ts": {
+    "curly": {
+      "count": 15
+    }
+  },
+  "packages/core/src/secrets/user-secrets.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/skills/skill-service.test.ts": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/skills/skill-service.ts": {
+    "curly": {
+      "count": 9
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/core/src/types/artifact.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/core/src/types/attachment.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/core/src/types/disclosure-tier.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/types/peer-invite.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/types/presentation-content-schema.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/types/presentation-content-schema.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/types/resolve-tool-allowlist.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/types/tools.ts": {
+    "curly": {
+      "count": 2
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/types/webhook.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/utils/agent-llm-config.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/utils/config-schema.ts": {
+    "curly": {
+      "count": 39
+    }
+  },
+  "packages/core/src/utils/cron.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/utils/git-info.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/core/src/utils/http-approval.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/utils/http-approval.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/core/src/utils/llm-error.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/utils/llm-error.ts": {
+    "curly": {
+      "count": 12
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/utils/mcp-schema-converter.test.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/utils/mcp-schema-converter.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 9
+    }
+  },
+  "packages/core/src/utils/mcp.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/utils/media-attachments.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/utils/media-probe.ts": {
+    "curly": {
+      "count": 18
+    }
+  },
+  "packages/core/src/utils/model-capabilities.test.ts": {
+    "id-length": {
+      "count": 3
+    }
+  },
+  "packages/core/src/utils/model-capabilities.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/core/src/utils/models-dev.test.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/core/src/utils/models-dev.ts": {
+    "curly": {
+      "count": 12
+    }
+  },
+  "packages/core/src/utils/provider-migration.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/core/src/utils/provider-model.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/utils/provider-picker.test.ts": {
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/core/src/utils/provider-picker.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/core/src/utils/run-deadline.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/utils/runtime.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/utils/storage-id.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/utils/string.ts": {
+    "curly": {
+      "count": 17
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/utils/telemetry-emit.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/utils/time.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/core/src/utils/tool-formatter.ts": {
+    "curly": {
+      "count": 62
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/core/src/utils/tool-result-formatter.ts": {
+    "curly": {
+      "count": 10
+    },
+    "id-length": {
+      "count": 7
+    }
+  },
+  "packages/core/src/utils/usage-cost.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/utils/virtual-path.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/core/src/workflows/catch-up-execution.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/workflows/catch-up.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/core/src/workflows/run-history.ts": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/workflows/scheduler-service.test.ts": {
+    "curly": {
+      "count": 4
+    },
+    "id-length": {
+      "count": 11
+    }
+  },
+  "packages/core/src/workflows/scheduler-service.ts": {
+    "curly": {
+      "count": 3
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/core/src/workflows/workflow-service.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 4
+    }
+  },
+  "packages/core/src/workflows/workflow-utils.ts": {
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/attention.ts": {
+    "id-length": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/peer-invite-flow.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/server.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/server.ts": {
+    "curly": {
+      "count": 12
+    }
+  },
+  "packages/daemon/src/service-install.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/service-install.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "packages/daemon/src/token.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/unattended-resume.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/unattended-resume.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/discord-bot/src/access.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "packages/discord-bot/src/agents.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/discord-bot/src/bridge.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/discord-bot/src/bridge.ts": {
+    "curly": {
+      "count": 15
+    }
+  },
+  "packages/discord-bot/src/discord-md.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/discord-bot/src/discord.ts": {
+    "curly": {
+      "count": 15
+    }
+  },
+  "packages/discord-bot/src/surface.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/imessage-bot/src/agents.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/imessage-bot/src/bridge.ts": {
+    "curly": {
+      "count": 22
+    }
+  },
+  "packages/imessage-bot/src/imsg.ts": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "packages/imessage-bot/src/install.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/imessage-bot/src/service.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/imessage-bot/src/surface.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/photon-bot/src/bridge.ts": {
+    "curly": {
+      "count": 15
+    }
+  },
+  "packages/photon-bot/src/surface.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/runtime/src/app-layer.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 1
+    }
+  },
+  "packages/runtime/src/cli-app.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/runtime/src/cli-docs.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/telegram-bot/src/agents.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/telegram-bot/src/bridge.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/telegram-bot/src/bridge.ts": {
+    "curly": {
+      "count": 13
+    }
+  },
+  "packages/telegram-bot/src/media.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/telegram-bot/src/quotes.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/telegram-bot/src/surface.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "packages/telegram-bot/src/telegram-dispatch.ts": {
+    "curly": {
+      "count": 4
+    }
+  },
+  "packages/whatsapp-bot/src/access.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "packages/whatsapp-bot/src/agents.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "packages/whatsapp-bot/src/bridge.ts": {
+    "curly": {
+      "count": 10
+    }
+  },
+  "packages/whatsapp-bot/src/surface.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "packages/whatsapp-bot/src/whatsapp.ts": {
+    "curly": {
+      "count": 14
+    }
+  },
+  "plugins/jev/src/index.ts": {
+    "curly": {
+      "count": 9
+    }
+  },
+  "plugins/lsp/src/client.ts": {
+    "curly": {
+      "count": 17
+    }
+  },
+  "plugins/lsp/src/config.ts": {
+    "curly": {
+      "count": 13
+    }
+  },
+  "plugins/lsp/src/index.ts": {
+    "curly": {
+      "count": 17
+    }
+  },
+  "plugins/lsp/src/transport.ts": {
+    "curly": {
+      "count": 20
+    }
+  },
+  "plugins/lsp/src/workspace-edit.ts": {
+    "curly": {
+      "count": 23
+    },
+    "id-length": {
+      "count": 6
+    }
+  },
+  "plugins/lsp/tests/config.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "plugins/lsp/tests/fake-server.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "plugins/lsp/tests/index.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "scripts/build-helpers.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "scripts/build.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "scripts/bundle-size.ts": {
+    "curly": {
+      "count": 1
+    },
+    "id-length": {
+      "count": 2
+    }
+  },
+  "scripts/check-docs-links.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "scripts/check-docs-metadata.ts": {
+    "curly": {
+      "count": 7
+    }
+  },
+  "scripts/compile-natives.ts": {
+    "curly": {
+      "count": 11
+    }
+  },
+  "scripts/gen-design-docs.ts": {
+    "id-length": {
+      "count": 4
+    }
+  },
+  "scripts/github-plugin-discovery.test.ts": {
+    "curly": {
+      "count": 2
+    }
+  },
+  "scripts/github-plugin-discovery.ts": {
+    "curly": {
+      "count": 5
+    }
+  },
+  "scripts/peers/provision-agent.ts": {
+    "curly": {
+      "count": 1
+    }
+  },
+  "scripts/performance-check.ts": {
+    "curly": {
+      "count": 8
+    }
+  },
+  "scripts/pre-release-review-workflow.test.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "scripts/pre-release-review.test.ts": {
+    "curly": {
+      "count": 6
+    }
+  },
+  "scripts/pre-release-review.ts": {
+    "curly": {
+      "count": 25
+    },
+    "id-length": {
+      "count": 3
+    }
+  },
+  "scripts/prepare-benchmark-baseline.ts": {
+    "curly": {
+      "count": 3
+    }
+  },
+  "scripts/verify-no-unknown-casts.ts": {
+    "n/no-unsupported-features/node-builtins": {
+      "count": 1
+    }
+  },
+  "scripts/wait-for-npm-packages.test.ts": {
+    "curly": {
+      "count": 1
+    }
+  }
+}

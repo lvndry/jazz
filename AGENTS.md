@@ -104,8 +104,9 @@ update every usage and delete the old path in the same change. No `@deprecated`
 aliases, no back-compat shims, no dead code left behind.
 
 Core publishes standalone: `packages/core/` production code imports nothing from
-`@jazz/adapters` or `@jazz/cli` (its tests may). `packages/daemon/` imports nothing
-below it. Both boundaries are enforced by `eslint.config.mjs` and
+`@jazz/adapters` or `@jazz/cli` (its tests may), and plugins import only
+`@jazz/plugin-sdk`. Every package's allowed imports live in
+`scripts/package-layering.matrix.json`, enforced by `eslint.config.mjs` and
 `scripts/package-layering.test.ts`; see [architecture](docs/maintainers/architecture.md).
 
 Jazz executes real actions on a user's machine. Security is load-bearing.
@@ -128,8 +129,15 @@ it fail, then again before you report.
 bun run typecheck
 bun run test:typecheck
 bun run lint
+bun run verify:unknown-casts
 bun test
 ```
+
+`lint` also enforces braced `if`/loop bodies (`curly`) and identifiers of 2+ characters
+(`id-length`) on new code: older violations sit in `eslint-suppressions.json`, which only
+shrinks (`bun run lint:prune-suppressions`). `verify:unknown-casts` rejects new `as unknown`
+assertions against `scripts/no-unknown-casts.baseline.json`. See the "Mechanical gates"
+section of [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Code
 
