@@ -1,0 +1,18 @@
+{
+  "store": "work-state",
+  "version": "unversioned",
+  "shape": "859ebb4a96b6",
+  "declarations": {
+    "packages/core/src/agent/context/work-state.ts#WorkState": [
+      "interface WorkState {",
+      "    readonly goal?: string;",
+      "    readonly constraints?: readonly string[];",
+      "    readonly decisions?: readonly string[];",
+      "    readonly filesTouched?: readonly string[];",
+      "    readonly openQuestions?: readonly string[];",
+      "    readonly nextStep?: string;",
+      "    readonly updatedAt?: string;",
+      "}"
+    ]
+  }
+}

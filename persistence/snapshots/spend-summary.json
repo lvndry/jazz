@@ -1,0 +1,25 @@
+{
+  "store": "spend-summary",
+  "version": 2,
+  "shape": "51ab6646e398",
+  "declarations": {
+    "packages/core/src/spend/ledger.ts#DaySpendSchema": [
+      "const DaySpendSchema = z.object({",
+      "    total: TotalsSchema,",
+      "    unattended: TotalsSchema,",
+      "    unattendedByAgent: z.record(z.string(), TotalsSchema),",
+      "    byAgent: z.record(z.string(), TotalsSchema),",
+      "    bySource: z.partialRecord(z.enum(SPEND_SOURCES), TotalsSchema),",
+      "    byOrigin: z.record(z.string(), TotalsSchema),",
+      "});"
+    ],
+    "packages/core/src/spend/ledger.ts#TotalsSchema": [
+      "const TotalsSchema = z.object({",
+      "    costUSD: z.number().finite(),",
+      "    runs: z.number().finite(),",
+      "    tokens: z.number().finite(),",
+      "    unpricedRuns: z.number().finite(),",
+      "});"
+    ]
+  }
+}

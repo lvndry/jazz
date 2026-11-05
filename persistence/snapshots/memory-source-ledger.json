@@ -1,0 +1,13 @@
+{
+  "store": "memory-source-ledger",
+  "version": 1,
+  "shape": "7b2261a022c5",
+  "declarations": {
+    "packages/adapters/src/memory-source-ledger.ts#SourceLedger": [
+      "interface SourceLedger {",
+      "    readonly sentenceKeysByPath: Readonly<Record<string, readonly string[]>>;",
+      "    readonly revokedSentenceKeys: readonly string[];",
+      "}"
+    ]
+  }
+}

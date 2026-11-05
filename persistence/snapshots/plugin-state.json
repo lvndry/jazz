@@ -1,0 +1,41 @@
+{
+  "store": "plugin-state",
+  "version": 1,
+  "shape": "a45096f59205",
+  "declarations": {
+    "packages/adapters/src/plugins/state-store.ts#PluginLockRecord": [
+      "interface PluginLockRecord {",
+      "    readonly manifest: PluginManifest;",
+      "    readonly source: string;",
+      "    readonly artifactPath: string;",
+      "    readonly installedAt: string;",
+      "    readonly kind?: \"packed\" | \"source\";",
+      "}"
+    ],
+    "packages/adapters/src/plugins/state-store.ts#PluginStateDocument": [
+      "interface PluginStateDocument {",
+      "    readonly schemaVersion: 1;",
+      "    readonly revision: number;",
+      "    readonly plugins: Readonly<Record<string, PluginStateRecord>>;",
+      "}"
+    ],
+    "packages/adapters/src/plugins/state-store.ts#PluginStateRecord": [
+      "interface PluginStateRecord {",
+      "    readonly current: PluginLockRecord;",
+      "    readonly previous?: PluginLockRecord;",
+      "    readonly trustedDigests: readonly string[];",
+      "    readonly consentGrants: readonly PluginConsentGrant[];",
+      "    readonly enabledAgentIds: readonly string[];",
+      "    readonly enabledForAllAgents: boolean;",
+      "    readonly activatedDigests: readonly string[];",
+      "    readonly storedSecretNames: readonly string[];",
+      "}"
+    ],
+    "packages/core/src/types/plugin.ts#PluginConsentGrant": [
+      "interface PluginConsentGrant {",
+      "    readonly digest: string;",
+      "    readonly grantedAt: string;",
+      "}"
+    ]
+  }
+}

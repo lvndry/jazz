@@ -1,0 +1,22 @@
+{
+  "store": "peer-ledger",
+  "version": "unversioned",
+  "shape": "fc439377d7b2",
+  "declarations": {
+    "packages/core/src/interfaces/peers.ts#LedgerEntry": [
+      "interface LedgerEntry {",
+      "    readonly at: string;",
+      "    readonly direction: \"in\" | \"out\";",
+      "    readonly peer: string;",
+      "    readonly question: string;",
+      "    readonly answer?: string;",
+      "    readonly outcome: LedgerOutcome;",
+      "    readonly tier?: PeerTier;",
+      "    readonly reason?: string;",
+      "}"
+    ],
+    "packages/core/src/interfaces/peers.ts#LedgerOutcome": [
+      "type LedgerOutcome = \"answered\" | \"refused\" | \"parked\" | \"expired\" | \"failed\";"
+    ]
+  }
+}

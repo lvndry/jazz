@@ -1,0 +1,31 @@
+{
+  "store": "loop-record",
+  "version": "unversioned",
+  "shape": "a6073f3de26b",
+  "declarations": {
+    "packages/core/src/agent/loop/loop-record.ts#LoopRecord": [
+      "interface LoopRecord {",
+      "    readonly loopId: string;",
+      "    readonly name: string;",
+      "    readonly ownerInstanceId: string;",
+      "    readonly agentId: string;",
+      "    readonly conversationId: string;",
+      "    readonly sourceConversationId?: string;",
+      "    readonly workingDirectory: string;",
+      "    readonly prompt: string;",
+      "    readonly schedule: LoopSchedule;",
+      "    readonly approvalPolicy?: ApprovalPolicyLevel;",
+      "    readonly budget: LoopBudget;",
+      "    readonly usage: LoopUsage;",
+      "    readonly state: LoopState;",
+      "    readonly run?: LoopRun;",
+      "    readonly lastRun?: LoopLastRun;",
+      "    readonly nextRunAt: string;",
+      "    readonly consecutiveFailures?: number;",
+      "    readonly createdAt: string;",
+      "    readonly updatedAt: string;",
+      "    readonly version: number;",
+      "}"
+    ]
+  }
+}

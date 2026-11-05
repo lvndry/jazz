@@ -1,0 +1,31 @@
+{
+  "store": "memory-receipts",
+  "version": "unversioned",
+  "shape": "a27a15666b75",
+  "declarations": {
+    "packages/core/src/agent/memory-opportunity-receipts.ts#MemoryExposureRecord": [
+      "interface MemoryExposureRecord {",
+      "    readonly kind: \"injected\" | \"viewed\";",
+      "    readonly shownContentHash: string;",
+      "    readonly complete: boolean;",
+      "    readonly observedAt: string;",
+      "}"
+    ],
+    "packages/core/src/agent/memory-opportunity-receipts.ts#MemoryOpportunityReceipt": [
+      "interface MemoryOpportunityReceipt {",
+      "    readonly receiptId: string;",
+      "    readonly runId: string;",
+      "    readonly entryId: string;",
+      "    readonly entryContentHash: string;",
+      "    readonly pathAtOpportunity: string;",
+      "    readonly scope: string;",
+      "    readonly eligibility: \"eligible\" | \"ineligible\";",
+      "    readonly eligibilityEvidence: \"scope_allowlist\" | \"view_memory_not_offered\";",
+      "    readonly opportunityId: string;",
+      "    readonly opportunityAt: string;",
+      "    readonly status: \"pending\" | \"completed\";",
+      "    readonly exposures: readonly MemoryExposureRecord[];",
+      "}"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "store": "notify-dedupe",
+  "version": 1,
+  "shape": "a362042ba0f0",
+  "declarations": {
+    "packages/core/src/notify/outbox.ts#DedupeLog": [
+      "type DedupeLog = Readonly<Record<string, number>>;"
+    ]
+  }
+}

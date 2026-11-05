@@ -1,0 +1,12 @@
+{
+  "store": "memory-suggestions",
+  "version": 1,
+  "shape": "ead9e36873f1",
+  "declarations": {
+    "packages/adapters/src/memory-suggestions.ts#SuggestionQueue": [
+      "interface SuggestionQueue {",
+      "    readonly suggestions: readonly MemorySuggestion[];",
+      "}"
+    ]
+  }
+}

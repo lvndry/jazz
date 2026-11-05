@@ -1,0 +1,29 @@
+{
+  "store": "workflow-run-history",
+  "version": 2,
+  "shape": "ef8be4fc6754",
+  "declarations": {
+    "packages/core/src/workflows/run-history.ts#ProcessOwnerSchema": [
+      "const ProcessOwnerSchema: z.ZodType<ProcessOwner> = z.object({",
+      "    pid: z.number().int(),",
+      "    host: z.string(),",
+      "    startedAt: z.number().exactOptional(),",
+      "});"
+    ],
+    "packages/core/src/workflows/run-history.ts#WorkflowRunRecordSchema": [
+      "const WorkflowRunRecordSchema: z.ZodType<WorkflowRunRecord> = z.object({",
+      "    id: z.string().min(1),",
+      "    workflowName: z.string().min(1),",
+      "    scheduleLabel: z.string().exactOptional(),",
+      "    startedAt: z.string(),",
+      "    completedAt: z.string().exactOptional(),",
+      "    status: z.enum([\"running\", \"completed\", \"failed\", \"skipped\", \"interrupted\"]),",
+      "    error: z.string().exactOptional(),",
+      "    triggeredBy: z.enum([\"manual\", \"scheduled\"]),",
+      "    owner: ProcessOwnerSchema.exactOptional(),",
+      "    costUSD: z.number().exactOptional(),",
+      "    tokenUsage: z.object({ promptTokens: z.number(), completionTokens: z.number() }).exactOptional(),",
+      "});"
+    ]
+  }
+}

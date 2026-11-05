@@ -1,0 +1,29 @@
+{
+  "store": "run-record",
+  "version": 1,
+  "shape": "4b8becbda3d0",
+  "declarations": {
+    "packages/core/src/agent/run/run-record.ts#RunRecord": [
+      "interface RunRecord {",
+      "    readonly runId: RunId;",
+      "    readonly agentId: string;",
+      "    readonly conversationId: string;",
+      "    readonly state: RunState;",
+      "    readonly input: string;",
+      "    readonly createdAt: string;",
+      "    readonly updatedAt: string;",
+      "    readonly costUSD?: number;",
+      "    readonly tokenUsage?: TokenUsage;",
+      "    readonly totalTokens?: number;",
+      "    readonly activeDurationMs?: number;",
+      "    readonly approvalPolicy?: AutoApprovePolicy;",
+      "    readonly autoApprovedTools?: readonly string[];",
+      "    readonly maxIterations?: number;",
+      "    readonly maxSubagentIterations?: number;",
+      "    readonly workingDirectory?: string;",
+      "    readonly boundary?: RunRecordBoundary;",
+      "    readonly escalations?: readonly EscalationGrant[];",
+      "}"
+    ]
+  }
+}

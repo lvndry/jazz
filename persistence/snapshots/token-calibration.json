@@ -1,0 +1,12 @@
+{
+  "store": "token-calibration",
+  "version": 1,
+  "shape": "81712ca99016",
+  "declarations": {
+    "packages/core/src/agent/context/token-calibration-state.ts#TokenCalibrationState": [
+      "interface TokenCalibrationState {",
+      "    readonly models: readonly CalibratedModel[];",
+      "}"
+    ]
+  }
+}

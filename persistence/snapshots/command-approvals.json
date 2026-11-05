@@ -1,0 +1,17 @@
+{
+  "store": "command-approvals",
+  "version": 1,
+  "shape": "7be51b3cef7e",
+  "declarations": {
+    "packages/adapters/src/command-approval-tracker.ts#CommandApprovalRecord": [
+      "interface CommandApprovalRecord {",
+      "    sessionCount: number;",
+      "    lastSessionId: string;",
+      "    nextPromptAt: number;",
+      "}"
+    ],
+    "packages/adapters/src/command-approval-tracker.ts#CommandApprovals": [
+      "type CommandApprovals = Record<string, CommandApprovalRecord>;"
+    ]
+  }
+}

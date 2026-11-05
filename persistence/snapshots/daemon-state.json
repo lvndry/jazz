@@ -1,0 +1,14 @@
+{
+  "store": "daemon-state",
+  "version": "unversioned",
+  "shape": "2cc69135febb",
+  "declarations": {
+    "packages/core/src/daemon/attention.ts#DaemonState": [
+      "interface DaemonState {",
+      "    readonly paused?: DaemonPause;",
+      "    readonly capLiftedUntil?: string;",
+      "    readonly notified: Readonly<Record<string, string>>;",
+      "}"
+    ]
+  }
+}

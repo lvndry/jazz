@@ -1,0 +1,50 @@
+{
+  "store": "config",
+  "version": "unversioned",
+  "shape": "5c76bef96299",
+  "declarations": {
+    "packages/core/src/utils/config-schema.ts#ConfigFileSchema": [
+      "const ConfigFileSchema = z.strictObject(configFileShape);"
+    ],
+    "packages/core/src/utils/config-schema.ts#configFileShape": [
+      "const configFileShape = {",
+      "    storage: storageSchema.exactOptional(),",
+      "    logging: z.strictObject(loggingShape).exactOptional(),",
+      "    llm: z.strictObject(llmShape).exactOptional(),",
+      "    web_search: z.strictObject(webSearchShape).exactOptional(),",
+      "    network: z.strictObject(networkShape).exactOptional(),",
+      "    browser: z.strictObject(browserShape).exactOptional(),",
+      "    output: z.strictObject(outputShape).exactOptional(),",
+      "    mcpServers: z.record(safeRecordKey, mcpOverrideSchema).exactOptional(),",
+      "    notifications: z.strictObject(notificationsShape).exactOptional(),",
+      "    autoApprovedCommands: names.exactOptional(),",
+      "    telemetry: z.strictObject(telemetryShape).exactOptional(),",
+      "    maxRetries: wholeNumber.exactOptional(),",
+      "    editor: text.exactOptional(),",
+      "    maxSubagentDepth: wholeNumber.exactOptional(),",
+      "    maxLiveSubagents: positiveWholeNumber.exactOptional(),",
+      "    maxIterations: iterationCap.exactOptional(),",
+      "    maxSubagentIterations: iterationCap.exactOptional(),",
+      "    maxCostUSD: described(z.number().positive(), \"a number greater than 0\").exactOptional(),",
+      "    maxTokens: positiveWholeNumber.exactOptional(),",
+      "    maxDurationMs: positiveWholeNumber.exactOptional(),",
+      "    context: contextSchema.exactOptional(),",
+      "    history: z.strictObject(historyShape).exactOptional(),",
+      "    workspaceMaxTotalBytesPerAgent: positiveWholeNumber.exactOptional(),",
+      "    scheduler: z.strictObject(schedulerShape).exactOptional(),",
+      "    peers: z.array(z.strictObject(peerShape)).superRefine(distinctSecretEnvVars).exactOptional(),",
+      "    hosts: z.array(z.strictObject(hostShape)).exactOptional(),",
+      "    webhooks: z",
+      "        .array(z.strictObject(webhookShape))",
+      "        .superRefine(distinctSecretEnvVars)",
+      "        .exactOptional(),",
+      "    daemon: z.strictObject(daemonShape).exactOptional(),",
+      "    notify: z.strictObject(notifyShape).exactOptional(),",
+      "    ui: z.strictObject(uiShape).exactOptional(),",
+      "    chat: z.strictObject(chatShape).exactOptional(),",
+      "    shell: z.strictObject(shellShape).exactOptional(),",
+      "    companions: z.record(companionNameKey, z.strictObject(namedCompanionShape)).exactOptional(),",
+      "} satisfies SchemaShape<ConfigFileContents>;"
+    ]
+  }
+}

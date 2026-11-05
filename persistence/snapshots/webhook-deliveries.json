@@ -1,0 +1,23 @@
+{
+  "store": "webhook-deliveries",
+  "version": 1,
+  "shape": "70b28faa8648",
+  "declarations": {
+    "packages/adapters/src/webhooks/deliveries.ts#DELIVERIES_KIND": [
+      "const DELIVERIES_KIND: StateFileKind<readonly string[]> = {",
+      "    noun: \"delivery keys\",",
+      "    schemaVersion: 1,",
+      "    parse: (document) => {",
+      "        const raw = Array.isArray(document) ? document : (document as {",
+      "            keys?: unknown;",
+      "        }).keys;",
+      "        const keys = Array.isArray(raw)",
+      "            ? raw.filter((key): key is string => typeof key === \"string\")",
+      "            : [];",
+      "        return { ok: true, content: keys };",
+      "    },",
+      "    serialize: (keys) => ({ keys: [...keys] }),",
+      "};"
+    ]
+  }
+}

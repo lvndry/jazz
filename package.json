@@ -67,6 +67,8 @@
     "test:watch": "bun test --watch",
     "bench": "bun bench/run.ts",
     "bench:pr": "bun scripts/pr-perf-lane.ts",
+    "verify:persistence": "bun run scripts/gen-persistence-snapshots.ts --check",
+    "gen:persistence": "bun run scripts/gen-persistence-snapshots.ts",
     "docs:config-reference": "bun run scripts/gen-config-reference.ts",
     "docs:check-links": "bun run scripts/check-docs-links.ts",
     "docs:check-metadata": "bun run scripts/check-docs-metadata.ts",

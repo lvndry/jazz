@@ -1,0 +1,23 @@
+{
+  "store": "job-batch",
+  "version": 2,
+  "shape": "f03953f1f902",
+  "declarations": {
+    "packages/core/src/interfaces/job-queue-service.ts#JobBatchRecordSchema": [
+      "const JobBatchRecordSchema: z.ZodType<JobBatchRecord> = z.object({",
+      "    id: z.string().min(1),",
+      "    agentId: z.string().min(1),",
+      "    conversationId: z.string().min(1),",
+      "    workingDir: z.string(),",
+      "    concurrencyCap: z.number().int().positive(),",
+      "    backoff: z.object({ initialMs: z.number().nonnegative(), maxMs: z.number().nonnegative() }),",
+      "    reason: z.string(),",
+      "    createdAt: z.number().finite(),",
+      "    completedAt: z.number().finite().nullable(),",
+      "    deliveredAt: z.number().finite().nullable(),",
+      "    fanIn: DeliveryStateSchema.exactOptional(),",
+      "    jobs: z.array(JobRecordSchema),",
+      "});"
+    ]
+  }
+}

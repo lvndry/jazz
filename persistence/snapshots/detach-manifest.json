@@ -1,0 +1,26 @@
+{
+  "store": "detach-manifest",
+  "version": 1,
+  "shape": "eb83023c2f72",
+  "declarations": {
+    "packages/adapters/src/detach/snapshot.ts#DetachEntry": [
+      "interface DetachEntry {",
+      "    readonly kind: \"history\" | \"work\" | \"todos\" | \"artifact\" | \"workspace\" | \"config\" | \"git\" | \"skill\" | \"persona\";",
+      "    readonly relativePath: string;",
+      "    readonly size: number;",
+      "    readonly sha256: string;",
+      "}"
+    ],
+    "packages/adapters/src/detach/snapshot.ts#DetachManifest": [
+      "interface DetachManifest {",
+      "    readonly version: 1;",
+      "    readonly handoffId: string;",
+      "    readonly agentId: string;",
+      "    readonly conversationId: string;",
+      "    readonly workspaceRoot: string;",
+      "    readonly deletedPaths: readonly string[];",
+      "    readonly entries: readonly DetachEntry[];",
+      "}"
+    ]
+  }
+}

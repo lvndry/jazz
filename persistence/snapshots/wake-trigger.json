@@ -1,0 +1,19 @@
+{
+  "store": "wake-trigger",
+  "version": 2,
+  "shape": "f4b18770bc0f",
+  "declarations": {
+    "packages/core/src/interfaces/wake-trigger-service.ts#WakeTriggerRecordSchema": [
+      "const WakeTriggerRecordSchema: z.ZodType<WakeTriggerRecord> = z.object({",
+      "    id: z.string().min(1),",
+      "    fireAt: z.number().finite(),",
+      "    conversationId: z.string().min(1),",
+      "    prompt: z.string(),",
+      "    reason: z.string(),",
+      "    createdAt: z.number().finite(),",
+      "    osSchedulerJobId: z.string().exactOptional(),",
+      "    delivery: DeliveryStateSchema.exactOptional(),",
+      "});"
+    ]
+  }
+}

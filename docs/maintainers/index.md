@@ -27,6 +27,7 @@ Use these pages to answer two questions: where does a change belong, and which i
 - [Terminal rendering tests](./terminal-rendering-tests.md): native ANSI output checked against an independent terminal grid.
 - [Terminal runtime](./terminal-runtime.md): output capabilities, demand frames, cleanup, and fallback.
 - [UI performance qualification](./ui-performance-qualification.md): matched fresh-process latency and memory reproduction, complete observations, and unchanged gates.
+- [Changing persisted formats](./persistence-changes.md): the version-or-document rule for stores under the Jazz home, and the gate that checks it.
 - [Remote handoff snapshot](./detach-snapshots.md): what a detached conversation carries to another host, and the ownership fence around it.
 
 ## Extend Jazz

@@ -1,0 +1,94 @@
+{
+  "store": "conversation-log",
+  "version": 4,
+  "shape": "8fc3b7aa315b",
+  "declarations": {
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogContext": [
+      "interface ConversationLogContext {",
+      "    readonly type: \"context\";",
+      "    readonly at: string;",
+      "    readonly id: string;",
+      "    readonly parentId: string | null;",
+      "    readonly keep: readonly KeepRun[];",
+      "}"
+    ],
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogEvent": [
+      "type ConversationLogEvent = ConversationLogHeader | ConversationLogMessage | ConversationLogContext | ConversationLogLeaf | ConversationLogMeta | ConversationLogRewrite | ConversationLogUiTranscript | ConversationLogUiUpdate | ConversationLogUiReset | ConversationLogUiAppend;"
+    ],
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogHeader": [
+      "interface ConversationLogHeader {",
+      "    readonly type: \"conversation\";",
+      "    readonly version: number;",
+      "    readonly agentId: string;",
+      "    readonly conversationId: string;",
+      "    readonly startedAt: string;",
+      "    readonly title?: string;",
+      "    readonly titleSource?: \"user\";",
+      "    readonly titleFormat?: number;",
+      "}"
+    ],
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogLeaf": [
+      "interface ConversationLogLeaf {",
+      "    readonly type: \"leaf\";",
+      "    readonly at: string;",
+      "    readonly id: string | null;",
+      "}"
+    ],
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogMessage": [
+      "interface ConversationLogMessage {",
+      "    readonly type: \"message\";",
+      "    readonly at: string;",
+      "    readonly message: ChatMessage;",
+      "    readonly id?: string;",
+      "    readonly parentId?: string | null;",
+      "}"
+    ],
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogMeta": [
+      "interface ConversationLogMeta {",
+      "    readonly type: \"meta\";",
+      "    readonly at: string;",
+      "    readonly title?: string;",
+      "    readonly titleSource?: \"user\";",
+      "}"
+    ],
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogRewrite": [
+      "interface ConversationLogRewrite {",
+      "    readonly type: \"rewrite\";",
+      "    readonly at: string;",
+      "}"
+    ],
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogUiAppend": [
+      "interface ConversationLogUiAppend {",
+      "    readonly type: \"ui-append\";",
+      "    readonly at: string;",
+      "    readonly entries: readonly ConversationUiEntry[];",
+      "}"
+    ],
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogUiReset": [
+      "interface ConversationLogUiReset {",
+      "    readonly type: \"ui-reset\";",
+      "    readonly at: string;",
+      "}"
+    ],
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogUiTranscript": [
+      "interface ConversationLogUiTranscript {",
+      "    readonly type: \"ui-transcript\";",
+      "    readonly at: string;",
+      "    readonly entries: readonly ConversationUiEntry[];",
+      "}"
+    ],
+    "packages/adapters/src/history/conversation-log.ts#ConversationLogUiUpdate": [
+      "interface ConversationLogUiUpdate {",
+      "    readonly type: \"ui-update\";",
+      "    readonly at: string;",
+      "    readonly entries: readonly ConversationUiEntry[];",
+      "}"
+    ],
+    "packages/adapters/src/history/conversation-tree.ts#KeepRun": [
+      "interface KeepRun {",
+      "    readonly from: string;",
+      "    readonly through: string;",
+      "}"
+    ]
+  }
+}

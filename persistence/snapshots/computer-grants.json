@@ -1,0 +1,37 @@
+{
+  "store": "computer-grants",
+  "version": 1,
+  "shape": "00aedbef8c4b",
+  "declarations": {
+    "packages/core/src/agent/tools/computer/grants.ts#acknowledgementSchema": [
+      "const acknowledgementSchema = z",
+      "    .object({",
+      "    acknowledgedAt: z.number().int().nonnegative(),",
+      "    driverPath: z.string().min(1),",
+      "    driverSha256: z.string().length(SHA256_HEX_LENGTH),",
+      "})",
+      "    .strict();"
+    ],
+    "packages/core/src/agent/tools/computer/grants.ts#computerStateSchema": [
+      "const computerStateSchema = z",
+      "    .object({",
+      "    version: z.literal(1),",
+      "    acknowledgement: acknowledgementSchema.optional(),",
+      "    grants: z.array(grantSchema),",
+      "})",
+      "    .strict();"
+    ],
+    "packages/core/src/agent/tools/computer/grants.ts#grantSchema": [
+      "const grantSchema = z",
+      "    .object({",
+      "    bundleId: z.string().min(1),",
+      "    name: z.string().min(1).optional(),",
+      "    grantedAt: z.number().int().nonnegative(),",
+      "    expiresAt: z.number().int().nonnegative(),",
+      "    idleTimeoutMs: z.number().int().positive(),",
+      "    foreground: z.boolean(),",
+      "})",
+      "    .strict();"
+    ]
+  }
+}

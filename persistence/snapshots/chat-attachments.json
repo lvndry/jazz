@@ -1,0 +1,14 @@
+{
+  "store": "chat-attachments",
+  "version": "unversioned",
+  "shape": "4edce19dc802",
+  "declarations": {
+    "packages/core/src/utils/process.ts#ProcessOwner": [
+      "interface ProcessOwner {",
+      "    readonly pid: number;",
+      "    readonly host: string;",
+      "    readonly startedAt?: number;",
+      "}"
+    ]
+  }
+}

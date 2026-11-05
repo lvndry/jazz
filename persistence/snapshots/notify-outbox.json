@@ -1,0 +1,15 @@
+{
+  "store": "notify-outbox",
+  "version": 2,
+  "shape": "7b421c896f72",
+  "declarations": {
+    "packages/core/src/notify/outbox.ts#OutboxItemSchema": [
+      "const OutboxItemSchema: z.ZodType<OutboxItem> = z.object({",
+      "    id: z.string(),",
+      "    fireAt: z.number(),",
+      "    event: NotifyEventSchema,",
+      "    delivery: DeliveryStateSchema.exactOptional(),",
+      "});"
+    ]
+  }
+}

@@ -123,6 +123,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Check persisted formats
+        run: bun run verify:persistence
+
       - name: Typecheck evals
         run: bun run typecheck:evals
 

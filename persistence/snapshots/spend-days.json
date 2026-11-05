@@ -1,0 +1,20 @@
+{
+  "store": "spend-days",
+  "version": "unversioned",
+  "shape": "cfa063abc237",
+  "declarations": {
+    "packages/core/src/spend/ledger.ts#SpendEntrySchema": [
+      "const SpendEntrySchema = z.object({",
+      "    at: z.string(),",
+      "    agentId: z.string(),",
+      "    source: z.enum(SPEND_SOURCES),",
+      "    costUSD: z.number().finite().nonnegative(),",
+      "    costKnown: z.boolean(),",
+      "    tokens: z.number().finite().nonnegative(),",
+      "    unattended: z.boolean().optional(),",
+      "    runId: z.string().optional(),",
+      "    origin: z.string().optional(),",
+      "});"
+    ]
+  }
+}

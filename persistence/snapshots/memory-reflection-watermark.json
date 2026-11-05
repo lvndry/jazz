@@ -1,0 +1,12 @@
+{
+  "store": "memory-reflection-watermark",
+  "version": 1,
+  "shape": "a82374c3956a",
+  "declarations": {
+    "packages/adapters/src/reflection-watermark.ts#ReflectionWatermarks": [
+      "interface ReflectionWatermarks {",
+      "    readonly lastEntryIdByConversation: Readonly<Record<string, string>>;",
+      "}"
+    ]
+  }
+}

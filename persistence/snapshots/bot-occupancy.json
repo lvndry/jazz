@@ -1,0 +1,28 @@
+{
+  "store": "bot-occupancy",
+  "version": 1,
+  "shape": "902e7c607ddb",
+  "declarations": {
+    "packages/core/src/types/occupancy.ts#OccupancyEntry": [
+      "interface OccupancyEntry {",
+      "    readonly runId: string;",
+      "    readonly agentId: string;",
+      "    readonly agentName: string;",
+      "    readonly conversationId: string;",
+      "    readonly workingDirectory: string;",
+      "    readonly promptExcerpt?: string;",
+      "    readonly state: OccupancyRunState;",
+      "    readonly pid: number;",
+      "    readonly host: string;",
+      "    readonly updatedAt: string;",
+      "    readonly lastMutatingAt?: string;",
+      "    readonly lastMutatingTool?: string;",
+      "    readonly lastMutatingPath?: string;",
+      "    readonly lastReadAt?: string;",
+      "}"
+    ],
+    "packages/core/src/types/occupancy.ts#OccupancyRunState": [
+      "type OccupancyRunState = \"working\" | \"input-required\" | \"completed\" | \"failed\" | \"canceled\";"
+    ]
+  }
+}
