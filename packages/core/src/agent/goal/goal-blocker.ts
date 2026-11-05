@@ -11,20 +11,35 @@ import type { GoalRecord } from "./goal-record";
 export const BLOCKED_ROUNDS_REQUIRED = 3;
 
 /**
- * The identity a blocker is compared by: the reported blocker (or, when a disposition names
- * none, its summary) with case and spacing folded, so rewording in whitespace alone is not a
- * different blocker.
+ * Consecutive blocked reports, whatever blockers they name, after which the goal stops as
+ * blocked anyway. Twice the rounds needed to be convinced: a goal that has been blocked that
+ * long while its blocker keeps getting renamed is not getting unblocked.
  */
-export function blockerKey(report: {
-  readonly summary: string;
-  readonly blocker?: string | undefined;
-}): string {
-  return (report.blocker ?? report.summary).toLowerCase().replace(/\s+/g, " ").trim();
+export const MAX_CONSECUTIVE_BLOCKED_REPORTS = BLOCKED_ROUNDS_REQUIRED * 2;
+
+/**
+ * The identity a blocker is compared by: its words, lowercased, stripped of punctuation,
+ * deduplicated and sorted (a blocker with no words is kept as written), so "API key missing" and "Missing API key." are one blocker.
+ */
+export function blockerKey(blocker: string): string {
+  const words = blocker.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  return words.length === 0 ? blocker.trim() : [...new Set(words)].sort().join(" ");
 }
 
 /** Which consecutive round reporting `blocker` is, given the rounds the goal already recorded. */
 export function blockerRound(goal: GoalRecord, blocker: string): number {
   return goal.blockerStreak?.blocker === blocker ? goal.blockerStreak.rounds + 1 : 1;
+}
+
+/** How many consecutive blocked reports this one makes, whichever blockers they named. */
+export function blockedReportCount(goal: GoalRecord): number {
+  const streak = goal.blockerStreak;
+  return streak === undefined ? 1 : (streak.reports ?? streak.rounds) + 1;
+}
+
+/** Whether a blocked report, with the rounds and reports it makes, stops the goal as blocked. */
+export function blockedStopsGoal(round: number, reports: number): boolean {
+  return round >= BLOCKED_ROUNDS_REQUIRED || reports >= MAX_CONSECUTIVE_BLOCKED_REPORTS;
 }
 
 /** What a cycle is told when its blocked report is not yet enough to stop the goal. */

@@ -55,7 +55,7 @@ function makeGoalEvaluationSchema(completedStepId: z.ZodType<string>) {
     z.object({
       status: z.literal("blocked"),
       summary: z.string().min(1).max(2000),
-      blocker: z.string().min(1).max(MAX_BLOCKER_CHARS).optional(),
+      blocker: z.string().min(1).max(MAX_BLOCKER_CHARS),
     }),
     z.object({ status: z.literal("question"), question: z.string().min(1).max(2000) }),
   ]);
@@ -132,6 +132,7 @@ export function goalEvaluationRepairMessages(
         `Use these accepted step IDs exactly: ${JSON.stringify(goal.steps.map((step) => step.id))}.`,
         "For complete, cite every accepted criterion by its number and quote text copied from the supplied tool outputs that shows it is met.",
         "Do not claim an edit, test, or evaluation succeeded unless a tool output verifies it.",
+        "For blocked, name the blocker in a few words, in the same words the cycle used.",
       ].join(" "),
     },
     {
