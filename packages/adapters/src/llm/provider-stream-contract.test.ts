@@ -161,7 +161,6 @@ function assertCompleted(
         agentId: "contract-agent",
         conversationId: "contract-conversation",
         logger: silentLogger,
-        runMetrics: { totalRequests: 0 } as never,
       },
     ),
   );
