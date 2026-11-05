@@ -22,6 +22,7 @@ import { buildCompletionOptions } from "../execution/completion-request";
 import {
   createAgentRunMetrics,
   recordLLMUsage,
+  recordFailedAttempt,
   recordSideSpend,
   runSpendReport,
   telemetryErrorCategory,
@@ -155,6 +156,19 @@ export function requestAlignedSummary(
       )
       .pipe(Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)), Effect.result);
     if (attempt._tag === "Failure") {
+      recordFailedAttempt(
+        cacheScope.runMetrics,
+        {
+          error: attempt.failure,
+          mode: "non_streaming",
+          provider: cacheScope.provider,
+          model: cacheScope.model,
+          durationMs: Date.now() - startedAt,
+          streamedChars: 0,
+          toolCallStarted: false,
+        },
+        false,
+      );
       yield* logger.warn("Cache-aligned compaction summary request failed", {
         conversationId: cacheScope.runMetrics.conversationId,
         errorCategory: telemetryErrorCategory(attempt.failure),

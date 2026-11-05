@@ -15,6 +15,7 @@ import type { ToolDefinition } from "../../types/tools";
 import {
   createAgentRunMetrics,
   computeRunCost,
+  runRetryWaste,
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
 import {
@@ -393,6 +394,8 @@ describe("cache-aligned compaction summary", () => {
     });
 
     expect(harness.runnerInputs).toHaveLength(1);
+    expect(harness.metrics.retryWaste.unknownUsageAttempts).toBe(1);
+    expect(runRetryWaste(harness.metrics, PRICING).lowerBound).toBe(true);
     expect(outcome?.messages.some((message) => message.content === "stand-alone summary")).toBe(
       true,
     );
