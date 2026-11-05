@@ -23,6 +23,7 @@ import { describeReasoningSelection, reasoningIsEnabled } from "@/core/types/mod
 import type { DisplayConfig } from "@/core/types/output";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
+import { rejectEmptyCompletion } from "./empty-completion";
 import type { RecursiveRunner } from "../context/summarizer";
 import { emitLLMRetry, recordLLMRetry } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
@@ -134,6 +135,19 @@ export function executeWithoutStreaming(
               agent.name,
               showSlowModelNotice,
               llmService.createChatCompletion(provider, llmOptions).pipe(
+                Effect.flatMap((result) =>
+                  rejectEmptyCompletion(
+                    { completion: result },
+                    {
+                      provider,
+                      model: agent.config.llm.model,
+                      agentId: agent.id,
+                      conversationId: runMetrics.conversationId,
+                      logger,
+                      runMetrics,
+                    },
+                  ).pipe(Effect.map((checked) => checked.completion)),
+                ),
                 Effect.tapError((error) =>
                   Effect.gen(function* () {
                     recordLLMRetry(runMetrics, error);

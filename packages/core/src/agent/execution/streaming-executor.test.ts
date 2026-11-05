@@ -715,7 +715,13 @@ function makeStreamingHarness(input: {
     () => Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse),
   ).pipe(Effect.provide(layer));
   const run = () => Effect.runPromise(program);
-  return { run, program, interrupt, startedAtMs: runContext.runMetrics.startedAt.getTime() };
+  return {
+    run,
+    program,
+    interrupt,
+    runMetrics: runContext.runMetrics,
+    startedAtMs: runContext.runMetrics.startedAt.getTime(),
+  };
 }
 
 /** A stream that never emits, recording when its consumer starts reading it and abandons it. */
@@ -1181,7 +1187,11 @@ describe("executeWithStreaming retries", () => {
         llmService: scriptedLLMService(() => {
           attempts += 1;
           return completedStream(
-            attempts === 1 ? emptyCompletion() : emptyCompletion({ content: "answer" }),
+            attempts === 1
+              ? emptyCompletion({
+                  usage: { promptTokens: 700, completionTokens: 0, totalTokens: 700 },
+                })
+              : emptyCompletion({ content: "answer" }),
           );
         }),
       });
@@ -1190,6 +1200,8 @@ describe("executeWithStreaming retries", () => {
 
       expect(result.content).toBe("answer");
       expect(attempts).toBe(2);
+      expect(harness.runMetrics.llmRetryCount).toBe(1);
+      expect(harness.runMetrics.totalPromptTokens).toBeGreaterThanOrEqual(700);
     });
 
     it("fails clearly once the retry budget is spent on empty finishes", async () => {
