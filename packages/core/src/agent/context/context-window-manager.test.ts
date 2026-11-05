@@ -5,6 +5,7 @@ import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
 import { createEgressTaint } from "../execution/egress-taint";
+import { collectUnlockedToolNames } from "../tools/unlocked-tools";
 
 const mockLogger = {
   debug: () => Effect.void,
@@ -273,6 +274,42 @@ describe("ContextWindowManager", () => {
       expect(result.messages.some((message) => message.tool_call_id === "fetch")).toBe(false);
       expect(result.messages[0].egressTainted).toBeUndefined();
       expect(createEgressTaint(result.messages).isTainted()).toBe(true);
+    });
+  });
+
+  describe("trim and unlocked tools", () => {
+    it("keeps an unlock whose search_tools result is trimmed away", async () => {
+      const manager = new ContextWindowManager({ maxTokens: 120, protectedRecentTurns: 1 });
+      const filler = "x".repeat(200);
+      const messages: ConversationMessages = [
+        makeMessage("system", "system"),
+        makeMessage("user", "find a tool"),
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            { id: "search", type: "function", function: { name: "search_tools", arguments: "{}" } },
+          ],
+        },
+        {
+          role: "tool",
+          name: "search_tools",
+          tool_call_id: "search",
+          content: filler,
+          unlockedToolNames: ["first_tool", "second_tool"],
+        },
+        makeMessage("assistant", filler),
+        makeMessage("user", "latest question"),
+      ] as ConversationMessages;
+
+      const result = await Effect.runPromise(
+        manager.trim(messages, mockLogger, "agent-1", "conv-1").pipe(Effect.provide(TestLayer)),
+      );
+
+      expect(result.messages.some((message) => message.tool_call_id === "search")).toBe(false);
+      expect(
+        collectUnlockedToolNames(result.messages, ["first_tool", "second_tool", "other"]),
+      ).toEqual(["first_tool", "second_tool"]);
     });
   });
 
