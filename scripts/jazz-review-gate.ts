@@ -16,6 +16,8 @@
  */
 
 import { appendFileSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const REVIEW_GATE_LIMITS = {
   debounceSeconds: 180,
@@ -462,7 +464,7 @@ async function runGlobalCheck(): Promise<void> {
   await upsertLimitComment(context, pullRequestNumber, verdict, "manual");
 }
 
-if (import.meta.main) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
   const entries: Record<string, () => Promise<void>> = {
     gate: runGate,
