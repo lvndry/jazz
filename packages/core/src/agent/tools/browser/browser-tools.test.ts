@@ -317,14 +317,12 @@ describe("browser_act arguments", () => {
     ).toBe(false);
   });
 
-  test("rejects unknown actions and stray arguments at either level", async () => {
+  test("rejects unknown actions and stray step arguments, and ignores stray top-level arguments", async () => {
     expect(await isAccepted({ actions: [{ action: "drag", ref: "e1" }] })).toBe(false);
     expect(await isAccepted({ actions: [{ action: "click", ref: "e1", extra: true }] })).toBe(
       false,
     );
-    expect(await isAccepted({ actions: [{ action: "click", ref: "e1" }], extra: true })).toBe(
-      false,
-    );
+    expect(await isAccepted({ actions: [{ action: "click", ref: "e1" }], extra: true })).toBe(true);
   });
 
   test("no longer takes a single action outside a list", async () => {
