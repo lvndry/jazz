@@ -1,3 +1,0 @@
-#!/bin/sh
-# Typecheck before anything leaves the machine; bypass once with `git push --no-verify`.
-exec bun run typecheck

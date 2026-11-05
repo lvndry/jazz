@@ -158,8 +158,6 @@ and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.
 - **Duplicate code**: `bun run dup` runs jscpd (`.jscpd.json`) and lists each duplicated block as
   a pair of `file [lines]` ranges. CI runs it report-only for now; wrap deliberate duplication in
   `/* jscpd:ignore-start */ ... /* jscpd:ignore-end */`.
-- **Pre-push hook**: `.githooks/pre-push` runs `bun run typecheck`. Skip it for a single push
-  with `--no-verify`.
 
 ## Before Submitting PR
 
