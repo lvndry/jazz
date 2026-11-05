@@ -105,7 +105,16 @@ describe("allocateRegions", () => {
     expectFits({ width: MIN_WIDTH, height: MIN_HEIGHT }, { ...base, value: "/dep", commands });
     expectFits(
       { width: MIN_WIDTH, height: MIN_HEIGHT },
-      { ...base, value: "x".repeat(400), queued: ["one", "two", "three"], commands },
+      {
+        ...base,
+        value: "x".repeat(400),
+        queued: [
+          { text: "one", lane: "steer" },
+          { text: "two", lane: "steer" },
+          { text: "three", lane: "steer" },
+        ],
+        commands,
+      },
     );
     expectFits({ width: 80, height: 24 }, { ...base, value: "/dep", commands });
   });

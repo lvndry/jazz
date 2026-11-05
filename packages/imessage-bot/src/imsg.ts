@@ -102,7 +102,9 @@ function parseAttachment(raw: Record<string, unknown>): ImsgAttachment {
  */
 export function parseMessageLine(line: string): ImsgMessage | undefined {
   const trimmed = line.trim();
-  if (!trimmed.startsWith("{")) return undefined;
+  if (!trimmed.startsWith("{")) {
+    return undefined;
+  }
 
   let raw: Record<string, unknown>;
   try {
@@ -113,7 +115,9 @@ export function parseMessageLine(line: string): ImsgMessage | undefined {
 
   const id = asNumber(raw["id"]);
   const chatId = asNumber(raw["chat_id"]);
-  if (id === undefined || chatId === undefined) return undefined;
+  if (id === undefined || chatId === undefined) {
+    return undefined;
+  }
 
   const attachments = Array.isArray(raw["attachments"])
     ? (raw["attachments"] as unknown[])
@@ -140,7 +144,9 @@ export function parseMessageLine(line: string): ImsgMessage | undefined {
 
 export function parseChatLine(line: string): ImsgChat | undefined {
   const trimmed = line.trim();
-  if (!trimmed.startsWith("{")) return undefined;
+  if (!trimmed.startsWith("{")) {
+    return undefined;
+  }
 
   let raw: Record<string, unknown>;
   try {
@@ -150,7 +156,9 @@ export function parseChatLine(line: string): ImsgChat | undefined {
   }
 
   const id = asNumber(raw["id"]);
-  if (id === undefined) return undefined;
+  if (id === undefined) {
+    return undefined;
+  }
 
   return {
     id,
@@ -338,7 +346,9 @@ export function watchMessages(options: WatchOptions): WatchHandle {
   let restarts = 0;
 
   const spawnWatcher = () => {
-    if (stopped) return;
+    if (stopped) {
+      return;
+    }
     const args = [
       "watch",
       "--json",
@@ -359,14 +369,18 @@ export function watchMessages(options: WatchOptions): WatchHandle {
       try {
         for (;;) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            break;
+          }
           buffer += decoder.decode(value, { stream: true });
           let newlineIndex = buffer.indexOf("\n");
           while (newlineIndex >= 0) {
             const message = parseMessageLine(buffer.slice(0, newlineIndex));
             buffer = buffer.slice(newlineIndex + 1);
             newlineIndex = buffer.indexOf("\n");
-            if (message === undefined) continue;
+            if (message === undefined) {
+              continue;
+            }
             // Advance before handling: a handler that throws must not make the
             // same row arrive again on the next restart, forever.
             cursor = Math.max(cursor ?? 0, message.id);
@@ -375,7 +389,9 @@ export function watchMessages(options: WatchOptions): WatchHandle {
           }
         }
       } catch (error) {
-        if (!stopped) console.error(`imsg watch stream error: ${String(error)}`);
+        if (!stopped) {
+          console.error(`imsg watch stream error: ${String(error)}`);
+        }
       } finally {
         reader.releaseLock();
       }
@@ -383,7 +399,9 @@ export function watchMessages(options: WatchOptions): WatchHandle {
 
     void child.exited.then((exitCode) => {
       alive = false;
-      if (stopped) return;
+      if (stopped) {
+        return;
+      }
       const delayMs = backoffDelay(restarts, WATCH_RESTART_BACKOFF);
       restarts += 1;
       options.onRestart(`imsg watch exited (${exitCode}); restarting in ${delayMs}ms`);

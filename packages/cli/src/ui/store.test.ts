@@ -14,21 +14,21 @@ describe("UIStore", () => {
 
   describe("output slice", () => {
     test("printOutput lands in the snapshot after the batch flush", async () => {
-      const s = new UIStore();
-      s.printOutput(entry("a"));
-      s.printOutput(entry("b"));
-      expect(s.getOutputSnapshot().entries).toHaveLength(0);
+      const store = new UIStore();
+      store.printOutput(entry("a"));
+      store.printOutput(entry("b"));
+      expect(store.getOutputSnapshot().entries).toHaveLength(0);
 
       await Promise.resolve();
-      expect(s.getOutputSnapshot().entries).toHaveLength(2);
-      expect(s.getOutputSnapshot().entries[0]!.message).toBe("a");
-      expect(s.getOutputSnapshot().entries[1]!.message).toBe("b");
+      expect(store.getOutputSnapshot().entries).toHaveLength(2);
+      expect(store.getOutputSnapshot().entries[0]!.message).toBe("a");
+      expect(store.getOutputSnapshot().entries[1]!.message).toBe("b");
     });
 
     test("assigns unique ids to printed entries", () => {
-      const s = new UIStore();
-      const id1 = s.printOutput(entry("a"));
-      const id2 = s.printOutput(entry("b"));
+      const store = new UIStore();
+      const id1 = store.printOutput(entry("a"));
+      const id2 = store.printOutput(entry("b"));
 
       expect(id1).not.toBe(id2);
       expect(id1).toContain("queued-output-");
@@ -36,12 +36,12 @@ describe("UIStore", () => {
     });
 
     test("preserves caller-provided id", async () => {
-      const s = new UIStore();
-      const id = s.printOutput({ ...entry(), id: "custom-id" });
+      const store = new UIStore();
+      const id = store.printOutput({ ...entry(), id: "custom-id" });
 
       expect(id).toBe("custom-id");
-      s.flushOutputBatchNow();
-      expect(s.getOutputSnapshot().entries[0]!.id).toBe("custom-id");
+      store.flushOutputBatchNow();
+      expect(store.getOutputSnapshot().entries[0]!.id).toBe("custom-id");
     });
   });
 
@@ -51,104 +51,104 @@ describe("UIStore", () => {
 
   describe("subscribe slices", () => {
     test("publishes replacement generations coherently while stream revisions keep their lifetime", async () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const observed: Array<{ generation: number; documentId: string }> = [];
-      s.subscribePresentation(() => {
-        const snapshot = s.getPresentationSnapshot();
+      store.subscribePresentation(() => {
+        const snapshot = store.getPresentationSnapshot();
         observed.push({
           generation: snapshot.documentGeneration,
           documentId: snapshot.document.id,
         });
       });
-      expect(s.getPresentationSnapshot().documentGeneration).toBe(0);
-      s.replaceDocument("same-source-id", []);
+      expect(store.getPresentationSnapshot().documentGeneration).toBe(0);
+      store.replaceDocument("same-source-id", []);
       expect(observed.at(-1)).toEqual({ generation: 1, documentId: "same-source-id" });
-      s.appendStream("response", "accepted text");
+      store.appendStream("response", "accepted text");
       await Promise.resolve();
-      expect(s.getPresentationSnapshot().documentGeneration).toBe(1);
-      s.finalizeStream();
+      expect(store.getPresentationSnapshot().documentGeneration).toBe(1);
+      store.finalizeStream();
       await Promise.resolve();
-      expect(s.getPresentationSnapshot().documentGeneration).toBe(1);
-      s.replaceDocument("same-source-id", []);
+      expect(store.getPresentationSnapshot().documentGeneration).toBe(1);
+      store.replaceDocument("same-source-id", []);
       expect(observed.at(-1)).toEqual({ generation: 2, documentId: "same-source-id" });
-      s.clearOutputs();
+      store.clearOutputs();
       await Promise.resolve();
       expect(observed.at(-1)).toEqual({ generation: 3, documentId: "session:3" });
     });
 
     test("output subscribe is multicast — both trees see the same snapshot", async () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const ink: OutputEntry[][] = [];
       const fullscreen: OutputEntry[][] = [];
-      s.subscribeOutput(() => ink.push([...s.getOutputSnapshot().entries]));
-      s.subscribeOutput(() => fullscreen.push([...s.getOutputSnapshot().entries]));
+      store.subscribeOutput(() => ink.push([...store.getOutputSnapshot().entries]));
+      store.subscribeOutput(() => fullscreen.push([...store.getOutputSnapshot().entries]));
 
-      s.printOutput(entry("hello"));
+      store.printOutput(entry("hello"));
       await Promise.resolve();
 
       expect(ink).toHaveLength(1);
       expect(fullscreen).toHaveLength(1);
       expect(ink[0]).toEqual(fullscreen[0]);
       expect(ink[0]![0]!.message).toBe("hello");
-      expect(s.getOutputSnapshot()).toBe(s.getOutputSnapshot());
+      expect(store.getOutputSnapshot()).toBe(store.getOutputSnapshot());
     });
 
     test("getSnapshot is Object.is-stable across reads and unrelated writes", () => {
-      const s = new UIStore();
-      const output = s.getOutputSnapshot();
-      const session = s.getSessionSnapshot();
-      const prompt = s.getPromptSlice();
-      const ephemeral = s.getEphemeralSnapshot();
+      const store = new UIStore();
+      const output = store.getOutputSnapshot();
+      const session = store.getSessionSnapshot();
+      const prompt = store.getPromptSlice();
+      const ephemeral = store.getEphemeralSnapshot();
 
-      expect(s.getOutputSnapshot()).toBe(output);
-      expect(s.getSessionSnapshot()).toBe(session);
-      expect(s.getPromptSlice()).toBe(prompt);
-      expect(s.getEphemeralSnapshot()).toBe(ephemeral);
+      expect(store.getOutputSnapshot()).toBe(output);
+      expect(store.getSessionSnapshot()).toBe(session);
+      expect(store.getPromptSlice()).toBe(prompt);
+      expect(store.getEphemeralSnapshot()).toBe(ephemeral);
 
-      s.setActivity({ phase: "thinking", agentName: "A" });
-      expect(s.getOutputSnapshot()).toBe(output);
-      expect(s.getPromptSlice()).toBe(prompt);
-      expect(s.getEphemeralSnapshot()).toBe(ephemeral);
-      expect(s.getSessionSnapshot()).not.toBe(session);
-      expect(s.getSessionSnapshot()).toBe(s.getSessionSnapshot());
+      store.setActivity({ phase: "thinking", agentName: "A" });
+      expect(store.getOutputSnapshot()).toBe(output);
+      expect(store.getPromptSlice()).toBe(prompt);
+      expect(store.getEphemeralSnapshot()).toBe(ephemeral);
+      expect(store.getSessionSnapshot()).not.toBe(session);
+      expect(store.getSessionSnapshot()).toBe(store.getSessionSnapshot());
     });
 
     test("session subscribe is multicast", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       let ink = 0;
       let fullscreen = 0;
-      s.subscribeSession(() => {
+      store.subscribeSession(() => {
         ink += 1;
       });
-      s.subscribeSession(() => {
+      store.subscribeSession(() => {
         fullscreen += 1;
       });
 
-      s.setChatBusy(true);
+      store.setChatBusy(true);
       expect(ink).toBe(1);
       expect(fullscreen).toBe(1);
-      s.setChatBusy(true);
+      store.setChatBusy(true);
       expect(ink).toBe(1);
       expect(fullscreen).toBe(1);
     });
 
     test("unsubscribing one tree does not silence the other", async () => {
-      const s = new UIStore();
+      const store = new UIStore();
       let ink = 0;
       let fullscreen = 0;
-      const unsubscribeInk = s.subscribeOutput(() => {
+      const unsubscribeInk = store.subscribeOutput(() => {
         ink += 1;
       });
-      s.subscribeOutput(() => {
+      store.subscribeOutput(() => {
         fullscreen += 1;
       });
 
-      s.printOutput(entry("a"));
-      s.flushOutputBatchNow();
+      store.printOutput(entry("a"));
+      store.flushOutputBatchNow();
       await Promise.resolve();
       unsubscribeInk();
-      s.printOutput(entry("b"));
-      s.flushOutputBatchNow();
+      store.printOutput(entry("b"));
+      store.flushOutputBatchNow();
       await Promise.resolve();
 
       expect(ink).toBe(1);
@@ -156,37 +156,37 @@ describe("UIStore", () => {
     });
 
     test("stale renderer cleanup does not unregister a newer fallback handler", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       let fallbackRequests = 0;
-      const unregisterFirst = s.registerRendererFallbackHandler(() => {
+      const unregisterFirst = store.registerRendererFallbackHandler(() => {
         fallbackRequests += 100;
       });
-      const unregisterSecond = s.registerRendererFallbackHandler(() => {
+      const unregisterSecond = store.registerRendererFallbackHandler(() => {
         fallbackRequests += 1;
       });
 
       unregisterFirst();
-      s.requestRendererFallback();
+      store.requestRendererFallback();
       expect(fallbackRequests).toBe(1);
 
       unregisterSecond();
-      s.requestRendererFallback();
+      store.requestRendererFallback();
       expect(fallbackRequests).toBe(1);
     });
 
     test("both session subscribers see a data-only menu", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const ink: Array<ActiveMenu | null> = [];
       const fullscreen: Array<ActiveMenu | null> = [];
       const menu: ActiveMenu = {
         kind: "menu",
         options: [{ label: "Start chatting", value: "chat" }],
       };
-      s.subscribeSession(() => ink.push(s.getActiveMenuSnapshot()));
-      s.subscribeSession(() => fullscreen.push(s.getActiveMenuSnapshot()));
+      store.subscribeSession(() => ink.push(store.getActiveMenuSnapshot()));
+      store.subscribeSession(() => fullscreen.push(store.getActiveMenuSnapshot()));
 
-      s.setActiveMenu(menu);
-      s.setActiveMenu(null);
+      store.setActiveMenu(menu);
+      store.setActiveMenu(null);
 
       expect(ink).toEqual([menu, null]);
       expect(fullscreen).toEqual([menu, null]);
@@ -201,24 +201,24 @@ describe("UIStore", () => {
     });
 
     test("opens on a run's first output, not when the run begins", () => {
-      const s = new UIStore();
-      const run = s.beginCommandPanel();
-      expect(s.getCommandPanelSnapshot()).toBe(null);
+      const store = new UIStore();
+      const run = store.beginCommandPanel();
+      expect(store.getCommandPanelSnapshot()).toBe(null);
 
-      s.appendCommandPanel(run, "/info", text("one"));
-      s.appendCommandPanel(run, "/info", text("two"));
-      expect(s.getCommandPanelSnapshot()?.entries).toEqual([text("one"), text("two")]);
+      store.appendCommandPanel(run, "/info", text("one"));
+      store.appendCommandPanel(run, "/info", text("two"));
+      expect(store.getCommandPanelSnapshot()?.entries).toEqual([text("one"), text("two")]);
     });
 
     test("a newer run replaces the panel and an older run's late output is dropped", () => {
-      const s = new UIStore();
-      const older = s.beginCommandPanel();
-      const newer = s.beginCommandPanel();
-      s.appendCommandPanel(older, "/info", text("old"));
-      s.appendCommandPanel(newer, "/cost", text("new"));
-      s.appendCommandPanel(older, "/info", text("late"));
+      const store = new UIStore();
+      const older = store.beginCommandPanel();
+      const newer = store.beginCommandPanel();
+      store.appendCommandPanel(older, "/info", text("old"));
+      store.appendCommandPanel(newer, "/cost", text("new"));
+      store.appendCommandPanel(older, "/info", text("late"));
 
-      expect(s.getCommandPanelSnapshot()).toEqual({
+      expect(store.getCommandPanelSnapshot()).toEqual({
         id: newer,
         command: "/cost",
         entries: [text("new")],
@@ -226,38 +226,38 @@ describe("UIStore", () => {
     });
 
     test("output after the panel was closed does not reopen it", () => {
-      const s = new UIStore();
-      const run = s.beginCommandPanel();
-      s.appendCommandPanel(run, "/info", text("first"));
-      s.closeCommandPanel();
-      s.appendCommandPanel(run, "/info", text("second"));
-      expect(s.getCommandPanelSnapshot()).toBe(null);
+      const store = new UIStore();
+      const run = store.beginCommandPanel();
+      store.appendCommandPanel(run, "/info", text("first"));
+      store.closeCommandPanel();
+      store.appendCommandPanel(run, "/info", text("second"));
+      expect(store.getCommandPanelSnapshot()).toBe(null);
     });
 
     test("runs a command immediately only through the registered runner", () => {
-      const s = new UIStore();
-      expect(s.runCommandImmediately("/info")).toBe(false);
+      const store = new UIStore();
+      expect(store.runCommandImmediately("/info")).toBe(false);
       const seen: string[] = [];
-      s.registerImmediateCommandRunner((command) => (seen.push(command), true));
-      expect(s.runCommandImmediately("  /info  ")).toBe(true);
+      store.registerImmediateCommandRunner((command) => (seen.push(command), true));
+      expect(store.runCommandImmediately("  /info  ")).toBe(true);
       expect(seen).toEqual(["/info"]);
     });
   });
 
   describe("theme picker prompt", () => {
     test("a prompt the session needs dismisses the theme picker", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       let dismissed = 0;
-      s.setPrompt({
+      store.setPrompt({
         type: "theme",
         message: "Theme",
         resolve: () => undefined,
         reject: () => (dismissed += 1),
       });
       const question = { type: "chat" as const, message: "You:", resolve: () => undefined };
-      s.setPrompt(question);
+      store.setPrompt(question);
       expect(dismissed).toBe(1);
-      expect(s.getPromptSnapshot()).toBe(question);
+      expect(store.getPromptSnapshot()).toBe(question);
     });
   });
 
@@ -270,63 +270,63 @@ describe("UIStore", () => {
     });
 
     test("comes back once a prompt that took its place closes", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const chat = chatPrompt();
-      s.setPrompt(chat);
-      s.setPrompt(approval());
-      expect(s.getPromptSnapshot()?.type).toBe("select");
-      s.setPrompt(null);
-      expect(s.getPromptSnapshot()).toBe(chat);
+      store.setPrompt(chat);
+      store.setPrompt(approval());
+      expect(store.getPromptSnapshot()?.type).toBe("select");
+      store.setPrompt(null);
+      expect(store.getPromptSnapshot()).toBe(chat);
     });
 
     test("stays gone once withdrawn while set aside", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const chat = chatPrompt();
-      s.setPrompt(chat);
-      s.setPrompt(approval());
-      s.withdrawPrompt(chat);
-      s.setPrompt(null);
-      expect(s.getPromptSnapshot()).toBeNull();
+      store.setPrompt(chat);
+      store.setPrompt(approval());
+      store.withdrawPrompt(chat);
+      store.setPrompt(null);
+      expect(store.getPromptSnapshot()).toBeNull();
     });
 
     test("closes when withdrawn while showing, and not when another prompt shows", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const chat = chatPrompt();
-      s.setPrompt(chat);
-      s.withdrawPrompt(chat);
-      expect(s.getPromptSnapshot()).toBeNull();
+      store.setPrompt(chat);
+      store.withdrawPrompt(chat);
+      expect(store.getPromptSnapshot()).toBeNull();
       const shown = approval();
-      s.setPrompt(shown);
-      s.withdrawPrompt(chat);
-      expect(s.getPromptSnapshot()).toBe(shown);
+      store.setPrompt(shown);
+      store.withdrawPrompt(chat);
+      expect(store.getPromptSnapshot()).toBe(shown);
     });
 
     test("a chat prompt opened while a question shows waits behind it", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const shown = approval();
-      s.setPrompt(shown);
+      store.setPrompt(shown);
       const chat = chatPrompt();
-      s.setPrompt(chat);
-      expect(s.getPromptSnapshot()).toBe(shown);
-      s.setPrompt(null);
-      expect(s.getPromptSnapshot()).toBe(chat);
+      store.setPrompt(chat);
+      expect(store.getPromptSnapshot()).toBe(shown);
+      store.setPrompt(null);
+      expect(store.getPromptSnapshot()).toBe(chat);
     });
 
     test("answering the chat prompt itself leaves nothing to bring back", () => {
-      const s = new UIStore();
-      s.setPrompt(chatPrompt());
-      s.setPrompt(null);
-      s.setPrompt(approval());
-      s.setPrompt(null);
-      expect(s.getPromptSnapshot()).toBeNull();
+      const store = new UIStore();
+      store.setPrompt(chatPrompt());
+      store.setPrompt(null);
+      store.setPrompt(approval());
+      store.setPrompt(null);
+      expect(store.getPromptSnapshot()).toBeNull();
     });
   });
 
   describe("completePrompt", () => {
     test("keeps the snapshot data-only and runs the continuation once", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const results: string[] = [];
-      s.setActiveMenu(
+      store.setActiveMenu(
         {
           kind: "menu",
           options: [{ label: "Start chatting", value: "chat" }],
@@ -334,7 +334,7 @@ describe("UIStore", () => {
         (result) => results.push(result.kind === "exit" ? "exit" : result.value),
       );
 
-      const snapshot = s.getActiveMenuSnapshot();
+      const snapshot = store.getActiveMenuSnapshot();
       expect(snapshot).not.toHaveProperty("onSelect");
       expect(snapshot).not.toHaveProperty("onExit");
       if (snapshot !== null) {
@@ -343,20 +343,20 @@ describe("UIStore", () => {
         }
       }
 
-      s.completePrompt({ kind: "select", value: "chat" });
-      s.completePrompt({ kind: "select", value: "again" });
+      store.completePrompt({ kind: "select", value: "chat" });
+      store.completePrompt({ kind: "select", value: "again" });
       expect(results).toEqual(["chat"]);
-      expect(s.getActiveMenuSnapshot()).toBe(null);
+      expect(store.getActiveMenuSnapshot()).toBe(null);
     });
 
     test("drops a pending continuation when the menu is cleared", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       let called = 0;
-      s.setActiveMenu({ kind: "menu", options: [{ label: "Go", value: "go" }] }, () => {
+      store.setActiveMenu({ kind: "menu", options: [{ label: "Go", value: "go" }] }, () => {
         called += 1;
       });
-      s.setActiveMenu(null);
-      s.completePrompt({ kind: "exit" });
+      store.setActiveMenu(null);
+      store.completePrompt({ kind: "exit" });
       expect(called).toBe(0);
     });
   });
@@ -367,26 +367,26 @@ describe("UIStore", () => {
 
   describe("clearOutputs", () => {
     test("clears the output snapshot immediately", () => {
-      const s = new UIStore();
-      s.printOutput(entry("a"));
-      s.printOutput(entry("b"));
-      s.flushOutputBatchNow();
-      expect(s.getOutputSnapshot().entries).toHaveLength(2);
+      const store = new UIStore();
+      store.printOutput(entry("a"));
+      store.printOutput(entry("b"));
+      store.flushOutputBatchNow();
+      expect(store.getOutputSnapshot().entries).toHaveLength(2);
 
-      s.clearOutputs();
+      store.clearOutputs();
 
-      expect(s.getOutputSnapshot().entries).toHaveLength(0);
-      expect(s.getOutputSnapshot().streaming).toBe("");
+      expect(store.getOutputSnapshot().entries).toHaveLength(0);
+      expect(store.getOutputSnapshot().streaming).toBe("");
     });
 
     test("discards pending batched outputs to prevent post-clear race", async () => {
-      const s = new UIStore();
-      s.printOutput(entry("a"));
-      s.printOutput(entry("b"));
-      s.clearOutputs();
+      const store = new UIStore();
+      store.printOutput(entry("a"));
+      store.printOutput(entry("b"));
+      store.clearOutputs();
 
       await Promise.resolve();
-      expect(s.getOutputSnapshot().entries).toHaveLength(0);
+      expect(store.getOutputSnapshot().entries).toHaveLength(0);
     });
   });
 
@@ -396,19 +396,19 @@ describe("UIStore", () => {
 
   describe("activity snapshots", () => {
     test("stores and returns activity snapshot", () => {
-      const s = new UIStore();
-      expect(s.getActivitySnapshot()).toEqual({ phase: "idle" });
+      const store = new UIStore();
+      expect(store.getActivitySnapshot()).toEqual({ phase: "idle" });
 
-      s.setActivity({ phase: "thinking", agentName: "A" });
-      expect(s.getActivitySnapshot()).toEqual({ phase: "thinking", agentName: "A" });
+      store.setActivity({ phase: "thinking", agentName: "A" });
+      expect(store.getActivitySnapshot()).toEqual({ phase: "thinking", agentName: "A" });
     });
 
     test("notifies session subscribers", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const calls: unknown[] = [];
-      s.subscribeSession(() => calls.push(s.getActivitySnapshot()));
+      store.subscribeSession(() => calls.push(store.getActivitySnapshot()));
 
-      s.setActivity({ phase: "thinking", agentName: "A" });
+      store.setActivity({ phase: "thinking", agentName: "A" });
       expect(calls).toHaveLength(1);
     });
   });
@@ -419,62 +419,62 @@ describe("UIStore", () => {
 
   describe("expandable diff", () => {
     test("returns null when no diff is set", () => {
-      const s = new UIStore();
-      expect(s.getExpandableDiff()).toBeNull();
+      const store = new UIStore();
+      expect(store.getExpandableDiff()).toBeNull();
     });
 
     test("stores and retrieves diff", () => {
-      const s = new UIStore();
-      s.setExpandableDiff("--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new");
+      const store = new UIStore();
+      store.setExpandableDiff("--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new");
 
-      const payload = s.getExpandableDiff();
+      const payload = store.getExpandableDiff();
       expect(payload).not.toBeNull();
       expect(payload!.fullDiff).toBe("--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new");
       expect(payload!.timestamp).toBeGreaterThan(0);
     });
 
     test("clear resets to null", () => {
-      const s = new UIStore();
-      s.setExpandableDiff("diff content");
-      expect(s.getExpandableDiff()).not.toBeNull();
+      const store = new UIStore();
+      store.setExpandableDiff("diff content");
+      expect(store.getExpandableDiff()).not.toBeNull();
 
-      s.clearExpandableDiff();
-      expect(s.getExpandableDiff()).toBeNull();
+      store.clearExpandableDiff();
+      expect(store.getExpandableDiff()).toBeNull();
     });
   });
 
   describe("interrupt handler stack", () => {
     test("nested handlers all receive an interrupt, and inner pop restores outer dispatch", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const calls: string[] = [];
       const outer = (): void => void calls.push("outer");
       const inner = (): void => void calls.push("inner");
 
-      s.setInterruptHandler(outer);
-      s.setInterruptHandler(inner);
-      s.getSessionSnapshot().interruptHandler?.();
+      store.setInterruptHandler(outer);
+      store.setInterruptHandler(inner);
+      store.getSessionSnapshot().interruptHandler?.();
       expect(calls).toEqual(["inner", "outer"]);
 
       calls.length = 0;
-      s.setInterruptHandler(null);
-      s.getSessionSnapshot().interruptHandler?.();
+      store.setInterruptHandler(null);
+      store.getSessionSnapshot().interruptHandler?.();
       expect(calls).toEqual(["outer"]);
     });
 
     test("popping below empty is a no-op (over-pop tolerated)", () => {
-      const s = new UIStore();
-      expect(() => s.setInterruptHandler(null)).not.toThrow();
+      const store = new UIStore();
+      expect(() => store.setInterruptHandler(null)).not.toThrow();
     });
 
     test("unsubscribing does not drop the interrupt stack", () => {
-      const s = new UIStore();
-      const unsubscribe = s.subscribeSession(() => undefined);
+      const store = new UIStore();
+      const unsubscribe = store.subscribeSession(() => undefined);
 
       const handler = (): void => {};
-      s.setInterruptHandler(handler);
+      store.setInterruptHandler(handler);
       unsubscribe();
 
-      expect(s.getSessionSnapshot().interruptHandler).not.toBeNull();
+      expect(store.getSessionSnapshot().interruptHandler).not.toBeNull();
     });
   });
 
@@ -484,28 +484,28 @@ describe("UIStore", () => {
 
   describe("ephemeral regions", () => {
     test("openEphemeral returns unique ids and adds to snapshot", () => {
-      const s = new UIStore();
-      const a = s.openEphemeral("reasoning", "Reasoning", 8);
-      const b = s.openEphemeral("subagent", "Sub-Agent (researcher)", 12);
+      const store = new UIStore();
+      const firstRegionId = store.openEphemeral("reasoning", "Reasoning", 8);
+      const secondRegionId = store.openEphemeral("subagent", "Sub-Agent (researcher)", 12);
 
-      expect(a).not.toBe(b);
-      const regions = s.getEphemeralRegionsSnapshot();
+      expect(firstRegionId).not.toBe(secondRegionId);
+      const regions = store.getEphemeralRegionsSnapshot();
       expect(regions).toHaveLength(2);
-      expect(regions[0]!.id).toBe(a);
+      expect(regions[0]!.id).toBe(firstRegionId);
       expect(regions[0]!.kind).toBe("reasoning");
-      expect(regions[1]!.id).toBe(b);
+      expect(regions[1]!.id).toBe(secondRegionId);
       expect(regions[1]!.kind).toBe("subagent");
     });
 
     test("appendEphemeral splits, merges first chunk, trims to last N lines", () => {
-      const s = new UIStore();
-      const id = s.openEphemeral("reasoning", "Reasoning", 3);
+      const store = new UIStore();
+      const id = store.openEphemeral("reasoning", "Reasoning", 3);
 
-      s.appendEphemeral(id, "first ");
-      s.appendEphemeral(id, "line\nsecond\n");
-      s.appendEphemeral(id, "third\nfourth\nfifth");
+      store.appendEphemeral(id, "first ");
+      store.appendEphemeral(id, "line\nsecond\n");
+      store.appendEphemeral(id, "third\nfourth\nfifth");
 
-      const region = s.getEphemeralRegionsSnapshot()[0]!;
+      const region = store.getEphemeralRegionsSnapshot()[0]!;
       // Expected lines after merge+split:
       //   "first line", "second", "", "third", "fourth", "fifth"
       // Hmm — "second\n" leaves a trailing empty. Then "third" appends to that
@@ -528,59 +528,59 @@ describe("UIStore", () => {
     });
 
     test("appendEphemeral targets only the specified region", () => {
-      const s = new UIStore();
-      const a = s.openEphemeral("reasoning", "Reasoning", 8);
-      const b = s.openEphemeral("subagent", "Sub", 8);
+      const store = new UIStore();
+      const firstRegionId = store.openEphemeral("reasoning", "Reasoning", 8);
+      const secondRegionId = store.openEphemeral("subagent", "Sub", 8);
 
-      s.appendEphemeral(a, "hello");
-      s.appendEphemeral(b, "world");
+      store.appendEphemeral(firstRegionId, "hello");
+      store.appendEphemeral(secondRegionId, "world");
 
-      const regions = s.getEphemeralRegionsSnapshot();
+      const regions = store.getEphemeralRegionsSnapshot();
       expect(regions[0]!.tail).toEqual(["hello"]);
       expect(regions[1]!.tail).toEqual(["world"]);
     });
 
     test("collapseEphemeral removes the region, and the turn's line lands when it settles", () => {
-      const s = new UIStore();
+      const store = new UIStore();
 
-      const id = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.collapseEphemeral(id, {
+      const id = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.collapseEphemeral(id, {
         line: "✓ Reasoning · 12s · 100 tokens",
         durationMs: 12000,
       });
 
-      expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
-      s.flushOutputBatchNow();
-      expect(s.getOutputSnapshot().entries).toHaveLength(0);
-      s.settleTurnThought();
-      expect(s.getOutputSnapshot().entries).toHaveLength(1);
-      expect(s.getOutputSnapshot().entries[0]!.message).toMatchObject({
+      expect(store.getEphemeralRegionsSnapshot()).toHaveLength(0);
+      store.flushOutputBatchNow();
+      expect(store.getOutputSnapshot().entries).toHaveLength(0);
+      store.settleTurnThought();
+      expect(store.getOutputSnapshot().entries).toHaveLength(1);
+      expect(store.getOutputSnapshot().entries[0]!.message).toMatchObject({
         kind: "reasoning",
         durationMs: 12000,
       });
     });
 
     test("collapseEphemeral keeps the live tail when fullText is missing", () => {
-      const s = new UIStore();
-      const id = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.appendEphemeral(id, "kept from the live panel");
-      s.collapseEphemeral(id, { durationMs: 800 });
-      s.settleTurnThought();
+      const store = new UIStore();
+      const id = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.appendEphemeral(id, "kept from the live panel");
+      store.collapseEphemeral(id, { durationMs: 800 });
+      store.settleTurnThought();
 
-      expect(s.getExpandableReasoningSnapshot()?.fullText).toBe("kept from the live panel");
+      expect(store.getExpandableReasoningSnapshot()?.fullText).toBe("kept from the live panel");
     });
 
     test("collapseEphemeral with reasoning + fullText populates expandableReasoning", () => {
-      const s = new UIStore();
-      const id = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.collapseEphemeral(id, {
+      const store = new UIStore();
+      const id = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.collapseEphemeral(id, {
         durationMs: 5000,
         tokens: 42,
         fullText: "I was thinking about X then Y",
       });
-      s.settleTurnThought();
+      store.settleTurnThought();
 
-      const expandable = s.getExpandableReasoningSnapshot();
+      const expandable = store.getExpandableReasoningSnapshot();
       expect(expandable).not.toBeNull();
       expect(expandable!.fullText).toBe("I was thinking about X then Y");
       expect(expandable!.durationMs).toBe(5000);
@@ -588,166 +588,166 @@ describe("UIStore", () => {
     });
 
     test("subagent collapse does NOT populate expandableReasoning", () => {
-      const s = new UIStore();
-      const id = s.openEphemeral("subagent", "Sub-Agent", 12);
-      s.collapseEphemeral(id, {
+      const store = new UIStore();
+      const id = store.openEphemeral("subagent", "Sub-Agent", 12);
+      store.collapseEphemeral(id, {
         durationMs: 1000,
         fullText: "subagent body — should be ignored for expand",
       });
 
-      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+      expect(store.getExpandableReasoningSnapshot()).toBeNull();
     });
 
     test("collapseAllEphemeral removes every open region without emitting summaries", () => {
-      const s = new UIStore();
+      const store = new UIStore();
 
-      s.openEphemeral("reasoning", "R", 8);
-      s.openEphemeral("subagent", "S1", 12);
-      s.openEphemeral("subagent", "S2", 12);
+      store.openEphemeral("reasoning", "R", 8);
+      store.openEphemeral("subagent", "S1", 12);
+      store.openEphemeral("subagent", "S2", 12);
 
-      s.collapseAllEphemeral();
+      store.collapseAllEphemeral();
 
-      expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
-      expect(s.getOutputSnapshot().entries).toHaveLength(0);
+      expect(store.getEphemeralRegionsSnapshot()).toHaveLength(0);
+      expect(store.getOutputSnapshot().entries).toHaveLength(0);
     });
 
     test("expandLastReasoning rewrites the collapsed entry in place", () => {
-      const s = new UIStore();
+      const store = new UIStore();
 
-      const id = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.collapseEphemeral(id, {
+      const id = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.collapseEphemeral(id, {
         durationMs: 1000,
         fullText: "full reasoning body",
       });
-      s.settleTurnThought();
+      store.settleTurnThought();
 
-      expect(s.getOutputSnapshot().entries).toHaveLength(1);
-      expect(s.isReasoningExpanded(s.getOutputSnapshot().entries[0]!.id)).toBe(false);
+      expect(store.getOutputSnapshot().entries).toHaveLength(1);
+      expect(store.isReasoningExpanded(store.getOutputSnapshot().entries[0]!.id)).toBe(false);
 
-      s.expandLastReasoning();
-      s.expandLastReasoning(); // second call is no-op
+      store.expandLastReasoning();
+      store.expandLastReasoning(); // second call is no-op
 
-      const printed = s.getOutputSnapshot().entries;
+      const printed = store.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
       expect(printed[0]!.type).toBe("streamContent");
       expect(printed[0]!.message).toMatchObject({ kind: "reasoning", text: "full reasoning body" });
-      expect(s.isReasoningExpanded(printed[0]!.id)).toBe(true);
-      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+      expect(store.isReasoningExpanded(printed[0]!.id)).toBe(true);
+      expect(store.getExpandableReasoningSnapshot()).toBeNull();
     });
 
     test("expandLastReasoning('append') adds a fresh entry so Ink's Static can show it", () => {
-      const s = new UIStore();
+      const store = new UIStore();
 
-      const id = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.collapseEphemeral(id, { durationMs: 1000, fullText: "full reasoning body" });
-      s.settleTurnThought();
+      const id = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.collapseEphemeral(id, { durationMs: 1000, fullText: "full reasoning body" });
+      store.settleTurnThought();
 
-      expect(s.getOutputSnapshot().entries).toHaveLength(1);
+      expect(store.getOutputSnapshot().entries).toHaveLength(1);
 
-      s.expandLastReasoning("append");
+      store.expandLastReasoning("append");
 
-      const printed = s.getOutputSnapshot().entries;
+      const printed = store.getOutputSnapshot().entries;
       expect(printed).toHaveLength(2);
-      expect(s.isReasoningExpanded(printed[0]!.id)).toBe(false);
+      expect(store.isReasoningExpanded(printed[0]!.id)).toBe(false);
       expect(printed[1]!.message).toMatchObject({ kind: "reasoning", text: "full reasoning body" });
       expect(printed[1]!.id).not.toBe(printed[0]!.id);
-      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+      expect(store.getExpandableReasoningSnapshot()).toBeNull();
     });
 
     test("expandLastReasoning expands earlier turns without moving them", () => {
-      const s = new UIStore();
+      const store = new UIStore();
 
-      const first = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.collapseEphemeral(first, { durationMs: 500, fullText: "first block" });
-      s.settleTurnThought();
-      const second = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.collapseEphemeral(second, { durationMs: 700, fullText: "second block" });
-      s.settleTurnThought();
+      const first = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.collapseEphemeral(first, { durationMs: 500, fullText: "first block" });
+      store.settleTurnThought();
+      const second = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.collapseEphemeral(second, { durationMs: 700, fullText: "second block" });
+      store.settleTurnThought();
 
-      s.expandLastReasoning();
-      s.expandLastReasoning();
-      s.expandLastReasoning(); // stack empty — no-op
+      store.expandLastReasoning();
+      store.expandLastReasoning();
+      store.expandLastReasoning(); // stack empty — no-op
 
-      const printed = s.getOutputSnapshot().entries;
+      const printed = store.getOutputSnapshot().entries;
       expect(printed).toHaveLength(2);
       expect(printed[0]!.message).toMatchObject({ kind: "reasoning", text: "first block" });
       expect(printed[1]!.message).toMatchObject({ kind: "reasoning", text: "second block" });
-      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+      expect(store.getExpandableReasoningSnapshot()).toBeNull();
     });
 
     test("expandLastReasoning opens the current turn's folded steps before earlier turns", () => {
-      const s = new UIStore();
+      const store = new UIStore();
 
-      const earlier = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.collapseEphemeral(earlier, { durationMs: 500, fullText: "earlier turn" });
-      s.settleTurnThought();
-      const firstStep = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.collapseEphemeral(firstStep, { durationMs: 300, fullText: "step one" });
-      const secondStep = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.collapseEphemeral(secondStep, { durationMs: 400, fullText: "step two" });
+      const earlier = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.collapseEphemeral(earlier, { durationMs: 500, fullText: "earlier turn" });
+      store.settleTurnThought();
+      const firstStep = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.collapseEphemeral(firstStep, { durationMs: 300, fullText: "step one" });
+      const secondStep = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.collapseEphemeral(secondStep, { durationMs: 400, fullText: "step two" });
 
-      expect(s.expandLastReasoning()).toBe(true);
-      expect(s.isReasoningExpanded(firstStep)).toBe(true);
-      expect(s.isReasoningExpanded(secondStep)).toBe(true);
-      expect(s.isReasoningExpanded(earlier)).toBe(false);
+      expect(store.expandLastReasoning()).toBe(true);
+      expect(store.isReasoningExpanded(firstStep)).toBe(true);
+      expect(store.isReasoningExpanded(secondStep)).toBe(true);
+      expect(store.isReasoningExpanded(earlier)).toBe(false);
 
-      s.settleTurnThought();
-      expect(s.expandLastReasoning()).toBe(true);
-      expect(s.isReasoningExpanded(earlier)).toBe(true);
+      store.settleTurnThought();
+      expect(store.expandLastReasoning()).toBe(true);
+      expect(store.isReasoningExpanded(earlier)).toBe(true);
     });
 
     test("Ctrl+R during a live panel pins it so collapse stays expanded", () => {
-      const s = new UIStore();
+      const store = new UIStore();
 
-      const id = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.appendEphemeral(id, "live thought");
-      expect(s.expandLastReasoning()).toBe(true);
-      s.collapseEphemeral(id, { durationMs: 400, fullText: "live thought" });
+      const id = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.appendEphemeral(id, "live thought");
+      expect(store.expandLastReasoning()).toBe(true);
+      store.collapseEphemeral(id, { durationMs: 400, fullText: "live thought" });
 
-      const printed = s.getOutputSnapshot().entries;
+      const printed = store.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
-      expect(s.isReasoningExpanded(printed[0]!.id)).toBe(true);
+      expect(store.isReasoningExpanded(printed[0]!.id)).toBe(true);
       expect(printed[0]!.message).toMatchObject({ kind: "reasoning", text: "live thought" });
     });
 
     test("setCollapseReasoning(false) settles reasoning expanded without Ctrl+R", () => {
-      const s = new UIStore();
-      s.setCollapseReasoning(false);
+      const store = new UIStore();
+      store.setCollapseReasoning(false);
 
-      const id = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.collapseEphemeral(id, { durationMs: 1500, fullText: "the whole thought" });
+      const id = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.collapseEphemeral(id, { durationMs: 1500, fullText: "the whole thought" });
 
-      const printed = s.getOutputSnapshot().entries;
+      const printed = store.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
-      expect(s.isReasoningExpanded(printed[0]!.id)).toBe(true);
+      expect(store.isReasoningExpanded(printed[0]!.id)).toBe(true);
       expect(printed[0]!.message).toMatchObject({ kind: "reasoning", text: "the whole thought" });
-      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+      expect(store.getExpandableReasoningSnapshot()).toBeNull();
     });
 
     test("setCollapseReasoning(false) dumps in-flight reasoning on collapseAllEphemeral", () => {
-      const s = new UIStore();
-      s.setCollapseReasoning(false);
+      const store = new UIStore();
+      store.setCollapseReasoning(false);
 
-      const id = s.openEphemeral("reasoning", "Reasoning", 8);
-      s.appendEphemeral(id, "interrupted thought");
-      s.collapseAllEphemeral();
+      const id = store.openEphemeral("reasoning", "Reasoning", 8);
+      store.appendEphemeral(id, "interrupted thought");
+      store.collapseAllEphemeral();
 
-      expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
-      const printed = s.getOutputSnapshot().entries;
+      expect(store.getEphemeralRegionsSnapshot()).toHaveLength(0);
+      const printed = store.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
-      expect(s.isReasoningExpanded(printed[0]!.id)).toBe(true);
+      expect(store.isReasoningExpanded(printed[0]!.id)).toBe(true);
       expect(printed[0]!.message).toMatchObject({ kind: "reasoning", text: "interrupted thought" });
-      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+      expect(store.getExpandableReasoningSnapshot()).toBeNull();
     });
 
     test("ephemeral subscribers are notified on open, append, and collapse", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const seen: number[] = [];
-      s.subscribeEphemeral(() => seen.push(s.getEphemeralSnapshot().regions.length));
+      store.subscribeEphemeral(() => seen.push(store.getEphemeralSnapshot().regions.length));
 
-      const id = s.openEphemeral("reasoning", "R", 8);
-      s.appendEphemeral(id, "x");
-      s.collapseEphemeral(id, { durationMs: 1, line: "✓ R" });
+      const id = store.openEphemeral("reasoning", "R", 8);
+      store.appendEphemeral(id, "x");
+      store.collapseEphemeral(id, { durationMs: 1, line: "✓ R" });
 
       expect(seen.slice(0, 3)).toEqual([1, 1, 0]);
       expect(seen.at(-1)).toBe(0);
@@ -760,147 +760,181 @@ describe("UIStore", () => {
 
   describe("message queue", () => {
     test("signals queued prose once, and not for a queued command", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       let signalled = 0;
-      s.onceQueuedProse(() => (signalled += 1));
-      s.appendToQueue("/help");
+      store.onceQueuedProse(() => (signalled += 1));
+      store.appendToQueue("/help");
       expect(signalled).toBe(0);
-      s.clearQueue();
-      s.appendToQueue("also check the tests");
-      s.appendToQueue("and the docs");
+      store.clearQueue();
+      store.appendToQueue("also check the tests");
+      store.appendToQueue("and the docs");
       expect(signalled).toBe(1);
       let immediate = 0;
-      s.onceQueuedProse(() => (immediate += 1));
+      store.onceQueuedProse(() => (immediate += 1));
       expect(immediate).toBe(1);
     });
 
     test("a cancelled queued-prose listener is never called", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       let signalled = 0;
-      const cancel = s.onceQueuedProse(() => (signalled += 1));
+      const cancel = store.onceQueuedProse(() => (signalled += 1));
       cancel();
-      s.appendToQueue("hello");
+      store.appendToQueue("hello");
       expect(signalled).toBe(0);
     });
 
     test("appendToQueue stores each entry as its own array element", () => {
-      const s = new UIStore();
-      s.appendToQueue("first");
-      s.appendToQueue("second");
-      s.appendToQueue("third");
+      const store = new UIStore();
+      store.appendToQueue("first");
+      store.appendToQueue("second");
+      store.appendToQueue("third");
 
-      expect(s.getMessageQueueSnapshot()).toEqual(["first", "second", "third"]);
+      expect(store.getMessageQueueSnapshot()).toEqual([
+        { text: "first", lane: "steer" },
+        { text: "second", lane: "steer" },
+        { text: "third", lane: "steer" },
+      ]);
     });
 
     test("peekQueue joins entries with newlines for back-compat with the chat-loop drain", () => {
-      const s = new UIStore();
-      s.appendToQueue("first");
-      s.appendToQueue("second");
+      const store = new UIStore();
+      store.appendToQueue("first");
+      store.appendToQueue("second");
 
-      expect(s.peekQueue()).toBe("first\nsecond");
+      expect(store.peekQueue()).toBe("first\nsecond");
     });
 
     test("appendToQueue with empty string is a no-op", () => {
-      const s = new UIStore();
-      s.appendToQueue("only");
-      s.appendToQueue("");
+      const store = new UIStore();
+      store.appendToQueue("only");
+      store.appendToQueue("");
 
-      expect(s.getMessageQueueSnapshot()).toEqual(["only"]);
+      expect(store.getMessageQueueSnapshot()).toEqual([{ text: "only", lane: "steer" }]);
     });
 
     test("takeQueue returns the joined string and clears the array", () => {
-      const s = new UIStore();
-      s.appendToQueue("hello");
-      s.appendToQueue("world");
+      const store = new UIStore();
+      store.appendToQueue("hello");
+      store.appendToQueue("world");
 
-      expect(s.takeQueue()).toBe("hello\nworld");
-      expect(s.getMessageQueueSnapshot()).toEqual([]);
+      expect(store.takeQueue()).toBe("hello\nworld");
+      expect(store.getMessageQueueSnapshot()).toEqual([]);
     });
 
     test("takeQueue on empty queue returns empty string", () => {
-      const s = new UIStore();
-      expect(s.takeQueue()).toBe("");
+      const store = new UIStore();
+      expect(store.takeQueue()).toBe("");
     });
 
     test("takeQueuedTurn pops a head command alone and leaves the rest queued", () => {
-      const s = new UIStore();
-      s.appendToQueue("/info");
-      s.appendToQueue("keep going");
-      s.appendToQueue("and this");
+      const store = new UIStore();
+      store.appendToQueue("/info");
+      store.appendToQueue("keep going");
+      store.appendToQueue("and this");
 
-      expect(s.takeQueuedTurn()).toEqual(["/info"]);
-      expect(s.getMessageQueueSnapshot()).toEqual(["keep going", "and this"]);
-      expect(s.takeQueuedTurn()).toEqual(["keep going", "and this"]);
-      expect(s.getMessageQueueSnapshot()).toEqual([]);
+      expect(store.takeQueuedTurn()).toEqual(["/info"]);
+      expect(store.getMessageQueueSnapshot()).toEqual([
+        { text: "keep going", lane: "steer" },
+        { text: "and this", lane: "steer" },
+      ]);
+      expect(store.takeQueuedTurn()).toEqual(["keep going", "and this"]);
+      expect(store.getMessageQueueSnapshot()).toEqual([]);
     });
 
     test("takeQueuedTurn stops a prose run at the next command", () => {
-      const s = new UIStore();
-      s.appendToQueue("first");
-      s.appendToQueue("! git status");
-      s.appendToQueue("last");
+      const store = new UIStore();
+      store.appendToQueue("first");
+      store.appendToQueue("! git status");
+      store.appendToQueue("last");
 
-      expect(s.takeQueuedTurn()).toEqual(["first"]);
-      expect(s.takeQueuedTurn()).toEqual(["! git status"]);
-      expect(s.takeQueuedTurn()).toEqual(["last"]);
-      expect(s.takeQueuedTurn()).toEqual([]);
+      expect(store.takeQueuedTurn()).toEqual(["first"]);
+      expect(store.takeQueuedTurn()).toEqual(["! git status"]);
+      expect(store.takeQueuedTurn()).toEqual(["last"]);
+      expect(store.takeQueuedTurn()).toEqual([]);
     });
 
     test("takeQueuedProse never pops a command, so mid-run injection skips it", () => {
-      const s = new UIStore();
-      s.appendToQueue("/compact");
-      s.appendToQueue("note");
-      expect(s.takeQueuedProse()).toEqual([]);
-      expect(s.getMessageQueueSnapshot()).toEqual(["/compact", "note"]);
+      const store = new UIStore();
+      store.appendToQueue("/compact");
+      store.appendToQueue("note");
+      expect(store.takeQueuedProse()).toEqual([]);
+      expect(store.getMessageQueueSnapshot()).toEqual([
+        { text: "/compact", lane: "steer" },
+        { text: "note", lane: "steer" },
+      ]);
 
-      const t = new UIStore();
-      t.appendToQueue("a");
-      t.appendToQueue("/slash\nstill prose");
-      t.appendToQueue("/help");
-      expect(t.takeQueuedProse()).toEqual(["a", "/slash\nstill prose"]);
-      expect(t.getMessageQueueSnapshot()).toEqual(["/help"]);
+      const otherStore = new UIStore();
+      otherStore.appendToQueue("a");
+      otherStore.appendToQueue("/slash\nstill prose");
+      otherStore.appendToQueue("/help");
+      expect(otherStore.takeQueuedProse()).toEqual(["a", "/slash\nstill prose"]);
+      expect(otherStore.getMessageQueueSnapshot()).toEqual([{ text: "/help", lane: "steer" }]);
+    });
+
+    test("a follow-up never signals or steers a running turn, and a command keeps the steer lane", () => {
+      const store = new UIStore();
+      let signalled = 0;
+      store.onceQueuedProse(() => (signalled += 1));
+      store.appendToQueue("then summarize", "followup");
+      store.appendToQueue("/compact", "followup");
+      expect(signalled).toBe(0);
+      expect(store.takeQueuedProse()).toEqual([]);
+      expect(store.getMessageQueueSnapshot()).toEqual([
+        { text: "then summarize", lane: "followup" },
+        { text: "/compact", lane: "steer" },
+      ]);
+
+      store.appendToQueue("use staging");
+      expect(signalled).toBe(0);
+      expect(store.takeQueuedProse()).toEqual([]);
+      store.clearQueue();
+      store.appendToQueue("then summarize", "followup");
+      store.appendToQueue("use staging");
+      expect(signalled).toBe(1);
+      expect(store.takeQueuedProse()).toEqual(["use staging"]);
+      expect(store.takeQueuedTurn()).toEqual(["then summarize"]);
     });
 
     test("clearQueue empties the array", () => {
-      const s = new UIStore();
-      s.appendToQueue("a");
-      s.appendToQueue("b");
-      s.clearQueue();
+      const store = new UIStore();
+      store.appendToQueue("a");
+      store.appendToQueue("b");
+      store.clearQueue();
 
-      expect(s.getMessageQueueSnapshot()).toEqual([]);
+      expect(store.getMessageQueueSnapshot()).toEqual([]);
     });
 
     test("prompt subscribers receive the queue on append, clear, and take", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const seen: (readonly string[])[] = [];
-      s.subscribePrompt(() => {
-        seen.push([...s.getPromptSlice().messageQueue]);
+      store.subscribePrompt(() => {
+        seen.push(store.getPromptSlice().messageQueue.map((entry) => entry.text));
       });
 
-      s.appendToQueue("a");
-      s.appendToQueue("b");
-      s.takeQueue();
-      s.appendToQueue("c");
-      s.clearQueue();
+      store.appendToQueue("a");
+      store.appendToQueue("b");
+      store.takeQueue();
+      store.appendToQueue("c");
+      store.clearQueue();
 
       expect(seen).toEqual([["a"], ["a", "b"], [], ["c"], []]);
     });
 
     test("clearQueue when already empty does not notify subscribers", () => {
-      const s = new UIStore();
-      const seen: (readonly string[])[] = [];
-      s.subscribePrompt(() => seen.push(s.getPromptSlice().messageQueue));
+      const store = new UIStore();
+      const seen: unknown[] = [];
+      store.subscribePrompt(() => seen.push(store.getPromptSlice().messageQueue));
 
-      s.clearQueue();
+      store.clearQueue();
       expect(seen).toEqual([]);
     });
 
     test("requestFlushQueue/consumeFlushQueue is a one-shot flag", () => {
-      const s = new UIStore();
-      expect(s.consumeFlushQueue()).toBe(false);
-      s.requestFlushQueue();
-      expect(s.consumeFlushQueue()).toBe(true);
-      expect(s.consumeFlushQueue()).toBe(false);
+      const store = new UIStore();
+      expect(store.consumeFlushQueue()).toBe(false);
+      store.requestFlushQueue();
+      expect(store.consumeFlushQueue()).toBe(true);
+      expect(store.consumeFlushQueue()).toBe(false);
     });
   });
 
@@ -922,42 +956,45 @@ describe("UIStore", () => {
     }
 
     test("opens the newest receipt that has more output than its preview, and closes it again", async () => {
-      const s = new UIStore();
-      s.printContent({ kind: "tool", receipt: commandReceipt("git a", "one\ntwo") }, "tool-a");
-      s.printContent({ kind: "tool", receipt: commandReceipt("git b", "three\nfour") }, "tool-b");
+      const store = new UIStore();
+      store.printContent({ kind: "tool", receipt: commandReceipt("git a", "one\ntwo") }, "tool-a");
+      store.printContent(
+        { kind: "tool", receipt: commandReceipt("git b", "three\nfour") },
+        "tool-b",
+      );
       await new Promise<void>((resolve) => queueMicrotask(resolve));
-      const [first, second] = s.getDocumentSnapshot().entries;
+      const [first, second] = store.getDocumentSnapshot().entries;
 
-      expect(s.toggleLastReceiptOutput()).toBe(true);
-      expect((await expandedIds(s)).has(second?.id ?? "")).toBe(true);
-      expect((await expandedIds(s)).has(first?.id ?? "")).toBe(false);
+      expect(store.toggleLastReceiptOutput()).toBe(true);
+      expect((await expandedIds(store)).has(second?.id ?? "")).toBe(true);
+      expect((await expandedIds(store)).has(first?.id ?? "")).toBe(false);
 
-      expect(s.toggleLastReceiptOutput()).toBe(true);
-      expect((await expandedIds(s)).size).toBe(0);
+      expect(store.toggleLastReceiptOutput()).toBe(true);
+      expect((await expandedIds(store)).size).toBe(0);
     });
 
     test("reports nothing to expand when every receipt fits its preview", async () => {
-      const s = new UIStore();
-      s.printContent({ kind: "tool", receipt: commandReceipt("echo hi", "hi") }, "tool");
+      const store = new UIStore();
+      store.printContent({ kind: "tool", receipt: commandReceipt("echo hi", "hi") }, "tool");
       await new Promise<void>((resolve) => queueMicrotask(resolve));
-      expect(s.toggleLastReceiptOutput()).toBe(false);
+      expect(store.toggleLastReceiptOutput()).toBe(false);
     });
   });
 
   describe("chatBusy", () => {
     test("setChatBusy toggles snapshot", () => {
-      const s = new UIStore();
-      expect(s.getChatBusySnapshot()).toBe(false);
-      s.setChatBusy(true);
-      expect(s.getChatBusySnapshot()).toBe(true);
-      s.setChatBusy(false);
-      expect(s.getChatBusySnapshot()).toBe(false);
+      const store = new UIStore();
+      expect(store.getChatBusySnapshot()).toBe(false);
+      store.setChatBusy(true);
+      expect(store.getChatBusySnapshot()).toBe(true);
+      store.setChatBusy(false);
+      expect(store.getChatBusySnapshot()).toBe(false);
     });
 
     test("a turn ending mid-retry does not bring its countdown back on the next send", () => {
-      const s = new UIStore();
-      s.setChatBusy(true);
-      s.setRetryNotice({
+      const store = new UIStore();
+      store.setChatBusy(true);
+      store.setRetryNotice({
         agentName: "agent",
         reason: "rate limit",
         detail: "",
@@ -966,10 +1003,10 @@ describe("UIStore", () => {
         retryInMs: 30_000,
         retryAt: Date.now() + 30_000,
       });
-      s.setChatBusy(false);
-      expect(s.getSessionSnapshot().retryNotice).toBeNull();
+      store.setChatBusy(false);
+      expect(store.getSessionSnapshot().retryNotice).toBeNull();
 
-      s.setRetryNotice({
+      store.setRetryNotice({
         agentName: "agent",
         reason: "rate limit",
         detail: "",
@@ -978,19 +1015,19 @@ describe("UIStore", () => {
         retryInMs: 30_000,
         retryAt: Date.now() + 30_000,
       });
-      s.setChatBusy(true);
-      expect(s.getSessionSnapshot().retryNotice).toBeNull();
+      store.setChatBusy(true);
+      expect(store.getSessionSnapshot().retryNotice).toBeNull();
     });
 
     test("session subscribers are notified on change but not on no-op", () => {
-      const s = new UIStore();
+      const store = new UIStore();
       const seen: boolean[] = [];
-      s.subscribeSession(() => seen.push(s.getChatBusySnapshot()));
+      store.subscribeSession(() => seen.push(store.getChatBusySnapshot()));
 
-      s.setChatBusy(true);
-      s.setChatBusy(true); // no-op
-      s.setChatBusy(false);
-      s.setChatBusy(false); // no-op
+      store.setChatBusy(true);
+      store.setChatBusy(true); // no-op
+      store.setChatBusy(false);
+      store.setChatBusy(false); // no-op
 
       expect(seen).toEqual([true, false]);
     });

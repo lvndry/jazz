@@ -476,7 +476,6 @@ export async function regeneratedPage(page: string): Promise<string> {
   return prettier.format(replaced, { ...options, filepath: CONFIG_REFERENCE_DOC });
 }
 
-// eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun script entry point.
 if (import.meta.main) {
   const page = readFileSync(CONFIG_REFERENCE_DOC, "utf-8");
   writeFileSync(CONFIG_REFERENCE_DOC, await regeneratedPage(page));

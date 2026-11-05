@@ -9,7 +9,9 @@ import type {
 } from "./schema";
 
 function isHit(expected: SkillRoutingCase["expected"], selected: readonly string[]): boolean {
-  if (expected.kind === "no-skill") return selected.length === 0;
+  if (expected.kind === "no-skill") {
+    return selected.length === 0;
+  }
   const accepted = expected.kind === "skill" ? [expected.skillName] : expected.skillNames;
   return selected.some((name) => accepted.includes(name));
 }
@@ -85,7 +87,6 @@ export function runLexicalRoutingBenchmark(
   };
 }
 
-// eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun evaluation entry point.
 if (import.meta.main) {
   const requested = process.argv[2];
   const split = requested === "dev" || requested === "test" ? requested : "all";

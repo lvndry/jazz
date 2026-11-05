@@ -33,19 +33,25 @@ const REPLACEMENT_CHAR = "\uFFFD";
  * @returns A string safe for JSON/UTF-8 serialization
  */
 export function sanitizeUnicodeSurrogates(str: string): string {
-  if (typeof str !== "string" || str.length === 0) return str;
-  return str.replace(/[\uD800-\uDFFF]/g, (ch: string, i: number, s: string) => {
+  if (typeof str !== "string" || str.length === 0) {
+    return str;
+  }
+  return str.replace(/[\uD800-\uDFFF]/g, (ch: string, offset: number, source: string) => {
     const code = ch.charCodeAt(0);
     const isHigh = code >= HIGH_SURROGATE_MIN && code <= HIGH_SURROGATE_MAX;
     const isLow = code >= LOW_SURROGATE_MIN && code <= LOW_SURROGATE_MAX;
     if (isHigh) {
-      const next = s.charCodeAt(i + 1);
-      if (next >= LOW_SURROGATE_MIN && next <= LOW_SURROGATE_MAX) return ch;
+      const next = source.charCodeAt(offset + 1);
+      if (next >= LOW_SURROGATE_MIN && next <= LOW_SURROGATE_MAX) {
+        return ch;
+      }
       return REPLACEMENT_CHAR;
     }
     if (isLow) {
-      const prev = s.charCodeAt(i - 1);
-      if (prev >= HIGH_SURROGATE_MIN && prev <= HIGH_SURROGATE_MAX) return ch;
+      const prev = source.charCodeAt(offset - 1);
+      if (prev >= HIGH_SURROGATE_MIN && prev <= HIGH_SURROGATE_MAX) {
+        return ch;
+      }
       return REPLACEMENT_CHAR;
     }
     return REPLACEMENT_CHAR;
@@ -64,8 +70,12 @@ export function sanitize(str: string): string {
  * `"false"`). Anything else falls back to `fallback`.
  */
 export function coerceBoolean(value: unknown, fallback: boolean): boolean {
-  if (value === true || value === "true") return true;
-  if (value === false || value === "false") return false;
+  if (value === true || value === "true") {
+    return true;
+  }
+  if (value === false || value === "false") {
+    return false;
+  }
   return fallback;
 }
 
@@ -73,9 +83,15 @@ export function coerceBoolean(value: unknown, fallback: boolean): boolean {
  * Safely convert a value to a string, handling null/undefined/objects
  */
 export function safeString(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
   return "";
 }
 
@@ -89,11 +105,21 @@ export function safeString(value: unknown): string {
  * @returns A string representation of the value
  */
 export function safeStringify(value: unknown): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (value instanceof Error) return value.message;
+  if (value === null) {
+    return "null";
+  }
+  if (value === undefined) {
+    return "undefined";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (value instanceof Error) {
+    return value.message;
+  }
   try {
     return JSON.stringify(value, null, 2);
   } catch {
@@ -110,7 +136,9 @@ export function safeStringify(value: unknown): string {
 export function buildLineOffsets(content: string): number[] {
   const lineOffsets: number[] = [0];
   for (let index = 0; index < content.length; index++) {
-    if (content[index] === "\n") lineOffsets.push(index + 1);
+    if (content[index] === "\n") {
+      lineOffsets.push(index + 1);
+    }
   }
   return lineOffsets;
 }
@@ -142,7 +170,9 @@ export function findAllOccurrenceLineNumbers(
   search: string,
   limit = Number.POSITIVE_INFINITY,
 ): number[] {
-  if (search.length === 0 || limit <= 0) return [];
+  if (search.length === 0 || limit <= 0) {
+    return [];
+  }
   const lineOffsets = buildLineOffsets(content);
   const lineNumbers: number[] = [];
   let index = 0;
@@ -173,7 +203,9 @@ export function matchesWholeWord(input: string, term: string): boolean {
  * @returns The PascalCase string.
  */
 export function toPascalCase(str: string): string {
-  if (!str) return str;
+  if (!str) {
+    return str;
+  }
 
   // Split by common separators (hyphens, underscores, spaces, or camelCase boundaries)
   const words = str
@@ -198,7 +230,9 @@ export function formatCompactCount(value: number): string {
     scaled /= 1_000;
     unitIndex += 1;
   }
-  if (unitIndex < 0) return `${Math.round(value)}`;
+  if (unitIndex < 0) {
+    return `${Math.round(value)}`;
+  }
 
   const rounded = Math.abs(scaled) < 10 ? Math.round(scaled * 10) / 10 : Math.round(scaled);
   if (Math.abs(rounded) >= 1_000 && unitIndex < COMPACT_SUFFIXES.length - 1) {

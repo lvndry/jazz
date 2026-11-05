@@ -447,9 +447,7 @@ describe("shell denylist — known bypasses (documented gaps)", () => {
   // Promoting any of these to a real test means the denylist has been
   // strengthened to catch that vector.
 
-  // Bun accepts a bodyless `it.todo(label)` at runtime; the published types only
-  // declare the two-argument form, hence the narrowing cast.
-  const todoLabel = it.todo as unknown as (label: string) => void;
+  const todoLabel = (label: string) => it.todo(label, () => undefined);
 
   todoLabel("BYPASS: variable expansion — `X='rm -rf /'; $X`");
   todoLabel("BYPASS: backslash escape — `r\\m -rf /` (sh interprets as rm)");

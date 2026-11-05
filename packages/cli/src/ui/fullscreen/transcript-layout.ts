@@ -156,7 +156,9 @@ export function createTranscriptLayout(
 
   function anchorRow(row: RenderRow, blockId: string): TranscriptRow {
     const cached = anchoredRows.get(row);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      return cached;
+    }
     const anchored: TranscriptRow = {
       ...row,
       source: row.source ?? { blockId, partId: row.key, start: 0, end: 0 },
@@ -175,7 +177,9 @@ export function createTranscriptLayout(
       let end = row.key.length;
       while (end > 0) {
         const id = row.key.slice(0, end);
-        if (ids.has(id)) return anchorRow(row, id);
+        if (ids.has(id)) {
+          return anchorRow(row, id);
+        }
         end = row.key.lastIndexOf(":", end - 1);
       }
       return anchorRow(row, run[0]?.id ?? row.key);
@@ -289,14 +293,22 @@ export function createTranscriptLayout(
   }
 
   function needsBreathingRow(block: Block, previous: Block | undefined): boolean {
-    if (previous === undefined) return false;
-    if (block.kind === "user" || block.kind === "agent") return true;
+    if (previous === undefined) {
+      return false;
+    }
+    if (block.kind === "user" || block.kind === "agent") {
+      return true;
+    }
     // Same-family receipts stay tight; consecutive reasoning does not.
     // Ctrl+R expands each thought in place, and without a gap two walls of
     // text read as one.
-    if (block.kind === "reasoning" && previous.kind === "reasoning") return true;
+    if (block.kind === "reasoning" && previous.kind === "reasoning") {
+      return true;
+    }
     // Two command answers in a row are two answers, not one list.
-    if (block.kind === "report") return true;
+    if (block.kind === "report") {
+      return true;
+    }
     return family(block) !== family(previous);
   }
 
@@ -324,7 +336,9 @@ export function createTranscriptLayout(
   function appendRows(target: RenderRow[], source: readonly RenderRow[]): void {
     for (let index = 0; index < source.length; index += 1) {
       const row = source[index];
-      if (row !== undefined) target.push(row);
+      if (row !== undefined) {
+        target.push(row);
+      }
     }
   }
 
@@ -396,7 +410,9 @@ export function createTranscriptLayout(
     const rows: RenderRow[] = [panel(`${block.id}:top`, [], [])];
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
-      if (line === undefined) continue;
+      if (line === undefined) {
+        continue;
+      }
       rows.push({
         ...panel(`${block.id}:${String(index)}`, line, index === 0 ? meta : []),
         source: sources[index],
@@ -489,13 +505,17 @@ export function createTranscriptLayout(
     // Headings, fences and tables are set off by one blank row on either side.
     // The model's own blank lines collapse into it, so spacing never doubles.
     const breathe = (key: string): void => {
-      if (rows.length === 0 || lastIsBlank()) return;
+      if (rows.length === 0 || lastIsBlank()) {
+        return;
+      }
       rows.push(blank(`${key}:breath`));
     };
 
     for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
       const item = items[itemIndex];
-      if (item === undefined) continue;
+      if (item === undefined) {
+        continue;
+      }
       const key = `${blockId}:${String(offset + itemIndex)}`;
       if (item.kind === "blank") {
         // Models often open a text block with newlines after a tool call; a
@@ -506,7 +526,9 @@ export function createTranscriptLayout(
         continue;
       }
       if (state.pendingBlankKey !== undefined) {
-        if (!lastIsBlank()) rows.push(blank(state.pendingBlankKey));
+        if (!lastIsBlank()) {
+          rows.push(blank(state.pendingBlankKey));
+        }
         state.pendingBlankKey = undefined;
       }
       state.started = true;
@@ -535,7 +557,9 @@ export function createTranscriptLayout(
           );
           for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
             const line = lines[lineIndex];
-            if (line === undefined) continue;
+            if (line === undefined) {
+              continue;
+            }
             rows.push({
               key: `${key}:${String(lineIndex)}`,
               source: sources[lineIndex],
@@ -585,9 +609,13 @@ export function createTranscriptLayout(
           );
           for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
             const line = lines[lineIndex];
-            if (line === undefined) continue;
+            if (line === undefined) {
+              continue;
+            }
             const lead: Segment[] = [];
-            if (indent > 0) lead.push({ text: " ".repeat(indent), fg: palette.border });
+            if (indent > 0) {
+              lead.push({ text: " ".repeat(indent), fg: palette.border });
+            }
             if (marker !== undefined) {
               // Wrapped rows hang under the text rather than the marker, so the
               // marker column stays a clean edge the eye can run down.
@@ -645,7 +673,9 @@ export function createTranscriptLayout(
     let lineStart = from;
     for (;;) {
       const newline = markdown.indexOf("\n", lineStart);
-      if (newline === -1) break;
+      if (newline === -1) {
+        break;
+      }
       const line = markdown.slice(lineStart, newline);
       if (FENCE_LINE.test(line)) {
         insideFence = !insideFence;
@@ -734,8 +764,12 @@ export function createTranscriptLayout(
    */
   function withStreamCursor(rows: RenderRow[], glyphs: GlyphSet): RenderRow[] {
     const last = rows[rows.length - 1];
-    if (last === undefined) return rows;
-    if (terminalSegmentsWidth(last.content) + 1 > last.contentWidth) return rows;
+    if (last === undefined) {
+      return rows;
+    }
+    if (terminalSegmentsWidth(last.content) + 1 > last.contentWidth) {
+      return rows;
+    }
     const cursor: Segment = { text: glyphs.streamCursor, fg: palette.agent };
     const withCursor = rows.slice();
     withCursor[withCursor.length - 1] = { ...last, content: [...last.content, cursor] };
@@ -856,7 +890,9 @@ export function createTranscriptLayout(
     const rows: RenderRow[] = [fenceLabelRow(language, layout, key, gutterFor())];
     for (let lineIndex = 0; lineIndex < painted.length; lineIndex += 1) {
       const spans = painted[lineIndex];
-      if (spans === undefined) continue;
+      if (spans === undefined) {
+        continue;
+      }
       rows.push(...fenceCodeRows(`${key}:${String(lineIndex)}`, spans, layout, gutterFor()));
     }
     rows.push(fenceSurface(`${key}:fence:bottom`, [], layout.width, gutterFor()));
@@ -1108,7 +1144,9 @@ export function createTranscriptLayout(
   ): RenderRow[] {
     const preview = block.outputPreview?.trim();
     const previewText = preview === undefined ? undefined : previewDisplay(preview);
-    if (previewText === undefined || previewText.length === 0) return [];
+    if (previewText === undefined || previewText.length === 0) {
+      return [];
+    }
     const expanded = block.expanded === true && block.detail !== undefined;
     const hint =
       expanded || block.detail === undefined || block.detail.trim() === preview
@@ -1140,7 +1178,9 @@ export function createTranscriptLayout(
     let packedKey = "";
 
     const flush = (): void => {
-      if (packed.length === 0) return;
+      if (packed.length === 0) {
+        return;
+      }
       rows.push({
         key: `${packedKey}:packed`,
         gutter: [rail, blankCell()],
@@ -1179,7 +1219,9 @@ export function createTranscriptLayout(
           const lines = wrap(segments, contentWidth);
           for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
             const line = lines[lineIndex];
-            if (line === undefined) continue;
+            if (line === undefined) {
+              continue;
+            }
             rows.push({
               key: `${block.id}:${String(lineIndex)}`,
               gutter: [lineIndex === 0 && block.status !== "ok" ? marker : rail, blankCell()],
@@ -1198,7 +1240,9 @@ export function createTranscriptLayout(
           const fullDiffLines = block.diffText.split("\n");
           for (let index = 0; index < fullDiffLines.length; index += 1) {
             const diffLine = fullDiffLines[index];
-            if (diffLine === undefined) continue;
+            if (diffLine === undefined) {
+              continue;
+            }
             const role = diffLine.startsWith("+")
               ? "success"
               : diffLine.startsWith("-")
@@ -1211,7 +1255,9 @@ export function createTranscriptLayout(
             const wrapped = wrapTerminalCells(`  ${diffLine}`, geometry.content);
             for (let wrapIndex = 0; wrapIndex < wrapped.length; wrapIndex += 1) {
               const line = wrapped[wrapIndex];
-              if (line === undefined) continue;
+              if (line === undefined) {
+                continue;
+              }
               rows.push({
                 key: `${block.id}:difffull:${String(index)}:${String(wrapIndex)}`,
                 gutter: [rail, blankCell()],
@@ -1225,11 +1271,15 @@ export function createTranscriptLayout(
           const diffRows = receiptDiffRows(block);
           for (let index = 0; index < diffRows.length; index += 1) {
             const diffRow = diffRows[index];
-            if (diffRow === undefined) continue;
+            if (diffRow === undefined) {
+              continue;
+            }
             const wrapped = wrapTerminalCells(`  ${diffRow.text}`, geometry.content);
             for (let wrapIndex = 0; wrapIndex < wrapped.length; wrapIndex += 1) {
               const line = wrapped[wrapIndex];
-              if (line === undefined) continue;
+              if (line === undefined) {
+                continue;
+              }
               rows.push({
                 key: `${block.id}:diff:${String(index)}:${String(wrapIndex)}`,
                 gutter: [rail, blankCell()],
@@ -1245,7 +1295,9 @@ export function createTranscriptLayout(
           const painted = highlightFenceLines("", detailLines, palette);
           for (let index = 0; index < painted.length; index += 1) {
             const spans = painted[index];
-            if (spans === undefined) continue;
+            if (spans === undefined) {
+              continue;
+            }
             rows.push({
               key: `${block.id}:detail:${String(index)}`,
               gutter: [rail, blankCell()],
@@ -1260,7 +1312,9 @@ export function createTranscriptLayout(
 
       const size = terminalSegmentsWidth(segments);
       const used = terminalSegmentsWidth(packed);
-      if (used > 0 && used + RECEIPT_GAP * 2 + size > geometry.prose) flush();
+      if (used > 0 && used + RECEIPT_GAP * 2 + size > geometry.prose) {
+        flush();
+      }
       if (terminalSegmentsWidth(packed) > 0) {
         packed.push({ text: `  ${glyphs.bullet} `, fg: palette.border });
       } else {
@@ -1294,7 +1348,9 @@ export function createTranscriptLayout(
     const rows: RenderRow[] = [];
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
-      if (line === undefined) continue;
+      if (line === undefined) {
+        continue;
+      }
       const gutterMark =
         index === 0 && glyph !== undefined
           ? { text: glyph, fg: tone }
@@ -1500,7 +1556,9 @@ export function createTranscriptLayout(
       const lines = wrap([{ text: block.result, fg: palette.secondary }], geometry.prose - 2);
       for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
-        if (line === undefined) continue;
+        if (line === undefined) {
+          continue;
+        }
         rows.push({
           key: `${block.id}:result:${String(index)}`,
           gutter: [index === 0 ? { text: glyphs.laneEnd, fg: palette.border } : rail, tag],
@@ -1542,19 +1600,27 @@ export function createTranscriptLayout(
   let disposed = false;
 
   function assertActive(): void {
-    if (disposed) throw new Error("Transcript layout is disposed");
+    if (disposed) {
+      throw new Error("Transcript layout is disposed");
+    }
   }
 
   function remember(chunk: Chunk, rows: readonly TranscriptRow[]): void {
-    if (chunk.length > cacheRowLimit || cacheChunkLimit === 0) return;
+    if (chunk.length > cacheRowLimit || cacheChunkLimit === 0) {
+      return;
+    }
     const previous = rowCache.get(chunk);
-    if (previous !== undefined) cachedRowCount -= previous.length;
+    if (previous !== undefined) {
+      cachedRowCount -= previous.length;
+    }
     rowCache.delete(chunk);
     rowCache.set(chunk, rows);
     cachedRowCount += rows.length;
     while (cachedRowCount > cacheRowLimit || rowCache.size > cacheChunkLimit) {
       const oldest = rowCache.keys().next().value;
-      if (oldest === undefined) break;
+      if (oldest === undefined) {
+        break;
+      }
       cachedRowCount -= rowCache.get(oldest)?.length ?? 0;
       rowCache.delete(oldest);
     }
@@ -1569,15 +1635,19 @@ export function createTranscriptLayout(
     themeRevision = epoch.themeRevision;
     const geometry = geometryFor(epoch.width);
     const head = blocks[0];
-    if (head === undefined) return [];
+    if (head === undefined) {
+      return [];
+    }
     const rows = breathing ? [anchorRow(blankRow(`gap:${head.id}`, geometry.prose), head.id)] : [];
     if (head.kind === "tool") {
       const run = blocks as readonly ToolReceiptBlock[];
-      for (const row of anchorReceiptRows(run, receiptRows(run, geometry, epoch.glyphs)))
+      for (const row of anchorReceiptRows(run, receiptRows(run, geometry, epoch.glyphs))) {
         rows.push(row);
+      }
     } else {
-      for (const row of rowsForBlock(head, geometry, epoch.glyphs))
+      for (const row of rowsForBlock(head, geometry, epoch.glyphs)) {
         rows.push(anchorRow(row, head.id));
+      }
     }
     return rows;
   }
@@ -1607,7 +1677,9 @@ export function createTranscriptLayout(
     const ends = new Uint32Array(rows.length);
     for (let index = 0; index < rows.length; index++) {
       const source = rows[index]?.source;
-      if (source === undefined) continue;
+      if (source === undefined) {
+        continue;
+      }
       const key = `${source.blockId}\0${source.partId}`;
       let ordinal = identities.get(key);
       if (ordinal === undefined) {
@@ -1689,8 +1761,11 @@ export function createTranscriptLayout(
       });
       const key = `${part.blockId}\0${part.partId}`;
       const spans = lookup.parts.get(key);
-      if (spans === undefined) lookup.parts.set(key, [{ chunk: index, part }]);
-      else spans.push({ chunk: index, part });
+      if (spans === undefined) {
+        lookup.parts.set(key, [{ chunk: index, part }]);
+      } else {
+        spans.push({ chunk: index, part });
+      }
     }
   }
 
@@ -1703,7 +1778,9 @@ export function createTranscriptLayout(
   ): void {
     for (let index = from; index < to; index++) {
       const chunk = chunks[index];
-      if (chunk === undefined) continue;
+      if (chunk === undefined) {
+        continue;
+      }
       indexChunk(chunk, index, prefix, lookup);
     }
   }
@@ -1716,13 +1793,17 @@ export function createTranscriptLayout(
     const blockBounds = (blockId: string): BlockBounds | undefined => {
       const early = base.blocks.get(blockId);
       const late = tail.blocks.get(blockId);
-      if (early === undefined || late === undefined) return early ?? late;
+      if (early === undefined || late === undefined) {
+        return early ?? late;
+      }
       return { first: Math.min(early.first, late.first), last: Math.max(early.last, late.last) };
     };
     const spansFor = (key: string): readonly PartSpan[] => {
       const early = base.parts.get(key);
       const late = tail.parts.get(key);
-      if (early === undefined || late === undefined) return early ?? late ?? [];
+      if (early === undefined || late === undefined) {
+        return early ?? late ?? [];
+      }
       return [...early, ...late];
     };
     let flattened: readonly TranscriptRow[] | undefined;
@@ -1731,16 +1812,23 @@ export function createTranscriptLayout(
       let high = current.length;
       while (low < high) {
         const middle = (low + high) >>> 1;
-        if ((prefix[middle + 1] ?? 0) <= position) low = middle + 1;
-        else high = middle;
+        if ((prefix[middle + 1] ?? 0) <= position) {
+          low = middle + 1;
+        } else {
+          high = middle;
+        }
       }
       return low;
     }
     function sourceAt(position: number): RowSource | undefined {
-      if (position < 0 || position >= length) return undefined;
+      if (position < 0 || position >= length) {
+        return undefined;
+      }
       const ordinal = locate(position);
       const chunk = current[ordinal];
-      if (chunk === undefined) return undefined;
+      if (chunk === undefined) {
+        return undefined;
+      }
       const row = position - (prefix[ordinal] ?? 0);
       const part = chunk.parts[chunk.partAt[row] ?? 0];
       return part === undefined
@@ -1758,25 +1846,33 @@ export function createTranscriptLayout(
       let distance = Number.POSITIVE_INFINITY;
       for (const span of spans) {
         const chunk = current[span.chunk];
-        if (chunk === undefined) continue;
+        if (chunk === undefined) {
+          continue;
+        }
         let low = 0;
         let high = span.part.rows.length;
         while (low < high) {
           const middle = (low + high) >>> 1;
           const row = span.part.rows[middle] ?? 0;
-          if ((chunk.starts[row] ?? 0) < target.start) low = middle + 1;
-          else high = middle;
+          if ((chunk.starts[row] ?? 0) < target.start) {
+            low = middle + 1;
+          } else {
+            high = middle;
+          }
         }
         for (const candidate of [low, low - 1]) {
           const row = span.part.rows[candidate];
-          if (row === undefined) continue;
+          if (row === undefined) {
+            continue;
+          }
           const start = chunk.starts[row] ?? 0;
           const position = (prefix[span.chunk] ?? 0) + row;
           if (
             start <= target.start &&
             ((chunk.ends[row] ?? 0) > target.start || start === target.start)
-          )
+          ) {
             return position;
+          }
           const gap = Math.abs(start - target.start);
           if (
             gap < distance ||
@@ -1794,18 +1890,24 @@ export function createTranscriptLayout(
       const start = Math.max(0, Math.trunc(top));
       const end = Math.min(length, start + Math.max(0, Math.trunc(count)));
       const rows: TranscriptRow[] = [];
-      if (end <= start) return rows;
+      if (end <= start) {
+        return rows;
+      }
       let ordinal = locate(start);
       while (ordinal < current.length && (prefix[ordinal] ?? 0) < end) {
         const chunk = current[ordinal];
-        if (chunk === undefined) break;
+        if (chunk === undefined) {
+          break;
+        }
         const offset = prefix[ordinal] ?? 0;
         const painted = realize(chunk);
         const from = Math.max(0, start - offset);
         const to = Math.min(painted.length, end - offset);
         for (let index = from; index < to; index++) {
           const row = painted[index];
-          if (row !== undefined) rows.push(row);
+          if (row !== undefined) {
+            rows.push(row);
+          }
         }
         ordinal++;
       }
@@ -1833,8 +1935,9 @@ export function createTranscriptLayout(
     assertActive();
     themeRevision = epoch.themeRevision;
     const signature = wrapEpoch(epoch.width, epoch.glyphs);
-    if (blocks === lastBlocks && signature === lastEpoch && lastIndex !== undefined)
+    if (blocks === lastBlocks && signature === lastEpoch && lastIndex !== undefined) {
       return lastIndex;
+    }
     if (signature !== lastEpoch) {
       chunks = [];
       lastBlocks = undefined;
@@ -1853,17 +1956,23 @@ export function createTranscriptLayout(
     let keptChunks = 0;
     let keptBlocks = 0;
     for (const chunk of chunks) {
-      if (keptBlocks + chunk.blocks.length >= sharedBlocks) break;
+      if (keptBlocks + chunk.blocks.length >= sharedBlocks) {
+        break;
+      }
       keptBlocks += chunk.blocks.length;
       keptChunks++;
     }
     let streamingAt = lastStreamingAt < sharedBlocks ? lastStreamingAt : -1;
     for (let index = sharedBlocks; streamingAt < 0 && index < blocks.length; index++) {
       const block = blocks[index];
-      if (block?.kind === "agent" && block.streaming === true) streamingAt = index;
+      if (block?.kind === "agent" && block.streaming === true) {
+        streamingAt = index;
+      }
     }
     lastStreamingAt = streamingAt;
-    if (streamingAt < 0) forgetStreamingRows();
+    if (streamingAt < 0) {
+      forgetStreamingRows();
+    }
     const capturedEpoch: TranscriptLayoutEpoch = {
       ...epoch,
       colors: { ...epoch.colors },
@@ -1874,14 +1983,18 @@ export function createTranscriptLayout(
     const next: Chunk[] = chunks.slice(0, keptChunks);
     for (let index = keptBlocks; index < blocks.length;) {
       const head = blocks[index];
-      if (head === undefined) break;
+      if (head === undefined) {
+        break;
+      }
       const breathing = needsBreathingRow(head, blocks[index - 1]);
       const members: Block[] = [head];
       index++;
       if (head.kind === "tool") {
         while (blocks[index]?.kind === "tool") {
           const member = blocks[index];
-          if (member !== undefined) members.push(member);
+          if (member !== undefined) {
+            members.push(member);
+          }
           index++;
         }
       }
@@ -1894,9 +2007,13 @@ export function createTranscriptLayout(
     }
     const retained = new Set(next.slice(keptChunks));
     for (const chunk of replaced) {
-      if (retained.has(chunk)) continue;
+      if (retained.has(chunk)) {
+        continue;
+      }
       const rows = rowCache.get(chunk);
-      if (rows === undefined) continue;
+      if (rows === undefined) {
+        continue;
+      }
       cachedRowCount -= rows.length;
       rowCache.delete(chunk);
     }
@@ -1905,7 +2022,9 @@ export function createTranscriptLayout(
     lastEpoch = signature;
     const shared = Math.min(lastChunks.length, next.length);
     let reusable = Math.min(keptChunks, shared);
-    while (reusable < shared && lastChunks[reusable] === next[reusable]) reusable++;
+    while (reusable < shared && lastChunks[reusable] === next[reusable]) {
+      reusable++;
+    }
     const old = lastIndex?.[INDEX_CONTEXT];
     const prefix = new Float64Array(next.length + 1);
     let context: IndexContext;

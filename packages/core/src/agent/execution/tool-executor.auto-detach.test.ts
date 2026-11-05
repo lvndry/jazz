@@ -15,6 +15,7 @@ import {
   type StreamingRenderer,
 } from "../../interfaces/presentation";
 import { ToolRegistryTag, type ToolRegistry } from "../../interfaces/tool-registry";
+import { partialFake, withoutServices } from "../../test-support/fakes";
 import type { StreamEvent } from "../../types/streaming";
 import type { ToolCall, ToolExecutionContext } from "../../types/tools";
 import { createDetachedCallTracker, type AutoDetachPolicy } from "../detach/auto-detach";
@@ -24,15 +25,15 @@ import type { DetachedToolResult } from "../types";
 const SHORT_THRESHOLD_MS = 30;
 const SLOW_COMMAND_MS = 200;
 
-const logger = {
+const logger = partialFake<LoggerService>({
   debug: () => Effect.void,
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
   logToolCall: () => Effect.void,
-} as unknown as LoggerService;
+});
 
-const presentation = {
+const presentation = partialFake<PresentationService>({
   signalToolExecutionStarted: () => Effect.void,
   formatToolsDetected: () => Effect.succeed(""),
   writeOutput: () => Effect.void,
@@ -41,11 +42,11 @@ const presentation = {
   formatToolExecutionComplete: () => Effect.succeed(""),
   formatToolResult: () => "",
   formatToolExecutionError: (message: string) => Effect.succeed(message),
-} as unknown as PresentationService;
+});
 
-const agentConfig = { appConfig: Effect.succeed({}) } as unknown as AgentConfigService;
+const agentConfig = partialFake<AgentConfigService>({ appConfig: Effect.succeed({}) });
 
-const runMetrics = {
+const runMetrics = partialFake<ReturnType<typeof createAgentRunMetrics>>({
   runId: "run",
   agentId: "agent",
   agentName: "agent",
@@ -57,7 +58,7 @@ const runMetrics = {
   errors: [],
   iterationSummaries: [],
   totalToolResultTokens: 0,
-} as unknown as ReturnType<typeof createAgentRunMetrics>;
+});
 
 interface FakeShell {
   readonly registry: ToolRegistry;
@@ -72,7 +73,7 @@ function fakeShell(options: {
 }): FakeShell {
   let starts = 0;
   let interrupted = 0;
-  const registry = {
+  const registry = partialFake<ToolRegistry>({
     getTool: () => Effect.succeed({ name: "execute_command", timeoutMs: 5_000 }),
     executeTool: (_name: string, args: Record<string, unknown>) => {
       starts += 1;
@@ -94,7 +95,7 @@ function fakeShell(options: {
         ),
       );
     },
-  } as unknown as ToolRegistry;
+  });
   return { registry, starts: () => starts, interrupted: () => interrupted };
 }
 
@@ -146,12 +147,8 @@ async function runBatch(input: {
     undefined,
     undefined,
     input.onDetachedToolComplete,
-  ).pipe(Effect.provide(layer)) as unknown as Effect.Effect<
-    readonly { result: unknown; success: boolean }[],
-    unknown,
-    never
-  >;
-  return Effect.runPromise(program);
+  ).pipe(Effect.provide(layer));
+  return Effect.runPromise(withoutServices(program));
 }
 
 function waitMs(durationMs: number): Promise<void> {

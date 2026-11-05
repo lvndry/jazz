@@ -77,7 +77,9 @@ function documentedTools(markdown: string): Map<string, string> {
   const rowPattern = /^\|\s*`([a-z_0-9]+)`\s*\|\s*`(read-only|low-risk|high-risk|unknown)`\s*\|/gm;
   for (const match of markdown.matchAll(rowPattern)) {
     const [, name, risk] = match;
-    if (name !== undefined && risk !== undefined) documented.set(name, risk);
+    if (name !== undefined && risk !== undefined) {
+      documented.set(name, risk);
+    }
   }
   return documented;
 }
@@ -150,7 +152,9 @@ describe(DOCS_PATH, () => {
     // two tables are: this row is what tells a reader which tools a peer's tier will not
     // hand over, so a stale one misdescribes an authorization boundary.
     const row = markdown.split("\n").find((line) => line.startsWith("| yes"));
-    const documented = new Set([...(row ?? "").matchAll(/`([a-z_0-9]+)`/g)].map((m) => m[1]!));
+    const documented = new Set(
+      [...(row ?? "").matchAll(/`([a-z_0-9]+)`/g)].map((match) => match[1]!),
+    );
 
     const registered = new Set(tools.filter((tool) => tool.egress).map((tool) => tool.name));
 

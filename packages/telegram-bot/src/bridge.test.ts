@@ -135,7 +135,9 @@ function startRun(options: { prompt: string }, handlers: JazzRunHandlers = {}): 
 
 function button(promptId: string, choiceId: string): string {
   const data = buttonData.get(`${promptId}|${choiceId}`);
-  if (data === undefined) throw new Error(`no ${choiceId} button for ${promptId}`);
+  if (data === undefined) {
+    throw new Error(`no ${choiceId} button for ${promptId}`);
+  }
   return data;
 }
 
@@ -161,7 +163,9 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  for (const run of runs) run.finish();
+  for (const run of runs) {
+    run.finish();
+  }
   await waitUntil(() => !bridge.runner.busy(String(OWNER)) && !bridge.runner.busy(String(GROUP)));
   rmSync(dataDir, { recursive: true, force: true });
 });

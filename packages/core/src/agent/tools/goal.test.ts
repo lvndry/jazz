@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { parseGoalRecord, type GoalRecord } from "@/core/agent/goal/goal-record";
 import { GoalStoreTag, type GoalStore } from "@/core/interfaces/goal-store";
+import { partialFake } from "@/core/test-support/fakes";
 import type { ToolExecutionContext } from "@/core/types/tools";
 import { createProposeGoalTool, planFromProposal } from "./goal";
 
@@ -18,14 +19,14 @@ const PROPOSAL = {
 
 function recordingStore(): { store: GoalStore; created: Omit<GoalRecord, "version">[] } {
   const created: Omit<GoalRecord, "version">[] = [];
-  const store = {
+  const store = partialFake<GoalStore>({
     create: (record: Omit<GoalRecord, "version">) =>
       Effect.sync(() => {
         created.push(record);
         return { ...record, version: 1 };
       }),
     list: () => Effect.succeed(created.map((record) => ({ ...record, version: 1 }))),
-  } as unknown as GoalStore;
+  });
   return { store, created };
 }
 

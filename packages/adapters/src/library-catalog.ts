@@ -77,14 +77,20 @@ export function optionalString(value: unknown): string | undefined {
 }
 
 function parseBaseEntry(raw: unknown): LibraryEntry | null {
-  if (raw === null || typeof raw !== "object") return null;
+  if (raw === null || typeof raw !== "object") {
+    return null;
+  }
   const record = raw as Record<string, unknown>;
 
   const name = optionalString(record["name"]);
   const description = optionalString(record["description"]);
   const url = optionalString(record["url"]);
-  if (name === undefined || description === undefined || url === undefined) return null;
-  if (!VALID_NAME.test(name)) return null;
+  if (name === undefined || description === undefined || url === undefined) {
+    return null;
+  }
+  if (!VALID_NAME.test(name)) {
+    return null;
+  }
 
   const author = optionalString(record["author"]);
   const rawTags = record["tags"];
@@ -129,15 +135,20 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
 
   /** Parse an index document, treating both malformed JSON and a bad shape as "no catalog". */
   private parseIndex(raw: unknown): readonly TEntry[] | null {
-    if (raw === null || typeof raw !== "object") return null;
+    if (raw === null || typeof raw !== "object") {
+      return null;
+    }
     const collection = (raw as Record<string, unknown>)[this.options.collection];
-    if (!Array.isArray(collection)) return null;
+    if (!Array.isArray(collection)) {
+      return null;
+    }
 
     const entries: TEntry[] = [];
     for (const item of collection) {
       const base = parseBaseEntry(item);
-      if (base !== null)
+      if (base !== null) {
         entries.push(this.options.parseEntry(item as Record<string, unknown>, base));
+      }
     }
     return entries;
   }
@@ -159,8 +170,12 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
     const base = this.baseUrl();
     try {
       const resolved = new URL(url, base);
-      if (resolved.origin !== new URL(base).origin) return null;
-      if (resolved.protocol !== "https:" && resolved.protocol !== "http:") return null;
+      if (resolved.origin !== new URL(base).origin) {
+        return null;
+      }
+      if (resolved.protocol !== "https:" && resolved.protocol !== "http:") {
+        return null;
+      }
       return resolved.toString();
     } catch {
       return null;
@@ -174,7 +189,9 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
         unknown
       >;
       const entries = this.parseIndex({ [this.options.collection]: parsed["entries"] });
-      if (entries === null) return null;
+      if (entries === null) {
+        return null;
+      }
       const fetchedAt = typeof parsed["fetchedAt"] === "number" ? parsed["fetchedAt"] : 0;
       return { fetchedAt, entries };
     } catch {
@@ -222,7 +239,9 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
         }
 
         if (isOfflineMode()) {
-          if (cached !== null) return sortEntries(cached.entries);
+          if (cached !== null) {
+            return sortEntries(cached.entries);
+          }
           return yield* Effect.fail(
             new NetworkError({
               url: indexUrl,
@@ -260,7 +279,9 @@ export class LibraryCatalog<TEntry extends LibraryEntry> {
         const entries = this.parseIndexJson(fetched);
 
         if (entries === null) {
-          if (cached !== null) return sortEntries(cached.entries);
+          if (cached !== null) {
+            return sortEntries(cached.entries);
+          }
           return yield* Effect.fail(
             new NetworkError({
               url: indexUrl,

@@ -155,12 +155,24 @@ function priceText(inputPrice: number | undefined, outputPrice: number | undefin
 /** The capability words a model earns beyond reading and writing text. */
 export function modelCapabilityWords(model: ModelInfo): string[] {
   const words: string[] = [];
-  if (model.isReasoningModel === true) words.push("reasoning");
-  if (model.supportsTools === false) words.push("no tools");
-  if (model.ingestImage === true) words.push("vision");
-  if (model.ingestAudio === true) words.push("audio");
-  if (model.ingestVideo === true) words.push("video");
-  if (model.generatesImage === true) words.push("makes images");
+  if (model.isReasoningModel === true) {
+    words.push("reasoning");
+  }
+  if (model.supportsTools === false) {
+    words.push("no tools");
+  }
+  if (model.ingestImage === true) {
+    words.push("vision");
+  }
+  if (model.ingestAudio === true) {
+    words.push("audio");
+  }
+  if (model.ingestVideo === true) {
+    words.push("video");
+  }
+  if (model.generatesImage === true) {
+    words.push("makes images");
+  }
   return words;
 }
 

@@ -20,6 +20,7 @@ import {
   readDetachEventLines,
   recordingPresentationService,
 } from "./events";
+import { partialFake } from "../test-support/fakes";
 
 describe("detach event log", () => {
   let home: string;
@@ -128,10 +129,10 @@ describe("detach event log", () => {
       reset: () => Effect.void,
       flush: () => Effect.void,
     };
-    const inner = {
+    const inner = partialFake<PresentationService>({
       createStreamingRenderer: () => Effect.succeed(renderer),
       renderMarkdown: (markdown: string) => Effect.succeed(`md:${markdown}`),
-    } as unknown as PresentationService;
+    });
     const recorder = new DetachEventRecorder("handoff");
     const service = recordingPresentationService(inner, recorder);
     const wrapped = await Effect.runPromise(

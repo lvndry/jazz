@@ -96,6 +96,7 @@ import {
   hydrateTranscriptFromUiEntries,
 } from "@/cli/ui/hydrate-transcript";
 import { resolveLocalModelHosts } from "@/cli/ui/local-model-hosts";
+import { followUpCount } from "@/cli/ui/message-queue";
 import { backgroundItems } from "@/cli/ui/models/background-work";
 import { store } from "@/cli/ui/store";
 import { announcePendingSuggestions } from "./chat/announce-pending-suggestions";
@@ -394,7 +395,9 @@ export class ChatServiceImpl implements ChatService {
       ): Effect.Effect<void> =>
         Effect.gen(function* () {
           const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
-          if (Option.isNone(runtimeOption)) return;
+          if (Option.isNone(runtimeOption)) {
+            return;
+          }
           yield* runtimeOption.value.emitLifecycleEvent({
             event,
             agentId: agent.id,
@@ -481,7 +484,9 @@ export class ChatServiceImpl implements ChatService {
         ).pipe(
           Effect.tap((revision) =>
             Effect.sync(() => {
-              if (revision !== null) savedRevision = revision;
+              if (revision !== null) {
+                savedRevision = revision;
+              }
             }),
           ),
           Effect.asVoid,
@@ -592,7 +597,16 @@ export class ChatServiceImpl implements ChatService {
           }
         },
         checkQueuedMessage: () => {
-          const queued = store.takeQueuedProse().join("\n");
+          const steering = store.takeQueuedProse();
+          const queued = steering.join("\n");
+          if (steering.length > 0) {
+            Effect.runSync(
+              logger.debug("Queued messages steer the running turn", {
+                steering: steering.length,
+                heldForAfterTurn: followUpCount(store.getMessageQueueSnapshot()),
+              }),
+            );
+          }
           const detached = detachedResults.take();
           if (queued.length > 0) {
             Effect.runSync(terminal.user(queued));
@@ -770,7 +784,14 @@ export class ChatServiceImpl implements ChatService {
           // prose entries are combined. Anything left is picked up next loop.
           // Record entries in input history for ↑ recall parity with
           // interactively typed messages.
+          const nextLane = store.getMessageQueueSnapshot()[0]?.lane;
           const entries = store.takeQueuedTurn();
+          yield* logger.debug("Queued messages start a turn", {
+            lane: nextLane,
+            entries: entries.length,
+            afterInterruptedOrFailedTurn: flushRequested && lastTurnErrored,
+            stillQueued: store.getMessageQueueSnapshot().length,
+          });
           for (const entry of entries) {
             store.pushInputHistory(entry);
           }
@@ -783,6 +804,12 @@ export class ChatServiceImpl implements ChatService {
           yield* terminal.user(userMessage);
         } else {
           const draft = queued.length > 0 ? queued : draftToRestore;
+          if (queued.length > 0) {
+            yield* logger.debug("Queued messages returned to the composer after a failed turn", {
+              entries: store.getMessageQueueSnapshot().length,
+              followUps: followUpCount(store.getMessageQueueSnapshot()),
+            });
+          }
           draftToRestore = undefined;
           const askOptions: { commandSuggestions: true; defaultValue?: string } = {
             commandSuggestions: true,
@@ -1147,7 +1174,7 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.removeAutoApprovedCommand) {
               autoApprovedCommands = autoApprovedCommands.filter(
-                (c) => c !== commandResult.removeAutoApprovedCommand,
+                (command) => command !== commandResult.removeAutoApprovedCommand,
               );
             }
 
@@ -1517,9 +1544,13 @@ export class ChatServiceImpl implements ChatService {
           );
 
           for (const cmd of autoApprovedCommands) {
-            if (persistedSet.has(cmd)) continue;
+            if (persistedSet.has(cmd)) {
+              continue;
+            }
             const record = approvals[cmd];
-            if (!record || record.sessionCount < record.nextPromptAt) continue;
+            if (!record || record.sessionCount < record.nextPromptAt) {
+              continue;
+            }
 
             const promote = yield* terminal.confirm(
               `You've approved "${cmd}" in ${record.sessionCount} sessions. Always approve it?`,

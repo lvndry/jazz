@@ -19,8 +19,11 @@ function replace(
   value: PluginStateRecord | undefined,
 ): PluginStateDocument {
   const plugins = { ...state.plugins };
-  if (value === undefined) delete plugins[id];
-  else plugins[id] = value;
+  if (value === undefined) {
+    delete plugins[id];
+  } else {
+    plugins[id] = value;
+  }
   return { ...state, plugins };
 }
 
@@ -120,7 +123,9 @@ export class CorePluginRegistryServiceImpl implements PluginRegistryService {
       }
       await this.lifecycle.stateStore.transact((state) => {
         const current = state.plugins[pluginId];
-        if (!current) throw new PluginNotInstalledError({ pluginId });
+        if (!current) {
+          throw new PluginNotInstalledError({ pluginId });
+        }
         const digest = current.current.manifest.sha256;
         return {
           state: replace(state, pluginId, {
@@ -143,7 +148,9 @@ export class CorePluginRegistryServiceImpl implements PluginRegistryService {
       }
       await this.lifecycle.stateStore.transact((state) => {
         const current = state.plugins[pluginId];
-        if (!current) throw new PluginNotInstalledError({ pluginId });
+        if (!current) {
+          throw new PluginNotInstalledError({ pluginId });
+        }
         return {
           state: replace(state, pluginId, {
             ...current,
@@ -160,8 +167,11 @@ export class CorePluginRegistryServiceImpl implements PluginRegistryService {
 
   setAgentEnabled = (pluginId: string, agentId: string, enabled: boolean) =>
     attempt("setAgentEnabled", async () => {
-      if (enabled) await this.lifecycle.enable(pluginId, agentId);
-      else await this.lifecycle.disable(pluginId, agentId);
+      if (enabled) {
+        await this.lifecycle.enable(pluginId, agentId);
+      } else {
+        await this.lifecycle.disable(pluginId, agentId);
+      }
     });
 
   listEnabledForAgent = (agentId: string) =>

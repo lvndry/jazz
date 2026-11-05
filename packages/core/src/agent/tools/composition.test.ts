@@ -68,8 +68,8 @@ describe("withFavicon", () => {
   test("appends the link for bare fragments and keeps the default decodable", () => {
     const out = withFavicon("<div>hi</div>");
     expect(out).toContain('rel="icon"');
-    const m = out.match(/data:image\/svg\+xml,([^"'\s]+)/);
-    const uri = m?.[1];
+    const match = out.match(/data:image\/svg\+xml,([^"'\s]+)/);
+    const uri = match?.[1];
     expect(uri).toBeDefined();
     if (uri !== undefined) {
       expect(decodeURIComponent(uri)).toContain("<svg");
@@ -122,8 +122,11 @@ describe("create_composition without a browser", () => {
   });
 
   afterAll(() => {
-    if (previousJazzHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousJazzHome;
+    if (previousJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousJazzHome;
+    }
     rmSync(jazzHome, { recursive: true, force: true });
   });
 
@@ -216,8 +219,11 @@ describe("create_composition htmlPath source", () => {
   });
 
   afterAll(() => {
-    if (previousJazzHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousJazzHome;
+    if (previousJazzHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousJazzHome;
+    }
     rmSync(jazzHome, { recursive: true, force: true });
     rmSync(sourceDir, { recursive: true, force: true });
   });

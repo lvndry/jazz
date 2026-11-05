@@ -107,7 +107,9 @@ const LIGHT_ACCENT_LUMINANCE = 0.45;
 /** Text on an accent fill: near-black on a light accent, white on a dark one. */
 export function onAccent(accent: string): string {
   const match = /^#([0-9A-Fa-f]{6})$/.exec(accent);
-  if (match === null) return THEME.selected;
+  if (match === null) {
+    return THEME.selected;
+  }
   const value = Number.parseInt(match[1] ?? "0", 16);
   const channel = (shift: number): number => {
     const unit = ((value >> shift) & 255) / 255;
@@ -215,7 +217,9 @@ function oneLine(text: string): string {
 
 function wrapProse(text: string, width: number, maxRows: number): string[] {
   const lines = wrapLines(text, width);
-  if (lines.length <= maxRows) return lines;
+  if (lines.length <= maxRows) {
+    return lines;
+  }
   const kept = lines.slice(0, maxRows);
   const last = kept[maxRows - 1] ?? "";
   kept[maxRows - 1] = clip(`${last} ${lines.slice(maxRows).join(" ")}`, width);
@@ -228,7 +232,9 @@ function wrapLines(text: string, width: number): string[] {
   const words = oneLine(text)
     .split(" ")
     .filter((word) => word.length > 0);
-  if (words.length === 0) return [""];
+  if (words.length === 0) {
+    return [""];
+  }
   const lines: string[] = [];
   let line = "";
   for (const word of words) {
@@ -237,7 +243,9 @@ function wrapLines(text: string, width: number): string[] {
       line = candidate;
       continue;
     }
-    if (line.length > 0) lines.push(line);
+    if (line.length > 0) {
+      lines.push(line);
+    }
     if (displayWidth(word) <= budget) {
       line = word;
       continue;
@@ -246,7 +254,9 @@ function wrapLines(text: string, width: number): string[] {
     lines.push(...pieces.slice(0, -1));
     line = pieces[pieces.length - 1] ?? "";
   }
-  if (line.length > 0) lines.push(line);
+  if (line.length > 0) {
+    lines.push(line);
+  }
   return lines.length > 0 ? lines : [""];
 }
 
@@ -262,7 +272,9 @@ function layoutChoice(
   descriptionWidth: number,
   customRows = 1,
 ): ChoiceLayout {
-  if (choice === null) return { labelLines: [""], descriptionLines: [], rows: customRows };
+  if (choice === null) {
+    return { labelLines: [""], descriptionLines: [], rows: customRows };
+  }
   const labelLines = wrapLines(oneLine(choice.label), labelWidth);
   const descriptionLines =
     descriptionWidth > 0 && (choice.description ?? "").length > 0
@@ -277,7 +289,9 @@ function layoutChoice(
 
 function windowStartForRows(heights: readonly number[], selected: number, rows: number): number {
   const total = heights.reduce((sum, height) => sum + height, 0);
-  if (total <= rows) return 0;
+  if (total <= rows) {
+    return 0;
+  }
   let start = 0;
   while (start < selected) {
     const untilSelected = heights
@@ -286,7 +300,9 @@ function windowStartForRows(heights: readonly number[], selected: number, rows: 
     const margin = heights
       .slice(selected + 1, selected + 1 + LIST_MARGIN)
       .reduce((sum, height) => sum + height, 0);
-    if (untilSelected + margin <= rows) break;
+    if (untilSelected + margin <= rows) {
+      break;
+    }
     start += 1;
   }
   return start;
@@ -307,12 +323,18 @@ function takeVisible<Item>(
   let used = 0;
   for (let index = start; index < items.length; index += 1) {
     const height = heights[index] ?? 1;
-    if (visible.length > 0 && used + height > rows) break;
+    if (visible.length > 0 && used + height > rows) {
+      break;
+    }
     const item = items[index];
-    if (item === undefined) break;
+    if (item === undefined) {
+      break;
+    }
     visible.push(item);
     used += height;
-    if (used >= rows) break;
+    if (used >= rows) {
+      break;
+    }
   }
   return visible;
 }

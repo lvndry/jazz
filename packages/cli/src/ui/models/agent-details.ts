@@ -29,7 +29,9 @@ export function agentDetailsRows(
   let currentSection = "";
   for (const field of fields) {
     if (field.section !== currentSection) {
-      if (rows.length > 0) rows.push({ text: "", section: false });
+      if (rows.length > 0) {
+        rows.push({ text: "", section: false });
+      }
       rows.push({ text: field.section, section: true });
       currentSection = field.section;
     }

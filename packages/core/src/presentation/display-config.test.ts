@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
+import { invalidInput } from "@/core/test-support/fakes";
 import type { AppConfig } from "@/core/types/config";
 import { resolveDisplayConfig } from "./display-config";
 
@@ -26,7 +27,7 @@ describe("resolveDisplayConfig", () => {
   test("coerces the string false from jazz config set", () => {
     const display = resolveDisplayConfig({
       ...baseConfig,
-      output: { collapseReasoning: "false" as unknown as boolean },
+      output: { collapseReasoning: invalidInput<boolean>("false") },
     });
     expect(display.collapseReasoning).toBe(false);
   });

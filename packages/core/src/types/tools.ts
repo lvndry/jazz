@@ -4,7 +4,7 @@
  * context passed into every tool.
  */
 import type { Effect } from "effect";
-import type z from "zod";
+import type { z } from "zod";
 import type { AutoDetachPolicy } from "@/core/agent/detach/auto-detach";
 import type { ToolActivityTracker } from "@/core/agent/run/tool-activity";
 import type { Blackboard } from "@/core/agent/subagents/blackboard";
@@ -122,7 +122,9 @@ export function shouldAutoApprove(
   }
 
   // true or "high-risk" means approve everything
-  if (policy === true || policy === "high-risk") return true;
+  if (policy === true || policy === "high-risk") {
+    return true;
+  }
 
   // "low-risk" approves read-only and low-risk
   if (policy === "low-risk") {
@@ -370,14 +372,16 @@ export type ApprovalOutcome =
  * Type guard to check if a tool result requires approval
  */
 export function isApprovalRequiredResult(result: unknown): result is ApprovalRequiredResult {
-  if (!result || typeof result !== "object") return false;
-  const r = result as Record<string, unknown>;
+  if (!result || typeof result !== "object") {
+    return false;
+  }
+  const record = result as Record<string, unknown>;
   return (
-    r["approvalRequired"] === true &&
-    typeof r["message"] === "string" &&
-    typeof r["executeToolName"] === "string" &&
-    typeof r["executeArgs"] === "object" &&
-    r["executeArgs"] !== null
+    record["approvalRequired"] === true &&
+    typeof record["message"] === "string" &&
+    typeof record["executeToolName"] === "string" &&
+    typeof record["executeArgs"] === "object" &&
+    record["executeArgs"] !== null
   );
 }
 

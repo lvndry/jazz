@@ -76,8 +76,12 @@ export function detectInteractiveInput(
   env: NodeJS.ProcessEnv = process.env,
   stdin: { isTTY?: boolean } = process.stdin,
 ): { interactive: boolean; viaTty: boolean } {
-  if (env["CI"] === "true" || env["CI"] === "1") return { interactive: declared, viaTty: false };
-  if (stdin.isTTY === true) return { interactive: true, viaTty: true };
+  if (env["CI"] === "true" || env["CI"] === "1") {
+    return { interactive: declared, viaTty: false };
+  }
+  if (stdin.isTTY === true) {
+    return { interactive: true, viaTty: true };
+  }
   return { interactive: declared, viaTty: false };
 }
 
@@ -163,7 +167,9 @@ function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefin
   } catch {
     return undefined;
   }
-  if (!parsed || typeof parsed !== "object") return undefined;
+  if (!parsed || typeof parsed !== "object") {
+    return undefined;
+  }
   const candidate = parsed as Record<string, unknown>;
   if (
     candidate["type"] === "approval_decision" &&
@@ -186,7 +192,9 @@ function parseUserInputResponseLine(line: string): UserInputResponseLine | undef
   } catch {
     return undefined;
   }
-  if (!parsed || typeof parsed !== "object") return undefined;
+  if (!parsed || typeof parsed !== "object") {
+    return undefined;
+  }
   const candidate = parsed as Record<string, unknown>;
   if (
     candidate["type"] === "user_input_response" &&
@@ -288,7 +296,9 @@ export class OneShotPresentationService implements PresentationService {
    * a listener. Malformed or unmatched lines are ignored.
    */
   private ensureStdinReaderStarted(): void {
-    if (this.stdinReaderStarted) return;
+    if (this.stdinReaderStarted) {
+      return;
+    }
     this.stdinReaderStarted = true;
 
     let buffer = "";
@@ -303,7 +313,9 @@ export class OneShotPresentationService implements PresentationService {
         const line = buffer.slice(0, newlineIndex).trim();
         buffer = buffer.slice(newlineIndex + 1);
         newlineIndex = buffer.indexOf("\n");
-        if (line.length === 0) continue;
+        if (line.length === 0) {
+          continue;
+        }
         // A person types prose, not JSON. Any line that is not one of the two
         // protocol shapes answers the question that has been waiting longest.
         if (this.askMode === "tty" && !line.startsWith("{")) {
@@ -318,7 +330,9 @@ export class OneShotPresentationService implements PresentationService {
         const decision = parseApprovalDecisionLine(line);
         if (decision) {
           const resolveApproval = this.pendingApprovals.get(decision.toolCallId);
-          if (!resolveApproval) continue;
+          if (!resolveApproval) {
+            continue;
+          }
           this.pendingApprovals.delete(decision.toolCallId);
           resolveApproval({ approved: decision.approved });
           continue;
@@ -326,7 +340,9 @@ export class OneShotPresentationService implements PresentationService {
         const answer = parseUserInputResponseLine(line);
         if (answer) {
           const resolveInput = this.pendingUserInputs.get(answer.requestId);
-          if (!resolveInput) continue;
+          if (!resolveInput) {
+            continue;
+          }
           this.pendingUserInputs.delete(answer.requestId);
           resolveInput(answer.response);
           continue;
@@ -435,7 +451,9 @@ export class OneShotPresentationService implements PresentationService {
   }
 
   formatToolArguments(_toolName: string, args?: Record<string, unknown>): string {
-    if (!args || Object.keys(args).length === 0) return "";
+    if (!args || Object.keys(args).length === 0) {
+      return "";
+    }
     return ` ${JSON.stringify(args)}`;
   }
 
@@ -604,7 +622,9 @@ export class OneShotPresentationService implements PresentationService {
    * ask rather than treating a blank as an answer.
    */
   requestUserInput(request: UserInputRequest): Effect.Effect<UserInputOutcome, never> {
-    if (this.askMode === "none" || this.stdinEnded) return Effect.succeed({ kind: "unavailable" });
+    if (this.askMode === "none" || this.stdinEnded) {
+      return Effect.succeed({ kind: "unavailable" });
+    }
     // Declared but not wired up is a misconfiguration, not a human saying no.
     if (this.askMode === "protocol" && !this.eventsActive) {
       return Effect.succeed({ kind: "unavailable" });
@@ -651,7 +671,9 @@ export class OneShotPresentationService implements PresentationService {
       const index = Number.parseInt(answer.trim(), 10);
       if (!Number.isNaN(index) && `${index}` === answer.trim()) {
         const chosen = suggestions[index - 1];
-        if (chosen) return chosen.value;
+        if (chosen) {
+          return chosen.value;
+        }
       }
       return answer;
     };

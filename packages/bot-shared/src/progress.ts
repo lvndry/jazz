@@ -137,7 +137,9 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
   const render = (): RichText => {
     const body: RichText[number][] = [line(bold(WORKING_HEADER))];
     const thought = reasoningSnippet(reasoning);
-    if (thought) body.push(line(text(`💭 ${thought}`)));
+    if (thought) {
+      body.push(line(text(`💭 ${thought}`)));
+    }
     for (const tool of tools.slice(-MAX_TOOLS_SHOWN)) {
       body.push(line(text("🔧 "), code(tool)));
     }
@@ -149,10 +151,16 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
     }
     // A run going round and round looks identical to a slow one from outside;
     // the count is what makes a loop visible without reading logs.
-    if (rounds > 1) body.push(plainLine(`↻ round ${rounds}`));
-    if (writing) body.push(plainLine("✍️ writing the answer…"));
+    if (rounds > 1) {
+      body.push(plainLine(`↻ round ${rounds}`));
+    }
+    if (writing) {
+      body.push(plainLine("✍️ writing the answer…"));
+    }
     const elapsedMs = Date.now() - startedAt;
-    if (elapsedMs >= ELAPSED_SHOWN_AFTER_MS) body.push(plainLine(`⏱ ${formatElapsed(elapsedMs)}`));
+    if (elapsedMs >= ELAPSED_SHOWN_AFTER_MS) {
+      body.push(plainLine(`⏱ ${formatElapsed(elapsedMs)}`));
+    }
     return body;
   };
 
@@ -180,7 +188,9 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
    * inside the edit interval would otherwise never be shown when it is the last one.
    */
   const refresh = (): void => {
-    if (finished) return;
+    if (finished) {
+      return;
+    }
     const waitMs = editIntervalMs - (Date.now() - lastSentAt);
     if (waitMs <= 0) {
       void update(render(), choices);
@@ -188,19 +198,27 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
     }
     trailing ??= setTimeout(() => {
       trailing = undefined;
-      if (!finished) void update(render(), choices);
+      if (!finished) {
+        void update(render(), choices);
+      }
     }, waitMs);
   };
 
   const maybeQuietTick = (): void => {
     const due = quietUpdates === 0 ? QUIET_FIRST_UPDATE_MS : QUIET_UPDATE_INTERVAL_MS;
-    if (Date.now() - lastSentAt >= due) void quietTick();
+    if (Date.now() - lastSentAt >= due) {
+      void quietTick();
+    }
   };
 
   const stopTimers = (): void => {
     finished = true;
-    if (ticker !== undefined) clearInterval(ticker);
-    if (trailing !== undefined) clearTimeout(trailing);
+    if (ticker !== undefined) {
+      clearInterval(ticker);
+    }
+    if (trailing !== undefined) {
+      clearTimeout(trailing);
+    }
     ticker = undefined;
     trailing = undefined;
   };
@@ -219,10 +237,16 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
     withChoices: readonly Choice[] | undefined,
     force = false,
   ) => {
-    if (!editable || messageRef === undefined) return;
-    if (sending && !force) return;
+    if (!editable || messageRef === undefined) {
+      return;
+    }
+    if (sending && !force) {
+      return;
+    }
     const rendered = JSON.stringify(body);
-    if (rendered === lastRendered && !force) return;
+    if (rendered === lastRendered && !force) {
+      return;
+    }
     sending = true;
     lastRendered = rendered;
     lastSentAt = Date.now();
@@ -240,7 +264,9 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
   };
 
   const quietTick = async () => {
-    if (sending) return;
+    if (sending) {
+      return;
+    }
     sending = true;
     quietUpdates += 1;
     lastSentAt = Date.now();
@@ -280,10 +306,14 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
         case "thinking_chunk":
           // Accumulate raw so a lone-space chunk isn't trimmed away (which
           // would glue the surrounding words); normalisation is at render time.
-          if (typeof event.content === "string") reasoning += event.content;
+          if (typeof event.content === "string") {
+            reasoning += event.content;
+          }
           break;
         case "tool_execution_start":
-          if (typeof event.toolName === "string") tools.push(event.toolName);
+          if (typeof event.toolName === "string") {
+            tools.push(event.toolName);
+          }
           break;
         case "subagent_start":
           subagents.push(event.task?.trim() || "sub-agent");
@@ -308,7 +338,9 @@ export function createProgressReporter(options: ProgressReporterOptions): Progre
 
     async finish(summary: RichText): Promise<boolean> {
       stopTimers();
-      if (!editable || messageRef === undefined) return false;
+      if (!editable || messageRef === undefined) {
+        return false;
+      }
       // An empty choice list is what drops the Cancel button from the closed bubble.
       await update(summary, [], true);
       return true;

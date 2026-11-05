@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { addStep, EMPTY_TURN, formatStepBreakdown, formatTurnReceipt } from "./turn-receipt";
+import {
+  addStep,
+  cacheStepFields,
+  EMPTY_TURN,
+  formatStepBreakdown,
+  formatTurnReceipt,
+} from "./turn-receipt";
 
 describe("turn receipt", () => {
   test("sums every step of the turn into one row", () => {
@@ -113,5 +119,62 @@ describe("turn decode throughput", () => {
         ],
       }),
     ).not.toContain("tok/s");
+  });
+});
+
+describe("turn receipt cache figure", () => {
+  const step = (promptTokens: number, cacheReadTokens: number | undefined, reason?: "none") => ({
+    durationMs: 1000,
+    promptTokens,
+    completionTokens: 10,
+    ...cacheStepFields(
+      { promptTokens, ...(cacheReadTokens !== undefined && { cacheReadTokens }) },
+      reason,
+    ),
+  });
+
+  test("a provider without cache fields shows no figure", () => {
+    expect(formatTurnReceipt({ steps: [step(1000, undefined)] })).not.toContain("cache");
+    expect(cacheStepFields({ promptTokens: 1000 }, "none")).toEqual({});
+  });
+
+  test("a saved receipt's 0 reads as unknown and its positive count as a share of the prompt", () => {
+    expect(
+      formatTurnReceipt({
+        steps: [{ durationMs: 1000, promptTokens: 1000, cacheReadTokens: 0 }],
+      }),
+    ).not.toContain("cache");
+    expect(
+      formatTurnReceipt({
+        steps: [{ durationMs: 1000, promptTokens: 1000, cacheReadTokens: 900 }],
+      }),
+    ).toContain("cache 90%");
+  });
+
+  test("weights the turn's figure by input across steps", () => {
+    const receipt = formatTurnReceipt({ steps: [step(1000, 0), step(3000, 3000)] });
+    expect(receipt).toContain("cache 75%");
+  });
+
+  test("a low figure names the worst step's reason", () => {
+    const worst = {
+      ...step(1000, 0),
+      ...cacheStepFields({ promptTokens: 1000, cacheReadTokens: 0 }, "none"),
+      cacheMissReason: "tools-changed" as const,
+    };
+    const receipt = formatTurnReceipt({ steps: [worst, step(1000, 100)] });
+    expect(receipt).toContain("cache 5% (tools changed)");
+  });
+
+  test("a step without cache fields makes the figure partial", () => {
+    const receipt = formatTurnReceipt({ steps: [step(1000, 900), step(1000, undefined)] });
+    expect(receipt).toContain("cache 90% (partial)");
+  });
+
+  test("the breakdown shows each step's rate and reason", () => {
+    const breakdown = formatStepBreakdown({
+      steps: [{ ...step(1000, 900), cacheMissReason: "system-changed" }],
+    });
+    expect(breakdown).toContain("(90% cached, system prompt changed)");
   });
 });

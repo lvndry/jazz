@@ -11,7 +11,7 @@ describe("Session Manager", () => {
 
     it("should generate many unique IDs", () => {
       const ids = new Set<string>();
-      for (let i = 0; i < 100; i++) {
+      for (let index = 0; index < 100; index++) {
         ids.add(generateConversationId());
       }
       expect(ids.size).toBe(100);
