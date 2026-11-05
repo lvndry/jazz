@@ -73,6 +73,40 @@ it may miss an agent repeating the same approach with slightly different argumen
 [Remote handoff](./detach.md) moves a conversation to your SSH server so it can continue
 after you close your laptop.
 
+## Read the prompt-cache hit rate
+
+Providers bill input they already hold in a prompt cache at a lower rate and answer faster.
+Jazz shows how much of each request was served from cache, so you can tell a cheap turn from
+an expensive one.
+
+- The turn receipt after each answer ends with `cache 82%` when the provider reported cache
+  figures. Press Ctrl+O on a multi-step turn for the per-step rates.
+- `/context` shows a `cache` row for the last request in the conversation.
+- `jazz run --json` adds `cacheHitRate` (0 to 1) and `cacheMissReason` to `tokenUsage`.
+
+The rate is cache reads divided by all input tokens of the request. A provider that reports
+no cache figures shows `unknown`, or no cache figure on the receipt, never 0%.
+
+When the rate is below 50%, the receipt adds what changed in the cacheable prefix compared
+with the previous request in the conversation:
+
+| Reason                  | Meaning                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| `first request`         | Nothing was sent before in this process, so nothing could be cached.          |
+| `prefix unchanged`      | Only messages were appended. The provider still missed (see below).           |
+| `tools changed`         | The tool definitions differ, for example after a deferred tool was unlocked.  |
+| `system prompt changed` | The system prompt differs: date, memory, instructions, or skills changed.     |
+| `history rewritten`     | Earlier messages changed: compaction, clearing old tool results, or trimming. |
+| `model changed`         | A different model answered, so its cache is separate.                         |
+| `provider changed`      | A different provider answered.                                                |
+
+Jazz compares what it sends. A changed prefix is a likely cause of a miss, not a proof, and an
+unchanged prefix does not promise a hit: providers expire cached prefixes on their own.
+Anthropic drops them after 5 minutes without a request, so a pause between turns shows a low rate
+with `prefix unchanged`. Requests seconds apart inside one tool loop are where the rate is
+expected to be high. Run with `--debug` to log each request's classification and the
+hashes that changed; prompt content is never logged.
+
 ## Adjust the context limit
 
 For an agent that reads many large files, set `llm.maxContextTokens` in its `config` to compact

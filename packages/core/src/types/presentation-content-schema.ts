@@ -7,8 +7,10 @@
  */
 import { z } from "zod";
 import type { PresentationContent, PresentationEntry } from "./presentation-content";
+import { CACHE_MISS_REASONS } from "../agent/metrics/prompt-cache";
 
 const nonnegative = z.number().finite().nonnegative();
+const cacheMissReason = z.enum(CACHE_MISS_REASONS);
 type Defined<T> = T extends readonly (infer Item)[]
   ? readonly Defined<Item>[]
   : T extends object
@@ -121,6 +123,8 @@ export const presentationContentSchema: z.ZodType<PresentationContent> = z
           completionTokens: nonnegative.int().optional(),
           totalTokens: nonnegative.int().optional(),
           cacheReadTokens: nonnegative.int().optional(),
+          cacheInputTokens: nonnegative.int().optional(),
+          cacheMissReason: cacheMissReason.optional(),
           costUSD: nonnegative.optional(),
           tokensPerSecond: nonnegative.optional(),
         }),

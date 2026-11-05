@@ -24,6 +24,12 @@ import {
   isUsageCostIncomplete,
   type UsageCostPricing,
 } from "@/core/utils/usage-cost";
+import {
+  EMPTY_CACHE_TALLY,
+  addToCacheTally,
+  type CacheMissReason,
+  type CacheTally,
+} from "./prompt-cache";
 import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 
 export interface AgentRunMetricsContext {
@@ -74,6 +80,10 @@ export interface AgentRunMetrics {
   totalReasoningTokens: number;
   totalCacheReadTokens: number;
   totalCacheWriteTokens: number;
+  /** Cache reads and input over the requests that reported cache fields; absent means unknown. */
+  cacheTally?: CacheTally;
+  /** Why the run's latest request's cacheable prefix differed from the one before it. */
+  lastCacheReason: CacheMissReason | undefined;
   /** Aggregated USD cost of nested runs (sub-agents) spawned during this run. */
   childCostUSD: number;
   /** True once any nested run spent tokens whose pricing was unavailable. */
@@ -164,6 +174,7 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     totalReasoningTokens: 0,
     totalCacheReadTokens: 0,
     totalCacheWriteTokens: 0,
+    lastCacheReason: undefined,
     childCostUSD: 0,
     childCostUnknown: false,
     sideCostUSD: 0,
@@ -216,6 +227,7 @@ export function recordLLMUsage(
   if (usage.cacheWriteTokens != null) {
     metrics.totalCacheWriteTokens += usage.cacheWriteTokens;
   }
+  metrics.cacheTally = addToCacheTally(metrics.cacheTally ?? EMPTY_CACHE_TALLY, usage);
 }
 
 export interface RunCost {

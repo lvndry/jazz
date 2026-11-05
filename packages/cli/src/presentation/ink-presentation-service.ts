@@ -5,6 +5,7 @@
  * the Ink UI is active. See cli-renderer.ts for the non-Ink fallback path.
  */
 
+import type { CacheMissReason } from "@jazz/core/agent/metrics/prompt-cache";
 import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {
@@ -69,6 +70,7 @@ import { getTerminalWidth } from "./markdown-formatter";
 import { isInsideOpenStructure } from "./markdown-split";
 import {
   addStep,
+  cacheStepFields,
   EMPTY_TURN,
   formatStepBreakdown,
   formatTurnReceipt,
@@ -190,6 +192,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
   private hasStreamedText = false;
   /** Steps of the turn so far; closed into one receipt when the model stops calling tools. */
   private turn: TurnTotals = EMPTY_TURN;
+  /** Why the request now streaming differs from the previous one in what providers cache. */
+  private pendingCacheReason: CacheMissReason | undefined;
 
   /**
    * Active reasoning ephemeral region id (null if none open). Reasoning is
@@ -709,6 +713,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
         }
       }
 
+      if (event.type === "prompt_cache") {
+        this.pendingCacheReason = event.reason;
+        return;
+      }
+
       if (event.type === "complete") {
         this.handleComplete(event);
         return;
@@ -930,13 +939,15 @@ export class InkStreamingRenderer implements StreamingRenderer {
         ? undefined
         : event.totalDurationMs - event.metrics.firstTokenLatencyMs;
     const costUSD = this.recordStepCost(usage);
+    const cacheReason = this.pendingCacheReason;
+    this.pendingCacheReason = undefined;
     this.turn = addStep(this.turn, {
       durationMs: event.totalDurationMs,
       ...(usage
         ? {
             promptTokens: usage.promptTokens,
             completionTokens: usage.completionTokens,
-            cacheReadTokens: Math.min(usage.cacheReadTokens ?? 0, usage.promptTokens),
+            ...cacheStepFields(usage, cacheReason),
           }
         : event.metrics?.totalTokens !== undefined
           ? { totalTokens: event.metrics.totalTokens }

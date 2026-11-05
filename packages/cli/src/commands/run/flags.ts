@@ -27,7 +27,7 @@ const EVENT_CATEGORY_TYPES = {
   tools: ["tools_detected", "tool_call", "tool_execution_start", "tool_execution_complete"],
   reasoning: ["thinking_start", "thinking_chunk", "thinking_complete"],
   text: ["text_start", "text_chunk"],
-  usage: ["stream_start", "usage_update", "complete"],
+  usage: ["stream_start", "usage_update", "prompt_cache", "complete"],
   approval: [
     "approval_required",
     "approval_resolved",

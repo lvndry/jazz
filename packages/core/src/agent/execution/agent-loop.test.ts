@@ -2274,7 +2274,8 @@ describe("executeAgentLoop", () => {
       ).pipe(Effect.provide(TestLayer)),
     );
 
-    expect(result.usage).toEqual({ promptTokens: 42, completionTokens: 17, requests: 1 });
+    expect(result.usage).toMatchObject({ promptTokens: 42, completionTokens: 17, requests: 1 });
+    expect(result.usage?.cacheHitRate).toBeUndefined();
     expect(result.costUSD).toBeUndefined();
     expect(result.messages).toBeDefined();
   });
