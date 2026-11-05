@@ -569,9 +569,9 @@ export function formatToolArguments(
       }
       const ordered = todos
         .filter((todo): todo is Record<string, unknown> => isRecord(todo))
-        .sort((a, b) => {
-          const ai = a["status"] === "in_progress" ? 0 : 1;
-          const bi = b["status"] === "in_progress" ? 0 : 1;
+        .sort((left, right) => {
+          const ai = left["status"] === "in_progress" ? 0 : 1;
+          const bi = right["status"] === "in_progress" ? 0 : 1;
           return ai - bi;
         });
       const lines = ordered.flatMap((item) => {

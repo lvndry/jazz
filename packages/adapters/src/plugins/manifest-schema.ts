@@ -321,7 +321,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
   let decoded: unknown = input;
   if (typeof input === "string") {
     try {
-      decoded = JSON.parse(input) as unknown;
+      decoded = JSON.parse(input);
     } catch {
       throw new Error("Plugin manifest is not valid JSON");
     }

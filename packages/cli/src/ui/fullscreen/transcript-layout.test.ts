@@ -171,7 +171,7 @@ describe("instance-owned transcript layout", () => {
     const layout = createTranscriptLayout({ cacheRows: 16, cacheChunks: 2 });
     const block = agent(
       "huge",
-      Array.from({ length: 1000 }, (_, i) => `paragraph ${i}`).join("\n\n"),
+      Array.from({ length: 1000 }, (_, index) => `paragraph ${index}`).join("\n\n"),
     );
     const index = layout.update([block], epoch());
     expect(index.length).toBe(1999);

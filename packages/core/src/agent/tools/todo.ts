@@ -89,10 +89,10 @@ function writeTodos(conversationId: string, todos: TodoItem[]): Effect.Effect<vo
 function computeStats(todos: TodoItem[]) {
   return {
     totalItems: todos.length,
-    pending: todos.filter((t) => t.status === "pending").length,
-    inProgress: todos.filter((t) => t.status === "in_progress").length,
-    completed: todos.filter((t) => t.status === "completed").length,
-    cancelled: todos.filter((t) => t.status === "cancelled").length,
+    pending: todos.filter((todo) => todo.status === "pending").length,
+    inProgress: todos.filter((todo) => todo.status === "in_progress").length,
+    completed: todos.filter((todo) => todo.status === "completed").length,
+    cancelled: todos.filter((todo) => todo.status === "cancelled").length,
   };
 }
 

@@ -5,12 +5,14 @@ import { expect, it, spyOn } from "bun:test";
 import { useState } from "react";
 import { useAutoScrollOnDrag } from "./auto-scroll-selection";
 import { renderForTest, updateForTest } from "./test-helpers";
+import { partialFake } from "../../test-support/partial-fake";
 
 it("cancels edge scrolling on drag end, occlusion, document switch and unmount", async () => {
   const scheduled = new Map<ReturnType<typeof setInterval>, () => void>();
   let serial = 100;
   const interval = spyOn(globalThis, "setInterval").mockImplementation(((callback: unknown) => {
-    const id = ++serial as unknown as ReturnType<typeof setInterval>;
+    serial += 1;
+    const id = partialFake<ReturnType<typeof setInterval>>({ [Symbol.toPrimitive]: () => serial });
     scheduled.set(id, callback as () => void);
     return id;
   }) as typeof globalThis.setInterval);

@@ -100,9 +100,7 @@ export interface PreparedSourceManifest {
 async function readSourceManifest(pluginDirectory: string): Promise<PreparedSourceManifest> {
   let decoded: unknown;
   try {
-    decoded = JSON.parse(
-      await fs.readFile(path.join(pluginDirectory, "jazz-plugin.json"), "utf8"),
-    ) as unknown;
+    decoded = JSON.parse(await fs.readFile(path.join(pluginDirectory, "jazz-plugin.json"), "utf8"));
   } catch (error) {
     throw new Error(`invalid jazz-plugin.json (${toError(error).message})`, { cause: error });
   }

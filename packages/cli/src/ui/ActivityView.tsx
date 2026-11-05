@@ -206,7 +206,7 @@ export const ActivityView = React.memo(function ActivityView({
       );
 
     case "tool-execution": {
-      const uniqueNames = Array.from(new Set(activity.tools.map((t) => t.toolName)));
+      const uniqueNames = Array.from(new Set(activity.tools.map((tool) => tool.toolName)));
       const isManagingTodos = uniqueNames.includes("manage_todos");
       const classifying = activity.tools.some((tool) => tool.classifying === true);
       const label =

@@ -19,14 +19,15 @@ import { describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Layer, Option } from "effect";
 import { AgentServiceImpl, createAgentServiceLayer } from "./agent-service";
 import { createFileStorageLayer } from "./storage/file";
+import { invalidInput, partialFake } from "./test-support/fakes";
 
 // Mock Storage Service
-const mockStorage = {
+const mockStorage = partialFake<StorageService>({
   listAgents: mock(() => Effect.succeed([])),
   saveAgent: mock(() => Effect.void),
   getAgent: mock(() => Effect.fail(new StorageNotFoundError({ path: "none" }))),
   deleteAgent: mock(() => Effect.void),
-} as unknown as StorageService;
+});
 
 describe("AgentService", () => {
   const service = new AgentServiceImpl(mockStorage);
@@ -106,8 +107,8 @@ describe("AgentService", () => {
     });
 
     it("should fail if updating to an existing name", async () => {
-      const agent1: Agent = { id: "1", name: "agent1" } as unknown as Agent;
-      const agent2: Agent = { id: "2", name: "agent2" } as unknown as Agent;
+      const agent1: Agent = partialFake<Agent>({ id: "1", name: "agent1" });
+      const agent2: Agent = partialFake<Agent>({ id: "2", name: "agent2" });
 
       // @ts-expect-error - mocking
       mockStorage.getAgent.mockReturnValueOnce(Effect.succeed(agent1));
@@ -593,7 +594,7 @@ describe("AgentService", () => {
     it("accepts a null summarizerModel as a cleared field", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
-        llm: { ...baseConfig.llm, summarizerModel: null as unknown as string },
+        llm: { ...baseConfig.llm, summarizerModel: invalidInput<string>(null) },
       });
       await expect(Effect.runPromise(program)).resolves.toBeUndefined();
     });

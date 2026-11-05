@@ -80,15 +80,24 @@ export interface PluginSessionFactoryOptions extends PluginSessionOptions {
   readonly reportFailure?: (pluginId: string, message: string) => void;
 }
 
-type RegisteredHook = {
+type RegisteredHook<Id extends AdvisoryHookId> = {
   readonly pluginId: string;
-  readonly handler: AdvisoryHookHandler<"route.skills">;
+  readonly handler: AdvisoryHookHandler<Id>;
 };
 
-type RegisteredPolicyHook = {
+type RegisteredPolicyHook<Id extends PolicyHookId> = {
   readonly pluginId: string;
-  readonly handler: PolicyHookHandler<"classify.command-risk">;
+  readonly handler: PolicyHookHandler<Id>;
 };
+
+/**
+ * One slot per hook id, each typed to that id's handler. `register` is generic over the id, and
+ * TypeScript cannot correlate the generic key with its own slot on write, so the two `register`
+ * callbacks cast the registration to its slot type; the key and the handler come from the same
+ * `register` call, which keeps the cast sound.
+ */
+type HookRegistry = { [Id in AdvisoryHookId]?: RegisteredHook<Id> };
+type PolicyHookRegistry = { [Id in PolicyHookId]?: RegisteredPolicyHook<Id> };
 
 type RegisteredTool = {
   readonly pluginId: string;
@@ -171,8 +180,8 @@ export function createPluginSession(
 ): Effect.Effect<PluginSession, PluginRuntimeError> {
   return Effect.try({
     try: () => {
-      const hooks = new Map<AdvisoryHookId, RegisteredHook>();
-      const policyHooks = new Map<PolicyHookId, RegisteredPolicyHook>();
+      let hooks: HookRegistry = {};
+      let policyHooks: PolicyHookRegistry = {};
       const pluginNameById = new Map<string, string>();
       const tools = new Map<string, RegisteredTool>();
       const commands = new Map<string, RegisteredCommand>();
@@ -204,13 +213,10 @@ export function createPluginSession(
               if (!manifest.hooks.includes(id)) {
                 throw new Error(`plugin did not declare hook ${id}`);
               }
-              if (hooks.has(id)) {
+              if (hooks[id] !== undefined) {
                 throw new Error(`hook ${id} already has a handler in this run`);
               }
-              hooks.set(id, {
-                pluginId: manifest.id,
-                handler: handler as unknown as AdvisoryHookHandler<"route.skills">,
-              });
+              hooks[id] = { pluginId: manifest.id, handler } as HookRegistry[typeof id];
             },
           },
           policy: {
@@ -218,13 +224,10 @@ export function createPluginSession(
               if (!manifest.policyHooks.includes(id)) {
                 throw new Error(`plugin did not declare policy hook ${id}`);
               }
-              if (policyHooks.has(id)) {
+              if (policyHooks[id] !== undefined) {
                 throw new Error(`policy hook ${id} already has a handler in this run`);
               }
-              policyHooks.set(id, {
-                pluginId: manifest.id,
-                handler: handler as unknown as PolicyHookHandler<"classify.command-risk">,
-              });
+              policyHooks[id] = { pluginId: manifest.id, handler } as PolicyHookRegistry[typeof id];
             },
           },
           decisions: {
@@ -419,7 +422,7 @@ export function createPluginSession(
             if (closed) {
               return abstainedRoute("plugin session closed");
             }
-            const registration = hooks.get(id);
+            const registration = hooks[id];
             if (!registration) {
               return abstainedRoute("no plugin handler");
             }
@@ -443,7 +446,7 @@ export function createPluginSession(
             if (closed) {
               return abstainedPolicy("plugin session closed");
             }
-            const registration = policyHooks.get(id);
+            const registration = policyHooks[id];
             if (!registration) {
               return abstainedPolicy("no plugin policy handler");
             }
@@ -462,7 +465,7 @@ export function createPluginSession(
             if (closed) {
               return abstainedCompact("plugin session closed");
             }
-            const registration = hooks.get("compact.tools");
+            const registration = hooks["compact.tools"];
             if (!registration) {
               return abstainedCompact("no plugin handler");
             }
@@ -470,7 +473,7 @@ export function createPluginSession(
               const input = validateCompactToolsInput(rawInput);
               const outcome = await deadline(
                 (signal) =>
-                  (registration.handler as unknown as AdvisoryHookHandler<"compact.tools">)(input, {
+                  registration.handler(input, {
                     signal,
                   }),
                 timeoutMs,
@@ -486,7 +489,7 @@ export function createPluginSession(
             if (closed) {
               return abstainedClassifyPage("plugin session closed");
             }
-            const registration = hooks.get("classify.page");
+            const registration = hooks["classify.page"];
             if (!registration) {
               return abstainedClassifyPage("no plugin handler");
             }
@@ -494,7 +497,7 @@ export function createPluginSession(
               const input = validateClassifyPageInput(rawInput);
               const outcome = await deadline(
                 (signal) =>
-                  (registration.handler as unknown as AdvisoryHookHandler<"classify.page">)(input, {
+                  registration.handler(input, {
                     signal,
                   }),
                 timeoutMs,
@@ -510,18 +513,14 @@ export function createPluginSession(
             if (closed) {
               return abstainedRouteSnapshot("plugin session closed");
             }
-            const registration = hooks.get("route.snapshot");
+            const registration = hooks["route.snapshot"];
             if (!registration) {
               return abstainedRouteSnapshot("no plugin handler");
             }
             try {
               const input = validateRouteSnapshotInput(rawInput);
               const outcome = await deadline(
-                (signal) =>
-                  (registration.handler as unknown as AdvisoryHookHandler<"route.snapshot">)(
-                    input,
-                    { signal },
-                  ),
+                (signal) => registration.handler(input, { signal }),
                 timeoutMs,
               );
               return validateRouteSnapshotOutcome(input, outcome);
@@ -535,18 +534,14 @@ export function createPluginSession(
             if (closed) {
               return abstainedMemoryPassGate("plugin session closed");
             }
-            const registration = hooks.get("gate.memory-pass");
+            const registration = hooks["gate.memory-pass"];
             if (!registration) {
               return abstainedMemoryPassGate("no plugin handler");
             }
             try {
               const input = validateMemoryPassGateInput(rawInput);
               const outcome = await deadline(
-                (signal) =>
-                  (registration.handler as unknown as AdvisoryHookHandler<"gate.memory-pass">)(
-                    input,
-                    { signal },
-                  ),
+                (signal) => registration.handler(input, { signal }),
                 timeoutMs,
               );
               return validateMemoryPassGateOutcome(outcome);
@@ -600,7 +595,7 @@ export function createPluginSession(
             return content ? content.slice(0, MAX_PLUGIN_WORKSPACE_TOTAL_CHARS) : undefined;
           }),
         describeHook: (id) => {
-          const registration = hooks.get(id);
+          const registration = hooks[id];
           if (!registration) {
             return undefined;
           }
@@ -752,8 +747,8 @@ export function createPluginSession(
                   : Promise.resolve(),
               ),
             );
-            hooks.clear();
-            policyHooks.clear();
+            hooks = {};
+            policyHooks = {};
             tools.clear();
             commands.clear();
             lifecycle.clear();

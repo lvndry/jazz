@@ -17,6 +17,7 @@ import { createCliRenderer, type CliRenderer, type OptimizedBuffer } from "@open
 import { createRoot, flushSync } from "@opentui/react";
 import { Terminal } from "@xterm/headless";
 import { createElement, useSyncExternalStore, type ReactNode } from "react";
+import { viewAs } from "../../../test-support/view-as";
 
 export interface GridCell {
   readonly chars: string;
@@ -223,8 +224,8 @@ export async function createTerminalOracle(options: {
   let renderer: CliRenderer;
   try {
     renderer = await createCliRenderer({
-      stdin: input as unknown as NodeJS.ReadStream,
-      stdout: output as unknown as NodeJS.WriteStream,
+      stdin: viewAs<NodeJS.ReadStream>(input),
+      stdout: viewAs<NodeJS.WriteStream>(output),
       width: options.width,
       height: options.height,
       screenMode: "alternate-screen",

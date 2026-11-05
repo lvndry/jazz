@@ -77,8 +77,8 @@ function describeRange(
   return undefined;
 }
 
-const greatestCommonDivisor = (a: number, b: number): number =>
-  b === 0 ? a : greatestCommonDivisor(b, a % b);
+const greatestCommonDivisor = (first: number, second: number): number =>
+  second === 0 ? first : greatestCommonDivisor(second, first % second);
 
 const ENV_KEYS = [
   "JAZZ_UI_GLYPHS",
@@ -220,9 +220,9 @@ describe("glyphs", () => {
         "gridEmpty",
         "gridReserved",
       ];
-      for (const k of fields) {
-        const v = set[k] as string;
-        for (const ch of v) {
+      for (const field of fields) {
+        const fieldValue = set[field] as string;
+        for (const ch of fieldValue) {
           expect(ch.charCodeAt(0)).toBeLessThan(128);
         }
       }
@@ -315,10 +315,10 @@ describe("activity indicator", () => {
     // so the composite looped every 12 frames — about two seconds — and the two
     // pairs of equal periods were phase-locked to each other permanently.
     const periods = GLYPHS.unicode.lanePeriods;
-    for (let a = 0; a < periods.length; a++) {
-      for (let b = a + 1; b < periods.length; b++) {
-        const first = periods[a] as number;
-        const second = periods[b] as number;
+    for (let firstIndex = 0; firstIndex < periods.length; firstIndex++) {
+      for (let secondIndex = firstIndex + 1; secondIndex < periods.length; secondIndex++) {
+        const first = periods[firstIndex] as number;
+        const second = periods[secondIndex] as number;
         expect(greatestCommonDivisor(first, second)).toBe(1);
       }
     }
@@ -332,7 +332,8 @@ describe("activity indicator", () => {
 
   it("runs for many minutes before repeating", () => {
     const composite = GLYPHS.unicode.lanePeriods.reduce(
-      (a, b) => (a * b) / greatestCommonDivisor(a, b),
+      (commonPeriod, period) =>
+        (commonPeriod * period) / greatestCommonDivisor(commonPeriod, period),
       1,
     );
     // 4620 frames at 170ms is about thirteen minutes.
@@ -342,7 +343,11 @@ describe("activity indicator", () => {
   for (const mode of ["ascii", "unicode"] as const) {
     describe(mode, () => {
       const set = GLYPHS[mode];
-      const composite = set.lanePeriods.reduce((a, b) => (a * b) / greatestCommonDivisor(a, b), 1);
+      const composite = set.lanePeriods.reduce(
+        (commonPeriod, period) =>
+          (commonPeriod * period) / greatestCommonDivisor(commonPeriod, period),
+        1,
+      );
 
       it("holds a constant width across the whole cycle", () => {
         for (let tick = 0; tick < composite; tick++) {

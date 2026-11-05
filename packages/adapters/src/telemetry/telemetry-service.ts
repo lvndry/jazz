@@ -276,31 +276,31 @@ export class TelemetryServiceImpl implements TelemetryService {
 
         if (options?.types && options.types.length > 0) {
           const typeSet = new Set(options.types);
-          filtered = filtered.filter((e) => typeSet.has(e.type));
+          filtered = filtered.filter((event) => typeSet.has(event.type));
         }
 
         if (options?.agentId) {
           const agentId = options.agentId;
-          filtered = filtered.filter((e) => e.agentId === agentId);
+          filtered = filtered.filter((event) => event.agentId === agentId);
         }
 
         if (options?.conversationId) {
           const conversationId = options.conversationId;
-          filtered = filtered.filter((e) => e.conversationId === conversationId);
+          filtered = filtered.filter((event) => event.conversationId === conversationId);
         }
 
         if (options?.from) {
           const from = options.from;
-          filtered = filtered.filter((e) => e.timestamp >= from);
+          filtered = filtered.filter((event) => event.timestamp >= from);
         }
 
         if (options?.to) {
           const to = options.to;
-          filtered = filtered.filter((e) => e.timestamp <= to);
+          filtered = filtered.filter((event) => event.timestamp <= to);
         }
 
         // Sort by timestamp descending (most recent first)
-        filtered.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+        filtered.sort((left, right) => right.timestamp.localeCompare(left.timestamp));
 
         const offset = options?.offset ?? 0;
         const limit = options?.limit ?? filtered.length;

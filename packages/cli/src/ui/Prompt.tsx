@@ -167,7 +167,7 @@ function PromptComponent({
   // Keep selected index in bounds when list changes
   useEffect(() => {
     if (suggestions.length > 0) {
-      setSelectedSuggestionIndex((i) => Math.min(i, suggestions.length - 1));
+      setSelectedSuggestionIndex((index) => Math.min(index, suggestions.length - 1));
     }
   }, [suggestions.length]);
 

@@ -131,7 +131,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         return Effect.gen(function* () {
           const ignorePatterns = includeHidden ? [] : yield* readGitignorePatterns(fs, searchPath);
 
-          const globOptions: glob.Options = {
+          const globOptions: glob.Options & { readonly stats: true } = {
             cwd: searchPath,
             absolute: true,
             deep: maxDepth === 0 ? 1 : maxDepth,
@@ -155,14 +155,9 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
             [];
 
           for (const entry of entries) {
-            const entryObj = entry as unknown as {
-              path: string;
-              name: string;
-              stats?: { isDirectory: () => boolean; mtimeMs: number };
-            };
-            const entryPath = entryObj.path;
-            const entryName = entryObj.name || entryPath.split("/").pop() || "";
-            const stats = entryObj.stats;
+            const entryPath = entry.path;
+            const entryName = entry.name || entryPath.split("/").pop() || "";
+            const stats = entry.stats;
             const isDir = stats ? stats.isDirectory() : entryPath.endsWith("/");
             const mtimeMs = stats?.mtimeMs ?? 0;
 
@@ -181,7 +176,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
             });
           }
 
-          results.sort((a, b) => b.mtimeMs - a.mtimeMs);
+          results.sort((left, right) => right.mtimeMs - left.mtimeMs);
           return results;
         });
       }
@@ -196,7 +191,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         if (allResults.length < Math.min(maxResults / 2, 10)) {
           const remaining = searchPaths.slice(1);
           const parallelResults = yield* Effect.all(
-            remaining.map((p) => searchRoot(p)),
+            remaining.map((searchPath) => searchRoot(searchPath)),
             { concurrency: remaining.length },
           );
           for (const batch of parallelResults) {
@@ -210,14 +205,14 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
       // De-duplicate and sort
       const seen = new Set<string>();
-      allResults = allResults.filter((r) => {
-        if (seen.has(r.path)) {
+      allResults = allResults.filter((result) => {
+        if (seen.has(result.path)) {
           return false;
         }
-        seen.add(r.path);
+        seen.add(result.path);
         return true;
       });
-      allResults.sort((a, b) => b.mtimeMs - a.mtimeMs);
+      allResults.sort((left, right) => right.mtimeMs - left.mtimeMs);
       return allResults;
     });
   }
@@ -392,8 +387,8 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       .split("\n")
       .filter((line) => line.trim())
       .slice(0, maxResults)
-      .map((p) => {
-        const trimmed = p.trim();
+      .map((candidate) => {
+        const trimmed = candidate.trim();
         const isDir = trimmed.endsWith("/");
         const cleanPath = isDir ? trimmed.slice(0, -1) : trimmed;
         const name = cleanPath.split("/").pop() || "";
@@ -506,8 +501,8 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
         if (out.exitCode === 0 || out.exitCode === 1) {
           return {
-            results: parseFdResults(out.stdout, typeFilter, maxResults).map((r) => ({
-              ...r,
+            results: parseFdResults(out.stdout, typeFilter, maxResults).map((result) => ({
+              ...result,
               backend: "fd",
             })),
             truncated: out.stdoutTruncated,
@@ -530,7 +525,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
       const results = yield* parseFindResults(out.stdout, maxResults);
       return {
-        results: results.map((r) => ({ ...r, backend: "find" })),
+        results: results.map((result) => ({ ...result, backend: "find" })),
         truncated: out.stdoutTruncated,
       };
     });
@@ -580,7 +575,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
           // 2. Parent directories (up to 3 levels up) — before home
           let currentPath = cwd;
-          for (let i = 0; i < 3; i++) {
+          for (let attempt = 0; attempt < 3; attempt++) {
             const parent = currentPath.split("/").slice(0, -1).join("/");
             if (parent && parent !== currentPath && parent !== "/") {
               if (!searchPaths.includes(parent)) {
@@ -631,11 +626,11 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
           // De-duplicate
           const seen = new Set<string>();
-          allExtResults = allExtResults.filter((r) => {
-            if (seen.has(r.path)) {
+          allExtResults = allExtResults.filter((result) => {
+            if (seen.has(result.path)) {
               return false;
             }
-            seen.add(r.path);
+            seen.add(result.path);
             return true;
           });
 

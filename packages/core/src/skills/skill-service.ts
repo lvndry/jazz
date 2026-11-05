@@ -53,8 +53,8 @@ export function scoreSkillsForQuery(
   skills: readonly SkillMetadata[],
   limit = 5,
 ): readonly SkillMetadata[] {
-  const q = query.trim().toLowerCase();
-  if (q.length === 0 || skills.length === 0) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.length === 0 || skills.length === 0) {
     return [];
   }
 
@@ -62,13 +62,13 @@ export function scoreSkillsForQuery(
   for (const skill of skills) {
     const name = skill.name.toLowerCase();
     let score = 0;
-    if (name === q) {
+    if (name === normalizedQuery) {
       score += 100;
-    } else if (name.includes(q)) {
+    } else if (name.includes(normalizedQuery)) {
       score += 20;
     }
 
-    if (matchesWholeWord(skill.description.toLowerCase(), q)) {
+    if (matchesWholeWord(skill.description.toLowerCase(), normalizedQuery)) {
       score += 2;
     }
 
@@ -77,11 +77,11 @@ export function scoreSkillsForQuery(
     }
   }
 
-  scored.sort((a, b) => {
-    if (b.score !== a.score) {
-      return b.score - a.score;
+  scored.sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
     }
-    return a.skill.name.localeCompare(b.skill.name);
+    return left.skill.name.localeCompare(right.skill.name);
   });
 
   return scored.slice(0, limit).map((entry) => entry.skill);

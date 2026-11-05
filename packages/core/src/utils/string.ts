@@ -36,19 +36,19 @@ export function sanitizeUnicodeSurrogates(str: string): string {
   if (typeof str !== "string" || str.length === 0) {
     return str;
   }
-  return str.replace(/[\uD800-\uDFFF]/g, (ch: string, i: number, s: string) => {
+  return str.replace(/[\uD800-\uDFFF]/g, (ch: string, offset: number, source: string) => {
     const code = ch.charCodeAt(0);
     const isHigh = code >= HIGH_SURROGATE_MIN && code <= HIGH_SURROGATE_MAX;
     const isLow = code >= LOW_SURROGATE_MIN && code <= LOW_SURROGATE_MAX;
     if (isHigh) {
-      const next = s.charCodeAt(i + 1);
+      const next = source.charCodeAt(offset + 1);
       if (next >= LOW_SURROGATE_MIN && next <= LOW_SURROGATE_MAX) {
         return ch;
       }
       return REPLACEMENT_CHAR;
     }
     if (isLow) {
-      const prev = s.charCodeAt(i - 1);
+      const prev = source.charCodeAt(offset - 1);
       if (prev >= HIGH_SURROGATE_MIN && prev <= HIGH_SURROGATE_MAX) {
         return ch;
       }

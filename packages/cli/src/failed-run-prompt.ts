@@ -46,7 +46,7 @@ export function promptFailedRunsWarning() {
       return;
     }
 
-    const scheduledNames = new Set(scheduled.map((s) => s.workflowName));
+    const scheduledNames = new Set(scheduled.map((schedule) => schedule.workflowName));
 
     // Find the latest *attempt* per scheduled workflow, and keep only those
     // whose latest attempt failed. We sort on `startedAt` (not completedAt)

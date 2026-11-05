@@ -29,6 +29,7 @@ import {
   UNTITLED_CONVERSATION_TITLE,
 } from "./conversation-log";
 import { legacyMessageId } from "./conversation-tree";
+import { invalidInput } from "../test-support/fakes";
 
 /** Messages as a reader sees them, without the log ids the reader stamps on them. */
 function withoutEntryIds(messages: readonly ChatMessage[] | undefined) {
@@ -1290,7 +1291,7 @@ describe("semantic presentation persistence", () => {
     await expect(
       runEffect(
         recordConversationTranscript(
-          { ...record([]), uiTranscript: [draft as unknown as typeof receipt] },
+          { ...record([]), uiTranscript: [invalidInput<typeof receipt>(draft)] },
           tmpDir,
         ),
       ),

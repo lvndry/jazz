@@ -47,7 +47,7 @@ function makeService(): JobQueueServiceImpl {
 }
 
 function jobInputs(count: number) {
-  return Array.from({ length: count }, (_, i) => ({ command: `echo job-${i}` }));
+  return Array.from({ length: count }, (_, index) => ({ command: `echo job-${index}` }));
 }
 
 describe("enqueueBatch", () => {
@@ -93,11 +93,11 @@ describe("enqueueBatch", () => {
 
   test("rejects once the active-batch-per-agent cap is reached", async () => {
     const service = makeService();
-    for (let i = 0; i < MAX_ACTIVE_BATCHES_PER_AGENT; i++) {
+    for (let index = 0; index < MAX_ACTIVE_BATCHES_PER_AGENT; index++) {
       const outcome = await runEffect(
         service.enqueueBatch("agent-1", "conv-1", jobInputs(1), {
           workingDir: "/tmp",
-          reason: `batch ${i}`,
+          reason: `batch ${index}`,
         }),
       );
       expect(outcome.success).toBe(true);
@@ -225,7 +225,7 @@ describe("completeJob", () => {
       }),
     );
     expect(result.batchNowComplete).toBe(false);
-    const job = result.batch?.jobs.find((j) => j.id === claimed.jobId);
+    const job = result.batch?.jobs.find((batchJob) => batchJob.id === claimed.jobId);
     expect(job?.status).toBe("pending");
     expect(job?.attempt).toBe(1);
     expect(job?.nextAttemptAt).toBeGreaterThan(Date.now());

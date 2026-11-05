@@ -332,7 +332,7 @@ export function handleResumeCommand(
       return { shouldContinue: true };
     }
 
-    const selected = history.conversations.find((c) => c.conversationId === selectedId);
+    const selected = history.conversations.find((entry) => entry.conversationId === selectedId);
     if (!selected) {
       return { shouldContinue: true };
     }

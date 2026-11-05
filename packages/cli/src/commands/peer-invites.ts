@@ -34,6 +34,10 @@ import { generate as generateQrCode } from "qrcode-terminal";
 import { resolvePeerInviteOrigin } from "./peer-invite-origin";
 import { describeTier } from "./peers";
 
+async function readJsonBody(response: Response): Promise<unknown> {
+  return response.json();
+}
+
 function renderQrCode(text: string): Promise<string> {
   return new Promise((resolve) => {
     generateQrCode(text, { small: true }, resolve);
@@ -389,7 +393,7 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
       try: (): Promise<{ readonly status: number; readonly body: unknown }> =>
         fetch(`${parsed.origin}/peer-invites/${parsed.id}`).then(async (response) => ({
           status: response.status,
-          body: (await response.json()) as unknown,
+          body: await readJsonBody(response),
         })),
       catch: (error) => error,
     }).pipe(Effect.catch(() => Effect.succeed(undefined)));
@@ -487,7 +491,7 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
           body: JSON.stringify({ secret: parsed.secret, as: localName }),
         }).then(async (response) => ({
           status: response.status,
-          body: (await response.json()) as unknown,
+          body: await readJsonBody(response),
         })),
       catch: (error) => error,
     }).pipe(

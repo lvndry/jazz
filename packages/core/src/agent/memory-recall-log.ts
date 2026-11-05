@@ -236,7 +236,7 @@ export function summarizeMemoryRecalls(
     bySurface.set(entry.surface, bucket);
   }
   return [...bySurface.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
     .map(([surface, bucket]) => ({
       surface,
       eligibleRuns: bucket.eligible,

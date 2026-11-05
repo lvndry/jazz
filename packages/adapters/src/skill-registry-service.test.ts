@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Option } from "effect";
 import { SkillRegistryServiceImpl, parseRegistrySkillMetadata } from "./skill-registry-service";
+import { fakeFetch } from "./test-support/fakes";
 
 /** The skill adapter pins catalog caching, source fidelity, and the single-file boundary. */
 
@@ -53,7 +54,7 @@ function mockFetch(routes: Record<string, string>): ReturnType<typeof mock> {
         : new Response(body, { status: 200 }),
     );
   });
-  global.fetch = fetchMock as unknown as typeof fetch;
+  global.fetch = fakeFetch(fetchMock);
   return fetchMock;
 }
 

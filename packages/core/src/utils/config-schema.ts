@@ -270,16 +270,28 @@ const modelCapabilityOverrideSchema = z.strictObject({
 
 type CapabilityOverrides = NonNullable<LLMConfig["capabilityOverrides"]>;
 
-const capabilityOverridesShape = Object.fromEntries(
-  AVAILABLE_PROVIDERS.map((provider) => [
-    provider,
-    z.record(nonEmptySafeRecordKey, modelCapabilityOverrideSchema).exactOptional(),
-  ]),
-) as unknown as SchemaShape<CapabilityOverrides>;
+/**
+ * An object with one entry per key, each built by `valueFor`. The loop fills every key of `keys`,
+ * so the finished object has the full `Record<Key, Value>` shape that `Partial` hides while it is
+ * being built.
+ */
+function recordOfKeys<Key extends string, Value>(
+  keys: readonly Key[],
+  valueFor: (key: Key) => Value,
+): Record<Key, Value> {
+  const entries: Partial<Record<Key, Value>> = {};
+  for (const key of keys) {
+    entries[key] = valueFor(key);
+  }
+  return entries as Record<Key, Value>;
+}
 
-const capabilityOverridesSchema: z.ZodType<FileShape<CapabilityOverrides>> = z.strictObject(
-  capabilityOverridesShape,
-) as unknown as z.ZodType<FileShape<CapabilityOverrides>>;
+const capabilityOverridesShape = recordOfKeys(AVAILABLE_PROVIDERS, () =>
+  z.record(nonEmptySafeRecordKey, modelCapabilityOverrideSchema).exactOptional(),
+) satisfies SchemaShape<CapabilityOverrides>;
+
+const capabilityOverridesSchema: z.ZodType<FileShape<CapabilityOverrides>> =
+  z.strictObject(capabilityOverridesShape);
 
 const llmShape = {
   streamIdleTimeoutMs: positiveWholeNumber.exactOptional(),

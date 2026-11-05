@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Option } from "effect";
+import { fakeFetch } from "./test-support/fakes";
 import { WorkflowRegistryServiceImpl } from "./workflow-registry-service";
 
 /**
@@ -55,14 +56,16 @@ function service(): WorkflowRegistryServiceImpl {
 }
 
 function mockFetch(routes: Record<string, string>): void {
-  global.fetch = mock((input: string | URL) => {
-    const body = routes[typeof input === "string" ? input : input.toString()];
-    return Promise.resolve(
-      body === undefined
-        ? new Response("not found", { status: 404 })
-        : new Response(body, { status: 200 }),
-    );
-  }) as unknown as typeof fetch;
+  global.fetch = fakeFetch(
+    mock((input: string | URL) => {
+      const body = routes[typeof input === "string" ? input : input.toString()];
+      return Promise.resolve(
+        body === undefined
+          ? new Response("not found", { status: 404 })
+          : new Response(body, { status: 200 }),
+      );
+    }),
+  );
 }
 
 function routes(workflowMarkdown: string = WORKFLOW_MD): Record<string, string> {

@@ -38,6 +38,7 @@ import {
 } from "@jazz/adapters/history/conversation-history-service";
 import { InMemoryGoalStore } from "@jazz/adapters/storage/goal-store";
 import { InMemoryRunStore } from "@jazz/adapters/storage/run-store";
+import { partialFake } from "../test-support/fakes";
 
 const GOAL_ID = "goal-1";
 const AGENT_ID = "agent-1";
@@ -51,28 +52,28 @@ interface Harness {
 
 /** A config service whose app config carries the given daemon spend caps and nothing else. */
 function configWithCaps(daemon?: DaemonConfig): AgentConfigService {
-  return {
+  return partialFake<AgentConfigService>({
     appConfig: Effect.succeed({ ...(daemon !== undefined ? { daemon } : {}) }),
-  } as unknown as AgentConfigService;
+  });
 }
 
 function harness(repair?: string, caps?: DaemonConfig): Harness {
   const goals = new InMemoryGoalStore();
   const runs = new InMemoryRunStore();
-  const agents = {
+  const agents = partialFake<AgentService>({
     getAgent: () =>
       Effect.succeed({
         id: AGENT_ID,
         name: "agent",
         config: { llm: { provider: "ollama", model: "model" } },
       }),
-  } as unknown as AgentService;
-  const llm = {
+  });
+  const llm = partialFake<LLMService>({
     createChatCompletion: () =>
       repair === undefined
         ? Effect.fail(new Error("no repair in this test"))
         : Effect.succeed({ id: "r", model: "model", content: repair, usage: { totalTokens: 7 } }),
-  } as unknown as LLMService;
+  });
   const layer = Layer.mergeAll(
     Layer.succeed(GoalStoreTag, goals),
     Layer.succeed(RunStoreTag, runs),
@@ -80,13 +81,16 @@ function harness(repair?: string, caps?: DaemonConfig): Harness {
     Layer.succeed(LLMServiceTag, llm),
     Layer.succeed(LoggerServiceTag, silentLogger),
     Layer.succeed(AgentConfigServiceTag, configWithCaps(caps)),
-    Layer.succeed(FileSystemContextServiceTag, {
-      setCwd: (key: { conversationId?: string }, directory: string) =>
-        Effect.sync(() => {
-          placedIn.push({ conversationId: key.conversationId ?? "", directory });
-        }),
-      getCwd: () => Effect.succeed("/work/importer"),
-    } as unknown as FileSystemContextService),
+    Layer.succeed(
+      FileSystemContextServiceTag,
+      partialFake<FileSystemContextService>({
+        setCwd: (key: { conversationId?: string }, directory: string) =>
+          Effect.sync(() => {
+            placedIn.push({ conversationId: key.conversationId ?? "", directory });
+          }),
+        getCwd: () => Effect.succeed("/work/importer"),
+      }),
+    ),
     NodeFileSystem.layer,
   ) as Layer.Layer<never>;
   return { goals, runs, layer, prompts: [] };
@@ -140,17 +144,20 @@ function cycleTranscript(options: AgentRunnerOptions, finalAnswer: string): Chat
 
 /** Stand in for AgentRunner.run: record the run the way the real recorder does, then answer. */
 function scriptRunner(test: Harness, finalAnswer: string) {
-  return spyOn(AgentRunner, "run").mockImplementation(((options: AgentRunnerOptions) =>
-    Effect.gen(function* () {
-      test.prompts.push(options);
-      const runId = options.runId ?? "unknown";
-      yield* test.runs.save(record(runId, { kind: "completed", content: finalAnswer }));
-      return {
-        content: finalAnswer,
-        conversationId: options.conversationId ?? "goal-chat",
-        messages: cycleTranscript(options, finalAnswer),
-      } as unknown as AgentResponse;
-    })) as unknown as typeof AgentRunner.run);
+  return spyOn(AgentRunner, "run").mockImplementation(
+    partialFake<typeof AgentRunner.run>((options: AgentRunnerOptions) =>
+      Effect.gen(function* () {
+        test.prompts.push(options);
+        const runId = options.runId ?? "unknown";
+        yield* test.runs.save(record(runId, { kind: "completed", content: finalAnswer }));
+        return partialFake<AgentResponse>({
+          content: finalAnswer,
+          conversationId: options.conversationId ?? "goal-chat",
+          messages: cycleTranscript(options, finalAnswer),
+        });
+      }),
+    ),
+  );
 }
 
 const COMPLETE = JSON.stringify({
@@ -267,38 +274,41 @@ describe("runDueGoals", () => {
       summary: "Header test passes.",
       evidence: [{ criterion: 1, quote: "1 pass 0 fail" }],
     };
-    const runner = spyOn(AgentRunner, "run").mockImplementation(((options: AgentRunnerOptions) =>
-      Effect.gen(function* () {
-        test.prompts.push(options);
-        const runId = options.runId ?? "unknown";
-        yield* test.runs.save(record(runId, { kind: "completed", content: "All done." }));
-        const transcript = cycleTranscript(options, "All done.");
-        return {
-          content: "All done.",
-          conversationId: "goal-chat",
-          messages: [
-            ...transcript.slice(0, -1),
-            {
-              role: "assistant",
-              content: "",
-              tool_calls: [
-                {
-                  id: "call-report",
-                  type: "function",
-                  function: { name: "report_goal_cycle", arguments: JSON.stringify(report) },
-                },
-              ],
-            },
-            {
-              role: "tool",
-              name: "report_goal_cycle",
-              content: JSON.stringify({ success: true, result: { recorded: true } }),
-              tool_call_id: "call-report",
-            },
-            { role: "assistant", content: "All done." },
-          ],
-        } as unknown as AgentResponse;
-      })) as unknown as typeof AgentRunner.run);
+    const runner = spyOn(AgentRunner, "run").mockImplementation(
+      partialFake<typeof AgentRunner.run>((options: AgentRunnerOptions) =>
+        Effect.gen(function* () {
+          test.prompts.push(options);
+          const runId = options.runId ?? "unknown";
+          yield* test.runs.save(record(runId, { kind: "completed", content: "All done." }));
+          const transcript = cycleTranscript(options, "All done.");
+          return partialFake<AgentResponse>({
+            content: "All done.",
+            conversationId: "goal-chat",
+            messages: [
+              ...transcript.slice(0, -1),
+              {
+                role: "assistant",
+                content: "",
+                tool_calls: [
+                  {
+                    id: "call-report",
+                    type: "function",
+                    function: { name: "report_goal_cycle", arguments: JSON.stringify(report) },
+                  },
+                ],
+              },
+              {
+                role: "tool",
+                name: "report_goal_cycle",
+                content: JSON.stringify({ success: true, result: { recorded: true } }),
+                tool_call_id: "call-report",
+              },
+              { role: "assistant", content: "All done." },
+            ],
+          });
+        }),
+      ),
+    );
     try {
       await tick(test);
     } finally {
@@ -407,21 +417,24 @@ describe("runDueGoals", () => {
         executeArgs: {},
       },
     };
-    const parkRunner = spyOn(AgentRunner, "run").mockImplementation(((
-      options: AgentRunnerOptions,
-    ) =>
-      Effect.gen(function* () {
-        const runId = options.runId ?? "unknown";
-        yield* test.runs.save(
-          record(runId, {
-            kind: "input-required",
-            pending,
-            snapshot: { messages: [], iteration: 1 } as never,
-            expiresAt: new Date(Date.now() + 60_000).toISOString(),
-          }),
-        );
-        return yield* Effect.fail(new RunParkRequested({ pending, runId, messages: [] } as never));
-      })) as unknown as typeof AgentRunner.run);
+    const parkRunner = spyOn(AgentRunner, "run").mockImplementation(
+      partialFake<typeof AgentRunner.run>((options: AgentRunnerOptions) =>
+        Effect.gen(function* () {
+          const runId = options.runId ?? "unknown";
+          yield* test.runs.save(
+            record(runId, {
+              kind: "input-required",
+              pending,
+              snapshot: { messages: [], iteration: 1 } as never,
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            }),
+          );
+          return yield* Effect.fail(
+            new RunParkRequested({ pending, runId, messages: [] } as never),
+          );
+        }),
+      ),
+    );
     try {
       await tick(test);
     } finally {
@@ -654,28 +667,31 @@ async function parkedGoal(test: Harness): Promise<string> {
 
 /** Stand in for the resumed AgentRunner.run: optionally act mid-run, record completion, answer. */
 function resumedRunner(test: Harness, finalAnswer: string, midRun?: () => Promise<void>) {
-  return spyOn(AgentRunner, "run").mockImplementation(((options: AgentRunnerOptions) =>
-    Effect.gen(function* () {
-      if (midRun !== undefined) {
-        yield* Effect.promise(midRun);
-      }
-      const runId = options.runId ?? "unknown";
-      yield* test.runs.save(record(runId, { kind: "completed", content: finalAnswer }));
-      return {
-        content: finalAnswer,
-        conversationId: "goal-chat",
-        messages: [
-          ...(options.conversationHistory ?? []),
-          {
-            role: "tool",
-            name: "execute_command",
-            content: TOOL_OUTPUT,
-            tool_call_id: "call-edit",
-          },
-          { role: "assistant", content: finalAnswer },
-        ],
-      } as unknown as AgentResponse;
-    })) as unknown as typeof AgentRunner.run);
+  return spyOn(AgentRunner, "run").mockImplementation(
+    partialFake<typeof AgentRunner.run>((options: AgentRunnerOptions) =>
+      Effect.gen(function* () {
+        if (midRun !== undefined) {
+          yield* Effect.promise(midRun);
+        }
+        const runId = options.runId ?? "unknown";
+        yield* test.runs.save(record(runId, { kind: "completed", content: finalAnswer }));
+        return partialFake<AgentResponse>({
+          content: finalAnswer,
+          conversationId: "goal-chat",
+          messages: [
+            ...(options.conversationHistory ?? []),
+            {
+              role: "tool",
+              name: "execute_command",
+              content: TOOL_OUTPUT,
+              tool_call_id: "call-edit",
+            },
+            { role: "assistant", content: finalAnswer },
+          ],
+        });
+      }),
+    ),
+  );
 }
 
 describe("answering a goal's parked run", () => {
@@ -714,10 +730,12 @@ describe("answering a goal's parked run", () => {
     const seen: AgentRunnerOptions[] = [];
     const runner = resumedRunner(test, COMPLETE);
     const capture = runner.getMockImplementation()!;
-    runner.mockImplementation(((options: AgentRunnerOptions) => {
-      seen.push(options);
-      return capture(options);
-    }) as unknown as typeof AgentRunner.run);
+    runner.mockImplementation(
+      partialFake<typeof AgentRunner.run>((options: AgentRunnerOptions) => {
+        seen.push(options);
+        return capture(options);
+      }),
+    );
     try {
       await run(
         test,
