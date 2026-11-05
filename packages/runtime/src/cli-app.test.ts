@@ -164,6 +164,13 @@ describe("createCLIApp help path", () => {
     expect(config?.commands.map((command) => command.name())).toContain("validate");
   });
 
+  it("offers a resolved-configuration view with a JSON form", () => {
+    const program = createCLIApp();
+    const config = program.commands.find((command) => command.name() === "config");
+    const resolved = config?.commands.find((command) => command.name() === "resolved");
+    expect(resolved?.options.map((option) => option.long)).toEqual(["--json"]);
+  });
+
   it("uses add for every library command and offers global skill removal", () => {
     const program = createCLIApp();
     for (const family of ["skill", "persona", "workflow"]) {
