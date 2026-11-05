@@ -60,7 +60,15 @@ async function readCommand(): Promise<void> {
   if (reading || mounted === undefined) return;
   reading = true;
   try {
-    const parsed = commandSchema.safeParse(await Bun.file(controlPath).json());
+    const raw: unknown = await Bun.file(controlPath)
+      .json()
+      .catch((error: unknown) => {
+        if (error instanceof SyntaxError) {
+          return null;
+        }
+        throw error;
+      });
+    const parsed = commandSchema.safeParse(raw);
     if (!parsed.success || parsed.data.sequence <= sequence) return;
     sequence = parsed.data.sequence;
     switch (parsed.data.action) {

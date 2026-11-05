@@ -507,9 +507,20 @@ export function hintsFor(
   if (runActive) {
     if (queueing) {
       if (hasQueued) {
-        return ["ctrl+enter to send all", "enter to queue", "up to recall", "ctrl+x to clear"];
+        return [
+          "ctrl+enter to send all",
+          "enter to queue",
+          "tab to queue after turn",
+          "up to recall",
+          "ctrl+x to clear",
+        ];
       }
-      return ["enter to queue", "esc esc to interrupt", "ctrl+r for reasoning"];
+      return [
+        "enter to queue",
+        "tab to queue after turn",
+        "esc esc to interrupt",
+        "ctrl+r for reasoning",
+      ];
     }
     return ["esc esc to interrupt", "ctrl+r for reasoning", "ctrl+o to expand"];
   }

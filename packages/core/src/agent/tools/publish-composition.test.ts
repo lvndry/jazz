@@ -368,6 +368,19 @@ describe("publishComposition", () => {
     expect(result.error).toBe(PUBLISH_AUTH_ERROR);
   });
 
+  test("does not read a repo name containing 401 as an auth failure", async () => {
+    const { compose } = makeComposer((file, args) => {
+      if (file === "gh" && args[0] === "api" && args[1] === "user") {
+        throw new Error("repository octo/report-401 was not found");
+      }
+      return handlerFor({})(file, args);
+    });
+    const result = await publishComposition({ htmlPath, visibility: "public" }, dir, compose, fs);
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error("unreachable");
+    expect(result.error).not.toBe(PUBLISH_AUTH_ERROR);
+  });
+
   test("visibility private with host github is rejected before any work", async () => {
     const { compose, calls } = makeComposer(handlerFor({}));
     const result = await publishComposition(

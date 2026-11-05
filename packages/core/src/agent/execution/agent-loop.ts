@@ -1044,6 +1044,47 @@ function handOffTranscript(
 }
 
 /**
+ * Checkpoint taken before a batch holding a call that may change something runs. Each call the
+ * batch will dispatch is closed as interrupted: if the process dies mid-batch, this is the
+ * transcript a resumed conversation loads, and it must not claim a call that may have run
+ * changed nothing. A call the batch already answered without dispatching keeps its real
+ * answer. The checkpoint after the batch replaces this one with the real results.
+ *
+ * Fails when the save fails: a batch that may change state does not start without a durable
+ * record that it was about to.
+ */
+function reportPreExecutionCheckpoint(
+  state: LoopState,
+  batch: ActiveToolBatch,
+  options: LoopDeps["options"],
+  egressTaint: EgressTaint | undefined,
+): Effect.Effect<void, Error> {
+  const onCheckpoint = options.onCheckpoint;
+  if (onCheckpoint === undefined || options.internal === true) {
+    return Effect.void;
+  }
+  const answerWithheld = stoppedCallAnswer(
+    batch,
+    "the process ended while this batch was executing",
+  );
+  return Effect.suspend(() => {
+    const transcript: Pick<LoopState, "currentMessages"> = {
+      currentMessages: [...state.currentMessages],
+    };
+    closeDanglingToolCalls(transcript, (toolCall) => {
+      const canonicalId = batch.aliases.get(toolCall.id) ?? toolCall.id;
+      return batch.ledger.statusOf(canonicalId) === "completed"
+        ? answerWithheld(toolCall)
+        : stoppedToolCallResult("interrupted", "the process ended while this batch was executing");
+    });
+    return onCheckpoint(
+      recordEgressTaint(transcript.currentMessages, egressTaint),
+      "pre-execution",
+    );
+  });
+}
+
+/**
  * Hand a failed turn's transcript to the caller before the failure unwinds it — otherwise
  * the caller reverts to the history it passed in and the turn's work is lost.
  *
@@ -1079,8 +1120,8 @@ function reportCheckpoint(
     return Effect.void;
   }
   return Effect.suspend(() =>
-    onCheckpoint(handOffTranscript(state, egressTaint, "the run stopped")),
-  );
+    onCheckpoint(handOffTranscript(state, egressTaint, "the run stopped"), "iteration"),
+  ).pipe(Effect.ignore);
 }
 
 /**
@@ -1360,6 +1401,43 @@ function handleToolPhase(
     const keepCutResult = cutResultKeeper(agent.id, actualConversationId, deps.tools);
     state.activeToolBatch = { ledger, aliases, reported: false, keepCutResult };
 
+    const mayChangeState = dispatched.filter(
+      (toolCall) => !dedupableNames.has(toolCall.function.name),
+    );
+    if (mayChangeState.length > 0) {
+      const startedAt = Date.now();
+      yield* reportPreExecutionCheckpoint(
+        state,
+        state.activeToolBatch,
+        options,
+        deps.context.egressTaint,
+      ).pipe(
+        Effect.tapError((error) =>
+          logger.error("Pre-execution checkpoint failed; tool batch not started", {
+            agentId: agent.id,
+            conversationId: actualConversationId,
+            iteration: iterationIndex + 1,
+            mutatingCalls: mayChangeState.length,
+            error: error.message,
+          }),
+        ),
+        Effect.mapError(
+          (error) =>
+            new Error(
+              `Could not save a checkpoint before running tools that change state, so they were not run: ${error.message}`,
+            ),
+        ),
+      );
+      yield* logger.debug("Saved pre-execution checkpoint for tool batch", {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        iteration: iterationIndex + 1,
+        mutatingCalls: mayChangeState.length,
+        toolNames: [...new Set(mayChangeState.map((toolCall) => toolCall.function.name))],
+        durationMs: Date.now() - startedAt,
+      });
+    }
+
     const executedResults = yield* ToolExecutor.executeToolCalls(
       dispatched,
       contextWithTokenStats,
@@ -1401,6 +1479,13 @@ function handleToolPhase(
         toolResult.memoryExposure === undefined
           ? []
           : [[toolResult.toolCallId, toolResult.memoryExposure] as const],
+      ),
+    );
+    const unlockedToolNamesMap = new Map(
+      toolResults.flatMap((toolResult) =>
+        toolResult.unlockedToolNames === undefined
+          ? []
+          : [[toolResult.toolCallId, toolResult.unlockedToolNames] as const],
       ),
     );
     const provenanceMap = new Map(
@@ -1494,6 +1579,7 @@ function handleToolPhase(
             keepCutResult,
           );
           const memoryExposure = exposureMap.get(toolCall.id);
+          const unlockedToolNames = unlockedToolNamesMap.get(toolCall.id);
           const memoryDelivery: MemoryDelivery | undefined =
             memoryExposure === undefined
               ? undefined
@@ -1504,6 +1590,7 @@ function handleToolPhase(
             content: formattedResult,
             tool_call_id: toolCall.id,
             ...(memoryDelivery !== undefined ? { memoryDelivery } : {}),
+            ...(unlockedToolNames !== undefined ? { unlockedToolNames } : {}),
             ...(provenance?.kind === "external" ? { egressTainted: true as const } : {}),
           });
           recordToolResultTokens(runMetrics, toolCall.function.name, formattedResult.length);

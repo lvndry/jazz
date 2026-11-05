@@ -78,12 +78,13 @@ const finalCompletion: ChatCompletionResponse = {
   content: "There are 2 entries.",
 };
 
-function makeLLMService(): LLMService {
+function makeLLMService(onRequest?: (options: { conversationId?: string }) => void): LLMService {
   let call = 0;
   return {
     createStreamingChatCompletion: () => Effect.fail(new Error("streaming must not be used")),
-    createChatCompletion: () =>
+    createChatCompletion: (_provider: unknown, options: { conversationId?: string }) =>
       Effect.sync(() => {
+        onRequest?.(options);
         call += 1;
         return call === 1 ? toolCallCompletion : finalCompletion;
       }),
@@ -153,11 +154,15 @@ function makeRunContext(): AgentRunContext {
 const runRecursive: RecursiveRunner = () =>
   Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse);
 
-function buildLayer(presentationService: OneShotPresentationService) {
+function buildLayer(
+  presentationService: OneShotPresentationService,
+  onRequest?: (options: { conversationId?: string }) => void,
+  llmService?: LLMService,
+) {
   return Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, mockLogger),
     Layer.succeed(PresentationServiceTag, presentationService as any),
-    Layer.succeed(LLMServiceTag, makeLLMService()),
+    Layer.succeed(LLMServiceTag, llmService ?? makeLLMService(onRequest)),
     Layer.succeed(ToolRegistryTag, mockToolRegistry),
     Layer.succeed(MCPServerManagerTag, {} as any),
     Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
@@ -241,6 +246,30 @@ describe("executeWithoutStreaming tool event emission", () => {
     const startEvent = events.find((event) => event.type === "tool_execution_start") as
       Extract<StreamEvent, { type: "tool_execution_start" }> | undefined;
     expect(startEvent?.toolName).toBe("ls");
+  });
+
+  it("passes the resolved conversation id to the provider request", async () => {
+    const presentationService = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
+    const conversationIds: Array<string | undefined> = [];
+
+    await Effect.runPromise(
+      executeWithoutStreaming(
+        makeOptions(),
+        makeRunContext(),
+        DEFAULT_DISPLAY_CONFIG,
+        false,
+        runRecursive,
+      ).pipe(
+        Effect.provide(
+          buildLayer(presentationService, (options) =>
+            conversationIds.push(options.conversationId),
+          ),
+        ),
+      ),
+    );
+
+    expect(conversationIds.length).toBeGreaterThan(0);
+    expect(new Set(conversationIds)).toEqual(new Set(["conv-123"]));
   });
 
   it("does not emit tool NDJSON when no event categories are requested", async () => {
@@ -327,5 +356,76 @@ describe("executeWithoutStreaming tool event emission", () => {
     expect(presentationService.answers).toEqual([
       { content: "There are 2 entries.", regionId: "child-region" },
     ]);
+  });
+});
+
+describe("executeWithoutStreaming empty responses", () => {
+  const emptyCompletion = (
+    overrides: Partial<ChatCompletionResponse> = {},
+  ): ChatCompletionResponse => ({
+    id: "empty",
+    model: "qwen3-coder",
+    content: "",
+    finishReason: "stop",
+    usage: { promptTokens: 12, completionTokens: 0, totalTokens: 12 },
+    ...overrides,
+  });
+
+  function runWith(
+    completions: readonly ChatCompletionResponse[],
+    maxRetries: number,
+  ): { run: () => Promise<AgentResponse>; calls: () => number; runContext: AgentRunContext } {
+    let calls = 0;
+    const llmService = {
+      ...makeLLMService(),
+      createChatCompletion: () =>
+        Effect.sync(() => {
+          const completion = completions[Math.min(calls, completions.length - 1)]!;
+          calls += 1;
+          return completion;
+        }),
+    } as unknown as LLMService;
+    const runContext = { ...makeRunContext(), maxRetries };
+    const presentationService = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
+    return {
+      run: () =>
+        Effect.runPromise(
+          executeWithoutStreaming(
+            makeOptions(),
+            runContext,
+            DEFAULT_DISPLAY_CONFIG,
+            false,
+            runRecursive,
+          ).pipe(Effect.provide(buildLayer(presentationService, undefined, llmService))),
+        ),
+      calls: () => calls,
+      runContext,
+    };
+  }
+
+  it("asks again after an empty finish and answers from the retry", async () => {
+    const harness = runWith([emptyCompletion(), { ...finalCompletion }], 2);
+
+    const result = await harness.run();
+
+    expect(result.content).toBe("There are 2 entries.");
+    expect(harness.calls()).toBe(2);
+    expect(harness.runContext.runMetrics.llmRetryCount).toBe(1);
+    expect(harness.runContext.runMetrics.totalPromptTokens).toBeGreaterThanOrEqual(12);
+  });
+
+  it("fails clearly once the retry budget is spent on empty finishes", async () => {
+    const harness = runWith([emptyCompletion()], 1);
+
+    await expect(harness.run()).rejects.toThrow("empty response");
+    expect(harness.calls()).toBe(2);
+  });
+
+  it("does not retry reasoning-only output", async () => {
+    const harness = runWith([emptyCompletion({ reasoning: "thinking it through" })], 2);
+
+    await harness.run();
+
+    expect(harness.calls()).toBe(1);
   });
 });

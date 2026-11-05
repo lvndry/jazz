@@ -4,6 +4,7 @@
 
 import type { ProviderName } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
+import type { WriteConfinementMode } from "@/core/sandbox/write-policy";
 import type { AttachmentKind } from "./attachment";
 import type { HostProfile } from "./host";
 import type { ModelCapabilityOverride } from "./model-capabilities";
@@ -123,6 +124,8 @@ export interface AppConfig {
   readonly ui?: UiConfig;
   /** Defaults for interactive chat sessions. */
   readonly chat?: ChatConfig;
+  /** How model-run shell commands are fenced: see `ShellConfig`. */
+  readonly shell?: ShellConfig;
   /**
    * Named model companions, keyed by name. An agent binds one to a role by name
    * (`"analyze:image": "ocr"`) instead of a `"provider/model"` id. Read from the global
@@ -159,6 +162,20 @@ export interface NamedCompanionConfig {
    * trained on one fixed instruction (PaddleOCR-VL reads `OCR:`), which answer garbage to prose.
    */
   readonly prompt?: string;
+}
+
+/**
+ * Write confinement for `execute_command`, `write_file`, `edit_file`, `create_pdf`, `rm`, `mv`, `cp` and `mkdir`: with it `on`, a
+ * command can write only to the session's working directory, temp directories and well-known
+ * tool caches; reads and the network stay open.
+ *
+ * Unset: `off` while a person is at the terminal in interactive chat, `on` for everything else (bridge
+ * bots, peers, goals, loops, daemon work and `jazz run`). `on` refuses to run commands on a
+ * machine that cannot confine them, and `off` is the only way to run them unconfined there.
+ * Only the global config can set `off`; a project config can turn confinement on, never off.
+ */
+export interface ShellConfig {
+  readonly confinement?: WriteConfinementMode;
 }
 
 /** Defaults applied to every new chat session; `/limit` can still change them for that session. */
@@ -468,6 +485,7 @@ export const WEB_SEARCH_PROVIDERS = [
   "perplexity",
   "linkup",
   "treg",
+  "keenable",
 ] as const;
 
 export type WebSearchProviderName = (typeof WEB_SEARCH_PROVIDERS)[number];
@@ -488,5 +506,6 @@ export interface WebSearchConfig {
   readonly perplexity?: WebSearchProviderConfig;
   readonly treg?: WebSearchProviderConfig;
   readonly linkup?: WebSearchProviderConfig;
+  readonly keenable?: WebSearchProviderConfig;
   readonly provider?: WebSearchProviderName;
 }

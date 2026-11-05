@@ -1,6 +1,7 @@
 import { Effect, FileSystem } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import { pinWriteTargets } from "@/core/sandbox/pinned-writes";
 import type { ToolExecutionContext } from "@/core/types";
 import { toError } from "@/core/utils/errors";
 import {
@@ -81,6 +82,10 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
           args.destination,
           { skipExistenceCheck: true },
         );
+        const pin = yield* pinWriteTargets(context, [destination]);
+        if (pin.denied !== undefined) {
+          return pin.denied;
+        }
 
         // Guard: destination must not be inside source (prevents endless recursion)
         const normalizedSource = source.endsWith("/") ? source : `${source}/`;
@@ -108,7 +113,11 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
 
         // Copied beside the destination and swapped in whole, so an interrupted copy leaves
         // the destination as it was: a true overwrite, never a merge or a half-copied tree.
-        return yield* replacePathAtomically(fs, destination, (stagingPath) =>
+        const swapped = yield* pin.recheck();
+        if (swapped !== undefined) {
+          return swapped;
+        }
+        return yield* replacePathAtomically(fs, pin.paths[0] ?? destination, (stagingPath) =>
           fs.copy(source, stagingPath).pipe(Effect.mapError(toError)),
         ).pipe(
           Effect.map(() => ({ success: true, result: `Copied: ${source} → ${destination}` })),

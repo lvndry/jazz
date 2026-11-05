@@ -4,6 +4,7 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
 import { carryEgressTaint } from "../execution/egress-taint";
+import { carryUnlockedToolNames } from "../tools/unlocked-tools";
 
 /**
  * The compaction ladder's thresholds and `ContextWindowManager`, which decides
@@ -297,9 +298,12 @@ export class ContextWindowManager {
     // Step 6: Rebuild messages array
     const finalIndexSet = new Set(finalIndices);
     const droppedMessages = messages.filter((_message, index) => !finalIndexSet.has(index));
-    const keptMessages: ChatMessage[] = carryEgressTaint(
+    const keptMessages: ChatMessage[] = carryUnlockedToolNames(
       droppedMessages,
-      finalIndices.map((index) => messages[index] as ChatMessage),
+      carryEgressTaint(
+        droppedMessages,
+        finalIndices.map((index) => messages[index] as ChatMessage),
+      ),
     );
 
     // Structural guarantee: finalIndices always contains 0,

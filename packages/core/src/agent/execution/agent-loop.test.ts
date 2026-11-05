@@ -1940,7 +1940,7 @@ describe("executeAgentLoop", () => {
       }
     });
 
-    it("checkpoints the user's message before the first model call, then each finished iteration", async () => {
+    it("checkpoints the user's message before the first model call, before a batch that may change state, then each finished iteration", async () => {
       const originalExecute = ToolExecutor.executeToolCalls;
       ToolExecutor.executeToolCalls = mock(() =>
         Effect.succeed([
@@ -1957,13 +1957,142 @@ describe("executeAgentLoop", () => {
             }),
         });
 
-        expect(checkpoints).toHaveLength(2);
+        expect(checkpoints).toHaveLength(3);
         expect(checkpoints[0]).toEqual([{ role: "user", content: "hello" }]);
         expect(
-          checkpoints[1]?.some(
+          checkpoints[2]?.some(
             (message) => message.role === "tool" && message.tool_call_id === "call_1",
           ),
         ).toBe(true);
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("leaves an interrupted-while-running answer for a mutating call when the process dies mid-batch", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() => Effect.fail(new Error("process killed")));
+      const checkpoints: (readonly ChatMessage[])[] = [];
+
+      try {
+        await runToFailure(strategyFailingAfter(1), {
+          onCheckpoint: (messages) =>
+            Effect.sync(() => {
+              checkpoints.push(messages);
+            }),
+        });
+
+        const beforeBatch = checkpoints.find((messages) =>
+          messages.some((message) => message.role === "assistant" && message.tool_calls),
+        );
+        const answer = beforeBatch?.find(
+          (message) => message.role === "tool" && message.tool_call_id === "call_1",
+        );
+        expect(answer?.content).toContain("Interrupted while running");
+        expect(answer?.content).toContain("check the current state");
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("keeps a withheld sibling's real answer in the pre-execution checkpoint, marking only the dispatched call interrupted", async () => {
+      const proposalAndWrite = {
+        completion: {
+          id: "c1",
+          model: "gpt-4",
+          content: "",
+          toolCalls: [
+            {
+              id: "call_1",
+              type: "function" as const,
+              function: { name: "propose_goal", arguments: "{}" },
+            },
+            {
+              id: "call_2",
+              type: "function" as const,
+              function: { name: "write_file", arguments: "{}" },
+            },
+          ],
+        },
+        interrupted: false,
+      };
+      let calls = 0;
+      const strategy: CompletionStrategy = {
+        shouldShowReasoning: false,
+        getCompletion: () => {
+          calls++;
+          return calls === 1 ? Effect.succeed(proposalAndWrite) : Effect.fail(timedOut());
+        },
+        presentResponse: () => Effect.void,
+        onComplete: () => Effect.void,
+        getRenderer: () => null,
+      };
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() => Effect.fail(new Error("process killed")));
+      const checkpoints: (readonly ChatMessage[])[] = [];
+
+      try {
+        await runToFailure(strategy, {
+          onCheckpoint: (messages) =>
+            Effect.sync(() => {
+              checkpoints.push(messages);
+            }),
+        });
+
+        const beforeBatch = checkpoints.find((messages) =>
+          messages.some((message) => message.role === "assistant" && message.tool_calls),
+        );
+        const answerFor = (id: string) =>
+          beforeBatch?.find((message) => message.role === "tool" && message.tool_call_id === id)
+            ?.content;
+        expect(answerFor("call_1")).toContain("Interrupted while running");
+        expect(answerFor("call_2")).toContain("a goal was proposed in the same turn");
+        expect(answerFor("call_2")).not.toContain("Interrupted while running");
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("does not start a state-changing batch when its pre-execution checkpoint fails", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      const execute = mock(() =>
+        Effect.succeed([
+          { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+        ]),
+      );
+      ToolExecutor.executeToolCalls = execute as unknown as typeof ToolExecutor.executeToolCalls;
+
+      try {
+        const error = await runToFailure(strategyFailingAfter(1), {
+          onCheckpoint: (_messages, phase) =>
+            phase === "pre-execution" ? Effect.fail(new Error("disk full")) : Effect.void,
+        });
+
+        expect(execute).not.toHaveBeenCalled();
+        expect((error as Error).message).toContain("they were not run");
+        expect((error as Error).message).toContain("disk full");
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("keeps going when an iteration checkpoint fails", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      const execute = mock(() =>
+        Effect.succeed([
+          { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+        ]),
+      );
+      ToolExecutor.executeToolCalls = execute as unknown as typeof ToolExecutor.executeToolCalls;
+
+      try {
+        const error = await runToFailure(strategyFailingAfter(1), {
+          onCheckpoint: (_messages, phase) =>
+            phase === "iteration" ? Effect.fail(new Error("disk full")) : Effect.void,
+        });
+
+        expect(execute).toHaveBeenCalledTimes(1);
+        expect((error as Error).message).not.toContain("disk full");
       } finally {
         ToolExecutor.executeToolCalls = originalExecute;
       }

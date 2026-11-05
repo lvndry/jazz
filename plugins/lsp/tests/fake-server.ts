@@ -3,11 +3,12 @@
  * requests, diagnostics, workspace edits, and denied server-initiated writes.
  */
 
-import { writeFileSync } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 let buffer = Buffer.alloc(0);
 let uri = "";
+const watchEvents: Array<[string, number]> = [];
 function send(value: unknown): void {
   const body = Buffer.from(JSON.stringify(value));
   process.stdout.write(`Content-Length: ${body.length}\r\n\r\n`);
@@ -87,14 +88,12 @@ process.stdin.on("data", (chunk: Buffer) => {
       });
     }
     if (message.method === "workspace/didChangeWatchedFiles" && process.argv[5]) {
-      writeFileSync(
-        process.argv[5],
-        JSON.stringify({
-          events: (message.params?.["changes"] as Array<{ uri: string; type: number }>).map(
-            (entry) => [entry.uri, entry.type],
-          ),
-        }),
-      );
+      for (const entry of message.params?.["changes"] as Array<{ uri: string; type: number }>) {
+        watchEvents.push([entry.uri, entry.type]);
+      }
+      const watchLog = process.argv[5];
+      writeFileSync(`${watchLog}.tmp`, JSON.stringify({ events: watchEvents }));
+      renameSync(`${watchLog}.tmp`, watchLog);
     }
     if (message.id === undefined || !message.method) continue;
     if (message.method === "initialize" && process.argv[3])

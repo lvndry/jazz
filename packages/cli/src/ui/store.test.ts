@@ -789,7 +789,11 @@ describe("UIStore", () => {
       s.appendToQueue("second");
       s.appendToQueue("third");
 
-      expect(s.getMessageQueueSnapshot()).toEqual(["first", "second", "third"]);
+      expect(s.getMessageQueueSnapshot()).toEqual([
+        { text: "first", lane: "steer" },
+        { text: "second", lane: "steer" },
+        { text: "third", lane: "steer" },
+      ]);
     });
 
     test("peekQueue joins entries with newlines for back-compat with the chat-loop drain", () => {
@@ -805,7 +809,7 @@ describe("UIStore", () => {
       s.appendToQueue("only");
       s.appendToQueue("");
 
-      expect(s.getMessageQueueSnapshot()).toEqual(["only"]);
+      expect(s.getMessageQueueSnapshot()).toEqual([{ text: "only", lane: "steer" }]);
     });
 
     test("takeQueue returns the joined string and clears the array", () => {
@@ -829,7 +833,10 @@ describe("UIStore", () => {
       s.appendToQueue("and this");
 
       expect(s.takeQueuedTurn()).toEqual(["/info"]);
-      expect(s.getMessageQueueSnapshot()).toEqual(["keep going", "and this"]);
+      expect(s.getMessageQueueSnapshot()).toEqual([
+        { text: "keep going", lane: "steer" },
+        { text: "and this", lane: "steer" },
+      ]);
       expect(s.takeQueuedTurn()).toEqual(["keep going", "and this"]);
       expect(s.getMessageQueueSnapshot()).toEqual([]);
     });
@@ -851,14 +858,41 @@ describe("UIStore", () => {
       s.appendToQueue("/compact");
       s.appendToQueue("note");
       expect(s.takeQueuedProse()).toEqual([]);
-      expect(s.getMessageQueueSnapshot()).toEqual(["/compact", "note"]);
+      expect(s.getMessageQueueSnapshot()).toEqual([
+        { text: "/compact", lane: "steer" },
+        { text: "note", lane: "steer" },
+      ]);
 
       const t = new UIStore();
       t.appendToQueue("a");
       t.appendToQueue("/slash\nstill prose");
       t.appendToQueue("/help");
       expect(t.takeQueuedProse()).toEqual(["a", "/slash\nstill prose"]);
-      expect(t.getMessageQueueSnapshot()).toEqual(["/help"]);
+      expect(t.getMessageQueueSnapshot()).toEqual([{ text: "/help", lane: "steer" }]);
+    });
+
+    test("a follow-up never signals or steers a running turn, and a command keeps the steer lane", () => {
+      const s = new UIStore();
+      let signalled = 0;
+      s.onceQueuedProse(() => (signalled += 1));
+      s.appendToQueue("then summarize", "followup");
+      s.appendToQueue("/compact", "followup");
+      expect(signalled).toBe(0);
+      expect(s.takeQueuedProse()).toEqual([]);
+      expect(s.getMessageQueueSnapshot()).toEqual([
+        { text: "then summarize", lane: "followup" },
+        { text: "/compact", lane: "steer" },
+      ]);
+
+      s.appendToQueue("use staging");
+      expect(signalled).toBe(0);
+      expect(s.takeQueuedProse()).toEqual([]);
+      s.clearQueue();
+      s.appendToQueue("then summarize", "followup");
+      s.appendToQueue("use staging");
+      expect(signalled).toBe(1);
+      expect(s.takeQueuedProse()).toEqual(["use staging"]);
+      expect(s.takeQueuedTurn()).toEqual(["then summarize"]);
     });
 
     test("clearQueue empties the array", () => {
@@ -874,7 +908,7 @@ describe("UIStore", () => {
       const s = new UIStore();
       const seen: (readonly string[])[] = [];
       s.subscribePrompt(() => {
-        seen.push([...s.getPromptSlice().messageQueue]);
+        seen.push(s.getPromptSlice().messageQueue.map((entry) => entry.text));
       });
 
       s.appendToQueue("a");
@@ -888,7 +922,7 @@ describe("UIStore", () => {
 
     test("clearQueue when already empty does not notify subscribers", () => {
       const s = new UIStore();
-      const seen: (readonly string[])[] = [];
+      const seen: unknown[] = [];
       s.subscribePrompt(() => seen.push(s.getPromptSlice().messageQueue));
 
       s.clearQueue();
