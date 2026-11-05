@@ -1,0 +1,933 @@
+{
+  "bench/agent-prompt.bench.ts": {
+    "997938c411650f0702a863b22bc2620f1efe8c7265ea2f1c32643abfefa4cc8b": 1
+  },
+  "bench/chat-transcript.bench.ts": {
+    "b631e5d9d80183756c3014395071ffe2f8b0d17f5bc79868245828a7e5f40bac": 1
+  },
+  "bench/qualify-ui.ts": {
+    "a0487d3c0a2d7b262e73e9a52eec96b1d1bb752526f696ae316def7c8ccc1b4c": 1,
+    "ed64553b01c059bcdc3699cfa887b1d6ae51acfa7801e0fea7083f2d31d5441d": 1
+  },
+  "bench/stream-processor.bench.ts": {
+    "118e1db2d3bfc4138b34646bda87ca61344abc3bda693217f4965495c54b4565": 1,
+    "ad4c4bcdde229667f6549d7f7b1ce816aaf1c197d62e4f4477209ad9e930c72b": 1
+  },
+  "bench/ui-pipeline-fixture.ts": {
+    "2c01874686204d2e1723ae4a9c54f15c98a53cc1e88682b0b432f79f91dd28ac": 2,
+    "f30cc8d63e02fd6608c2c80f9564bfc17f171581770ba2df4b1a62a8869a3105": 3
+  },
+  "evals/tasks/adversarial/_shared.ts": {
+    "f714278ee09330cf4d4b443b6793472d6e96092c72a2dea12e37f497cd7a2d6d": 1
+  },
+  "evals/tasks/capability/_oracles.ts": {
+    "76c2db6666afcfb14b22e1b3eea4a68a1c5c6caeebb6f256cd146e39e9675eef": 1,
+    "f714278ee09330cf4d4b443b6793472d6e96092c72a2dea12e37f497cd7a2d6d": 1
+  },
+  "evals/tasks/security/security.test.ts": {
+    "da7d3ff225562e90db6e61f73ff08a5de180402b52cd6da49b8934c1ccc7043d": 1
+  },
+  "packages/adapters/src/agent-service.test.ts": {
+    "09863a2c6b5e7fd677ae3e7cfd7dd8b4b361cebdf93e8ada9db87a6c4302239e": 1,
+    "280c5345db504bdb908bfad2e8379485260905892efdc7e0de619260f89ada01": 1,
+    "c9da2bbd63d402c70f1ef8ac2bc892a22ad9fda0222c548916ee3399b2642ba4": 1,
+    "d03e48c379012e4ee18b988b1b6b44d9b446d5fa28b405d21618a5715bfbaaf4": 1
+  },
+  "packages/adapters/src/command-approval-tracker.ts": {
+    "5049cfd2e2aa64e1f383a3fd512c90b7fbf3451e89882e18fb400be614a92619": 1
+  },
+  "packages/adapters/src/config.test.ts": {
+    "3175768ddfaab30b8856b406e84cb42654e23584e7fb6661b53fa745637b6b39": 1,
+    "420215e927c7199efa35fcce03bbf9416c4ae36a8e47ad8163b5447f0ee36200": 1,
+    "6bce57c030895ebe283c54ecccdd4d4fbea38e85d2cee18d7eff4fb0bbcb1541": 1,
+    "6fee28976423b4d8ec6a1366296d1967940b118f48baeb0b319d09a3c838f867": 1,
+    "8ee61a095c0c36758ec9daf5500f791fe9c43c2b4c5b667f9d2c22bc9c4e3223": 1,
+    "dda7f24c8f39ef2939696d7ef54627093da043f1f3f1341973e5ca2a4117ac38": 1
+  },
+  "packages/adapters/src/config.ts": {
+    "3855e043776d306ef5c0650efedfbbb82a878a4b00ef9cd267c0b3bcb8593150": 1,
+    "47a270daf961cd297f5541a2e229af05c768218d1240396e245cade1855e64b1": 1,
+    "49e4b68cc4aa6400a311cd8bea67f632db310612bb1877fa5bb953f9dcfc17aa": 1,
+    "5fee82609845fb41e61377d39246d89ecfcb5cfc4e09a2dcf87c6ff181f2bdfc": 1,
+    "82a845d60537cf6633d30284e637ca967caca6813e27bf13758fbbbf365ffd38": 2,
+    "89b33a57a7c77261a02116dd015c08d9e6a5b1efb5ba0ebf49bc68a21e7f120a": 1,
+    "ba28e4dffe028ba69042f5a9c04cc4238bc4cc611ae75974074b4bc0aab6a36a": 1,
+    "c7480c0112645f22a58dfd040dfeee3745aa4a359f8da44852f8ecbdb7d9d3c0": 2,
+    "d9446c0e3636bec222a59b8debb1338efca86cf11eae82ca17f674479e9d8824": 1
+  },
+  "packages/adapters/src/detach/events.test.ts": {
+    "73bdb1e1e8515fa9419500bee9c8954bdc98e79ff2785d5e7f760929e5693047": 1
+  },
+  "packages/adapters/src/detach/snapshot.ts": {
+    "a838174ce19ca84a80f7ec559db75f3b506211ddce7391eefa54f5281a2719cf": 1,
+    "f4c8297403d5da444ecbfdada518ef48f7467ba91fa4e66df06be07e5911ec1b": 1
+  },
+  "packages/adapters/src/goals/goal-actions.test.ts": {
+    "1fc9849e41c940343cbb4bf29f92806601ff9e1c281423206c04960536660006": 1,
+    "a864b892b9fd333231d68718ea882d1dd8803a03d16ff4b3bc67db14c32a3cde": 1
+  },
+  "packages/adapters/src/goals/goal-worker.test.ts": {
+    "16ecfb632a5552b01f2c1db1b1e765bef9798974c584ee496d850b95253bd976": 1,
+    "19f6bd68e81d67519c950d24c05666984657c7c90cb7381e191c714f3d9e795a": 1,
+    "33ba0596d65dd67df2944ff29f1cb5a148ceaef81e0e833d50ce6bd9ecc559af": 1,
+    "39fdfd75cf563643eb8b85c1b9e6f478a6ebec1fd85b423878bcc7eabd0edc14": 1,
+    "507da67b1879291eb8d1f32fd3461394e572c985e91b7e95ef3277c5ebfaf067": 1,
+    "63b4e40dd1df56a79cb9530d9f37d973257bf0fa0b28d7b90d0580172bbebcda": 1,
+    "8b9f97277ed8bf9db81d88597966b65e8b7894306abc09d35b1181ad052df369": 1,
+    "8f248dabf8c0c7807ee973d80f1a550c90991b9caecff2c5944d53d80e85efa8": 1,
+    "a2617e9aaae99dbf376c609ff5fbf913d0603e9743db4adfd9a41d99b7cbcd2a": 1,
+    "b39ceed06c23c6052f7f64de139f1cd15c64120e4c92ac55059943650a74507c": 1,
+    "bf77734c448f11c9356650fbc2fb62ed1351213be255c9f2fad7467c50af3bad": 1,
+    "cd812d74bf4ca43152c53839a097612b8207bcb94ebbacba333ee8c045eb638d": 1
+  },
+  "packages/adapters/src/history/conversation-log.test.ts": {
+    "fdda084b5f3b4cc4b5858b9d7acc760592b750e88d8c92e1871f81f38a164ee4": 1
+  },
+  "packages/adapters/src/history/conversation-log.ts": {
+    "e538f1f3d9dadee6079b7ae4f6063b9106492e8c15c246a30c0c36f44215d593": 1
+  },
+  "packages/adapters/src/llm/ai-sdk-service.test.ts": {
+    "07886e197cfb347c0407d70d4367c1ae766311f2d4f639297a3f5ee0834accdd": 1,
+    "23c80378bd4ce76e7dd4cd2579c116b03c663b58d33a2a0f008c796fe68c809b": 2,
+    "44629f9b4a0774d6685357f5169a1c81ac3bc573706b9033765aca910756caac": 1,
+    "80f9560a9914730f18ae3ad69692f2bc5105b0489333008139276cd186c3258a": 2
+  },
+  "packages/adapters/src/llm/ai-sdk-service.ts": {
+    "0311422ffc9c766724a844aede6e2bcb77cb52cee8d1bee59bc18634193d354f": 1
+  },
+  "packages/adapters/src/llm/api-key-check.test.ts": {
+    "4f12df7b15878bec5ff2a843f0374052d1fb5d511977fe2623831584e200e908": 1,
+    "84fa607c3330df72c928c70c47ca9956dc86ed23a34aa489d7f3a00832c336fc": 1,
+    "cdf39bbba16119496baff140a2937ce7c7674fcddb51856efd9d105aee5e50fb": 1
+  },
+  "packages/adapters/src/llm/chatgpt/transport.test.ts": {
+    "fc48a215e280bcb85c19f26b84029d05327aa6c62803a3f53826bb22b503513a": 1
+  },
+  "packages/adapters/src/llm/model-fetcher.test.ts": {
+    "0a1f8b039152cf4d3ee88b560e5560170145825e09672e94431869692cd718bb": 1,
+    "0b3dcb774e65764d14222861d85436b5dde9e693f2f49ddc7efc033b616373d8": 1,
+    "192af084cc60a3671988bcf8b43474baf95c7d0c20091c369b5a5fb1c4e15841": 1,
+    "2b89fc41b2cbd63f1ff53807c41fea121e5051f82a4c1d127d5eb868771a0dfc": 1,
+    "31be964d1703bdc1ad0676aacab520befbde0d4694f4c652f15e22ce5d4e75ff": 1,
+    "353d22405edd18501afe66a0a4381fec139603705e4222e618044f48926d2c32": 1,
+    "37d488d772ad80d4e42fc79cb51aac1249006cb59ba008a187957d5261a03c7f": 1,
+    "38d66b0de0988a7a489862ddb560c731d3173b7602663970245bce34e468c589": 1,
+    "3f51dad6aeca0016a29e71fce9adeeb3c55d849790bf0ee54365d457aa4d611f": 1,
+    "40c27bc958bdf2d0e46d8ecdfdd1ec27a6eb2930117a240f1e9a66c5e1602823": 1,
+    "415d3b74f6a7bb6512031150d22ecf6e6086ed174d0d2736f7591a6b3ed1bc36": 1,
+    "4740d30d56f69267e365b36139e3d47fcea49c6464c449e50647106d43c56dc2": 1,
+    "5092cd7abf91fca47ccfcd46e44589fc2ca633731fe1c53c0f7681c2e6bcad34": 1,
+    "603ef162a18dbbfda654a397f16e3cb366a568c2de1df8e0471d58fa3dcef40e": 1,
+    "6a48c901248023f198f9a627b5e333f4e188a93d6b536ccab14df18346b3e94d": 1,
+    "6d3bed038ab885ce128bd8a13e790bc676748f702cac7b2f433b84226f5c6a38": 1,
+    "7144f2042e1864e551ae11f642b7b3c7c9d2fc46d5048babcda299beb1a0a6e2": 1,
+    "7416e1320759bb59105892157d2362d54328d9ce3be5c892a4db7561fbd9ffb3": 1,
+    "745f349f001d936bd88abee55757a90b96e2dd7049e011b40e4d1f7354d444a2": 1,
+    "7912cc511bfa890909cd14de231f7a4f0da3163da579d6ca7f43dca8c37c5ccd": 1,
+    "7cc756f0a7d5ad0c99cac45953d66853b1b934428506909b120abdc35b63d390": 3,
+    "7f100139b9d491cf39a31d954dfbb3c99d4de46ae20350e3eaea191832936cd7": 1,
+    "868a6eee5cc749a68b3bbf4b5a7015a6c70de6e4dfd3145c634455a5836eafc8": 1,
+    "8a6c5e2a80a59b89be4decbecbcd0f94f91a3460ad84613690b97dbca08f6c00": 1,
+    "8ba2994e3947b80da7bee46ff082063a408bb3fcb54c1eb6f2a1178a882a39bc": 1,
+    "94c9051de6203bf9f1035134ba62d58b1fda2bd1a6ac145194bcaf455a872ada": 1,
+    "9bfdde82a7f3376dbafa00b3e9668966392f024e1308ec6bb7135c34cd005d6b": 1,
+    "a48d5b8a7043e4aa4d083981b0fb17c9e769c3ca839e4bae803d448a1341a4db": 3,
+    "aeaa2289907e5e0f3be49deb22fc9a1dcc71cbb8702da93372ebfda0ef86bc92": 1,
+    "b1711c28ecd131d94ca195fc495effb349ff946a00acaff710d4fb3adcb5477e": 1,
+    "b1c190ff3f507896988c3c190efb63c167738c3bafeefc6d655dd3a60de57755": 2,
+    "b5e4f271dc137a500eb2c4334577f2e2930ae632e7e79912ccbb499712f2e7ac": 1,
+    "be27b912773a947080ac461cb8e7731ccd367f656de6a3f207ecbd5860fb5c0c": 1,
+    "c07d2cddb18bbd851230642a3de942a0a75a0d8edb212d7da906e8856b8c089e": 1,
+    "c3c4915aaa6144c90c74871e4709d0d0459cc481e32fbb7d8f04bed6f51a0a99": 8,
+    "c41f37ed42873f30d27ebc0fc8fdbc8686c542783882f63cff9a9979be231edc": 1,
+    "c7a8428f76cb56356d257a0c276cbcdba397e90dddfe00e32d2d7c0d6de2f8cf": 1,
+    "d2f22a7dfd68847bb11a7f04df1618c1dc7caccf3b066d32c02d45a10564780f": 1,
+    "d62298741739946137925b9f30b62f9012df3348a00da5a7f070dd47b46b8a4b": 1,
+    "df9d198e1a1b35bf136748a5e762ec8d6e5e6f9a0d9427fa405967b4a800e0ff": 2,
+    "e01b0b7bcc3e70d09a10c6b110c377928753eb842f79389bd02528c5af478ef2": 3,
+    "e3f208f8e068c49db573ed56ae587e12cef505c6faa9f3ef59be61c7c50c6ef0": 1,
+    "e74f983ca8223ffa103422b8e21de5febe542b90434a4daa7cd193bca54f06b5": 1,
+    "e8420ae72cbf7511bc59cb969279a7c921af085512c0f0cf2391bf57d86bebda": 1,
+    "f0508417a032e5dcdcd0fc479bc928f37cf0a0f5842610eda5a1036490f4d18d": 1,
+    "f9dd7d72be54f8a72cb0557eac55d18cf9ffcf17bb85d012082684b5ae3752a7": 1,
+    "ff965585f89b038bc6e0967b006ff8d67886899ce31520eb5155aeb989d5ce09": 2
+  },
+  "packages/adapters/src/llm/stream-processor.test.ts": {
+    "bf68c9058442d1aa099280bf29199efed1c430b1ee43757d9e4393d140486fd5": 1
+  },
+  "packages/adapters/src/loops/loop-worker.test.ts": {
+    "2bb11e94e1befc800f3958dccb0f20847b6640e86be34d1561ecf86d4d891053": 1,
+    "533d33f358916ae870c70eee31bbe2e98b797287fafbbcf441f5476e739716e0": 1,
+    "63b4e40dd1df56a79cb9530d9f37d973257bf0fa0b28d7b90d0580172bbebcda": 1,
+    "ba7be3923324de8a9092922407b0358baabc11328bd3dd2399425a33ec8700c2": 1,
+    "c97b4f5793c3990968f1e28a76f843a3a8106e3d9771231ecbc0084ea45d8d82": 1,
+    "e5d95b6df3240901d01368c4091bef9c45b8f643a88729cc95d17e16a9b947fe": 1
+  },
+  "packages/adapters/src/mcp/mcp-server-manager.test.ts": {
+    "29e5ec01ee79a9c66e7c5755f8c629c193db226dc08b29f16b5967957ad8602c": 2,
+    "4f3c8ab8579e0f2d1a2f7906086b66ee4372e181843249502b8f2a403a57d912": 1
+  },
+  "packages/adapters/src/notification/outbox-drain.test.ts": {
+    "38df59a98640bde75d72f8b3e03bfe55d860ee9dd297f67aa83312b4421cb2b4": 1
+  },
+  "packages/adapters/src/peers/invites.test.ts": {
+    "6fe9024d30e0d4757a348b83d246925b3f5aeaf2e79a0eff4bf12f3c9fb5826b": 1
+  },
+  "packages/adapters/src/peers/serve.test.ts": {
+    "26a1fccbe72b92fa83c70e3dd19107e0840ac44737fb3b796bfc0f4d2c8287ae": 1,
+    "6d57961e09b00a768eef2bd91a478ec3d06cd5269380e58d9948f34b8281e1e9": 1,
+    "6e9cd0edc8e4eb76b5b367f1a36be1e577557464598c1a6458e49b169dce78af": 1
+  },
+  "packages/adapters/src/persona-registry-service.test.ts": {
+    "57da2a47e9bb0d518b76bcbc83450b195abcc73cede807ce1319a26b62986c9d": 2,
+    "c7a8428f76cb56356d257a0c276cbcdba397e90dddfe00e32d2d7c0d6de2f8cf": 1
+  },
+  "packages/adapters/src/persona-service.test.ts": {
+    "86a1ce2ccf1696120b19ebee981ef5860e074aa7bfc386e31ac978806e13a835": 1
+  },
+  "packages/adapters/src/plugins/github-source.test.ts": {
+    "0cb7764d42102ce0a44b3e0a34ad0f23c468be27bc5c8fca1947823dba2b19cb": 1,
+    "36c079674937c7b0b05b1bf58777e0417759dd5ab63749f619b41703856dcbd8": 1,
+    "3c51a84d7f881fc4e1770400bafd3dc440e0d27154b7350195be7d3f56e67c02": 1,
+    "598014dcfe77101781e3c6a02709097e3b0151a335e909c44719fac08fdea433": 2,
+    "60eeb2e3085e17507907944adaba78256a8cc2e77d1492d98222444b1110084e": 1,
+    "7b320279216e7d2344ce56828b45d69d1259b6044156db09752e1e6c119cfadd": 2,
+    "81f8b793719157de9a807a908cc9d6fbb2fbbbb7992dbf377d12c1b2833f6bd5": 1,
+    "833d833510ef96df1fd4510330da1f029fd9ed8ed108df27bf1f411d6f62accf": 3,
+    "8611db3da128c7021f89c10d5b3244e3a8d9b52cfbc31cb50b5fda0a517bdee7": 1,
+    "95766888b0812783f794d48253af2e47f89c2d54c4440bb0b416753ccf31013e": 1
+  },
+  "packages/adapters/src/plugins/manifest-schema.test.ts": {
+    "bdc4c2a5d8b65a34c9f48a2c00e461bf43395596491e97316d6595f4a4cf90b1": 1
+  },
+  "packages/adapters/src/plugins/manifest-schema.ts": {
+    "1c619743947625c93dabaec6f53811c0199c2603f33d28e7975bf1d54d746ca3": 1
+  },
+  "packages/adapters/src/plugins/plugin-author.ts": {
+    "50c7b817f9d10137a24cc1f2216d1ea975706c883663bbfd60b87163be2d365e": 1
+  },
+  "packages/adapters/src/plugins/state-store.ts": {
+    "d3b6dad64b3538d5889bda2b5951b807880cbe039d6128f64c63afc7971b2a42": 1
+  },
+  "packages/adapters/src/skill-registry-service.test.ts": {
+    "c7a8428f76cb56356d257a0c276cbcdba397e90dddfe00e32d2d7c0d6de2f8cf": 1
+  },
+  "packages/adapters/src/storage/file.test.ts": {
+    "39f610babc8cbe1e7bad887c7eaf0292b3d2b2f5451a86e8fad83806ceaee9ed": 1
+  },
+  "packages/adapters/src/storage/file.ts": {
+    "4fc8af13f924bde4f90acbc23a9e88d8ce907c72d4d1dc078a592d99c23581df": 1,
+    "fe253828aac689a136be6451c37ff9590ef8c67f7f7e9162686ec4457ff996c9": 1
+  },
+  "packages/adapters/src/storage/record-store.ts": {
+    "d3b6dad64b3538d5889bda2b5951b807880cbe039d6128f64c63afc7971b2a42": 1
+  },
+  "packages/adapters/src/storage/run-store.ts": {
+    "487a58a6269113d4cbfd31915a9abdbf016e672be9a2af2c6d5d57b087d0b011": 1
+  },
+  "packages/adapters/src/telemetry/otlp-sink.test.ts": {
+    "a0fe31ce1b53d52daa5eddf5962fd8adf08f392bcbd25b8bac713504fe69f1c9": 1
+  },
+  "packages/adapters/src/workflow-registry-service.test.ts": {
+    "2187ad64ecd4b6706426124ffa29653db847a99b004e13f761d2aab272c5b889": 1
+  },
+  "packages/bot-shared/src/bridge-config-file.ts": {
+    "d3b6dad64b3538d5889bda2b5951b807880cbe039d6128f64c63afc7971b2a42": 1
+  },
+  "packages/bot-shared/src/chat-sandbox.ts": {
+    "d3b6dad64b3538d5889bda2b5951b807880cbe039d6128f64c63afc7971b2a42": 1,
+    "f714278ee09330cf4d4b443b6793472d6e96092c72a2dea12e37f497cd7a2d6d": 1
+  },
+  "packages/bot-shared/src/dynamic-suggestions.ts": {
+    "b109b742384f807f4307eb8a8167f3dd8f0691e64a3c0a63fd6b6711edd3fc2d": 1
+  },
+  "packages/bot-shared/src/scoped-record-store.ts": {
+    "f714278ee09330cf4d4b443b6793472d6e96092c72a2dea12e37f497cd7a2d6d": 1
+  },
+  "packages/bot-shared/src/turn.test.ts": {
+    "febbe0687d7079e44a15b802235157043bad5a5f188348db89fe00f50532bee8": 1
+  },
+  "packages/cli/src/chat/commands/handler.test.ts": {
+    "0645c8e0ec1c6ea3844b0056f74624d929dee585a00949490c0a3cac98d0305b": 1,
+    "0a9b6c06dc46a74b2f8f41bbf0eb900335a2c1df38009dd790181a0fdad00c48": 1,
+    "171283c0694e0919c136c920c9a111ccf63542ca949d710b531344349760d725": 1,
+    "1e6c4b6a3775ea49d3338ffcc80ff40e18288c07146526e322ab95da80d23f40": 1,
+    "21d95693f9f21c1d90704c8696390906f1cd407c0897036a795eea75e270d85b": 1,
+    "23f0e6450d7c6d6df6776174b8868694cb65be757c67fb3a4aa741484361096c": 8,
+    "2bb11e94e1befc800f3958dccb0f20847b6640e86be34d1561ecf86d4d891053": 1,
+    "473ee43e0265706d6a79f528cfe12f7e3cfb18fbca3c4987d2237ba0426bac75": 1,
+    "49c90f8f057ceccd8da34f7e10152974fa211a4c2e2f0be5525aa74ee50c13ae": 1,
+    "701de6996b3217d4c667403d7932495db0c8f8fa4066754ef5d9babfbd8e0ac2": 2,
+    "89c761967ce77b8fcdbd8d60a5e1115bb4d28383c536d526200ea8d8397b4df2": 1,
+    "a300acfa2f28e4b4b665173086bb588fb484da10b00474e19cccb8a60b97f3bb": 1,
+    "a34c4169f8fe58a8283fb799ab3148b0e0383e21aa3b80dab3f316b110029472": 1,
+    "a54115b5b4188dd944671c0fbd48f631e823b76ac154a028eb77cedaa4de1fc3": 1,
+    "bcfb3240b3e00abda2a8a62a90b2b1bde4d5192e5fc7c56e04f599c9f65e02fd": 1,
+    "be2fc3eb6241315426b2c117343fe88eb673fbf98341f1eef5a9393881e04100": 1,
+    "ca18cb8d18e04697a7ccb0bf881950a56678391686ddc65f79ec9bd549ea4e69": 3,
+    "d6604010f9d66e9836a416ce523bce5bc3b36281c8d20156ca8a4002c14268a7": 1,
+    "da89990d53cc2fed2c1b461259621e1bedadace7d1767470f2b444d61d630f9e": 1,
+    "e38f8eb4e3b0eb501c5916551417f5c851453f275782d9e4e9329c99072b36ed": 1,
+    "e395be08aaa2f51e3858c1a23e82eca39beb9833d1d8e2b1b0851d07ef8f1f2a": 2,
+    "e42e15610848d1d895af93d1e4923ef43fbe198ef1a09476724234ee7c75a755": 1,
+    "e5a1ffdb1a131504626f919398c4978800092bcd8eb8bc374292a4b936393aa4": 2,
+    "f3a808347de334132ed5d55e5a901a155efbfee9a00771d971ba6e9dad44d5d4": 4
+  },
+  "packages/cli/src/chat/commands/handler.ts": {
+    "bba0fe07d5f9b582f0d34f36df1a20fc835fdca2fedf1a514be36558404d1140": 2
+  },
+  "packages/cli/src/chat/commands/help-and-model.test.ts": {
+    "132365186df0ab4a2d7067869a328c38caed6441e58f65083a87fadbd0b6ab31": 1,
+    "b691dc2bae4db2456de1f858abdd483994e93deb088081584ad53be3d2f3b1fe": 1,
+    "bcfb3240b3e00abda2a8a62a90b2b1bde4d5192e5fc7c56e04f599c9f65e02fd": 1,
+    "d6604010f9d66e9836a416ce523bce5bc3b36281c8d20156ca8a4002c14268a7": 1
+  },
+  "packages/cli/src/chat/commands/limit-command.test.ts": {
+    "2d4d6ba3a27b1d391b78f932c5b09d224bf09f0088e1853e9c3edee001bf96ad": 1,
+    "a34a842c135448071469f824aba247f36c3fd233642a6fb0e2a3780f8c65882c": 1,
+    "b4a79f7a6b22338afe55011a9ca8679a7ebb2bc176c141ad11cb46e0353a1428": 1,
+    "eaf1af78823d5ad0d62db3305fef0e41528f10d9577889312612ac9897df2b1e": 1
+  },
+  "packages/cli/src/chat/commands/mcp-prompt-args.test.ts": {
+    "0b48f7b680460758f775a2bf5ce5dcfb87f686bebefa5ff1364d2fdf70df7fcf": 1,
+    "a34a842c135448071469f824aba247f36c3fd233642a6fb0e2a3780f8c65882c": 1,
+    "b7b7b20addce7be2e8b51b49480287c842383b31f9b3e2e217715ec834e09844": 1
+  },
+  "packages/cli/src/chat/commands/session-limits.test.ts": {
+    "a34a842c135448071469f824aba247f36c3fd233642a6fb0e2a3780f8c65882c": 1
+  },
+  "packages/cli/src/commands/agent-management.test.ts": {
+    "0a7819fa040f0adac031d6dfe604b793246ed28a74abca706e15de39126ac3b9": 1,
+    "0ca94a15538f6029cc7ac65c21784c23e86487cdabd534ef7c1f3a2157336665": 1,
+    "69d7b99ff40136796365d4953fcce7cde78d2d01fcf843a83a9e1c26921fa3b6": 1,
+    "bee47bb146ada6fd4c792f5baad3ab7d091235449aebb352b8e02f4e2f1656db": 1,
+    "e5a1ffdb1a131504626f919398c4978800092bcd8eb8bc374292a4b936393aa4": 1
+  },
+  "packages/cli/src/commands/config.test.ts": {
+    "283f01059ea5a360e18a3776ee899925298c6cb32a96b16e2c796898f2560ccf": 1,
+    "3986cd8170a4c3ab9f58e50f0014bfd6965c1725b7e97cb56f8ed967b7b7bf62": 1,
+    "42fec62d01b08edef3edfe8c5abe382a0764ff38e1f0cc60d82c8d3e592cb594": 1,
+    "5f3e6775b5c8219bff8c8dfb453809f9bc25b4618fbfa8b60c713cc68d001fae": 1,
+    "8b87fd4e685a00697de3550e9b72c6c94bc22fb2987b6fbedb6774e2bc6873a6": 1,
+    "e217319629cd1b132e07b3052439ab0c9be5712573475caadceb6a3fa64e06ea": 1,
+    "f74bd61d71450a81a5cecb5c7e81244ec6191dc978c21ee93be50dcbb00179a3": 1
+  },
+  "packages/cli/src/commands/create-agent.test.ts": {
+    "274650c540005d13a0d3e68c3b008ad982e6c3fb52adc511fbf8cdd8c2eed9e8": 2,
+    "65e1af209a2fe2036a9b598636ff82dcca5184c87fbc2db0d3bd6be8e5d43ee6": 1,
+    "7fb8c433188ac76f4acab7be73a525e0040d4333ffcfc0787014e60f3699330e": 1,
+    "878432c8b0a3c077e6905334d67770dbdccafd87bae6503cc22658edf8191920": 1,
+    "a8842555a6d26c3ca0dd214ddf7a3163063642e0846b02a42004ddc676c8e6a3": 1,
+    "c159e9bcf60c19e7b407d14710ca1b1742055fb938b3f8a485ba4578aaa6d92f": 1,
+    "d102b2eff0327de5782c5ced73d7d142bcc55f11f11d659ee545b03eebd46c52": 1,
+    "d15214853f58f72c7c32ca096f9c076fcd573979202f57d1ed466dd5db8db1f2": 1,
+    "faa73425e0f0e483bd189494adb7d48d3b6dd915174499f5bda18b4b27046f6a": 3
+  },
+  "packages/cli/src/commands/detach-internal.ts": {
+    "a7972dc3883e3cc3795494ccd2e555d988b1040ecc82f98903d2843df2d4fa17": 1
+  },
+  "packages/cli/src/commands/goal.test.ts": {
+    "8a0352022323b2d05c444e30bce0c719e6e1da06c7389e973776c918d0135b0d": 1
+  },
+  "packages/cli/src/commands/peer-invites.ts": {
+    "f2cef05a1b0471bffa2e540f0cf3287090ef5e8d706190336afe2ee21a0e144c": 2
+  },
+  "packages/cli/src/commands/plugin.test.ts": {
+    "5c95d78a49e899f25312ee20f1a555fc54c5fc40aa401dbbe3410447a772e25d": 1
+  },
+  "packages/cli/src/commands/plugin.ts": {
+    "24836b1e9a4b494a4acdca189cb6015da79e9c626fe925b13dc2da30e8d2df27": 3,
+    "6fe9024d30e0d4757a348b83d246925b3f5aeaf2e79a0eff4bf12f3c9fb5826b": 1
+  },
+  "packages/cli/src/commands/settings-wizard-providers.test.ts": {
+    "44690de316479052cd65f708c24bd98e8d2a3724466e0d36eca493beb57afd8f": 1,
+    "8bd7322d6f23412332a508b75eee63911bbfb1ec8e79597dd422f26b7a378b7a": 1,
+    "8e8071197a1d2ecbc47f1f56d41f12461a332f2d0a18ff984fa26ee7e636b908": 1
+  },
+  "packages/cli/src/commands/skill-library.test.ts": {
+    "db6241d6a72de9ec652a7354d64726adda90616f3ed27c694817f3c0e3ca4c64": 1
+  },
+  "packages/cli/src/commands/skill-remove.test.ts": {
+    "e87443b2dcbfcd641eba56e2afb1b9daaa697f89df846c40cdea6bfb9b8a7ef3": 1
+  },
+  "packages/cli/src/commands/wake-trigger.test.ts": {
+    "2bb11e94e1befc800f3958dccb0f20847b6640e86be34d1561ecf86d4d891053": 1,
+    "42c243ed78694e54ead81740ced7037e10af94a0ae1de7bf6e311b69bbc6307d": 1,
+    "bccf7c1321d01d17640c3b15ca185d55035500911986afff8861ea2590ae0050": 1,
+    "c20088e8c110d29e73882a5575df172684a212596fd73a802849456ede9b672a": 1
+  },
+  "packages/cli/src/commands/workflow.test.ts": {
+    "06ccf464d45ca0640541aef7c6f2336e313f25ab8a562ed832b328ab705f4466": 1,
+    "0866e72f6eb6a1079a70d691693f99db1c6240205e2c1d3d6f942364b4356f4d": 1,
+    "131d0845fe2c6927391e3157227fc09483ddfbd8155ccabd3e91e260ce0dbad1": 1,
+    "2c0470a598b272ebe3cce18b5a2ad5697c09582462f8bc6bb7602988b0c2ae17": 1,
+    "3026244acde6ac10d4276bf7592c28f4d2687bba8b908345f5898b1586d7573f": 1,
+    "4ccf0d766a4d4781a616fd00a0f9463b593de1f6eb4dccc44be32372b3322f40": 1,
+    "537a6f6130a93d5964e3cb1d61616a2157f406e8c16e75f6d6ec1455c3ae9a56": 1,
+    "59109c74f2a086459d104376006776c90f4b6933d0dfe41e4ec278038586bc23": 1,
+    "5d8ba767e472206ae178de5bb6d08f8db2bdea0ef1618e256df1b20d65d1880c": 1,
+    "6013d858127e4d75e6898d3465a8f24840f5800d9f6636ca69dd52f16b5f57ff": 1,
+    "96bc3a36548a80d3f86536ec84c169e5f433f35aa04fff8bea4214102b26b5ec": 1,
+    "a5b114ef4c88687ef623b3e24e464fa4c8c56c1aced458547b388a5e31cd8a24": 1,
+    "b442531ab019acb00037b1b720c7d850b3cee8a4670b7d07368a7a1b769df825": 1,
+    "c0a747aac1cdca104ffcddccc3db1efc866c7dafe7f257a1a1f420595d0b1899": 1,
+    "e603cb70cf088d334654f80716f511f66a9cdda5502b0cc96dd62e7914e93128": 3,
+    "ef80481aec1abfed4ee701f54668fa2e3bc27ad1314a7b8da67898d152b89a49": 1
+  },
+  "packages/cli/src/memory-review.test.ts": {
+    "eab842dc4809f70e21cc811ce5f222d3badf04e0069b0a5e3f19a1b59afa121c": 1
+  },
+  "packages/cli/src/plugin-manager.test.ts": {
+    "e0e5dcccbbd6a0ae6c89d2ccfd1b72a0efe031170a518a43b10486ffeb0e9a61": 1
+  },
+  "packages/cli/src/presentation/cli-presentation-service.test.ts": {
+    "b4ae7f355104b55f98230b2c2c42267ffc14155db82bbbf740735356d7db738c": 1
+  },
+  "packages/cli/src/presentation/cli-renderer.test.ts": {
+    "72e8b177e0690f2c7ed717e73172036aa56f97f6ad7f1c97364bfa14f54e6957": 1
+  },
+  "packages/cli/src/setup/chatgpt-sign-in.test.ts": {
+    "59426481adc9b3a228b895b215cf5a84ac110829aac8fb389db808be7183eb32": 1,
+    "e50d645b56d198db291aa387bca120d592a8493ee1b7936552e79257a4b10c7d": 1
+  },
+  "packages/cli/src/setup/local-provider-url.test.ts": {
+    "f3a184025fdef6d13653dcc31e7fdd824bcf3b256a40b30ed229fbf56c3208e9": 1
+  },
+  "packages/cli/src/setup/provider-api-key.test.ts": {
+    "2c14edb5cc9fdf15b8bbbb94e77bb84140312e9dad20a639a27ae7c1bbe368b1": 1,
+    "61fb93a8e791caf774b058336e49690c7d06e0c2b53176bcb6b573bef2c6baba": 1,
+    "9e3ec98a13293587ddf17ac2768069a26fcd56dfa4ba3456242184f7209ed287": 1,
+    "c12c3e1c62fe4ed27c4fd0d3c0c047f6f955490ce46ce274c87b986a31f94b3e": 1
+  },
+  "packages/cli/src/setup/web-search.test.ts": {
+    "20981d656871efd5225be8f67e312290041d2770b9e73293c69ce94339e29c3e": 1
+  },
+  "packages/cli/src/terminal.ts": {
+    "4716743d8cb8e6b3b5f0d6d81e6443381fce3147c2298eb49b43349b67e40bc2": 1
+  },
+  "packages/cli/src/ui/fullscreen/attach.test.ts": {
+    "94e6c4d15a19729cf60005d29c0985aa4e5bd984b92f40c2b5d8e996bb651997": 1
+  },
+  "packages/cli/src/ui/fullscreen/auto-scroll-selection.test.tsx": {
+    "e759684d663f5eaa1cf2bbc8f66b3dec464fc680b0cb3b709ac37667202a3da0": 1
+  },
+  "packages/cli/src/ui/fullscreen/bridge.test.tsx": {
+    "ee4d5a9d435ba2ec29bcd2acb605cb903609a49718b2ed51220b3866d81ccdb8": 1
+  },
+  "packages/cli/src/ui/fullscreen/mount.test.ts": {
+    "2a3769050970a77676abd7c33163033a695596ec89b788af45a0779287d6d5f3": 1,
+    "5239b97fca408ca164dbaa88ff254c62044f67d11d91d8fb4eb2fe1c638fb2bb": 1,
+    "600ab1a36ae8c92ad8b4791703426e697a80fd7691d0edf89148912199c0f18d": 1,
+    "cd1c452533de1cbbd54088ef0e618b11ffc6085e901526b69ee3f2ade029674a": 1,
+    "d147994bac1b5f066d2f46a130138f9b9adee4bb4cadd71f8d35e9693dd3e1b6": 1,
+    "ededab3fd66f93d7a77d9687e2531a47288f9b1d96a52ec773ed3de5e3889448": 1,
+    "f5451ecaf732d581d80fd7af7460967153404307c8651dae453373bc6dc3578a": 1,
+    "f6bb37f777bc690cf2f685fd69748985ddaa08c04bf457c43cb1f7f2766a6097": 1
+  },
+  "packages/cli/src/ui/fullscreen/renderer-adapter.test.tsx": {
+    "94e6c4d15a19729cf60005d29c0985aa4e5bd984b92f40c2b5d8e996bb651997": 2
+  },
+  "packages/cli/src/ui/fullscreen/renderer-adapter.ts": {
+    "72e8b177e0690f2c7ed717e73172036aa56f97f6ad7f1c97364bfa14f54e6957": 2
+  },
+  "packages/cli/src/ui/fullscreen/test-helpers.tsx": {
+    "72e8b177e0690f2c7ed717e73172036aa56f97f6ad7f1c97364bfa14f54e6957": 1
+  },
+  "packages/cli/src/ui/fullscreen/testing/terminal-oracle.test.tsx": {
+    "1e85fffe502cef2c1a6be00eb6bf19fa5010a93074eaf792e4a7330dd6e8971d": 1
+  },
+  "packages/cli/src/ui/fullscreen/testing/terminal-oracle.ts": {
+    "2c01874686204d2e1723ae4a9c54f15c98a53cc1e88682b0b432f79f91dd28ac": 1,
+    "f30cc8d63e02fd6608c2c80f9564bfc17f171581770ba2df4b1a62a8869a3105": 1
+  },
+  "packages/cli/src/ui/fullscreen/viewport-integration.test.tsx": {
+    "e759684d663f5eaa1cf2bbc8f66b3dec464fc680b0cb3b709ac37667202a3da0": 1
+  },
+  "packages/cli/src/ui/models/receipt.test.tsx": {
+    "728c103ad9c065cb10053075ed6966556db768a824413eef480e97674dab63e8": 1
+  },
+  "packages/cli/src/ui/prompt-frame-erase.test.ts": {
+    "e4106b97491d22c5e6b1c9279ed1d21d8ff1032124cd96d0641680ee7c05169d": 1,
+    "fa91c1dd9fdfaf25a12626c3993174ecf29a472339dfe17fc6888d3f448221fc": 1
+  },
+  "packages/core/src/agent/agent-prompt-environment.test.ts": {
+    "93d8bdffb2f810fb98eb551c7d300df4de8d39bd85c011cbe0445fac78090684": 1
+  },
+  "packages/core/src/agent/agent-prompt-memory-source.test.ts": {
+    "93d8bdffb2f810fb98eb551c7d300df4de8d39bd85c011cbe0445fac78090684": 1
+  },
+  "packages/core/src/agent/agent-prompt-preferences.test.ts": {
+    "93d8bdffb2f810fb98eb551c7d300df4de8d39bd85c011cbe0445fac78090684": 1
+  },
+  "packages/core/src/agent/agent-prompt-project-instructions.test.ts": {
+    "93d8bdffb2f810fb98eb551c7d300df4de8d39bd85c011cbe0445fac78090684": 1
+  },
+  "packages/core/src/agent/agent-runner-injected-preferences.test.ts": {
+    "0cd6239f9e1e0a4376b0f329ffb3a7d44b382b2db37bb54c3d606a814e789e1c": 1
+  },
+  "packages/core/src/agent/agent-runner.test.ts": {
+    "06c466cee14bf5c741ae844dbf63f41a8070bd60bbf05810d89a2d7cb5153bb8": 1,
+    "17e0237066ca844f91c27cc4d1c70ac7d08003171f3503989a609070fb0fdd42": 1,
+    "2909cd335522a85a76884f03c20e54434425d9ebb11c9ad914ad27edadc05f67": 1,
+    "46a06773da044b5fa87c6210259632c87cc9dc9695e94a4fcbdc9080d4bdcf69": 1,
+    "4777453719b1a12ac03d7405a7cc1662ac1873b8eb0016a08ccd11f27076e803": 2,
+    "4d97d32a5559bdd29c3d94ef780f6c499d74d4b3cc166ae0007d81caf7e9e305": 1,
+    "573a2337aa7219ef6fc11a9066323f1a3a4dd1c4456eb6693a9beeda4dde8f33": 1,
+    "584c37195f8a767d9f86483d1fd9cc52058b5e8bcd09a44daf6f846631f15a61": 1,
+    "602f0817072b7f5999d6933976188662876c5070c0c1c5625a33276f9f16c0bd": 1,
+    "627951ee367ab7b7cd175b6bfa219fae93d04fa7aa25c39a248aa310022b8e6c": 1,
+    "82a8eb2e5244bc224fa3752a59830f8db121c0100557559f213c4a7d6ba24762": 1,
+    "8bb5c83c288e07a325948b77fd7606687edd3b800cd889207253b58c66ea0441": 1,
+    "925917c386046aa61db02600d6ce675ebfbf227cb53294ef0f092e5324702df8": 2,
+    "a232af38301f4406c6e0380ded1c9bfc8571d8aeaa81c0b7a836cf4c2e4e8de0": 1,
+    "b06073574d330179d09cea989eaac9b0be2d91298154cd761db66399090eb655": 1,
+    "c18e0d88cf7528aae3438a3dae830666219c2369cafc50868c284fe9328682df": 1,
+    "ccc47c99791b412ffc3af2c6eef048cfc90f7519de39f957bd516392dbc4868a": 1,
+    "d22c8e18454a5037eb737177eb546a24cab486e140ac91722c5ba10d8f44c8f6": 2,
+    "f5ad3a280865717d8b17c5febb0679effeaa94f3b961759fcd5ea96f53cd4b44": 1,
+    "fbf45e95f8252c7a7aad9c58f7ed65c9a43a817d7c1cfdaf09c163c1f1b03dee": 1
+  },
+  "packages/core/src/agent/agent-service.test.ts": {
+    "2d5f8a709063c463360c66ce6b9577c183f9e39f6d48cfdfcca1b63dd59d2c54": 1
+  },
+  "packages/core/src/agent/context/advised-tool-clearing.test.ts": {
+    "fed82da009e4c8ab66d129afec3dc44e42548a318c5479be5ff0cfbfdf52aa4a": 1
+  },
+  "packages/core/src/agent/context/context-thresholds.test.ts": {
+    "093ce59ee1519f3e9bda71b7791505f3e6a0595479e922d001df7542bcb6d25a": 1
+  },
+  "packages/core/src/agent/context/memory-extractor.test.ts": {
+    "0d671bbed0c5560d9f739d6fc791af4aba679ed29b129f5d16154438305b8f4a": 1,
+    "1bf851ced8b7589ebac0da5b4fb42f81f54ed20708f7524e1d08f14be89e2a5a": 1,
+    "1ddbaa4d17301aaf37dcfee6b47d4ac8efa0de7ef01958e47c912e88b6156e0d": 1
+  },
+  "packages/core/src/agent/context/summarizer.test.ts": {
+    "b24586d2727c9488afd033cea352f334261096837651ae65771fbf4eb74fd2a8": 1,
+    "c81c76a591071c793e11fbe74421c4a2d4660510d064e5dec3d996589dd4beeb": 1,
+    "c9da2bbd63d402c70f1ef8ac2bc892a22ad9fda0222c548916ee3399b2642ba4": 1
+  },
+  "packages/core/src/agent/context/unanswered-tool-calls.ts": {
+    "bc9bc4b63baa8090ec9788e182f013a429e0bc5957f1b1f9df82082a3be37f0a": 1
+  },
+  "packages/core/src/agent/execution/agent-loop-observer.test.ts": {
+    "aa8c726467cb0cade3e64b03d4efc26d3bb7fc8995bb2ad40709e45cec9c21a6": 1
+  },
+  "packages/core/src/agent/execution/agent-loop.test.ts": {
+    "1b8657e4fda28a142820fd2135b762744c9e7e07794bea456d15cd12dc16b8b2": 1,
+    "6faacb285aabe16dd197b65a58c5d7860745e10f15bf4e7bcfc61c40e197895d": 1,
+    "a4e6eb8cbfdb6f3427f2066f9df07ac4195debad62b753c855e9334616a20794": 1,
+    "a9833f829508e8a83d6e763b98469768e07a1b4a35e579a46b916a79c08e2a81": 2
+  },
+  "packages/core/src/agent/execution/batch-executor.test.ts": {
+    "76732031505e5d51d05c9530f7f624b20162403478a8f963c40ee69ff7e7f998": 1
+  },
+  "packages/core/src/agent/execution/egress-taint.test.ts": {
+    "03d2123243d8ac0fbd3b6457b54a41b7dd926348bca0ac344acb2179a972944b": 1,
+    "385e8ae41f2135cafc9dd78465d8ce3188d3db6bbba83a41412906d22578fb77": 1,
+    "869156a2d0877567f4f9292d9cea0f07ce9c30eae934fd7e58b4b25006b86332": 1
+  },
+  "packages/core/src/agent/execution/egress-taint.ts": {
+    "4b630954e14d6fc4c992b5151b9493cbb3ab89efefc7838beeb5f0c90c4c82d1": 1,
+    "fdfb02bb82a00cfd7406c310b29140a53acbdba7b94001e21c153993d1d88697": 1
+  },
+  "packages/core/src/agent/execution/private-destination.test.ts": {
+    "3befeebe21eb7c24fcaabd5f6d172287a3e36d77f55cfd5a96065dbc5b2b82fd": 1,
+    "5a38b94c7828e8b529834250f7e449985930df40605e1673fdcf3ca4a0c19ef8": 1,
+    "ae7974596fe72b7745ae8e5a76a7cbf1944580fe3c4fe8864e09e57bdd680633": 1,
+    "cbd86e81ecc4b5774fa25b4cb3ec907537099903499c519ada85eb2884a10df7": 1
+  },
+  "packages/core/src/agent/execution/streaming-executor.test.ts": {
+    "251de9d0dd94404c0ab222c02c3c0395c6cde415a56838bdfdca1f80d25f4412": 1,
+    "3a66255360054a000c48bd3190e13fd34760501d2177fc1c7f06f3f586053c6a": 1,
+    "4c884aed5dab2da6d878efaebebaea94840b4b7278a7906b0e65ddc094a96b15": 1,
+    "c08bff7318cc9f3fa215c55dd45c618a35f641d67dd7932b105937f3d83faf9e": 1
+  },
+  "packages/core/src/agent/execution/tool-executor.test.ts": {
+    "059e221794d423941a03187aecc2398d7dd5a9dd0f535e0fe702bcebb9d73f20": 1,
+    "0b61271c5aa3e734b2a8d69885b6c941293b3694f10f17a9e8857eae759da5c0": 1,
+    "0b677531410627989460134eaf928484fe593a4cdcd5cdae6f75bcb5350937db": 1,
+    "183233383b709c35893b106f02bfca48410ce146910c13223f72d043ca9e421a": 1,
+    "1a61f8055b5d01b24a0947ba8be85ad549fe6c23eb80f8a6257051ad9e94cef7": 1,
+    "1ba9f079d91a50cad431b3635c9fe079ffe92e3e52495ece20e323893a0a5c53": 1,
+    "2419e385ea83052260e524de6abab019697995250830c228ec6dfb1717873cd9": 1,
+    "24cc2363d28120db9c55ac7aa9f65c57e8578fe5ca14d377345e2e75ad608f9e": 1,
+    "3ab3fe7415fa70dcc905605d619f2dc3e59cf55c3c34ae47277ad5d1948033a1": 1,
+    "4777453719b1a12ac03d7405a7cc1662ac1873b8eb0016a08ccd11f27076e803": 8,
+    "47a19e1468d6f1b919736a2e34cd326520130bf75fa0edfe8ec693bd44c6a1fe": 1,
+    "4f38cc074f8c6a41b426f0ed59ff3dcb63f26f82c2af417da694a44c2f1cc445": 1,
+    "5acd88ae9199092acf6f0c46b6f018cb54cefcf1f80c7546fabd8a38d2211ead": 1,
+    "5b4332a6adbe869a2c8dec6f614a42b5e2a1af548c90571ed4c7053c5518b6b6": 1,
+    "61e4c836c1ed6185d80134e068af2a5160eba827f1a28f06481df10d2d6163a0": 1,
+    "6f35c38d98cf75a0bbf84c677babb3b9054e68152ae8bebb4cd4df4d3ea61b52": 1,
+    "96bf62ccf6d71120849eec196d61d63bbbfb9e3cf9431893fe447affdb9087b0": 1,
+    "b5587cbbcef90e9031c7155689a2902eec66bd5cb7f8f925edfdd2b27ff31411": 1,
+    "bb730baf27e2294e89c3a423f039971fc03217a6bb87da0d7d3b5ae62f31c23e": 1,
+    "be0f7c5228daf470add9747ae8c73ea8ca5f074be3e7eac9ffa06bc1791f4fb8": 1,
+    "c09b4d523a5cfcbf6b16dcc67e8a6ffdeba21735653d2f35d4b88812ffaecfbb": 1,
+    "c22d57a07b341f985dbc3839b6201f3db8b9c97a31ebe045e9ef93b9526d327c": 1,
+    "c7549d042c7a73c19762aa447313ca75e6075aa3ef4853694e44aba527e18f69": 1,
+    "c9dcd8a761f36bf1860740fb488c57fe1fdae8f7538f1a0e151b5af6eb52acf8": 1,
+    "caac76965fc1fb7035b80aaec3644f5fb3ce43d3a259c330c5ebc1c537616c41": 1,
+    "ce9b545a66b142a4b0a71786f0f28bd84b1f068a6962bb1fe2ed059217a7361d": 1,
+    "d2c25b781fb06a58396bc2c165e3ddd7c13b9434e5a82c00d906b02ce78d88c2": 1,
+    "d49e7ec3e3f7de51a00e8f37a1995a2eaa7ade507240aeaa45bb7294eac5c662": 1,
+    "da9d50b0dd7f161dcc92c97abc1ca92ce802dd91c301ba017e0d092c23400bef": 1,
+    "e347d9f986dced204e2ea189c6f1be8d3fcc973657756e1cebce68900b77697f": 1,
+    "f33bf47174f902a66c5ad029815c8bbb93ce5f31c3eb6e12270f6aca0d09d2fd": 1,
+    "f6c073e2697827db906a2f731ab6a0f03b5870593ef7b34663dd9a3de93f8003": 1
+  },
+  "packages/core/src/agent/execution/typed-secret-run.test.ts": {
+    "2a14bc005fad2f0080785d4bc5d951c89562b8b5da89ccd02a6ce9b0a879d355": 1
+  },
+  "packages/core/src/agent/goal/goal-evaluation.ts": {
+    "2a6f0917791a56b4324f4d000a7b56eeb6caafa62e04dc9e49763f5f4e8619e2": 1
+  },
+  "packages/core/src/agent/memory-opportunity-recorder.test.ts": {
+    "d0813a4a0244b1492c5b69b7b523b5d692ce4dbe1d451d2340ed9cce151e149c": 1
+  },
+  "packages/core/src/agent/metrics/agent-run-metrics.test.ts": {
+    "483981b810d2b4cb8476ef84e5b3771da01bb13e122e0f8f677f128ebb724d51": 1,
+    "855fcacaaad245ff045ee70ff70f05d7c533de6acb0489fb068365013ce3de87": 1,
+    "876c3297c3e56ca34012a8ee452c992fd35359623d7c544305e49524d1bcd05e": 1,
+    "8f712d887fd682c61f1eb665d98656cd1145565cc3f3134c6ae211c12cb4c982": 1
+  },
+  "packages/core/src/agent/plugins/plugin-session.ts": {
+    "01c413c03dbafd5b008b1e1a0cc767b500088e6be394eaf3f94461c73c459f0b": 4,
+    "216946aea47c47ec8a31ac2db38d2a9afd83669aa0189de092c79f03d673e41e": 2
+  },
+  "packages/core/src/agent/plugins/validation.test.ts": {
+    "6ec20752a1c5e6859b6e15c64a00b4a1c8de656598b2d6eb4c29001959a0720d": 1,
+    "b92d54cbf96089b7c135155af4f85774d416d5305fc21c61ce4b28dbc84a551f": 1,
+    "d341c9a4a8d7b5a41edefef453258979c3ae859c2f40406408e8ffcda8387bba": 1
+  },
+  "packages/core/src/agent/run/park-resume.integration.test.ts": {
+    "00378138bf1b85cc45a1f0a5d5e2e44a9e53d65c8d1dc7ed03289c3f8fa94846": 1,
+    "0f38d443330696c7ea6e5d1f973c93c76790898ba31bce284bce576cd919fb76": 1,
+    "2368fc86306d3f08b23940c6df04b53ba7ea73a5679cb3106fcd100b040ade60": 1,
+    "362700a9906505700056cc4ec1141293aac01ad0f2c67aa1e48ebc7c5143372a": 1,
+    "4777453719b1a12ac03d7405a7cc1662ac1873b8eb0016a08ccd11f27076e803": 3,
+    "76bfa84b010726a0de9c1b4f14ad8afaba73e4451f2e716ed163125489bb7571": 1,
+    "9ddb4e0894a1ae461efa6659a63d2f690631f34c3f81f7e6210ae705e270ca7d": 1,
+    "c104672ae23d6586d57a70342e3ec03e18341dd90ea51e7273c957b1eff90ee1": 1,
+    "dd3ab6b176048be366531593c087207113fbebf10055fb31ba5a26726356a419": 1,
+    "fedfa0bd279a9feabd0ecbd8d8c7a262f351b138a67e80627b0db7bc396e56f6": 1
+  },
+  "packages/core/src/agent/run/run-recorder.test.ts": {
+    "e791d9ab59e6a0c2749fbc650d743e0270fc58b81374cf6b683360de15f03495": 2
+  },
+  "packages/core/src/agent/run/secret-park-resume.integration.test.ts": {
+    "0f33f42583c43c1f35aa5ef49787a8f5cda7df4c8611b25057a5f4de638daa97": 1,
+    "202ec8456758df674023b2e93d53749cd7aad813c58c5d0f2e2066b5eb6569c9": 1,
+    "3085623a2f7a2cdd763f051cafa790a6cd497065e0843fc2849907444d64d419": 1,
+    "4777453719b1a12ac03d7405a7cc1662ac1873b8eb0016a08ccd11f27076e803": 3,
+    "516811187d8c2f077da7788140c95984510d1d147d68d9802729d3ed0e634652": 1,
+    "76bfa84b010726a0de9c1b4f14ad8afaba73e4451f2e716ed163125489bb7571": 1,
+    "99e91f58775dfa584681624748ffddd01a1b5b46011783df49d4c0cd7c9e02d8": 1,
+    "d5376ab5753db337c48698c35f009afc84536738aea2437a75cba294ef10b315": 1,
+    "eb35a41deba738b75b314760b602c55ef44c30987a74c2eb7017dff106d496b3": 1,
+    "edd1ba3b47ae3d63a75968aa210ec871ca5ef9df6bada10d23f786b590827ebc": 1
+  },
+  "packages/core/src/agent/test-config.ts": {
+    "5f3e6775b5c8219bff8c8dfb453809f9bc25b4618fbfa8b60c713cc68d001fae": 1
+  },
+  "packages/core/src/agent/tools/agent-tool-resolution.test.ts": {
+    "5aa2e42891ef0a82bdbe8b9298dc85dca46fd9cf709ab45ec9eb4e8ce107c66d": 1
+  },
+  "packages/core/src/agent/tools/browser/browser-tools.test.ts": {
+    "0fac20fd1c994c00a203565ed4ab74b8c807c6cb0a59e25f1d4e7456b1a9fc2a": 1,
+    "1fa1c909b5555d827f1b67f3ec7817002bd6a5b95cfc1d9579b86c7a42bdc994": 3,
+    "784bc57f82a1a0277eb76a4fae2d81fef6e1c4c8ffac87da25c6861ef701f3f7": 2,
+    "7d445546381d78e30b5264f69fbe1a1b0830a2e7c511d92b08b9be1be91375e7": 8,
+    "8df6957b2811d410d9f83113b0e4de493edadb804d0d97dd52082d876ebb8bc9": 2,
+    "c6b1be26a84cc925c6afa3933415dff39472ec9782991af8ca71ec09145a2e92": 1,
+    "cc77667ba3b5aa265ff70caf3b736f5f9f68a6e04427bfc849e9b93fd149345d": 4,
+    "dec3823eab395a6c886d35ee90fdeedd0a1a1b98b251b9dae8d952c4a782de9b": 1,
+    "f1e89fd74377121046c8cb7d76296827e2bf32712ee43bcf78a3bb915c668612": 2,
+    "f805ca6eb5d5ad6628a976ebaca738469bd9e4e7f92acb9f718774961a10133d": 4,
+    "f9df4ae60817f5c1375881665e699555074a945d3f2fe31f5ae9e241ec0142e1": 1,
+    "febe591b3515245f3633cb0beb91854934f1665a0a94b1fc995e30207370f36d": 2
+  },
+  "packages/core/src/agent/tools/browser/page-hooks.test.ts": {
+    "16f8e33ed7dabc486ba55b1eac740fd13ce820c7617a59dd74de01432bec8358": 1,
+    "1fa1c909b5555d827f1b67f3ec7817002bd6a5b95cfc1d9579b86c7a42bdc994": 1,
+    "23ff4cd9e987ab77bbaf9aef8abb88dccf87c8806d9bbfd8e0ecafdcd4636c3c": 1,
+    "8705e8cd11d17d101c36e37bf035c9c4c279e03673c4de0369ea7093f757903e": 1,
+    "f805ca6eb5d5ad6628a976ebaca738469bd9e4e7f92acb9f718774961a10133d": 1
+  },
+  "packages/core/src/agent/tools/browser/session-tabs.test.ts": {
+    "37d18f86171e7230837d59813771fa78535d6e0fb24cad8af40016d88371084d": 1,
+    "e8287f052cfd48e352304a13e6beba096d2eb23e0183f036a6d7f4040ff08daf": 1
+  },
+  "packages/core/src/agent/tools/browser/session.test.ts": {
+    "9fed0512e19af4dd9fc882b83edc2712093d3139fbeb171b05698cfc11bb4249": 1
+  },
+  "packages/core/src/agent/tools/browser/session.ts": {
+    "4faa2b58e9db1fd7f3f57696acc7caf66a2a4aeb9c84f81f0d9830494cdccbb7": 1
+  },
+  "packages/core/src/agent/tools/command-risk.test.ts": {
+    "36961536d8660b50341923a6e87a791508d711303b6943b074f3c2f184eac1cc": 1,
+    "4b5953decb645c8ddca3f77ee3f8e7c5b3d84141821592ec49667c239354f384": 2,
+    "8eb3f34bd53042b417ee4aca5c5301c1d1de7b6125b58b64bfabe850ad7e0235": 1,
+    "edff33989091714ffe82ee24f5ba94581d356fe94ea253f8ea06609fbf21096e": 1
+  },
+  "packages/core/src/agent/tools/computer/computer-tools.test.ts": {
+    "59109c74f2a086459d104376006776c90f4b6933d0dfe41e4ec278038586bc23": 1,
+    "c20088e8c110d29e73882a5575df172684a212596fd73a802849456ede9b672a": 1
+  },
+  "packages/core/src/agent/tools/computer/ledger.ts": {
+    "4d4d978716f1972ea7e6679a9909b11791d1955893726363e880e15314867ab0": 1
+  },
+  "packages/core/src/agent/tools/custom.test.ts": {
+    "07d2ac558b55962f00adb737909cea7bb800d89e396047ff698d5c1bdb436ad1": 1,
+    "0a94254a083b542fc4920b13de3524b5b27c55811adb0ae00b9782d6f40383e1": 5,
+    "2aa28fbe5fab05a462dc7b172f4495d66bcb507fe3b88b241ab80c79f824cecb": 1,
+    "2ac7f9377b3266d6c8ff377a775344e7854f5581a555bceeeb14661baff00d37": 1,
+    "30eb2e09c5f5932e6f920d45633e5a4ee8850f854bb64b9c5a6efbeafb8132ff": 2,
+    "36c7678fc1217c11c90beeb09943a3ac4b6fa0f7235e69edd7d199f5afd429ac": 1,
+    "4777453719b1a12ac03d7405a7cc1662ac1873b8eb0016a08ccd11f27076e803": 2,
+    "4b5192c0ffda32675a38550a0cfbbb164206dd612870d5e0502996a60da43505": 1,
+    "584c37195f8a767d9f86483d1fd9cc52058b5e8bcd09a44daf6f846631f15a61": 1,
+    "602f0817072b7f5999d6933976188662876c5070c0c1c5625a33276f9f16c0bd": 1,
+    "9938aef3929ad9153098469ca060e58000d1e7af1f6a5c1effcadf8efd29032b": 1,
+    "aa61de291d0801fbfd60cdf4613b203d0c2af1a9f76ae7261b0528633a46f9f5": 1,
+    "c104672ae23d6586d57a70342e3ec03e18341dd90ea51e7273c957b1eff90ee1": 1,
+    "c3935dd217b3a0f105077db27a5f87e358833dfd3cc33e5774d23ae9c3f12edb": 1,
+    "ccc47c99791b412ffc3af2c6eef048cfc90f7519de39f957bd516392dbc4868a": 1,
+    "e663502b5ad340c964d0d2fe45f1ff0ceca5ab98b0c681c5736eb844d6ed5c8a": 1,
+    "f5ad3a280865717d8b17c5febb0679effeaa94f3b961759fcd5ea96f53cd4b44": 1,
+    "fedfa0bd279a9feabd0ecbd8d8c7a262f351b138a67e80627b0db7bc396e56f6": 1
+  },
+  "packages/core/src/agent/tools/fs/find.ts": {
+    "a838174ce19ca84a80f7ec559db75f3b506211ddce7391eefa54f5281a2719cf": 1
+  },
+  "packages/core/src/agent/tools/fs/read-pdf.test.ts": {
+    "3bce8716da7f00fe6d986ec461b0f1731cd7dc354768f4841f96d5377f1a8e77": 1,
+    "a508c9d42d20b7ad3e3d16a10eb02901f27cad3ff8f689d631db866864966310": 1
+  },
+  "packages/core/src/agent/tools/goal.test.ts": {
+    "ef977519ac895d95c33c54d384dd7f9bc0b75a57b84a9a07a9a0e38bbeb9326d": 1
+  },
+  "packages/core/src/agent/tools/guarded-fetch.test.ts": {
+    "77232889c5cf05018ae441dd920e6027f85f01ced87f91c9b672d5f363c82629": 1
+  },
+  "packages/core/src/agent/tools/guarded-page.test.ts": {
+    "becdca34ac6b7c12fae1ad1f0f799d04f2d5229e378982e0eac8afcbeb61acdc": 1,
+    "f15de03dfc0ece758dbe94cdb4f9786f8af70a324d0b26ba632e24371c8abc2b": 1
+  },
+  "packages/core/src/agent/tools/job-queue.test.ts": {
+    "ce08739a38c938764d9bbb9cbf5a5188711d905808f320fefd6346c2a3d96d68": 1
+  },
+  "packages/core/src/agent/tools/mcp-trust.test.ts": {
+    "8157e58d516ee28f5d53619a34c746706dd9a88d003ef83b17e26d27d3a4fcde": 1,
+    "9c3d201b3561446a672b0e66a13b26d9aaa7e0fa394f395efad6fc2d1a298e3a": 1
+  },
+  "packages/core/src/agent/tools/mcp.test.ts": {
+    "5fdf29a388da9ad1eb8b30ded368b31a6141b3c6d4db58a90e6aa9de77205217": 1,
+    "7e9afebfb2df3626294125aaadfa11892ed5805721244190eb6779f72684c6b6": 1,
+    "cac426b9b7896202fef5b38178365407d9eea6ad386bc8efd8a9e1e8ef85dacc": 1,
+    "f573929427edde5108cdb6505bdef35722c6f78c630813d6e971415ddee06f1d": 1
+  },
+  "packages/core/src/agent/tools/peer.test.ts": {
+    "132bf90bb7203d97c11e61b8571259594c79969e555e26b8f2d361d8f213859b": 1
+  },
+  "packages/core/src/agent/tools/perception.test.ts": {
+    "0af723a1b847cbe597f90009908e6bca95bd77a170011f6244e8d871dde1878c": 1,
+    "15d38a76ce0ef3d053d1fe37ef495d186758d3eca515a6de027632a619b4ce7a": 1,
+    "15ffc4bb7be04cd7285310213bd846d51b97c30fc98aed27ddb17bfabf567c96": 1,
+    "1ed41fc1c027fef79c86ce568a9c19056fee5f2a17723e23b83fb2a66a53861e": 1,
+    "2d78718d5ce6c0fe12daa536d2ce9dbef07cad90bbfb115544beed356b28fea9": 2,
+    "3f5543503fa2bd4667340eca5bd8cb5ff4572b46afa1be79d3180d74fbc66eab": 1,
+    "55b5dec6a4b8759aa37fa65757d79fa69e45ad2930eac8457f494b90d5484e31": 1,
+    "5ca4e2e48dbe8b0c8bd98bff49749284344ce090f4b7db5c3b01bac1de436e4f": 1,
+    "613aeceeddb8cbafe0cdc9069bc15633a9b04c78cc2edbee472036e755fe002c": 1,
+    "7135ab7a929187a6faba59dcc29e57cbee72afcf8b2ece82d945ca52d0267a23": 1,
+    "9d2403ca3e50ab39579b1f2959b0928eef42d6a32327e8839dd5990049304247": 1,
+    "bcfb3240b3e00abda2a8a62a90b2b1bde4d5192e5fc7c56e04f599c9f65e02fd": 2,
+    "bf941b1aa37a6e0ea3a78d9d2f6fa77ddb8163a0d849d7e6c90894d06c257711": 1,
+    "d0b279540a538e3b464fd5c4b06b0c3f1f819458414a687b473c9bbdf0ee2936": 1
+  },
+  "packages/core/src/agent/tools/perception.ts": {
+    "2994ddac72096564a65b1d11cfe50c5b5f21de0cca775ed7b758d031b9a4df99": 1,
+    "5caa67998f2ce5307c656888310019f46c6daef0a9cd29aca11c531f6eec8bc2": 2
+  },
+  "packages/core/src/agent/tools/register-mcp-tools.test.ts": {
+    "4777453719b1a12ac03d7405a7cc1662ac1873b8eb0016a08ccd11f27076e803": 4,
+    "8809c9614b9354616cc6abf6675f01163bb47b63d269139084bbf886b7471f5f": 1,
+    "97bc41cf4f7575e711e4e731e6bce44b1757d62ae3a88b99d2a90cb02afdaac2": 1
+  },
+  "packages/core/src/agent/tools/shell.security.test.ts": {
+    "622182d8babd2484b822ae6c867bc22ea76382009e209cde0283a792b3888773": 1
+  },
+  "packages/core/src/agent/tools/shell.test.ts": {
+    "ce40723003ce21c26cfb23032e80f54490279fb263a951cd7130d100f0f651d6": 2
+  },
+  "packages/core/src/agent/tools/skill.ts": {
+    "28c860906c6764b276adb8c492c95fb2759c94c82805f9c9854fc2d406bb9488": 1
+  },
+  "packages/core/src/agent/tools/subagent-steering.test.ts": {
+    "e04107d495163be22a366b91f86d2ab84d468dbf2a5369303c8c37bd5862e7e7": 1,
+    "fb01029552f23f859a016e7c86705f6f7bd62102ca3584a305b182d012cbb3a4": 1
+  },
+  "packages/core/src/agent/tools/subagent.test.ts": {
+    "ef3521c002ab38099753fe770252f31f4a3462d61d5a5c592d151b43a647f92a": 1
+  },
+  "packages/core/src/agent/tools/subagent.ts": {
+    "e1634e8697a12931713bb5474d725c5db965acec26923509a57c3ebd08f3875e": 1
+  },
+  "packages/core/src/agent/tools/tool-registry.test.ts": {
+    "48d2b9c629a28d7598d2167c6d4b2f7daba2750db6e37d607f69959f12ca2291": 1,
+    "88f5280c7f4f2fa9ed67d81855cd5420dbf928f9a7523f77cf95b381fcf41bf4": 1,
+    "c20088e8c110d29e73882a5575df172684a212596fd73a802849456ede9b672a": 1
+  },
+  "packages/core/src/agent/tools/treg-search.test.ts": {
+    "c743b28f0367308abba9bb710af3d76776f4a70979dba76e88849c67d5c2699a": 1,
+    "c7a8428f76cb56356d257a0c276cbcdba397e90dddfe00e32d2d7c0d6de2f8cf": 7
+  },
+  "packages/core/src/agent/tools/user-agent-fetch.test.ts": {
+    "0b87ec51b155df6ad85ea616b16853597aee63ca3b6d84bb85ed16ccd4c72afa": 1
+  },
+  "packages/core/src/agent/tools/web-search.test.ts": {
+    "ce40723003ce21c26cfb23032e80f54490279fb263a951cd7130d100f0f651d6": 1
+  },
+  "packages/core/src/daemon/daemon-state.ts": {
+    "dce68bbc70a37b0627a5b4f8e6109c3c9368add0959304fb0dbc0fa42d3ae1c9": 1
+  },
+  "packages/core/src/presentation/concealed-line.test.ts": {
+    "2c01874686204d2e1723ae4a9c54f15c98a53cc1e88682b0b432f79f91dd28ac": 1
+  },
+  "packages/core/src/presentation/display-config.test.ts": {
+    "cfe8c7b3931a4a4d07108f3410da4b3d61a8fb20edb985067545fba6b2b04677": 1
+  },
+  "packages/core/src/presentation/oneshot-presentation-service.test.ts": {
+    "b315cb84fec26e9d38856ee16f766de6ab1ab5684af109fb4233126c026e5218": 1,
+    "e3b3858336ae260253abe549d2b763f5087ab4e8650f4eb5b323339eff0a6ce4": 1
+  },
+  "packages/core/src/skills/skill-service.test.ts": {
+    "500eff5a71edc2ee8b5925b6ef2f951ab6153021d8f93b8045476456321e4004": 1,
+    "736e00d730da64e0ca241b6c3f3d5bb9708c81ea74b20b6fb2743c9e29bfedec": 1
+  },
+  "packages/core/src/spend/run-accounting.test.ts": {
+    "7b7ded3322cf2308be9a4ebf8a788f8a44126d99ef2b19d853d8c9094f6fa1e9": 1,
+    "9d5b407fbafb12aa01e8cdc18486e224c616dc85df10372c66f2b21e27cc4285": 1,
+    "d1c5961f365dcc5e594094ac7e786b98f7720ebd705c430bd4716085b85efcb9": 1
+  },
+  "packages/core/src/types/disclosure-tier.test.ts": {
+    "31fd49e4e578ecb36cbef03df11e9a7b97ebc9ba82d41ac640cdb58f43708335": 1,
+    "64f523c1dbcdd93aa8ae2d83897ccd6a59b7f26a5c6b5248ba87b5c48d353729": 1
+  },
+  "packages/core/src/utils/config-schema.test.ts": {
+    "c22835014a00ec8019a38c4f88ec47678d93838eff4705a976371c9a7081d92d": 1
+  },
+  "packages/core/src/utils/config-schema.ts": {
+    "620893eb9f2f859cafcdf399214efd47d1ac9b5ccf3195e94b27e16ac717b65b": 1,
+    "e64729ba91818905439f3f1d31251d37145c95865eb33955a38af72b3fb2bc55": 1
+  },
+  "packages/core/src/utils/file-lock.ts": {
+    "4d4d978716f1972ea7e6679a9909b11791d1955893726363e880e15314867ab0": 1
+  },
+  "packages/core/src/utils/json.ts": {
+    "ea6db20ab5fd44ec928207d0801120517b97fe28aba4b81eccc88cf2e7f9d7f4": 1,
+    "f9462e03122184cd840ea8bb6e440afe48c9c98814dbbece8ec93366efb69a74": 1
+  },
+  "packages/core/src/utils/models-dev.test.ts": {
+    "5d84d294b4bcbb4f5e159be5932273139cfb1bb87dcb8fa223214cf86ba9997f": 1,
+    "c7a8428f76cb56356d257a0c276cbcdba397e90dddfe00e32d2d7c0d6de2f8cf": 3,
+    "ef279f898e094adba194a669b1bba50f599590265aeed63bb8281c2318fd8549": 1
+  },
+  "packages/core/src/utils/telemetry-emit.test.ts": {
+    "842665e62f4231eff0b1fb59d484d2b1f052b46775e6c412f9dac3a85591724c": 1
+  },
+  "packages/core/src/workflows/catch-up-execution.test.ts": {
+    "2bb11e94e1befc800f3958dccb0f20847b6640e86be34d1561ecf86d4d891053": 1,
+    "2eec71d89764427340ce8ce80380b5f7e0636eb847d7978cbe97d8a6a50a7698": 1,
+    "439c04af1dc3042e0f278eb01a7adbabb16d6f8d4dcb09a66acbbf28e9272663": 1,
+    "c20088e8c110d29e73882a5575df172684a212596fd73a802849456ede9b672a": 1,
+    "e0f9534a7824a77053fba6963bf06cc042b3fc4087298d7e08f3e32e2a95f139": 1
+  },
+  "packages/daemon/src/attention.test.ts": {
+    "c0c2078ac6a14532782ab2afb09ca5727635230a24e344bcaf141da5d08fc61f": 1,
+    "c44829ea4811ad2eeac206cd9c8221e430e3e640a410962a71d150c8b0fd6ad0": 1
+  },
+  "packages/daemon/src/peer-invite-flow.test.ts": {
+    "6fe9024d30e0d4757a348b83d246925b3f5aeaf2e79a0eff4bf12f3c9fb5826b": 1
+  },
+  "packages/daemon/src/remote-doors.test.ts": {
+    "cdd1639f84eeb3d52fbb4f008d36342b2cb911d97474eb2e966f1b5ef6b1d415": 1
+  },
+  "packages/daemon/src/server.test.ts": {
+    "0a2705203a7e468ed433e080d03e671672177b21997bfc5c517dc87dc8603995": 1,
+    "5361cc9d0d7c04764a57b7ef6bfea220979f14a24406daa57e1fe6cda20f4e74": 1,
+    "568390f048205cee7589935d32f41272919fdb8f767b437f856ba169bf6ec893": 1,
+    "5876a47d7aaee54ae832083965d61e6d3893a9849c48f6474102050161582f87": 1,
+    "64904238e6c3309895f4238b84bc868b5270cd3e4d3006aafd3e1526fd093c21": 1,
+    "8a5d399065c80a60817d4dbd47daad5db78ec6e848768c2d3abbabdba995ea9f": 1,
+    "9abd7e6a00fb3f97c9f8002ead3f8fcc2d78feba82dc556a0fbbfa3db6e9b84b": 1,
+    "9c0715c7aa85d196554cd34cc6f2d75ce62022ca3c5be44522053d90e1280e46": 1,
+    "ac428e4ea15cf2ec6f3adfc342496e5d3c2e84653dc99506daaa506d5483ec76": 1,
+    "afcac372c9bea08fc27ad79a1417bbc735293e3eb964e3fe576be5ea5ecbe71b": 1,
+    "b2cea8eaae83bbc65fc1201b60a8a3f250c21beeb8ebbd7b7242382593cac4a9": 1,
+    "e22a2995792065380e387d79892f73d7ebcf6bcdffcc1f8a97a0042bc43ee278": 1,
+    "e5fdbd219a794eb06619d262062aad57fca67a3c683c04b27a83c471b94c3752": 2
+  },
+  "packages/daemon/src/trigger-runner.test.ts": {
+    "3d2b7fceef73a64959acc4719a49171754a4f3ed0b94d1b7c6a8c6f7e4a9b337": 1
+  },
+  "packages/daemon/src/unattended-resume-execution.test.ts": {
+    "2bb11e94e1befc800f3958dccb0f20847b6640e86be34d1561ecf86d4d891053": 1,
+    "3085bb007d56b21b047a3ed1acb84025668e2f06580b7fd8402e99ef8c6b8e56": 1,
+    "42c243ed78694e54ead81740ced7037e10af94a0ae1de7bf6e311b69bbc6307d": 1,
+    "c20088e8c110d29e73882a5575df172684a212596fd73a802849456ede9b672a": 1
+  },
+  "packages/daemon/src/unattended-resume.test.ts": {
+    "36ab82c12bb1312d7344c7773e7c5451f3e349637698a8f6114f0bee071d3f9b": 1,
+    "9d71d345842624802200b42aae03e9cb0bbb55b68cba7bd86a4fcf0dce9a32d1": 1
+  },
+  "packages/daemon/src/webhook-authorization.test.ts": {
+    "0c04c487db4a1a132023ce3bbba04f02f9151603cc8b13f17872269ab8fb1671": 1,
+    "100e8cb014ba7bc572a94d49073738cb36f0f5aff73e89e5920b23ad4a9e81de": 1,
+    "1029edea82b887516749726532d730d638101b429ba94b7ad5e45916515d2ebb": 1,
+    "64f523c1dbcdd93aa8ae2d83897ccd6a59b7f26a5c6b5248ba87b5c48d353729": 1
+  },
+  "packages/imessage-bot/src/bridge.test.ts": {
+    "af25c32fdb7d86a3ed47c2755649f2f217ea53191d2a6b91194d6631d09a2a3e": 1
+  },
+  "packages/photon-bot/src/bridge.ts": {
+    "94bbe402d2d075a4a37a67f9af7b3a705f41507b93cd4e7c34993788f8a6b143": 1,
+    "a3401158664af5c7c11ab1201b4edf1d35f115632c2e976bf3735d5b106dcfc2": 1
+  },
+  "packages/whatsapp-bot/src/bridge.test.ts": {
+    "31baf58634605a3bc0d4dfbd2636b0e684ae337a78996560e9453bc98fd055da": 1,
+    "956fd7e5fc2617e8e4d967f38925c85775415cd5390448c66bfa6365703c97aa": 1,
+    "acb75ed3227250d6fe191e38762e30de7654688df7dae9df5fc790294e6f69b6": 1,
+    "d82fded598f496356ccba5cbb1bce6652b1b511a4b3802d04bd24d7a4b846906": 1
+  },
+  "packages/whatsapp-bot/src/whatsapp.ts": {
+    "e538f1f3d9dadee6079b7ae4f6063b9106492e8c15c246a30c0c36f44215d593": 1,
+    "ece9c7c64590228df62fcb674a51134c344a3bc99209b9a10133ead642ef1bb4": 1
+  },
+  "plugins/jev/tests/index.test.ts": {
+    "0042b2fb184119f096348a5d52f3ac5952d229b68304a81013137ec469ab10c4": 1,
+    "216946aea47c47ec8a31ac2db38d2a9afd83669aa0189de092c79f03d673e41e": 2,
+    "6f2bb2db53af36af5d567a97a8c11b2e75fd3f7580df630733728b03a5e9d5c6": 1,
+    "8544ba6ffc97ef1eeff25f0fb5747deb55b600792c69e5a71743eb26ce6f9954": 1,
+    "a5e66257d9ee348a14c515085d9488ff4aea5d08aa85ab6dbc0358f76b7bb33f": 1,
+    "ba3066bc82a511616cd17de9bfa61200b89b112cfbfe34d6e0942385153034b6": 1
+  },
+  "plugins/jev/tests/page-hooks.test.ts": {
+    "216946aea47c47ec8a31ac2db38d2a9afd83669aa0189de092c79f03d673e41e": 1,
+    "98bc4e20b9771b35a727aabd30b65a82cf203114813a9cd6603fd68eff79b0ff": 1
+  },
+  "plugins/lsp/src/client.ts": {
+    "04bc8a44533574365dfedf563e2356458bcf95f990a00906938c977c1d683356": 1
+  },
+  "plugins/lsp/src/index.ts": {
+    "7ec45abdade533609376d1e9c8343ffebbf228b1f7698051b6ec219c06d60ae5": 3
+  },
+  "scripts/github-plugin-discovery.test.ts": {
+    "5ba7c2584104b511169e0201e33008d5bd8f5a1978c0d158f5e5fa2be836bfdd": 1
+  },
+  "scripts/github-plugin-discovery.ts": {
+    "12e5ab1d59944d2817ac4a74595cf0116826134fae853af7db2a239fecfafc5c": 1,
+    "2e2604d4d8059018bbf76cbfdea12ffc08f5ccba3aa056f797f6ffe2a39affc1": 1
+  }
+}
