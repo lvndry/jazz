@@ -8,6 +8,7 @@
  * disposition's own next step.
  */
 
+import type { CancelCause } from "@/core/agent/run/cancel-cause";
 import type { RunSpend } from "@/core/agent/run/run-spend";
 import type { GoalEvaluationResult } from "./goal-evaluation";
 import { withoutCycle, type GoalRecord, type GoalRecordInput } from "./goal-record";
@@ -17,8 +18,11 @@ export type EndedRun =
   | { readonly kind: "completed"; readonly spend: RunSpend }
   | { readonly kind: "failed"; readonly error: string; readonly spend: RunSpend }
   | { readonly kind: "canceled"; readonly spend: RunSpend }
-  /** The process running the cycle stopped before its run finished. */
-  | { readonly kind: "interrupted"; readonly spend: RunSpend }
+  /**
+   * The cycle's run was stopped before it finished. A `user` stop pauses the goal; any other
+   * cause (the process stopping, a restart) is not the agent's failure, so the goal carries on.
+   */
+  | { readonly kind: "interrupted"; readonly cause: CancelCause; readonly spend: RunSpend }
   /** No durable record: the claim was written but the run never recorded anything. */
   | { readonly kind: "missing" };
 
@@ -65,7 +69,10 @@ export function settleCycle(goal: GoalRecord, end: CycleEnd): GoalRecordInput {
   if (end.unchecked !== undefined && stopAfter !== "cancel") {
     return review(base, end.unchecked);
   }
-  if (end.run.kind === "interrupted" && stopAfter === "pause") {
+  if (
+    end.run.kind === "interrupted" &&
+    (stopAfter === "pause" || (stopAfter === undefined && end.run.cause === "user"))
+  ) {
     return {
       ...base,
       lastProgress: base.lastProgress ?? INTERRUPTED_NOTE,

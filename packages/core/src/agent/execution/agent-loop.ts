@@ -112,6 +112,7 @@ import {
   type AgentRunMetrics,
 } from "../metrics/agent-run-metrics";
 import { lifecycleEventForStreamEvent } from "../plugins/lifecycle-bridge";
+import type { CancelCause } from "../run/cancel-cause";
 import type { SubagentSupervisor } from "../subagents/supervisor";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
@@ -619,6 +620,13 @@ export interface CompletionStrategy {
   shouldShowReasoning: boolean;
 }
 
+/**
+ * The loop's interrupt signal is raised only by the renderer's interrupt handler (Esc,
+ * Ctrl+C), so a run it ends is a user stop. Stops from outside the loop (a parent, a
+ * deadline, a shutdown) interrupt the fiber and never reach this response.
+ */
+const IN_LOOP_CANCEL_CAUSE: CancelCause = "user";
+
 interface FinalizeInput {
   response: AgentResponse;
   currentMessages: ConversationMessages;
@@ -679,6 +687,7 @@ function finalizeRun(
 
     yield* logger.debug("Finalizing agent run", {
       interrupted,
+      ...(interrupted ? { cancelCause: IN_LOOP_CANCEL_CAUSE } : {}),
       finished,
       costCapped,
       tokenCapped,
@@ -706,7 +715,7 @@ function finalizeRun(
 
     return {
       ...response,
-      ...(interrupted ? { interrupted: true } : {}),
+      ...(interrupted ? { interrupted: true, cancelCause: IN_LOOP_CANCEL_CAUSE } : {}),
       messages: currentMessages,
       usage: {
         promptTokens: runMetrics.totalPromptTokens,

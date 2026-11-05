@@ -855,6 +855,31 @@ describe("a goal worked on in chat", () => {
     expect(goal?.usage.totalTokens).toBe(1_200);
   });
 
+  it("carries on after a chat turn interrupted by something other than the user", async () => {
+    const test = harness();
+    await run(test, test.goals.create(testGoal()));
+    const turn = await run(test, claimChatGoalTurn(GOAL_ID));
+    if (turn === undefined) {
+      throw new Error("no turn claimed");
+    }
+    await run(test, test.runs.save(record(turn.runId, { kind: "completed", content: "" })));
+    const goal = await run(
+      test,
+      settleChatGoalTurn(turn.goal, turn.runId, {
+        kind: "finished",
+        response: {
+          content: "",
+          conversationId: "chat",
+          messages: [],
+          interrupted: true,
+          cancelCause: "shutdown",
+        } as never,
+      }),
+    );
+    expect(goal?.state.kind).toBe("active");
+    expect(goal?.interruptedCycles).toBe(1);
+  });
+
   it("completes from the turn's report and leaves the chat's conversation to the chat", async () => {
     const test = harness();
     await run(test, test.goals.create(testGoal()));

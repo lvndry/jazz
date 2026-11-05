@@ -397,7 +397,9 @@ describe("unverified completion claims", () => {
 });
 
 describe("cycles cut off by the process stopping", () => {
-  const interrupted: CycleEnd = { run: { kind: "interrupted", spend: SPEND } };
+  const interrupted: CycleEnd = {
+    run: { kind: "interrupted", cause: "shutdown", spend: SPEND },
+  };
 
   it("continues with a fresh cycle told to check the state, up to the limit", () => {
     const first = settleCycle(goal(), interrupted);
@@ -411,6 +413,18 @@ describe("cycles cut off by the process stopping", () => {
     expect(settleCycle(goal({ interruptedCycles: 2 }), interrupted).state.kind).toBe(
       "review-required",
     );
+  });
+
+  it("pauses on a user stop and carries on after any other cause, with no pause requested", () => {
+    const stoppedBy = (cause: "user" | "parent" | "deadline" | "shutdown"): CycleEnd => ({
+      run: { kind: "interrupted", cause, spend: SPEND },
+    });
+    const open = goal();
+    expect(settleCycle(open, stoppedBy("user")).state).toEqual({ kind: "paused" });
+    expect(settleCycle(open, stoppedBy("user")).interruptedCycles).toBeUndefined();
+    for (const cause of ["parent", "deadline", "shutdown"] as const) {
+      expect(settleCycle(open, stoppedBy(cause)).state).toEqual({ kind: "active" });
+    }
   });
 
   it("honors a pause or cancel requested before the process stopped", () => {
