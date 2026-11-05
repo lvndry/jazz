@@ -107,9 +107,12 @@ reverse-geocoding (coords still passed to the agent), or point it at a self-host
 Nominatim.
 
 **Timezone.** Reminder times are resolved per person: an explicit `/tz` choice, a
-zone auto-detected from a shared location, the container's `TZ`, then UTC (in that
-order). Each `jazz run` is invoked with `--timezone <zone>`, so `18:00` means 6pm
-where the sender is, across DST. Each chat's zone is stored in `tg-tz.json`.
+zone auto-detected from a shared location, then `JAZZ_BOT_DEFAULT_TIMEZONE` if the
+operator set one (in that order). The server's own zone is never used. A chat with
+none has no zone: the agent asks for it before scheduling a clock time and offers
+`/tz` to remember the answer; a zone named in a message applies to that request.
+Each `jazz run` is invoked with `--timezone <zone>`, so `18:00` means 6pm where the
+sender is, across DST. Each chat's zone is stored in `tg-tz.json`.
 
 Reminders are stored per Telegram chat's agent, one JSON file per agent under
 `reminders/` in that chat's Jazz home (`reminders/tg_<chat_id>.json`), written by

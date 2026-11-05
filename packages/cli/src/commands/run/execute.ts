@@ -133,9 +133,13 @@ export interface RunAgentOnceOptions {
   readonly autoApprovedTools?: readonly string[] | undefined;
   /**
    * IANA timezone (e.g. "Europe/Paris") used to resolve relative/clock times
-   * for this run (e.g. the add_reminder tool). Defaults to UTC when unset.
+   * for this run (e.g. the add_reminder tool). Unset means the user's zone is unknown and the
+   * agent asks for it.
    */
   readonly timezone?: string | undefined;
+  readonly timezoneSource?: "chat-setting" | "user-config" | undefined;
+  /** The command a user sends to remember their zone on this surface, e.g. `/tz`. */
+  readonly zoneSettingCommand?: string | undefined;
   readonly reasoning?: ReasoningEffort | undefined;
   /**
    * Per-run companion bindings overriding the agent's own `config.companions`.
@@ -504,6 +508,10 @@ export function runAgentOnceCommand(
         : {}),
       ...(options.proposeGoals === true ? { offersGoalProposals: true } : {}),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
+      ...(options.timezoneSource !== undefined ? { timezoneSource: options.timezoneSource } : {}),
+      ...(options.zoneSettingCommand !== undefined
+        ? { zoneSettingCommand: options.zoneSettingCommand }
+        : {}),
       ...(options.maxSubagentIterations != null
         ? { maxSubagentIterations: options.maxSubagentIterations }
         : {}),

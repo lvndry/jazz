@@ -92,6 +92,11 @@ export interface AgentPersona {
 }
 
 export interface AgentPromptOptions {
+  /**
+   * IANA zone the Environment date is shown in. Unset shows the host's zone, which is right
+   * only where the host is the user's device.
+   */
+  readonly displayTimeZone?: string;
   readonly agentName: string;
   readonly agentDescription: string;
   readonly userInput: string;
@@ -224,7 +229,7 @@ export class AgentPromptBuilder {
    * The facts themselves come from `systemInfo()` so the prompt and the
    * wizard's environment display can never drift apart.
    */
-  private getSystemInfo(): Effect.Effect<
+  private getSystemInfo(displayTimeZone?: string): Effect.Effect<
     {
       currentDate: string;
       osInfo: string;
@@ -238,7 +243,7 @@ export class AgentPromptBuilder {
     never
   > {
     return Effect.sync(() => {
-      const { cwd: _cwd, ...facts } = systemInfo();
+      const { cwd: _cwd, ...facts } = systemInfo(displayTimeZone);
       return facts;
     });
   }
@@ -290,6 +295,7 @@ export class AgentPromptBuilder {
       }
     }
     hash.update(`canGenerateMedia:${options.canGenerateMedia ?? true}`);
+    hash.update(`displayTimeZone:${options.displayTimeZone ?? "host"}`);
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
     return hash.digest("hex");
@@ -374,7 +380,7 @@ export class AgentPromptBuilder {
         const cached = this.systemPromptCache.get(cacheKey);
         if (cached) return cached;
         const { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory, tty } =
-          yield* this.getSystemInfo();
+          yield* this.getSystemInfo(options.displayTimeZone);
 
         const fillEnvironment = (text: string): string =>
           text

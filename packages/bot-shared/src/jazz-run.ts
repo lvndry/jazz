@@ -20,6 +20,7 @@
  */
 
 import { bridgeRunEnv, type ChatSandbox, sandboxCommand } from "./chat-sandbox";
+import type { ChatZone } from "./timezone-store";
 import { runSpendFromEvent, spendFields, type RunSpend } from "./usage-store";
 
 /** A subset of Jazz's NDJSON stream events (`jazz run --events`); other fields ignored. */
@@ -121,7 +122,10 @@ export interface JazzRunOptions {
   readonly sandbox: ChatSandbox;
   readonly approvalPolicy: string;
   readonly autoApproveTools: readonly string[];
-  readonly timezone: string;
+  /** The conversation's zone; absent when the user has not given one, so the agent asks. */
+  readonly timezone?: ChatZone;
+  /** The command that remembers a zone for this conversation, e.g. `/tz`. */
+  readonly zoneSettingCommand?: string;
   readonly runTimeoutMs: number;
   readonly conversation: ConversationSource;
   readonly prompt: string;
@@ -207,8 +211,12 @@ export function buildJazzRunArgs(options: JazzRunOptions): string[] {
     ...(options.autoApproveTools.length > 0
       ? ["--auto-approve-tools", options.autoApproveTools.join(",")]
       : []),
-    "--timezone",
-    options.timezone,
+    ...(options.timezone !== undefined
+      ? ["--timezone", options.timezone.zone, "--timezone-source", options.timezone.source]
+      : []),
+    ...(options.zoneSettingCommand !== undefined
+      ? ["--zone-setting-command", options.zoneSettingCommand]
+      : []),
     ...conversationArgs,
     "--timeout",
     String(options.runTimeoutMs),

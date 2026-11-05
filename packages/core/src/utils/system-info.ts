@@ -42,16 +42,24 @@ function formatUtcOffsetLabel(date: Date): string {
   return `UTC${sign}${hours}:${String(minutes).padStart(2, "0")}`;
 }
 
-/** Collect the machine facts synchronously. Cheap enough to call per render. */
-export function systemInfo(): SystemInfo {
+/**
+ * Collect the machine facts synchronously. Cheap enough to call per render.
+ *
+ * `displayTimeZone` is the IANA zone the date is shown in; without it the date is in this
+ * machine's zone, which is right only where the machine is the user's device.
+ */
+export function systemInfo(displayTimeZone?: string): SystemInfo {
   const now = new Date();
   const calendarDate = now.toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
+    ...(displayTimeZone !== undefined ? { timeZone: displayTimeZone } : {}),
   });
-  const timeZoneId = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timeZoneId = displayTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zoneLabel =
+    displayTimeZone !== undefined ? displayTimeZone : `${formatUtcOffsetLabel(now)}, ${timeZoneId}`;
   const platform = os.platform();
   const release = os.release();
   const machine = os.machine();
@@ -60,7 +68,7 @@ export function systemInfo(): SystemInfo {
   const totalMemoryGb = Math.round(os.totalmem() / 1024 ** 3);
 
   return {
-    currentDate: `${calendarDate} (${formatUtcOffsetLabel(now)}, ${timeZoneId})`,
+    currentDate: `${calendarDate} (${zoneLabel})`,
     osInfo: `${platform} ${release} (${machine})`,
     hardware: `${cpuModel} · ${coreCount} cores · ${totalMemoryGb} GB RAM`,
     shell: process.env["SHELL"] || "unknown",

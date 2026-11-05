@@ -31,6 +31,7 @@ import type {
   ToolExecutionContext,
 } from "@/core/types/tools";
 import type { RunDeadline } from "@/core/utils/run-deadline";
+import type { UserZoneSource } from "@/core/utils/user-time-zone";
 import type { UserInputAttachmentResolution } from "./agent-prompt";
 import type { Agent } from "../types";
 import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
@@ -64,6 +65,7 @@ export type ChatTurnOptions = Pick<
   | "awaitQueuedMessage"
   | "onDetachedToolComplete"
   | "offersShellEscape"
+  | "hostIsUserDevice"
 >;
 
 /** A message delivered into a run while it works, at the start of its next step. */
@@ -440,9 +442,18 @@ export interface AgentRunnerOptions {
    * IANA timezone (e.g. "Europe/Paris") for this run, copied into the tool
    * execution context so tools like add_reminder can resolve "now" in the
    * caller's local time without asking the model to supply a timezone string.
-   * Defaults to "UTC" (via ToolExecutionContext) when unset.
+   * Unset means the user's zone is unknown unless `hostIsUserDevice` is set.
    */
   readonly timezone?: string;
+  /** Where `timezone` came from; unset reads as the user's own configuration. */
+  readonly timezoneSource?: UserZoneSource;
+  /**
+   * Whether this process runs on the user's own device, so the host zone is the user's zone.
+   * Only the interactive terminal chat sets it.
+   */
+  readonly hostIsUserDevice?: boolean;
+  /** The surface's command that remembers a zone for the conversation, such as `/tz`. */
+  readonly zoneSettingCommand?: string;
   /**
    * Surface this run is replying on — copied into the system prompt so the model knows
    * whether it's in a terminal, a chat app, or posting a PR comment. Defaults to "cli".

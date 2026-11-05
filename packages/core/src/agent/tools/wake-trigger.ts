@@ -6,7 +6,9 @@ import { WakeTriggerServiceTag } from "@/core/interfaces/wake-trigger-service";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { describeDelivery } from "@/core/utils/delivery";
 import { toError } from "@/core/utils/errors";
+import { isClockDependentWhen } from "@/core/utils/time";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { resolveToolZone, TIME_ZONE_PARAMETER_DESCRIPTION } from "./user-zone";
 
 type WakeTriggerToolDeps = WakeTriggerService | FileSystem.FileSystem;
 
@@ -23,6 +25,7 @@ const registerTriggerParameters = z
         'Relative ("30m", "1h30m", "1d"), 24h clock ("18:00"), "tomorrow HH:MM", weekday ' +
           '("tue 20:00") or absolute ("2026-08-25 20:00").',
       ),
+    timeZone: z.string().min(1).optional().describe(TIME_ZONE_PARAMETER_DESCRIPTION),
     prompt: z
       .string()
       .min(1)
@@ -64,7 +67,18 @@ export function createRegisterTriggerTool(): Tool<WakeTriggerToolDeps> {
         }
 
         const wakeTriggerService = yield* WakeTriggerServiceTag;
-        const timezone = typeof context.timezone === "string" ? context.timezone : "UTC";
+        const zone = resolveToolZone(context, args.timeZone);
+        if (zone.kind === "invalid") {
+          return { success: false, result: null, error: zone.error } satisfies ToolExecutionResult;
+        }
+        if (zone.kind === "unknown" && isClockDependentWhen(args.when)) {
+          return {
+            success: false,
+            result: null,
+            error: zone.instruction,
+          } satisfies ToolExecutionResult;
+        }
+        const timezone = zone.kind === "known" ? zone.zone : "UTC";
         const outcome = yield* wakeTriggerService.add(
           context.agentId,
           context.conversationId,
@@ -88,6 +102,9 @@ export function createRegisterTriggerTool(): Tool<WakeTriggerToolDeps> {
             id: outcome.trigger.id,
             fireAt: formatFireAt(outcome.trigger),
             prompt: outcome.trigger.prompt,
+            ...(zone.kind === "known" && isClockDependentWhen(args.when)
+              ? { timeZone: zone.zone, timeZoneSource: zone.source }
+              : {}),
           },
         } satisfies ToolExecutionResult;
       }).pipe(

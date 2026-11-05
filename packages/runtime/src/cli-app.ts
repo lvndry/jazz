@@ -41,6 +41,7 @@ import { isCompanionBinding } from "@jazz/core/utils/named-companions";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { securePrivateHome } from "@jazz/core/utils/private-home";
 import type { ShutdownSignal } from "@jazz/core/utils/process";
+import { parseTimeZone } from "@jazz/core/utils/user-time-zone";
 import { Command, Option } from "commander";
 import packageJson from "../../../package.json";
 
@@ -177,7 +178,15 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--timezone <iana-tz>",
-      "IANA timezone (e.g. Europe/Paris) used to resolve relative/clock times for this run, e.g. the add_reminder tool. Defaults to UTC.",
+      "IANA timezone (e.g. Europe/Paris) the user is in, used to resolve clock times for this run, e.g. the add_reminder tool. Without it the agent asks the user for their zone.",
+    )
+    .option(
+      "--timezone-source <source>",
+      "Where --timezone came from: chat-setting or user-config (default user-config)",
+    )
+    .option(
+      "--zone-setting-command <command>",
+      "The command a user sends to remember their time zone on this surface, e.g. /tz",
     )
     .option(
       "--timeout <ms>",
@@ -268,6 +277,8 @@ function registerRunCommand(program: Command): void {
           autoApproveTools?: string;
           proposeGoals?: boolean;
           timezone?: string;
+          timezoneSource?: string;
+          zoneSettingCommand?: string;
           timeout?: number;
           maxIterations?: number;
           maxSubagentIterations?: number;
@@ -336,21 +347,28 @@ function registerRunCommand(program: Command): void {
           return;
         }
 
-        if (options.timezone !== undefined) {
-          try {
-            new Intl.DateTimeFormat(undefined, { timeZone: options.timezone });
-          } catch {
-            const message = `Invalid --timezone "${options.timezone}". Expected an IANA timezone name (e.g. Europe/Paris).`;
-            if (json) {
-              process.stdout.write(
-                `${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`,
-              );
-            } else {
-              process.stderr.write(`${message}\n`);
-            }
-            process.exitCode = 1;
-            return;
+        const parsedTimezone =
+          options.timezone !== undefined ? parseTimeZone(options.timezone) : undefined;
+        if (parsedTimezone !== undefined && !parsedTimezone.ok) {
+          const message = `Invalid --timezone. ${parsedTimezone.error}`;
+          if (json) {
+            process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
+          } else {
+            process.stderr.write(`${message}\n`);
           }
+          process.exitCode = 1;
+          return;
+        }
+        const timezoneSource = options.timezoneSource ?? "user-config";
+        if (timezoneSource !== "chat-setting" && timezoneSource !== "user-config") {
+          const message = `Invalid --timezone-source "${timezoneSource}". Expected chat-setting or user-config.`;
+          if (json) {
+            process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
+          } else {
+            process.stderr.write(`${message}\n`);
+          }
+          process.exitCode = 1;
+          return;
         }
 
         // The `--with-*` flags name the modality only; every one of them binds the
@@ -415,7 +433,12 @@ function registerRunCommand(program: Command): void {
                   ? { autoApprovedTools: autoApproveTools }
                   : {}),
                 ...(options.proposeGoals === true ? { proposeGoals: true } : {}),
-                ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
+                ...(parsedTimezone?.ok === true
+                  ? { timezone: parsedTimezone.zone, timezoneSource }
+                  : {}),
+                ...(options.zoneSettingCommand !== undefined
+                  ? { zoneSettingCommand: options.zoneSettingCommand }
+                  : {}),
                 ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
                   ? { reasoning: options.reasoning }
                   : {}),

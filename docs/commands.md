@@ -96,7 +96,7 @@ available for interactive replies.
 | `--approval-policy <p>`         | none            | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**                                                                                                                                                |
 | `--auto-approve-tools <names>`  | none            | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                                                                                                  |
 | `--propose-goals`               | off             | Let the agent propose a goal for work that outlasts the run; the proposal waits for `jazz goal accept`                                                                                                                         |
-| `--timezone <iana-tz>`          | UTC             | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                                                                                               |
+| `--timezone <iana-tz>`          | none            | The time zone the user is in, such as `Europe/Paris`, used to resolve clock times for reminders and wake triggers. Without it the agent asks the user for their zone before scheduling a clock time.                           |
 | `--watch <categories>`          | none            | Watch the run: NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `spend`, `all` (comma-separated). Alias of `--events`; pass one or the other, not both                                |
 | `--reasoning <effort>`          | agent config    | `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` \| `disable`; a level the model does not accept runs at the nearest one it does, with a warning on stderr                                                         |
 | `--timeout <ms>`                | none            | Hard deadline for the whole run. Work stops at 85% of it and the agent answers in the rest; a run still going at the deadline is killed as a failure. **No default**: unset, a run goes on until it finishes or a budget trips |
@@ -530,7 +530,7 @@ jazz loop cancel <loop>
 
 `--every` takes a duration (`10m`, `1h`, `1h30m`, at least a minute) or a five- or six-field cron
 expression. Six fields add seconds first: `--every '*/10 * * * * *'` schedules every ten seconds.
-Cron is read in `--tz` (default: this machine's timezone). An interval loop runs right away; a cron loop
+Cron is read in `--tz` (default: this machine's timezone) and the loop keeps that zone by name, so moving the machine to another zone does not move the schedule. An interval loop runs right away; a cron loop
 waits for its first scheduled time. Runs missed while the daemon was down collapse into one, and a
 loop never overlaps itself, including while a run waits for an approval. Intervals are measured
 from the previous run's completion. Actual starts depend on the daemon's polling.

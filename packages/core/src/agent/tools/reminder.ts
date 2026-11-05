@@ -6,7 +6,9 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { describeDelivery } from "@/core/utils/delivery";
 import { toError } from "@/core/utils/errors";
+import { isClockDependentWhen } from "@/core/utils/time";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { resolveToolZone, TIME_ZONE_PARAMETER_DESCRIPTION } from "./user-zone";
 
 type ReminderToolDeps = ReminderService | FileSystem.FileSystem;
 
@@ -23,6 +25,7 @@ const addReminderParameters = z
   .object({
     when: z.string().min(1).describe(WHEN_DESCRIPTION),
     text: z.string().min(1).describe("What to remind about, kept concise."),
+    timeZone: z.string().min(1).optional().describe(TIME_ZONE_PARAMETER_DESCRIPTION),
   })
   .strict();
 
@@ -43,7 +46,18 @@ export function createAddReminderTool(): Tool<ReminderToolDeps> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const reminderService = yield* ReminderServiceTag;
-        const timezone = typeof context.timezone === "string" ? context.timezone : "UTC";
+        const zone = resolveToolZone(context, args.timeZone);
+        if (zone.kind === "invalid") {
+          return { success: false, result: null, error: zone.error } satisfies ToolExecutionResult;
+        }
+        if (zone.kind === "unknown" && isClockDependentWhen(args.when)) {
+          return {
+            success: false,
+            result: null,
+            error: zone.instruction,
+          } satisfies ToolExecutionResult;
+        }
+        const timezone = zone.kind === "known" ? zone.zone : "UTC";
         const outcome = yield* reminderService.add(context.agentId, args.when, args.text, timezone);
 
         if (!outcome.success) {
@@ -60,6 +74,16 @@ export function createAddReminderTool(): Tool<ReminderToolDeps> {
             id: outcome.reminder.id,
             fireAt: formatFireAt(outcome.reminder),
             text: outcome.reminder.text,
+            ...(zone.kind === "known" && isClockDependentWhen(args.when)
+              ? { timeZone: zone.zone, timeZoneSource: zone.source }
+              : {}),
+            ...(zone.kind === "known" &&
+            zone.source === "explicit-in-message" &&
+            context.zoneSettingCommand !== undefined
+              ? {
+                  next: `Offer to remember ${zone.zone}: the user can send ${context.zoneSettingCommand} ${zone.zone}.`,
+                }
+              : {}),
           },
         } satisfies ToolExecutionResult;
       }).pipe(

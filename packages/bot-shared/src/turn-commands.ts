@@ -15,6 +15,7 @@
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
+import { parseTimeZone } from "@jazz/core/utils/user-time-zone";
 import type { AgentFile } from "./agent-file";
 import { formatTokenCount } from "./answer";
 import {
@@ -39,7 +40,7 @@ import {
   type RichText,
   text,
 } from "./surface";
-import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone-store";
+import { chatZone, formatWhen, setTzForChat } from "./timezone-store";
 import type { ChoiceOutcome, ChoiceTap, InboundMessage, SenderId, TurnConfig } from "./turn";
 import { todayUsage } from "./usage-store";
 
@@ -236,7 +237,7 @@ export function createCommands(context: CommandContext): Commands {
     const agent = context.ensureAgent(chatId, sandbox);
     const usage = await todayUsage(config.jazzHome, config.spendOrigin);
     const mode = approvalModeFor(config.jazzHome, config.files.mode, chatId);
-    const timezone = tzForChat(config.jazzHome, config.files.timezone, chatId);
+    const zone = chatZone(config.jazzHome, config.files.timezone, chatId);
     const incognito =
       config.incognitoFile !== undefined &&
       isIncognito(config.jazzHome, config.incognitoFile, chatId);
@@ -252,11 +253,13 @@ export function createCommands(context: CommandContext): Commands {
       ),
       plainLine(`Persona: ${agent.config.persona}`),
       plainLine(`Mode: ${APPROVAL_MODE_LABELS[mode]}`),
-      line(
-        text("Timezone: "),
-        code(timezone),
-        text(hasChatTz(config.jazzHome, config.files.timezone, chatId) ? "" : " (default)"),
-      ),
+      zone === undefined
+        ? line(text("Timezone: not set. Set it with "), code("/tz Europe/Paris"), text("."))
+        : line(
+            text("Timezone: "),
+            code(zone.zone),
+            text(zone.source === "chat-setting" ? "" : " (default)"),
+          ),
       plainLine(
         `Today: ${usage.runs} run${usage.runs === 1 ? "" : "s"} · ` +
           `${formatTokenCount(usage.tokens)} tokens · $${usage.costUSD.toFixed(4)}` +
@@ -446,36 +449,42 @@ export function createCommands(context: CommandContext): Commands {
 
   const handleTz = async (chatId: ChatId, args: string): Promise<void> => {
     if (args.length === 0) {
-      const current = tzForChat(config.jazzHome, config.files.timezone, chatId);
-      const isDefault = !hasChatTz(config.jazzHome, config.files.timezone, chatId);
+      const current = chatZone(config.jazzHome, config.files.timezone, chatId);
       await context.send(chatId, [
-        line(
-          text("🌍 Timezone: "),
-          code(current),
-          text(isDefault ? " (default — not set yet)" : ""),
-        ),
-        plainLine(`Local time now: ${formatWhen(Date.now(), current)}`),
+        current === undefined
+          ? line(text("🌍 Timezone: not set. I ask before scheduling a clock time."))
+          : line(
+              text("🌍 Timezone: "),
+              code(current.zone),
+              text(current.source === "chat-setting" ? "" : " (default — not set yet)"),
+            ),
+        ...(current === undefined
+          ? []
+          : [plainLine(`Local time now: ${formatWhen(Date.now(), current.zone)}`)]),
         line(text("Change it with "), code("/tz Europe/Paris"), text(" (an IANA name).")),
         ...(config.extraTzHelp === undefined ? [] : [plainLine(config.extraTzHelp)]),
       ]);
       return;
     }
-    if (!isValidTimeZone(args)) {
+    const parsed = parseTimeZone(args);
+    if (!parsed.ok) {
       await context.send(chatId, [
         line(text(`"${args}" is not an IANA timezone. Try `), code("/tz Europe/Paris"), text(".")),
       ]);
       return;
     }
-    setTzForChat(config.jazzHome, config.files.timezone, chatId, args);
+    setTzForChat(config.jazzHome, config.files.timezone, chatId, parsed.zone);
     await context.send(chatId, [
-      line(text("✅ Timezone → "), code(args)),
-      plainLine(`Local time now: ${formatWhen(Date.now(), args)}. Reminders use it from now on.`),
+      line(text("✅ Timezone → "), code(parsed.zone)),
+      plainLine(
+        `Local time now: ${formatWhen(Date.now(), parsed.zone)}. Reminders use it from now on.`,
+      ),
     ]);
   };
 
   const handleReminders = async (chatId: ChatId): Promise<void> => {
     const sandbox = context.sandboxFor(chatId);
-    const timezone = tzForChat(config.jazzHome, config.files.timezone, chatId);
+    const timezone = chatZone(config.jazzHome, config.files.timezone, chatId)?.zone ?? "UTC";
     const mine = [...readReminders(sandbox.home, config.agentIdFor(chatId))].sort(
       (left, right) => left.fireAt - right.fireAt,
     );

@@ -72,6 +72,7 @@ import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { resolveOllamaAttachmentSupport } from "@/core/utils/ollama-attachment-support";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
+import { resolveUserZone } from "@/core/utils/user-time-zone";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder, resolveUserInputAttachments } from "./agent-prompt";
@@ -901,6 +902,14 @@ function initializeAgentRun(
       ...(options.memorySources ?? collectMemorySources(history, currentMemorySource)),
     ];
 
+    // The prompt's date is shown in the user's zone; where that is unknown it is UTC, never
+    // the zone of a server the user is not on.
+    const promptZone = resolveUserZone({
+      userConfig: options.timezone,
+      hostIsUserDevice: options.hostIsUserDevice === true,
+    });
+    const promptDisplayZone = promptZone.kind === "known" ? promptZone.zone : "UTC";
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -908,6 +917,7 @@ function initializeAgentRun(
       {
         agentName: agent.name,
         agentDescription: agent.description || "",
+        displayTimeZone: promptDisplayZone,
         userInput,
         ...(currentMemorySource !== undefined ? { memorySource: currentMemorySource } : {}),
         ...(options.isResume === true ? { isResume: true } : {}),
@@ -1045,6 +1055,11 @@ function initializeAgentRun(
       subagentDepth: options.subagentDepth ?? 0,
       ...resolveDelegationLimits(appConfig, options.maxSubagentIterations, attended),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
+      ...(options.timezoneSource !== undefined ? { timezoneSource: options.timezoneSource } : {}),
+      ...(options.hostIsUserDevice === true ? { hostIsUserDevice: true } : {}),
+      ...(options.zoneSettingCommand !== undefined
+        ? { zoneSettingCommand: options.zoneSettingCommand }
+        : {}),
       ...(options.offersShellEscape === true ? { offersShellEscape: true } : {}),
       shellConfinement: resolveConfinementMode(appConfig.shell?.confinement, attended),
       onAutoApproveCommand:

@@ -916,7 +916,7 @@ async function createLoopRoute(
       400,
     );
   }
-  const schedule = parseLoopSchedule(every, timezone ?? "UTC");
+  const schedule = parseLoopSchedule(every, timezone);
   if (!schedule.ok) {
     return json({ ok: false, error: schedule.reason }, 400);
   }
