@@ -64,9 +64,13 @@ export interface SizeBudget {
 /**
  * Compiled release size per `${process.platform}-${process.arch}`: the measured
  * artifact multiplied by PR_SIZE_HEADROOM, rounded up to the next 100KB. The
- * size includes Bun itself, so a Bun upgrade is expected to move it.
+ * linux-x64 figures come from the binary built on the GitHub runner with the
+ * Bun that `setup-bun` resolves, which is the artifact users download. The
+ * size includes Bun itself, so a Bun upgrade is expected to move it. The
+ * darwin-arm64 figures scale a local build by the growth seen on linux-x64
+ * and are estimates until measured with the same Bun.
  */
 export const SIZE_BUDGETS: Readonly<Record<string, SizeBudget>> = {
-  "linux-x64": { binaryBytes: 206_500_000, gzipBytes: 87_200_000 },
-  "darwin-arm64": { binaryBytes: 181_600_000, gzipBytes: 74_600_000 },
+  "linux-x64": { binaryBytes: 228_800_000, gzipBytes: 100_200_000 },
+  "darwin-arm64": { binaryBytes: 201_200_000, gzipBytes: 85_800_000 },
 };
