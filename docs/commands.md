@@ -1139,6 +1139,17 @@ and that it will hear back. When the call finishes, the chat shows one line nami
 agent gets its result at its next step. If the chat is idle by then, the result starts a turn
 on its own, so you do not have to send a message to get the agent to read it.
 
+You do not have to press the key for a slow shell command. In an interactive chat, an `execute_command`
+that is still running 45 seconds after it started (the wait for your approval does not count) is
+moved to the background for you. The transcript shows `→ moved to the background after 45s`, the
+agent is told the same run is still going and must not be started again, and its result (exit code,
+whether it hit the 15 minute limit, the end of its output) arrives like any backgrounded call. At most
+3 such commands run at once; a fourth stays in the foreground. The 15 minute limit still stops a
+backgrounded command. Leaving the chat or switching conversations stops every command still running
+in the background and tells you which ones. Pressing Esc stops the turn, and also a backgrounded
+command that was still part of that turn's batch. Unattended runs, bridges, sub-agents and `jazz run`
+without a terminal never move commands to the background and keep the foreground wait.
+
 ### Commands that answer right away
 
 Commands that only show something open in a panel centered over the chat as soon as you press

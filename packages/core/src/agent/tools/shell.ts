@@ -555,7 +555,7 @@ type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService | Logge
 export const EXECUTE_COMMAND_OUTPUT_CAP_BYTES = DEFAULT_SPAWN_OUTPUT_CAP_BYTES;
 
 /** What `timeout(1)` reports, and what a job killed at its cap reports here. */
-const TIMEOUT_EXIT_CODE = 124;
+export const TIMEOUT_EXIT_CODE = 124;
 
 /** The shell's base for "killed by a signal"; a signal death has no exit code of its own. */
 const SIGNAL_EXIT_CODE = 128;

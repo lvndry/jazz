@@ -30,6 +30,7 @@ import {
 import { moveConversationToAgent } from "@jazz/adapters/history/move-conversation";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { AgentRunner, type AgentRunnerOptions } from "@jazz/core/agent/agent-runner";
+import { processDetachedCalls } from "@jazz/core/agent/detach/auto-detach";
 import { carryEgressTaint } from "@jazz/core/agent/execution/egress-taint";
 import type { RunOutcome } from "@jazz/core/agent/run/park-signal";
 import { createBlackboard } from "@jazz/core/agent/subagents/blackboard";
@@ -360,12 +361,19 @@ export class ChatServiceImpl implements ChatService {
       // or ending the session stops them.
       let subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
       let blackboard = createBlackboard();
-      const stopSubagents = Effect.gen(function* () {
+      const stopBackgroundWork = Effect.gen(function* () {
         const live = subagents.liveCount();
         yield* subagents.close();
         if (live > 0) {
           yield* terminal.warn(
             `Stopped ${String(live)} sub-agent${live === 1 ? "" : "s"} that ${live === 1 ? "was" : "were"} still working.`,
+          );
+        }
+        const detachedCommands = processDetachedCalls.running();
+        if (detachedCommands.length > 0) {
+          yield* processDetachedCalls.stopAll();
+          yield* terminal.warn(
+            `Stopped ${String(detachedCommands.length)} background command${detachedCommands.length === 1 ? "" : "s"} that ${detachedCommands.length === 1 ? "was" : "were"} still running: ${detachedCommands.map((entry) => entry.description).join("; ")}`,
           );
         }
       });
@@ -869,7 +877,7 @@ export class ChatServiceImpl implements ChatService {
               terminal.warn(`Could not hand paused goals to the daemon: ${error.message}`),
             ),
           );
-          yield* stopSubagents;
+          yield* stopBackgroundWork;
           yield* terminal.log(chalk.dim.italic("— fin —"));
 
           // Cleanup: Disconnect all MCP servers and unregister mode handler before exiting
@@ -992,7 +1000,7 @@ export class ChatServiceImpl implements ChatService {
                 yield* pluginRuntime.value.clearConversationOverrides();
                 yield* registerExtensionCommands(agent.id);
               }
-              yield* stopSubagents;
+              yield* stopBackgroundWork;
               subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
               blackboard = createBlackboard();
               yield* attachTo(conversationId);
@@ -1563,7 +1571,7 @@ export class ChatServiceImpl implements ChatService {
         }
       }
 
-      yield* stopSubagents;
+      yield* stopBackgroundWork;
       yield* emitLifecycle("session-end");
       yield* saveSession(conversationHistory, { uiTranscript: uiTranscriptFromStore() });
       if (!ephemeral && sessionTurnCount > 0) {
