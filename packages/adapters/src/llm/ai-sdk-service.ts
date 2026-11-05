@@ -151,6 +151,7 @@ import {
 } from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
+import { resolveReasoningReplay } from "./reasoning-replay";
 import { orcaRouterResponseCostUSD, routerBilledCostUSD } from "./router-cost";
 import {
   resolveStreamIdleTimeoutMs,
@@ -350,15 +351,6 @@ function buildToolConfig(
 }
 
 /**
- * Providers whose reasoning must be sent back between tool calls within a turn. Anthropic
- * requires its signed thinking blocks. OpenAI and ChatGPT continue from the previous reasoning
- * item: by reference when the item is stored, or from its encrypted content when `store` is off,
- * which is always the case for ChatGPT. Ollama and llama.cpp emit reasoning but cannot accept it
- * back.
- */
-const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic", "openai", "chatgpt"]);
-
-/**
  * File parts for a message's attachments, plus text notes for any that could not be sent.
  *
  * Both halves matter. The parts are what the model sees; the notes are what stops it from
@@ -403,6 +395,16 @@ function buildAttachmentParts(
   return { parts, notes };
 }
 
+export interface ToCoreMessagesOptions {
+  /** Model id, for providers whose reasoning wire format depends on the model generation. */
+  readonly modelName?: string;
+  /** Called when a stored reasoning part is left out of the request instead of replayed. */
+  readonly onReasoningPartSkipped?: (details: {
+    readonly messageIndex: number;
+    readonly reason: "empty-text" | "invalid-text";
+  }) => void;
+}
+
 export function toCoreMessages(
   messages: ReadonlyArray<{
     role: "system" | "user" | "assistant" | "tool";
@@ -425,6 +427,7 @@ export function toCoreMessages(
   }>,
   providerName?: ProviderName,
   resolvedAttachments?: ResolvedAttachments,
+  conversionOptions?: ToCoreMessagesOptions,
 ): ModelMessage[] {
   // An ephemeral nudge (context, budget, cost, time pressure) rides as a trailing user message
   // but does not start a new turn. Counting it would put every reasoning part of the current
@@ -444,6 +447,7 @@ export function toCoreMessages(
   const inlineAttachmentIndices = inlineAttachmentMessageIndices(messages);
 
   const normalizedProviderName = providerName?.toLowerCase();
+  const reasoningReplay = resolveReasoningReplay(providerName, conversionOptions?.modelName);
 
   const result = messages.map((m, messageIndex) => {
     const role = m.role;
@@ -528,14 +532,22 @@ export function toCoreMessages(
         | ToolCallPart
       > = [];
 
-      if (
-        m.reasoning_parts &&
-        messageIndex > lastUserMessageIndex &&
-        normalizedProviderName &&
-        REASONING_ROUND_TRIP_PROVIDERS.has(normalizedProviderName)
-      ) {
+      const replayScopeIncludesMessage =
+        reasoningReplay.scope === "all-turns" ||
+        (reasoningReplay.scope === "current-turn" && messageIndex > lastUserMessageIndex);
+      if (m.reasoning_parts && normalizedProviderName && replayScopeIncludesMessage) {
         for (const storedPart of m.reasoning_parts) {
-          if (storedPart.provider.toLowerCase() !== normalizedProviderName) continue;
+          if (storedPart.provider.toLowerCase() !== normalizedProviderName) {
+            continue;
+          }
+          if (typeof storedPart.text !== "string") {
+            conversionOptions?.onReasoningPartSkipped?.({ messageIndex, reason: "invalid-text" });
+            continue;
+          }
+          if (reasoningReplay.textRequired && storedPart.text.length === 0) {
+            conversionOptions?.onReasoningPartSkipped?.({ messageIndex, reason: "empty-text" });
+            continue;
+          }
           contentParts.push({
             type: "reasoning",
             text: storedPart.text,
@@ -2284,7 +2296,18 @@ class AISDKService implements LLMService {
           effectiveLLMConfig,
           this.logger,
         );
-        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments);
+        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments, {
+          modelName: options.model,
+          onReasoningPartSkipped: ({ messageIndex, reason }) => {
+            Effect.runFork(
+              this.logger.debug("Skipped stored reasoning part during replay", {
+                provider: providerName,
+                messageIndex,
+                reason,
+              }),
+            );
+          },
+        });
         Effect.runFork(
           this.logger.debug(
             `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
@@ -2616,7 +2639,18 @@ class AISDKService implements LLMService {
           effectiveLLMConfig,
           this.logger,
         );
-        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments);
+        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments, {
+          modelName: options.model,
+          onReasoningPartSkipped: ({ messageIndex, reason }) => {
+            Effect.runFork(
+              this.logger.debug("Skipped stored reasoning part during replay", {
+                provider: providerName,
+                messageIndex,
+                reason,
+              }),
+            );
+          },
+        });
         Effect.runFork(
           this.logger.debug(
             `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,

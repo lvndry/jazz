@@ -2522,6 +2522,134 @@ describe("toCoreMessages - reasoning replay", () => {
   });
 });
 
+describe("toCoreMessages - reasoning replay capability", () => {
+  const toolCall = {
+    id: "t1",
+    type: "function" as const,
+    function: { name: "get_weather", arguments: "{}" },
+  };
+
+  function toolLoop(provider: string, text = "step one reasoning") {
+    return [
+      { role: "user" as const, content: "hi" },
+      {
+        role: "assistant" as const,
+        content: "",
+        reasoning_parts: [{ text, provider }],
+        tool_calls: [toolCall],
+      },
+      { role: "tool" as const, content: "sunny", name: "get_weather", tool_call_id: "t1" },
+    ];
+  }
+
+  function assistantTypes(result: ReturnType<typeof toCoreMessages>, index: number): string[] {
+    return (result[index]?.content as Array<{ type: string }>).map((part) => part.type);
+  }
+
+  it("replays DeepSeek reasoning byte-exact inside the current tool loop", () => {
+    const exact = "line one\n  indented \uD800 tail ";
+    const result = toCoreMessages(toolLoop("deepseek", exact), "deepseek", undefined, {
+      modelName: "deepseek-v4-flash",
+    });
+
+    const content = result[1]?.content as Array<{ type: string; text?: string }>;
+    expect(content[0]).toEqual({ type: "reasoning", text: exact });
+  });
+
+  it("replays DeepSeek V4 reasoning from earlier turns", () => {
+    const messages = [
+      ...toolLoop("deepseek"),
+      { role: "assistant" as const, content: "done" },
+      { role: "user" as const, content: "next" },
+    ];
+    const result = toCoreMessages(messages, "deepseek", undefined, {
+      modelName: "deepseek-v4-pro",
+    });
+
+    expect(assistantTypes(result, 1)).toContain("reasoning");
+  });
+
+  it("keeps legacy DeepSeek reasoning inside the current turn only", () => {
+    const messages = [...toolLoop("deepseek"), { role: "user" as const, content: "next" }];
+    const result = toCoreMessages(messages, "deepseek", undefined, {
+      modelName: "deepseek-reasoner",
+    });
+    expect(assistantTypes(result, 1)).not.toContain("reasoning");
+
+    const insideTurn = toCoreMessages(toolLoop("deepseek"), "deepseek", undefined, {
+      modelName: "deepseek-reasoner",
+    });
+    expect(assistantTypes(insideTurn, 1)).toContain("reasoning");
+  });
+
+  it("replays Moonshot reasoning inside the current tool loop", () => {
+    const result = toCoreMessages(toolLoop("moonshotai"), "moonshotai", undefined, {
+      modelName: "kimi-k2-thinking",
+    });
+
+    expect(assistantTypes(result, 1)).toEqual(["reasoning", "tool-call"]);
+  });
+
+  it("does not replay on providers that cannot accept reasoning back", () => {
+    for (const provider of ["ollama", "llamacpp", "nvidia", "openrouter"] as const) {
+      const result = toCoreMessages(toolLoop(provider), provider);
+      expect(assistantTypes(result, 1)).not.toContain("reasoning");
+    }
+  });
+
+  it("degrades a payload-only part on a text-only wire format without failing the request", () => {
+    const skipped: Array<{ messageIndex: number; reason: string }> = [];
+    const messages = toolLoop("deepseek", "");
+    const result = toCoreMessages(messages, "deepseek", undefined, {
+      modelName: "deepseek-v4-flash",
+      onReasoningPartSkipped: (details) => skipped.push(details),
+    });
+
+    expect(assistantTypes(result, 1)).toEqual(["tool-call"]);
+    expect(skipped).toEqual([{ messageIndex: 1, reason: "empty-text" }]);
+  });
+
+  it("degrades a stored part whose text is not a string", () => {
+    const skipped: string[] = [];
+    const messages = [
+      { role: "user" as const, content: "hi" },
+      {
+        role: "assistant" as const,
+        content: "answer",
+        reasoning_parts: [{ text: 42 as unknown as string, provider: "deepseek" }],
+      },
+    ];
+    const result = toCoreMessages(messages, "deepseek", undefined, {
+      modelName: "deepseek-v4-flash",
+      onReasoningPartSkipped: ({ reason }) => skipped.push(reason),
+    });
+
+    expect(assistantTypes(result, 1)).toEqual(["text"]);
+    expect(skipped).toEqual(["invalid-text"]);
+  });
+
+  it("still replays payload-only parts for providers that continue from encrypted content", () => {
+    const messages = [
+      { role: "user" as const, content: "hi" },
+      {
+        role: "assistant" as const,
+        content: "",
+        reasoning_parts: [
+          {
+            text: "",
+            provider: "openai",
+            providerOptions: { openai: { itemId: "rs_1" } },
+          },
+        ],
+        tool_calls: [toolCall],
+      },
+    ];
+    const result = toCoreMessages(messages, "openai");
+
+    expect(assistantTypes(result, 1)).toEqual(["reasoning", "tool-call"]);
+  });
+});
+
 describe("toCoreMessages - conversation prefix cache", () => {
   it("puts a cache breakpoint on the last content part for Anthropic", () => {
     const result = toCoreMessages(
