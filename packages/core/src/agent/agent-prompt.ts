@@ -198,13 +198,13 @@ export interface AgentPromptOptions {
  * `knownSkills` shape used by the prompt builder (no `source` required).
  * Returns the full `description`.
  */
-function getSkillIndexLineFromOption(s: {
+function getSkillIndexLineFromOption(skill: {
   readonly name: string;
   readonly description: string;
 }): string {
-  const desc = s.description.trim();
+  const desc = skill.description.trim();
   if (desc.length === 0) {
-    return s.name;
+    return skill.name;
   }
   return desc;
 }
@@ -263,7 +263,7 @@ export class AgentPromptBuilder {
     hash.update(options.agentDescription);
     if (options.knownSkills && options.knownSkills.length > 0) {
       const skillFingerprints = options.knownSkills.map(
-        (s) => `${s.name}|${s.description}|${s.path}`,
+        (skill) => `${skill.name}|${skill.description}|${skill.path}`,
       );
       hash.update(JSON.stringify(skillFingerprints.sort()));
     }
@@ -273,7 +273,9 @@ export class AgentPromptBuilder {
       hash.update(`tools:${[...options.toolNames].sort().join(",")}`);
     }
     if (options.deferredTools && options.deferredTools.length > 0) {
-      const deferredFingerprints = options.deferredTools.map((t) => `${t.name}|${t.summary}`);
+      const deferredFingerprints = options.deferredTools.map(
+        (tool) => `${tool.name}|${tool.summary}`,
+      );
       hash.update(`deferredTools:${JSON.stringify(deferredFingerprints.sort())}`);
     }
     // Content, not paths: amending a preference must take effect on the next

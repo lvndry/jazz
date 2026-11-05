@@ -73,20 +73,22 @@ interface LockHolder {
   readonly token: string;
 }
 
+function isLockHolder(value: unknown): value is LockHolder {
+  return (
+    isRecord(value) &&
+    typeof value["pid"] === "number" &&
+    Number.isSafeInteger(value["pid"]) &&
+    typeof value["host"] === "string" &&
+    typeof value["token"] === "string"
+  );
+}
+
 async function readHolder(lockDirectory: string): Promise<LockHolder | undefined> {
   try {
     const parsed: unknown = JSON.parse(
       await nodeFs.readFile(path.join(lockDirectory, HOLDER_FILE), "utf8"),
     );
-    if (
-      !isRecord(parsed) ||
-      !Number.isSafeInteger(parsed["pid"]) ||
-      typeof parsed["host"] !== "string" ||
-      typeof parsed["token"] !== "string"
-    ) {
-      return undefined;
-    }
-    return parsed as unknown as LockHolder;
+    return isLockHolder(parsed) ? parsed : undefined;
   } catch {
     return undefined;
   }

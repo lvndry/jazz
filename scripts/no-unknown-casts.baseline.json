@@ -512,9 +512,6 @@
     "c81c76a591071c793e11fbe74421c4a2d4660510d064e5dec3d996589dd4beeb": 1,
     "c9da2bbd63d402c70f1ef8ac2bc892a22ad9fda0222c548916ee3399b2642ba4": 1
   },
-  "packages/core/src/agent/context/unanswered-tool-calls.ts": {
-    "bc9bc4b63baa8090ec9788e182f013a429e0bc5957f1b1f9df82082a3be37f0a": 1
-  },
   "packages/core/src/agent/execution/agent-loop-observer.test.ts": {
     "aa8c726467cb0cade3e64b03d4efc26d3bb7fc8995bb2ad40709e45cec9c21a6": 1
   },
@@ -533,10 +530,6 @@
     "03d2123243d8ac0fbd3b6457b54a41b7dd926348bca0ac344acb2179a972944b": 1,
     "385e8ae41f2135cafc9dd78465d8ce3188d3db6bbba83a41412906d22578fb77": 1,
     "869156a2d0877567f4f9292d9cea0f07ce9c30eae934fd7e58b4b25006b86332": 1
-  },
-  "packages/core/src/agent/execution/egress-taint.ts": {
-    "4b630954e14d6fc4c992b5151b9493cbb3ab89efefc7838beeb5f0c90c4c82d1": 1,
-    "fdfb02bb82a00cfd7406c310b29140a53acbdba7b94001e21c153993d1d88697": 1
   },
   "packages/core/src/agent/execution/path-mutation-order.test.ts": {
     "270d5192ade73ec2fe2d8d9035cbcb8d2e30e5c56b746e0ee786f41896c80134": 1,
@@ -595,9 +588,6 @@
   "packages/core/src/agent/execution/typed-secret-run.test.ts": {
     "2a14bc005fad2f0080785d4bc5d951c89562b8b5da89ccd02a6ce9b0a879d355": 1
   },
-  "packages/core/src/agent/goal/goal-evaluation.ts": {
-    "2a6f0917791a56b4324f4d000a7b56eeb6caafa62e04dc9e49763f5f4e8619e2": 1
-  },
   "packages/core/src/agent/memory-opportunity-recorder.test.ts": {
     "d0813a4a0244b1492c5b69b7b523b5d692ce4dbe1d451d2340ed9cce151e149c": 1
   },
@@ -606,10 +596,6 @@
     "855fcacaaad245ff045ee70ff70f05d7c533de6acb0489fb068365013ce3de87": 1,
     "876c3297c3e56ca34012a8ee452c992fd35359623d7c544305e49524d1bcd05e": 1,
     "8f712d887fd682c61f1eb665d98656cd1145565cc3f3134c6ae211c12cb4c982": 1
-  },
-  "packages/core/src/agent/plugins/plugin-session.ts": {
-    "01c413c03dbafd5b008b1e1a0cc767b500088e6be394eaf3f94461c73c459f0b": 4,
-    "216946aea47c47ec8a31ac2db38d2a9afd83669aa0189de092c79f03d673e41e": 2
   },
   "packages/core/src/agent/plugins/validation.test.ts": {
     "6ec20752a1c5e6859b6e15c64a00b4a1c8de656598b2d6eb4c29001959a0720d": 1,
@@ -677,9 +663,6 @@
   "packages/core/src/agent/tools/browser/session.test.ts": {
     "9fed0512e19af4dd9fc882b83edc2712093d3139fbeb171b05698cfc11bb4249": 1
   },
-  "packages/core/src/agent/tools/browser/session.ts": {
-    "4faa2b58e9db1fd7f3f57696acc7caf66a2a4aeb9c84f81f0d9830494cdccbb7": 1
-  },
   "packages/core/src/agent/tools/command-risk.test.ts": {
     "36961536d8660b50341923a6e87a791508d711303b6943b074f3c2f184eac1cc": 1,
     "4b5953decb645c8ddca3f77ee3f8e7c5b3d84141821592ec49667c239354f384": 2,
@@ -689,9 +672,6 @@
   "packages/core/src/agent/tools/computer/computer-tools.test.ts": {
     "59109c74f2a086459d104376006776c90f4b6933d0dfe41e4ec278038586bc23": 1,
     "c20088e8c110d29e73882a5575df172684a212596fd73a802849456ede9b672a": 1
-  },
-  "packages/core/src/agent/tools/computer/ledger.ts": {
-    "4d4d978716f1972ea7e6679a9909b11791d1955893726363e880e15314867ab0": 1
   },
   "packages/core/src/agent/tools/custom.test.ts": {
     "07d2ac558b55962f00adb737909cea7bb800d89e396047ff698d5c1bdb436ad1": 1,
@@ -712,9 +692,6 @@
     "e663502b5ad340c964d0d2fe45f1ff0ceca5ab98b0c681c5736eb844d6ed5c8a": 1,
     "f5ad3a280865717d8b17c5febb0679effeaa94f3b961759fcd5ea96f53cd4b44": 1,
     "fedfa0bd279a9feabd0ecbd8d8c7a262f351b138a67e80627b0db7bc396e56f6": 1
-  },
-  "packages/core/src/agent/tools/fs/find.ts": {
-    "a838174ce19ca84a80f7ec559db75f3b506211ddce7391eefa54f5281a2719cf": 1
   },
   "packages/core/src/agent/tools/fs/read-pdf.test.ts": {
     "3bce8716da7f00fe6d986ec461b0f1731cd7dc354768f4841f96d5377f1a8e77": 1,
@@ -762,10 +739,6 @@
     "bf941b1aa37a6e0ea3a78d9d2f6fa77ddb8163a0d849d7e6c90894d06c257711": 1,
     "d0b279540a538e3b464fd5c4b06b0c3f1f819458414a687b473c9bbdf0ee2936": 1
   },
-  "packages/core/src/agent/tools/perception.ts": {
-    "2994ddac72096564a65b1d11cfe50c5b5f21de0cca775ed7b758d031b9a4df99": 1,
-    "5caa67998f2ce5307c656888310019f46c6daef0a9cd29aca11c531f6eec8bc2": 2
-  },
   "packages/core/src/agent/tools/register-mcp-tools.test.ts": {
     "4777453719b1a12ac03d7405a7cc1662ac1873b8eb0016a08ccd11f27076e803": 4,
     "8809c9614b9354616cc6abf6675f01163bb47b63d269139084bbf886b7471f5f": 1,
@@ -777,18 +750,12 @@
   "packages/core/src/agent/tools/shell.test.ts": {
     "ce40723003ce21c26cfb23032e80f54490279fb263a951cd7130d100f0f651d6": 2
   },
-  "packages/core/src/agent/tools/skill.ts": {
-    "28c860906c6764b276adb8c492c95fb2759c94c82805f9c9854fc2d406bb9488": 1
-  },
   "packages/core/src/agent/tools/subagent-steering.test.ts": {
     "e04107d495163be22a366b91f86d2ab84d468dbf2a5369303c8c37bd5862e7e7": 1,
     "fb01029552f23f859a016e7c86705f6f7bd62102ca3584a305b182d012cbb3a4": 1
   },
   "packages/core/src/agent/tools/subagent.test.ts": {
     "ef3521c002ab38099753fe770252f31f4a3462d61d5a5c592d151b43a647f92a": 1
-  },
-  "packages/core/src/agent/tools/subagent.ts": {
-    "e1634e8697a12931713bb5474d725c5db965acec26923509a57c3ebd08f3875e": 1
   },
   "packages/core/src/agent/tools/tool-registry.test.ts": {
     "48d2b9c629a28d7598d2167c6d4b2f7daba2750db6e37d607f69959f12ca2291": 1,
@@ -799,17 +766,11 @@
     "c743b28f0367308abba9bb710af3d76776f4a70979dba76e88849c67d5c2699a": 1,
     "c7a8428f76cb56356d257a0c276cbcdba397e90dddfe00e32d2d7c0d6de2f8cf": 7
   },
-  "packages/core/src/agent/tools/unlocked-tools.ts": {
-    "4b630954e14d6fc4c992b5151b9493cbb3ab89efefc7838beeb5f0c90c4c82d1": 1
-  },
   "packages/core/src/agent/tools/user-agent-fetch.test.ts": {
     "0b87ec51b155df6ad85ea616b16853597aee63ca3b6d84bb85ed16ccd4c72afa": 1
   },
   "packages/core/src/agent/tools/web-search.test.ts": {
     "ce40723003ce21c26cfb23032e80f54490279fb263a951cd7130d100f0f651d6": 1
-  },
-  "packages/core/src/daemon/daemon-state.ts": {
-    "dce68bbc70a37b0627a5b4f8e6109c3c9368add0959304fb0dbc0fa42d3ae1c9": 1
   },
   "packages/core/src/presentation/concealed-line.test.ts": {
     "2c01874686204d2e1723ae4a9c54f15c98a53cc1e88682b0b432f79f91dd28ac": 1
@@ -836,17 +797,6 @@
   },
   "packages/core/src/utils/config-schema.test.ts": {
     "c22835014a00ec8019a38c4f88ec47678d93838eff4705a976371c9a7081d92d": 1
-  },
-  "packages/core/src/utils/config-schema.ts": {
-    "620893eb9f2f859cafcdf399214efd47d1ac9b5ccf3195e94b27e16ac717b65b": 1,
-    "e64729ba91818905439f3f1d31251d37145c95865eb33955a38af72b3fb2bc55": 1
-  },
-  "packages/core/src/utils/file-lock.ts": {
-    "4d4d978716f1972ea7e6679a9909b11791d1955893726363e880e15314867ab0": 1
-  },
-  "packages/core/src/utils/json.ts": {
-    "ea6db20ab5fd44ec928207d0801120517b97fe28aba4b81eccc88cf2e7f9d7f4": 1,
-    "f9462e03122184cd840ea8bb6e440afe48c9c98814dbbece8ec93366efb69a74": 1
   },
   "packages/core/src/utils/models-dev.test.ts": {
     "5d84d294b4bcbb4f5e159be5932273139cfb1bb87dcb8fa223214cf86ba9997f": 1,

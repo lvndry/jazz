@@ -158,8 +158,8 @@ export function extractRunProgress(messages: readonly ChatMessage[]): RunProgres
   );
 
   let lastAction: string | undefined;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const calls = messages[i]?.tool_calls;
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+    const calls = messages[messageIndex]?.tool_calls;
     if (!calls || calls.length === 0) {
       continue;
     }

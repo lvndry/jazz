@@ -221,9 +221,15 @@ function overlaps(left: string, right: string): boolean {
   if (!hostMatches(leftHost, rightHost) && !hostMatches(rightHost, leftHost)) {
     return false;
   }
-  const l = leftPath.join("/").replace(/\*.*$/, "");
-  const r = rightPath.join("/").replace(/\*.*$/, "");
-  return !l || !r || l === r || l.startsWith(`${r}/`) || r.startsWith(`${l}/`);
+  const leftScope = leftPath.join("/").replace(/\*.*$/, "");
+  const rightScope = rightPath.join("/").replace(/\*.*$/, "");
+  return (
+    !leftScope ||
+    !rightScope ||
+    leftScope === rightScope ||
+    leftScope.startsWith(`${rightScope}/`) ||
+    rightScope.startsWith(`${leftScope}/`)
+  );
 }
 
 function appScopes(app: AccessApp): readonly string[] {

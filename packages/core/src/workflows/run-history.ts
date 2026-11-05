@@ -325,7 +325,7 @@ export function getWorkflowHistory(
 ): Effect.Effect<WorkflowRunRecord[], Error> {
   return Effect.gen(function* () {
     const history = yield* loadRunHistory();
-    return history.filter((r) => r.workflowName === workflowName);
+    return history.filter((run) => run.workflowName === workflowName);
   });
 }
 

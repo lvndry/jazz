@@ -366,7 +366,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
     incoming: ContextLine[] = [],
   ): ContextLine[] {
     const merged = [...existing];
-    const seen = new Set(existing.map((c) => `${c.line}:${c.text}`));
+    const seen = new Set(existing.map((contextLine) => `${contextLine.line}:${contextLine.text}`));
     for (const line of incoming) {
       const key = `${line.line}:${line.text}`;
       if (!seen.has(key)) {
@@ -408,14 +408,14 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         .filter((entry): entry is ParsedContentLine => entry !== null);
 
       const matchIndexes: number[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        if (entries[i]?.kind === "match") {
-          matchIndexes.push(i);
+      for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+        if (entries[entryIndex]?.kind === "match") {
+          matchIndexes.push(entryIndex);
         }
       }
 
-      for (let i = 0; i < matchIndexes.length; i++) {
-        const matchIndex = matchIndexes[i];
+      for (let matchListIndex = 0; matchListIndex < matchIndexes.length; matchListIndex++) {
+        const matchIndex = matchIndexes[matchListIndex];
         if (typeof matchIndex !== "number") {
           continue;
         }
@@ -426,23 +426,25 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
         const key = `${matchEntry.file}:${matchEntry.line}`;
 
-        const prevMatchIndex = i > 0 ? (matchIndexes[i - 1] ?? -1) : -1;
+        const prevMatchIndex = matchListIndex > 0 ? (matchIndexes[matchListIndex - 1] ?? -1) : -1;
         const nextMatchIndex =
-          i < matchIndexes.length - 1 ? (matchIndexes[i + 1] ?? entries.length) : entries.length;
+          matchListIndex < matchIndexes.length - 1
+            ? (matchIndexes[matchListIndex + 1] ?? entries.length)
+            : entries.length;
 
         const contextBefore: ContextLine[] = [];
         const contextAfter: ContextLine[] = [];
 
         if (includeContext) {
-          for (let j = prevMatchIndex + 1; j < matchIndex; j++) {
-            const entry = entries[j];
+          for (let gapIndex = prevMatchIndex + 1; gapIndex < matchIndex; gapIndex++) {
+            const entry = entries[gapIndex];
             if (!entry || entry.kind !== "context" || entry.file !== matchEntry.file) {
               continue;
             }
             contextBefore.push({ line: entry.line, text: entry.text });
           }
-          for (let j = matchIndex + 1; j < nextMatchIndex; j++) {
-            const entry = entries[j];
+          for (let gapIndex = matchIndex + 1; gapIndex < nextMatchIndex; gapIndex++) {
+            const entry = entries[gapIndex];
             if (!entry || entry.kind !== "context" || entry.file !== matchEntry.file) {
               continue;
             }

@@ -721,15 +721,13 @@ export class BrowserSession {
     }
     let formUrl: string | null;
     try {
-      const resolved = (await tab.client.send("DOM.resolveNode", {
-        backendNodeId: backendNodeId.backendNodeId,
-      })) as unknown as { readonly object: string };
-      const called = (await tab.client.send("Runtime.callFunctionOn", {
-        objectId: resolved.object,
+      const objectId = await this.objectIdFor(tab, backendNodeId.backendNodeId);
+      const called = await tab.client.send("Runtime.callFunctionOn", {
+        objectId,
         functionDeclaration:
           "function () { const form = this.closest('form'); return form ? form.action : null; }",
         returnByValue: true,
-      })) as { readonly result: { readonly value: unknown } };
+      });
       formUrl = typeof called.result.value === "string" ? called.result.value : null;
     } catch {
       return;

@@ -99,12 +99,18 @@ function describeEntry(entry: OccupancyEntry, band: OccupancyBand, now: number):
   return "present, reads only";
 }
 
-function occupantLine(o: OccupiedDirectory, now: number, indent: string, extra: string): string {
-  const marker = o.band === "writing" ? "●" : "○";
-  const detail = describeEntry(o.entry, o.band, now);
-  const state = o.entry.state === "input-required" ? " · waiting on approval" : "";
-  const prompt = o.entry.promptExcerpt !== undefined ? ` · "${o.entry.promptExcerpt}"` : "";
-  return `${indent}${marker} agent "${o.entry.agentName}" (${o.entry.runId.slice(0, 8)})${extra} — ${detail}${state}${prompt}`;
+function occupantLine(
+  occupant: OccupiedDirectory,
+  now: number,
+  indent: string,
+  extra: string,
+): string {
+  const marker = occupant.band === "writing" ? "●" : "○";
+  const detail = describeEntry(occupant.entry, occupant.band, now);
+  const state = occupant.entry.state === "input-required" ? " · waiting on approval" : "";
+  const prompt =
+    occupant.entry.promptExcerpt !== undefined ? ` · "${occupant.entry.promptExcerpt}"` : "";
+  return `${indent}${marker} agent "${occupant.entry.agentName}" (${occupant.entry.runId.slice(0, 8)})${extra} — ${detail}${state}${prompt}`;
 }
 
 function buildReport(
@@ -122,21 +128,21 @@ function buildReport(
     return lines.join("\n");
   }
 
-  for (const o of inTree) {
-    lines.push(occupantLine(o, now, "  ", ""));
+  for (const occupant of inTree) {
+    lines.push(occupantLine(occupant, now, "  ", ""));
   }
 
   if (sameRepo.length > 0) {
     lines.push("  same repository, other worktree/checkout:");
-    for (const o of sameRepo) {
-      lines.push(occupantLine(o, now, "    ", ` in ${o.entry.workingDirectory}`));
+    for (const occupant of sameRepo) {
+      lines.push(occupantLine(occupant, now, "    ", ` in ${occupant.entry.workingDirectory}`));
     }
   }
 
   if (outside.length > 0) {
     lines.push("  elsewhere on this machine:");
-    for (const o of outside) {
-      lines.push(occupantLine(o, now, "    ", ` in ${o.entry.workingDirectory}`));
+    for (const occupant of outside) {
+      lines.push(occupantLine(occupant, now, "    ", ` in ${occupant.entry.workingDirectory}`));
     }
   }
 
@@ -206,10 +212,12 @@ export function createWhoIsHereTool(): Tool<OccupancyService | FileSystemContext
           // (older contexts, direct test harnesses) fall back to process-level identity.
           const self =
             context.runId !== undefined
-              ? { match: (e: OccupancyEntry) => e.runId === context.runId }
+              ? { match: (entry: OccupancyEntry) => entry.runId === context.runId }
               : (() => {
                   const { pid, host } = currentProcessOwner();
-                  return { match: (e: OccupancyEntry) => e.pid === pid && e.host === host };
+                  return {
+                    match: (entry: OccupancyEntry) => entry.pid === pid && entry.host === host,
+                  };
                 })();
           if (self.match(entry)) {
             continue;
@@ -227,27 +235,34 @@ export function createWhoIsHereTool(): Tool<OccupancyService | FileSystemContext
           });
         }
 
-        const inTree = present.filter((o) => sameDirectoryTree(o.entry.workingDirectory, cwd));
-        const rest = present.filter((o) => !sameDirectoryTree(o.entry.workingDirectory, cwd));
+        const inTree = present.filter((occupant) =>
+          sameDirectoryTree(occupant.entry.workingDirectory, cwd),
+        );
+        const rest = present.filter(
+          (occupant) => !sameDirectoryTree(occupant.entry.workingDirectory, cwd),
+        );
         // Same-repo detection is live: ask git for the common dir of each outside
         // occupant and compare with the queried directory's. A few git calls, one second
         // timeout each, and a directory that is not a repo just sorts to "elsewhere".
         let callerGit: GitInfo | undefined;
         if (rest.length > 0) {
           const [caller, ...restGits] = yield* Effect.all(
-            [cwd, ...rest.map((o) => o.entry.workingDirectory)].map((d) =>
-              Effect.tryPromise(() => readGitInfo(d)),
+            [cwd, ...rest.map((occupant) => occupant.entry.workingDirectory)].map((directory) =>
+              Effect.tryPromise(() => readGitInfo(directory)),
             ),
             { discard: false },
           );
           callerGit = caller;
           const sameRepo: OccupiedDirectory[] = [];
           const outside: OccupiedDirectory[] = [];
-          rest.forEach((o, i) => {
-            if (callerGit !== undefined && restGits[i]?.commonDir === callerGit.commonDir) {
-              sameRepo.push(o);
+          rest.forEach((occupant, occupantIndex) => {
+            if (
+              callerGit !== undefined &&
+              restGits[occupantIndex]?.commonDir === callerGit.commonDir
+            ) {
+              sameRepo.push(occupant);
             } else {
-              outside.push(o);
+              outside.push(occupant);
             }
           });
           return {

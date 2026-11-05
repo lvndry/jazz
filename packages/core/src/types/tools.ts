@@ -4,7 +4,7 @@
  * context passed into every tool.
  */
 import type { Effect } from "effect";
-import type z from "zod";
+import type { z } from "zod";
 import type { ToolActivityTracker } from "@/core/agent/run/tool-activity";
 import type { Blackboard } from "@/core/agent/subagents/blackboard";
 import type { SubagentSupervisor } from "@/core/agent/subagents/supervisor";
@@ -374,13 +374,13 @@ export function isApprovalRequiredResult(result: unknown): result is ApprovalReq
   if (!result || typeof result !== "object") {
     return false;
   }
-  const r = result as Record<string, unknown>;
+  const record = result as Record<string, unknown>;
   return (
-    r["approvalRequired"] === true &&
-    typeof r["message"] === "string" &&
-    typeof r["executeToolName"] === "string" &&
-    typeof r["executeArgs"] === "object" &&
-    r["executeArgs"] !== null
+    record["approvalRequired"] === true &&
+    typeof record["message"] === "string" &&
+    typeof record["executeToolName"] === "string" &&
+    typeof record["executeArgs"] === "object" &&
+    record["executeArgs"] !== null
   );
 }
 
