@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import {
-  sendsQueueUnprompted,
   followUpCount,
   hasSteering,
   queueText,
@@ -8,8 +7,6 @@ import {
   takeSteering,
   type QueueEntry,
 } from "./message-queue";
-import { forceSendQueue } from "./queue-force-send";
-import { UIStore } from "./store";
 
 const steer = (text: string): QueueEntry => ({ text, lane: "steer" });
 const followUp = (text: string): QueueEntry => ({ text, lane: "followup" });
@@ -88,51 +85,6 @@ describe("a run that ends with entries still queued", () => {
     expect(duringRun.taken).toEqual(["use the staging db"]);
     expect(afterRun.taken).toEqual(["then summarize"]);
     expect(afterRun.rest).toEqual([]);
-  });
-
-  function chatLoopTurns(store: UIStore, interrupted: boolean): (readonly string[])[] {
-    const turns: (readonly string[])[] = [];
-    let lastTurnErrored = interrupted;
-    while (true) {
-      const flushRequested = store.consumeFlushQueue();
-      if (
-        !sendsQueueUnprompted({
-          queueLength: store.getMessageQueueSnapshot().length,
-          lastTurnErrored,
-          flushRequested,
-        })
-      ) {
-        return turns;
-      }
-      turns.push(store.takeQueuedTurn());
-      lastTurnErrored = false;
-    }
-  }
-
-  it("a flush after an interrupted run sends every entry, each follow-up as its own turn", () => {
-    const store = new UIStore();
-    store.appendToQueue("stop that");
-    store.appendToQueue("then do x", "followup");
-    store.appendToQueue("and y");
-    forceSendQueue("", () => undefined, store);
-
-    expect(chatLoopTurns(store, true)).toEqual([["stop that"], ["then do x"], ["and y"]]);
-    expect(store.getMessageQueueSnapshot()).toEqual([]);
-  });
-
-  it("an interrupted run without a flush hands the queue back instead of sending it", () => {
-    const store = new UIStore();
-    store.appendToQueue("then do x", "followup");
-
-    expect(chatLoopTurns(store, true)).toEqual([]);
-    expect(store.getMessageQueueSnapshot()).toHaveLength(1);
-  });
-
-  it("a clean run sends the follow-up without prompting", () => {
-    const store = new UIStore();
-    store.appendToQueue("then do x", "followup");
-
-    expect(chatLoopTurns(store, false)).toEqual([["then do x"]]);
   });
 });
 

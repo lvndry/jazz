@@ -41,7 +41,14 @@ export interface QueueTake {
  */
 export function takeSteering(queue: readonly QueueEntry[]): QueueTake {
   const horizon = steeringHorizon(queue);
-  if (!queue.slice(0, horizon).some(isSteering)) {
+  let steeringPresent = false;
+  for (let index = 0; index < horizon; index += 1) {
+    if (isSteering(queue[index]!)) {
+      steeringPresent = true;
+      break;
+    }
+  }
+  if (!steeringPresent) {
     return { taken: EMPTY_TEXTS, rest: queue };
   }
   const taken: string[] = [];
