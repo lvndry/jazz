@@ -3,6 +3,7 @@ import { Effect, FileSystem, Layer } from "effect";
 import { z } from "zod";
 import { closeUserSecretStore, openUserSecretStore } from "@/core/secrets/user-secrets";
 import { SkillServiceTag } from "@/core/skills/skill-service";
+import { partialFake } from "@/core/test-support/fakes";
 import { executeWithoutStreaming } from "./batch-executor";
 import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
@@ -80,7 +81,7 @@ const completions: ChatCompletionResponse[] = [
 
 function scriptedLlm(requests: ChatCompletionOptions[]): LLMService {
   let call = 0;
-  return {
+  return partialFake<LLMService>({
     createStreamingChatCompletion: () => Effect.fail(new Error("streaming must not be used")),
     createChatCompletion: (_provider: string, options: ChatCompletionOptions) =>
       Effect.sync(() => {
@@ -93,7 +94,7 @@ function scriptedLlm(requests: ChatCompletionOptions[]): LLMService {
     getProvider: () => Effect.fail(new Error("not implemented")),
     supportsNativeWebSearch: () => Effect.succeed(false),
     resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-  } as unknown as LLMService;
+  });
 }
 
 const received: string[] = [];

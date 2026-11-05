@@ -3,6 +3,7 @@ import * as actualModelsDev from "@jazz/core/utils/models-dev";
 import type { ModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { afterAll, describe, expect, it, mock } from "bun:test";
 import { Effect } from "effect";
+import { partialFake } from "../../test-support/partial-fake";
 
 let metadata: ModelsDevMetadata | undefined;
 
@@ -18,11 +19,11 @@ afterAll(() => {
 const { estimateSessionCostUSD, findExceededSessionLimits, formatSessionLimitMetric } =
   await import("./session-limits");
 
-const testAgent = {
+const testAgent = partialFake<Agent>({
   id: "a",
   name: "A",
   config: { persona: "default", llm: { provider: "openai", model: "gpt-4" }, tools: [] },
-} as unknown as Agent;
+});
 
 describe("findExceededSessionLimits", () => {
   it("returns nothing when no limits are configured", () => {

@@ -29,12 +29,16 @@ export function computePeerNotice(
   lastSeenAt: string | undefined,
 ): PeerNoticeResult {
   const inbound = entries.filter((entry) => entry.direction === "in");
-  if (inbound.length === 0) return { notice: undefined, newestInboundAt: undefined };
+  if (inbound.length === 0) {
+    return { notice: undefined, newestInboundAt: undefined };
+  }
 
   const newestInboundAt = inbound[0]?.at;
   const unseen =
     lastSeenAt === undefined ? inbound : inbound.filter((entry) => entry.at > lastSeenAt);
-  if (unseen.length === 0) return { notice: undefined, newestInboundAt };
+  if (unseen.length === 0) {
+    return { notice: undefined, newestInboundAt };
+  }
 
   const distinctPeers = [...new Set(unseen.map((entry) => entry.peer))];
   const notice =

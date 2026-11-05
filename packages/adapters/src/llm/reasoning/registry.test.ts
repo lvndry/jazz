@@ -47,9 +47,17 @@ describe("selectParser", () => {
   });
 
   it("creates a fresh parser instance each call", () => {
-    const a = selectParser({ provider: "llamacpp", modelId: "x", chatTemplate: "<think>" });
-    const b = selectParser({ provider: "llamacpp", modelId: "x", chatTemplate: "<think>" });
-    expect(a).not.toBe(b);
+    const firstParser = selectParser({
+      provider: "llamacpp",
+      modelId: "x",
+      chatTemplate: "<think>",
+    });
+    const secondParser = selectParser({
+      provider: "llamacpp",
+      modelId: "x",
+      chatTemplate: "<think>",
+    });
+    expect(firstParser).not.toBe(secondParser);
   });
 });
 
@@ -84,7 +92,7 @@ describe("hasReasoningParser", () => {
 
   it("does not allocate parser instances", () => {
     // Pure boolean — calling many times in a hot path should be fine.
-    for (let i = 0; i < 1000; i++) {
+    for (let index = 0; index < 1000; index++) {
       hasReasoningParser({ provider: "ollama", modelId: "x", capabilities: ["thinking"] });
     }
   });

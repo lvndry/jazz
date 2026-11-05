@@ -16,7 +16,9 @@ describe("childRunAuthority", () => {
     let policy: AutoApprovePolicy = "read-only";
     const authority = childRunAuthority({ ...base, getAutoApprovePolicy: () => policy });
     const getter = authority.autoApprovePolicy;
-    if (typeof getter !== "function") throw new Error("expected a getter");
+    if (typeof getter !== "function") {
+      throw new Error("expected a getter");
+    }
     expect(getter()).toBe("read-only");
     policy = false;
     expect(getter()).toBe(false);

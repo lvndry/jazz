@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { Box, Static, Text, render } from "ink";
 import React from "react";
 import { INK_RENDER_OPTIONS } from "@/cli/terminal";
+import { viewAs } from "../test-support/view-as";
 
 /**
  * Regression: dismissing a prompt used to crop the tail of the previous
@@ -35,7 +36,7 @@ class FakeTty extends EventEmitter {
 }
 
 function createFakeStdin(): NodeJS.ReadStream {
-  const stdin = new EventEmitter() as unknown as NodeJS.ReadStream;
+  const stdin = viewAs<NodeJS.ReadStream>(new EventEmitter());
   stdin.isTTY = true;
   stdin.setRawMode = (() => stdin) as NodeJS.ReadStream["setRawMode"];
   stdin.resume = (() => stdin) as NodeJS.ReadStream["resume"];
@@ -90,7 +91,7 @@ function mountHarness(): Harness {
 
   const instance = render(React.createElement(Harness), {
     ...INK_RENDER_OPTIONS,
-    stdout: stdout as unknown as NodeJS.WriteStream,
+    stdout: viewAs<NodeJS.WriteStream>(stdout),
     stdin: createFakeStdin(),
     // Ink defaults to non-interactive under CI and never emits erase escapes
     // there. The bug only exists on the interactive path a real terminal

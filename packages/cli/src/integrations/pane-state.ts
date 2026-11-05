@@ -106,7 +106,9 @@ export function paneBlockedReason(snapshot: PaneStateSnapshot): PaneBlockedReaso
 let exitHooksInstalled = false;
 
 export function installPaneStateExitHooks(releaseAll: () => void): void {
-  if (exitHooksInstalled) return;
+  if (exitHooksInstalled) {
+    return;
+  }
   exitHooksInstalled = true;
   process.once("exit", releaseAll);
   process.once("SIGINT", () => {

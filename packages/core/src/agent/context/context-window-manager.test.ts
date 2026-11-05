@@ -153,11 +153,11 @@ describe("ContextWindowManager", () => {
       );
 
       // The last turn's user message must be present
-      expect(result.messages.some((m) => m.content === "do stuff")).toBe(true);
+      expect(result.messages.some((message) => message.content === "do stuff")).toBe(true);
       // All 3 tool results must be present (they're in the protected turn)
-      expect(result.messages.filter((m) => m.role === "tool")).toHaveLength(3);
+      expect(result.messages.filter((message) => message.role === "tool")).toHaveLength(3);
       // The final assistant response must be present
-      expect(result.messages.some((m) => m.content === "done")).toBe(true);
+      expect(result.messages.some((message) => message.content === "done")).toBe(true);
     });
 
     it("should preserve tool call/result pairs in non-protected zone", async () => {
@@ -184,10 +184,11 @@ describe("ContextWindowManager", () => {
 
       // If the assistant with tool_calls is kept, the corresponding tool result should also be kept
       const hasToolCall = result.messages.some(
-        (m) => m.role === "assistant" && m.tool_calls && m.tool_calls.length > 0,
+        (message) =>
+          message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0,
       );
       const hasToolResult = result.messages.some(
-        (m) => m.role === "tool" && (m as any).tool_call_id === "tc1",
+        (message) => message.role === "tool" && (message as any).tool_call_id === "tc1",
       );
 
       if (hasToolCall) {

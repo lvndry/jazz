@@ -51,8 +51,8 @@ export const AWAITING_LABELS: readonly string[] = [
 ];
 
 function pickAwaitingLabel(): string {
-  const i = Math.floor(Math.random() * AWAITING_LABELS.length);
-  return AWAITING_LABELS[i] ?? "is cooking";
+  const index = Math.floor(Math.random() * AWAITING_LABELS.length);
+  return AWAITING_LABELS[index] ?? "is cooking";
 }
 
 // ---------------------------------------------------------------------------
@@ -163,17 +163,25 @@ function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
 }
 
 function parseTodoSnapshot(args?: Record<string, unknown>): TodoSnapshotItem[] | undefined {
-  if (!args) return undefined;
+  if (!args) {
+    return undefined;
+  }
   const rawTodos = args["todos"];
-  if (!Array.isArray(rawTodos)) return undefined;
+  if (!Array.isArray(rawTodos)) {
+    return undefined;
+  }
 
   const todos: TodoSnapshotItem[] = [];
   for (const item of rawTodos) {
-    if (!isRecord(item)) continue;
+    if (!isRecord(item)) {
+      continue;
+    }
     const entry = item;
     const content = entry["content"];
     const status = entry["status"];
-    if (typeof content !== "string" || typeof status !== "string") continue;
+    if (typeof content !== "string" || typeof status !== "string") {
+      continue;
+    }
     if (
       status !== "pending" &&
       status !== "in_progress" &&
@@ -200,7 +208,9 @@ function findLatestTodoSnapshot(
 ): TodoSnapshotItem[] | undefined {
   let latest: { startedAt: number; todoSnapshot?: TodoSnapshotItem[] } | undefined;
   for (const entry of activeTools.values()) {
-    if (entry.toolName !== "manage_todos" || !entry.todoSnapshot) continue;
+    if (entry.toolName !== "manage_todos" || !entry.todoSnapshot) {
+      continue;
+    }
     if (!latest || entry.startedAt >= latest.startedAt) {
       latest = entry;
     }
@@ -331,7 +341,9 @@ export function reduceEvent(acc: ReducerAccumulator, event: StreamEvent): Reduce
       // calls reads "execute_command ×5 (requires approval)" instead of five
       // identical, unreadable entries.
       const counts = new Map<string, number>();
-      for (const name of event.toolNames) counts.set(name, (counts.get(name) ?? 0) + 1);
+      for (const name of event.toolNames) {
+        counts.set(name, (counts.get(name) ?? 0) + 1);
+      }
       const formattedTools = Array.from(counts.entries())
         .map(([name, count]) => {
           const label = count > 1 ? `${name} ×${count}` : name;
@@ -490,6 +502,7 @@ export function reduceEvent(acc: ReducerAccumulator, event: StreamEvent): Reduce
     }
 
     case "usage_update":
+    case "prompt_cache":
     case "run_spend":
     case "approval_required":
     case "subagent_start":

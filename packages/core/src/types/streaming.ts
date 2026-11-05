@@ -1,4 +1,5 @@
 import { Effect, Stream } from "effect";
+import type { CacheChangedPart, CacheMissReason } from "@/core/agent/metrics/prompt-cache";
 import type { ChatCompletionResponse } from "./chat";
 import type { LLMError } from "./errors";
 import type { ToolCall, ApprovalOption } from "./tools";
@@ -109,6 +110,12 @@ export type StreamEvent =
 
   // Usage updates (optional, for real-time token tracking)
   | { type: "usage_update"; usage: TokenUsage }
+
+  /**
+   * How the request about to be answered differs, in what providers cache, from the run's
+   * previous one. Arrives before that request's `complete` event.
+   */
+  | { type: "prompt_cache"; reason: CacheMissReason; changed: readonly CacheChangedPart[] }
 
   /**
    * What the whole run has spent so far (own, sub-agent and side calls), after each model call

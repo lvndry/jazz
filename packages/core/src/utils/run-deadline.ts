@@ -30,7 +30,9 @@ export function createRunDeadline(timeoutMs: number): RunDeadline {
 
   const extend = (minMs: number): void => {
     const candidate = Date.now() + minMs;
-    if (candidate > deadline) deadline = candidate;
+    if (candidate > deadline) {
+      deadline = candidate;
+    }
   };
 
   const watch: Effect.Effect<never, Error> = Effect.gen(function* () {

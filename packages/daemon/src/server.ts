@@ -228,7 +228,9 @@ export function tokenMatches(expected: string, presented: string): boolean {
 }
 
 function authorized(request: Request, token: string | undefined): boolean {
-  if (token === undefined || token.length === 0) return true;
+  if (token === undefined || token.length === 0) {
+    return true;
+  }
   const header = request.headers.get("authorization") ?? "";
   const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
   return tokenMatches(token, presented);
@@ -341,7 +343,9 @@ function browserRefusal(request: Request, requireJsonBody: boolean): Response | 
   // anything needs a body to do it — so a method probe stays a 401 or a 404 rather than
   // becoming a 415 that answers a question nobody asked.
   const carriesBody = request.body !== null && BODIED_METHODS.includes(request.method);
-  if (!requireJsonBody || !carriesBody) return undefined;
+  if (!requireJsonBody || !carriesBody) {
+    return undefined;
+  }
 
   const contentType = (request.headers.get("content-type") ?? "").split(";")[0]?.trim() ?? "";
   if (contentType !== REQUIRED_CONTENT_TYPE) {
@@ -372,7 +376,9 @@ function door(requireJsonBody = true): Hono {
   const app = new Hono();
   app.use("*", async (context, next) => {
     const refusal = browserRefusal(context.req.raw, requireJsonBody);
-    if (refusal !== undefined) return refusal;
+    if (refusal !== undefined) {
+      return refusal;
+    }
     await next();
     return undefined;
   });
@@ -399,7 +405,9 @@ export function makeHandler(
   /** A write body, read and screened, or the response that says why it was not. */
   const agentWriteBody = async (request: Request): Promise<AgentWriteBody | Response> => {
     const body = await readJsonBody(request);
-    if (body instanceof Response) return body;
+    if (body instanceof Response) {
+      return body;
+    }
     const problem = configBodyProblem(body["config"]);
     return problem === undefined ? body : json({ ok: false, error: problem }, 400);
   };
@@ -604,7 +612,9 @@ function eventStream(
       let lastSentAt = Date.now();
       let polling = false;
       timer = setInterval(() => {
-        if (polling) return;
+        if (polling) {
+          return;
+        }
         polling = true;
         void runEffect(daemonStatusSnapshot())
           .then((next) => {
@@ -1121,7 +1131,9 @@ export function makePeerHandler(
     }
 
     const caller = await callerPeerOrRefusal(context.req.raw, resolvePeers, resolveToken);
-    if (caller instanceof Response) return caller;
+    if (caller instanceof Response) {
+      return caller;
+    }
 
     const body = await readJsonBody(context.req.raw, MAX_PEER_PAYLOAD_LENGTH);
     if (body instanceof Response) {
@@ -1216,7 +1228,9 @@ export function makeA2AHandler(
     }
 
     const caller = await callerPeerOrRefusal(context.req.raw, resolvePeers, resolveToken);
-    if (caller instanceof Response) return caller;
+    if (caller instanceof Response) {
+      return caller;
+    }
 
     const raw = await readBody(context.req.raw, MAX_PEER_PAYLOAD_LENGTH);
     if (raw instanceof Response) {
@@ -1457,7 +1471,9 @@ async function readBodyBytes(request: Request, limit: number): Promise<Uint8Arra
   try {
     for (;;) {
       const next = await reader.read();
-      if (next.done) break;
+      if (next.done) {
+        break;
+      }
       totalBytes += next.value.byteLength;
       if (totalBytes > limit) {
         await reader.cancel();
@@ -1792,7 +1808,9 @@ function reportProgress(
   wanted: ReadonlySet<ToolProgressKind>,
   event: ToolProgressEvent,
 ): void {
-  if (!wanted.has(event.kind)) return;
+  if (!wanted.has(event.kind)) {
+    return;
+  }
   void fetch(progressUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -2137,7 +2155,9 @@ function describeRun(runId: string) {
   return Effect.gen(function* () {
     const store = yield* RunStoreTag;
     const record = yield* store.get(runId);
-    if (record === undefined) return json({ ok: false, error: "no such run" }, 404);
+    if (record === undefined) {
+      return json({ ok: false, error: "no such run" }, 404);
+    }
     return json({ ok: true, run: record });
   });
 }
@@ -2249,7 +2269,9 @@ function agentErrorResponse(error: unknown): Response {
  * hands them back, so a caller could not tell. They belong in the keyring, via the CLI.
  */
 function configBodyProblem(config: unknown): string | undefined {
-  if (config === undefined) return undefined;
+  if (config === undefined) {
+    return undefined;
+  }
   if (!isRecord(config)) {
     return "config must be a JSON object";
   }
@@ -2360,7 +2382,9 @@ function capableFirst(
   models: readonly ModelInfo[],
   role: CompanionRole | undefined,
 ): readonly ModelInfo[] {
-  if (role === undefined) return models;
+  if (role === undefined) {
+    return models;
+  }
   const byId = new Map(models.map((model) => [model.id, model]));
   return filterCapableModels(models, role)
     .map((capable) => byId.get(capable.modelId))

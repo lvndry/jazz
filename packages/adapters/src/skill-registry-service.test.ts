@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Option } from "effect";
 import { SkillRegistryServiceImpl, parseRegistrySkillMetadata } from "./skill-registry-service";
+import { fakeFetch } from "./test-support/fakes";
 
 /** The skill adapter pins catalog caching, source fidelity, and the single-file boundary. */
 
@@ -53,7 +54,7 @@ function mockFetch(routes: Record<string, string>): ReturnType<typeof mock> {
         : new Response(body, { status: 200 }),
     );
   });
-  global.fetch = fetchMock as unknown as typeof fetch;
+  global.fetch = fakeFetch(fetchMock);
   return fetchMock;
 }
 
@@ -68,7 +69,9 @@ const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 
 async function runFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E | null> {
   const exit = await Effect.runPromise(Effect.exit(effect));
-  if (Exit.isSuccess(exit)) return null;
+  if (Exit.isSuccess(exit)) {
+    return null;
+  }
   return Option.getOrNull(Cause.findErrorOption(exit.cause));
 }
 
@@ -79,8 +82,11 @@ beforeEach(() => {
 
 afterEach(() => {
   global.fetch = originalFetch;
-  if (originalOffline === undefined) delete process.env["JAZZ_OFFLINE"];
-  else process.env["JAZZ_OFFLINE"] = originalOffline;
+  if (originalOffline === undefined) {
+    delete process.env["JAZZ_OFFLINE"];
+  } else {
+    process.env["JAZZ_OFFLINE"] = originalOffline;
+  }
   rmSync(cacheDir, { recursive: true, force: true });
 });
 

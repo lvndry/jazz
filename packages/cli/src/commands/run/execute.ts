@@ -95,7 +95,9 @@ export function extractCompositionResult(
   toolResults: Record<string, unknown> | undefined,
 ): OneShotComposition | undefined {
   const raw = toolResults?.["create_composition"];
-  if (!raw || typeof raw !== "object") return undefined;
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
 
   const data = raw as Record<string, unknown>;
   if (
@@ -479,7 +481,9 @@ export function runAgentOnceCommand(
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
-        if (Option.isNone(runtimeOption)) return;
+        if (Option.isNone(runtimeOption)) {
+          return;
+        }
         yield* runtimeOption.value.emitLifecycleEvent({
           event,
           agentId: agent.id,
@@ -641,6 +645,13 @@ export function runAgentOnceCommand(
             totalTokens: promptTokens + completionTokens,
             ...(runResult.usage?.cacheReadTokens !== undefined && {
               cacheReadTokens: runResult.usage.cacheReadTokens,
+            }),
+            ...(runResult.usage?.cacheHitRate !== undefined && {
+              cacheHitRate: Number(runResult.usage.cacheHitRate.toFixed(4)),
+            }),
+            ...(runResult.usage?.cacheHitRatePartial === true && { cacheHitRatePartial: true }),
+            ...(runResult.usage?.cacheMissReason !== undefined && {
+              cacheMissReason: runResult.usage.cacheMissReason,
             }),
           },
           toolCalls,

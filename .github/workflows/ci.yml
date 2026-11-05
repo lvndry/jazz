@@ -12,6 +12,8 @@ on:
       - "tsconfig*"
       - ".prettierrc*"
       - "eslint.config.*"
+      - ".githooks/**"
+      - ".jscpd.json"
       - ".eslintrc*"
       - ".github/workflows/ci.yml"
       - ".github/workflows/release-binaries.yml"
@@ -28,6 +30,8 @@ on:
       - "tsconfig*"
       - ".prettierrc*"
       - "eslint.config.*"
+      - ".githooks/**"
+      - ".jscpd.json"
       - ".eslintrc*"
       - ".github/workflows/ci.yml"
       - ".github/workflows/release-binaries.yml"
@@ -116,6 +120,14 @@ jobs:
 
       - name: Lint
         run: bun run lint --no-color
+
+      - name: Check no unknown or double assertions
+        run: bun run verify:unknown-casts
+
+      # Report-only: lists duplicated blocks as file/line pairs without failing the job.
+      - name: Report duplicated code
+        continue-on-error: true
+        run: bun run dup
 
       - name: Check formatting
         run: bun run format:check

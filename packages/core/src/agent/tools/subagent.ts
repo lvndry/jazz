@@ -17,7 +17,6 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
-import type { ConversationMessages } from "@/core/types/message";
 import type {
   EgressTaint,
   UntrustedProvenance,
@@ -995,7 +994,9 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           };
         }),
       createSummary: (result) => {
-        if (!result.success) return `Sub-agent failed: ${result.error}`;
+        if (!result.success) {
+          return `Sub-agent failed: ${result.error}`;
+        }
         const content = String(result.result);
         return `Sub-agent returned ${content.length} chars`;
       },
@@ -1194,6 +1195,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           const logger = yield* LoggerServiceTag;
           const parentAgent = context.parentAgent;
           const conversationMessages = context.conversationMessages;
+          const [firstMessage, ...laterMessages] = conversationMessages ?? [];
 
           if (!parentAgent) {
             return {
@@ -1204,7 +1206,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             };
           }
 
-          if (!conversationMessages || conversationMessages.length === 0) {
+          if (!conversationMessages || firstMessage === undefined) {
             return {
               success: true,
               result: "No conversation history to summarize.",
@@ -1246,7 +1248,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           // calling the tool instead of waiting for the 80% mark must not decide whether
           // durable facts reach memory. Absent means no.
           const outcome = yield* Summarizer.compact(
-            [...conversationMessages] as unknown as ConversationMessages,
+            [firstMessage, ...laterMessages],
             parentAgent,
             context.conversationId ?? generateConversationId("summary"),
             runRecursive,
@@ -1280,7 +1282,9 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           };
         }),
       createSummary: (result) => {
-        if (!result.success) return `Summarization failed: ${result.error}`;
+        if (!result.success) {
+          return `Summarization failed: ${result.error}`;
+        }
         const content = String(result.result);
         return `Context summarized (${content.length} chars)`;
       },

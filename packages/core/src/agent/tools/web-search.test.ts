@@ -66,7 +66,9 @@ describe("WebSearchTool", () => {
       getOrElse: vi.fn().mockImplementation((key: string) => {
         const provider = key.split(".")[1];
         const apiKey = provider === undefined ? undefined : apiKeys[provider];
-        if (apiKey) return Effect.succeed(apiKey);
+        if (apiKey) {
+          return Effect.succeed(apiKey);
+        }
         return Effect.succeed("");
       }),
       getOrFail: vi.fn().mockReturnValue(Effect.fail(new Error("API key not found"))),
@@ -118,12 +120,11 @@ describe("WebSearchTool", () => {
     expect(tool.parameters).toBeDefined();
     expect(tool.parameters).toHaveProperty("_def");
 
-    const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
-    expect(schema._def.shape).toHaveProperty("query");
-    expect(schema._def.shape).toHaveProperty("searchQueries");
-    expect(schema._def.shape).toHaveProperty("fromDate");
-    expect(schema._def.shape).toHaveProperty("toDate");
-    expect(schema._def.shape).toHaveProperty("maxResults");
+    expect(tool.parameters).toHaveProperty("_def.shape.query");
+    expect(tool.parameters).toHaveProperty("_def.shape.searchQueries");
+    expect(tool.parameters).toHaveProperty("_def.shape.fromDate");
+    expect(tool.parameters).toHaveProperty("_def.shape.toDate");
+    expect(tool.parameters).toHaveProperty("_def.shape.maxResults");
   });
 
   describe("Provider Execution", () => {

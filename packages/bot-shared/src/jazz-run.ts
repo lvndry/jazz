@@ -263,7 +263,9 @@ export async function streamLines(
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        break;
+      }
       buffer += decoder.decode(value, { stream: true });
       let newlineIndex = buffer.indexOf("\n");
       while (newlineIndex >= 0) {
@@ -272,7 +274,9 @@ export async function streamLines(
         newlineIndex = buffer.indexOf("\n");
       }
     }
-    if (buffer.length > 0) onLine(buffer);
+    if (buffer.length > 0) {
+      onLine(buffer);
+    }
   } finally {
     reader.releaseLock();
   }
@@ -289,7 +293,9 @@ export function parseEnvelope(stdout: string): JazzEnvelope | undefined {
     .map((row) => row.trim())
     .filter((row) => row.startsWith("{"))
     .at(-1);
-  if (lastJsonLine === undefined) return undefined;
+  if (lastJsonLine === undefined) {
+    return undefined;
+  }
   try {
     return JSON.parse(lastJsonLine) as JazzEnvelope;
   } catch {
@@ -314,19 +320,25 @@ export function createKillTimer(
   let stopped = false;
   return {
     pause() {
-      if (timer === undefined) return;
+      if (timer === undefined) {
+        return;
+      }
       clearTimeout(timer);
       timer = undefined;
       remainingMs -= Date.now() - startedAt;
     },
     resume() {
-      if (stopped || timer !== undefined) return;
+      if (stopped || timer !== undefined) {
+        return;
+      }
       startedAt = Date.now();
       timer = setTimeout(onExpire, Math.max(0, remainingMs));
     },
     stop() {
       stopped = true;
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
       timer = undefined;
     },
   };
@@ -367,16 +379,22 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
   const waitingOnHuman = new Set<string>();
   const humanAnswered = (id: string): void => {
     waitingOnHuman.delete(id);
-    if (waitingOnHuman.size === 0) killTimer.resume();
+    if (waitingOnHuman.size === 0) {
+      killTimer.resume();
+    }
   };
 
   const stderrTail: string[] = [];
   const stderrDone = streamLines(child.stderr, (rawLine) => {
     // The last lines, not the first: a crash is at the end of the stream.
     stderrTail.push(rawLine);
-    if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
+    if (stderrTail.length > STDERR_TAIL_LINES) {
+      stderrTail.shift();
+    }
     const trimmed = rawLine.trim();
-    if (!trimmed.startsWith("{")) return;
+    if (!trimmed.startsWith("{")) {
+      return;
+    }
     let event: JazzEvent;
     try {
       event = JSON.parse(trimmed) as JazzEvent;
@@ -384,7 +402,9 @@ export function startJazzRun(options: JazzRunOptions, handlers: JazzRunHandlers 
       // Non-event stderr line (plain log chatter) — ignore.
       return;
     }
-    if (typeof event.type !== "string") return;
+    if (typeof event.type !== "string") {
+      return;
+    }
     lastSpend = runSpendFromEvent(event) ?? lastSpend;
     if (event.type === "user_message_delivered") {
       for (const id of event.ids ?? []) {

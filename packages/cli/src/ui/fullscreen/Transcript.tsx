@@ -28,10 +28,18 @@ const RIGHT_MARGIN = 2;
 
 function segmentAttributes(segment: Segment): number {
   let attributes = 0;
-  if (segment.bold === true) attributes |= TextAttributes.BOLD;
-  if (segment.italic === true) attributes |= TextAttributes.ITALIC;
-  if (segment.underline === true) attributes |= TextAttributes.UNDERLINE;
-  if (segment.strikethrough === true) attributes |= TextAttributes.STRIKETHROUGH;
+  if (segment.bold === true) {
+    attributes |= TextAttributes.BOLD;
+  }
+  if (segment.italic === true) {
+    attributes |= TextAttributes.ITALIC;
+  }
+  if (segment.underline === true) {
+    attributes |= TextAttributes.UNDERLINE;
+  }
+  if (segment.strikethrough === true) {
+    attributes |= TextAttributes.STRIKETHROUGH;
+  }
   return attributes;
 }
 
@@ -105,7 +113,9 @@ function Spans({
 }): ReactNode {
   const linkPointer = useLinkPointer(segments);
   const { hovered } = useContext(LinkHoverContext);
-  if (segments.length === 0) return null;
+  if (segments.length === 0) {
+    return null;
+  }
   return (
     <text
       style={{ wrapMode: "none", truncate: true }}
@@ -209,7 +219,9 @@ function TranscriptView({
   const renderer = useRenderer();
   const isHoveringLink = hoveredLink !== undefined;
   useEffect(() => {
-    if (!isHoveringLink) return;
+    if (!isHoveringLink) {
+      return;
+    }
     renderer.setMousePointer("pointer");
     return () => {
       renderer.setMousePointer("default");

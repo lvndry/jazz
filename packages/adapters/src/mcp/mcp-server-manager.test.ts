@@ -3,16 +3,17 @@ import type { MCPServerConfigStdio } from "@jazz/core/interfaces/mcp-server";
 import { describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Fiber } from "effect";
 import { MCPServerManagerImpl } from "./mcp-server-manager";
+import { partialFake } from "../test-support/fakes";
 
 function fakeLogger(): LoggerService {
   const noop = () => Effect.void;
-  return {
+  return partialFake<LoggerService>({
     debug: noop,
     info: noop,
     warn: noop,
     error: noop,
     writeToFile: noop,
-  } as unknown as LoggerService;
+  });
 }
 
 const STDIO_CONFIG: MCPServerConfigStdio = {
@@ -44,15 +45,15 @@ function fakeClient(connect: () => Promise<void>): FakeClient {
 function wireFakeClients(manager: MCPServerManagerImpl, clients: readonly FakeClient[]) {
   let index = 0;
   const transports = clients.map((_, transportIndex) => ({ id: transportIndex }));
-  (manager as unknown as { buildTransport: (config: unknown) => unknown }).buildTransport = () => {
+  Reflect.set(manager, "buildTransport", () => {
     const transport = transports[Math.min(index, transports.length - 1)];
     return { transport, transportType: "stdio" as const };
-  };
-  (manager as unknown as { buildClient: (config: unknown) => unknown }).buildClient = () => {
+  });
+  Reflect.set(manager, "buildClient", () => {
     const client = clients[Math.min(index, clients.length - 1)];
     index += 1;
     return client;
-  };
+  });
 }
 
 function runEffect<A, E>(effect: Effect.Effect<A, E, LoggerService>, logger: LoggerService) {

@@ -37,7 +37,9 @@ export function isChatAgentId(agentId: string): boolean {
 
 /** `tg_<chatId>` with negative ids encoded as `n<abs>`: the reverse of `agentIdForChat`. */
 export function chatIdFromAgentId(agentId: string): number | undefined {
-  if (!isChatAgentId(agentId)) return undefined;
+  if (!isChatAgentId(agentId)) {
+    return undefined;
+  }
   const suffix = agentId.slice("tg_".length);
   const numeric = suffix.startsWith("n") ? `-${suffix.slice(1)}` : suffix;
   const chatId = Number.parseInt(numeric, 10);

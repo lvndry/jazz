@@ -153,8 +153,12 @@ export function readSavedCredentials(jazzHome: string): PhotonCredentials | unde
   try {
     const parsed: unknown = JSON.parse(readFileSync(credentialsPath(jazzHome), "utf8"));
     const { projectId, projectSecret } = parsed as Partial<PhotonCredentials>;
-    if (typeof projectId !== "string" || typeof projectSecret !== "string") return undefined;
-    if (projectId.length === 0 || projectSecret.length === 0) return undefined;
+    if (typeof projectId !== "string" || typeof projectSecret !== "string") {
+      return undefined;
+    }
+    if (projectId.length === 0 || projectSecret.length === 0) {
+      return undefined;
+    }
     return { projectId, projectSecret };
   } catch {
     return undefined;
@@ -213,7 +217,9 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
 
   // The environment wins, then whatever a previous run was told, then a person.
   let allowed = parseHandleList(process.env["PHOTON_ALLOWED_HANDLES"]?.trim() ?? "");
-  if (allowed.size === 0) allowed = parseHandleList(readSavedAllowList(jazzHome));
+  if (allowed.size === 0) {
+    allowed = parseHandleList(readSavedAllowList(jazzHome));
+  }
   if (allowed.size === 0) {
     if (!interactive) {
       throw new Error(
@@ -273,7 +279,9 @@ async function describeLines(config: BridgeConfig): Promise<string> {
       `https://spectrum.photon.codes/projects/${config.projectId}/users/`,
       { headers: { authorization: `Basic ${auth}` } },
     );
-    if (!response.ok) throw new Error(String(response.status));
+    if (!response.ok) {
+      throw new Error(String(response.status));
+    }
 
     const body = (await response.json()) as { data?: { users?: readonly PhotonUser[] } };
     const lines = (body.data?.users ?? [])
@@ -284,7 +292,9 @@ async function describeLines(config: BridgeConfig): Promise<string> {
           : `${user.phoneNumber} texts ${String(user.assignedPhoneNumber)}`,
       );
 
-    if (lines.length > 0) return `Reach it here: ${lines.join("; ")}.`;
+    if (lines.length > 0) {
+      return `Reach it here: ${lines.join("; ")}.`;
+    }
     return (
       "No line assigned yet, so nothing can reach this agent.\n" +
       "Register the number you will text from at https://app.photon.codes and Photon\n" +
@@ -315,8 +325,12 @@ interface ReadableContent {
 
 function readableContent(content: unknown): ReadableContent | undefined {
   const candidate = content as Partial<ReadableContent> | null;
-  if (candidate === null || typeof candidate !== "object") return undefined;
-  if (candidate.type !== "attachment" && candidate.type !== "voice") return undefined;
+  if (candidate === null || typeof candidate !== "object") {
+    return undefined;
+  }
+  if (candidate.type !== "attachment" && candidate.type !== "voice") {
+    return undefined;
+  }
   return typeof candidate.read === "function" ? (candidate as ReadableContent) : undefined;
 }
 
@@ -334,7 +348,9 @@ export async function promptFrom(
 
   const content = message.content as { type?: string; text?: string };
   if (content.type === "text" && typeof content.text === "string") {
-    if (content.text.trim().length > 0) parts.push(content.text.trim());
+    if (content.text.trim().length > 0) {
+      parts.push(content.text.trim());
+    }
   }
 
   const media = readableContent(message.content);
@@ -391,7 +407,7 @@ export async function startBridge(): Promise<void> {
     projectId: config.projectId,
     projectSecret: config.projectSecret,
     providers,
-  } as unknown as Parameters<typeof Spectrum>[0]);
+  } as Parameters<typeof Spectrum>[0]);
 
   // A space is only addressable once it has spoken: Photon's shared line
   // cannot open a conversation the other side did not start.
@@ -404,8 +420,10 @@ export async function startBridge(): Promise<void> {
    * otherwise never find it.
    */
   const hydrateSpace = async (chatId: ChatId): Promise<void> => {
-    if (spaces.has(chatId)) return;
-    const platform = (imessage as unknown as (spectrum: unknown) => PhotonSpaces)(app);
+    if (spaces.has(chatId)) {
+      return;
+    }
+    const platform = (imessage as (spectrum: unknown) => PhotonSpaces)(app);
     spaces.set(chatId, await platform.space.get(chatId));
   };
 
@@ -441,7 +459,9 @@ export async function startBridge(): Promise<void> {
   let streaming = false;
   let receiving = true;
   const beat = setInterval(() => {
-    if (streaming) health.beat();
+    if (streaming) {
+      health.beat();
+    }
   }, STREAM_CHECK_MS);
   beat.unref?.();
   const healthPort = envPositiveInt("JAZZ_BRIDGE_HEALTH_PORT", 0);
@@ -467,8 +487,12 @@ export async function startBridge(): Promise<void> {
       streaming = true;
       for await (const [space, message] of app.messages) {
         failures = 0;
-        if (!receiving) break;
-        if (message.direction !== "inbound") continue;
+        if (!receiving) {
+          break;
+        }
+        if (message.direction !== "inbound") {
+          continue;
+        }
 
         // The sender id is the handle Photon delivers on: the only field the SDK
         // types guarantee. The provider's space carries a phone and a dm/group
@@ -494,7 +518,9 @@ export async function startBridge(): Promise<void> {
         void promptFrom(message, config.jazzHome)
           .then(async (prompt) => {
             // A reaction or a read receipt carries nothing to answer.
-            if (prompt.length === 0) return;
+            if (prompt.length === 0) {
+              return;
+            }
             await runner.handle({ chatId, senderId, text: prompt });
           })
           .catch((error: unknown) =>
@@ -502,7 +528,9 @@ export async function startBridge(): Promise<void> {
           );
       }
       streaming = false;
-      if (!receiving) break;
+      if (!receiving) {
+        break;
+      }
       console.error("Photon's message stream ended.");
     } catch (error) {
       streaming = false;
@@ -541,7 +569,9 @@ export function createSpaceStore(jazzHome: string): {
   let cache = readRecordStore<string>(path) ?? {};
   return {
     remember(agentId, spaceId) {
-      if (cache[agentId] === spaceId) return;
+      if (cache[agentId] === spaceId) {
+        return;
+      }
       cache = { ...cache, [agentId]: spaceId };
       writeRecordStore(path, cache);
     },

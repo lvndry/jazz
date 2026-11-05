@@ -189,7 +189,6 @@ export function startStubProvider(port = 0): ReturnType<typeof Bun.serve> {
   });
 }
 
-// eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun script entry point.
 if (import.meta.main) {
   const server = startStubProvider(Number(process.env["STUB_PORT"] ?? 0));
   process.stdout.write(`listening ${server.port}\n`);

@@ -14,7 +14,9 @@ export const MAX_VISIBLE_PANELS = 4;
 function EphemeralPanelIslandComponent(): React.ReactElement | null {
   const { regions } = useEphemeralSlice();
 
-  if (regions.length === 0) return null;
+  if (regions.length === 0) {
+    return null;
+  }
 
   const visible = regions.slice(0, MAX_VISIBLE_PANELS);
   const hidden = regions.length - visible.length;

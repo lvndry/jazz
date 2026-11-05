@@ -29,12 +29,16 @@ export function useAutoScrollOnDrag(
     lastY: 0,
   });
   const stop = useCallback(() => {
-    if (state.current.timer !== undefined) clearInterval(state.current.timer);
+    if (state.current.timer !== undefined) {
+      clearInterval(state.current.timer);
+    }
     state.current.timer = undefined;
   }, []);
   useLayoutEffect(() => stop, [stop, documentId]);
   useLayoutEffect(() => {
-    if (!enabled) stop();
+    if (!enabled) {
+      stop();
+    }
   }, [enabled, stop]);
   const tick = useCallback(() => {
     const {
@@ -47,17 +51,19 @@ export function useAutoScrollOnDrag(
       stop();
       return;
     }
-    const y = state.current.lastY;
+    const pointerRow = state.current.lastY;
     const bottom = top + height - 1;
-    if (y < top + EDGE_THRESHOLD_ROWS) {
-      navigate(-(top + EDGE_THRESHOLD_ROWS - y > EDGE_THRESHOLD_ROWS ? 3 : 1), "line");
-    } else if (y > bottom - EDGE_THRESHOLD_ROWS) {
-      navigate(y - bottom + EDGE_THRESHOLD_ROWS > EDGE_THRESHOLD_ROWS ? 3 : 1, "line");
+    if (pointerRow < top + EDGE_THRESHOLD_ROWS) {
+      navigate(-(top + EDGE_THRESHOLD_ROWS - pointerRow > EDGE_THRESHOLD_ROWS ? 3 : 1), "line");
+    } else if (pointerRow > bottom - EDGE_THRESHOLD_ROWS) {
+      navigate(pointerRow - bottom + EDGE_THRESHOLD_ROWS > EDGE_THRESHOLD_ROWS ? 3 : 1, "line");
     }
   }, [stop]);
   const onMouseDrag = useCallback(
     (event: OTMouseEvent) => {
-      if (!committed.current.enabled) return;
+      if (!committed.current.enabled) {
+        return;
+      }
       state.current.lastY = event.y;
       if (state.current.timer === undefined) {
         state.current.timer = setInterval(tick, AUTO_SCROLL_INTERVAL_MS);

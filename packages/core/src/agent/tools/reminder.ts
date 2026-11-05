@@ -96,7 +96,9 @@ export function createAddReminderTool(): Tool<ReminderToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { fireAt: string; text: string };
       return `Reminder set for ${data.fireAt}`;
     },
@@ -144,7 +146,9 @@ export function createListRemindersTool(): Tool<ReminderToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { reminders: readonly unknown[] };
       return `Listed reminders (${data.reminders.length})`;
     },
@@ -189,7 +193,9 @@ export function createCancelReminderTool(): Tool<ReminderToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { message: string };
       return data.message;
     },

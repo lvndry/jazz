@@ -50,8 +50,12 @@ export function dailyCostCapBlockReason(
   usage: DailyUsage,
   capUSD: number,
 ): "unpriced" | "reached" | undefined {
-  if (capUSD <= 0) return undefined;
-  if ((usage.unpricedRuns ?? 0) > 0) return "unpriced";
+  if (capUSD <= 0) {
+    return undefined;
+  }
+  if ((usage.unpricedRuns ?? 0) > 0) {
+    return "unpriced";
+  }
   return usage.costUSD >= capUSD ? "reached" : undefined;
 }
 

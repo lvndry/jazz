@@ -20,11 +20,15 @@ export function sortAgents<T extends Pick<Agent, "id" | "name">>(
   agents: readonly T[],
   lastUsedAgentId?: string | null,
 ): T[] {
-  return [...agents].sort((a, b) => {
+  return [...agents].sort((left, right) => {
     if (lastUsedAgentId) {
-      if (a.id === lastUsedAgentId) return -1;
-      if (b.id === lastUsedAgentId) return 1;
+      if (left.id === lastUsedAgentId) {
+        return -1;
+      }
+      if (right.id === lastUsedAgentId) {
+        return 1;
+      }
     }
-    return a.name.localeCompare(b.name);
+    return left.name.localeCompare(right.name);
   });
 }
