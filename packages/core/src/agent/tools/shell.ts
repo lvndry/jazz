@@ -545,6 +545,11 @@ export type ShellCommandOutput = {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number;
+  /**
+   * The time limit ended the command. Reported apart from `exitCode`, since a command can exit
+   * 124 on its own and a killed command's exit code says nothing about why it was killed.
+   */
+  readonly timedOut: boolean;
 };
 
 type InteractiveShellKind = "zsh" | "bash";
@@ -623,6 +628,7 @@ export function runShellCommand(input: {
 }): Effect.Effect<ShellCommandOutput, Error> {
   return Effect.callback((resume) => {
     let settled = false;
+    let timedOut = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let child: ChildProcess | undefined;
 
@@ -677,19 +683,26 @@ export function runShellCommand(input: {
     // `snapshot()` threw that away, so a job that logged for fourteen minutes and then hit
     // the cap reported nothing at all. 124 is the exit code `timeout(1)` uses.
     timeoutId = setTimeout(() => {
-      if (child !== undefined) {
-        void terminateProcessGroup(child);
+      timedOut = true;
+      const timedOutChild = child;
+      const reportTimeout = (): void => {
+        const collected = snapshot();
+        const note = `Command timed out after ${input.timeoutMs}ms and was killed; any output above is what it printed first.`;
+        const stderr = formatStream(collected.stderr, "stderr");
+        finish(
+          Effect.succeed({
+            stdout: formatStream(collected.stdout, "stdout"),
+            stderr: stderr.length > 0 ? `${stderr}\n${note}` : note,
+            exitCode: TIMEOUT_EXIT_CODE,
+            timedOut: true,
+          }),
+        );
+      };
+      if (timedOutChild === undefined) {
+        reportTimeout();
+        return;
       }
-      const collected = snapshot();
-      const note = `Command timed out after ${input.timeoutMs}ms and was killed; any output above is what it printed first.`;
-      const stderr = formatStream(collected.stderr, "stderr");
-      finish(
-        Effect.succeed({
-          stdout: formatStream(collected.stdout, "stdout"),
-          stderr: stderr.length > 0 ? `${stderr}\n${note}` : note,
-          exitCode: TIMEOUT_EXIT_CODE,
-        }),
-      );
+      void terminateProcessGroup(timedOutChild).then(reportTimeout);
     }, input.timeoutMs);
 
     child.on("error", (error) => {
@@ -697,6 +710,9 @@ export function runShellCommand(input: {
     });
 
     const finishWithExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      if (timedOut) {
+        return;
+      }
       if (pipeGraceId) {
         clearTimeout(pipeGraceId);
         pipeGraceId = null;
@@ -708,6 +724,7 @@ export function runShellCommand(input: {
           stderr: formatStream(collected.stderr, "stderr"),
           // A signal death reports a null code, and calling that 0 reads as success.
           exitCode: code ?? (signal !== null ? SIGNAL_EXIT_CODE : 0),
+          timedOut: false,
         }),
       );
     };
@@ -893,6 +910,7 @@ This command will be executed on your system. Only approve commands you trust.`;
 
           yield* logger.info("Command executed", {
             exitCode: result.exitCode,
+            timedOut: result.timedOut,
             stdoutChars: result.stdout.length,
             stderrChars: result.stderr.length,
           });
@@ -903,9 +921,10 @@ This command will be executed on your system. Only approve commands you trust.`;
               command: args.command,
               workingDirectory: workingDir,
               exitCode: result.exitCode,
+              timedOut: result.timedOut,
               stdout: result.stdout,
               stderr: result.stderr,
-              success: result.exitCode === 0,
+              success: result.exitCode === 0 && !result.timedOut,
             },
             // Jazz cannot tell what a command read, so its output is always outside content.
             untrusted: { kind: "external", source: "execute_command output" },
