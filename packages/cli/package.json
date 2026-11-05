@@ -21,7 +21,7 @@
     "@jazz/imessage-bot": "workspace:*",
     "@jazz/photon-bot": "workspace:*",
     "@jazz/whatsapp-bot": "workspace:*",
-    "ignore": "^7.0.6",
+    "ignore": "^7.0.14",
     "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
