@@ -105,6 +105,6 @@ export async function calibrateJudge(
     judged.push(await judge(row.prompt, row.output, "calibration"));
     human.push(row.human);
   }
-  const r = pearson(judged, human);
-  return { r, ok: r >= minPearson };
+  const correlation = pearson(judged, human);
+  return { r: correlation, ok: correlation >= minPearson };
 }

@@ -177,7 +177,9 @@ function createCancelWaitForTool(): Tool<WaitToolDeps> {
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { message: string };
       return data.message;
     },
@@ -319,7 +321,9 @@ The command runs repeatedly and unattended, in the background, until it succeeds
         ),
       ),
     createSummary: (result) => {
-      if (!result.success) return undefined;
+      if (!result.success) {
+        return undefined;
+      }
       const data = result.result as { batchId?: string; status: string };
       if (data.batchId === undefined) {
         return "The condition already holds";

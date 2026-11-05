@@ -230,8 +230,9 @@ describe("presentation document", () => {
       const snapshot = store.getOutputSnapshot();
       seen.push(snapshot.pending?.rawTail ?? "settled");
     });
-    for (let index = 0; index < 64; index += 1)
+    for (let index = 0; index < 64; index += 1) {
       store.appendStream("response", `word${String(index)} `);
+    }
     expect(seen).toHaveLength(0);
     const accepted = store.getDocumentSnapshot();
     expect(accepted.entries).toHaveLength(1);
@@ -295,7 +296,9 @@ describe("presentation document", () => {
         durationMs: 10,
         success: true,
       });
-      for (const output of result.outputs) target.printOutput(output);
+      for (const output of result.outputs) {
+        target.printOutput(output);
+      }
       target.flushOutputBatchNow();
     };
     const before = new UIStore();

@@ -43,7 +43,9 @@ function trackedPaths(): Set<string> {
     throw new Error(`git diff failed: ${deleted.stderr}`);
   }
   for (const file of deleted.stdout.split("\n")) {
-    if (file.length > 0) paths.delete(file);
+    if (file.length > 0) {
+      paths.delete(file);
+    }
   }
 
   return paths;
@@ -52,7 +54,9 @@ function trackedPaths(): Set<string> {
 function markdownFiles(directory: string, collected: string[] = []): string[] {
   for (const entry of readdirSync(directory)) {
     const entryPath = path.join(directory, entry);
-    if (EXCLUDED_DIRS.some((excluded) => entryPath.startsWith(excluded))) continue;
+    if (EXCLUDED_DIRS.some((excluded) => entryPath.startsWith(excluded))) {
+      continue;
+    }
     if (statSync(entryPath).isDirectory()) {
       markdownFiles(entryPath, collected);
     } else if (entry.endsWith(".md")) {
@@ -155,7 +159,9 @@ function main(): void {
   })
     .stdout.split("\n")
     .filter((line) => line.length > 0);
-  for (const file of untracked) tracked.add(file);
+  for (const file of untracked) {
+    tracked.add(file);
+  }
 
   const directories = new Set<string>();
   for (const trackedPath of tracked) {
@@ -177,7 +183,9 @@ function main(): void {
     const directory = path.dirname(file);
     for (const match of contents.matchAll(LINK_PATTERN)) {
       const link = match[1];
-      if (link === undefined || isExternal(link)) continue;
+      if (link === undefined || isExternal(link)) {
+        continue;
+      }
       const [target = "", fragment] = link.split("#");
       const resolved = target.length === 0 ? file : path.normalize(path.join(directory, target));
       if (
@@ -188,7 +196,9 @@ function main(): void {
         broken.push(`${file} → ${link}`);
         continue;
       }
-      if (fragment === undefined || fragment.length === 0 || !resolved.endsWith(".md")) continue;
+      if (fragment === undefined || fragment.length === 0 || !resolved.endsWith(".md")) {
+        continue;
+      }
       if (!anchorsOfFile(resolved).has(decodeURIComponent(fragment))) {
         broken.push(`${file} → ${link} (no heading or id "${fragment}")`);
       }
@@ -197,7 +207,9 @@ function main(): void {
 
   if (broken.length > 0) {
     console.error(`✗ ${broken.length} broken link(s):\n`);
-    for (const entry of broken) console.error(`  ${entry}`);
+    for (const entry of broken) {
+      console.error(`  ${entry}`);
+    }
     console.error(
       "\nLinks are resolved against git-tracked paths (case-sensitive); fragments against the target's heading slugs.",
     );
@@ -207,7 +219,6 @@ function main(): void {
   console.log(`✓ every relative link and anchor in ${files.length} Markdown files resolves`);
 }
 
-// eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun script entry point.
 if (import.meta.main) {
   main();
 }

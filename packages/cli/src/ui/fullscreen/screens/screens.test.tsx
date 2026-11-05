@@ -204,7 +204,9 @@ function hexOf(span: CapturedSpan): string {
 
 function spanWithText(frame: CapturedFrame, text: string): CapturedSpan {
   const found = allSpans(frame).find((span) => span.text === text);
-  if (found === undefined) throw new Error(`no span with exact text ${JSON.stringify(text)}`);
+  if (found === undefined) {
+    throw new Error(`no span with exact text ${JSON.stringify(text)}`);
+  }
   return found;
 }
 
@@ -242,7 +244,9 @@ function breathingShare(rows: readonly string[]): number {
 
 function expectFillsViewport(drawn: Drawn, viewport: Viewport): void {
   expect(drawn.rows).toHaveLength(viewport.height);
-  for (const row of drawn.rows) expect([...row]).toHaveLength(viewport.width);
+  for (const row of drawn.rows) {
+    expect([...row]).toHaveLength(viewport.width);
+  }
 }
 
 /** No row may end in the last column: the page keeps a right margin at every width. */
@@ -673,8 +677,11 @@ describe("agent picker", () => {
       expect(inkDensity(drawn.rows)).toBeLessThanOrEqual(0.22);
       expect(breathingShare(drawn.rows)).toBeGreaterThanOrEqual(0.4);
     } finally {
-      if (previous === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-      else process.env["JAZZ_UI_GLYPHS"] = previous;
+      if (previous === undefined) {
+        delete process.env["JAZZ_UI_GLYPHS"];
+      } else {
+        process.env["JAZZ_UI_GLYPHS"] = previous;
+      }
     }
   });
 
@@ -698,8 +705,11 @@ describe("agent picker", () => {
           expect(offenders).toEqual([]);
         }
       } finally {
-        if (previous === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-        else process.env["JAZZ_UI_GLYPHS"] = previous;
+        if (previous === undefined) {
+          delete process.env["JAZZ_UI_GLYPHS"];
+        } else {
+          process.env["JAZZ_UI_GLYPHS"] = previous;
+        }
       }
     }
   });
@@ -742,8 +752,11 @@ describe("both screens in ascii glyph mode", () => {
   });
 
   afterAll(() => {
-    if (previous === undefined) delete process.env["JAZZ_UI_GLYPHS"];
-    else process.env["JAZZ_UI_GLYPHS"] = previous;
+    if (previous === undefined) {
+      delete process.env["JAZZ_UI_GLYPHS"];
+    } else {
+      process.env["JAZZ_UI_GLYPHS"] = previous;
+    }
   });
 
   it("still marks identity, the waiting bar and selection with ASCII alone", async () => {

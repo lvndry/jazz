@@ -96,8 +96,11 @@ describe("OutputEntryView, user source", () => {
       expect(entry.message).toBe(message);
       expect(outputs[0]).toContain("words in a long user message");
     } finally {
-      if (descriptor === undefined) Reflect.deleteProperty(process.stdout, "columns");
-      else Object.defineProperty(process.stdout, "columns", descriptor);
+      if (descriptor === undefined) {
+        Reflect.deleteProperty(process.stdout, "columns");
+      } else {
+        Object.defineProperty(process.stdout, "columns", descriptor);
+      }
     }
   });
 });

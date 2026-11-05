@@ -46,9 +46,13 @@ export function describeHttpUrlPatternError(input: string): string | undefined {
 
 /** The URL actually sent by a built-in request, including http_request query overrides. */
 export function effectiveHttpUrl(name: string, args: Record<string, unknown>): string | undefined {
-  if (!isHttpApprovalTool(name) || typeof args["url"] !== "string") return undefined;
+  if (!isHttpApprovalTool(name) || typeof args["url"] !== "string") {
+    return undefined;
+  }
   const url = parsedHttpUrl(args["url"]);
-  if (url === undefined) return undefined;
+  if (url === undefined) {
+    return undefined;
+  }
   const query = args["query"];
   if (
     name === "http_request" &&
@@ -73,10 +77,16 @@ export function httpUrlIsApproved(
   approvedUrl?: string,
 ): boolean {
   const url = parsedHttpUrl(input);
-  if (url === undefined) return false;
-  if (policy === undefined || policy === "allow" || url.toString() === approvedUrl) return true;
+  if (url === undefined) {
+    return false;
+  }
+  if (policy === undefined || policy === "allow" || url.toString() === approvedUrl) {
+    return true;
+  }
   return policy.some((pattern) => {
-    if (describeHttpUrlPatternError(pattern) !== undefined) return false;
+    if (describeHttpUrlPatternError(pattern) !== undefined) {
+      return false;
+    }
     const prefix = pattern.endsWith("/*");
     const base = parsedHttpUrl(prefix ? pattern.slice(0, -1) : pattern);
     return (
@@ -94,7 +104,9 @@ export function httpToolIsApproved(
   args: Record<string, unknown>,
   policy: HttpApprovalPolicy | undefined,
 ): boolean | undefined {
-  if (!isHttpApprovalTool(name)) return undefined;
+  if (!isHttpApprovalTool(name)) {
+    return undefined;
+  }
   const url = effectiveHttpUrl(name, args);
   // Malformed URLs cannot perform network I/O; let the tool report its validation error.
   return url === undefined || httpUrlIsApproved(url, policy);

@@ -59,15 +59,27 @@ const ARTIFACT_SOURCES: ReadonlySet<string> = new Set<ArtifactSource>(["rendered
  * that scripts and bridges consume.
  */
 export function parseGeneratedArtifact(value: unknown): GeneratedArtifact | null {
-  if (value === null || typeof value !== "object") return null;
+  if (value === null || typeof value !== "object") {
+    return null;
+  }
   const candidate = value as Record<string, unknown>;
 
   const { kind, path, mediaType, tool, source, title } = candidate;
-  if (typeof kind !== "string" || !ARTIFACT_KINDS.has(kind)) return null;
-  if (typeof source !== "string" || !ARTIFACT_SOURCES.has(source)) return null;
-  if (typeof path !== "string" || path.length === 0) return null;
-  if (typeof mediaType !== "string" || mediaType.length === 0) return null;
-  if (typeof tool !== "string" || tool.length === 0) return null;
+  if (typeof kind !== "string" || !ARTIFACT_KINDS.has(kind)) {
+    return null;
+  }
+  if (typeof source !== "string" || !ARTIFACT_SOURCES.has(source)) {
+    return null;
+  }
+  if (typeof path !== "string" || path.length === 0) {
+    return null;
+  }
+  if (typeof mediaType !== "string" || mediaType.length === 0) {
+    return null;
+  }
+  if (typeof tool !== "string" || tool.length === 0) {
+    return null;
+  }
 
   return {
     kind: kind as ArtifactKind,
@@ -81,11 +93,15 @@ export function parseGeneratedArtifact(value: unknown): GeneratedArtifact | null
 
 /** Collect the valid artifacts out of whatever a tool returned, dropping malformed entries. */
 export function parseGeneratedArtifacts(value: unknown): GeneratedArtifact[] {
-  if (!Array.isArray(value)) return [];
+  if (!Array.isArray(value)) {
+    return [];
+  }
   const artifacts: GeneratedArtifact[] = [];
   for (const entry of value) {
     const parsed = parseGeneratedArtifact(entry);
-    if (parsed !== null) artifacts.push(parsed);
+    if (parsed !== null) {
+      artifacts.push(parsed);
+    }
   }
   return artifacts;
 }

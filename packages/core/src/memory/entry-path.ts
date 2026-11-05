@@ -64,7 +64,9 @@ export function slugifyMemorySegment(value: string): string {
  * from the quota walk, yet still recalled.
  */
 export function describeUnusableSubject(subject: string): string | undefined {
-  if (slugifyMemorySegment(subject).length > 0) return undefined;
+  if (slugifyMemorySegment(subject).length > 0) {
+    return undefined;
+  }
   return `Subject ${JSON.stringify(subject)} contains no letters or digits that can be stored in a path. Give a subject containing Latin letters or digits.`;
 }
 
@@ -76,7 +78,9 @@ export function describeUnusableSubject(subject: string): string | undefined {
  * learn the topic is unusable rather than having it dropped.
  */
 export function describeUnusableTopic(topic: string): string | undefined {
-  if (slugifyMemorySegment(topic).length > 0) return undefined;
+  if (slugifyMemorySegment(topic).length > 0) {
+    return undefined;
+  }
   return `Topic ${JSON.stringify(topic)} contains no letters or digits that can be stored in a path. Give a topic containing Latin letters or digits, or omit it to apply this entry to every task.`;
 }
 

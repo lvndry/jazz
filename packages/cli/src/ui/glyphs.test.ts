@@ -49,11 +49,16 @@ const TODO_MARK_FIELDS: readonly (keyof GlyphSet)[] = [
 function everyCharacter(set: GlyphSet, exclude: readonly (keyof GlyphSet)[] = []): string[] {
   const out: string[] = [];
   for (const [key, value] of Object.entries(set)) {
-    if (exclude.includes(key as keyof GlyphSet)) continue;
-    if (typeof value === "string") out.push(...value);
-    else if (Array.isArray(value)) {
+    if (exclude.includes(key as keyof GlyphSet)) {
+      continue;
+    }
+    if (typeof value === "string") {
+      out.push(...value);
+    } else if (Array.isArray(value)) {
       for (const entry of value) {
-        if (typeof entry === "string") out.push(...entry);
+        if (typeof entry === "string") {
+          out.push(...entry);
+        }
       }
     }
   }
@@ -65,13 +70,15 @@ function describeRange(
   ranges: readonly (readonly [number, number, string])[],
 ): string | undefined {
   for (const [start, end, name] of ranges) {
-    if (codePoint >= start && codePoint <= end) return name;
+    if (codePoint >= start && codePoint <= end) {
+      return name;
+    }
   }
   return undefined;
 }
 
-const greatestCommonDivisor = (a: number, b: number): number =>
-  b === 0 ? a : greatestCommonDivisor(b, a % b);
+const greatestCommonDivisor = (first: number, second: number): number =>
+  second === 0 ? first : greatestCommonDivisor(second, first % second);
 
 const ENV_KEYS = [
   "JAZZ_UI_GLYPHS",
@@ -90,14 +97,19 @@ function withEnv(overrides: Record<string, string | undefined>, run: () => void)
     delete process.env[key];
   }
   for (const [key, value] of Object.entries(overrides)) {
-    if (value !== undefined) process.env[key] = value;
+    if (value !== undefined) {
+      process.env[key] = value;
+    }
   }
   try {
     run();
   } finally {
     for (const [key, value] of saved) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
   }
 }
@@ -208,9 +220,9 @@ describe("glyphs", () => {
         "gridEmpty",
         "gridReserved",
       ];
-      for (const k of fields) {
-        const v = set[k] as string;
-        for (const ch of v) {
+      for (const field of fields) {
+        const fieldValue = set[field] as string;
+        for (const ch of fieldValue) {
           expect(ch.charCodeAt(0)).toBeLessThan(128);
         }
       }
@@ -266,7 +278,9 @@ describe("font safety", () => {
     const offenders: string[] = [];
     for (const character of everyCharacter(GLYPHS.unicode, TODO_MARK_FIELDS)) {
       const codePoint = character.codePointAt(0) as number;
-      if (describeRange(codePoint, SAFE_RANGES) !== undefined) continue;
+      if (describeRange(codePoint, SAFE_RANGES) !== undefined) {
+        continue;
+      }
       const unsafe = describeRange(codePoint, KNOWN_UNSAFE);
       offenders.push(
         `${character} (U+${codePoint.toString(16).toUpperCase().padStart(4, "0")})` +
@@ -301,10 +315,10 @@ describe("activity indicator", () => {
     // so the composite looped every 12 frames — about two seconds — and the two
     // pairs of equal periods were phase-locked to each other permanently.
     const periods = GLYPHS.unicode.lanePeriods;
-    for (let a = 0; a < periods.length; a++) {
-      for (let b = a + 1; b < periods.length; b++) {
-        const first = periods[a] as number;
-        const second = periods[b] as number;
+    for (let firstIndex = 0; firstIndex < periods.length; firstIndex++) {
+      for (let secondIndex = firstIndex + 1; secondIndex < periods.length; secondIndex++) {
+        const first = periods[firstIndex] as number;
+        const second = periods[secondIndex] as number;
         expect(greatestCommonDivisor(first, second)).toBe(1);
       }
     }
@@ -318,7 +332,8 @@ describe("activity indicator", () => {
 
   it("runs for many minutes before repeating", () => {
     const composite = GLYPHS.unicode.lanePeriods.reduce(
-      (a, b) => (a * b) / greatestCommonDivisor(a, b),
+      (commonPeriod, period) =>
+        (commonPeriod * period) / greatestCommonDivisor(commonPeriod, period),
       1,
     );
     // 4620 frames at 170ms is about thirteen minutes.
@@ -328,7 +343,11 @@ describe("activity indicator", () => {
   for (const mode of ["ascii", "unicode"] as const) {
     describe(mode, () => {
       const set = GLYPHS[mode];
-      const composite = set.lanePeriods.reduce((a, b) => (a * b) / greatestCommonDivisor(a, b), 1);
+      const composite = set.lanePeriods.reduce(
+        (commonPeriod, period) =>
+          (commonPeriod * period) / greatestCommonDivisor(commonPeriod, period),
+        1,
+      );
 
       it("holds a constant width across the whole cycle", () => {
         for (let tick = 0; tick < composite; tick++) {
@@ -352,7 +371,9 @@ describe("activity indicator", () => {
         // test above prevents.
         let aligned = 0;
         for (let tick = 0; tick < composite; tick++) {
-          if (new Set([...laneFrame(tick, set)]).size === 1) aligned++;
+          if (new Set([...laneFrame(tick, set)]).size === 1) {
+            aligned++;
+          }
         }
         expect(aligned / composite).toBeLessThan(0.005);
       });
@@ -369,7 +390,9 @@ describe("activity indicator", () => {
 
       it("shows a healthy variety of frames", () => {
         const distinct = new Set<string>();
-        for (let tick = 0; tick < composite; tick++) distinct.add(laneFrame(tick, set));
+        for (let tick = 0; tick < composite; tick++) {
+          distinct.add(laneFrame(tick, set));
+        }
         expect(distinct.size).toBeGreaterThan(100);
       });
     });

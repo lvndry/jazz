@@ -20,7 +20,9 @@ import { Effect } from "effect";
 export function resolveDaemonToken(): Effect.Effect<string | undefined, never> {
   return Effect.gen(function* () {
     const fromEnv = process.env[DAEMON_TOKEN_ENV_VAR];
-    if (fromEnv !== undefined && fromEnv.trim().length > 0) return fromEnv.trim();
+    if (fromEnv !== undefined && fromEnv.trim().length > 0) {
+      return fromEnv.trim();
+    }
 
     const backend = yield* detectKeyringBackend();
     return yield* keyringGet(backend, DAEMON_TOKEN_PATH);
@@ -58,14 +60,20 @@ export type ProvisionDaemonTokenResult = ProvisionedDaemonToken | DaemonTokenPro
 export function resolveOrProvisionDaemonToken(): Effect.Effect<ProvisionDaemonTokenResult, never> {
   return Effect.gen(function* () {
     const existing = yield* resolveDaemonToken();
-    if (existing !== undefined) return { ok: true, token: existing, generated: false };
+    if (existing !== undefined) {
+      return { ok: true, token: existing, generated: false };
+    }
 
     const backend = yield* detectKeyringBackend();
-    if (backend === "none") return { ok: false, reason: "no-keyring" };
+    if (backend === "none") {
+      return { ok: false, reason: "no-keyring" };
+    }
 
     const generatedToken = randomBytes(24).toString("hex");
     const stored = yield* keyringSet(backend, DAEMON_TOKEN_PATH, generatedToken);
-    if (!stored) return { ok: false, reason: "keyring-write-failed" };
+    if (!stored) {
+      return { ok: false, reason: "keyring-write-failed" };
+    }
 
     return { ok: true, token: generatedToken, generated: true, backend };
   });

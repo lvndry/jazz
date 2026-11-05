@@ -4,6 +4,7 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
+import { narrowEffect } from "@/core/test-support/fakes";
 import type { MCPResource } from "@/core/types/mcp";
 import { buildResourceTools } from "./mcp";
 
@@ -33,16 +34,12 @@ function harness(resources: MCPResource[], text = "body") {
 async function runList(resources: MCPResource[], args: Record<string, unknown> = {}) {
   const [listTool] = buildResourceTools(serverConfig);
   const result = await Effect.runPromise(
-    (
-      listTool!.execute(args, { agentId: "a", conversationId: "c" }) as never as Effect.Effect<
-        {
-          success: boolean;
-          result: { resources: MCPResource[]; total: number; matched?: number; truncated?: string };
-        },
-        never,
-        never
-      >
-    ).pipe(Effect.provide(harness(resources))) as Effect.Effect<
+    narrowEffect<{
+      success: boolean;
+      result: { resources: MCPResource[]; total: number; matched?: number; truncated?: string };
+    }>(listTool!.execute(args, { agentId: "a", conversationId: "c" })).pipe(
+      Effect.provide(harness(resources)),
+    ) as Effect.Effect<
       {
         success: boolean;
         result: { resources: MCPResource[]; total: number; matched?: number; truncated?: string };
@@ -97,14 +94,14 @@ describe("MCP resource reads", () => {
   async function runRead(text: string) {
     const [, readTool] = buildResourceTools(serverConfig);
     const result = await Effect.runPromise(
-      (
+      narrowEffect<{ success: boolean; result: string }>(
         readTool!.execute(
           { uri: "demo://resource/0" },
           {
             agentId: "a",
             conversationId: "c",
           },
-        ) as never as Effect.Effect<{ success: boolean; result: string }, never, never>
+        ),
       ).pipe(Effect.provide(harness([], text))) as Effect.Effect<
         { success: boolean; result: string },
         never,
@@ -132,12 +129,8 @@ describe("MCP resource reads", () => {
   test("rejects a call with no uri", async () => {
     const [, readTool] = buildResourceTools(serverConfig);
     const result = await Effect.runPromise(
-      (
-        readTool!.execute({}, { agentId: "a", conversationId: "c" }) as never as Effect.Effect<
-          { success: boolean; error: string },
-          never,
-          never
-        >
+      narrowEffect<{ success: boolean; error: string }>(
+        readTool!.execute({}, { agentId: "a", conversationId: "c" }),
       ).pipe(Effect.provide(harness([]))) as Effect.Effect<
         { success: boolean; error: string },
         never,

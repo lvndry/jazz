@@ -60,7 +60,10 @@ test.each([true, false])(
         ),
       ),
     );
-    if (hasPeers) expect(categories["Peers"]).toEqual(["ask_peer", "request_clarification"]);
-    else expect(categories["Peers"]).toBeUndefined();
+    if (hasPeers) {
+      expect(categories["Peers"]).toEqual(["ask_peer", "request_clarification"]);
+    } else {
+      expect(categories["Peers"]).toBeUndefined();
+    }
   },
 );

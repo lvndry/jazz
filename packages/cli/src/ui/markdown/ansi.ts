@@ -126,7 +126,9 @@ function codeLines(spans: readonly SyntaxSpan[], width: number): SyntaxSpan[][] 
   for (const span of spans) {
     let text = "";
     const flush = (): void => {
-      if (text.length > 0) lines[lines.length - 1]?.push({ ...span, text });
+      if (text.length > 0) {
+        lines[lines.length - 1]?.push({ ...span, text });
+      }
       text = "";
     };
     for (const grapheme of terminalGraphemes(span.text)) {

@@ -13,8 +13,9 @@ import { toError } from "@/core/utils/errors";
  * Create skill tools with skill_name constrained to discovered skill names.
  */
 export function createSkillTools(skillNames: readonly string[]): Tool<SkillService>[] {
+  const [firstSkillName, ...otherSkillNames] = skillNames;
   const skillNameSchema =
-    skillNames.length > 0 ? z.enum(skillNames as unknown as [string, ...string[]]) : z.string();
+    firstSkillName !== undefined ? z.enum([firstSkillName, ...otherSkillNames]) : z.string();
 
   return [
     {
@@ -57,7 +58,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
             };
           }
 
-          const lines = ranked.map((s) => `- ${s.name}: ${s.description}`).join("\n");
+          const lines = ranked.map((skill) => `- ${skill.name}: ${skill.description}`).join("\n");
           return {
             success: true,
             result: `Top ${ranked.length} skill(s) matching "${query}":\n${lines}\n\nLoad one with load_skill.`,

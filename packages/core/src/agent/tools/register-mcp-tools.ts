@@ -101,7 +101,9 @@ function subscribeToToolChanges(): Effect.Effect<
   MCPServerManager | ToolRegistry | LoggerService
 > {
   return Effect.gen(function* () {
-    if (toolsChangedSubscribed) return;
+    if (toolsChangedSubscribed) {
+      return;
+    }
 
     const mcpManager = yield* MCPServerManagerTag;
     const registry = yield* ToolRegistryTag;
@@ -109,7 +111,9 @@ function subscribeToToolChanges(): Effect.Effect<
 
     yield* mcpManager.onToolsChanged((serverName, tools) => {
       const entry = registeredServers.get(serverName);
-      if (!entry) return;
+      if (!entry) {
+        return;
+      }
 
       void Effect.runPromise(
         syncServerTools(registry, entry.config, tools, entry.hasResources).pipe(
@@ -350,7 +354,9 @@ export function getMCPServerCategories(): Effect.Effect<
     const displayNameToServerName = new Map<string, string>();
 
     for (const serverConfig of servers) {
-      if (serverConfig.enabled === false) continue;
+      if (serverConfig.enabled === false) {
+        continue;
+      }
 
       const category = mcpToolCategory(serverConfig.name);
       categories[category.displayName] = [];

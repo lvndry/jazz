@@ -10,6 +10,7 @@ import { Effect } from "effect";
 import { testConfigLayer } from "@/core/agent/test-config";
 import { silentLogger } from "@/core/agent/test-logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
+import { invalidInput } from "@/core/test-support/fakes";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import {
   EgressRefusedError,
@@ -33,14 +34,14 @@ interface Hit {
 const ENDLESS_CHUNK_BYTES = 64 * 1024;
 const TRICKLE_INTERVAL_MS = 200;
 
-/** A body that never ends: each read waits for `next`. */
+/** A body that never ends: each read waits for `next`. Bun accepts an async iterable body that its typings omit. */
 function streamOf(next: () => Promise<Uint8Array>): BodyInit {
   async function* chunks(): AsyncGenerator<Uint8Array> {
     for (;;) {
       yield await next();
     }
   }
-  return chunks() as unknown as BodyInit;
+  return invalidInput<BodyInit>(chunks());
 }
 
 const hits: Hit[] = [];

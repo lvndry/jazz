@@ -13,7 +13,6 @@ async function main(): Promise<void> {
   process.stdout.write(`${result.artifactPath}\n${result.sha256}\n`);
 }
 
-// eslint-disable-next-line n/no-unsupported-features/node-builtins -- Bun script entry point.
 if (import.meta.main) {
   main().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

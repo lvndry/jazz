@@ -282,7 +282,9 @@ export class MCPServerManagerImpl implements MCPServerManager {
         }[]
       | null,
   ): void {
-    if (items === null || this.toolsChangedHandlers.size === 0) return;
+    if (items === null || this.toolsChangedHandlers.size === 0) {
+      return;
+    }
 
     const tools = items.map(toMCPTool);
     for (const handler of this.toolsChangedHandlers) {
@@ -350,9 +352,13 @@ export class MCPServerManagerImpl implements MCPServerManager {
           // An unauthorized server will answer the same way every time, and a
           // missing binary will never appear mid-retry. Only genuinely
           // transient transport faults are worth the backoff.
-          if (error instanceof InteractiveAuthRequiredError) return false;
+          if (error instanceof InteractiveAuthRequiredError) {
+            return false;
+          }
           const errorMessage = toError(error).message;
-          if (/\b(401|403|ENOENT|EACCES)\b/.test(errorMessage)) return false;
+          if (/\b(401|403|ENOENT|EACCES)\b/.test(errorMessage)) {
+            return false;
+          }
           return (
             errorMessage.includes("ECONNREFUSED") ||
             errorMessage.includes("ECONNRESET") ||
@@ -403,7 +409,9 @@ export class MCPServerManagerImpl implements MCPServerManager {
       yield* manager.logger.info("MCP server connected", { transportType });
     }).pipe(
       Effect.mapError((error: unknown) => {
-        if (error instanceof MCPConnectionError) return error;
+        if (error instanceof MCPConnectionError) {
+          return error;
+        }
         const errorMessage = toError(error).message;
         return new MCPConnectionError({
           serverName: config.name,
@@ -475,7 +483,9 @@ export class MCPServerManagerImpl implements MCPServerManager {
               }
 
               cursor = result.nextCursor;
-              if (cursor === undefined) break;
+              if (cursor === undefined) {
+                break;
+              }
             }
 
             return collected;
@@ -629,7 +639,9 @@ export class MCPServerManagerImpl implements MCPServerManager {
             }
 
             cursor = result.nextCursor;
-            if (cursor === undefined) break;
+            if (cursor === undefined) {
+              break;
+            }
           }
 
           return collected;
@@ -817,7 +829,9 @@ export class MCPServerManagerImpl implements MCPServerManager {
             }
 
             cursor = result.nextCursor;
-            if (cursor === undefined) break;
+            if (cursor === undefined) {
+              break;
+            }
           }
 
           return collected;
@@ -921,7 +935,9 @@ export class MCPServerManagerImpl implements MCPServerManager {
     const manager = this;
     return Effect.gen(function* () {
       const connection = manager.connections.get(serverName);
-      if (!connection) return [];
+      if (!connection) {
+        return [];
+      }
 
       return yield* Effect.tryPromise({
         try: async () => {

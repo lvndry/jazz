@@ -18,7 +18,9 @@ export interface RankedPickerMatch<T> {
 }
 
 export function wrapIndex(index: number, length: number): number {
-  if (length <= 0) return 0;
+  if (length <= 0) {
+    return 0;
+  }
   return ((index % length) + length) % length;
 }
 
@@ -27,8 +29,12 @@ export function carouselWindow<Item>(
   selected: number,
   size: number,
 ): readonly Item[] {
-  if (items.length === 0) return [];
-  if (items.length <= size) return items;
+  if (items.length === 0) {
+    return [];
+  }
+  if (items.length <= size) {
+    return items;
+  }
   const start = wrapIndex(selected - size + 1, items.length);
   return Array.from(
     { length: size },
@@ -37,7 +43,9 @@ export function carouselWindow<Item>(
 }
 
 export function pickerWindowStart(selected: number, length: number, size: number): number {
-  if (length <= 0 || size <= 0 || length <= size) return 0;
+  if (length <= 0 || size <= 0 || length <= size) {
+    return 0;
+  }
   return Math.max(0, Math.min(selected - size + 1, length - size));
 }
 
@@ -63,7 +71,9 @@ export function pickerWindow<Item>(
 
 export function pickerItemMatches(item: PickerFilterable, query: string): boolean {
   const lowerQuery = query.trim().toLowerCase();
-  if (lowerQuery.length === 0) return true;
+  if (lowerQuery.length === 0) {
+    return true;
+  }
   const identity = typeof item.value === "string" ? item.value : "";
   return [item.label, identity, item.description ?? ""].some((text) =>
     text.toLowerCase().includes(lowerQuery),
@@ -82,7 +92,9 @@ export function rankPickerMatches<T extends PickerFilterable>(
   const WORD_BOUNDARY = new Set([" ", "-", "_", "/", ".", "("]);
   const scored: { item: T; matchIndex: number; rank: number }[] = [];
   for (const item of items) {
-    if (!pickerItemMatches(item, query)) continue;
+    if (!pickerItemMatches(item, query)) {
+      continue;
+    }
     const matchIndex = item.label.toLowerCase().indexOf(lowerQuery);
     const rank =
       matchIndex === 0

@@ -74,7 +74,9 @@ function confirmInstall(
     yield* terminal.heading(`Library workflow: ${download.entry.name}`);
     yield* terminal.log(download.entry.description);
     const meta = formatMeta(download.entry);
-    if (meta.length > 0) yield* terminal.log(chalk.dim(meta));
+    if (meta.length > 0) {
+      yield* terminal.log(chalk.dim(meta));
+    }
     yield* terminal.log(chalk.dim(`source: ${download.sourceUrl}`));
     yield* terminal.log("");
     yield* terminal.log(chalk.bold("WORKFLOW.md"));
@@ -106,7 +108,9 @@ function confirmInstall(
     }
     yield* terminal.log("");
 
-    if (options.yes === true) return true;
+    if (options.yes === true) {
+      return true;
+    }
 
     if (!terminal.isInteractive) {
       yield* terminal.error(
@@ -120,7 +124,9 @@ function confirmInstall(
       cancellable: true,
       placeholder: "i",
     });
-    if (key?.trim().toLowerCase() !== "i") return false;
+    if (key?.trim().toLowerCase() !== "i") {
+      return false;
+    }
 
     return (yield* terminal.confirm(`Install this workflow as "${localName}"?`, false)) === true;
   });
@@ -237,7 +243,9 @@ export function listLibraryWorkflowsCommand(options?: {
       yield* terminal.log(`  ${chalk.bold(entry.name)}`);
       yield* terminal.log(`    ${chalk.dim(entry.description)}`);
       const meta = formatMeta(entry);
-      if (meta.length > 0) yield* terminal.log(`    ${chalk.dim(meta)}`);
+      if (meta.length > 0) {
+        yield* terminal.log(`    ${chalk.dim(meta)}`);
+      }
       yield* terminal.log("");
     }
 

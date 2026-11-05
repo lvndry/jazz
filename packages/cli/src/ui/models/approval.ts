@@ -156,24 +156,50 @@ export function parseApprovalDiff(diff: string): ApprovalDiff | undefined {
 }
 
 export function actionClass(toolName: string): ActionClass {
-  if (SHELL_TOOLS.has(toolName)) return "run";
-  if (DELETE_TOOLS.has(toolName)) return "delete";
-  if (EDIT_TOOLS.has(toolName)) return "edit";
-  if (WRITE_TOOLS.has(toolName)) return "write";
-  if (MOVE_TOOLS.has(toolName)) return "move";
-  if (COPY_TOOLS.has(toolName)) return "copy";
-  if (CREATE_TOOLS.has(toolName)) return "create";
+  if (SHELL_TOOLS.has(toolName)) {
+    return "run";
+  }
+  if (DELETE_TOOLS.has(toolName)) {
+    return "delete";
+  }
+  if (EDIT_TOOLS.has(toolName)) {
+    return "edit";
+  }
+  if (WRITE_TOOLS.has(toolName)) {
+    return "write";
+  }
+  if (MOVE_TOOLS.has(toolName)) {
+    return "move";
+  }
+  if (COPY_TOOLS.has(toolName)) {
+    return "copy";
+  }
+  if (CREATE_TOOLS.has(toolName)) {
+    return "create";
+  }
   const words = nameWords(toolName);
-  if (words.some((word) => SEND_WORDS.has(word))) return "send";
-  if (words.some((word) => DELETE_WORDS.has(word))) return "delete";
-  if (words.some((word) => CREATE_WORDS.has(word))) return "create";
+  if (words.some((word) => SEND_WORDS.has(word))) {
+    return "send";
+  }
+  if (words.some((word) => DELETE_WORDS.has(word))) {
+    return "delete";
+  }
+  if (words.some((word) => CREATE_WORDS.has(word))) {
+    return "create";
+  }
   return "act";
 }
 
 function runHeadline(command: string, riskLevel: ToolRiskLevel | undefined): string {
-  if (DESTRUCTIVE_COMMAND.test(command)) return "deletes files";
-  if (riskLevel === "read-only") return "only reads";
-  if (riskLevel === "low-risk") return "runs on this machine";
+  if (DESTRUCTIVE_COMMAND.test(command)) {
+    return "deletes files";
+  }
+  if (riskLevel === "read-only") {
+    return "only reads";
+  }
+  if (riskLevel === "low-risk") {
+    return "runs on this machine";
+  }
   return "changes this machine";
 }
 

@@ -120,10 +120,9 @@ describe("Shell Tools", () => {
     expect(tool.parameters).toHaveProperty("_def");
 
     // Verify schema has required fields
-    const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
-    expect(schema._def.shape).toHaveProperty("command");
-    expect(schema._def.shape).toHaveProperty("description");
-    expect(schema._def.shape).not.toHaveProperty("confirm");
+    expect(tool.parameters).toHaveProperty("_def.shape.command");
+    expect(tool.parameters).toHaveProperty("_def.shape.description");
+    expect(tool.parameters).not.toHaveProperty("_def.shape.confirm");
   });
 
   it("should create execute_execute_command tool with proper structure", () => {
@@ -142,10 +141,9 @@ describe("Shell Tools", () => {
     expect(tool.parameters).toHaveProperty("_def");
 
     // Verify schema has required fields (no confirm field for approved tool)
-    const schema = tool.parameters as unknown as { _def: { shape: Record<string, unknown> } };
-    expect(schema._def.shape).toHaveProperty("command");
-    expect(schema._def.shape).toHaveProperty("description");
-    expect(schema._def.shape).not.toHaveProperty("confirm");
+    expect(tool.parameters).toHaveProperty("_def.shape.command");
+    expect(tool.parameters).toHaveProperty("_def.shape.description");
+    expect(tool.parameters).not.toHaveProperty("_def.shape.confirm");
   });
 
   it("should require approval for command execution", async () => {

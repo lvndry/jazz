@@ -25,7 +25,13 @@ export function closeUnansweredToolCalls<Messages extends readonly ChatMessage[]
   content:
     | string
     | ((toolCall: { readonly id: string; readonly name: string }) => UnansweredToolCallAnswer),
-): Messages {
+): Messages;
+export function closeUnansweredToolCalls(
+  messages: readonly ChatMessage[],
+  content:
+    | string
+    | ((toolCall: { readonly id: string; readonly name: string }) => UnansweredToolCallAnswer),
+): readonly ChatMessage[] {
   const answered = new Set(
     messages
       .filter((message) => message.role === "tool" && message.tool_call_id !== undefined)
@@ -73,5 +79,5 @@ export function closeUnansweredToolCalls<Messages extends readonly ChatMessage[]
       });
     }
   }
-  return closed as unknown as Messages;
+  return closed;
 }

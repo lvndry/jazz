@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { invalidInput } from "@/core/test-support/fakes";
 import type { ContextConfig } from "@/core/types/config";
 import { resolveContextThresholds } from "./context-thresholds";
 import {
@@ -60,9 +61,11 @@ describe("resolveContextThresholds", () => {
       expect(resolved.warnings).toHaveLength(1);
     }
 
-    const fromJson = resolveContextThresholds({
-      compactThresholdRatio: "0.9",
-    } as unknown as ContextConfig);
+    const fromJson = resolveContextThresholds(
+      invalidInput<ContextConfig>({
+        compactThresholdRatio: "0.9",
+      }),
+    );
     expect(fromJson.compactThresholdRatio).toBe(CONTEXT_COMPACT_THRESHOLD_RATIO);
     expect(fromJson.warnings[0]).toContain("expected a number between 0 and 1");
   });

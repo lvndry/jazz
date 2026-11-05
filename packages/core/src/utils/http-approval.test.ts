@@ -30,8 +30,9 @@ describe("HTTP URL approvals", () => {
       "https://evil.test/v1/items",
       "http://api.example.com/v1/items",
       "https://api.example.com:444/v1/items",
-    ])
+    ]) {
       expect(httpUrlIsApproved(url, list)).toBe(false);
+    }
   });
 
   it("validates configured grants and removes the old settings", () => {

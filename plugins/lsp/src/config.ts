@@ -44,35 +44,45 @@ function nonEmptyString(value: unknown): value is string {
 export async function loadServers(): Promise<readonly ServerConfig[]> {
   const configPath = process.env["JAZZ_LSP_CONFIG"] ?? join(homedir(), ".jazz", "lsp.json");
   const parsed: unknown = JSON.parse(await readFile(configPath, "utf8"));
-  if (!record(parsed) || !Array.isArray(parsed["servers"]))
+  if (!record(parsed) || !Array.isArray(parsed["servers"])) {
     throw new Error(`Invalid LSP configuration at ${configPath}: expected servers array`);
+  }
   return parsed["servers"].map((raw: unknown, index: number): ServerConfig => {
     const invalid = (detail: string): never => {
       throw new Error(`Invalid LSP server entry ${index} in ${configPath}: ${detail}`);
     };
-    if (!record(raw)) return invalid("expected an object");
+    if (!record(raw)) {
+      return invalid("expected an object");
+    }
     const entry: Record<string, unknown> = raw;
-    if (typeof entry["id"] !== "string") return invalid("id must be a string");
+    if (typeof entry["id"] !== "string") {
+      return invalid("id must be a string");
+    }
     if (typeof entry["command"] !== "string" || !entry["command"]) {
       return invalid("command must be a non-empty string");
     }
     if (
       !Array.isArray(entry["args"]) ||
       !entry["args"].every((arg: unknown) => typeof arg === "string")
-    )
+    ) {
       return invalid("args must be an array of strings");
-    if (typeof entry["languageId"] !== "undefined")
+    }
+    if (typeof entry["languageId"] !== "undefined") {
       return invalid("top-level languageId is unsupported; map each extension to its language ID");
-    if (!record(entry["extensions"]) || Object.keys(entry["extensions"]).length === 0)
+    }
+    if (!record(entry["extensions"]) || Object.keys(entry["extensions"]).length === 0) {
       return invalid(
         "extensions must be a non-empty object mapping each extension to a language ID",
       );
+    }
     const extensions: Record<string, string> = {};
     for (const [extension, languageId] of Object.entries(entry["extensions"])) {
-      if (!extension.startsWith("."))
+      if (!extension.startsWith(".")) {
         return invalid(`extension ${JSON.stringify(extension)} must start with a dot`);
-      if (!nonEmptyString(languageId))
+      }
+      if (!nonEmptyString(languageId)) {
         return invalid(`extension ${extension} must map to a non-empty language ID`);
+      }
       extensions[extension] = languageId;
     }
     if (
@@ -80,8 +90,9 @@ export async function loadServers(): Promise<readonly ServerConfig[]> {
       !entry["rootMarkers"].every(
         (marker: unknown) => nonEmptyString(marker) && !marker.includes("/"),
       )
-    )
+    ) {
       invalid("rootMarkers must be an array of non-empty filenames without slashes");
+    }
     return {
       id: entry["id"],
       command: entry["command"],
@@ -111,10 +122,11 @@ export async function selectServer(file: string, cwd: string): Promise<SelectedS
   const servers = await loadServers();
   const config = servers.find((server) => extension in server.extensions);
   const languageId = config?.extensions[extension];
-  if (config === undefined || languageId === undefined)
+  if (config === undefined || languageId === undefined) {
     throw new Error(
       `No configured LSP server for ${extension || path}. Configure ~/.jazz/lsp.json.`,
     );
+  }
   let root = dirname(path);
   while (true) {
     if (
@@ -128,8 +140,9 @@ export async function selectServer(file: string, cwd: string): Promise<SelectedS
           ),
         )
       ).some(Boolean)
-    )
+    ) {
       break;
+    }
     const parent = dirname(root);
     if (parent === root) {
       root = cwd;
@@ -159,10 +172,13 @@ export async function workspaceServers(cwd: string): Promise<readonly WorkspaceS
                 ),
               )
             ).some(Boolean)
-          )
+          ) {
             return { config, root };
+          }
           const parent = dirname(root);
-          if (parent === root) return undefined;
+          if (parent === root) {
+            return undefined;
+          }
           root = parent;
         }
       }),

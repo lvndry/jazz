@@ -16,7 +16,7 @@ export type ToolCall = OneShotResult["toolCalls"][number];
 
 export function callArguments(call: ToolCall): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(call.arguments) as unknown;
+    const parsed: unknown = JSON.parse(call.arguments);
     return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
   } catch {
     return {};
@@ -90,7 +90,7 @@ export function storedReminders(jazzHome: string, agentId: string): StoredRemind
   if (!existsSync(path)) {
     return [];
   }
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
   const list = Array.isArray(parsed)
     ? parsed
     : ((parsed as { reminders?: unknown[] } | null)?.reminders ?? []);

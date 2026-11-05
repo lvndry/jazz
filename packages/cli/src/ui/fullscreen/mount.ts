@@ -100,7 +100,9 @@ export function installTerminalLifecycle(
   let released = false;
   const scope = new TerminalScope();
   scope.add(() => {
-    if (!renderer.isDestroyed) renderer.destroy();
+    if (!renderer.isDestroyed) {
+      renderer.destroy();
+    }
   });
 
   let suspending = false;
@@ -133,7 +135,9 @@ export function installTerminalLifecycle(
   };
 
   function release(): void {
-    if (released) return;
+    if (released) {
+      return;
+    }
     released = true;
     scope.release();
   }
@@ -174,7 +178,9 @@ export function transcriptTextForForeignWrite(chunk: string): string | null {
   for (const character of plain) {
     const code = character.codePointAt(0) ?? 0;
     // Space and below occupy no ink; DEL occupies no column.
-    if (code > 0x20 && code !== 0x7f) return plain.replace(/\r?\n+$/, "");
+    if (code > 0x20 && code !== 0x7f) {
+      return plain.replace(/\r?\n+$/, "");
+    }
   }
   return null;
 }
@@ -201,7 +207,9 @@ export function guardOutput(
     const writer: unknown = Reflect.get(stream, "write");
     const original = writer as GuardedStream["write"];
     const guarded = (chunk: unknown, encoding?: unknown, callback?: unknown): boolean => {
-      if (renderer.isDestroyed) return original.call(stream, chunk, encoding, callback);
+      if (renderer.isDestroyed) {
+        return original.call(stream, chunk, encoding, callback);
+      }
       const text =
         typeof chunk === "string"
           ? chunk
@@ -218,13 +226,17 @@ export function guardOutput(
         }
       }
       const done = typeof encoding === "function" ? encoding : callback;
-      if (typeof done === "function") process.nextTick(done);
+      if (typeof done === "function") {
+        process.nextTick(done);
+      }
       return true;
     };
     stream.write = guarded;
 
     return () => {
-      if (stream.write === guarded) stream.write = original;
+      if (stream.write === guarded) {
+        stream.write = original;
+      }
     };
   };
 
@@ -241,9 +253,13 @@ export function guardOutput(
   }
 
   return () => {
-    if (restored) return;
+    if (restored) {
+      return;
+    }
     restored = true;
-    for (let index = restore.length - 1; index >= 0; index--) restore[index]?.();
+    for (let index = restore.length - 1; index >= 0; index--) {
+      restore[index]?.();
+    }
   };
 }
 
@@ -314,7 +330,9 @@ export function syncTerminalGround(
   let terminalBackgroundSet = false;
   let stopped = false;
   const apply = (): void => {
-    if (stopped || renderer.isDestroyed) return;
+    if (stopped || renderer.isDestroyed) {
+      return;
+    }
     if (groundIsPainted()) {
       renderer.setBackgroundColor(THEME.background);
       write(setTerminalBackgroundSequence(THEME.background));
@@ -333,7 +351,9 @@ export function syncTerminalGround(
   const scope = new TerminalScope();
   scope.add(onExit);
   const stop = (): void => {
-    if (stopped) return;
+    if (stopped) {
+      return;
+    }
     stopped = true;
     scope.release();
   };
@@ -402,7 +422,9 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
 
   const scope = new TerminalScope();
   scope.add(() => {
-    if (!renderer.isDestroyed) renderer.destroy();
+    if (!renderer.isDestroyed) {
+      renderer.destroy();
+    }
   });
   scope.add(registerReleaseHook("terminal-restore", () => scope.release()));
   const release = (): void => {
@@ -411,7 +433,9 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
   try {
     scope.add(guardOutput(renderer));
     await detectTerminalColors(renderer);
-    if (renderer.isDestroyed) throw new Error("Terminal renderer stopped during startup");
+    if (renderer.isDestroyed) {
+      throw new Error("Terminal renderer stopped during startup");
+    }
     const ground = syncTerminalGround(renderer);
     scope.add(ground.stop);
     scope.add(installTerminalLifecycle(renderer, process, ground.apply));

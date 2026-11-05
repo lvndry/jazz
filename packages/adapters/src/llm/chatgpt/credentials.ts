@@ -121,7 +121,9 @@ const keyringStorage: CredentialStorage = {
   write: async (value) => {
     const backend = await Effect.runPromise(detectKeyringBackend());
     const written = await Effect.runPromise(keyringSet(backend, CREDENTIAL_ACCOUNT, value));
-    if (written) registerCredentialSecrets(parseCredential(value));
+    if (written) {
+      registerCredentialSecrets(parseCredential(value));
+    }
     return written;
   },
   remove: async () => {

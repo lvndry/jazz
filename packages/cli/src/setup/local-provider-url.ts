@@ -24,7 +24,9 @@ export type LocalProviderUrlPromptResult = "saved" | "already-set" | "cancelled"
 
 export function isValidServerAddress(input: string): boolean | string {
   const value = input.trim();
-  if (value.length === 0) return true;
+  if (value.length === 0) {
+    return true;
+  }
 
   try {
     const url = new URL(/:\/\//.test(value) ? value : `http://${value}`);

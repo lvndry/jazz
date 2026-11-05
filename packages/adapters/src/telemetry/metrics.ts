@@ -155,7 +155,9 @@ export class OtlpMetricsSink implements TelemetrySink {
   }
 
   recordDropped(count: number, reason: "capacity_or_age" | "permanent"): void {
-    if (count > 0) this.exportDropped.add(count, { signal: "all", reason });
+    if (count > 0) {
+      this.exportDropped.add(count, { signal: "all", reason });
+    }
   }
 
   /**
@@ -164,8 +166,9 @@ export class OtlpMetricsSink implements TelemetrySink {
    * leaving Prometheus without a before/after pair for a run rate.
    */
   primeRun(agentId: string): Promise<void> {
-    for (const status of ["ok", "error"] as const)
+    for (const status of ["ok", "error"] as const) {
       this.runs.add(0, { "jazz.agent.id": label(agentId), status });
+    }
     this.baselineFlush = this.baselineFlush
       .then(() => this.provider.forceFlush())
       .catch((error: unknown) => {
@@ -189,7 +192,9 @@ export class OtlpMetricsSink implements TelemetrySink {
           };
           this.runs.add(1, attributes);
           const duration = seconds(data["durationMs"]);
-          if (duration !== undefined) this.runDuration.record(duration, attributes);
+          if (duration !== undefined) {
+            this.runDuration.record(duration, attributes);
+          }
           break;
         }
         case "tool_invocation":
@@ -200,7 +205,9 @@ export class OtlpMetricsSink implements TelemetrySink {
           };
           this.toolCalls.add(1, attributes);
           const duration = seconds(data["durationMs"]);
-          if (duration !== undefined) this.toolDuration.record(duration, attributes);
+          if (duration !== undefined) {
+            this.toolDuration.record(duration, attributes);
+          }
           break;
         }
         case "llm_usage": {
@@ -211,16 +218,20 @@ export class OtlpMetricsSink implements TelemetrySink {
           };
           this.llmCalls.add(1, attributes);
           const duration = seconds(data["durationMs"]);
-          if (duration !== undefined) this.llmDuration.record(duration, attributes);
+          if (duration !== undefined) {
+            this.llmDuration.record(duration, attributes);
+          }
           const usage = data["usage"];
           if (usage && typeof usage === "object") {
             const tokens = usage as Record<string, unknown>;
             const input = tokens["promptTokens"];
             const output = tokens["completionTokens"];
-            if (typeof input === "number" && Number.isFinite(input) && input >= 0)
+            if (typeof input === "number" && Number.isFinite(input) && input >= 0) {
               this.llmTokens.add(input, { ...attributes, "gen_ai.token.type": "input" });
-            if (typeof output === "number" && Number.isFinite(output) && output >= 0)
+            }
+            if (typeof output === "number" && Number.isFinite(output) && output >= 0) {
               this.llmTokens.add(output, { ...attributes, "gen_ai.token.type": "output" });
+            }
           }
           break;
         }

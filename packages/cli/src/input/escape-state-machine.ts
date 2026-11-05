@@ -301,14 +301,26 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
     }
 
     // Application mode arrow keys
-    if (char === "D") return { _tag: "Complete", action: { type: "left" } };
-    if (char === "C") return { _tag: "Complete", action: { type: "right" } };
-    if (char === "A") return { _tag: "Complete", action: { type: "up" } };
-    if (char === "B") return { _tag: "Complete", action: { type: "down" } };
+    if (char === "D") {
+      return { _tag: "Complete", action: { type: "left" } };
+    }
+    if (char === "C") {
+      return { _tag: "Complete", action: { type: "right" } };
+    }
+    if (char === "A") {
+      return { _tag: "Complete", action: { type: "up" } };
+    }
+    if (char === "B") {
+      return { _tag: "Complete", action: { type: "down" } };
+    }
 
     // Application mode Home/End
-    if (char === "H") return { _tag: "Complete", action: { type: "line-start" } };
-    if (char === "F") return { _tag: "Complete", action: { type: "line-end" } };
+    if (char === "H") {
+      return { _tag: "Complete", action: { type: "line-start" } };
+    }
+    if (char === "F") {
+      return { _tag: "Complete", action: { type: "line-end" } };
+    }
 
     // Buffer too long or invalid
     if (newBuffer.length > 4) {
@@ -405,7 +417,9 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
    * Process Ctrl key combinations.
    */
   function handleCtrlKey(input: string, key: KeyInfo): ParsedInput | null {
-    if (!key.ctrl) return null;
+    if (!key.ctrl) {
+      return null;
+    }
 
     // Ctrl+A - line start
     if (input === "a" || input === "\x01") {
@@ -459,7 +473,9 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
    * Process Meta (Option/Alt) key combinations with Ink's meta flag.
    */
   function handleMetaKey(input: string, key: KeyInfo): ParsedInput | null {
-    if (!key.meta) return null;
+    if (!key.meta) {
+      return null;
+    }
 
     // Meta+Left - word left
     if (key.leftArrow) {
@@ -591,11 +607,13 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
           }
 
           // Parse character by character
-          for (let i = 0; i < input.length; i++) {
-            const char = input[i];
-            if (char === undefined) continue;
+          for (let index = 0; index < input.length; index++) {
+            const char = input[index];
+            if (char === undefined) {
+              continue;
+            }
 
-            if (i === 0 && char === ESC) {
+            if (index === 0 && char === ESC) {
               state = { _tag: "EscapeReceived", timestamp: now };
               continue;
             }

@@ -12,14 +12,20 @@ import {
 
 function withIsolationFlag<T>(value: string | undefined, body: () => T): T {
   const previous = process.env["JAZZ_BOT_CHAT_ISOLATION"];
-  if (value === undefined) delete process.env["JAZZ_BOT_CHAT_ISOLATION"];
-  else process.env["JAZZ_BOT_CHAT_ISOLATION"] = value;
+  if (value === undefined) {
+    delete process.env["JAZZ_BOT_CHAT_ISOLATION"];
+  } else {
+    process.env["JAZZ_BOT_CHAT_ISOLATION"] = value;
+  }
   resetChatIsolationDecision();
   try {
     return body();
   } finally {
-    if (previous === undefined) delete process.env["JAZZ_BOT_CHAT_ISOLATION"];
-    else process.env["JAZZ_BOT_CHAT_ISOLATION"] = previous;
+    if (previous === undefined) {
+      delete process.env["JAZZ_BOT_CHAT_ISOLATION"];
+    } else {
+      process.env["JAZZ_BOT_CHAT_ISOLATION"] = previous;
+    }
     resetChatIsolationDecision();
   }
 }
@@ -39,7 +45,9 @@ describe("isolation is opt-out and needs privilege", () => {
   });
 
   test("a non-root process cannot sandbox, whatever the flag says", () => {
-    if (process.getuid?.() === 0) return;
+    if (process.getuid?.() === 0) {
+      return;
+    }
     withIsolationFlag("1", () => {
       expect(chatIsolationEnabled()).toBe(false);
     });

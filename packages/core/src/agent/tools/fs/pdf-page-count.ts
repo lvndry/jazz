@@ -48,16 +48,22 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
     handler: (args, context) =>
       Effect.gen(function* () {
         const resolved = yield* resolveReadableFile(args.path, context);
-        if (resolved.kind === "failure") return resolved.result;
+        if (resolved.kind === "failure") {
+          return resolved.result;
+        }
         const filePathResult = resolved.path;
         const fs = yield* FileSystem.FileSystem;
 
         try {
           const pdfError = pdfExtensionError(filePathResult, "Use this tool for PDF files only.");
-          if (pdfError) return pdfError;
+          if (pdfError) {
+            return pdfError;
+          }
 
           const loaded = yield* loadPdfParser("Failed to load PDF parser");
-          if (loaded.kind === "failure") return loaded.result;
+          if (loaded.kind === "failure") {
+            return loaded.result;
+          }
           const PDFParse = loaded.PDFParse;
 
           const stat = yield* fs.stat(filePathResult);
@@ -124,7 +130,9 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
  * Format file size in human-readable format
  */
 function formatFileSize(bytes: number | string | null): string {
-  if (bytes === null || bytes === undefined) return "Unknown";
+  if (bytes === null || bytes === undefined) {
+    return "Unknown";
+  }
   const numBytes = typeof bytes === "string" ? parseInt(bytes, 10) : bytes;
   return formatByteSize(numBytes);
 }

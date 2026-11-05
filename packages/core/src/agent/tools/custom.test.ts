@@ -19,6 +19,7 @@ import type { TerminalService } from "@/core/interfaces/terminal";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
+import { invalidInput, partialFake } from "@/core/test-support/fakes";
 import type { Agent, CustomToolDefinition } from "@/core/types/agent";
 import { AgentConfigurationError } from "@/core/types/errors";
 import type { ToolExecutionResult } from "@/core/types/tools";
@@ -29,7 +30,7 @@ import { createToolRegistryLayer } from "./tool-registry";
 // Unit tests: registerCustomToolsForAgent against a lightweight mock registry
 // ---------------------------------------------------------------------------
 
-const mockLogger: LoggerService = {
+const mockLogger: LoggerService = partialFake<LoggerService>({
   debug: mock(() => Effect.void),
   info: mock(() => Effect.void),
   warn: mock(() => Effect.void),
@@ -40,7 +41,7 @@ const mockLogger: LoggerService = {
   popLogGroup: mock(() => Effect.void),
   writeToFile: mock(() => Effect.void),
   logToolCall: mock(() => Effect.void),
-} as unknown as LoggerService;
+});
 
 function makeAgent(
   customTools: readonly CustomToolDefinition[],
@@ -67,7 +68,7 @@ function makeMockRegistry(
   aliases: Record<string, string> = {},
 ) {
   const registered: Array<{ name: string }> = [];
-  const registry = {
+  const registry = partialFake<ToolRegistry>({
     registerTool: mock((tool: { name: string }) => {
       registered.push({ name: tool.name });
       return Effect.succeed(undefined);
@@ -90,7 +91,7 @@ function makeMockRegistry(
     getToolsInCategory: mock(() => Effect.succeed([])),
     listCategories: mock(() => Effect.succeed([])),
     executeTool: mock(() => Effect.succeed({ success: true, result: null })),
-  } as unknown as ToolRegistry;
+  });
   return { registry, registered };
 }
 
@@ -203,11 +204,11 @@ describe("registerCustomToolsForAgent", () => {
 
   it("fails CLOSED (does not silently register as a record handler) on an unrecognized handler.type", async () => {
     const { registry, registered } = makeMockRegistry([]);
-    const badHandlerDefinition = {
+    const badHandlerDefinition = invalidInput<CustomToolDefinition>({
       ...recordToolDefinition,
       name: "bad_handler_tool",
       handler: { type: "shell_exec" },
-    } as unknown as CustomToolDefinition;
+    });
     const agent = makeAgent([badHandlerDefinition], ["bad_handler_tool"]);
 
     const result = await Effect.runPromise(
@@ -235,10 +236,10 @@ describe("registerCustomToolsForAgent", () => {
 
   it("fails at registration on a bad tool name from a raw (unvalidated) config, without going through validateAgentConfig", async () => {
     const { registry, registered } = makeMockRegistry([]);
-    const rawUnvalidatedDefinition = {
+    const rawUnvalidatedDefinition = partialFake<CustomToolDefinition>({
       ...recordToolDefinition,
       name: "Not A Valid Name!",
-    } as unknown as CustomToolDefinition;
+    });
     // Constructed directly (not via AgentServiceImpl.createAgent/updateAgent),
     // simulating an agent config loaded from a file that never ran
     // `validateAgentConfig`.
@@ -270,9 +271,11 @@ describe("registerCustomToolsForAgent", () => {
   it("registers record-handler custom tools as read-only", async () => {
     const { registry } = makeMockRegistry([]);
     let capturedTool: any;
-    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: any) => {
-      capturedTool = tool;
-      return Effect.succeed(undefined);
+    Object.assign(registry, {
+      registerTool: mock((tool: any) => {
+        capturedTool = tool;
+        return Effect.succeed(undefined);
+      }),
     });
     const agent = makeAgent([recordToolDefinition], ["propose_action"]);
 
@@ -308,9 +311,11 @@ describe("registerCustomToolsForAgent", () => {
           ) => Effect.Effect<unknown, unknown, unknown>;
         }
       | undefined;
-    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: any) => {
-      capturedTool = tool;
-      return Effect.succeed(undefined);
+    Object.assign(registry, {
+      registerTool: mock((tool: any) => {
+        capturedTool = tool;
+        return Effect.succeed(undefined);
+      }),
     });
 
     await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
@@ -335,9 +340,11 @@ describe("registerCustomToolsForAgent", () => {
     const agent = makeAgent([definitionWithoutResponse], ["propose_action"]);
 
     let capturedTool: any;
-    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: any) => {
-      capturedTool = tool;
-      return Effect.succeed(undefined);
+    Object.assign(registry, {
+      registerTool: mock((tool: any) => {
+        capturedTool = tool;
+        return Effect.succeed(undefined);
+      }),
     });
 
     await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
@@ -353,9 +360,11 @@ describe("registerCustomToolsForAgent", () => {
     const agent = makeAgent([recordToolDefinition], ["propose_action"]);
 
     let capturedTool: any;
-    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: any) => {
-      capturedTool = tool;
-      return Effect.succeed(undefined);
+    Object.assign(registry, {
+      registerTool: mock((tool: any) => {
+        capturedTool = tool;
+        return Effect.succeed(undefined);
+      }),
     });
 
     await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
@@ -377,9 +386,8 @@ describe("registerCustomToolsForAgent", () => {
 // ---------------------------------------------------------------------------
 
 describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
-  const mockPresentationService: PresentationService = {
+  const mockPresentationService: PresentationService = partialFake<PresentationService>({
     presentThinking: mock(() => Effect.void),
-    presentThinkingEnd: mock(() => Effect.void),
     createStreamingRenderer: mock(() =>
       Effect.succeed({
         renderEvent: mock(() => Effect.void),
@@ -405,21 +413,21 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     formatToolsDetected: mock(() => Effect.succeed("Tools detected")),
     requestApproval: mock(() => Effect.succeed({ approved: true as const })),
     signalToolExecutionStarted: mock(() => Effect.void),
-  } as unknown as PresentationService;
+  });
 
-  const mockTerminalService = {} as unknown as TerminalService;
-  const mockFileSystem = {} as unknown as FileSystem.FileSystem;
-  const mockFileSystemContext = {
+  const mockTerminalService = partialFake<TerminalService>({});
+  const mockFileSystem = partialFake<FileSystem.FileSystem>({});
+  const mockFileSystemContext = partialFake<FileSystemContextService>({
     // AgentRunner reads the working directory to discover AGENTS.md files.
     // Point it at a directory with none so the host machine cannot influence
     // these assertions.
     getCwd: () => Effect.succeed(os.tmpdir()),
-  } as unknown as FileSystemContextService;
+  });
 
   // AgentRunner resolves the agent's persona through PersonaService; there is no
   // built-in fallback prompt, so a persona that can't be resolved is a hard
   // error. Provide a minimal stub that returns a valid "default" persona.
-  const mockPersonaService = {
+  const mockPersonaService = partialFake<PersonaService>({
     getPersonaByIdentifier: mock((identifier: string) =>
       Effect.succeed({
         id: `builtin-${identifier}`,
@@ -430,11 +438,11 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
         updatedAt: new Date(),
       }),
     ),
-  } as unknown as PersonaService;
+  });
 
-  const mockSkillService = {
+  const mockSkillService = partialFake<SkillService>({
     listSkills: mock(() => Effect.succeed([])),
-  } as unknown as SkillService;
+  });
 
   const mockAppConfig = {
     output: {
@@ -445,16 +453,16 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     llm: { openai: { api_key: "test-key" } },
   };
 
-  const mockAgentConfigService = {
+  const mockAgentConfigService = partialFake<AgentConfigService>({
     appConfig: Effect.succeed(mockAppConfig),
     get: mock(() => Effect.succeed(undefined)),
     getOrElse: mock((_key: string, fallback: unknown) => Effect.succeed(fallback)),
     getOrFail: mock(() => Effect.succeed(undefined)),
     has: mock(() => Effect.succeed(false)),
     set: mock(() => Effect.void),
-  } as unknown as AgentConfigService;
+  });
 
-  const mockMcpServerManager = {
+  const mockMcpServerManager = partialFake<MCPServerManager>({
     connectServer: mock(() => Effect.fail(new Error("Not implemented"))),
     disconnectServer: mock(() => Effect.void),
     getServerTools: mock(() => Effect.succeed([])),
@@ -462,11 +470,11 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     listServers: mock(() => Effect.succeed([])),
     isConnected: mock(() => Effect.succeed(false)),
     disconnectAllServers: mock(() => Effect.void),
-  } as unknown as MCPServerManager;
+  });
 
   it("propagates a custom-tool call into runResult.toolCalls with the canned response as the model-visible result", async () => {
     let callCount = 0;
-    const mockLlmService: LLMService = {
+    const mockLlmService: LLMService = partialFake<LLMService>({
       getProvider: mock(() =>
         Effect.succeed({
           name: "openai",
@@ -510,7 +518,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       ),
       supportsNativeWebSearch: mock(() => Effect.succeed(false)),
       resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
-    } as unknown as LLMService;
+    });
 
     const agent: Agent = {
       id: "agent-with-custom-tool",
@@ -576,7 +584,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     };
 
     let callCount = 0;
-    const mockLlmService: LLMService = {
+    const mockLlmService: LLMService = partialFake<LLMService>({
       getProvider: mock(() =>
         Effect.succeed({
           name: "openai",
@@ -637,7 +645,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       ),
       supportsNativeWebSearch: mock(() => Effect.succeed(false)),
       resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
-    } as unknown as LLMService;
+    });
 
     const agent: Agent = {
       id: "agent-with-two-tool-iterations",
@@ -701,7 +709,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
 
   it("re-registers the same custom tool across two AgentRunner.run calls sharing one registry", async () => {
     let callCount = 0;
-    const mockLlmService: LLMService = {
+    const mockLlmService: LLMService = partialFake<LLMService>({
       getProvider: mock(() =>
         Effect.succeed({
           name: "openai",
@@ -746,7 +754,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       ),
       supportsNativeWebSearch: mock(() => Effect.succeed(false)),
       resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
-    } as unknown as LLMService;
+    });
 
     const agent: Agent = {
       id: "agent-with-custom-tool-two-turns",
@@ -812,7 +820,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
   });
 
   it("fails with AgentConfigurationError when a second run declares a CHANGED definition for the same name", async () => {
-    const mockLlmService: LLMService = {
+    const mockLlmService: LLMService = partialFake<LLMService>({
       getProvider: mock(() =>
         Effect.succeed({
           name: "openai",
@@ -848,7 +856,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       ),
       supportsNativeWebSearch: mock(() => Effect.succeed(false)),
       resolveReasoningControl: mock(() => Effect.succeed({ kind: "unknown" as const })),
-    } as unknown as LLMService;
+    });
 
     const testLayer = Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, mockLogger),
@@ -941,20 +949,22 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
 
 describe("registerCustomToolsForAgent: command-handler execution", () => {
   function makeFsContext(cwd: string): FileSystemContextService {
-    return {
+    return partialFake<FileSystemContextService>({
       getCwd: () => Effect.succeed(cwd),
       setCwd: () => Effect.void,
       resolvePath: (_key: unknown, path: string) => Effect.succeed(path),
       findDirectory: () => Effect.succeed({ results: [] as readonly string[] }),
       resolvePathForMkdir: (_key: unknown, path: string) => Effect.succeed(path),
       escapePath: (path: string) => path,
-    } as unknown as FileSystemContextService;
+    });
   }
 
   async function registerAndCapture(
     definition: CustomToolDefinition,
     declaringAgentEnvAllowlist?: readonly string[],
   ): Promise<{
+    timeoutMs?: number;
+    riskLevel?: string;
     execute: (
       args: Record<string, unknown>,
       context: Record<string, unknown>,
@@ -962,9 +972,11 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
   }> {
     const { registry } = makeMockRegistry([]);
     let capturedTool: unknown;
-    (registry.registerTool as unknown as ReturnType<typeof mock>) = mock((tool: unknown) => {
-      capturedTool = tool;
-      return Effect.succeed(undefined);
+    Object.assign(registry, {
+      registerTool: mock((tool: unknown) => {
+        capturedTool = tool;
+        return Effect.succeed(undefined);
+      }),
     });
     const agent = makeAgent([definition], [definition.name], declaringAgentEnvAllowlist);
 
@@ -1179,7 +1191,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
       },
     };
 
-    const tool = (await registerAndCapture(definition)) as unknown as { timeoutMs?: number };
+    const tool = await registerAndCapture(definition);
     expect(tool.timeoutMs).toBe(245_000);
   });
 
@@ -1191,7 +1203,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
       handler: { type: "command", command: ["node", "-e", "process.exit(0);"] },
     };
 
-    const tool = (await registerAndCapture(definition)) as unknown as { riskLevel?: string };
+    const tool = await registerAndCapture(definition);
     expect(tool.riskLevel).toBe("high-risk");
   });
 

@@ -36,14 +36,17 @@ function convertBasicType(type: string | undefined): z.ZodTypeAny {
  */
 function convertEnumSchema(enumValues: readonly unknown[]): z.ZodTypeAny {
   // Zod enum requires all values to be strings
-  if (enumValues.every((v) => typeof v === "string")) {
+  if (enumValues.every((value) => typeof value === "string")) {
     return z.enum(enumValues as [string, ...string[]]);
   }
 
   // For mixed types or non-string enums, use z.union with z.literal
   const validValues = enumValues.filter(
-    (v): v is string | number | boolean | null =>
-      v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean",
+    (value): value is string | number | boolean | null =>
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean",
   );
 
   if (validValues.length === 0) {
@@ -55,7 +58,7 @@ function convertEnumSchema(enumValues: readonly unknown[]): z.ZodTypeAny {
   }
 
   // Create union of literals
-  const unionParts = validValues.map((v) => z.literal(v));
+  const unionParts = validValues.map((value) => z.literal(value));
   return z.union([unionParts[0], unionParts[1], ...unionParts.slice(2)] as [
     z.ZodLiteral<string | number | boolean | null>,
     z.ZodLiteral<string | number | boolean | null>,
@@ -153,7 +156,7 @@ function convertAllOfSchema(
   convertSchema: (schema: unknown) => z.ZodTypeAny,
 ): z.ZodTypeAny {
   const zodSchemas = schemas.map(convertSchema);
-  return zodSchemas.reduce((acc, s) => acc.and(s), z.object({}));
+  return zodSchemas.reduce((acc, zodSchema) => acc.and(zodSchema), z.object({}));
 }
 
 /**
@@ -198,6 +201,15 @@ function branchRequired(branch: Record<string, unknown>): Set<string> {
   );
 }
 
+function readEnumOrConstValues(schema: Record<string, unknown>): unknown[] | undefined {
+  const enumValues = schema["enum"];
+  if (Array.isArray(enumValues)) {
+    const values: unknown[] = enumValues;
+    return values;
+  }
+  return "const" in schema ? [schema["const"]] : undefined;
+}
+
 /**
  * Merge two branches' schema for the same property key.
  *
@@ -219,16 +231,8 @@ function mergeBranchProperty(existing: unknown, incoming: unknown): unknown {
   const existingObj = existing as Record<string, unknown>;
   const incomingObj = incoming as Record<string, unknown>;
 
-  const existingValues: unknown[] | undefined = Array.isArray(existingObj["enum"])
-    ? (existingObj["enum"] as unknown[])
-    : "const" in existingObj
-      ? [existingObj["const"]]
-      : undefined;
-  const incomingValues: unknown[] | undefined = Array.isArray(incomingObj["enum"])
-    ? (incomingObj["enum"] as unknown[])
-    : "const" in incomingObj
-      ? [incomingObj["const"]]
-      : undefined;
+  const existingValues = readEnumOrConstValues(existingObj);
+  const incomingValues = readEnumOrConstValues(incomingObj);
   if (existingValues === undefined || incomingValues === undefined) {
     return existing;
   }
@@ -261,7 +265,9 @@ export function ensureObjectSchemaType(schema: Record<string, unknown>): Record<
   const properties: Record<string, unknown> = {};
   let requiredEverywhere: Set<string> | undefined;
   for (const branch of branches) {
-    if (typeof branch !== "object" || branch === null) continue;
+    if (typeof branch !== "object" || branch === null) {
+      continue;
+    }
     const branchObj = branch as Record<string, unknown>;
     for (const [key, value] of Object.entries(branchProperties(branchObj))) {
       properties[key] = key in properties ? mergeBranchProperty(properties[key], value) : value;
@@ -371,12 +377,16 @@ export function convertMCPSchemaToZod(mcpSchema: unknown, toolName?: string): z.
   // `{ properties: { … } }` would fall through to the unknown-type default and
   // advertise itself to the model as taking no arguments.
   if (isObjectType(schema.type) || (schema.type === undefined && schema.properties !== undefined)) {
-    return convertObjectSchema(schema, (s) => convertMCPSchemaToZod(s, toolName));
+    return convertObjectSchema(schema, (nestedSchema) =>
+      convertMCPSchemaToZod(nestedSchema, toolName),
+    );
   }
 
   // Handle array type
   if (isArrayType(schema.type)) {
-    return convertArraySchema(schema, (s) => convertMCPSchemaToZod(s, toolName));
+    return convertArraySchema(schema, (nestedSchema) =>
+      convertMCPSchemaToZod(nestedSchema, toolName),
+    );
   }
 
   // Handle enum
@@ -386,17 +396,23 @@ export function convertMCPSchemaToZod(mcpSchema: unknown, toolName?: string): z.
 
   // Handle oneOf
   if (schema.oneOf && Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
-    return convertUnionSchema(schema.oneOf, (s) => convertMCPSchemaToZod(s, toolName));
+    return convertUnionSchema(schema.oneOf, (nestedSchema) =>
+      convertMCPSchemaToZod(nestedSchema, toolName),
+    );
   }
 
   // Handle anyOf
   if (schema.anyOf && Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
-    return convertUnionSchema(schema.anyOf, (s) => convertMCPSchemaToZod(s, toolName));
+    return convertUnionSchema(schema.anyOf, (nestedSchema) =>
+      convertMCPSchemaToZod(nestedSchema, toolName),
+    );
   }
 
   // Handle allOf
   if (schema.allOf && Array.isArray(schema.allOf) && schema.allOf.length > 0) {
-    return convertAllOfSchema(schema.allOf, (s) => convertMCPSchemaToZod(s, toolName));
+    return convertAllOfSchema(schema.allOf, (nestedSchema) =>
+      convertMCPSchemaToZod(nestedSchema, toolName),
+    );
   }
 
   // Determine the type

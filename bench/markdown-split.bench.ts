@@ -57,7 +57,9 @@ function streamWithRebase(full: string, useScanner: boolean): void {
     const split = useScanner ? scanner.evaluate(pending) : findLastSafeSplitPoint(pending);
     if (split > 0) {
       pending = pending.slice(split);
-      if (useScanner) scanner.reset();
+      if (useScanner) {
+        scanner.reset();
+      }
     }
   }
 }
