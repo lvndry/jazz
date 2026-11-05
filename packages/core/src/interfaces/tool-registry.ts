@@ -7,7 +7,7 @@ import type z from "zod";
 import type { GoalStoreTag } from "@/core/interfaces/goal-store";
 import type { WorkspaceService } from "@/core/interfaces/workspace-service";
 import type { SkillService } from "@/core/skills/skill-service";
-import type { CustomToolDefinition } from "@/core/types/agent";
+import type { Agent, CustomToolDefinition } from "@/core/types/agent";
 import type { ToolNotFoundError } from "@/core/types/errors";
 import type {
   ToolCategory,
@@ -107,6 +107,26 @@ export interface ToolSummary {
   /** The full description, which `search_tools` also matches but the list never shows. */
   readonly description: string;
 }
+
+/** Why a tool cannot run right now. Logged and shown to the user, never sent to the model. */
+export type ToolUnreadyReason =
+  "missing_credential" | "not_configured" | "not_connected" | "unsupported_platform";
+
+export type ToolReadiness =
+  | { readonly ready: true }
+  | {
+      readonly ready: false;
+      readonly reason: ToolUnreadyReason;
+      /** One line telling the user how to make the tool usable. Never contains a secret. */
+      readonly remedy: string;
+    };
+
+export interface ToolReadinessContext {
+  readonly agent: Agent;
+}
+
+/** Services a `ready()` check may read: configuration and the LLM provider's declared capabilities. */
+export type ToolReadinessRequirements = AgentConfigService | LLMService;
 
 export interface Tool<R = never> {
   /** Function name the model calls (`read_file`, `execute_command`). Must be unique in the registry. */
@@ -224,6 +244,17 @@ export interface Tool<R = never> {
    * Overrides the default TOOL_TIMEOUT_MS (3 minutes).
    */
   readonly timeoutMs?: number;
+  /**
+   * Whether this tool can run right now, judged from configuration and stored credentials only:
+   * no network call, no spawned process, no side effect.
+   *
+   * The run evaluates it once when it assembles its tool set. A tool that is not ready is left
+   * out of the declared tools for that run, and a credential added mid-conversation takes effect
+   * at the next run. Tools without a `ready` check are always offered.
+   */
+  readonly ready?: (
+    context: ToolReadinessContext,
+  ) => Effect.Effect<ToolReadiness, never, ToolReadinessRequirements>;
   /**
    * Present only on tools built from an agent's declared `customTools` config
    * (see `CustomToolDefinition` in `@/core/types/agent`). The `ToolRegistry` is

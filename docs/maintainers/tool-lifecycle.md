@@ -102,6 +102,25 @@ is then expanded with the names its tools also answer to: advertised aliases (`g
 denials are re-applied over what expansion added, so a deny entry cannot be undone by an
 alias one step below it. The result is the run's **effective tool set**.
 
+A tool can also declare a `ready()` check: a cheap judgment from configuration and stored
+credentials only, with no network call, no spawned process and no side effect. The run asks
+once, after the filters above and before expansion and tiering, and leaves a tool that is not
+ready out of the set, with a debug log naming the tool and the reason class
+(`missing_credential`, `not_configured`, `not_connected`, `unsupported_platform`; never a
+secret). Because the withheld tool never reaches the set, the deferred index, `search_tools`
+and the executor's refusal all treat it as absent. `web_search` is ready when the configured
+provider has a key (the same lookup the tool uses when called), or when no global provider is
+set and the model's own provider hosts search. The computer tools are ready only on macOS with
+Apple Silicon. `/info` lists every tool the next run will withhold, with how to fix it.
+
+The check is evaluated per run, never per step, so the tools block stays identical within a
+run. For prompt caching: a key added mid-conversation takes effect at the next run, and a
+change in readiness changes the tools block once, which costs one cache miss on that turn.
+
+MCP tools are not covered by `ready()`: a server that is not connected or not authenticated
+registers no tools at all. Browser tools are not covered either: finding Chrome can fall back
+to a probe launch, which is not a cheap check.
+
 That one set does three jobs:
 
 - **Advertisement.** `eager`-tier members are sent as schemas with every request;
