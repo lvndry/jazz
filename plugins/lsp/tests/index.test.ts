@@ -37,21 +37,38 @@ await writeFile(
   }),
 );
 
-/** Poll the fake server's watch-event log until it has flushed. */
-async function readWatchEvents(watchLog: string): Promise<Array<[string, number]>> {
-  let raw = "";
-  for (let attempt = 0; attempt < 40; attempt++) {
+/** Time the fake server gets to receive and record a watch notification. */
+const WATCH_EVENT_DEADLINE_MS = 15_000;
+
+/**
+ * Wait until the fake server's watch log contains the expected event. The
+ * server writes the log atomically, so a readable file is always complete.
+ */
+async function waitForWatchEvent(
+  watchLog: string,
+  expected: [string, number],
+): Promise<Array<[string, number]>> {
+  const deadline = performance.now() + WATCH_EVENT_DEADLINE_MS;
+  let observed: string;
+  for (;;) {
     try {
-      raw = await readFile(watchLog, "utf8");
-      break;
+      const parsed = JSON.parse(await readFile(watchLog, "utf8")) as {
+        events: Array<[string, number]>;
+      };
+      if (parsed.events.some(([uri, type]) => uri === expected[0] && type === expected[1])) {
+        return parsed.events;
+      }
+      observed = JSON.stringify(parsed.events);
     } catch {
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      observed = "no watch log written";
     }
+    if (performance.now() > deadline) {
+      throw new Error(
+        `fake server never recorded watch event ${JSON.stringify(expected)} within ${WATCH_EVENT_DEADLINE_MS}ms; last observed: ${observed}`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  if (raw === "") {
-    throw new Error("fake server never recorded a watch event");
-  }
-  return JSON.parse(raw).events as Array<[string, number]>;
 }
 process.env["JAZZ_LSP_CONFIG"] = config;
 
@@ -232,7 +249,7 @@ describe("LSP plugin", () => {
         .get("diagnostics")!
         .handler({ file: source }, { ...context, cwd: root });
       expect(diagnostics.isError).toBeUndefined();
-      expect(await readWatchEvents(watchLog)).toContainEqual([`file://${canonical}`, 3]);
+      await waitForWatchEvent(watchLog, [`file://${canonical}`, 3]);
     } finally {
       process.env["JAZZ_LSP_CONFIG"] = config;
     }
@@ -277,12 +294,11 @@ describe("LSP plugin", () => {
       });
       expect(applied.isError).toBeUndefined();
       expect(await readFile(source, "utf8")).toBe("bar = 1;\n");
-      const events = await readWatchEvents(watchLog);
       // A Changed watch event (type 1) for the file the edit touched, so the
       // server rereads the new text instead of diagnosing the old one. The
       // server sees the realpathed URI (/var -> /private/var on macOS).
       const canonical = await realpath(source);
-      expect(events).toContainEqual([`file://${canonical}`, 1]);
+      await waitForWatchEvent(watchLog, [`file://${canonical}`, 1]);
     } finally {
       process.env["JAZZ_LSP_CONFIG"] = config;
     }
