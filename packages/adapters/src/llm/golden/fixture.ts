@@ -83,7 +83,7 @@ function toJsonValue(value: unknown): unknown {
       }
       return typeof child === "bigint" ? child.toString() : child;
     }),
-  ) as unknown;
+  );
 }
 
 export function createGoldenRecorder(options: GoldenRecorderOptions): GoldenRecorder {

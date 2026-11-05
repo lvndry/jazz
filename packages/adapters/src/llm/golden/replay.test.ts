@@ -1,7 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import type { GoldenFixture } from "./fixture";
-import { createGoldenReplay, describeRequestDrift, GoldenReplayDivergence } from "./replay";
+import {
+  createGoldenReplay,
+  describeRequestDrift,
+  GoldenReplayDivergence,
+} from "../../test-support/golden/replay";
 
 const FIXTURE: GoldenFixture = {
   version: 1,

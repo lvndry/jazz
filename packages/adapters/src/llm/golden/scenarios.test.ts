@@ -24,7 +24,7 @@ import {
   type GoldenRunExit,
   type GoldenSession,
   type ScenarioTool,
-} from "./harness";
+} from "../../test-support/golden/harness";
 import {
   eventTypesOf,
   finalAssistantText,
@@ -33,7 +33,7 @@ import {
   toolCallsOf,
   toolResultsOf,
   unansweredToolCallIds,
-} from "./transcript";
+} from "../../test-support/golden/transcript";
 
 const lookupNote: ScenarioTool = {
   name: "lookup_note",

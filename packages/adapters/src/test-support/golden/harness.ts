@@ -50,9 +50,8 @@ import { SkillServiceTag } from "@jazz/core/skills/skill-service";
 import type { StreamEvent } from "@jazz/core/types";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { Effect, FileSystem, Layer } from "effect";
+import { Cause, Effect, FileSystem, Layer } from "effect";
 import type { z } from "zod";
-import type { GoldenFixture } from "./fixture";
 import { createGoldenReplay, type GoldenReplay } from "./replay";
 import {
   EMPTY_CONVERSATION_REVISION,
@@ -60,7 +59,9 @@ import {
   saveConversation,
   type ConversationRevision,
 } from "../../history/conversation-history-service";
+import type { GoldenFixture } from "../../llm/golden/fixture";
 import { InMemoryRunStore } from "../../storage/run-store";
+import { partialFake } from "../fakes";
 
 export const GOLDEN_PROVIDER = "openai";
 export const GOLDEN_MODEL = "gpt-4";
@@ -130,7 +131,7 @@ export type GoldenRunExit =
 const STARTED_AT = "2026-01-01T00:00:00.000Z";
 
 function silentLogger(): LoggerService {
-  return new Proxy({}, { get: () => () => Effect.void }) as unknown as LoggerService;
+  return partialFake<LoggerService>(new Proxy({}, { get: () => () => Effect.void }));
 }
 
 export function createGoldenSession(sessionOptions: GoldenSessionOptions): GoldenSession {
@@ -184,7 +185,7 @@ export function createGoldenSession(sessionOptions: GoldenSessionOptions): Golde
   };
 
   const quiet = () => Effect.void;
-  const presentation = {
+  const presentation = partialFake<PresentationService>({
     createStreamingRenderer: () => Effect.succeed(renderer),
     presentThinking: quiet,
     presentThinkingEnd: quiet,
@@ -204,47 +205,60 @@ export function createGoldenSession(sessionOptions: GoldenSessionOptions): Golde
     signalToolExecutionStarted: quiet,
     canPromptForApproval: () => false,
     requestApproval: () => Effect.succeed({ approved: false as const }),
-  } as unknown as PresentationService;
+  });
 
   const layers = Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, silentLogger()),
     Layer.succeed(PresentationServiceTag, presentation),
     Layer.succeed(ToolRegistryTag, registry),
     replay.layer,
-    Layer.succeed(AgentServiceTag, {
-      getAgent: () => Effect.succeed(agent),
-      listAgents: () => Effect.succeed([agent]),
-    } as unknown as AgentService),
-    Layer.succeed(RunStoreTag, runStore),
-    Layer.succeed(SkillServiceTag, {
-      listSkills: () => Effect.succeed([]),
-    } as unknown as SkillService),
-    Layer.succeed(AgentConfigServiceTag, {
-      appConfig: Effect.succeed({
-        output: { showMetrics: false, streaming: { enabled: true }, mode: "text" as const },
-        llm: { openai: { api_key: "golden-replay-key" } },
+    Layer.succeed(
+      AgentServiceTag,
+      partialFake<AgentService>({
+        getAgent: () => Effect.succeed(agent),
+        listAgents: () => Effect.succeed([agent]),
       }),
-      get: () => Effect.succeed(undefined),
-      getOrElse: (_key: string, fallback: unknown) => Effect.succeed(fallback),
-      getOrFail: () => Effect.succeed(undefined),
-      has: () => Effect.succeed(false),
-      set: () => Effect.void,
-    } as unknown as AgentConfigService),
-    Layer.succeed(PersonaServiceTag, {
-      getPersonaByIdentifier: () =>
-        Effect.succeed({
-          name: "default",
-          description: "golden replay persona",
-          systemPrompt: "You are a replayed test agent.",
+    ),
+    Layer.succeed(RunStoreTag, runStore),
+    Layer.succeed(
+      SkillServiceTag,
+      partialFake<SkillService>({ listSkills: () => Effect.succeed([]) }),
+    ),
+    Layer.succeed(
+      AgentConfigServiceTag,
+      partialFake<AgentConfigService>({
+        appConfig: Effect.succeed({
+          output: { showMetrics: false, streaming: { enabled: true }, mode: "text" as const },
+          llm: { openai: { api_key: "golden-replay-key" } },
         }),
-    } as unknown as PersonaService),
-    Layer.succeed(MCPServerManagerTag, {} as unknown as MCPServerManager),
-    Layer.succeed(TerminalServiceTag, {} as unknown as TerminalService),
-    Layer.succeed(FileSystem.FileSystem, {} as unknown as FileSystem.FileSystem),
-    Layer.succeed(FileSystemContextServiceTag, {
-      getCwd: () => Effect.succeed(jazzHome),
-      setCwd: () => Effect.void,
-    } as unknown as FileSystemContextService),
+        get: () => Effect.succeed(undefined),
+        getOrElse: (_key: string, fallback: unknown) => Effect.succeed(fallback),
+        getOrFail: () => Effect.succeed(undefined),
+        has: () => Effect.succeed(false),
+        set: () => Effect.void,
+      }),
+    ),
+    Layer.succeed(
+      PersonaServiceTag,
+      partialFake<PersonaService>({
+        getPersonaByIdentifier: () =>
+          Effect.succeed({
+            name: "default",
+            description: "golden replay persona",
+            systemPrompt: "You are a replayed test agent.",
+          }),
+      }),
+    ),
+    Layer.succeed(MCPServerManagerTag, partialFake<MCPServerManager>({})),
+    Layer.succeed(TerminalServiceTag, partialFake<TerminalService>({})),
+    Layer.succeed(FileSystem.FileSystem, partialFake<FileSystem.FileSystem>({})),
+    Layer.succeed(
+      FileSystemContextServiceTag,
+      partialFake<FileSystemContextService>({
+        getCwd: () => Effect.succeed(jazzHome),
+        setCwd: () => Effect.void,
+      }),
+    ),
   );
 
   const saveCheckpoint = (messages: readonly ChatMessage[]): Effect.Effect<void, Error> =>
@@ -303,15 +317,10 @@ export function createGoldenSession(sessionOptions: GoldenSessionOptions): Golde
         iterationLimited: response.iterationLimited === true,
       };
     }
-    const failure = exit.cause as unknown;
-    const reasons =
-      (failure as { reasons?: readonly { _tag: string; error?: unknown }[] }).reasons ?? [];
-    if (reasons.some((reason) => reason._tag === "Interrupt")) {
+    if (Cause.hasInterrupts(exit.cause)) {
       return { kind: "interrupted" };
     }
-    const error = reasons.find((reason) => reason._tag === "Fail" || reason._tag === "Die");
-    const thrown = error as { error?: unknown; defect?: unknown } | undefined;
-    const value = thrown?.error ?? thrown?.defect ?? failure;
+    const value = Cause.squash(exit.cause);
     return isRunParkRequested(value) ? { kind: "parked" } : { kind: "failed", error: value };
   };
 

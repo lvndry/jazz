@@ -8,7 +8,7 @@ A golden session replays a recorded model conversation through the real agent ru
 registry, approval gate, checkpointing and conversation persistence. Only the model is faked.
 It exists because a green unit suite has missed bugs that a run through the loop found.
 
-Source: [`packages/adapters/src/llm/golden/`](../../packages/adapters/src/llm/golden/). Run with
+Source: [`packages/adapters/src/llm/golden/`](../../packages/adapters/src/llm/golden/) (fixtures, recorder, scrubber, scenario tests) and [`packages/adapters/src/test-support/golden/`](../../packages/adapters/src/test-support/golden/) (replay, harness, transcript helpers). Run with
 `bun test packages/adapters/src/llm/golden`. No keys, network or daemon are involved.
 
 ## How it works

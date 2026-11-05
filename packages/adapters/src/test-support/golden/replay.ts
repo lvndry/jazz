@@ -18,12 +18,14 @@
 
 import type { LLMService } from "@jazz/core/interfaces/llm";
 import { LLMServiceTag } from "@jazz/core/interfaces/llm";
+import type { LoggerService } from "@jazz/core/interfaces/logger";
 import type { ChatCompletionOptions, ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
 import { LLMRequestError, type LLMError } from "@jazz/core/types/errors";
 import { Chunk, Effect, Layer, Stream } from "effect";
-import type { GoldenCall, GoldenFixture, GoldenRequestSummary } from "./fixture";
-import { summarizeRequest } from "./record-env";
-import { StreamProcessor, type StreamTextResult } from "../stream-processor";
+import type { GoldenCall, GoldenFixture, GoldenRequestSummary } from "../../llm/golden/fixture";
+import { summarizeRequest } from "../../llm/golden/record-env";
+import { StreamProcessor, type StreamTextResult } from "../../llm/stream-processor";
+import { partialFake } from "../fakes";
 
 export class GoldenReplayDivergence extends Error {
   constructor(message: string) {
@@ -96,13 +98,13 @@ function replayStream(
         },
         silentLogger,
       );
-      const result = {
+      const result = partialFake<StreamTextResult>({
         fullStream: Stream.toAsyncIterable(Stream.fromIterable(call.parts)),
         usage: Promise.resolve(undefined),
         providerMetadata: Promise.resolve(undefined),
         response: Promise.resolve({ messages: [] }),
         files: Promise.resolve([]),
-      } as unknown as StreamTextResult;
+      });
       const response = await processor.process(result);
       return { events, response };
     })();
@@ -125,10 +127,7 @@ function replayStream(
   };
 }
 
-const silentLogger = new Proxy(
-  {},
-  { get: () => () => Effect.void },
-) as unknown as ConstructorParameters<typeof StreamProcessor>[2];
+const silentLogger = partialFake<LoggerService>(new Proxy({}, { get: () => () => Effect.void }));
 
 export function createGoldenReplay(fixture: GoldenFixture): GoldenReplay {
   const requests: GoldenRequestSummary[] = [];
@@ -140,7 +139,7 @@ export function createGoldenReplay(fixture: GoldenFixture): GoldenReplay {
     return Effect.die(new GoldenReplayDivergence(message));
   };
 
-  const service = {
+  const service = partialFake<LLMService>({
     getProvider: () =>
       Effect.succeed({
         name: fixture.provider,
@@ -174,7 +173,7 @@ export function createGoldenReplay(fixture: GoldenFixture): GoldenReplay {
         const replayed = replayStream(call, fixture.provider, fixture.model);
         return Effect.succeed({ ...replayed, cancel: Effect.void });
       }),
-  } as unknown as LLMService;
+  });
 
   return {
     layer: Layer.succeed(LLMServiceTag, service),
