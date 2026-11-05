@@ -13,7 +13,6 @@ import {
 } from "@/core/agent/detach/auto-detach";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { resolveCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
-import { TIMEOUT_EXIT_CODE } from "@/core/agent/tools/shell";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -487,6 +486,8 @@ export class ToolExecutor {
     ledger?: ToolBatchLedger,
     /** Called each time the call's own work starts, after any approval it waited for. */
     onExecutionStart?: () => void,
+    /** A detached call already released its approval slot at ownership transfer. */
+    isDetached?: () => boolean,
   ): Effect.Effect<
     ToolCallOutcome,
     Error,
@@ -1062,7 +1063,9 @@ export class ToolExecutor {
         // release the next queued approval prompt — so approvals and results
         // never interleave (approve → run → result → approve). No-op unless an
         // approval is waiting.
-        yield* presentationService.signalToolExecutionStarted();
+        if (isDetached?.() !== true) {
+          yield* presentationService.signalToolExecutionStarted();
+        }
 
         yield* emitToolInvocation(runMetrics, {
           toolCallId: toolCall.id,
@@ -1134,7 +1137,9 @@ export class ToolExecutor {
 
         // Release the next queued approval after this failure too, so a failed
         // tool doesn't stall the approval queue.
-        yield* presentationService.signalToolExecutionStarted();
+        if (isDetached?.() !== true) {
+          yield* presentationService.signalToolExecutionStarted();
+        }
 
         return {
           toolCallId: toolCall.id,
@@ -1442,6 +1447,7 @@ export class ToolExecutor {
       );
       /** Calls already moved to the background at the threshold, by index in this batch. */
       const autoDetachedOutcomes = new Map<number, ToolCallOutcome>();
+      const detachedCallIds = new Set<string>();
       /** Calls that crossed the threshold with the concurrency limit reached, by index. */
       const keptInForeground = new Map<number, number>();
 
@@ -1472,11 +1478,22 @@ export class ToolExecutor {
                   : withBackgroundLimitNote(outcome, runningDetached, autoDetach);
               }),
             );
-            const movedToBackground = Effect.gen(function* () {
-              yield* Deferred.await(started);
-              yield* Effect.sleep(autoDetach.thresholdMs);
-              const runningDetached = autoDetach.tracker.countAuto();
-              if (runningDetached >= autoDetach.maxConcurrent) {
+            return Effect.gen(function* () {
+              const first = yield* Effect.raceFirst(
+                finishedInForeground.pipe(
+                  Effect.map((outcome) => ({ kind: "finished", outcome }) as const),
+                ),
+                Deferred.await(started).pipe(
+                  Effect.andThen(Effect.sleep(autoDetach.thresholdMs)),
+                  Effect.as({ kind: "threshold" } as const),
+                ),
+              );
+              if (first.kind === "finished") {
+                return first.outcome;
+              }
+              const releaseReservation = autoDetach.tracker.reserveAuto(autoDetach.maxConcurrent);
+              if (releaseReservation === undefined) {
+                const runningDetached = autoDetach.tracker.countAuto();
                 keptInForeground.set(index, runningDetached);
                 yield* logger.info("Slow command stays in the foreground: detach limit reached", {
                   agentId,
@@ -1486,15 +1503,9 @@ export class ToolExecutor {
                   runningDetached,
                   maxConcurrent: autoDetach.maxConcurrent,
                 });
-                return yield* Effect.never;
+                return yield* finishedInForeground;
               }
-              yield* logger.info("Slow command crossed the detach threshold", {
-                agentId,
-                conversationId,
-                toolCallId: toolCall.id,
-                thresholdMs: autoDetach.thresholdMs,
-              });
-              const outcome = yield* detachToolCall({
+              return yield* detachToolCall({
                 fiber,
                 toolCall,
                 renderer,
@@ -1507,11 +1518,13 @@ export class ToolExecutor {
                 presentationService,
                 agentId,
                 conversationId,
-              });
-              autoDetachedOutcomes.set(index, outcome);
-              return outcome;
+                onOwned: (outcome) => {
+                  releaseReservation();
+                  detachedCallIds.add(toolCall.id);
+                  autoDetachedOutcomes.set(index, outcome);
+                },
+              }).pipe(Effect.ensuring(Effect.sync(releaseReservation)));
             });
-            return Effect.raceFirst(finishedInForeground, movedToBackground);
           };
           const awaitResults = Effect.all(
             toolFibers.map((fiber, index) => settleCall(fiber, index)),
@@ -1593,6 +1606,7 @@ export class ToolExecutor {
               displayConfig,
               onDetachedToolComplete,
               autoDetachedOutcomes,
+              detachedCallIds,
               context.autoDetach?.tracker ?? processDetachedCalls,
               logger,
               presentationService,
@@ -1695,6 +1709,7 @@ export class ToolExecutor {
                               Effect.runSync(Deferred.succeed(started, undefined));
                             }
                           },
+                      () => detachedCallIds.has(toolCall.id),
                     ).pipe(
                       Effect.tap((outcome) =>
                         Effect.sync(() => {
@@ -1766,6 +1781,7 @@ function detachInFlightToolCalls(
   displayConfig: DisplayConfig,
   onDetachedToolComplete: ((result: DetachedToolResult) => void) | undefined,
   alreadyDetached: ReadonlyMap<number, ToolCallOutcome>,
+  detachedCallIds: Set<string>,
   tracker: DetachedCallTracker,
   logger: LoggerService,
   presentationService: PresentationService,
@@ -1805,6 +1821,7 @@ function detachInFlightToolCalls(
           onDetachedToolComplete,
           tracker,
           origin: "user",
+          onOwned: () => detachedCallIds.add(toolCall.id),
           logger,
           presentationService,
           agentId,
@@ -1825,6 +1842,8 @@ interface DetachToolCallInput {
   readonly onDetachedToolComplete: ((result: DetachedToolResult) => void) | undefined;
   readonly tracker: DetachedCallTracker;
   readonly origin: DetachOrigin;
+  /** Records the ownership transfer before interruption can resume. */
+  readonly onOwned?: (outcome: ToolCallOutcome) => void;
   /** The foreground time that passed before an automatic detach. */
   readonly thresholdMs?: number;
   readonly logger: LoggerService;
@@ -1838,97 +1857,103 @@ interface DetachToolCallInput {
  * watcher that reports its real outcome once. Returns the placeholder the model reads now.
  */
 function detachToolCall(input: DetachToolCallInput): Effect.Effect<ToolCallOutcome, never> {
-  return Effect.gen(function* () {
-    const { fiber, toolCall, renderer, displayConfig, tracker, origin, logger } = input;
-    const name = toolCall.type === "function" ? toolCall.function.name : "unknown";
-    const parsedArguments = parseToolCallArguments(toolCall);
-    const command =
-      parsedArguments.ok && typeof parsedArguments.args["command"] === "string"
-        ? parsedArguments.args["command"]
-        : undefined;
-    const description = describeDetachedCall(name, command);
+  return Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      const { fiber, toolCall, renderer, displayConfig, tracker, origin, logger } = input;
+      const name = toolCall.type === "function" ? toolCall.function.name : "unknown";
+      const parsedArguments = parseToolCallArguments(toolCall);
+      const command =
+        parsedArguments.ok && typeof parsedArguments.args["command"] === "string"
+          ? parsedArguments.args["command"]
+          : undefined;
+      const description = describeDetachedCall(name, command);
 
-    const outcome: ToolCallOutcome = {
-      toolCallId: toolCall.id,
-      result:
-        origin === "auto"
-          ? autoDetachedPlaceholder(command, input.thresholdMs ?? 0)
-          : {
-              backgrounded: true,
-              message:
-                "The user moved this call to the background, where it keeps running. Its result arrives as a message when it finishes. Continue with work that does not need it, or end your turn to wait for it.",
-            },
-      success: true,
-      name,
-    };
+      const outcome: ToolCallOutcome = {
+        toolCallId: toolCall.id,
+        result:
+          origin === "auto"
+            ? autoDetachedPlaceholder(command, input.thresholdMs ?? 0)
+            : {
+                backgrounded: true,
+                message:
+                  "The user moved this call to the background, where it keeps running. Its result arrives as a message when it finishes. Continue with work that does not need it, or end your turn to wait for it.",
+              },
+        success: true,
+        name,
+      };
 
-    if (renderer && displayConfig.showToolExecution) {
-      yield* renderer.handleEvent({
-        type: "tool_execution_complete",
+      const startedAt = Date.now();
+      const release = tracker.register({
         toolCallId: toolCall.id,
         toolName: name,
-        result: "Running in the background",
-        durationMs: 0,
-        success: true,
-        summary:
-          origin === "auto"
-            ? `→ moved to the background after ${formatDuration(input.thresholdMs ?? 0)}; its result arrives when it finishes`
-            : "→ backgrounded",
-        backgrounded: true,
+        description,
+        origin,
+        startedAt,
+        stop: Fiber.interrupt(fiber).pipe(Effect.asVoid),
       });
-    }
 
-    const startedAt = Date.now();
-    const release = tracker.register({
-      toolCallId: toolCall.id,
-      toolName: name,
-      description,
-      origin,
-      startedAt,
-      stop: Fiber.interrupt(fiber).pipe(Effect.asVoid),
-    });
-    yield* logger.info("Tool call detached to the background", {
-      agentId: input.agentId,
-      conversationId: input.conversationId,
-      toolCallId: toolCall.id,
-      toolName: name,
-      origin,
-      runningDetached: tracker.running().length,
-    });
-    // The call no longer holds the batch, so the next queued approval prompt may open now
-    // rather than after the detached command's real completion.
-    yield* input.presentationService.signalToolExecutionStarted();
-
-    yield* Effect.forkDetach(
-      Fiber.await(fiber).pipe(
-        Effect.flatMap((exit) =>
-          Effect.gen(function* () {
-            release();
-            const stopped = Exit.isFailure(exit) && Exit.hasInterrupts(exit);
-            const summary = Exit.isSuccess(exit)
-              ? summarizeDetachedOutcome(name, exit.value)
-              : stopped
-                ? `Background task \`${name}\` (${description}) was stopped before it finished.`
-                : `Background task \`${name}\` failed to finish: ${Cause.pretty(exit.cause)}`;
-            yield* logger.info(
-              stopped ? "Detached tool call was cancelled" : "Detached tool call finished",
-              {
-                agentId: input.agentId,
-                conversationId: input.conversationId,
-                toolCallId: toolCall.id,
-                toolName: name,
-                ranMs: Date.now() - startedAt,
-                ...(Exit.isSuccess(exit) ? { success: exit.value.success } : {}),
-              },
-            );
-            input.onDetachedToolComplete?.({ toolName: name, summary });
-          }),
+      yield* Effect.forkDetach(
+        Fiber.await(fiber).pipe(
+          Effect.flatMap((exit) =>
+            Effect.gen(function* () {
+              release();
+              const stopped = Exit.isFailure(exit) && Exit.hasInterrupts(exit);
+              const summary = Exit.isSuccess(exit)
+                ? summarizeDetachedOutcome(name, exit.value)
+                : stopped
+                  ? `Background task \`${name}\` (${description}) was stopped before it finished.`
+                  : `Background task \`${name}\` failed to finish: ${Cause.pretty(exit.cause)}`;
+              yield* logger.info(
+                stopped ? "Detached tool call was cancelled" : "Detached tool call finished",
+                {
+                  agentId: input.agentId,
+                  conversationId: input.conversationId,
+                  toolCallId: toolCall.id,
+                  toolName: name,
+                  ranMs: Date.now() - startedAt,
+                  ...(Exit.isSuccess(exit) ? { success: exit.value.success } : {}),
+                },
+              );
+              input.onDetachedToolComplete?.({ toolName: name, summary });
+            }),
+          ),
         ),
-      ),
-    );
+      );
 
-    return outcome;
-  });
+      input.onOwned?.(outcome);
+      yield* restore(
+        Effect.gen(function* () {
+          if (renderer && displayConfig.showToolExecution) {
+            yield* renderer.handleEvent({
+              type: "tool_execution_complete",
+              toolCallId: toolCall.id,
+              toolName: name,
+              result: "Running in the background",
+              durationMs: 0,
+              success: true,
+              summary:
+                origin === "auto"
+                  ? `→ moved to the background after ${formatDuration(input.thresholdMs ?? 0)}; its result arrives when it finishes`
+                  : "→ backgrounded",
+              backgrounded: true,
+            });
+          }
+          yield* logger.info("Tool call detached to the background", {
+            agentId: input.agentId,
+            conversationId: input.conversationId,
+            toolCallId: toolCall.id,
+            toolName: name,
+            origin,
+            runningDetached: tracker.running().length,
+          });
+          // The call no longer holds the batch, so the next queued approval prompt may open now
+          // rather than after the detached command's real completion.
+          yield* input.presentationService.signalToolExecutionStarted();
+        }),
+      );
+      return outcome;
+    }),
+  );
 }
 
 /** Long command lines are cut so a one-line description stays one line. */
@@ -2032,7 +2057,7 @@ function summarizeShellOutcome(outcome: ToolCallOutcome): string | undefined {
   if (typeof exitCode !== "number") {
     return undefined;
   }
-  const didTimeOut = timedOut === true || exitCode === TIMEOUT_EXIT_CODE;
+  const didTimeOut = timedOut === true;
   const shownCommand = describeDetachedCall(
     "execute_command",
     typeof command === "string" ? command : undefined,

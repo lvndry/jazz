@@ -384,12 +384,22 @@ export class ChatServiceImpl implements ChatService {
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
       /** Detached calls already closed out in a saved history, so leaving twice notes each once. */
       const closedOutDetachedCalls = new Set<string>();
+      let detachedResults = createDetachedResultInbox();
+      let acceptingDetachedResults = true;
       /**
        * Ends the conversation being left honestly: each background command still running is
        * stopped by the caller next, so its history gets a stopped result in place of the
        * "still running" placeholder the model was last given.
        */
       const closeOutRunningDetached = Effect.gen(function* () {
+        acceptingDetachedResults = false;
+        const finished = detachedResults.take();
+        if (finished.length > 0) {
+          conversationHistory = [
+            ...conversationHistory,
+            { role: "user", content: detachedResultsMessage(finished) },
+          ];
+        }
         const running = processDetachedCalls
           .running()
           .filter((entry) => !closedOutDetachedCalls.has(entry.toolCallId));
@@ -595,7 +605,6 @@ export class ChatServiceImpl implements ChatService {
 
       const fileSystem = yield* FileSystem.FileSystem;
       const fileSystemLayer = Layer.succeed(FileSystem.FileSystem, fileSystem);
-      const detachedResults = createDetachedResultInbox();
       /**
        * What every run this chat starts shares, built fresh per run because the remembered
        * approvals are replaced as the user edits them: the chat's own turns and a goal's cycles
@@ -658,7 +667,7 @@ export class ChatServiceImpl implements ChatService {
         onDetachedToolComplete: pushWhileOpen(
           detachedResults,
           conversationId,
-          () => conversationId,
+          () => (acceptingDetachedResults ? conversationId : ""),
           (result) =>
             Effect.runSync(
               logger.debug(
@@ -1075,6 +1084,9 @@ export class ChatServiceImpl implements ChatService {
                 yield* registerExtensionCommands(agent.id);
               }
               yield* stopBackgroundWork;
+              detachedResults = createDetachedResultInbox();
+              acceptingDetachedResults = true;
+              closedOutDetachedCalls.clear();
               subagents = yield* createSubagentSupervisor({ outlivesRuns: true });
               blackboard = createBlackboard();
               yield* attachTo(conversationId);

@@ -1176,8 +1176,9 @@ agent is told the same run is still going and must not be started again, and its
 whether it hit the 15 minute limit, the end of its output) arrives like any backgrounded call. At most
 3 such commands run at once; a fourth stays in the foreground. The 15 minute limit still stops a
 backgrounded command. Leaving the chat or switching conversations stops every command still running
-in the background and tells you which ones. Pressing Esc stops the turn, and also a backgrounded
-command that was still part of that turn's batch. Unattended runs, bridges, sub-agents and `jazz run`
+in the background and tells you which ones. Pressing Esc stops the foreground turn; commands already moved to the background keep running.
+Completed results stay with their original conversation, and its saved history records which
+commands were stopped when you left. Unattended runs, bridges, sub-agents and `jazz run`
 without a terminal never move commands to the background and keep the foreground wait.
 
 ### Commands that answer right away

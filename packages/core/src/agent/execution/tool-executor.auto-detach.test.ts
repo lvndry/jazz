@@ -74,6 +74,7 @@ interface FakeShell {
 function fakeShell(options: {
   readonly runMs: number;
   readonly exitCode?: number;
+  readonly timedOut?: boolean;
   readonly stdout?: string;
   readonly confinement?: Record<string, unknown>;
   /** Tool names that run for this long instead of `runMs`. */
@@ -91,6 +92,7 @@ function fakeShell(options: {
           result: {
             command: args["command"],
             exitCode: options.exitCode ?? 0,
+            timedOut: options.timedOut ?? false,
             stdout: options.stdout ?? "",
             stderr: "",
             ...(options.confinement !== undefined ? { confinement: options.confinement } : {}),
@@ -320,7 +322,12 @@ describe("automatic detach of a slow foreground shell command", () => {
   });
 
   it("reports a command that reached its time limit as a timeout", async () => {
-    const shell = fakeShell({ runMs: SLOW_COMMAND_MS, exitCode: 124, stdout: "partial" });
+    const shell = fakeShell({
+      runMs: SLOW_COMMAND_MS,
+      exitCode: 124,
+      timedOut: true,
+      stdout: "partial",
+    });
     const completions: DetachedToolResult[] = [];
 
     await runBatch({
@@ -399,6 +406,103 @@ describe("automatic detach of a slow foreground shell command", () => {
     await waitMs(20);
     expect(shell.interrupted()).toBe(2);
     expect(completions[0]?.summary).toContain("was stopped before it finished");
+  });
+
+  it("does not exceed the cap when rendering concurrent detach notifications yields", async () => {
+    const shell = fakeShell({ runMs: 500 });
+    const policy = policyWith({ maxConcurrent: 3 });
+    const completions: DetachedToolResult[] = [];
+    const results = await runBatch({
+      shell,
+      autoDetach: policy,
+      calls: Array.from({ length: 4 }, (_, index) => commandCall(`cap-${index}`, "build")),
+      onDetachedToolComplete: (result) => completions.push(result),
+      renderer: {
+        handleEvent: (event) =>
+          event.type === "tool_execution_complete" && event.backgrounded === true
+            ? Effect.sleep(40)
+            : Effect.void,
+        setInterruptHandler: () => Effect.void,
+        reset: () => Effect.void,
+        flush: () => Effect.void,
+      },
+    });
+    expect(
+      results.filter(
+        (outcome) =>
+          typeof outcome.result === "object" &&
+          outcome.result !== null &&
+          "backgrounded" in outcome.result,
+      ),
+    ).toHaveLength(3);
+    expect(shell.starts()).toBe(4);
+    await waitMs(20);
+    expect(completions).toHaveLength(3);
+    expect(policy.tracker.running()).toHaveLength(0);
+  });
+
+  it("keeps ownership and its completion watcher when interrupted during the detach notification", async () => {
+    const shell = fakeShell({ runMs: 5_000 });
+    const policy = policyWith();
+    const completions: DetachedToolResult[] = [];
+    let notify: (() => void) | undefined;
+    const notification = new Promise<void>((resolve) => {
+      notify = resolve;
+    });
+    const renderer: StreamingRenderer = {
+      handleEvent: (event) =>
+        event.type === "tool_execution_complete" && event.backgrounded === true
+          ? Effect.sync(() => notify?.()).pipe(Effect.andThen(Effect.never))
+          : Effect.void,
+      setInterruptHandler: () => Effect.void,
+      reset: () => Effect.void,
+      flush: () => Effect.void,
+    };
+    const result = await runBatch({
+      shell,
+      calls: [commandCall("transfer", "build")],
+      autoDetach: policy,
+      onDetachedToolComplete: (value) => completions.push(value),
+      renderer,
+      interruptSignal: Effect.promise(() => notification),
+    }).then(
+      () => "completed",
+      () => "interrupted",
+    );
+    expect(result).toBe("interrupted");
+    expect(shell.interrupted()).toBe(0);
+    expect(policy.tracker.running()).toHaveLength(1);
+    await Effect.runPromise(policy.tracker.stopAll());
+    await waitMs(10);
+    expect(shell.interrupted()).toBe(1);
+    expect(policy.tracker.running()).toHaveLength(0);
+    expect(completions).toHaveLength(1);
+  });
+
+  it("reports a natural exit 124 without calling it a timeout", async () => {
+    const completions: DetachedToolResult[] = [];
+    await runBatch({
+      shell: fakeShell({ runMs: SLOW_COMMAND_MS, exitCode: 124 }),
+      calls: [commandCall("exit-124", "exit 124")],
+      autoDetach: policyWith(),
+      onDetachedToolComplete: (value) => completions.push(value),
+    });
+    await waitMs(SLOW_COMMAND_MS);
+    expect(completions[0]?.summary).toContain("exited with code 124");
+    expect(completions[0]?.summary).not.toContain("time limit");
+  });
+
+  it("releases an approval once across detach and the later completion", async () => {
+    approvalSignals = 0;
+    await runBatch({
+      shell: fakeShell({ runMs: SLOW_COMMAND_MS }),
+      calls: [commandCall("one-signal", "build")],
+      autoDetach: policyWith(),
+      onDetachedToolComplete: () => {},
+    });
+    expect(approvalSignals).toBe(1);
+    await waitMs(SLOW_COMMAND_MS);
+    expect(approvalSignals).toBe(1);
   });
 
   it("carries the confinement guidance of a denied detached command", async () => {
