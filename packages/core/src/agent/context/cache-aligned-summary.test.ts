@@ -6,6 +6,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces
 import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import { PresentationServiceTag, type PresentationService } from "../../interfaces/presentation";
+import { partialFake } from "../../test-support/fakes";
 import type { Agent, AppConfig } from "../../types";
 import type { ChatCompletionOptions, ChatCompletionResponse } from "../../types/chat";
 import { LLMRequestError } from "../../types/errors";
@@ -67,9 +68,9 @@ const configService: AgentConfigService = {
   reloadIfChanged: () => Effect.succeed(false),
 };
 
-const presentation = {
+const presentation = partialFake<PresentationService>({
   presentWarning: () => Effect.void,
-} as unknown as PresentationService;
+});
 
 function makeAgent(summarizerModel?: string): Agent {
   return {
@@ -180,7 +181,7 @@ async function makeHarness(): Promise<Harness> {
     async compact(options) {
       const { agent: agentOverride, respond } = options;
       const pricing = "pricing" in options ? options.pricing : PRICING;
-      const llm = {
+      const llm = partialFake<LLMService>({
         createChatCompletion: (_provider: string, request: ChatCompletionOptions) => {
           requests.push(request);
           return (
@@ -200,7 +201,7 @@ async function makeHarness(): Promise<Harness> {
           );
         },
         resolveLocalProviderBaseUrl: () => "",
-      } as unknown as LLMService;
+      });
       const layer = Layer.mergeAll(
         Layer.succeed(LoggerServiceTag, logger),
         Layer.succeed(AgentConfigServiceTag, configService),
