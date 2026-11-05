@@ -10,7 +10,7 @@ import { Duration, Effect, Fiber, FileSystem, Layer } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { formatMemorySourceTag } from "@/core/memory/source-trust";
-import { partialFake } from "@/core/test-support/fakes";
+import { partialFake, standIn } from "@/core/test-support/fakes";
 import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors";
 import type { ChatMessage, ConversationMessages, MemorySource } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
@@ -498,8 +498,8 @@ describe("executeAgentLoop", () => {
     };
     const executed: string[] = [];
     const originalExecute = ToolExecutor.executeToolCalls;
-    ToolExecutor.executeToolCalls = mock(
-      (toolCalls: readonly { id: string; function: { name: string } }[]) => {
+    ToolExecutor.executeToolCalls = standIn<typeof ToolExecutor.executeToolCalls>(
+      mock((toolCalls: readonly { id: string; function: { name: string } }[]) => {
         executed.push(...toolCalls.map((toolCall) => toolCall.function.name));
         return Effect.succeed(
           toolCalls.map((toolCall) => ({
@@ -510,8 +510,8 @@ describe("executeAgentLoop", () => {
             concludesTurn: true,
           })),
         );
-      },
-    ) as unknown as typeof ToolExecutor.executeToolCalls;
+      }),
+    );
     try {
       const result = await Effect.runPromise(
         executeAgentLoop(

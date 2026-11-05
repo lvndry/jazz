@@ -4,12 +4,13 @@ import { BLOCKED_ROUNDS_REQUIRED } from "@/core/agent/goal/goal-blocker";
 import type { GoalRecord } from "@/core/agent/goal/goal-record";
 import { testStoredGoal } from "@/core/agent/goal/test-fixtures";
 import { GoalStoreTag, type GoalStore } from "@/core/interfaces/goal-store";
+import { partialFake } from "@/core/test-support/fakes";
 import { createReportGoalCycleTool } from "./goal-report";
 
 const RUN_ID = "run-1";
 
 function storeHolding(goal: GoalRecord): GoalStore {
-  return { list: () => Effect.succeed([goal]) } as unknown as GoalStore;
+  return partialFake<GoalStore>({ list: () => Effect.succeed([goal]) });
 }
 
 function report(args: Record<string, unknown>, goal: GoalRecord) {
