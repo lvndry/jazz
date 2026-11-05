@@ -522,9 +522,11 @@
     "1b8657e4fda28a142820fd2135b762744c9e7e07794bea456d15cd12dc16b8b2": 1,
     "6faacb285aabe16dd197b65a58c5d7860745e10f15bf4e7bcfc61c40e197895d": 1,
     "a4e6eb8cbfdb6f3427f2066f9df07ac4195debad62b753c855e9334616a20794": 1,
-    "a9833f829508e8a83d6e763b98469768e07a1b4a35e579a46b916a79c08e2a81": 2
+    "a9833f829508e8a83d6e763b98469768e07a1b4a35e579a46b916a79c08e2a81": 2,
+    "fbd0a2f0e13a2d1e4e143b5101af423342deef2f9a18c9ceb30f654461bfd8cb": 2
   },
   "packages/core/src/agent/execution/batch-executor.test.ts": {
+    "8aaad35ecde43d0d8e25bdeefcce1e914e9d5dc0360e6883de320e18812e1fdc": 1,
     "ccb711f0bbbdb878be8bfe0004354c0e1313a81b296d916cfddc74bdc880fa66": 1
   },
   "packages/core/src/agent/execution/egress-taint.test.ts": {

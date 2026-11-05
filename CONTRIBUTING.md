@@ -32,7 +32,7 @@ from one it doesn't declare as a dependency, not just a documented convention.
 **Critical rule**: dependencies flow inward only, and `scripts/package-layering.matrix.json` is
 the allowed-imports matrix for every package: which packages each one may import in production
 code, and which extra ones its tests may. `core` imports nothing in production; plugins import
-only `@jazz/plugin-sdk`. An eslint rule generated from the matrix and
+only `@jazz/plugin-sdk` (not another `@jazz-plugin/*` package). An eslint rule generated from the matrix and
 `scripts/package-layering.test.ts` both reject a violation. Changing the matrix is a design
 decision: do it on purpose, in its own commit.
 
@@ -155,6 +155,13 @@ and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.
 - **`as unknown` casts**: `bun run verify:unknown-casts` fails on any new assertion to `unknown`
   (tests and scripts included). Narrow the value or give it a real type. After removing casts, run
   `bun run verify:unknown-casts --prune`.
+- **Baselines only shrink**: `scripts/no-unknown-casts.baseline.json` and
+  `eslint-suppressions.json` record violations that predate the gates. On pull requests CI runs
+  `bun run verify:baselines-shrink --base-ref origin/<base>`, which compares both files with the
+  base branch and fails on any added entry or raised count, so regenerating a baseline next to a
+  new violation does not pass. Raising a baseline (`verify:unknown-casts --rebaseline`, or a
+  fresh `eslint --suppress-all`) is a deliberate change that needs reviewer sign-off in its own
+  commit, for example when a merge from the base branch brings in code that predates the gates.
 - **Duplicate code**: `bun run dup` runs jscpd (`.jscpd.json`) and lists each duplicated block as
   a pair of `file [lines]` ranges. CI runs it report-only for now; wrap deliberate duplication in
   `/* jscpd:ignore-start */ ... /* jscpd:ignore-end */`.
