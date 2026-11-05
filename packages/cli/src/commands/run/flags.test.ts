@@ -12,7 +12,9 @@ describe("parseEventCategories", () => {
   it("maps 'tools' to the four tool event types plus error", () => {
     const result = parseEventCategories("tools");
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     const expected: StreamEvent["type"][] = [
       "error",
       "tool_call",
@@ -26,7 +28,9 @@ describe("parseEventCategories", () => {
   it("maps 'all' to every category type plus error", () => {
     const result = parseEventCategories("all");
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     const expected: StreamEvent["type"][] = [
       "error",
       "tools_detected",
@@ -40,6 +44,7 @@ describe("parseEventCategories", () => {
       "text_chunk",
       "stream_start",
       "usage_update",
+      "prompt_cache",
       "complete",
       "approval_required",
       "approval_resolved",
@@ -56,7 +61,9 @@ describe("parseEventCategories", () => {
   it("unions multiple categories", () => {
     const result = parseEventCategories("tools,reasoning");
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.types.has("tool_execution_start")).toBe(true);
     expect(result.types.has("thinking_chunk")).toBe(true);
     expect(result.types.has("text_chunk")).toBe(false);
@@ -66,7 +73,9 @@ describe("parseEventCategories", () => {
   it("tolerates whitespace and case", () => {
     const result = parseEventCategories(" Tools , TEXT ");
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.types.has("tool_execution_start")).toBe(true);
     expect(result.types.has("text_chunk")).toBe(true);
   });
@@ -74,7 +83,9 @@ describe("parseEventCategories", () => {
   it("rejects an unknown category with a helpful message", () => {
     const result = parseEventCategories("bogus");
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error).toBe(
       'Invalid --events category "bogus". Expected: tools, reasoning, text, usage, approval, subagent, all.',
     );
@@ -85,7 +96,9 @@ describe("parseEventCategories", () => {
     (inheritedKey) => {
       const result = parseEventCategories(inheritedKey);
       expect(result.ok).toBe(false);
-      if (result.ok) return;
+      if (result.ok) {
+        return;
+      }
       expect(result.error).toContain("Invalid --events category");
     },
   );
@@ -113,7 +126,9 @@ describe("resolveEventsValue", () => {
   it("rejects both given at once", () => {
     const result = resolveEventsValue("tools", "usage");
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error).toContain("--events and --watch");
   });
 });
@@ -139,7 +154,9 @@ describe("eventsRequireStreaming", () => {
     for (const category of ["reasoning", "text", "all", "tools,reasoning"]) {
       const result = parseEventCategories(category);
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
+      if (!result.ok) {
+        return;
+      }
       expect(eventsRequireStreaming(result.types)).toBe(true);
     }
   });
@@ -148,7 +165,9 @@ describe("eventsRequireStreaming", () => {
     for (const category of ["tools", "approval", "subagent", "tools,subagent"]) {
       const result = parseEventCategories(category);
       expect(result.ok).toBe(true);
-      if (!result.ok) return;
+      if (!result.ok) {
+        return;
+      }
       expect(eventsRequireStreaming(result.types)).toBe(false);
     }
   });

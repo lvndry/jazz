@@ -10,6 +10,7 @@ import {
   setConfigCommand,
   unknownAgentCapWarning,
 } from "./config";
+import { partialFake } from "../test-support/partial-fake";
 
 /**
  * `jazz config set` receives every value as a shell string, but most of
@@ -21,7 +22,7 @@ import {
 let writes: { key: string; value: unknown }[] = [];
 let currentAppConfig: Record<string, unknown> = {};
 const storageUnavailable = mock((_key: string) => false);
-const mockConfigService = {
+const mockConfigService = partialFake<AgentConfigService>({
   get appConfig() {
     return Effect.sync(() => currentAppConfig);
   },
@@ -31,13 +32,13 @@ const mockConfigService = {
   }),
   getOrElse: mock(() => Effect.succeed(undefined)),
   secretStorageUnavailable: storageUnavailable,
-} as unknown as AgentConfigService;
+});
 
 const askAnswer = { value: "" };
 const ask = mock(() => Effect.succeed(askAnswer.value));
 const select = mock(() => Effect.succeed<string | undefined>("back"));
 
-const mockTerminal = {
+const mockTerminal = partialFake<TerminalService>({
   isInteractive: true,
   info: mock(() => Effect.void),
   log: mock(() => Effect.void),
@@ -47,7 +48,7 @@ const mockTerminal = {
   ask,
   select,
   confirm: mock(() => Effect.succeed(true)),
-} as unknown as TerminalService;
+});
 
 const testLayer = Layer.mergeAll(
   Layer.succeed(AgentConfigServiceTag, mockConfigService),
@@ -294,9 +295,9 @@ describe("jazz config set on an agent's spend cap", () => {
   it("writes the cap and warns through the terminal when the agent is unknown", async () => {
     const warn = mockTerminal.warn as ReturnType<typeof mock>;
     warn.mockClear();
-    const agentService = {
+    const agentService = partialFake<AgentService>({
       listAgents: () => Effect.succeed([{ id: "k3x9", name: "inbox" }]),
-    } as unknown as AgentService;
+    });
 
     const exit = await Effect.runPromiseExit(
       setConfigCommand("daemon.agents.typo.dailyCostUSD", "1").pipe(
@@ -314,13 +315,13 @@ describe("jazz config get", () => {
   function getWith(appConfig: Record<string, unknown>, key: string) {
     const logged: string[] = [];
     const errors: string[] = [];
-    const terminal = {
+    const terminal = partialFake<TerminalService>({
       isInteractive: false,
       info: mock(() => Effect.void),
       log: mock((message: string) => Effect.sync(() => logged.push(message))),
       error: mock((message: string) => Effect.sync(() => errors.push(message))),
-    } as unknown as TerminalService;
-    const configService = { appConfig: Effect.succeed(appConfig) } as unknown as AgentConfigService;
+    });
+    const configService = partialFake<AgentConfigService>({ appConfig: Effect.succeed(appConfig) });
     const layer = Layer.mergeAll(
       Layer.succeed(AgentConfigServiceTag, configService),
       Layer.succeed(TerminalServiceTag, terminal),
@@ -368,16 +369,22 @@ describe("jazz config show and get", () => {
   };
   const printed: string[] = [];
   const readLayer = Layer.mergeAll(
-    Layer.succeed(AgentConfigServiceTag, {
-      appConfig: Effect.succeed(appConfig),
-    } as unknown as AgentConfigService),
-    Layer.succeed(TerminalServiceTag, {
-      ...mockTerminal,
-      log: (message: unknown) =>
-        Effect.sync(() => {
-          printed.push(String(message));
-        }),
-    } as unknown as TerminalService),
+    Layer.succeed(
+      AgentConfigServiceTag,
+      partialFake<AgentConfigService>({
+        appConfig: Effect.succeed(appConfig),
+      }),
+    ),
+    Layer.succeed(
+      TerminalServiceTag,
+      partialFake<TerminalService>({
+        ...mockTerminal,
+        log: (message: unknown) =>
+          Effect.sync(() => {
+            printed.push(String(message));
+          }),
+      }),
+    ),
   );
   const output = async (
     effect: Effect.Effect<void, never, AgentConfigService | TerminalService>,

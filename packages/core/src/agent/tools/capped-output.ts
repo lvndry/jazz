@@ -205,6 +205,8 @@ export const TOOL_OUTPUT_TAIL_CHARS = 2000;
  * dropped so the reader never mistakes a tail for the whole run.
  */
 export function tailForModel(output: string): string {
-  if (output.length <= TOOL_OUTPUT_TAIL_CHARS) return output;
+  if (output.length <= TOOL_OUTPUT_TAIL_CHARS) {
+    return output;
+  }
   return `…(earlier output trimmed)…\n${output.slice(-TOOL_OUTPUT_TAIL_CHARS)}`;
 }

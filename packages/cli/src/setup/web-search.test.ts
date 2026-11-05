@@ -5,6 +5,7 @@ import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { configureWebSearch } from "./web-search";
+import { partialFake } from "../test-support/partial-fake";
 
 function stubTerminal(overrides: {
   readonly select: TerminalService["select"];
@@ -42,10 +43,10 @@ function stubConfig(overrides: {
 }
 
 function stubLlm(supportsNative: boolean): LLMService {
-  return {
+  return partialFake<LLMService>({
     supportsNativeWebSearch: () => Effect.succeed(supportsNative),
     resolveReasoningControl: () => Effect.succeed({ kind: "unknown" as const }),
-  } as unknown as LLMService;
+  });
 }
 
 function runWebSearch(terminal: TerminalService, configService: AgentConfigService) {
@@ -59,7 +60,9 @@ describe("configureWebSearch", () => {
     const terminal = stubTerminal({
       select: (() => {
         selectCalls += 1;
-        if (selectCalls === 1) return Effect.succeed("tavily");
+        if (selectCalls === 1) {
+          return Effect.succeed("tavily");
+        }
         return Effect.succeed("back");
       }) as TerminalService["select"],
       ask: () => Effect.succeed(undefined),
@@ -85,12 +88,16 @@ describe("configureWebSearch", () => {
     const terminal = stubTerminal({
       select: (() => {
         selectCalls += 1;
-        if (selectCalls === 1) return Effect.succeed("tavily");
+        if (selectCalls === 1) {
+          return Effect.succeed("tavily");
+        }
         return Effect.succeed("linkup");
       }) as TerminalService["select"],
       ask: (message) => {
         askedFor.push(message);
-        if (message.includes("tavily")) return Effect.succeed(undefined);
+        if (message.includes("tavily")) {
+          return Effect.succeed(undefined);
+        }
         return Effect.succeed("linkup-key");
       },
     });

@@ -60,10 +60,14 @@ export interface RunProgress {
 }
 
 function parsedArguments(rawArguments: string | undefined): Record<string, unknown> | undefined {
-  if (!rawArguments) return undefined;
+  if (!rawArguments) {
+    return undefined;
+  }
   try {
     const parsed: unknown = JSON.parse(rawArguments);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return undefined;
+    }
     return parsed as Record<string, unknown>;
   } catch {
     return undefined;
@@ -73,7 +77,9 @@ function parsedArguments(rawArguments: string | undefined): Record<string, unkno
 /** Path-like string arguments of a tool call, in key order. */
 function pathsOf(call: { function: { name: string; arguments?: string } }): string[] {
   const args = parsedArguments(call.function.arguments);
-  if (!args) return [];
+  if (!args) {
+    return [];
+  }
   const paths: string[] = [];
   for (const [key, value] of Object.entries(args)) {
     if (isPathKey(key) && typeof value === "string" && value.trim() !== "") {
@@ -87,7 +93,9 @@ function pathsOf(call: { function: { name: string; arguments?: string } }): stri
 function callOutcomes(messages: readonly ChatMessage[]): Map<string, boolean> {
   const outcomes = new Map<string, boolean>();
   for (const message of messages) {
-    if (message.role !== "tool" || !message.tool_call_id) continue;
+    if (message.role !== "tool" || !message.tool_call_id) {
+      continue;
+    }
     if (!outcomes.has(message.tool_call_id)) {
       outcomes.set(message.tool_call_id, !isErrorResult(message.content));
     }
@@ -110,11 +118,17 @@ function collectPaths(
   for (const message of messages) {
     for (const call of message.tool_calls ?? []) {
       // A missing result (the split dropped it) is not a failure; only an error result is.
-      if (outcomes.get(call.id) === false) continue;
+      if (outcomes.get(call.id) === false) {
+        continue;
+      }
       const isMutating = MUTATING_PATH_TOOLS.has(call.function.name);
-      if (mode === "read" ? isMutating : !isMutating) continue;
+      if (mode === "read" ? isMutating : !isMutating) {
+        continue;
+      }
       for (const path of pathsOf(call)) {
-        if (seen.has(path)) continue;
+        if (seen.has(path)) {
+          continue;
+        }
         seen.add(path);
         paths.push(path);
       }
@@ -144,11 +158,15 @@ export function extractRunProgress(messages: readonly ChatMessage[]): RunProgres
   );
 
   let lastAction: string | undefined;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const calls = messages[i]?.tool_calls;
-    if (!calls || calls.length === 0) continue;
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+    const calls = messages[messageIndex]?.tool_calls;
+    if (!calls || calls.length === 0) {
+      continue;
+    }
     const call = calls[calls.length - 1];
-    if (!call) continue;
+    if (!call) {
+      continue;
+    }
     const args = call.function.arguments?.trim() ?? "";
     lastAction = `${call.function.name}(${args.length > 80 ? `${args.slice(0, 80)}…` : args})`;
     break;
@@ -173,7 +191,9 @@ export function extractRunProgress(messages: readonly ChatMessage[]): RunProgres
     const more = commandTargets.length - MAX_LISTED_PATHS;
     lines.push(`- Commands run: ${shown}${more > 0 ? ` | +${more} more` : ""}`);
   }
-  if (lastAction) lines.push(`- Most recent action: ${lastAction}`);
+  if (lastAction) {
+    lines.push(`- Most recent action: ${lastAction}`);
+  }
 
   return { filesRead, filesModified, lastAction, summary: lines.join("\n") };
 }

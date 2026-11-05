@@ -55,7 +55,7 @@ describe("markdown-formatter", () => {
     const linkTargets = (text: string): string[] => {
       // eslint-disable-next-line no-control-regex
       const matches = [...text.matchAll(/\x1b\]8;;([^\x07]*)\x07/g)];
-      return matches.map((m) => m[1]!).filter((t) => t !== "");
+      return matches.map((match) => match[1]!).filter((target) => target !== "");
     };
     /** Visible text with wrap newlines removed — what the URL "reads as" unwrapped. */
     const visibleUnwrapped = (text: string): string => stripAnsiCodes(text).replace(/\n/g, "");
@@ -73,7 +73,9 @@ describe("markdown-formatter", () => {
           const wrapped = wrapToWidth(`Source: ${hyperlink(url, url)}`, width);
           const targets = linkTargets(wrapped);
           expect(targets.length).toBeGreaterThan(0);
-          for (const target of targets) expect(target).toBe(url);
+          for (const target of targets) {
+            expect(target).toBe(url);
+          }
         }
       }
     });
@@ -113,9 +115,11 @@ describe("markdown-formatter", () => {
       const wrapped = wrapToWidth(hyperlink(noSep, noSep), 40);
       const lines = stripAnsiCodes(wrapped).split("\n");
       expect(lines.length).toBeGreaterThan(1);
-      for (const line of lines) expect(line.length).toBeLessThanOrEqual(40);
+      for (const line of lines) {
+        expect(line.length).toBeLessThanOrEqual(40);
+      }
       expect(visibleUnwrapped(wrapped)).toBe(noSep);
-      expect(linkTargets(wrapped).every((t) => t === noSep)).toBe(true);
+      expect(linkTargets(wrapped).every((target) => target === noSep)).toBe(true);
     });
 
     it("leaves a URL that fits as a single unbroken hyperlink", () => {

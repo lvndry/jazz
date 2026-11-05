@@ -1,7 +1,7 @@
 import { AGENT_PROCESS_ENV } from "@jazz/core/utils/env";
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import { Effect } from "effect";
 import { decideProposedGoalCommand } from "./goal";
+import { runWithoutServices } from "../test-support/run-without-services";
 
 const previous = process.env[AGENT_PROCESS_ENV];
 
@@ -23,14 +23,14 @@ describe("jazz goal accept, run by an agent", () => {
       return true;
     }) as typeof process.stdout.write);
     try {
-      await Effect.runPromise(
+      await runWithoutServices(
         // Refused before any service is used, so none is provided.
         decideProposedGoalCommand({
           id: "any",
           accept: true,
           json: true,
           approvalPolicy: "high-risk",
-        }) as unknown as Effect.Effect<void>,
+        }),
       );
     } finally {
       stdout.mockRestore();

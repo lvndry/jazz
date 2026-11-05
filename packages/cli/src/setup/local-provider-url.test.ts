@@ -3,18 +3,19 @@ import type { TerminalService } from "@jazz/core/interfaces/terminal";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { ensureLocalProviderBaseUrl } from "./local-provider-url";
+import { partialFake } from "../test-support/partial-fake";
 
 function configService(options: {
   readonly appConfig: Record<string, unknown>;
   readonly set: (key: string, value: unknown) => void;
 }): AgentConfigService {
-  return {
+  return partialFake<AgentConfigService>({
     appConfig: Effect.succeed(options.appConfig as never),
     set: <A>(key: string, value: A) => {
       options.set(key, value);
       return Effect.void;
     },
-  } as unknown as AgentConfigService;
+  });
 }
 
 function terminal(options: {

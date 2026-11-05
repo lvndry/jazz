@@ -20,9 +20,13 @@ const PARSER_FACTORIES: readonly ReasoningParserFactory[] = [
  */
 export function selectParser(ctx: ParserSelectionContext): ReasoningParser | null {
   for (const factory of PARSER_FACTORIES) {
-    if (factory.canHandle(ctx)) return factory.create(ctx);
+    if (factory.canHandle(ctx)) {
+      return factory.create(ctx);
+    }
   }
-  if (ctx.chatTemplate && /<\|channel\|>analysis/.test(ctx.chatTemplate)) return null;
+  if (ctx.chatTemplate && /<\|channel\|>analysis/.test(ctx.chatTemplate)) {
+    return null;
+  }
   return new TagPairParser({ startsInsideBlock: generationPromptOpensBlock(ctx.chatTemplate) });
 }
 

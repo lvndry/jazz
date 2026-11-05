@@ -25,7 +25,9 @@ function metadataGenerates(
   metadata: ModelsDevMetadata | undefined,
   modality: MediaModality,
 ): boolean {
-  if (metadata === undefined) return false;
+  if (metadata === undefined) {
+    return false;
+  }
   return modelSupportsRole(metadata, companionRole("generate", modality));
 }
 
@@ -97,12 +99,17 @@ export async function suggestModelsForModality(
       continue;
     }
     for (const entry of entries) {
-      if (entry.status === "deprecated") continue;
+      if (entry.status === "deprecated") {
+        continue;
+      }
       // A router advertises what it might reach. Recommending it for image generation would send
       // someone to a model that may or may not be able to do the thing they asked for.
-      if (OPENROUTER_GATEWAY_MODELS.has(entry.id) || ORCAROUTER_GATEWAY_MODELS.has(entry.id))
+      if (OPENROUTER_GATEWAY_MODELS.has(entry.id) || ORCAROUTER_GATEWAY_MODELS.has(entry.id)) {
         continue;
-      if (!metadataGenerates(entry.metadata, modality)) continue;
+      }
+      if (!metadataGenerates(entry.metadata, modality)) {
+        continue;
+      }
       // Only models jazz will let you select: it must hold a conversation.
       if (!entry.inputModalities.includes("text") || !entry.outputModalities.includes("text")) {
         continue;

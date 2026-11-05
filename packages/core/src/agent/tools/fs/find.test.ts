@@ -71,10 +71,10 @@ describe("find tool", () => {
     expect(result.success).toBe(true);
     expect(Array.isArray(findResults(result))).toBe(true);
 
-    const paths = (findResults(result) as Array<{ path: string }>).map((r) => r.path);
-    expect(paths.some((p) => p.endsWith("foo.ts"))).toBe(true);
-    expect(paths.some((p) => p.endsWith("bar.js"))).toBe(true);
-    expect(paths.some((p) => p.endsWith("baz.ts"))).toBe(true);
+    const paths = (findResults(result) as Array<{ path: string }>).map((entry) => entry.path);
+    expect(paths.some((entryPath) => entryPath.endsWith("foo.ts"))).toBe(true);
+    expect(paths.some((entryPath) => entryPath.endsWith("bar.js"))).toBe(true);
+    expect(paths.some((entryPath) => entryPath.endsWith("baz.ts"))).toBe(true);
   });
 
   it("should filter by substring name", async () => {
@@ -83,7 +83,7 @@ describe("find tool", () => {
 
     const items = findResults(result) as Array<{ name: string }>;
     expect(items.length).toBeGreaterThanOrEqual(1);
-    expect(items.every((i) => i.name.includes("foo"))).toBe(true);
+    expect(items.every((item) => item.name.includes("foo"))).toBe(true);
   });
 
   it("should filter by glob pattern in name", async () => {
@@ -92,9 +92,9 @@ describe("find tool", () => {
 
     const items = findResults(result) as Array<{ name: string }>;
     // Should find foo.ts and baz.ts but NOT qux.tsx
-    expect(items.some((i) => i.name === "foo.ts")).toBe(true);
-    expect(items.some((i) => i.name === "baz.ts")).toBe(true);
-    expect(items.every((i) => !i.name.endsWith(".tsx"))).toBe(true);
+    expect(items.some((item) => item.name === "foo.ts")).toBe(true);
+    expect(items.some((item) => item.name === "baz.ts")).toBe(true);
+    expect(items.every((item) => !item.name.endsWith(".tsx"))).toBe(true);
   });
 
   it("should filter by regex name", async () => {
@@ -107,7 +107,7 @@ describe("find tool", () => {
 
     const items = findResults(result) as Array<{ name: string }>;
     expect(items.length).toBe(2);
-    const names = items.map((i) => i.name).sort();
+    const names = items.map((item) => item.name).sort();
     expect(names).toEqual(["baz.ts", "foo.ts"]);
   });
 
@@ -116,7 +116,7 @@ describe("find tool", () => {
     expect(result.success).toBe(true);
 
     const items = findResults(result) as Array<{ type: string }>;
-    expect(items.every((i) => i.type === "file")).toBe(true);
+    expect(items.every((item) => item.type === "file")).toBe(true);
   });
 
   it("should filter by type 'dir'", async () => {
@@ -124,9 +124,9 @@ describe("find tool", () => {
     expect(result.success).toBe(true);
 
     const items = findResults(result) as Array<{ name: string; type: string }>;
-    expect(items.every((i) => i.type === "dir")).toBe(true);
-    expect(items.some((i) => i.name === "sub")).toBe(true);
-    expect(items.some((i) => i.name === "empty")).toBe(true);
+    expect(items.every((item) => item.type === "dir")).toBe(true);
+    expect(items.some((item) => item.name === "sub")).toBe(true);
+    expect(items.some((item) => item.name === "empty")).toBe(true);
   });
 
   it("should respect maxDepth", async () => {
@@ -139,7 +139,7 @@ describe("find tool", () => {
 
     const items = findResults(result) as Array<{ path: string }>;
     // Should only find files at depth 1 (foo.ts, bar.js) — not sub/baz.ts
-    expect(items.every((i) => !i.path.includes("/sub/"))).toBe(true);
+    expect(items.every((item) => !item.path.includes("/sub/"))).toBe(true);
   });
 
   it("should exclude hidden files by default", async () => {
@@ -147,7 +147,7 @@ describe("find tool", () => {
     expect(result.success).toBe(true);
 
     const items = findResults(result) as Array<{ name: string }>;
-    expect(items.every((i) => !i.name.startsWith("."))).toBe(true);
+    expect(items.every((item) => !item.name.startsWith("."))).toBe(true);
   });
 
   it("should include hidden files when includeHidden is true", async () => {
@@ -159,7 +159,7 @@ describe("find tool", () => {
     expect(result.success).toBe(true);
 
     const items = findResults(result) as Array<{ name: string }>;
-    expect(items.some((i) => i.name === ".hidden")).toBe(true);
+    expect(items.some((item) => item.name === ".hidden")).toBe(true);
   });
 
   it("should respect maxResults", async () => {
@@ -185,7 +185,7 @@ describe("find tool", () => {
       tool,
       { path: "/tmp/nonexistent-path-xyz-12345", smart: false },
       testDir,
-    ).catch((e) => ({ success: false, result: null, error: String(e) }));
+    ).catch((error) => ({ success: false, result: null, error: String(error) }));
 
     // fast-glob suppressErrors returns empty results for non-existent paths,
     // which is acceptable graceful handling.
@@ -207,7 +207,7 @@ describe("find tool", () => {
     expect(result.success).toBe(true);
 
     const items = findResults(result) as Array<{ name: string }>;
-    expect(items.some((i) => i.name === "foo.ts")).toBe(true);
+    expect(items.some((item) => item.name === "foo.ts")).toBe(true);
   });
 
   // ---------------------------------------------------------------
@@ -237,7 +237,7 @@ describe("find tool", () => {
 
     const items = findResults(result) as Array<{ path: string }>;
     // Should not contain anything from sub/
-    expect(items.every((i) => !i.path.includes("/sub/"))).toBe(true);
+    expect(items.every((item) => !item.path.includes("/sub/"))).toBe(true);
   });
 
   it("should apply smart search roots for external backend (not just cwd)", async () => {
@@ -249,7 +249,7 @@ describe("find tool", () => {
 
     const items = findResults(result) as Array<{ name: string }>;
     // foo.ts is in cwd (testDir) — smart search should find it
-    expect(items.some((i) => i.name === "foo.ts")).toBe(true);
+    expect(items.some((item) => item.name === "foo.ts")).toBe(true);
   });
 
   // ---------------------------------------------------------------

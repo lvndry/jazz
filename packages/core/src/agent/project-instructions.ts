@@ -33,10 +33,14 @@ const MAX_ANCESTOR_DEPTH = 32;
 function readInstructionFile(filePath: string): ProjectInstructionFile | null {
   try {
     const stats = fs.statSync(filePath);
-    if (!stats.isFile()) return null;
+    if (!stats.isFile()) {
+      return null;
+    }
 
     const raw = fs.readFileSync(filePath, "utf-8");
-    if (raw.trim().length === 0) return null;
+    if (raw.trim().length === 0) {
+      return null;
+    }
 
     if (Buffer.byteLength(raw, "utf-8") <= MAX_FILE_BYTES) {
       return { path: filePath, content: raw.trim() };
@@ -77,12 +81,20 @@ function collectDirectories(startDir: string, homeDirectory: string): readonly s
   for (let depth = 0; depth < MAX_ANCESTOR_DEPTH; depth++) {
     directories.push(currentDirectory);
 
-    if (isRepositoryRoot(currentDirectory)) break;
-    if (currentDirectory === homeDirectory) break;
-    if (currentDirectory === filesystemRoot) break;
+    if (isRepositoryRoot(currentDirectory)) {
+      break;
+    }
+    if (currentDirectory === homeDirectory) {
+      break;
+    }
+    if (currentDirectory === filesystemRoot) {
+      break;
+    }
 
     const parentDirectory = path.dirname(currentDirectory);
-    if (parentDirectory === currentDirectory) break;
+    if (parentDirectory === currentDirectory) {
+      break;
+    }
     currentDirectory = parentDirectory;
   }
 
@@ -118,11 +130,15 @@ export function discoverProjectInstructions(
   const files: ProjectInstructionFile[] = [];
 
   for (const candidatePath of candidatePaths) {
-    if (seenPaths.has(candidatePath)) continue;
+    if (seenPaths.has(candidatePath)) {
+      continue;
+    }
     seenPaths.add(candidatePath);
 
     const file = readInstructionFile(candidatePath);
-    if (file) files.push(file);
+    if (file) {
+      files.push(file);
+    }
   }
 
   return files;
@@ -138,7 +154,9 @@ export function renderProjectInstructions(
   files: readonly ProjectInstructionFile[],
   homeDirectory: string = os.homedir(),
 ): string {
-  if (files.length === 0) return "";
+  if (files.length === 0) {
+    return "";
+  }
 
   const displayPath = (filePath: string): string => abbreviateHomePath(filePath, homeDirectory);
 

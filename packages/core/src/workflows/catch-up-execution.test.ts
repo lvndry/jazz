@@ -13,6 +13,7 @@ import type { AgentResponse, AgentRunnerOptions } from "@/core/agent/types";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import { partialFake, withoutServices } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import { runClaimedWorkflow } from "./catch-up";
 import { addRunRecord, loadRunHistory } from "./run-history";
@@ -36,12 +37,12 @@ const baseWorkflow: WorkflowMetadata = {
   path: "/test",
 };
 
-const logger = {
+const logger = partialFake<LoggerService>({
   debug: () => Effect.void,
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-} as unknown as LoggerService;
+});
 
 describe("claimed workflow execution", () => {
   let previousHome: string | undefined;
@@ -64,8 +65,11 @@ describe("claimed workflow execution", () => {
 
   afterEach(() => {
     runner.mockRestore();
-    if (previousHome === undefined) delete process.env["JAZZ_HOME"];
-    else process.env["JAZZ_HOME"] = previousHome;
+    if (previousHome === undefined) {
+      delete process.env["JAZZ_HOME"];
+    } else {
+      process.env["JAZZ_HOME"] = previousHome;
+    }
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -82,29 +86,40 @@ describe("claimed workflow execution", () => {
     );
     const services = Layer.mergeAll(
       Layer.succeed(LoggerServiceTag, logger),
-      Layer.succeed(AgentConfigServiceTag, {
-        appConfig: Effect.succeed({}),
-      } as unknown as AgentConfigService),
-      Layer.succeed(AgentServiceTag, {
-        getAgent: () => Effect.succeed(agent),
-        listAgents: () => Effect.succeed([agent]),
-      } as unknown as AgentService),
-      Layer.succeed(WorkflowServiceTag, {
-        loadWorkflow: () => Effect.succeed({ metadata: workflow, prompt: "Write a recap." }),
-      } as unknown as WorkflowService),
+      Layer.succeed(
+        AgentConfigServiceTag,
+        partialFake<AgentConfigService>({
+          appConfig: Effect.succeed({}),
+        }),
+      ),
+      Layer.succeed(
+        AgentServiceTag,
+        partialFake<AgentService>({
+          getAgent: () => Effect.succeed(agent),
+          listAgents: () => Effect.succeed([agent]),
+        }),
+      ),
+      Layer.succeed(
+        WorkflowServiceTag,
+        partialFake<WorkflowService>({
+          loadWorkflow: () => Effect.succeed({ metadata: workflow, prompt: "Write a recap." }),
+        }),
+      ),
     );
-    const execution = runClaimedWorkflow({
-      workflow,
-      record,
-      history: [],
-      entry: {
-        workflowName: workflow.name,
-        label: "weekly",
-        schedule: "0 6 * * 1",
-        enabled: true,
-        agent: agent.id,
-      },
-    }).pipe(Effect.provide(services)) as unknown as Effect.Effect<void>;
+    const execution = withoutServices(
+      runClaimedWorkflow({
+        workflow,
+        record,
+        history: [],
+        entry: {
+          workflowName: workflow.name,
+          label: "weekly",
+          schedule: "0 6 * * 1",
+          enabled: true,
+          agent: agent.id,
+        },
+      }).pipe(Effect.provide(services)),
+    );
     await Effect.runPromise(execution);
     return (await Effect.runPromise(loadRunHistory())).find((entry) => entry.id === record.id);
   }

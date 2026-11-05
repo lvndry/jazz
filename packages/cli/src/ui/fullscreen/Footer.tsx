@@ -93,9 +93,15 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
   };
   const rightWidth = (): number => {
     const parts: string[] = [];
-    if (usage !== undefined) parts.push(usage.text);
-    if (keepElapsed && elapsed !== undefined) parts.push(elapsed.text);
-    if (parts.length === 0) return 0;
+    if (usage !== undefined) {
+      parts.push(usage.text);
+    }
+    if (keepElapsed && elapsed !== undefined) {
+      parts.push(elapsed.text);
+    }
+    if (parts.length === 0) {
+      return 0;
+    }
     return (
       parts.reduce((total, part) => total + terminalCellWidth(part), 0) +
       separatorWidth * (parts.length - 1)
@@ -106,8 +112,12 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
     return leftWidth() + (right > 0 ? 1 + right : 0);
   };
 
-  if (total() > viewport.width && keepElapsed) keepElapsed = false;
-  while (total() > viewport.width && hints.length > 0) hints = hints.slice(0, -1);
+  if (total() > viewport.width && keepElapsed) {
+    keepElapsed = false;
+  }
+  while (total() > viewport.width && hints.length > 0) {
+    hints = hints.slice(0, -1);
+  }
 
   const left: FooterSegment[] = [...mode];
   if (background !== undefined) {
@@ -124,9 +134,13 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
   }
 
   const right: FooterSegment[] = [];
-  if (usage !== undefined) right.push(usage);
+  if (usage !== undefined) {
+    right.push(usage);
+  }
   if (keepElapsed && elapsed !== undefined) {
-    if (right.length > 0) right.push({ text: separator, fg: THEME.muted });
+    if (right.length > 0) {
+      right.push({ text: separator, fg: THEME.muted });
+    }
     right.push(elapsed);
   }
 

@@ -377,7 +377,9 @@ export function getCanvasMode(): CanvasMode {
 }
 
 export function setCanvasMode(mode: CanvasMode): void {
-  if (state.canvasMode === mode) return;
+  if (state.canvasMode === mode) {
+    return;
+  }
   state.canvasMode = mode;
   repaint();
 }
@@ -402,7 +404,9 @@ export function groundPaint(): string {
  */
 export function setTerminalBackground(hex: string | null): void {
   const normalized = hex === null ? null : hex.toUpperCase();
-  if (state.terminalBackground === normalized) return;
+  if (state.terminalBackground === normalized) {
+    return;
+  }
   state.terminalBackground = normalized;
   repaint();
 }
@@ -416,7 +420,9 @@ export function getTerminalBackground(): string | null {
  * background. Safe to call with a partial report: missing colours fall back to xterm's.
  */
 export function applyTerminalPalette(report: TerminalPaletteReport): void {
-  if (!reportIsUsable(report)) return;
+  if (!reportIsUsable(report)) {
+    return;
+  }
   const background = report.defaultBackground;
   const variant =
     background === null ? state.environmentVariant : variantForBackgroundColor(background);
@@ -494,7 +500,9 @@ export function listThemes(): readonly ThemeListing[] {
   for (const definition of allThemes()) {
     for (const variant of ["dark", "light"] as const) {
       const colors = definition.variants[variant];
-      if (colors === undefined) continue;
+      if (colors === undefined) {
+        continue;
+      }
       listings.push({
         id: `${definition.name}:${variant}`,
         name: definition.name,
@@ -575,7 +583,9 @@ export function previewTheme(raw: string): ThemeChangeResult {
 }
 
 export function revertPreview(): void {
-  if (state.preview === null) return;
+  if (state.preview === null) {
+    return;
+  }
   state.preview = null;
   repaint();
 }

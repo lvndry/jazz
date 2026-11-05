@@ -28,7 +28,9 @@ function collectUndescribed(
   path: string,
   missing: string[],
 ): void {
-  if (!schema) return;
+  if (!schema) {
+    return;
+  }
 
   if (schema.properties && isRecord(schema.properties)) {
     for (const [key, property] of Object.entries(schema.properties)) {

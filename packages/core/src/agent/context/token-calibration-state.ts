@@ -35,7 +35,9 @@ interface TokenCalibrationState {
 }
 
 function isCalibratedModel(value: unknown): value is CalibratedModel {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   const candidate = value as Record<string, unknown>;
   return (
     typeof candidate["model"] === "string" &&
@@ -77,7 +79,9 @@ export function hydrateTokenCalibration(): Effect.Effect<void, never, never> {
     onCorrupt: "quarantine",
   }).pipe(
     Effect.flatMap((state) => {
-      if (state === undefined) return Effect.void;
+      if (state === undefined) {
+        return Effect.void;
+      }
       DEFAULT_TOKEN_COUNTER.hydrate(state.models);
       return Effect.void;
     }),
@@ -95,7 +99,9 @@ export function hydrateTokenCalibration(): Effect.Effect<void, never, never> {
  */
 export function saveTokenCalibration(): Effect.Effect<void, Error, never> {
   const models = DEFAULT_TOKEN_COUNTER.calibratedSnapshot();
-  if (models.length === 0) return Effect.void;
+  if (models.length === 0) {
+    return Effect.void;
+  }
   const filePath = calibrationFilePath();
   // writeStateFile does not create parent directories; the Jazz home does not
   // exist for a fresh install until something else writes into it.

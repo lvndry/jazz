@@ -15,6 +15,7 @@ import {
   openUserSecretStore,
   type UserSecretStore,
 } from "@/core/secrets/user-secrets";
+import { partialFake } from "@/core/test-support/fakes";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import {
   createComputerAcknowledgeDriverTool,
@@ -698,13 +699,13 @@ describe("approving a changed driver build in the chat", () => {
   });
 });
 describe("through the tool registry", () => {
-  const quietLogger = {
+  const quietLogger = partialFake<LoggerService>({
     debug: () => Effect.void,
     info: () => Effect.void,
     warn: () => Effect.void,
     error: () => Effect.void,
-  } as unknown as LoggerService;
-  const config = { appConfig: Effect.succeed({}) } as unknown as AgentConfigService;
+  });
+  const config = partialFake<AgentConfigService>({ appConfig: Effect.succeed({}) });
 
   test("redacts a typed secret that a window happens to show", async () => {
     const secrets = secretStore("mail-password", "hunter2-typed");

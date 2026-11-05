@@ -49,7 +49,9 @@ export function formatTokenCount(tokens: number): string {
 export function usageLines(usage: JazzSuccessEnvelope["tokenUsage"]): RichText {
   const promptTokens = usage?.promptTokens ?? 0;
   const completionTokens = usage?.completionTokens ?? 0;
-  if (promptTokens === 0 && completionTokens === 0) return [];
+  if (promptTokens === 0 && completionTokens === 0) {
+    return [];
+  }
 
   const cacheReadTokens = usage?.cacheReadTokens ?? 0;
   const cached = cacheReadTokens > 0 ? ` (${formatTokenCount(cacheReadTokens)} cached)` : "";
@@ -231,7 +233,9 @@ export async function deliverComposition(
       console.error(delivery.logMessage);
       return;
     case "image":
-      if (surface.sendFile === undefined) return;
+      if (surface.sendFile === undefined) {
+        return;
+      }
       await surface.sendFile(chatId, delivery.file, delivery.caption);
       return;
     case "unavailable":

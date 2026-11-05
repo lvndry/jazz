@@ -19,6 +19,7 @@ import { RunStoreTag } from "@/core/interfaces/run-store";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
+import { partialFake } from "@/core/test-support/fakes";
 import type { Agent } from "@/core/types/agent";
 import type { ChatCompletionOptions, ChatCompletionResponse } from "@/core/types/chat";
 import type { ToolExecutionContext } from "@/core/types/tools";
@@ -58,7 +59,7 @@ function makeLayers(store: InMemoryRunStore, requests: ChatCompletionOptions[]) 
       : { id: "c2", model: "gpt-4", content: "Done." };
   };
   const quiet = () => Effect.void;
-  const logger = {
+  const logger = partialFake<LoggerService>({
     debug: quiet,
     info: quiet,
     warn: quiet,
@@ -69,10 +70,9 @@ function makeLayers(store: InMemoryRunStore, requests: ChatCompletionOptions[]) 
     popLogGroup: quiet,
     writeToFile: quiet,
     logToolCall: quiet,
-  } as unknown as LoggerService;
-  const presentation = {
+  });
+  const presentation = partialFake<PresentationService>({
     presentThinking: quiet,
-    presentThinkingEnd: quiet,
     renderMarkdown: (content: string) => Effect.succeed(content),
     presentAgentResponse: quiet,
     presentCompletion: quiet,
@@ -87,7 +87,7 @@ function makeLayers(store: InMemoryRunStore, requests: ChatCompletionOptions[]) 
     signalToolExecutionStarted: quiet,
     canPromptForApproval: () => false,
     requestSecretInput: () => Effect.die("nobody is here to type it"),
-  } as unknown as PresentationService;
+  });
   const toolMeta = {
     name: ASK_USER_SECRET_TOOL_NAME,
     riskLevel: "read-only",
@@ -97,7 +97,7 @@ function makeLayers(store: InMemoryRunStore, requests: ChatCompletionOptions[]) 
   const definition = {
     function: { name: ASK_USER_SECRET_TOOL_NAME, description: "ask", parameters: {} },
   };
-  const registry = {
+  const registry = partialFake<ToolRegistry>({
     registerTool: mock(() => Effect.succeed(undefined)),
     registerForCategory: mock(() => mock(() => Effect.succeed(undefined))),
     listTools: () => Effect.succeed([ASK_USER_SECRET_TOOL_NAME]),
@@ -110,8 +110,8 @@ function makeLayers(store: InMemoryRunStore, requests: ChatCompletionOptions[]) 
     partitionByTier: (names: readonly string[]) => Effect.succeed({ eager: names, deferred: [] }),
     executeTool: (_name: string, args: Record<string, unknown>, context: ToolExecutionContext) =>
       askUserSecret!.execute(args, context),
-  } as unknown as ToolRegistry;
-  const llm = {
+  });
+  const llm = partialFake<LLMService>({
     getProvider: () =>
       Effect.succeed({
         name: "openai",
@@ -127,42 +127,57 @@ function makeLayers(store: InMemoryRunStore, requests: ChatCompletionOptions[]) 
         const response = completion(options);
         return { stream: Stream.empty, response: Effect.succeed(response), cancel: Effect.void };
       }),
-  } as unknown as LLMService;
+  });
   return Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, logger),
     Layer.succeed(PresentationServiceTag, presentation),
     Layer.succeed(ToolRegistryTag, registry),
     Layer.succeed(LLMServiceTag, llm),
-    Layer.succeed(AgentServiceTag, {
-      getAgent: () => Effect.succeed(AGENT),
-      listAgents: () => Effect.succeed([AGENT]),
-    } as unknown as AgentService),
-    Layer.succeed(RunStoreTag, store),
-    Layer.succeed(SkillServiceTag, {
-      listSkills: () => Effect.succeed([]),
-    } as unknown as SkillService),
-    Layer.succeed(AgentConfigServiceTag, {
-      appConfig: Effect.succeed({
-        output: { showMetrics: false, streaming: { enabled: false }, mode: "text" as const },
-        llm: { openai: { api_key: "test-key" } },
+    Layer.succeed(
+      AgentServiceTag,
+      partialFake<AgentService>({
+        getAgent: () => Effect.succeed(AGENT),
+        listAgents: () => Effect.succeed([AGENT]),
       }),
-      get: () => Effect.succeed(undefined),
-      getOrElse: (_key: string, fallback: unknown) => Effect.succeed(fallback),
-      getOrFail: () => Effect.succeed(undefined),
-      has: () => Effect.succeed(false),
-      set: () => Effect.void,
-    } as unknown as AgentConfigService),
-    Layer.succeed(PersonaServiceTag, {
-      getPersonaByIdentifier: () =>
-        Effect.succeed({ name: "default", description: "test", systemPrompt: "You test." }),
-    } as unknown as PersonaService),
-    Layer.succeed(MCPServerManagerTag, {} as unknown as MCPServerManager),
-    Layer.succeed(TerminalServiceTag, {} as unknown as TerminalService),
-    Layer.succeed(FileSystem.FileSystem, {} as unknown as FileSystem.FileSystem),
-    Layer.succeed(FileSystemContextServiceTag, {
-      getCwd: () => Effect.succeed(os.tmpdir()),
-      setCwd: () => Effect.void,
-    } as unknown as FileSystemContextService),
+    ),
+    Layer.succeed(RunStoreTag, store),
+    Layer.succeed(
+      SkillServiceTag,
+      partialFake<SkillService>({
+        listSkills: () => Effect.succeed([]),
+      }),
+    ),
+    Layer.succeed(
+      AgentConfigServiceTag,
+      partialFake<AgentConfigService>({
+        appConfig: Effect.succeed({
+          output: { showMetrics: false, streaming: { enabled: false }, mode: "text" as const },
+          llm: { openai: { api_key: "test-key" } },
+        }),
+        get: () => Effect.succeed(undefined),
+        getOrElse: (_key: string, fallback: unknown) => Effect.succeed(fallback),
+        getOrFail: () => Effect.succeed(undefined),
+        has: () => Effect.succeed(false),
+        set: () => Effect.void,
+      }),
+    ),
+    Layer.succeed(
+      PersonaServiceTag,
+      partialFake<PersonaService>({
+        getPersonaByIdentifier: () =>
+          Effect.succeed({ name: "default", description: "test", systemPrompt: "You test." }),
+      }),
+    ),
+    Layer.succeed(MCPServerManagerTag, partialFake<MCPServerManager>({})),
+    Layer.succeed(TerminalServiceTag, partialFake<TerminalService>({})),
+    Layer.succeed(FileSystem.FileSystem, partialFake<FileSystem.FileSystem>({})),
+    Layer.succeed(
+      FileSystemContextServiceTag,
+      partialFake<FileSystemContextService>({
+        getCwd: () => Effect.succeed(os.tmpdir()),
+        setCwd: () => Effect.void,
+      }),
+    ),
   );
 }
 

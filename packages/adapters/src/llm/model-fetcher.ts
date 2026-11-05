@@ -242,8 +242,12 @@ function parseOpenAICompatibleModels(data: unknown): OpenAICompatibleModelCard[]
   const cards = data.data as readonly unknown[];
   const models: OpenAICompatibleModelCard[] = [];
   for (const card of cards) {
-    if (typeof card !== "object" || card === null || !("id" in card)) continue;
-    if (typeof card.id !== "string" || card.id.trim().length === 0) continue;
+    if (typeof card !== "object" || card === null || !("id" in card)) {
+      continue;
+    }
+    if (typeof card.id !== "string" || card.id.trim().length === 0) {
+      continue;
+    }
     const length = "max_model_len" in card ? card.max_model_len : undefined;
     const parent = "parent" in card ? card.parent : undefined;
     models.push({
@@ -262,7 +266,9 @@ function resolveModelCardContextWindow(
   model: OpenAICompatibleModelCard,
   models: readonly OpenAICompatibleModelCard[],
 ): number | undefined {
-  if (model.max_model_len !== undefined) return model.max_model_len;
+  if (model.max_model_len !== undefined) {
+    return model.max_model_len;
+  }
   return models.find((candidate) => candidate.id === model.parent)?.max_model_len;
 }
 type LlamaCppPropsResponse = {
@@ -288,13 +294,17 @@ async function fetchLlamaCppProps(
 ): Promise<LlamaCppPropsResponse | undefined> {
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
     const response = await fetch(`${llamaCppServerRoot(baseUrl)}/props`, {
       method: "GET",
       headers,
       signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
     });
-    if (!response.ok) return undefined;
+    if (!response.ok) {
+      return undefined;
+    }
     return (await response.json()) as LlamaCppPropsResponse;
   } catch {
     return undefined;
@@ -320,7 +330,9 @@ export async function fetchLlamaCppServerModel(
 ): Promise<{ modelId?: string; contextWindow?: number }> {
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
     const [modelsResponse, props] = await Promise.all([
       fetch(`${baseUrl}/models`, {
         method: "GET",
@@ -354,13 +366,17 @@ async function fetchOpenAICompatibleServerModel(
 ): Promise<{ modelId?: string; contextWindow?: number }> {
   try {
     const headers: Record<string, string> = {};
-    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
     const response = await fetch(`${baseUrl}/models`, {
       method: "GET",
       headers,
       signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS, signal),
     });
-    if (!response.ok) return {};
+    if (!response.ok) {
+      return {};
+    }
     const models = parseOpenAICompatibleModels(await response.json());
     const model = models.find((candidate) => candidate.id === preferredModelId) ?? models[0];
     const contextWindow = model ? resolveModelCardContextWindow(model, models) : undefined;
@@ -404,7 +420,9 @@ export function fetchSglangServerModel(
 function extractOllamaContextLength(
   modelInfo: Record<string, unknown> | undefined,
 ): number | undefined {
-  if (!modelInfo) return undefined;
+  if (!modelInfo) {
+    return undefined;
+  }
 
   for (const [key, value] of Object.entries(modelInfo)) {
     if (key.endsWith(".context_length") && typeof value === "number") {
@@ -468,7 +486,9 @@ function reuseOllamaProbe<T>(
   fallback: T,
   signal?: AbortSignal,
 ): Promise<T> {
-  if (signal?.aborted) return Promise.resolve(fallback);
+  if (signal?.aborted) {
+    return Promise.resolve(fallback);
+  }
   const now = Date.now();
   const cached = ollamaProbes.get(key);
   let answer: Promise<T>;
@@ -477,7 +497,9 @@ function reuseOllamaProbe<T>(
   } else {
     answer = probe().then((value) => {
       if (value === undefined) {
-        if (ollamaProbes.get(key)?.answer === answer) ollamaProbes.delete(key);
+        if (ollamaProbes.get(key)?.answer === answer) {
+          ollamaProbes.delete(key);
+        }
         return fallback;
       }
       return value;
@@ -489,8 +511,12 @@ function reuseOllamaProbe<T>(
 
 /** Stop one caller's wait without giving it ownership of a shared network request. */
 function awaitOllamaProbe<T>(answer: Promise<T>, fallback: T, signal?: AbortSignal): Promise<T> {
-  if (signal === undefined) return answer;
-  if (signal.aborted) return Promise.resolve(fallback);
+  if (signal === undefined) {
+    return answer;
+  }
+  if (signal.aborted) {
+    return Promise.resolve(fallback);
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = (): void => {
       signal.removeEventListener("abort", onAbort);
@@ -525,7 +551,9 @@ function fetchOllamaShow(
           body: JSON.stringify({ model: modelName }),
           signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS),
         });
-        if (!response.ok) return undefined;
+        if (!response.ok) {
+          return undefined;
+        }
         const data = (await response.json()) as OllamaShowResponse;
         const ctx = extractOllamaContextLength(data.model_info);
         return {
@@ -565,7 +593,9 @@ export function fetchOllamaRunningModels(
         const response = await fetch(`${baseUrl}/ps`, {
           signal: probeSignal(LOCAL_SERVER_PROBE_TIMEOUT_MS),
         });
-        if (!response.ok) return undefined;
+        if (!response.ok) {
+          return undefined;
+        }
         const data = (await response.json()) as { models?: OllamaRunningModel[] };
         return data.models ?? [];
       } catch {
@@ -613,13 +643,17 @@ const TOOL_PARAMS = new Set([
  * capability.
  */
 function ollamaToolSupportFromCapabilities(capabilities: readonly string[] | undefined): boolean {
-  if (!capabilities) return false;
+  if (!capabilities) {
+    return false;
+  }
   return capabilities.includes("tools");
 }
 
 function ollamaToolSupportFromMetadata(model: OllamaModel): boolean {
   const metadata = model.details?.metadata;
-  if (!metadata || typeof metadata !== "object") return false;
+  if (!metadata || typeof metadata !== "object") {
+    return false;
+  }
   const flag = metadata["supports_tools"] ?? metadata["tool_use"] ?? metadata["function_calling"];
   return typeof flag === "boolean" && flag;
 }
@@ -810,8 +844,8 @@ async function transformOllamaModels(
   const results: ModelInfo[] = [];
   const runningModels = await fetchOllamaRunningModels(baseUrl, signal);
 
-  for (let i = 0; i < models.length; i += CONCURRENCY_LIMIT) {
-    const batch = models.slice(i, i + CONCURRENCY_LIMIT);
+  for (let index = 0; index < models.length; index += CONCURRENCY_LIMIT) {
+    const batch = models.slice(index, index + CONCURRENCY_LIMIT);
     const batchResults = await Promise.all(
       batch.map(async (model): Promise<ModelInfo> => {
         const extras = await fetchOllamaModelDetails(baseUrl, model.name, signal, runningModels);

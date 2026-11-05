@@ -45,7 +45,9 @@ export function formatToolArguments(
 
 export function formatToolResult(toolName: string, result: string): string {
   const formatted = formatToolResultCore(toolName, result);
-  if (!isDiffReceiptTool(toolName)) return formatted;
+  if (!isDiffReceiptTool(toolName)) {
+    return formatted;
+  }
   return colorizeFileMutationOutput(formatted, languageFromToolResult(result));
 }
 
@@ -54,7 +56,9 @@ const FILE_MUTATION_EXPAND_HINT = "… · ctrl+e to expand";
 function languageFromToolResult(result: string): string | undefined {
   try {
     const parsed: unknown = JSON.parse(result);
-    if (!isRecord(parsed)) return undefined;
+    if (!isRecord(parsed)) {
+      return undefined;
+    }
     const path = parsed["path"];
     return typeof path === "string" ? sourceLanguageFromPath(path) : undefined;
   } catch {
@@ -63,7 +67,9 @@ function languageFromToolResult(result: string): string | undefined {
 }
 
 function colorizeFileMutationOutput(formatted: string, language: string | undefined): string {
-  if (formatted.length === 0) return formatted;
+  if (formatted.length === 0) {
+    return formatted;
+  }
   const hintIndex = formatted.indexOf(FILE_MUTATION_EXPAND_HINT);
   const body = (hintIndex >= 0 ? formatted.slice(0, hintIndex) : formatted).trimEnd();
   const hint = hintIndex >= 0 ? formatted.slice(hintIndex) : "";
@@ -72,7 +78,9 @@ function colorizeFileMutationOutput(formatted: string, language: string | undefi
   }
   const lines = body.split("\n");
   const asDiff = looksLikeUnifiedDiff(language ?? "", lines);
-  if (!asDiff && language === undefined) return formatted;
+  if (!asDiff && language === undefined) {
+    return formatted;
+  }
   const colored = highlightSourceAnsi(body, asDiff ? "diff" : (language ?? ""));
   return hint.length > 0 ? `${colored}${hint}` : colored;
 }
@@ -116,7 +124,9 @@ const REASONING_HEADING = /^(?:#{1,6}\s+\S.*|\*\*[^*].*\*\*:?)\s*$/;
  * a blank row between those chunks is what makes them readable.
  */
 export function spaceReasoningSections(text: string): string {
-  if (text.length === 0) return text;
+  if (text.length === 0) {
+    return text;
+  }
   const lines = text.split("\n");
   const spaced: string[] = [];
   for (let index = 0; index < lines.length; index++) {
@@ -142,7 +152,9 @@ export function spaceReasoningSections(text: string): string {
  * outer styling carries through nested **bold** and *italic* runs.
  */
 export function dimReasoningMarkdownOutput(formatted: string): string {
-  if (formatted.length === 0) return formatted;
+  if (formatted.length === 0) {
+    return formatted;
+  }
   let patched = formatted;
   // eslint-disable-next-line no-control-regex -- SGR 22 ends bold and clears dim; restore faint after each
   patched = patched.replace(/\x1b\[22m/g, "\x1b[22m\x1b[2m");

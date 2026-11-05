@@ -53,6 +53,43 @@ describe("runShellCommand when the clock runs out", () => {
   });
 });
 
+describe("runShellCommand timeout versus exit code", () => {
+  function run(command: string, timeoutMs: number) {
+    return Effect.runPromise(
+      runShellCommand({ command, workingDir: process.cwd(), timeoutMs, env: process.env }),
+    );
+  }
+
+  it("flags a command killed by the clock as timed out", async () => {
+    const result = await run("sleep 30", 1000);
+
+    expect(result.timedOut).toBe(true);
+  });
+
+  it("does not flag a command that exits 124 on its own", async () => {
+    const result = await run("exit 124", 10_000);
+
+    expect(result.exitCode).toBe(124);
+    expect(result.timedOut).toBe(false);
+  });
+
+  it("returns only after a process that traps SIGTERM has finished its cleanup", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "jazz-timeout-"));
+    const marker = join(directory, "cleaned");
+    try {
+      const result = await run(
+        `trap 'sleep 1; echo done > ${marker}; exit 0' TERM; while true; do sleep 0.1; done`,
+        1000,
+      );
+
+      expect(result.timedOut).toBe(true);
+      expect(existsSync(marker)).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
 /**
  * The executor interrupts a tool call at its own deadline and reports a bare timeout message,
  * dropping the partial output the command runner's deadline would have preserved. A request for

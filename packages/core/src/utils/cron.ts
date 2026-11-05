@@ -51,7 +51,9 @@ export function isValidCronExpression(cron: unknown): boolean {
 export function describeCronSchedule(cron: string): string | null {
   try {
     const parts = cron.trim().split(/\s+/);
-    if (parts.length !== 5 && parts.length !== 6) return null;
+    if (parts.length !== 5 && parts.length !== 6) {
+      return null;
+    }
 
     const description = cronstrue.toString(cron.trim(), {
       verbose: false,

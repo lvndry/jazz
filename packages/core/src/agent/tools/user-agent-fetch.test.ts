@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { HTTP_USER_AGENT, WEB_FETCH_USER_AGENT } from "@/core/constants/agent";
+import { fakeFetch } from "@/core/test-support/fakes";
 import { fetchWithUserAgentFallback } from "./user-agent-fetch";
 
 const originalFetch = globalThis.fetch;
@@ -17,12 +18,12 @@ interface Call {
 function scriptFetch(statuses: readonly number[]): { calls: Call[] } {
   const calls: Call[] = [];
   let index = 0;
-  globalThis.fetch = (async (url: string, init: RequestInit) => {
+  globalThis.fetch = fakeFetch(async (url: string, init: RequestInit) => {
     const headers = (init.headers ?? {}) as Record<string, string>;
     calls.push({ url, userAgent: headers["User-Agent"], accept: headers["Accept"] });
     const status = statuses[index++] ?? 200;
     return new Response(null, { status });
-  }) as unknown as typeof fetch;
+  });
   return { calls };
 }
 

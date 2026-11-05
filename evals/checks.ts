@@ -261,7 +261,9 @@ export function toolGroundedAnswerCheck(
   const checkedReality =
     matchingCalls.length > 0 &&
     (!spec.toolArgPatterns ||
-      matchingCalls.some((call) => spec.toolArgPatterns!.some((p) => p.test(call.arguments))));
+      matchingCalls.some((call) =>
+        spec.toolArgPatterns!.some((pattern) => pattern.test(call.arguments)),
+      ));
   const missing = spec.answerPatterns.filter((pattern) => !pattern.test(result.answer));
   const pass = checkedReality && missing.length === 0;
   return {

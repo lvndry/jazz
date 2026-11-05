@@ -161,8 +161,9 @@ export async function deployToCloudflare(
       throw new Error("Cloudflare assets must have unique root-relative paths.");
     }
     const bytes = await asset.read();
-    if (bytes.byteLength > MAX_ASSET_BYTES)
+    if (bytes.byteLength > MAX_ASSET_BYTES) {
       throw new Error("Cloudflare Pages assets cannot exceed 25 MiB.");
+    }
     const value = Buffer.from(bytes).toString("base64");
     const hash = Buffer.from(blake3(new TextEncoder().encode(value + extname(asset.path).slice(1))))
       .toString("hex")
@@ -217,10 +218,18 @@ function overlaps(left: string, right: string): boolean {
   const [rightHost = "", ...rightPath] = right.split("/");
   const hostMatches = (pattern: string, host: string): boolean =>
     pattern === host || (pattern.startsWith("*.") && host.endsWith(pattern.slice(1)));
-  if (!hostMatches(leftHost, rightHost) && !hostMatches(rightHost, leftHost)) return false;
-  const l = leftPath.join("/").replace(/\*.*$/, "");
-  const r = rightPath.join("/").replace(/\*.*$/, "");
-  return !l || !r || l === r || l.startsWith(`${r}/`) || r.startsWith(`${l}/`);
+  if (!hostMatches(leftHost, rightHost) && !hostMatches(rightHost, leftHost)) {
+    return false;
+  }
+  const leftScope = leftPath.join("/").replace(/\*.*$/, "");
+  const rightScope = rightPath.join("/").replace(/\*.*$/, "");
+  return (
+    !leftScope ||
+    !rightScope ||
+    leftScope === rightScope ||
+    leftScope.startsWith(`${rightScope}/`) ||
+    rightScope.startsWith(`${leftScope}/`)
+  );
 }
 
 function appScopes(app: AccessApp): readonly string[] {
@@ -240,7 +249,9 @@ async function ensureAccess(
   const base = `${CF_BASE}/accounts/${config.accountId}/access/apps`;
   const apps: AccessApp[] = [];
   for (let page = 1; ; page++) {
-    if (page > 100) throw new Error("Too many Access apps to verify private publishing safely.");
+    if (page > 100) {
+      throw new Error("Too many Access apps to verify private publishing safely.");
+    }
     const response = await fetchImpl(`${base}?per_page=50&page=${page}`, {
       method: "GET",
       headers: auth(config),
@@ -252,11 +263,14 @@ async function ensureAccess(
       envelope.result_info?.total_pages
         ? page >= envelope.result_info.total_pages
         : batch.length < 50
-    )
+    ) {
       break;
+    }
   }
   for (const app of apps) {
-    if (!appScopes(app).some((uri) => scopes.some((scope) => overlaps(uri, scope)))) continue;
+    if (!appScopes(app).some((uri) => scopes.some((scope) => overlaps(uri, scope)))) {
+      continue;
+    }
     if (
       app.type !== "self_hosted" ||
       app.destinations?.some((destination) => destination.overrides?.length)
@@ -286,8 +300,9 @@ async function ensureAccess(
         ],
       }),
     );
-    if (!appScopes(created).includes(scope))
+    if (!appScopes(created).includes(scope)) {
       throw new Error("Cloudflare Access did not confirm the requested scope.");
+    }
     await verifyEmailPolicies(fetchImpl, config, created.id);
     appIds.push(created.id);
   }
@@ -301,8 +316,9 @@ async function verifyEmailPolicies(
 ): Promise<void> {
   const policies: z.infer<typeof policySchema>[] = [];
   for (let page = 1; ; page++) {
-    if (page > 100)
+    if (page > 100) {
       throw new Error("Too many Access policies to verify private publishing safely.");
+    }
     const url = `${CF_BASE}/accounts/${config.accountId}/access/apps/${appId}/policies?per_page=50&page=${page}`;
     const envelope = await envelopeOf(
       await fetchImpl(url, { method: "GET", headers: auth(config) }),
@@ -314,8 +330,9 @@ async function verifyEmailPolicies(
       envelope.result_info?.total_pages
         ? page >= envelope.result_info.total_pages
         : batch.length < 50
-    )
+    ) {
       break;
+    }
   }
   const safeInclude = z.union([
     z.object({ email: z.object({ email: z.email() }) }).strict(),
@@ -362,7 +379,9 @@ async function envelopeOf(
   operation: string,
 ): Promise<z.infer<typeof envelopeSchema>> {
   const parsed = envelopeSchema.safeParse(await response.json());
-  if (!parsed.success) throw new Error(`${operation} returned an invalid response.`);
+  if (!parsed.success) {
+    throw new Error(`${operation} returned an invalid response.`);
+  }
   if (response.status < 200 || response.status >= 300 || !parsed.data.success) {
     throw new Error(
       `${operation} failed: ${parsed.data.errors?.[0]?.message ?? `HTTP ${response.status}`}`,

@@ -74,6 +74,8 @@ const everyContent: ByKind<PresentationContent> = {
         completionTokens: 5,
         totalTokens: 15,
         cacheReadTokens: 2,
+        cacheInputTokens: 10,
+        cacheMissReason: "none",
         costUSD: 0.01,
         tokensPerSecond: 62.5,
       },
@@ -132,8 +134,9 @@ describe("presentation entry schema", () => {
           },
         },
       },
-    ])
+    ]) {
       expect(presentationEntrySchema.safeParse(invalid).success).toBe(false);
+    }
   });
 
   test("rejects prompt drafts, continuations and layout state instead of persisting them", () => {

@@ -14,7 +14,9 @@
 import { recordStorePath, readRecordStore, writeRecordStore } from "./scoped-record-store";
 
 export function isValidTimeZone(tz: string): boolean {
-  if (tz.length === 0) return false;
+  if (tz.length === 0) {
+    return false;
+  }
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: tz });
     return true;
@@ -31,7 +33,9 @@ export function hasChatTz(dataDir: string, fileName: string, scopeId: string | n
 
 export function tzForChat(dataDir: string, fileName: string, scopeId: string | number): string {
   const stored = readRecordStore<string>(recordStorePath(dataDir, fileName))?.[String(scopeId)];
-  if (typeof stored === "string" && isValidTimeZone(stored)) return stored;
+  if (typeof stored === "string" && isValidTimeZone(stored)) {
+    return stored;
+  }
   const fromEnv = process.env["TZ"]?.trim() ?? "";
   return isValidTimeZone(fromEnv) ? fromEnv : "UTC";
 }

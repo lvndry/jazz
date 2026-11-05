@@ -123,7 +123,9 @@ export function resolveAgentToolCategoryIds(
     const builtinIds = new Set(BUILTIN_TOOL_CATEGORIES.map((category) => category.id));
     return toolProfile.categories.filter((id) => builtinIds.has(id));
   }
-  if (agent.config.persona === "summarizer") return [];
+  if (agent.config.persona === "summarizer") {
+    return [];
+  }
   const categories =
     agent.config.tools === undefined ? DEFAULT_AGENT_TOOL_CATEGORIES : BUILTIN_TOOL_CATEGORIES;
   return categories.map((category) => category.id);

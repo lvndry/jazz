@@ -4,6 +4,7 @@ import { RunStoreTag, type RunStore } from "@jazz/core/interfaces/run-store";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { partialFake } from "./partial-fake.fixture";
 import { classifyTurnOutcome, hasParkedRun } from "./unattended-resume";
 
 const TRANSCRIPT: ChatMessage[] = [
@@ -44,14 +45,18 @@ describe("classifyTurnOutcome", () => {
   it("carries the transcript the parked turn produced, so it can still be saved", () => {
     const outcome = classifyTurnOutcome({ ok: false, error: park() });
 
-    if (outcome.kind !== "parked") throw new Error("expected a park");
+    if (outcome.kind !== "parked") {
+      throw new Error("expected a park");
+    }
     expect(outcome.messages).toEqual(TRANSCRIPT);
   });
 
   it("names the run to resume and what it stopped on", () => {
     const outcome = classifyTurnOutcome({ ok: false, error: park() });
 
-    if (outcome.kind !== "parked") throw new Error("expected a park");
+    if (outcome.kind !== "parked") {
+      throw new Error("expected a park");
+    }
     expect(outcome.runId).toBe("run-1");
     expect(outcome.waitingOn).toBe("execute_command");
     expect(outcome.expiresAt).toBe("2026-01-02T00:00:00Z");
@@ -83,9 +88,11 @@ describe("classifyTurnOutcome", () => {
 });
 
 describe("hasParkedRun", () => {
-  function storeWith(states: readonly string[]): RunStore {
-    const runs = states.map((kind) => ({ state: { kind } }) as unknown as RunRecord);
-    return { list: () => Effect.succeed(runs) } as unknown as RunStore;
+  function storeWith(states: readonly RunRecord["state"]["kind"][]): RunStore {
+    const runs = states.map((kind) =>
+      partialFake<RunRecord>({ state: partialFake<RunRecord["state"]>({ kind }) }),
+    );
+    return partialFake<RunStore>({ list: () => Effect.succeed(runs) });
   }
 
   it("holds a delivery back behind a run parked on an approval", async () => {

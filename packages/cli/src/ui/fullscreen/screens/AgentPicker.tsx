@@ -112,7 +112,9 @@ export interface AgentMatch {
 
 function hitsOfSubstring(text: string, needle: string): number[] | undefined {
   const at = text.toLowerCase().indexOf(needle);
-  if (at < 0) return undefined;
+  if (at < 0) {
+    return undefined;
+  }
   const start = [...text.slice(0, at)].length;
   return Array.from({ length: [...needle].length }, (_, offset) => start + offset);
 }
@@ -123,8 +125,12 @@ function hitsOfSubsequence(text: string, needle: string): number[] | undefined {
   const hits: number[] = [];
   let cursor = 0;
   for (const character of wanted) {
-    while (cursor < characters.length && characters[cursor] !== character) cursor += 1;
-    if (cursor >= characters.length) return undefined;
+    while (cursor < characters.length && characters[cursor] !== character) {
+      cursor += 1;
+    }
+    if (cursor >= characters.length) {
+      return undefined;
+    }
     hits.push(cursor);
     cursor += 1;
   }
@@ -139,7 +145,9 @@ function hitsOfSubsequence(text: string, needle: string): number[] | undefined {
  */
 export function filterAgents(agents: readonly AgentChoice[], query: string): readonly AgentMatch[] {
   const needle = oneLine(query).toLowerCase();
-  if (needle.length === 0) return agents.map((agent) => ({ agent, nameHits: [] }));
+  if (needle.length === 0) {
+    return agents.map((agent) => ({ agent, nameHits: [] }));
+  }
   const ranked: { match: AgentMatch; rank: number; order: number }[] = [];
   agents.forEach((agent, order) => {
     const substring = hitsOfSubstring(agent.name, needle);
@@ -225,12 +233,18 @@ function positionLabel(
   selected: number,
   filtering: boolean,
 ): string {
-  if (total === 0) return "no agents";
+  if (total === 0) {
+    return "no agents";
+  }
   if (filtering) {
-    if (matches === 0) return "no matches";
+    if (matches === 0) {
+      return "no matches";
+    }
     return matches === 1 ? "1 match" : `${String(selected + 1)} of ${String(matches)} matches`;
   }
-  if (total === 1) return "1 agent";
+  if (total === 1) {
+    return "1 agent";
+  }
   return `${String(selected + 1)} of ${String(total)}`;
 }
 

@@ -187,7 +187,7 @@ export class FileStorageService implements StorageService {
           );
         }
 
-        const baseConfig = rawConfig as unknown as AgentConfig;
+        const baseConfig = configWithoutTools;
         const configWithNormalizedTools: AgentConfig =
           rawData.config.tools !== undefined
             ? { ...baseConfig, tools: normalizedTools }
@@ -309,10 +309,7 @@ export class FileStorageService implements StorageService {
         const path = this.getAgentPath(id);
         yield* this.fs.remove(path).pipe(
           Effect.mapError((error) => {
-            if (
-              error instanceof Error &&
-              (error as unknown as { cause: { code: string } }).cause.code.includes("ENOENT")
-            ) {
+            if (hasMissingFileCause(error)) {
               return new StorageNotFoundError({ path });
             }
 
@@ -337,5 +334,19 @@ export function createFileStorageLayer(
       const fs = yield* FileSystem.FileSystem;
       return new FileStorageService(basePath, fs);
     }),
+  );
+}
+
+function hasMissingFileCause(error: unknown): boolean {
+  if (!(error instanceof Error) || !("cause" in error)) {
+    return false;
+  }
+  const cause = error.cause;
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    typeof cause.code === "string" &&
+    cause.code.includes("ENOENT")
   );
 }

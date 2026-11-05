@@ -81,7 +81,9 @@ async function endsMidLine(): Promise<boolean> {
   try {
     handle = await nodeFs.open(ledgerPath(), "r");
     const { size } = await handle.stat();
-    if (size === 0) return false;
+    if (size === 0) {
+      return false;
+    }
     const tail = Buffer.alloc(1);
     await handle.read(tail, 0, 1, size - 1);
     return tail.toString("utf-8") !== "\n";
@@ -95,12 +97,18 @@ async function endsMidLine(): Promise<boolean> {
 
 function parseLine(line: string): LedgerEntry | undefined {
   const trimmed = line.trim();
-  if (trimmed.length === 0) return undefined;
+  if (trimmed.length === 0) {
+    return undefined;
+  }
   try {
     const parsed: unknown = JSON.parse(trimmed);
-    if (typeof parsed !== "object" || parsed === null) return undefined;
+    if (typeof parsed !== "object" || parsed === null) {
+      return undefined;
+    }
     const entry = parsed as LedgerEntry;
-    if (typeof entry.peer !== "string" || typeof entry.question !== "string") return undefined;
+    if (typeof entry.peer !== "string" || typeof entry.question !== "string") {
+      return undefined;
+    }
     return entry;
   } catch {
     return undefined;
@@ -120,8 +128,12 @@ export function read(filter?: {
       const entries: LedgerEntry[] = [];
       for (const line of content.split("\n")) {
         const entry = parseLine(line);
-        if (entry === undefined) continue;
-        if (filter?.peer !== undefined && entry.peer !== filter.peer) continue;
+        if (entry === undefined) {
+          continue;
+        }
+        if (filter?.peer !== undefined && entry.peer !== filter.peer) {
+          continue;
+        }
         entries.push(entry);
       }
       entries.reverse();
@@ -153,7 +165,9 @@ export function readLastSeenInboundAt(): Effect.Effect<string | undefined, never
   }).pipe(
     Effect.map((content) => {
       const parsed: unknown = JSON.parse(content);
-      if (typeof parsed !== "object" || parsed === null) return undefined;
+      if (typeof parsed !== "object" || parsed === null) {
+        return undefined;
+      }
       const at = (parsed as Record<string, unknown>)["at"];
       return typeof at === "string" ? at : undefined;
     }),

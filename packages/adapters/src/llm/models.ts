@@ -117,7 +117,9 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
  */
 function toOllamaApiRoot(url: string): string {
   const trimmed = url.replace(/\/+$/, "");
-  if (trimmed.length === 0) return trimmed;
+  if (trimmed.length === 0) {
+    return trimmed;
+  }
   return /\/api$/.test(trimmed) ? trimmed : `${trimmed}/api`;
 }
 
@@ -158,7 +160,9 @@ export function resolveLocalProviderBaseUrl(
 function defaultLocalProviderPath(provider: LocalServerProvider): string {
   const source = PROVIDER_MODELS[provider];
   const defaultBaseUrl = source.type === "dynamic" ? source.defaultBaseUrl : undefined;
-  if (!defaultBaseUrl) return "";
+  if (!defaultBaseUrl) {
+    return "";
+  }
   try {
     return new URL(defaultBaseUrl).pathname.replace(/\/+$/, "");
   } catch {
@@ -180,7 +184,9 @@ export function normalizeLocalProviderBaseUrl(
   input: string,
 ): string {
   const trimmed = input.trim();
-  if (trimmed.length === 0) return "";
+  if (trimmed.length === 0) {
+    return "";
+  }
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
 
   let parsed: URL;
@@ -213,9 +219,13 @@ function isLoopbackOllamaHost(url: string): boolean {
 
 function ollamaApiKey(llmConfig?: LLMConfig): string | undefined {
   const fromConfig = llmConfig?.ollama?.api_key;
-  if (typeof fromConfig === "string" && fromConfig.trim().length > 0) return fromConfig;
+  if (typeof fromConfig === "string" && fromConfig.trim().length > 0) {
+    return fromConfig;
+  }
   const fromEnv = process.env["OLLAMA_API_KEY"];
-  if (typeof fromEnv === "string" && fromEnv.trim().length > 0) return fromEnv;
+  if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
+    return fromEnv;
+  }
   return undefined;
 }
 

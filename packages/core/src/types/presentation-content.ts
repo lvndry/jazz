@@ -5,6 +5,7 @@
  * layout; history stores the same settled entries without reconstructing meaning
  * from formatted output.
  */
+import type { CacheMissReason } from "../agent/metrics/prompt-cache";
 import type { TerminalReport } from "../interfaces/terminal";
 
 export interface ReceiptDiffPreview {
@@ -34,7 +35,12 @@ export interface PresentationStepStats {
   readonly promptTokens?: number;
   readonly completionTokens?: number;
   readonly totalTokens?: number;
+  /** Input tokens the provider served from its prompt cache; absent when it reported no cache fields. */
   readonly cacheReadTokens?: number;
+  /** Total input tokens of the request, present with `cacheReadTokens`. */
+  readonly cacheInputTokens?: number;
+  /** What differed in the cacheable prefix versus the previous request. */
+  readonly cacheMissReason?: CacheMissReason;
   readonly costUSD?: number;
   readonly tokensPerSecond?: number;
   /** First generated token through stream end, excluding prefill and tool time. */
