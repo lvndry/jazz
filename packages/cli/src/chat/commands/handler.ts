@@ -1291,6 +1291,11 @@ const METER_FRAME_INTERVAL_MS = 200;
  * summary were flattened into it, and no journal entry was written. It now takes the
  * shared compaction path, so it only ever differs from auto-compaction in when it runs.
  */
+/** A conversation always starts with its system message, so a non-empty history is a `ConversationMessages`. */
+function isConversationMessages(history: ChatMessage[]): history is ConversationMessages {
+  return history.length > 0;
+}
+
 function handleCompactCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
@@ -1307,7 +1312,11 @@ function handleCompactCommand(
   | ToolRequirements
 > {
   return Effect.gen(function* () {
-    if (!conversationHistory || conversationHistory.length < 5) {
+    if (
+      !conversationHistory ||
+      conversationHistory.length < 5 ||
+      !isConversationMessages(conversationHistory)
+    ) {
       yield* terminal.warn("Not enough history to compact (minimum 5 messages).");
       yield* terminal.log("");
       return { shouldContinue: true };
@@ -1361,11 +1370,7 @@ function handleCompactCommand(
     const replaceRegion = presentationService.replaceEphemeralRegion;
     const modelHint = { provider, modelId: agent.config.llm.model };
     const overheadTokens = DEFAULT_TOKEN_COUNTER.overheadFor(modelHint);
-    const split = Summarizer.splitMessages(
-      conversationHistory as unknown as ConversationMessages,
-      contextWindow,
-      modelHint,
-    );
+    const split = Summarizer.splitMessages(conversationHistory, contextWindow, modelHint);
     const retainedMessages = [
       split.systemMessage,
       ...split.pinnedMessages,
@@ -1424,7 +1429,7 @@ function handleCompactCommand(
 
     let compactionFailed = false;
     const outcome = yield* AgentRunner.compactHistory(
-      conversationHistory as unknown as ConversationMessages,
+      conversationHistory,
       agent,
       conversationId,
       contextWindow,

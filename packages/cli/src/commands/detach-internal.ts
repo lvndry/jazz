@@ -47,7 +47,8 @@ async function readStdinJson(): Promise<unknown> {
       throw new Error("Detach request is too large");
     }
   }
-  return JSON.parse(data) as unknown;
+  const parsed: unknown = JSON.parse(data);
+  return parsed;
 }
 
 function parseId(value: unknown): string {
