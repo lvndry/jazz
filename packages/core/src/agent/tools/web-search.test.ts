@@ -230,6 +230,34 @@ describe("WebSearchTool", () => {
         },
       },
       {
+        name: "keenable",
+        apiKey: "keenable-key",
+        setupMock: () => {
+          (global.fetch as any).mockResolvedValue(
+            Response.json({
+              results: [
+                {
+                  title: "Keenable Result",
+                  url: "https://keenable.ai",
+                  description: "",
+                  snippet: "Keenable snippet",
+                },
+              ],
+            }),
+          );
+        },
+        verifyMock: (args: WebSearchArgs) => {
+          const [url, init] = (global.fetch as any).mock.calls[0];
+          expect(url).toBe("https://api.keenable.ai/v1/search");
+          expect(init.headers["X-API-Key"]).toBe("keenable-key");
+          expect(init.headers["X-Keenable-Title"]).toBe("Jazz");
+          expect(JSON.parse(init.body)).toEqual({
+            query: args.query,
+            max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
+          });
+        },
+      },
+      {
         name: "treg",
         apiKey: "treg-test-token",
         setupMock: () => {

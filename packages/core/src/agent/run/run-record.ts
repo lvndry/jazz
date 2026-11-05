@@ -13,6 +13,7 @@
  */
 
 import type { TokenUsage } from "@/core/interfaces/telemetry";
+import type { EscalationGrant } from "@/core/sandbox/escalation";
 import type { RemoteCaller, RunBudget } from "@/core/types/remote-door";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import type { RunId, RunState } from "./run-state";
@@ -51,6 +52,11 @@ export interface RunRecord {
    * an unlimited budget.
    */
   readonly boundary?: RunRecordBoundary;
+  /**
+   * Open write-confinement escalation offers: a command a confined shell was denied, which the
+   * model may retry once with a person's approval. Restored into the ledger on resume.
+   */
+  readonly escalations?: readonly EscalationGrant[];
 }
 
 /** The limits beyond the approval policy that a resumed run gets back. */

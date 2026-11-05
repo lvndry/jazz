@@ -25,10 +25,12 @@ import { z } from "zod";
 import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import { TERMINAL_NOTIFICATION_SETTINGS } from "@/core/notify/terminal-notification";
+import type { WriteConfinementMode } from "@/core/sandbox/write-policy";
 import type { AttachmentKind } from "@/core/types/attachment";
 import type {
   AnthropicProviderConfig,
   ChatConfig,
+  ShellConfig,
   ChatGPTProviderConfig,
   ClaudeCodeProviderConfig,
   AppConfig,
@@ -359,6 +361,7 @@ const webSearchShape = {
   perplexity: apiKeyOnly,
   linkup: apiKeyOnly,
   treg: apiKeyOnly,
+  keenable: apiKeyOnly,
   provider: z.enum(WEB_SEARCH_PROVIDERS).exactOptional(),
 } satisfies SchemaShape<WebSearchConfig>;
 
@@ -559,6 +562,10 @@ const chatShape = {
   defaultCostLimitUSD: dollars.exactOptional(),
 } satisfies SchemaShape<ChatConfig>;
 
+const shellShape = {
+  confinement: exhaustiveEnum<WriteConfinementMode>()(["off", "on"]).exactOptional(),
+} satisfies SchemaShape<ShellConfig>;
+
 const uiShape = {
   theme: described(
     z.string().regex(/^[a-z0-9][a-z0-9-]*(:(dark|light))?$/),
@@ -718,6 +725,7 @@ const configFileShape = {
   notify: z.strictObject(notifyShape).exactOptional(),
   ui: z.strictObject(uiShape).exactOptional(),
   chat: z.strictObject(chatShape).exactOptional(),
+  shell: z.strictObject(shellShape).exactOptional(),
   companions: z.record(companionNameKey, z.strictObject(namedCompanionShape)).exactOptional(),
 } satisfies SchemaShape<ConfigFileContents>;
 
