@@ -11,6 +11,7 @@ and `--debug` to collect details from a failing command.
 ```bash
 jazz config validate    # names every setting Jazz rejects, and suggests the one you meant
 jazz config show        # the configuration Jazz actually resolved
+jazz config resolved    # the same, with the layer that set each value and any value ignored
 jazz --debug <command>  # the same command, logging at debug level
 ```
 

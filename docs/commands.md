@@ -726,9 +726,14 @@ Static tool risks, allowlists, approval tiers, and the shell denylist remain enf
 | Command                         | Purpose                                                                                                           |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `jazz config show`              | Show all configuration values, secrets redacted; `--reveal` prints them                                           |
+| `jazz config resolved`          | Show every effective setting and the layer it came from; `--json` prints one JSON document                        |
 | `jazz config validate`          | Check config files without starting the application                                                               |
 | `jazz config get <key>`         | Print one value and nothing else, redacted when it is or holds a secret; `--reveal` prints it. Exits `1` if unset |
 | `jazz config set <key> [value]` | Set one value                                                                                                     |
+
+`config resolved` reads the config files, the environment and `--debug` without starting the
+daemon, reading the keyring or using the network, so it works on a machine with nothing
+configured. [Read where a setting came from](./configure/jazz.md#see-where-each-setting-came-from).
 
 `config validate` also checks every agent file: one that cannot be read, or names a provider or
 reasoning level Jazz does not know, fails the check with exit code `1`; a tool name no built-in
@@ -831,6 +836,7 @@ options still accept [global options](#global-options) and `-h, --help`.
 | `jazz plugin doctor`        | `--json`                                         | Emit JSON                                                                                                                                                                                                   |
 | `jazz plugin secret status` | `--json`                                         | Emit JSON                                                                                                                                                                                                   |
 | `jazz config get`           | `--reveal`                                       | Print secret values in full                                                                                                                                                                                 |
+| `jazz config resolved`      | `--json`                                         | Print one JSON document                                                                                                                                                                                     |
 | `jazz config show`          | `--reveal`                                       | Print secret values in full                                                                                                                                                                                 |
 | `jazz computer grant`       | `--expires <duration>`                           | How long the grant lasts, such as 8h (default 8h, at most 7d)                                                                                                                                               |
 | `jazz computer grant`       | `--idle <duration>`                              | End a run's access after this long without an action (default 30m)                                                                                                                                          |
